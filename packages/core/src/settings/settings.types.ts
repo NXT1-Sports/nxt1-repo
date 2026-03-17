@@ -140,6 +140,8 @@ export interface SettingsNavigationItem extends SettingsItemBase {
   readonly route?: string;
   /** External URL to open */
   readonly externalUrl?: string;
+  /** Whether this is an external link (opens in new tab/browser) */
+  readonly external?: boolean;
   /** Optional value to display on the right */
   readonly displayValue?: string;
 }

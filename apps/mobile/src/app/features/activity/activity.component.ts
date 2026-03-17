@@ -21,11 +21,13 @@ import {
   ActivityShellComponent,
   NxtSidenavService,
   NxtLoggingService,
+  NxtToastService,
   type ActivityUser,
 } from '@nxt1/ui';
-import type { ActivityTabId, ActivityItem } from '@nxt1/core';
+import type { ActivityTabId, ActivityItem, InboxEmailProvider } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 import { AgentXService } from '../agent-x/services';
+import { environment } from '../../../environments/environment';
 
 @Component({
   selector: 'app-activity',
@@ -41,6 +43,7 @@ import { AgentXService } from '../agent-x/services';
         (avatarClick)="onAvatarClick()"
         (tabChange)="onTabChange($event)"
         (itemNavigate)="onItemNavigate($event)"
+        (connectProviderRequest)="onConnectProvider($event)"
       />
     </ion-content>
   `,
@@ -80,6 +83,12 @@ export class ActivityComponent {
   private readonly navController = inject(NavController);
   private readonly agentX = inject(AgentXService);
   private readonly logger = inject(NxtLoggingService).child('ActivityComponent');
+  private readonly toast = inject(NxtToastService);
+
+  constructor() {
+    // No deep link listener needed for Gmail/Microsoft connection
+    // Using direct API calls with credentials instead of OAuth redirect
+  }
 
   /**
    * Transform auth user to ActivityUser interface.
@@ -141,5 +150,87 @@ export class ActivityComponent {
     // Normalize deep link: web uses /agent-x, mobile uses /agent
     const normalizedLink = item.deepLink.replace(/^\/agent-x(\/|$)/, '/agent$1');
     void this.navController.navigateForward(normalizedLink);
+  }
+
+  /**
+   * Handle connect email provider request.
+   * Connects Gmail or Microsoft email for inbox sync.
+   */
+  protected async onConnectProvider(provider: InboxEmailProvider): Promise<void> {
+    this.logger.info('Connecting email provider', { provider: provider.id });
+
+    try {
+      // Get Firebase ID token for authentication
+      const user = this.authFlow.user();
+      if (!user?.uid) {
+        this.toast.error('Please sign in to connect email');
+        return;
+      }
+
+      // Get Firebase Auth instance to retrieve ID token
+      const { getAuth } = await import('@angular/fire/auth');
+      const auth = getAuth();
+      const idToken = await auth.currentUser?.getIdToken();
+
+      if (!idToken) {
+        throw new Error('Failed to get authentication token');
+      }
+
+      if (provider.id === 'gmail') {
+        // TODO: Implement native Google Sign-In to get serverAuthCode
+        // For now, show placeholder message
+        this.toast.error('Gmail connection requires native SDK integration (coming soon)');
+        this.logger.warn('[Gmail Connect] Native Google Sign-In SDK not yet integrated');
+        return;
+
+        // Future implementation:
+        // const { GoogleAuth } = await import('@codetrix-studio/capacitor-google-auth');
+        // const result = await GoogleAuth.signIn();
+        // const serverAuthCode = result.serverAuthCode;
+        //
+        // await fetch(`${environment.apiUrl}/auth/google/connect-gmail`, {
+        //   method: 'POST',
+        //   headers: {
+        //     'Content-Type': 'application/json',
+        //     'Authorization': `Bearer ${idToken}`,
+        //   },
+        //   body: JSON.stringify({ serverAuthCode }),
+        // });
+      }
+
+      if (provider.id === 'microsoft') {
+        // TODO: Implement Microsoft MSAL to get accessToken
+        this.toast.error('Microsoft connection requires MSAL SDK integration (coming soon)');
+        this.logger.warn('[Microsoft Connect] MSAL SDK not yet integrated');
+        return;
+
+        // Future implementation:
+        // const { PublicClientApplication } = await import('@azure/msal-browser');
+        // const result = await msalInstance.acquireTokenPopup(config);
+        // const accessToken = result.accessToken;
+        //
+        // await fetch(`${environment.apiUrl}/auth/microsoft/connect-mail`, {
+        //   method: 'POST',
+        //   headers: {
+        //     'Content-Type': 'application/json',
+        //     'Authorization': `Bearer ${idToken}`,
+        //   },
+        //   body: JSON.stringify({ accessToken }),
+        // });
+      }
+
+      this.toast.error(`${provider.name} connection not yet available`);
+    } catch (error) {
+      this.logger.error('Failed to connect email provider', error, { provider: provider.id });
+      this.toast.error(`Failed to connect ${provider.name}. Please try again.`);
+    }
+  }
+
+  /**
+   * TODO: Handle Gmail/Microsoft connection callback.
+   * Currently not implemented - needs native SDK integration.
+   */
+  private async handleOAuthCallback(_url: string): Promise<void> {
+    // Placeholder - will be implemented when native SDKs are integrated
   }
 }

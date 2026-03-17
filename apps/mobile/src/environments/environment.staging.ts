@@ -15,6 +15,9 @@ export const environment = {
   // Staging API - accessible from anywhere via domain
   apiUrl: 'https://api.nxt1sports.com/api/v1/staging',
 
+  // Web URL for shareable links (using localhost for staging tests)
+  webUrl: 'http://localhost:4300',
+
   // Firebase Staging Configuration (nxt-1-staging-v2)
   firebase: {
     apiKey: 'AIzaSyDavayHwEACTQjg1KQKYofDScMMH4y1ViM',

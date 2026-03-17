@@ -1,30 +1,35 @@
 /**
- * @fileoverview Privacy Page - Web App Wrapper
+ * @fileoverview Privacy Page - Web App
  * @module @nxt1/web/features/privacy
  * @version 1.0.0
  *
- * Thin wrapper component that imports the shared Privacy content
- * from @nxt1/ui and handles platform-specific concerns.
- *
- * ⭐ THIS IS THE RECOMMENDED PATTERN FOR SHARED COMPONENTS ⭐
- *
- * The actual content lives in @nxt1/ui (shared package).
- * This wrapper only handles:
- * - Platform-specific SEO/meta tags
- * - Web-only styling/layout adjustments
+ * Embeds Termly-hosted Privacy Policy in iframe.
+ * Content stays up-to-date without app redeployment.
  */
 
-import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
-import { PrivacyContentShellComponent } from '@nxt1/ui/legal';
+import { Component, ChangeDetectionStrategy, OnInit, inject } from '@angular/core';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { LEGAL_URLS } from '@nxt1/core';
 import { SeoService } from '../../core/services/seo.service';
 
 @Component({
   selector: 'app-privacy',
   standalone: true,
-  imports: [PrivacyContentShellComponent],
+  imports: [],
   template: `
-    <div class="h-screen w-full">
-      <nxt1-privacy-content-shell />
+    <div class="flex h-screen w-full flex-col">
+      <!-- Header -->
+      <div class="border-b border-gray-200 bg-white px-6 py-4">
+        <h1 class="text-xl font-semibold text-gray-900">Privacy Policy</h1>
+      </div>
+
+      <!-- Content -->
+      <iframe
+        [src]="termlyUrl"
+        class="h-full w-full flex-1 border-0"
+        title="Privacy Policy"
+        sandbox="allow-scripts allow-same-origin"
+      ></iframe>
     </div>
   `,
   styles: [
@@ -39,7 +44,14 @@ import { SeoService } from '../../core/services/seo.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PrivacyComponent implements OnInit {
+  private readonly sanitizer = inject(DomSanitizer);
   private readonly seo = inject(SeoService);
+
+  protected readonly termlyUrl: SafeResourceUrl;
+
+  constructor() {
+    this.termlyUrl = this.sanitizer.bypassSecurityTrustResourceUrl(LEGAL_URLS.PRIVACY);
+  }
 
   ngOnInit(): void {
     this.seo.updatePage({

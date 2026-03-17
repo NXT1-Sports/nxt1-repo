@@ -43,13 +43,19 @@ import { enqueueWelcomeGraphic } from '../services/agent-welcome.service.js';
 import { enqueueLinkedAccountScrape } from '../services/agent-scrape.service.js';
 import * as teamCodeService from '../services/team-code.service.js';
 import { validateBody } from '../middleware/validation.middleware.js';
-import { CreateUserDto, JoinTeamDto } from '../dtos/auth.dto.js';
+import {
+  CreateUserDto,
+  JoinTeamDto,
+  ConnectGmailDto,
+  ConnectMicrosoftDto,
+} from '../dtos/auth.dto.js';
 import { createOrganizationService } from '../services/organization.service.js';
 import { createRosterEntryService } from '../services/roster-entry.service.js';
 import { normalizeProgramName } from '../services/name-normalizer.service.js';
 
 // Import profile routes
 import profileRoutes, { invalidateProfileCaches } from './profile.routes.js';
+import { appGuard } from '../middleware/auth.middleware.js';
 
 const router: RouterType = Router();
 
@@ -2078,6 +2084,324 @@ router.get(
       success: true,
       unicode,
     });
+  })
+);
+
+// ============================================
+// GMAIL TOKEN EXCHANGE (Mobile Native)
+// ============================================
+
+/**
+ * POST /auth/google/connect-gmail
+ *
+ * Exchanges a Google serverAuthCode (from native mobile Google Sign-In) for a
+ * long-lived refresh token, then persists it securely in the emailTokens
+ * subcollection so the backend can send emails on behalf of the user.
+ *
+ * This endpoint is needed because:
+ * - Mobile native sign-in (via @capacitor-firebase/authentication) only sends
+ *   an idToken to Firebase — the serverAuthCode never reaches Firebase functions.
+ * - The refresh token cannot be obtained any other way after sign-in completes.
+ *
+ * SECURITY:
+ * - Requires a valid Firebase ID token (appGuard).
+ * - Refresh token stored ONLY in Users/{uid}/emailTokens/gmail (server-only
+ *   subcollection) — never on the public User document.
+ * - CLIENT_SECRET never exposed to the client.
+ *
+ * Body: { serverAuthCode: string }
+ * Returns: { success: true, email: string }
+ */
+router.post(
+  '/google/connect-gmail',
+  appGuard,
+  validateBody(ConnectGmailDto),
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { db } = req.firebase!;
+    const uid = req.user!.uid;
+    const { serverAuthCode, accessToken: webAccessToken } = req.body as ConnectGmailDto;
+
+    if (!serverAuthCode && !webAccessToken) {
+      sendError(
+        res,
+        validationError([
+          {
+            field: 'serverAuthCode',
+            message: 'Either serverAuthCode (native) or accessToken (web) is required',
+            rule: 'required',
+          },
+        ])
+      );
+      return;
+    }
+
+    /**
+     * Write Gmail token + connectedEmails metadata to Firestore with retry.
+     *
+     * Race condition: `connect-gmail` can be called before `create-user` finishes
+     * writing the User document. `batch.update()` throws NOT_FOUND (gRPC code 5)
+     * in that case. We retry with exponential backoff to let `create-user` complete.
+     *
+     * Retries: 4 attempts — delays 500 ms, 1 s, 2 s, 4 s (total wait ≤ 7.5 s).
+     */
+    const writeWithRetry = async (
+      tokenFields: Record<string, unknown>,
+      email: string | undefined
+    ): Promise<void> => {
+      const MAX_RETRIES = 4;
+      const BASE_DELAY_MS = 500;
+      const userRef = db.collection('Users').doc(uid);
+      const tokenRef = userRef.collection('emailTokens').doc('gmail');
+
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+          const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1);
+          logger.debug('[Google Connect Gmail] User doc not ready — retrying Firestore write', {
+            uid: uid.substring(0, 8) + '...',
+            attempt,
+            delayMs: delay,
+          });
+          await new Promise<void>((resolve) => setTimeout(resolve, delay));
+        }
+
+        try {
+          const now = new Date().toISOString();
+          const snap = await userRef.get();
+          const existing = (snap.data()?.['connectedEmails'] as ConnectedEmail[] | undefined) ?? [];
+          const filtered = existing.filter((e) => e.provider !== 'gmail');
+
+          const meta: ConnectedEmail = {
+            email: email ?? '',
+            provider: 'gmail',
+            isActive: true,
+            connectedAt: now,
+          };
+
+          const batch = db.batch();
+          // Metadata on user document (no token — OWASP A01/A02 compliance)
+          batch.update(userRef, {
+            connectedEmails: [...filtered, meta],
+            updatedAt: now,
+          });
+          // Token in server-only subcollection (Firestore rules restrict client access)
+          batch.set(tokenRef, { ...tokenFields, email: email ?? '', lastRefreshedAt: now });
+          await batch.commit();
+          return; // ✓ done
+        } catch (err) {
+          const e = err as { code?: number; message?: string };
+          const isNotFound =
+            e.code === 5 || (typeof e.message === 'string' && e.message.includes('NOT_FOUND'));
+          if (!isNotFound || attempt === MAX_RETRIES) throw err;
+        }
+      }
+    };
+
+    // ── Web/PWA path: accessToken from signInWithPopup (no code exchange needed) ─────────────
+    if (!serverAuthCode && webAccessToken) {
+      logger.debug('[Google Connect Gmail] Storing web accessToken directly', {
+        uid: uid.substring(0, 8) + '...',
+      });
+
+      const connectedEmail = req.user!.email;
+      await writeWithRetry({ provider: 'gmail', accessToken: webAccessToken }, connectedEmail);
+
+      logger.info('[Google Connect Gmail] Web accessToken saved successfully', {
+        uid: uid.substring(0, 8) + '...',
+        email: connectedEmail,
+      });
+
+      res.json({ success: true, email: connectedEmail });
+      return;
+    }
+
+    // ── Native path: exchange serverAuthCode for refresh_token ───────────────────────────────
+    logger.debug('[Google Connect Gmail] Exchanging serverAuthCode', {
+      uid: uid.substring(0, 8) + '...',
+    });
+
+    // Exchange authorization code for tokens.
+    // redirect_uri MUST be empty string for native mobile code exchange.
+    const tokenEndpoint = 'https://oauth2.googleapis.com/token';
+    const params = new URLSearchParams({
+      code: serverAuthCode!,
+      client_id: process.env['CLIENT_ID'] ?? '',
+      client_secret: process.env['CLIENT_SECRET'] ?? '',
+      grant_type: 'authorization_code',
+      redirect_uri: '',
+    });
+
+    let tokenData: {
+      access_token?: string;
+      refresh_token?: string;
+      id_token?: string;
+      error?: string;
+      error_description?: string;
+    };
+
+    try {
+      const tokenResponse = await fetch(tokenEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      tokenData = (await tokenResponse.json()) as typeof tokenData;
+    } catch (fetchErr) {
+      logger.error('[Google Connect Gmail] Network error contacting Google token endpoint', {
+        uid,
+        error: fetchErr,
+      });
+      sendError(res, internalError(fetchErr));
+      return;
+    }
+
+    if (tokenData.error || !tokenData.refresh_token) {
+      logger.warn('[Google Connect Gmail] Token exchange failed', {
+        uid,
+        error: tokenData.error,
+        description: tokenData.error_description,
+        hasRefreshToken: !!tokenData.refresh_token,
+      });
+      const error = validationError([
+        {
+          field: 'serverAuthCode',
+          message:
+            tokenData.error_description ??
+            'Failed to exchange code — code may be expired or already used',
+          rule: 'invalid',
+        },
+      ]);
+      sendError(res, error);
+      return;
+    }
+
+    // Decode id_token to get the user's email address (safest source).
+    let connectedEmail = req.user!.email;
+    if (tokenData.id_token) {
+      try {
+        const base64Url = tokenData.id_token.split('.')[1];
+        if (base64Url) {
+          const payload = JSON.parse(Buffer.from(base64Url, 'base64url').toString()) as {
+            email?: string;
+          };
+          if (payload.email) connectedEmail = payload.email;
+        }
+      } catch {
+        // Use req.user.email as fallback — already set above
+      }
+    }
+
+    await writeWithRetry(
+      { provider: 'gmail', refreshToken: tokenData.refresh_token },
+      connectedEmail
+    );
+
+    logger.info('[Google Connect Gmail] Gmail token saved successfully', {
+      uid: uid.substring(0, 8) + '...',
+      email: connectedEmail,
+    });
+
+    res.json({ success: true, email: connectedEmail });
+  })
+);
+
+// ============================================
+// MICROSOFT MAIL CONNECT
+// ============================================
+
+/**
+ * POST /auth/microsoft/connect-mail
+ *
+ * Store Microsoft accessToken so the backend can send emails on behalf
+ * of the user via Microsoft Graph API.
+ *
+ * Called fire-and-forget after every Microsoft sign-in (native + web).
+ * For NEW users, beforeUserCreate already captures the refreshToken;
+ * this endpoint covers EXISTING users signing in again (only accessToken
+ * is available from the Capacitor plugin / signInWithPopup).
+ *
+ * Uses the same writeWithRetry pattern as connect-gmail to handle the
+ * race condition where create-user hasn't finished yet.
+ */
+router.post(
+  '/microsoft/connect-mail',
+  appGuard,
+  validateBody(ConnectMicrosoftDto),
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { db } = req.firebase!;
+    const uid = req.user!.uid;
+    const { accessToken } = req.body as ConnectMicrosoftDto;
+
+    logger.debug('[Microsoft Connect Mail] Storing accessToken', {
+      uid: uid.substring(0, 8) + '...',
+    });
+
+    /**
+     * Same writeWithRetry helper as connect-gmail:
+     * retries on NOT_FOUND (gRPC 5) when create-user hasn't finished yet.
+     */
+    const writeWithRetry = async (email: string | undefined): Promise<void> => {
+      const MAX_RETRIES = 4;
+      const BASE_DELAY_MS = 500;
+      const userRef = db.collection('Users').doc(uid);
+      const tokenRef = userRef.collection('emailTokens').doc('microsoft');
+
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+          const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1);
+          logger.debug('[Microsoft Connect Mail] User doc not ready — retrying', {
+            uid: uid.substring(0, 8) + '...',
+            attempt,
+            delayMs: delay,
+          });
+          await new Promise<void>((resolve) => setTimeout(resolve, delay));
+        }
+
+        try {
+          const now = new Date().toISOString();
+          const snap = await userRef.get();
+          const existing = (snap.data()?.['connectedEmails'] as ConnectedEmail[] | undefined) ?? [];
+          const filtered = existing.filter((e) => e.provider !== 'microsoft');
+
+          const meta: ConnectedEmail = {
+            email: email ?? '',
+            provider: 'microsoft',
+            isActive: true,
+            connectedAt: now,
+          };
+
+          const batch = db.batch();
+          // Metadata on user doc (no token — OWASP A01/A02)
+          batch.update(userRef, {
+            connectedEmails: [...filtered, meta],
+            updatedAt: now,
+          });
+          // Token in server-only subcollection
+          batch.set(tokenRef, {
+            provider: 'microsoft',
+            accessToken,
+            email: email ?? '',
+            lastRefreshedAt: now,
+          });
+          await batch.commit();
+          return;
+        } catch (err) {
+          const e = err as { code?: number; message?: string };
+          const isNotFound =
+            e.code === 5 || (typeof e.message === 'string' && e.message.includes('NOT_FOUND'));
+          if (!isNotFound || attempt === MAX_RETRIES) throw err;
+        }
+      }
+    };
+
+    const connectedEmail = req.user!.email;
+    await writeWithRetry(connectedEmail);
+
+    logger.info('[Microsoft Connect Mail] accessToken saved successfully', {
+      uid: uid.substring(0, 8) + '...',
+      email: connectedEmail,
+    });
+
+    res.json({ success: true, email: connectedEmail });
   })
 );
 

@@ -310,6 +310,9 @@ export class FirebaseAuthService implements OnDestroy {
               signInWithCredential(this.auth, credential)
             );
             this.logger.debug('Manual sign-in successful');
+            if (nativeResult.serverAuthCode) {
+              void this.exchangeGmailServerAuthCode(result.user, nativeResult.serverAuthCode);
+            }
             return result;
           }
 
@@ -320,6 +323,17 @@ export class FirebaseAuthService implements OnDestroy {
           uid: currentUser.uid,
           email: currentUser.email,
         });
+
+        // If a serverAuthCode was returned, exchange it for a Gmail refresh token
+        // so the backend can send emails on behalf of this user.
+        // This is fire-and-forget — sign-in succeeds regardless.
+        if (nativeResult.serverAuthCode) {
+          void this.exchangeGmailServerAuthCode(currentUser, nativeResult.serverAuthCode);
+        } else {
+          this.logger.debug(
+            'No serverAuthCode returned — Gmail send permission not granted or already connected'
+          );
+        }
 
         return {
           user: currentUser,
@@ -334,7 +348,7 @@ export class FirebaseAuthService implements OnDestroy {
 
     // Web fallback (development/PWA)
     this.logger.debug('Using web Google Sign-In (fallback)');
-    return runInInjectionContext(this.injector, () => {
+    const webResult = await runInInjectionContext(this.injector, () => {
       const provider = new GoogleAuthProvider();
       provider.addScope('profile');
       provider.addScope('email');
@@ -342,6 +356,18 @@ export class FirebaseAuthService implements OnDestroy {
       provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
       return signInWithPopup(this.auth, provider);
     });
+
+    // Extract Google access token from the popup result and store it in the
+    // backend so emails can be sent on behalf of the user (web/PWA path).
+    // Fire-and-forget — sign-in succeeds regardless.
+    const googleCredential = GoogleAuthProvider.credentialFromResult(webResult);
+    if (googleCredential?.accessToken) {
+      void this.storeGmailWebAccessToken(webResult.user, googleCredential.accessToken);
+    } else {
+      this.logger.debug('No Google accessToken in web credential — Gmail not connected');
+    }
+
+    return webResult;
   }
 
   /**
@@ -496,6 +522,14 @@ export class FirebaseAuthService implements OnDestroy {
           );
         }
 
+        // Capture accessToken for Microsoft Mail so backend can send emails on
+        // behalf of this user (fire-and-forget — sign-in succeeds regardless).
+        if (result.accessToken) {
+          void this.storeMicrosoftAccessToken(currentUser, result.accessToken);
+        } else {
+          this.logger.debug('No Microsoft accessToken returned — Mail not connected');
+        }
+
         // Return as UserCredential for consistency
         return {
           user: currentUser,
@@ -509,7 +543,7 @@ export class FirebaseAuthService implements OnDestroy {
     }
 
     this.logger.debug('Using Firebase OAuth popup (web)');
-    return runInInjectionContext(this.injector, () => {
+    const webResult = await runInInjectionContext(this.injector, () => {
       const provider = new OAuthProvider('microsoft.com');
       provider.setCustomParameters({ prompt: 'select_account' });
       provider.addScope('openid');
@@ -521,6 +555,134 @@ export class FirebaseAuthService implements OnDestroy {
       provider.addScope('User.Read');
       return signInWithPopup(this.auth, provider);
     });
+
+    // Extract Microsoft accessToken and store for Mail integration (fire-and-forget).
+    const msCredential = OAuthProvider.credentialFromResult(webResult);
+    if (msCredential?.accessToken) {
+      void this.storeMicrosoftAccessToken(webResult.user, msCredential.accessToken);
+    } else {
+      this.logger.debug('No Microsoft accessToken in web credential — Mail not connected');
+    }
+
+    return webResult;
+  }
+
+  /**
+   * Exchange a Google serverAuthCode for a Gmail refresh token on the backend.
+   *
+   * Called after native Google Sign-In when a serverAuthCode is present.
+   * The backend exchanges the one-time code for a long-lived refresh token
+   * and stores it in Users/{uid}/emailTokens/gmail so emails can be sent
+   * on behalf of the user.
+   *
+   * Fire-and-forget — callers should not await this. A failure here must
+   * never block sign-in.
+   */
+  private async exchangeGmailServerAuthCode(
+    user: import('@angular/fire/auth').User,
+    serverAuthCode: string
+  ): Promise<void> {
+    try {
+      const idToken = await user.getIdToken();
+
+      const response = await fetch(`${environment.apiUrl}/auth/google/connect-gmail`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ serverAuthCode }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => response.statusText);
+        this.logger.warn('[Gmail Connect] Backend exchange failed', {
+          status: response.status,
+          error: errorText,
+        });
+        return;
+      }
+
+      const result = (await response.json()) as { success?: boolean; email?: string };
+      this.logger.info('[Gmail Connect] Refresh token saved successfully', {
+        email: result.email,
+      });
+    } catch (err) {
+      // Non-blocking — log and continue
+      this.logger.warn('[Gmail Connect] Failed to exchange serverAuthCode', { error: err });
+    }
+  }
+
+  /** Store Microsoft accessToken so backend can send mail on behalf of the user. */
+  private async storeMicrosoftAccessToken(
+    user: import('@angular/fire/auth').User,
+    accessToken: string
+  ): Promise<void> {
+    try {
+      const idToken = await user.getIdToken();
+
+      const response = await fetch(`${environment.apiUrl}/auth/microsoft/connect-mail`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ accessToken }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => response.statusText);
+        this.logger.warn('[Microsoft Connect] Backend store failed', {
+          status: response.status,
+          error: errorText,
+        });
+        return;
+      }
+
+      const result = (await response.json()) as { success?: boolean; email?: string };
+      this.logger.info('[Microsoft Connect] accessToken saved successfully', {
+        email: result.email,
+      });
+    } catch (err) {
+      // Non-blocking — log and continue
+      this.logger.warn('[Microsoft Connect] Failed to store accessToken', { error: err });
+    }
+  }
+
+  /** Web/PWA path — store the Google accessToken directly (refreshed on each login). */
+  private async storeGmailWebAccessToken(
+    user: import('@angular/fire/auth').User,
+    accessToken: string
+  ): Promise<void> {
+    try {
+      const idToken = await user.getIdToken();
+
+      const response = await fetch(`${environment.apiUrl}/auth/google/connect-gmail`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ accessToken }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => response.statusText);
+        this.logger.warn('[Gmail Connect] Backend store failed (web)', {
+          status: response.status,
+          error: errorText,
+        });
+        return;
+      }
+
+      const result = (await response.json()) as { success?: boolean; email?: string };
+      this.logger.info('[Gmail Connect] Web accessToken saved successfully', {
+        email: result.email,
+      });
+    } catch (err) {
+      // Non-blocking — log and continue
+      this.logger.warn('[Gmail Connect] Failed to store web accessToken', { error: err });
+    }
   }
 
   /**

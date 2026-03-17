@@ -14,6 +14,7 @@
  */
 
 import { Routes } from '@angular/router';
+import { authGuard } from './features/auth/guards/auth.guards';
 
 export const routes: Routes = [
   // ============================================
@@ -34,6 +35,7 @@ export const routes: Routes = [
    */
   {
     path: '',
+    canActivate: [authGuard], // Protect all shell routes - require authentication
     loadComponent: () =>
       import('./core/layout/shell/mobile-shell.component').then((m) => m.MobileShellComponent),
     children: [

@@ -154,13 +154,20 @@ export class SettingsComponent {
   /**
    * Handle navigation requests from settings items.
    */
-  protected onNavigate(event: SettingsNavigateEvent): void {
+  protected async onNavigate(event: SettingsNavigateEvent): Promise<void> {
     this.logger.debug('Navigate requested', { itemId: event.itemId, route: event.route });
 
+    // Handle external URLs (opens in system browser) - used for other external links
+    if (event.externalUrl) {
+      const { Browser } = await import('@capacitor/browser');
+      await Browser.open({ url: event.externalUrl });
+      return;
+    }
+
+    // Handle internal routes (including iframe-embedded legal pages)
     if (event.route) {
       this.navController.navigateForward(event.route);
     }
-    // External URLs are handled by the shell component
   }
 
   /**

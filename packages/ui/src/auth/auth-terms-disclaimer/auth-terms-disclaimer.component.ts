@@ -18,6 +18,7 @@
 
 import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { LEGAL_URLS } from '@nxt1/core';
 
 @Component({
   selector: 'nxt1-auth-terms-disclaimer',
@@ -54,9 +55,9 @@ export class AuthTermsDisclaimerComponent {
   /** Brand name to display */
   @Input() brandName = 'NXT1';
 
-  /** Terms of service URL */
-  @Input() termsUrl = '/terms';
+  /** Terms of service URL (Termly-hosted by default) */
+  @Input() termsUrl = LEGAL_URLS.TERMS;
 
-  /** Privacy policy URL */
-  @Input() privacyUrl = '/privacy';
+  /** Privacy policy URL (Termly-hosted by default) */
+  @Input() privacyUrl = LEGAL_URLS.PRIVACY;
 }

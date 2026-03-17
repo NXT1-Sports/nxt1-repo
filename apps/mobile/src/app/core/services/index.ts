@@ -45,8 +45,8 @@ export { CrashlyticsService } from './crashlytics.service';
 // Share service for native social sharing
 export { ShareService, type ShareResultData, type ShareContentOptions } from './share.service';
 
-// Keyboard management for iOS/Android
-export { KeyboardService } from './keyboard.service';
+// Keyboard management for iOS/Android (re-exported from shared package)
+export { KeyboardService } from '@nxt1/ui/services/keyboard/keyboard.service';
 
 // Push notification handling (foreground + background interception)
 export { PushHandlerService } from './push-handler.service';

@@ -86,3 +86,6 @@ export * from './storage.constants';
 
 // Legal content (About, Terms, Privacy - shared between web and mobile)
 export * from './legal-content';
+
+// Legal URLs (Termly-hosted Terms & Privacy links)
+export * from './legal-urls';

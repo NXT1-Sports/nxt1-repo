@@ -38,8 +38,9 @@ import {
   viewChild,
   ElementRef,
   effect,
+  PLATFORM_ID,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -52,6 +53,7 @@ import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AgentXInputComponent } from './agent-x-input.component';
 import { AGENT_X_API_BASE_URL } from './agent-x-job.service';
+import { KeyboardService } from '../services/keyboard/keyboard.service';
 
 // ============================================
 // INTERFACES
@@ -197,6 +199,8 @@ interface OperationMessage {
         flex-direction: column;
         gap: 12px;
         -webkit-overflow-scrolling: touch;
+        /* Adjust for keyboard on mobile - no transition for instant response */
+        max-height: calc(100vh - var(--keyboard-offset, 0px) - 200px);
       }
 
       .msg-row {
@@ -238,6 +242,8 @@ interface OperationMessage {
         border-top: 1px solid var(--op-border);
         background: var(--ion-background-color, var(--nxt1-color-bg-primary, #0a0a0a));
         flex-shrink: 0;
+        /* Move input up when keyboard opens */
+        transform: translateY(calc(-1 * var(--keyboard-offset, 0px)));
       }
 
       .file-input-hidden {
@@ -289,6 +295,8 @@ export class AgentXOperationChatComponent implements AfterViewInit {
   private readonly logger = inject(NxtLoggingService).child('AgentXOperationChat');
   private readonly haptics = inject(HapticsService);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly keyboard = inject(KeyboardService, { optional: true });
+  private readonly platformId = inject(PLATFORM_ID);
 
   // ============================================
   // INPUTS (from componentProps)
@@ -388,6 +396,24 @@ export class AgentXOperationChatComponent implements AfterViewInit {
         this.scrollToBottom();
       }
     });
+
+    // Apply keyboard offset to messages area (mobile only)
+    if (isPlatformBrowser(this.platformId) && this.keyboard) {
+      effect(() => {
+        const offset = this.keyboard!.keyboardHeight();
+        const messagesEl = this.messagesArea()?.nativeElement;
+        if (messagesEl) {
+          // Set keyboard offset immediately
+          messagesEl.style.setProperty('--keyboard-offset', `${offset}px`);
+          // Force immediate reflow for instant layout update
+          void messagesEl.offsetHeight;
+          // Auto-scroll instantly when keyboard opens
+          if (offset > 0) {
+            this.scrollToBottom();
+          }
+        }
+      });
+    }
   }
 
   // ============================================
@@ -682,9 +708,8 @@ export class AgentXOperationChatComponent implements AfterViewInit {
   private scrollToBottom(): void {
     const el = this.messagesArea()?.nativeElement;
     if (el) {
-      setTimeout(() => {
-        el.scrollTop = el.scrollHeight;
-      }, 50);
+      // Scroll immediately without delay for instant keyboard response
+      el.scrollTop = el.scrollHeight;
     }
   }
 

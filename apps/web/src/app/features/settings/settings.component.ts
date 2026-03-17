@@ -146,10 +146,16 @@ export class SettingsComponent implements OnInit {
   protected onNavigate(event: SettingsNavigateEvent): void {
     this.logger.debug('Navigate requested', { itemId: event.itemId, route: event.route });
 
+    // Handle external URLs (opens in new tab) - used for other external links
+    if (event.externalUrl) {
+      window.open(event.externalUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    // Handle internal routes (including iframe-embedded legal pages)
     if (event.route) {
       this.router.navigateByUrl(event.route);
     }
-    // External URLs are handled by the shell component
   }
 
   /**

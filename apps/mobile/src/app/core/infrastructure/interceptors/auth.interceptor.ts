@@ -85,9 +85,18 @@ export const mobileAuthInterceptor: HttpInterceptorFn = (
   return from(auth.authStateReady().then(() => auth.currentUser?.getIdToken() ?? null)).pipe(
     switchMap((token) => {
       if (!token) {
-        logger.debug('No user signed in, request may fail');
+        logger.warn('No Firebase token available for API request', {
+          url: req.url,
+          method: req.method,
+          userSignedIn: !!auth.currentUser,
+        });
         return next(req);
       }
+
+      logger.debug('Adding Firebase token to HTTP request', {
+        url: req.url,
+        method: req.method,
+      });
 
       const authReq = req.clone({
         setHeaders: {

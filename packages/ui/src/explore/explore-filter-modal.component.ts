@@ -18,7 +18,7 @@ import {
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonLabel, IonRange, IonToggle } from '@ionic/angular/standalone';
+import { IonContent, IonLabel, IonRange, IonToggle } from '@ionic/angular/standalone';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtChipComponent } from '../components/chip';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet';
@@ -40,6 +40,7 @@ import {
   standalone: true,
   imports: [
     CommonModule,
+    IonContent,
     IonLabel,
     IonRange,
     IonToggle,
@@ -65,7 +66,7 @@ import {
       </div>
     </nxt1-sheet-header>
 
-    <div class="filter-scroll-content">
+    <ion-content class="filter-scroll-content">
       @if (fields().sport) {
         <section class="filter-section">
           <h3>Sport</h3>
@@ -182,7 +183,7 @@ import {
           />
         </section>
       }
-    </div>
+    </ion-content>
 
     <div class="filter-footer">
       <button type="button" class="filter-apply-btn" (click)="onApply()">
@@ -254,9 +255,8 @@ import {
        * Scrollable Content
        * ============================================ */
       .filter-scroll-content {
+        --background: var(--nxt1-color-background-primary);
         flex: 1;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
       }
 
       .filter-section {

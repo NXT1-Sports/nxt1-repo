@@ -679,7 +679,9 @@ export class NxtQrCodeContentComponent {
 
     try {
       // Dynamically import qrcode to keep bundle size optimal
-      const QRCode = await import('qrcode');
+      const QRCodeModule = await import('qrcode');
+      // Handle both default and named exports
+      const QRCode = QRCodeModule.default || QRCodeModule;
 
       // Wait for canvas to be available after loading state clears
       this.loading.set(false);
@@ -697,17 +699,37 @@ export class NxtQrCodeContentComponent {
 
       const canvas = canvasRef.nativeElement;
 
-      await QRCode.toCanvas(canvas, this.url, {
+      // Use toDataURL() instead of toCanvas() for better mobile compatibility
+      // toCanvas() doesn't work reliably in Capacitor WebView on iOS
+      const options = {
         width: 220,
         margin: 1,
         color: {
           dark: '#000000',
           light: '#ffffff',
         },
-        errorCorrectionLevel: 'H', // High — allows logo overlay without breaking scan
-      });
+        errorCorrectionLevel: 'H' as const, // High — allows logo overlay without breaking scan
+      };
 
-      this.logger.info('QR code generated', { url: this.url });
+      const dataUrl = await QRCode.toDataURL(this.url, options);
+
+      // Draw the QR code onto the canvas
+      const img = new Image();
+      img.onload = () => {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          // Set canvas size to match QR code
+          canvas.width = 220;
+          canvas.height = 220;
+          ctx.drawImage(img, 0, 0, 220, 220);
+          this.logger.info('QR code generated', { url: this.url });
+        }
+      };
+      img.onerror = () => {
+        this.logger.error('Failed to load QR code image');
+        this.error.set(true);
+      };
+      img.src = dataUrl;
     } catch (err) {
       this.logger.error('Failed to generate QR code', err);
       this.error.set(true);

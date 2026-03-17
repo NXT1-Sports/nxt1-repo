@@ -47,7 +47,6 @@ import {
   type ShareableVideo,
   type ShareablePost,
   type ShareableContent,
-  buildShareUrl,
   buildProfileShareTitle,
   buildProfileShareText,
   buildProfileShareDescription,
@@ -59,6 +58,7 @@ import {
   buildPostShareText,
 } from '@nxt1/core/seo';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui';
+import { environment } from '../../../environments/environment';
 
 // ============================================
 // TYPES
@@ -310,6 +310,32 @@ export class ShareService {
   // ============================================
 
   /**
+   * Build environment-aware URL for shareable content.
+   * Uses environment.webUrl (localhost for dev/staging, production domain for prod).
+   *
+   * @param content - Shareable content
+   * @returns Full URL string
+   */
+  private buildEnvironmentUrl(content: ShareableContent): string {
+    const identifier = content.slug || content.id;
+    const baseUrl = environment.webUrl;
+
+    switch (content.type) {
+      case 'profile':
+        return `${baseUrl}/profile/${identifier}`;
+      case 'team':
+        return `${baseUrl}/team/${identifier}`;
+      case 'video':
+      case 'highlight':
+        return `${baseUrl}/video/${identifier}`;
+      case 'post':
+        return `${baseUrl}/post/${identifier}`;
+      default:
+        return `${baseUrl}/${content.type}/${identifier}`;
+    }
+  }
+
+  /**
    * Share any shareable content
    *
    * @param content - Shareable content
@@ -320,7 +346,7 @@ export class ShareService {
     content: ShareableContent,
     options?: ShareContentOptions
   ): Promise<ShareResultData> {
-    const url = buildShareUrl(content);
+    const url = this.buildEnvironmentUrl(content);
 
     const result = await this.shareCustom({
       title: options?.title || content.title,

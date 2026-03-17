@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 import { Keyboard, KeyboardResize } from '@capacitor/keyboard';
 import { Capacitor } from '@capacitor/core';
 
@@ -16,6 +16,7 @@ interface HTMLIonContentElement extends HTMLElement {
  * - Auto resize viewport when keyboard shows/hides
  * - Scroll input into view on iOS
  * - Configure keyboard appearance and behavior
+ * - Expose keyboard height as reactive signal
  *
  * Usage in component:
  * ```typescript
@@ -24,6 +25,12 @@ interface HTMLIonContentElement extends HTMLElement {
  * ngOnInit() {
  *   this.keyboardService.initialize();
  * }
+ *
+ * // Use keyboard height in effect
+ * effect(() => {
+ *   const height = this.keyboardService.keyboardHeight();
+ *   // Update UI based on keyboard height
+ * });
  * ```
  */
 @Injectable({
@@ -34,6 +41,13 @@ export class KeyboardService {
   private listeners: (() => void)[] = [];
   private lastHandledInput: HTMLElement | null = null;
   private lastHandledAt = 0;
+
+  /**
+   * Reactive keyboard height signal (in pixels)
+   * Updates automatically when keyboard shows/hides
+   */
+  private _keyboardHeight = signal<number>(0);
+  public keyboardHeight = this._keyboardHeight.asReadonly();
 
   /**
    * Initialize keyboard configuration for iOS/Android
@@ -67,6 +81,10 @@ export class KeyboardService {
     const showListener = await Keyboard.addListener('keyboardWillShow', async (info) => {
       try {
         const height = info?.keyboardHeight ?? 0;
+
+        // Update signal for reactive components
+        this._keyboardHeight.set(height);
+
         const focused = document.activeElement as HTMLElement | null;
         document.documentElement.style.setProperty('--keyboard-offset', `${height}px`);
 
@@ -107,6 +125,9 @@ export class KeyboardService {
 
     const hideListener = await Keyboard.addListener('keyboardWillHide', async () => {
       try {
+        // Reset signal to 0
+        this._keyboardHeight.set(0);
+
         document.documentElement.style.removeProperty('--keyboard-offset');
 
         const ionContents = Array.from(

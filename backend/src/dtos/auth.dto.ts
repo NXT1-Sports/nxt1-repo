@@ -374,6 +374,25 @@ export class RegisterDto {
   teamCode?: string;
 }
 
+export class ConnectMicrosoftDto {
+  /** Microsoft accessToken from native or web popup sign-in */
+  @IsString({ message: 'accessToken must be a string' })
+  @IsNotEmpty({ message: 'accessToken is required' })
+  accessToken!: string;
+}
+
+export class ConnectGmailDto {
+  /** Native mobile flow — exchange for refresh_token */
+  @IsString({ message: 'serverAuthCode must be a string' })
+  @IsOptional()
+  serverAuthCode?: string;
+
+  /** Web/PWA flow — access_token from signInWithPopup (refreshed on each login) */
+  @IsString({ message: 'accessToken must be a string' })
+  @IsOptional()
+  accessToken?: string;
+}
+
 export class ForgotPasswordDto {
   @IsEmail({}, { message: 'Please provide a valid email address' })
   email!: string;

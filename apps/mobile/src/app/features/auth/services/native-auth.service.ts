@@ -148,12 +148,15 @@ export class NativeAuthService {
         );
       }
 
-      // If we have idToken, use it directly
+      // If we have idToken, use it directly.
+      // serverAuthCode is always forwarded so the backend can exchange it
+      // for a Gmail refresh token (used to send emails on behalf of the user).
       if (result.credential?.idToken) {
         return {
           provider: 'google',
           idToken: result.credential.idToken,
           accessToken: result.credential.accessToken,
+          serverAuthCode: result.credential.serverAuthCode,
           user: {
             id: result.user?.uid || '',
             email: result.user?.email || null,

@@ -748,7 +748,7 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
 
       .header-inline-search {
         position: absolute;
-        top: var(--ion-safe-area-top, 0px);
+        top: 0;
         left: 0;
         right: 0;
         bottom: 0;

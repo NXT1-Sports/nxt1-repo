@@ -57,22 +57,46 @@ export class FcmRegistrationService {
       // Request permission
       const permissionResult = await PushNotifications.requestPermissions();
 
-      if (permissionResult.receive === 'granted') {
-        this.logger.debug('Push notification permission granted');
+      if (permissionResult.receive !== 'granted') {
+        this.logger.warn('Push notification permission denied');
+        return;
+      }
 
-        // Setup listener BEFORE calling register() to avoid race condition
-        const registrationPromise = new Promise<string>((resolve, reject) => {
+      this.logger.debug('Push notification permission granted');
+
+      // ── Fast path: reuse cached token if available ────────────────────────────
+      // Avoids a full APNs round-trip (which can time out) on every login.
+      let token = this.cachedToken;
+      if (!token) {
+        try {
+          const { Preferences } = await import('@capacitor/preferences');
+          const stored = await Preferences.get({ key: this.STORAGE_KEY });
+          token = stored.value ?? undefined;
+        } catch {
+          // Storage read failure is non-fatal — fall through to re-register
+        }
+      }
+
+      if (token) {
+        this.logger.debug('Reusing cached FCM token', {
+          platform: this.ionicPlatform.is('ios') ? 'ios' : 'android',
+        });
+      } else {
+        // ── Slow path: request a new token from APNs/FCM ──────────────────────
+        // removeAllListeners MUST be awaited before adding new ones,
+        // otherwise the native side can process removeAllListeners AFTER
+        // the new listeners are added and silently discard the registration event.
+        await PushNotifications.removeAllListeners();
+
+        token = await new Promise<string>((resolve, reject) => {
           const timeout = setTimeout(() => {
             reject(new Error('FCM registration timeout'));
-          }, 10000); // 10s timeout
+          }, 20000); // 20 s — APNs can be slow on first install
 
-          // Remove old listeners first
-          PushNotifications.removeAllListeners();
-
-          PushNotifications.addListener('registration', (token) => {
+          PushNotifications.addListener('registration', (t) => {
             clearTimeout(timeout);
-            this.logger.debug('FCM token received', { token: token.value });
-            resolve(token.value);
+            this.logger.debug('FCM token received', { token: t.value });
+            resolve(t.value);
           });
 
           PushNotifications.addListener('registrationError', (error) => {
@@ -82,39 +106,35 @@ export class FcmRegistrationService {
           });
         });
 
-        // Register with FCM (will trigger 'registration' event)
+        // Trigger APNs registration AFTER listeners are set up
         await PushNotifications.register();
-
-        const token = await registrationPromise;
-
-        // Determine platform
-        const platform = this.ionicPlatform.is('ios')
-          ? 'ios'
-          : this.ionicPlatform.is('android')
-            ? 'android'
-            : 'unknown';
-
-        // Call Cloud Function to save token
-        const registerFcmToken = httpsCallable<
-          { token: string; platform: string },
-          RegisterTokenResponse
-        >(this.functions, 'registerFcmToken');
-
-        await registerFcmToken({ token, platform });
-
-        // Cache token for later unregister
-        this.cachedToken = token;
-        try {
-          const { Preferences } = await import('@capacitor/preferences');
-          await Preferences.set({ key: this.STORAGE_KEY, value: token });
-        } catch (storageError) {
-          this.logger.warn('Failed to cache FCM token', { error: storageError });
-        }
-
-        this.logger.info('FCM token registered successfully', { platform });
-      } else {
-        this.logger.warn('Push notification permission denied');
       }
+
+      // Determine platform
+      const platform = this.ionicPlatform.is('ios')
+        ? 'ios'
+        : this.ionicPlatform.is('android')
+          ? 'android'
+          : 'unknown';
+
+      // Call Cloud Function to save token
+      const registerFcmToken = httpsCallable<
+        { token: string; platform: string },
+        RegisterTokenResponse
+      >(this.functions, 'registerFcmToken');
+
+      await registerFcmToken({ token, platform });
+
+      // Cache token for later unregister
+      this.cachedToken = token;
+      try {
+        const { Preferences } = await import('@capacitor/preferences');
+        await Preferences.set({ key: this.STORAGE_KEY, value: token });
+      } catch (storageError) {
+        this.logger.warn('Failed to cache FCM token', { error: storageError });
+      }
+
+      this.logger.info('FCM token registered successfully', { platform });
     } catch (error) {
       this.logger.error('Failed to register FCM token', error);
       // Don't throw - FCM registration failure shouldn't block login

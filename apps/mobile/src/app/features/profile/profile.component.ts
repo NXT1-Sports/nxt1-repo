@@ -142,6 +142,7 @@ import { environment } from '../../../environments/environment';
           (editProfileClick)="onEditProfile()"
           (editTeamClick)="onEditTeam()"
           (shareClick)="onShare()"
+          (copyLinkClick)="onCopyLink()"
           (followClick)="onFollow()"
           (qrCodeClick)="onQrCode()"
           (aiSummaryClick)="onAiSummary()"
@@ -766,13 +767,23 @@ export class ProfileComponent {
   }
 
   /**
-   * Handle QR code tap — navigate to QR code page or open sheet.
+   * Handle QR code tap — open QR code modal/sheet.
    */
-  protected onQrCode(): void {
-    const unicode = this.resolvedUnicode();
-    if (unicode) {
-      void this.navController.navigateForward(`/profile/${unicode}/qr`);
-    }
+  protected async onQrCode(): Promise<void> {
+    const user = this.uiProfileService.user();
+    if (!user) return;
+
+    const profileId = this.profileUnicode() || user.profileCode || user.uid;
+    if (!profileId) return;
+
+    const profileUrl = `${environment.webUrl}/profile/${profileId}`;
+
+    await this.qrCode.open({
+      url: profileUrl,
+      displayName: user.displayName || `${user.firstName} ${user.lastName}`.trim() || 'Athlete',
+      profileImg: user.profileImg,
+      sport: user.primarySport?.name,
+    });
   }
 
   /**
@@ -820,6 +831,20 @@ export class ProfileComponent {
         },
       }
     );
+  }
+
+  /**
+   * Handle copy link tap — copy profile URL to clipboard.
+   */
+  protected async onCopyLink(): Promise<void> {
+    const user = this.uiProfileService.user();
+    if (!user) return;
+
+    const profileId = this.profileUnicode() || user.profileCode || user.uid;
+    if (!profileId) return;
+
+    const profileUrl = `${environment.webUrl}/profile/${profileId}`;
+    await this.shareService.copy(profileUrl, true);
   }
 
   /**

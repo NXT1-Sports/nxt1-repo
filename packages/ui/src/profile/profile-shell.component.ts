@@ -708,6 +708,7 @@ export class ProfileShellComponent implements OnInit {
   readonly editProfileClick = output<void>();
   readonly editTeamClick = output<void>();
   readonly shareClick = output<void>();
+  readonly copyLinkClick = output<void>();
   readonly menuClick = output<void>();
   readonly qrCodeClick = output<void>();
   readonly aiSummaryClick = output<void>();
@@ -1191,7 +1192,7 @@ export class ProfileShellComponent implements OnInit {
         this.qrCodeClick.emit();
         break;
       case 'Copy Link':
-        this.shareClick.emit();
+        this.copyLinkClick.emit();
         break;
       case 'Report':
         this.logger.info('Report profile requested');

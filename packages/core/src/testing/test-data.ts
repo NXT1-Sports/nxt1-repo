@@ -345,10 +345,11 @@ export const ROUTES = {
 
   /** Static/legal routes */
   STATIC: {
-    /** Terms of service */
-    TERMS: '/legal/terms',
-    /** Privacy policy */
-    PRIVACY: '/legal/privacy',
+    /** Terms of service (Termly-hosted) */
+    TERMS:
+      'https://app.termly.io/document/terms-of-use-for-saas/15feca2e-250a-4fea-bab4-f975aa666eca',
+    /** Privacy policy (Termly-hosted) */
+    PRIVACY: 'https://app.termly.io/document/privacy-policy/e603559c-9483-42d0-ab85-58249660e18a',
     /** About page */
     ABOUT: '/about',
     /** Contact page */

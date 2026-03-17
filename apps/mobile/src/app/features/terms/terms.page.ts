@@ -1,20 +1,13 @@
 /**
- * @fileoverview Terms Page - Mobile App Wrapper
+ * @fileoverview Terms Page - Mobile App
  * @module @nxt1/mobile/features/terms
  * @version 1.0.0
  *
- * Thin wrapper component that imports the shared Terms content
- * from @nxt1/ui and handles platform-specific concerns.
- *
- * ⭐ THIS IS THE RECOMMENDED PATTERN FOR SHARED COMPONENTS ⭐
- *
- * The actual content lives in @nxt1/ui (shared package).
- * This wrapper only handles:
- * - Platform-specific navigation (Ionic)
- * - Mobile-specific layout (ion-header, ion-content)
+ * Embeds Termly-hosted Terms of Service in WebView.
+ * Content stays up-to-date without app redeployment.
  */
 
-import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
 import {
   IonContent,
   IonHeader,
@@ -23,20 +16,14 @@ import {
   IonButtons,
   IonBackButton,
 } from '@ionic/angular/standalone';
-import { TermsContentShellComponent } from '@nxt1/ui';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { LEGAL_URLS } from '@nxt1/core';
 
 @Component({
   selector: 'app-terms',
   standalone: true,
-  imports: [
-    IonContent,
-    IonHeader,
-    IonToolbar,
-    IonTitle,
-    IonButtons,
-    IonBackButton,
-    TermsContentShellComponent,
-  ],
+  imports: [IonContent, IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton],
+  schemas: [CUSTOM_ELEMENTS_SCHEMA],
   template: `
     <ion-header>
       <ion-toolbar>
@@ -48,9 +35,36 @@ import { TermsContentShellComponent } from '@nxt1/ui';
     </ion-header>
 
     <ion-content [fullscreen]="true">
-      <nxt1-terms-content-shell />
+      <iframe
+        [src]="termlyUrl"
+        class="h-full w-full border-0"
+        title="Terms of Service"
+        sandbox="allow-scripts allow-same-origin"
+      ></iframe>
     </ion-content>
   `,
+  styles: [
+    `
+      :host {
+        display: block;
+        height: 100%;
+      }
+      iframe {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border: none;
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class TermsPage {}
+export class TermsPage {
+  private readonly sanitizer = inject(DomSanitizer);
+
+  protected readonly termlyUrl: SafeResourceUrl;
+
+  constructor() {
+    this.termlyUrl = this.sanitizer.bypassSecurityTrustResourceUrl(LEGAL_URLS.TERMS);
+  }
+}
