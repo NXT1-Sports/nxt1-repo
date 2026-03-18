@@ -36,22 +36,21 @@ import {
   output,
   signal,
   computed,
+  effect,
   afterNextRender,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
 import { NxtIconComponent } from '../../components/icon';
 import { AgentXService } from '../agent-x.service';
-import { AgentXChatComponent } from '../agent-x-chat.component';
+import { AgentXDashboardSkeletonComponent } from '../agent-x-dashboard-skeleton.component';
 import { AgentXInputComponent } from '../agent-x-input.component';
 import { AgentXOperationsLogComponent } from '../agent-x-operations-log.component';
+import { AgentXOperationChatComponent } from '../agent-x-operation-chat.component';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../../components/bottom-sheet';
 import { NxtToastService } from '../../services/toast/toast.service';
 import type { CommandCategory, WeeklyPlaybookItem } from '../agent-x-shell.component';
-import {
-  getShellContentForRole,
-  type ShellWeeklyPlaybookItem,
-  type ShellActiveOperation,
-} from '@nxt1/core/ai';
+import { type ShellWeeklyPlaybookItem, type ShellActiveOperation } from '@nxt1/core/ai';
 
 /**
  * User info for header display.
@@ -69,7 +68,7 @@ export interface AgentXUser {
     CommonModule,
     NxtDesktopPageHeaderComponent,
     NxtIconComponent,
-    AgentXChatComponent,
+    AgentXDashboardSkeletonComponent,
     AgentXInputComponent,
     AgentXOperationsLogComponent,
   ],
@@ -80,7 +79,7 @@ export interface AgentXUser {
         <button
           type="button"
           class="agent-history-action"
-          aria-label="Activity log"
+          aria-label="Agent Logs"
           (click)="onActivityLogClick()"
         >
           <nxt1-icon name="time" [size]="20" className="agent-history-icon" />
@@ -89,8 +88,12 @@ export interface AgentXUser {
 
       <!-- Content Area -->
       <div class="agent-content">
+        @if (agentX.dashboardLoading() && !agentX.dashboardLoaded()) {
+          <nxt1-agent-x-dashboard-skeleton />
+        }
+
         <!-- ═══ 1. DAILY BRIEFING ═══ -->
-        @if (agentX.isEmpty()) {
+        @if (!agentX.dashboardLoading()) {
           <section class="briefing-section" aria-label="Daily briefing">
             <!-- AI Pulse Indicator -->
             <div class="briefing-status">
@@ -123,7 +126,79 @@ export interface AgentXUser {
               }
             </div>
 
-            <!-- ═══ 2. COORDINATORS (2×2 Grid) ═══ -->
+            <!-- ═══ 2. DAILY OPERATIONS (Conditional) ═══ -->
+            @if (activeOperations().length > 0) {
+              <section class="operations-section" aria-label="Daily operations">
+                <h3 class="section-title">Daily Operations</h3>
+                <div class="operations-scroll">
+                  @for (op of activeOperations(); track op.id) {
+                    <button
+                      type="button"
+                      class="operation-card"
+                      [class.operation-card--processing]="op.status === 'processing'"
+                      [class.operation-card--complete]="op.status === 'complete'"
+                      [class.operation-card--error]="op.status === 'error'"
+                      (click)="onOperationTap(op)"
+                    >
+                      <!-- Top row: task icon + label -->
+                      <div class="operation-top">
+                        <div class="operation-icon">
+                          <nxt1-icon [name]="op.icon" [size]="14" />
+                        </div>
+                        <span class="operation-label">{{ op.label }}</span>
+                      </div>
+
+                      <!-- Progress bar -->
+                      <div
+                        class="operation-progress"
+                        [class.operation-progress--complete]="op.status === 'complete'"
+                        [class.operation-progress--error]="op.status === 'error'"
+                      >
+                        <div
+                          class="operation-progress-bar"
+                          [class.operation-progress-bar--processing]="op.status === 'processing'"
+                          [class.operation-progress-bar--complete]="op.status === 'complete'"
+                          [class.operation-progress-bar--error]="op.status === 'error'"
+                          [style.width.%]="op.status === 'complete' ? 100 : op.progress"
+                        ></div>
+                      </div>
+
+                      <!-- Bottom row: status badge + spinner/icon -->
+                      <div class="operation-status-row">
+                        @switch (op.status) {
+                          @case ('processing') {
+                            <span class="operation-status-badge operation-status-badge--processing">
+                              In progress
+                            </span>
+                            <span class="operation-spinner">
+                              <nxt1-icon name="refresh" [size]="12" />
+                            </span>
+                          }
+                          @case ('complete') {
+                            <span class="operation-status-badge operation-status-badge--complete">
+                              Complete
+                            </span>
+                            <span class="operation-status-icon operation-status-icon--complete">
+                              <nxt1-icon name="checkmarkCircle" [size]="12" />
+                            </span>
+                          }
+                          @case ('error') {
+                            <span class="operation-status-badge operation-status-badge--error">
+                              Failed
+                            </span>
+                            <span class="operation-status-icon operation-status-icon--error">
+                              <nxt1-icon name="alertCircle" [size]="12" />
+                            </span>
+                          }
+                        }
+                      </div>
+                    </button>
+                  }
+                </div>
+              </section>
+            }
+
+            <!-- ═══ 3. COORDINATORS (2×2 Grid) ═══ -->
             <section class="coordinators-section" aria-label="Coordinators">
               <h3 class="section-title">Coordinators</h3>
               <div class="coordinators-grid">
@@ -138,7 +213,7 @@ export interface AgentXUser {
               </div>
             </section>
 
-            <!-- ═══ 3. WEEKLY PLAYBOOK (Always Visible) ═══ -->
+            <!-- ═══ 4. WEEKLY PLAYBOOK (Always Visible) ═══ -->
             <section class="playbook-section" aria-label="Weekly playbook">
               <div class="playbook-section-header">
                 <div class="playbook-title-row">
@@ -296,6 +371,10 @@ export interface AgentXUser {
                       class="operation-card"
                       [class.operation-card--complete]="op.status === 'complete'"
                       [class.operation-card--error]="op.status === 'error'"
+                      (click)="onOperationTap(op)"
+                      role="button"
+                      tabindex="0"
+                      [attr.aria-label]="'View logs for ' + op.label"
                     >
                       <div class="operation-icon">
                         <nxt1-icon [name]="op.icon" [size]="16" />
@@ -315,18 +394,13 @@ export interface AgentXUser {
             }
           </section>
         }
-
-        <!-- ═══ CHAT MESSAGES ═══ -->
-        @if (!agentX.isEmpty()) {
-          <nxt1-agent-x-chat [messages]="agentX.messages()" />
-        }
       </div>
     </main>
 
     <!-- ═══ OPERATIONS LOG SLIDE-OVER PANEL ═══ -->
     @if (isOperationsLogOpen()) {
       <div class="log-overlay-backdrop" (click)="closeOperationsLog()" aria-hidden="true"></div>
-      <aside class="log-overlay-panel" role="dialog" aria-label="Operations log">
+      <aside class="log-overlay-panel" role="dialog" aria-label="Agent Logs">
         <nxt1-agent-x-operations-log (closePanel)="closeOperationsLog()" />
       </aside>
     }
@@ -334,7 +408,7 @@ export interface AgentXUser {
     <!-- Shared Input Bar (fixed, outside main scroll) -->
     @if (!hideInput()) {
       <nxt1-agent-x-input
-        [hasMessages]="!agentX.isEmpty()"
+        [hasMessages]="false"
         [selectedTask]="agentX.selectedTask()"
         [isLoading]="agentX.isLoading()"
         [canSend]="agentX.canSend()"
@@ -428,6 +502,16 @@ export interface AgentXUser {
         border: 1px solid var(--agent-border);
         border-radius: var(--nxt1-radius-full, 9999px);
         max-width: 260px;
+        cursor: pointer;
+        transition: opacity 0.15s ease;
+
+        &:hover {
+          opacity: 0.85;
+        }
+
+        &:active {
+          opacity: 0.7;
+        }
       }
 
       .operation-card--complete {
@@ -1179,6 +1263,7 @@ export interface AgentXUser {
 export class AgentXShellWebComponent {
   protected readonly agentX = inject(AgentXService);
   private readonly toast = inject(NxtToastService);
+  private readonly bottomSheet = inject(NxtBottomSheetService);
 
   // ============================================
   // INPUTS
@@ -1224,44 +1309,24 @@ export class AgentXShellWebComponent {
 
   // ============================================
   // ROLE-AWARE SHELL CONTENT
-  // Uses live dashboard data from AgentXService when loaded,
-  // falls back to static role-based content for SSR / initial render.
+  // Uses live dashboard data from AgentXService only.
+  // Static fallback content is intentionally disabled to avoid mock-data flashes.
   // ============================================
 
-  /** Static shell content based on user role (fallback only). */
-  private readonly shellFallback = computed(() => {
-    const role = this.user()?.role ?? null;
-    return getShellContentForRole(role);
-  });
-
-  /** Active background operations — live from service, fallback from static. */
+  /** Active background operations — live from service only. */
   protected readonly activeOperations = computed<ShellActiveOperation[]>(() =>
-    this.agentX.dashboardLoaded()
-      ? this.agentX.activeOperations()
-      : [...this.shellFallback().activeOperations]
+    this.agentX.activeOperations()
   );
 
-  /** Proactive insights from Agent X — live from service, fallback from static. */
-  protected readonly briefingInsights = computed(() =>
-    this.agentX.dashboardLoaded()
-      ? this.agentX.briefingInsights()
-      : [...this.shellFallback().briefingInsights]
-  );
+  /** Proactive insights from Agent X — live from service only. */
+  protected readonly briefingInsights = computed(() => this.agentX.briefingInsights());
 
-  /** Briefing preview text — live from service, fallback from static. */
-  protected readonly briefingPreview = computed(() => {
-    if (this.agentX.dashboardLoaded()) {
-      return this.agentX.briefingPreviewText();
-    }
-    const template = this.shellFallback().briefingPreviewText;
-    return template.replace('{count}', String(this.briefingInsights().length));
-  });
+  /** Briefing preview text — live from service only. */
+  protected readonly briefingPreview = computed(() => this.agentX.briefingPreviewText());
 
-  /** AI-generated weekly playbook timeline items — live from service, fallback from static. */
+  /** AI-generated weekly playbook timeline items — live from service only. */
   protected readonly weeklyPlaybook = computed<ShellWeeklyPlaybookItem[]>(() =>
-    this.agentX.dashboardLoaded()
-      ? this.agentX.weeklyPlaybook()
-      : [...this.shellFallback().weeklyPlaybook]
+    this.agentX.weeklyPlaybook()
   );
 
   /** Number of completed playbook tasks. */
@@ -1276,17 +1341,37 @@ export class AgentXShellWebComponent {
   // COORDINATORS — Role-Aware Virtual Staff
   // ============================================
 
-  /** Coordinator cards — live from service, fallback from static. */
-  protected readonly commandCategories = computed(() =>
-    this.agentX.dashboardLoaded()
-      ? this.agentX.coordinators()
-      : [...this.shellFallback().coordinators]
-  );
+  /** Coordinator cards — live from service only. */
+  protected readonly commandCategories = computed(() => this.agentX.coordinators());
 
   constructor() {
     afterNextRender(() => {
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
+    });
+
+    // React to pending thread requests (push notifications, deep links, activity taps)
+    effect(() => {
+      const pending = this.agentX.pendingThread();
+      if (!pending) return;
+
+      this.agentX.clearPendingThread();
+
+      void this.bottomSheet.openSheet({
+        component: AgentXOperationChatComponent,
+        componentProps: {
+          contextId: pending.operationId ?? pending.threadId,
+          contextTitle: pending.title,
+          contextIcon: pending.icon ?? 'sparkles',
+          contextType: 'operation',
+          threadId: pending.threadId,
+        },
+        ...SHEET_PRESETS.FULL,
+        showHandle: true,
+        handleBehavior: 'cycle',
+        backdropDismiss: true,
+        cssClass: 'agent-x-operation-sheet',
+      });
     });
   }
 
@@ -1336,6 +1421,29 @@ export class AgentXShellWebComponent {
   }
 
   /**
+   * Handle active operation card tap — opens the persisted worker conversation
+   * in a bottom sheet so the user sees Agent X's actual output logs.
+   */
+  protected async onOperationTap(op: ShellActiveOperation): Promise<void> {
+    await this.bottomSheet.openSheet({
+      component: AgentXOperationChatComponent,
+      componentProps: {
+        contextId: op.id,
+        contextTitle: op.label,
+        contextIcon: op.icon,
+        contextType: 'operation',
+        // threadId drives loadThreadMessages() — shows the real worker logs.
+        threadId: op.threadId ?? '',
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'agent-x-operation-sheet',
+    });
+  }
+
+  /**
    * Handle coordinator card tap — open coordinator context.
    */
   protected onCoordinatorTap(coord: CommandCategory): void {
@@ -1351,7 +1459,29 @@ export class AgentXShellWebComponent {
   }
 
   protected async onSendMessage(): Promise<void> {
-    await this.agentX.sendMessage();
+    const message = this.agentX.getUserMessage().trim();
+    if (!message) return;
+
+    // Clear the shell input immediately
+    this.agentX.setUserMessage('');
+    this.agentX.clearTask();
+
+    // Open a bottom sheet chat with the message
+    await this.bottomSheet.openSheet({
+      component: AgentXOperationChatComponent,
+      componentProps: {
+        contextId: 'agent-x-chat',
+        contextTitle: 'Agent X',
+        contextIcon: 'bolt',
+        contextType: 'command',
+        initialMessage: message,
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'agent-x-operation-sheet',
+    });
   }
 
   protected async onToggleTasks(): Promise<void> {

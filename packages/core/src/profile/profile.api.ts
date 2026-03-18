@@ -19,6 +19,7 @@ import type {
   TeamHistoryEntry,
   UserAward,
   ConnectedSource,
+  AcademicInfo,
   AthleteData,
   CoachData,
   CollegeCoachData,
@@ -99,6 +100,7 @@ export interface UpdateProfileRequest {
   // ── Team History & Awards ──────────────────────────────────────────────
   teamHistory?: TeamHistoryEntry[];
   awards?: UserAward[];
+  academics?: Partial<AcademicInfo>;
 
   // ── Connected Sources (Agent X) ────────────────────────────────────────
   connectedSources?: ConnectedSource[];

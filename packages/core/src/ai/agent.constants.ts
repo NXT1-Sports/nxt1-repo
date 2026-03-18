@@ -302,6 +302,17 @@ export const AGENT_TRIGGER_RULES: readonly AgentTriggerRule[] = [
       'Subscription changed from {{oldTier}} to {{newTier}}. Update available features and suggest newly unlocked capabilities.',
     defaultPriority: 'normal',
   },
+  {
+    type: 'daily_sync_complete',
+    name: 'Daily Sync Complete',
+    description:
+      'The nightly background scraper detected changes on an external platform (MaxPreps, Hudl, etc.).',
+    enabled: true,
+    cooldownMs: 86_400_000, // Once per day
+    intentTemplate:
+      'Daily sync on {{source}} for {{sport}} detected changes: {{totalChanges}} updates ({{statsUpdated}} stat changes, {{newCategoriesAdded}} new categories, {{newRecruitingActivities}} recruiting activities, {{newScheduleEvents}} schedule events, {{newVideos}} new videos). Review the delta report and take proactive actions — update the briefing, notify the athlete, and suggest outreach if stats improved.',
+    defaultPriority: 'normal',
+  },
 ] as const;
 
 /**

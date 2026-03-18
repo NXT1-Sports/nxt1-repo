@@ -330,6 +330,10 @@ export interface InviteLink {
   readonly qrCodeDataUrl?: string;
   /** Expiration date */
   readonly expiresAt?: string;
+  /** Team code (for team invites — used at accept time to join the roster) */
+  readonly teamCode?: string;
+  /** Human-readable team name (for team invites — display only) */
+  readonly teamName?: string;
 }
 
 // ============================================

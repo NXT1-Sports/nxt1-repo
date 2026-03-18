@@ -2078,6 +2078,18 @@ export class ProfileOverviewWebComponent implements OnDestroy {
   // ── Last synced ──
 
   protected readonly lastSyncedLabel = computed(() => {
+    const connectedSources = this.profile.user()?.connectedSources ?? [];
+    const latestConnectedSync = connectedSources
+      .map((source) => source.lastSyncedAt)
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .map((value) => new Date(value))
+      .filter((value) => !Number.isNaN(value.getTime()))
+      .sort((left, right) => right.getTime() - left.getTime())[0];
+
+    if (latestConnectedSync) {
+      return this.formatRelativeTime(latestConnectedSync);
+    }
+
     const updatedAt = this.profile.user()?.updatedAt;
     if (!updatedAt) return 'Never synced';
     const parsed = new Date(updatedAt);

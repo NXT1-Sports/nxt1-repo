@@ -4,7 +4,14 @@ import { Observable, from, of } from 'rxjs';
 import { map, tap } from 'rxjs/operators';
 import { environment } from '../../../../environments/environment';
 import { createProfileApi, type ProfileApi, type ApiResponse } from '@nxt1/core/profile';
-import { User, type ProfilePost, type NewsArticle, type ScoutReport } from '@nxt1/core';
+import {
+  User,
+  type ProfilePost,
+  type NewsArticle,
+  type ScoutReport,
+  type VerifiedStat,
+  type VerifiedMetric,
+} from '@nxt1/core';
 import type { ProfileEvent } from '@nxt1/core/profile';
 import { PROFILE_CACHE_KEYS } from '@nxt1/core/profile';
 import { CACHE_CONFIG } from '@nxt1/core/cache';
@@ -493,6 +500,24 @@ export class ProfileService {
           data: (resp.data ?? []).map((d) => this.mapTimelineDoc(d)),
         }))
       );
+  }
+
+  getProfileStats(
+    userId: string,
+    sportId: string
+  ): Observable<{ success: boolean; data: VerifiedStat[] }> {
+    return this.http.get<{ success: boolean; data: VerifiedStat[] }>(
+      `${environment.apiURL}/auth/profile/${userId}/sports/${encodeURIComponent(sportId)}/stats`
+    );
+  }
+
+  getProfileMetrics(
+    userId: string,
+    sportId: string
+  ): Observable<{ success: boolean; data: VerifiedMetric[] }> {
+    return this.http.get<{ success: boolean; data: VerifiedMetric[] }>(
+      `${environment.apiURL}/auth/profile/${userId}/sports/${encodeURIComponent(sportId)}/metrics`
+    );
   }
 
   /**

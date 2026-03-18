@@ -16,6 +16,7 @@ export { NxtUsageDashboardPreviewComponent } from './usage-dashboard-preview.com
 
 // Skeleton
 export { UsageSkeletonComponent } from './usage-skeleton.component';
+export { UsageErrorStateComponent } from './usage-error-state.component';
 
 // Help Content
 export { UsageHelpContentComponent } from './usage-help-content.component';

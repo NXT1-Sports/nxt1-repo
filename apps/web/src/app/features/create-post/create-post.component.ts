@@ -25,6 +25,7 @@ import {
   MOCK_XP_PREVIEW,
 } from '@nxt1/ui/create-post';
 import { NxtToastService } from '@nxt1/ui/services/toast';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { CreatePostState, TaggableUser, PostXpBreakdown } from '@nxt1/core';
 import { SeoService } from '../../core/services';
 
@@ -261,6 +262,7 @@ export class CreatePostComponent implements OnInit, OnDestroy {
   private readonly api = inject(CreatePostApiService);
   private readonly seo = inject(SeoService);
   private readonly toast = inject(NxtToastService);
+  private readonly logger = inject(NxtLoggingService).child('CreatePostComponent');
 
   // UI State
   protected readonly loading = signal(true);
@@ -326,7 +328,7 @@ export class CreatePostComponent implements OnInit, OnDestroy {
       this.createPostService.setIsFirstPost(false);
       this.createPostService.setStreakDays(7);
     } catch (error) {
-      console.error('Failed to load create post data:', error);
+      this.logger.error('Failed to load create post data', error);
     } finally {
       this.loading.set(false);
     }
@@ -388,12 +390,12 @@ export class CreatePostComponent implements OnInit, OnDestroy {
       // Simulate API call
       await new Promise((resolve) => setTimeout(resolve, 1500));
 
-      console.log('Post submitted:', state);
+      this.logger.info('Post submitted', { privacy: state.draft.privacy });
 
       // Navigate to success or feed
       this.router.navigate(['/feed']);
     } catch (error) {
-      console.error('Failed to create post:', error);
+      this.logger.error('Failed to create post', error);
       // TODO: Show error toast
     } finally {
       this.createPostService.setIsSubmitting(false);
@@ -405,7 +407,7 @@ export class CreatePostComponent implements OnInit, OnDestroy {
    */
   protected onAddMedia(): void {
     // TODO: Open media picker dialog
-    console.log('Add media');
+    this.logger.debug('Add media requested');
   }
 
   /**
@@ -413,7 +415,7 @@ export class CreatePostComponent implements OnInit, OnDestroy {
    */
   protected onAddTag(): void {
     // TODO: Open tag picker dialog
-    console.log('Add tag');
+    this.logger.debug('Add tag requested');
   }
 
   /**
@@ -421,7 +423,7 @@ export class CreatePostComponent implements OnInit, OnDestroy {
    */
   protected onAddLocation(): void {
     // TODO: Open location picker dialog
-    console.log('Add location');
+    this.logger.debug('Add location requested');
   }
 
   /**
@@ -429,6 +431,6 @@ export class CreatePostComponent implements OnInit, OnDestroy {
    */
   protected onAddPoll(): void {
     // TODO: Open poll editor dialog
-    console.log('Add poll');
+    this.logger.debug('Add poll requested');
   }
 }

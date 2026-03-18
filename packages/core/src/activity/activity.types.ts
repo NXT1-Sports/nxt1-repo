@@ -276,8 +276,10 @@ export interface ActivityState {
  * the exact Agent X chat thread where the task completed.
  */
 export interface AgentTaskActivityMetadata {
-  /** Agent X chat thread ID where the task was initiated */
+  /** Agent job session ID used for queue tracking and notification correlation */
   readonly sessionId: string;
+  /** Persisted Agent X chat thread ID used by /agent-x/threads/:threadId/messages */
+  readonly threadId?: string;
   /** The backend operation ID tracking this job */
   readonly operationId: string;
   /** Which sub-agent handled the task */
@@ -288,4 +290,8 @@ export interface AgentTaskActivityMetadata {
   readonly contextId?: string;
   /** The Agent X mode the task ran under */
   readonly mode?: string;
+  /** Optional rendered image output attached to the completed task */
+  readonly imageUrl?: string;
+  /** Optional rendered video output attached to the completed task */
+  readonly videoUrl?: string;
 }

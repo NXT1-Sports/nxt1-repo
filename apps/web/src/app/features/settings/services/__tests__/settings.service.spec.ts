@@ -23,6 +23,7 @@ import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { NxtBottomSheetService } from '@nxt1/ui/components/bottom-sheet';
 import { NxtBrowserService } from '@nxt1/ui/services/browser';
+import { AgentXJobService } from '@nxt1/ui/agent-x';
 import type { SettingsUserInfo, SettingsSubscription } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 
@@ -80,6 +81,14 @@ const createBrowserMock = () => ({
   openUrl: vi.fn().mockResolvedValue(undefined),
 });
 
+const createAgentXJobMock = () => ({
+  enqueue: vi.fn().mockResolvedValue({
+    jobId: 'job-123',
+    operationId: 'op-123',
+  }),
+  getStatus: vi.fn().mockResolvedValue(null),
+});
+
 // ============================================
 // TEST DATA
 // ============================================
@@ -124,6 +133,7 @@ describe('SettingsService', () => {
   let analyticsMock: ReturnType<typeof createAnalyticsMock>;
   let bottomSheetMock: ReturnType<typeof createBottomSheetMock>;
   let browserMock: ReturnType<typeof createBrowserMock>;
+  let agentXJobMock: ReturnType<typeof createAgentXJobMock>;
 
   beforeAll(() => {
     try {
@@ -149,6 +159,7 @@ describe('SettingsService', () => {
     analyticsMock = createAnalyticsMock();
     bottomSheetMock = createBottomSheetMock();
     browserMock = createBrowserMock();
+    agentXJobMock = createAgentXJobMock();
 
     TestBed.configureTestingModule({
       providers: [
@@ -160,6 +171,7 @@ describe('SettingsService', () => {
         { provide: ANALYTICS_ADAPTER, useValue: analyticsMock },
         { provide: NxtBottomSheetService, useValue: bottomSheetMock },
         { provide: NxtBrowserService, useValue: browserMock },
+        { provide: AgentXJobService, useValue: agentXJobMock },
         { provide: PLATFORM_ID, useValue: 'browser' },
       ],
     });
@@ -295,6 +307,50 @@ describe('SettingsService', () => {
     it('should set isSaving to false after completion', async () => {
       await service.updatePreference('pushNotifications', false);
       expect(service.isSaving()).toBe(false);
+    });
+  });
+
+  // ===========================================================================
+  // requestConnectedAccountsResync()
+  // ===========================================================================
+
+  describe('requestConnectedAccountsResync()', () => {
+    it('should enqueue an Agent X job for a manual re-sync request', async () => {
+      await service.requestConnectedAccountsResync([
+        {
+          platform: 'instagram',
+          label: 'Instagram',
+          username: '@alex',
+          connected: true,
+        },
+      ]);
+
+      expect(agentXJobMock.enqueue).toHaveBeenCalledTimes(1);
+      expect(agentXJobMock.enqueue.mock.calls[0]?.[0]).toContain('Re-sync my connected accounts');
+      expect(agentXJobMock.enqueue.mock.calls[0]?.[1]).toMatchObject({
+        source: 'settings_connected_accounts',
+        trigger: 'manual_resync',
+        requestedAccounts: [
+          expect.objectContaining({
+            platform: 'instagram',
+            label: 'Instagram',
+            username: '@alex',
+          }),
+        ],
+      });
+      expect(toastMock.success).toHaveBeenCalledWith(
+        'Re-sync started. Agent X is refreshing your connected accounts.'
+      );
+    });
+
+    it('should show an error toast when the job cannot be enqueued', async () => {
+      agentXJobMock.enqueue.mockResolvedValueOnce(null);
+
+      await service.requestConnectedAccountsResync();
+
+      expect(toastMock.error).toHaveBeenCalledWith(
+        'Unable to start re-sync right now. Please try again.'
+      );
     });
   });
 

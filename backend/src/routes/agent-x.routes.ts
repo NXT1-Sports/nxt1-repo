@@ -487,6 +487,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
           ? new Date(createdAt.toMillis()).toISOString()
           : new Date().toISOString(),
         duration: computeDuration(createdAt, completedAt),
+        threadId: (job['threadId'] as string) ?? undefined,
         metadata: {
           origin: job['origin'],
           agent: (result as Record<string, unknown> | null)?.['agent'] ?? null,
@@ -522,48 +523,53 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     // Coordinators are role-determined (static, no AI needed)
     const shellContent = getShellContentForRole(role);
 
-    // Fetch active operations from Firestore (top-level agentJobs collection)
-    // These are written by the AgentJobRepository during job processing.
-    // Filter for all non-terminal statuses to catch every in-flight job.
+    // Fetch daily operations from Firestore (top-level agentJobs collection).
+    // Use the same persisted recent-jobs source as the Activity Log, then
+    // filter in memory. This avoids composite-index drift and keeps the
+    // dashboard aligned with what users already see in the log.
     let activeOperations: ShellActiveOperation[] = [];
-    try {
-      const opsSnapshot = await db
-        .collection('agentJobs')
-        .where('userId', '==', user.uid)
-        .where('status', 'in', [
-          'queued',
-          'thinking',
-          'acting',
-          'awaiting_approval',
-          'streaming_result',
-        ])
-        .orderBy('createdAt', 'desc')
-        .limit(10)
-        .get();
+    if (jobRepository) {
+      try {
+        const jobs = await jobRepository.withDb(db).getByUser(user.uid, 50);
+        const todayStartMs = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
 
-      activeOperations = opsSnapshot.docs.map((doc) => {
-        const d = doc.data();
-        const progress = d['progress'] as Record<string, unknown> | null;
-        return {
-          id: doc.id,
-          label: ((d['intent'] as string | undefined)?.slice(0, 60) ?? 'Processing...') as string,
-          progress: typeof progress?.['percent'] === 'number' ? (progress['percent'] as number) : 0,
-          icon: 'sparkles' as string,
-          status:
-            d['status'] === 'completed'
-              ? ('complete' as const)
-              : d['status'] === 'failed' || d['status'] === 'cancelled'
-                ? ('error' as const)
-                : ('processing' as const),
-        };
-      });
-    } catch (opsErr) {
-      // Graceful degradation — composite index may not exist yet
-      const opsError = opsErr instanceof Error ? opsErr : new Error(String(opsErr));
-      logger.warn('Failed to fetch agent operations (composite index may be missing)', {
-        error: opsError.message,
-        userId: user.uid,
-      });
+        activeOperations = jobs
+          .filter((job) => {
+            const status = (job['status'] as string) ?? '';
+            if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+              const completedAt = job['completedAt'] as Timestamp | null | undefined;
+              return completedAt ? completedAt.toMillis() >= todayStartMs : false;
+            }
+            return true;
+          })
+          .slice(0, 10)
+          .map((job) => {
+            const progress = job['progress'] as Record<string, unknown> | null;
+            const mappedStatus = mapJobStatus((job['status'] as string) ?? '');
+            return {
+              id: (job['operationId'] as string) ?? '',
+              label: ((job['intent'] as string | undefined)?.slice(0, 60) ??
+                'Processing...') as string,
+              progress:
+                typeof progress?.['percent'] === 'number' ? (progress['percent'] as number) : 0,
+              icon: 'sparkles' as string,
+              status:
+                mappedStatus === 'complete'
+                  ? ('complete' as const)
+                  : mappedStatus === 'error' || mappedStatus === 'cancelled'
+                    ? ('error' as const)
+                    : ('processing' as const),
+              // Pass the Mongo thread ID so the frontend can open the real worker logs.
+              threadId: (job['threadId'] as string) || undefined,
+            };
+          });
+      } catch (opsErr) {
+        const opsError = opsErr instanceof Error ? opsErr : new Error(String(opsErr));
+        logger.warn('Failed to fetch agent operations from job repository', {
+          error: opsError.message,
+          userId: user.uid,
+        });
+      }
     }
 
     // Fetch generated briefing (or fall back to static defaults)

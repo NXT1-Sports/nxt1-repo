@@ -35,6 +35,21 @@ export const ACTIVITY_API_BASE_URL = new InjectionToken<string>('ACTIVITY_API_BA
 });
 
 /**
+ * Platform adapter token for the Activity API.
+ *
+ * Each platform provides its own HTTP implementation:
+ * - Web:    `{ provide: ACTIVITY_API_ADAPTER, useExisting: WebActivityApiService }`
+ * - Mobile: `{ provide: ACTIVITY_API_ADAPTER, useExisting: MobileActivityApiService }`
+ *
+ * Falls back to the shared `ActivityApiService` (Angular HttpClient) if not provided.
+ * This is the same pattern as `SETTINGS_PERSISTENCE_ADAPTER` and `HELP_CENTER_API`.
+ */
+export const ACTIVITY_API_ADAPTER = new InjectionToken<ActivityApi>('ACTIVITY_API_ADAPTER', {
+  providedIn: 'root',
+  factory: () => inject(ActivityApiService),
+});
+
+/**
  * Activity API Service.
  * Angular adapter for the pure TypeScript Activity API.
  */

@@ -14,4 +14,8 @@ export { ActivitySkeletonComponent } from './activity-skeleton.component';
 
 // Services
 export { ActivityService } from './activity.service';
-export { ActivityApiService, ACTIVITY_API_BASE_URL } from './activity-api.service';
+export {
+  ActivityApiService,
+  ACTIVITY_API_BASE_URL,
+  ACTIVITY_API_ADAPTER,
+} from './activity-api.service';

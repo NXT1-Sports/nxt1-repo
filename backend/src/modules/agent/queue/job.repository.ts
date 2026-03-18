@@ -49,6 +49,8 @@ export interface AgentJobDocument {
   readonly progress: AgentJobProgress | null;
   readonly result: AgentOperationResult | null;
   readonly error: string | null;
+  /** MongoDB thread ID linking this job to its Agent X conversation thread. */
+  readonly threadId: string | null;
   readonly createdAt: FirebaseFirestore.Timestamp;
   readonly updatedAt: FirebaseFirestore.Timestamp;
   readonly completedAt: FirebaseFirestore.Timestamp | null;
@@ -90,6 +92,7 @@ export class AgentJobRepository {
         progress: null,
         result: null,
         error: null,
+        threadId: (payload.context?.['threadId'] as string) ?? null,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
         completedAt: null,

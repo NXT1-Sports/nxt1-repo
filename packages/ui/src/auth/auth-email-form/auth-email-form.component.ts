@@ -656,23 +656,13 @@ export class AuthEmailFormComponent {
   }
 
   onSubmit(): void {
-    console.log('[AuthEmailForm] onSubmit called', {
-      isFormValid: this.isFormValid(),
-      loading: this.loading,
-      mode: this.mode,
-      email: this.email,
-      passwordLength: this.password.length,
-    });
     if (!this.isFormValid() || this.loading) {
-      console.log('[AuthEmailForm] Form invalid or loading, not submitting');
       return;
     }
 
     // Build display name from first/last if available
     const displayName =
       [this.firstName, this.lastName].filter(Boolean).join(' ').trim() || undefined;
-
-    console.log('[AuthEmailForm] Emitting submitForm event');
     this.submitForm.emit({
       email: this.email.trim(),
       password: this.password,

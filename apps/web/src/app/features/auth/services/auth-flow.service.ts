@@ -59,16 +59,18 @@ import { AuthApiService } from './auth-api.service';
 import { AuthErrorHandler } from '@nxt1/ui/services/auth-error';
 import { FileUploadService } from '../../../core/services';
 import { InviteApiService } from '@nxt1/ui/invite';
-import { PENDING_REFERRAL_KEY } from '../../join/join.component';
+import { PENDING_REFERRAL_KEY, type PendingReferral } from '../../join/join.component';
 import {
   type UserRole,
   type AuthState as CoreAuthState,
   type AuthStateManager,
   type AuthUser,
+  USER_ROLES,
   createAuthStateManager,
   createBrowserStorageAdapter,
   createMemoryStorageAdapter,
   INITIAL_AUTH_STATE,
+  INVITE_TEAM_JOINED_KEY,
 } from '@nxt1/core';
 import {
   type IAuthFlowService,
@@ -519,8 +521,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               planTier: currentUser.isPremium ? 'premium' : null,
               onboardingCompleted: true, // Preserve the completed status
               completeSignUp: true,
-              isCollegeCoach: currentUser.role === 'recruiter',
-              isRecruit: currentUser.role === 'athlete',
+              isCollegeCoach: currentUser.role === USER_ROLES.RECRUITER,
+              isRecruit: currentUser.role === USER_ROLES.ATHLETE,
               profileImg: currentUser.profileImg ?? null,
               sports: [],
             };
@@ -839,12 +841,19 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       const raw = sessionStorage.getItem(PENDING_REFERRAL_KEY);
       if (!raw) return;
 
-      const referral = JSON.parse(raw) as { code?: string };
+      const referral = JSON.parse(raw) as PendingReferral;
       if (!referral.code) return;
 
-      this.logger.info('Accepting pending invite', { code: referral.code });
-      await this.inviteApi.acceptInvite(referral.code);
+      this.logger.info('Accepting pending invite', {
+        code: referral.code,
+        teamCode: referral.teamCode,
+        role: referral.role,
+      });
+      await this.inviteApi.acceptInvite(referral.code, referral.teamCode, referral.role);
       this.logger.info('Invite accepted successfully', { code: referral.code });
+
+      // Signal onboarding to skip the team-selection step
+      sessionStorage.setItem(INVITE_TEAM_JOINED_KEY, 'true');
     } catch (err) {
       // Non-blocking — invite acceptance failure should not break signup
       this.logger.warn('Failed to accept pending invite', {

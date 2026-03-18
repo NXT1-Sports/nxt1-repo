@@ -55,6 +55,7 @@ import {
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { HapticsService } from '../../services/haptics';
+import { NxtLoggingService } from '../../services/logging';
 
 /** Feature highlight for "what's next" section */
 interface FeatureHighlight {
@@ -489,6 +490,7 @@ export class OnboardingCompleteComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly haptics = inject(HapticsService);
   private readonly platformId = inject(PLATFORM_ID);
+  private readonly logger = inject(NxtLoggingService).child('OnboardingComplete');
 
   // ============================================
   // INPUTS
@@ -580,11 +582,11 @@ export class OnboardingCompleteComponent implements OnInit, OnDestroy {
     try {
       const result = await this.router.navigate([this.redirectRoute]);
       if (!result) {
-        console.error('[OnboardingComplete] Navigation failed, trying navigateByUrl');
+        this.logger.warn('Navigation failed, trying navigateByUrl');
         await this.router.navigateByUrl(this.redirectRoute);
       }
     } catch (err) {
-      console.error('[OnboardingComplete] Navigation error:', err);
+      this.logger.error('Navigation error', err);
       // Fallback to direct location change
       if (this.isBrowser) {
         window.location.href = this.redirectRoute;

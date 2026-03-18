@@ -78,6 +78,24 @@ const SAMPLE_HTML_WITH_EMBEDDED_DATA = `<!DOCTYPE html>
 </body>
 </html>`;
 
+const SAMPLE_HTML_WITH_HUDL_CDN_VIDEOS = `<!DOCTYPE html>
+<html>
+<head>
+<title>Ryder Lyons - Hudl</title>
+<meta property="og:title" content="Ryder Lyons on Hudl" />
+</head>
+<body>
+<script>window.__hudlEmbed={"highlights":[
+{"videoUrl":"https://vi.hudl.com/p-highlights/User/16389887/6121dfa50dc02a09e0c6b671/bebbc27c_360.mp4?v=2","title":"Junior Highlights"},
+{"videoUrl":"https://vi.hudl.com/p-highlights/User/16389887/6121dfa50dc02a09e0c6b671/bebbc27c_480.mp4?v=2","title":"Junior Highlights"},
+{"videoUrl":"https://vi.hudl.com/p-highlights/User/16389887/6121dfa50dc02a09e0c6b671/bebbc27c_720.mp4?v=2","title":"Junior Highlights"},
+{"videoUrl":"https://vc.hudl.com/p-highlights/User/16389887/7234ef120abc34f1a2d8e982/cc11dd22_360.mp4?v=1","title":"Sophomore Season"},
+{"videoUrl":"https://vc.hudl.com/p-highlights/User/16389887/7234ef120abc34f1a2d8e982/cc11dd22_720.mp4?v=1","title":"Sophomore Season"}
+]};</script>
+<main><h1>Ryder Lyons</h1></main>
+</body>
+</html>`;
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /** Mock a successful direct HTML fetch (call index 0). */
@@ -308,6 +326,48 @@ describe('ScraperService', () => {
 
       expect(result.pageData?.colors).toBeDefined();
       expect(result.pageData?.colors.length).toBeGreaterThan(0);
+    });
+
+    it('should extract Hudl CDN video URLs and pick highest quality per highlight', async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_HUDL_CDN_VIDEOS))
+        .mockResolvedValueOnce(mockFailed());
+
+      const result = await service.scrape({ url: 'https://www.hudl.com/profile/16389887' });
+
+      const videos = result.pageData?.videos ?? [];
+      // Should have exactly 2 videos (one per highlight), not 5 (all quality variants)
+      expect(videos.length).toBe(2);
+      // Should pick 720p (highest quality) for both highlights
+      expect(videos.every((v) => v.src.includes('_720.mp4'))).toBe(true);
+      expect(videos.every((v) => v.provider === 'hudl')).toBe(true);
+    });
+
+    it('should extract videoId (highlight ID) from Hudl CDN URLs', async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_HUDL_CDN_VIDEOS))
+        .mockResolvedValueOnce(mockFailed());
+
+      const result = await service.scrape({ url: 'https://www.hudl.com/profile/16389887' });
+
+      const videos = result.pageData?.videos ?? [];
+      const videoIds = videos.map((v) => v.videoId).sort();
+      expect(videoIds).toEqual(['6121dfa50dc02a09e0c6b671', '7234ef120abc34f1a2d8e982']);
+    });
+
+    it('should extract Hudl CDN videos from both vi.hudl.com and vc.hudl.com domains', async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_HUDL_CDN_VIDEOS))
+        .mockResolvedValueOnce(mockFailed());
+
+      const result = await service.scrape({ url: 'https://www.hudl.com/profile/16389887' });
+
+      const videos = result.pageData?.videos ?? [];
+      // First highlight is on vi.hudl.com, second on vc.hudl.com
+      const viVideos = videos.filter((v) => v.src.includes('vi.hudl.com'));
+      const vcVideos = videos.filter((v) => v.src.includes('vc.hudl.com'));
+      expect(viVideos.length).toBe(1);
+      expect(vcVideos.length).toBe(1);
     });
 
     it('should reject non-HTML content types in direct fetch', async () => {

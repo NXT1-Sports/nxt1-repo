@@ -12,12 +12,14 @@ import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../middleware/auth.middleware.js';
 import { validateBody } from '../middleware/validation.middleware.js';
 import {
-  CreateInviteLinkDto,
   SendInviteDto,
   SendBulkInvitesDto,
   ValidateInviteDto,
   AcceptInviteDto,
 } from '../dtos/teams.dto.js';
+import * as teamCodeService from '../services/team-code.service.js';
+import { ROLE } from '@nxt1/core/models';
+import { TeamMemberRole } from '../dtos/teams.dto.js';
 import { logger } from '../utils/logger.js';
 import { INVITE_UI_CONFIG } from '@nxt1/core';
 import type { InviteType, InviteChannel, InviteStatus } from '@nxt1/core';
@@ -55,6 +57,8 @@ interface UserDoc {
 
 interface TeamDoc {
   name?: string;
+  teamCode?: string;
+  teamName?: string;
   createdBy?: string;
   admins?: string[];
   coaches?: string[];
@@ -170,56 +174,72 @@ async function getOrCreateStats(
  * POST /api/v1/invite/link
  * Generate a personalized invite link for the authenticated user.
  *
- * Body: { type?: InviteType, teamId?: string }
+ * Query or Body: { type?: InviteType, teamId?: string }
  * Returns: { success: true, data: InviteLink }
  */
-router.post(
-  '/link',
-  appGuard,
-  validateBody(CreateInviteLinkDto),
-  async (req: Request, res: Response) => {
-    try {
-      const userId = req.user!.uid;
-      const db = req.firebase.db;
-      const isStaging = req.isStaging;
-      const { type = 'general', teamId } = req.body as { type?: InviteType; teamId?: string };
+router.post('/link', appGuard, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.uid;
+    const db = req.firebase.db;
+    const isStaging = req.isStaging;
+    // Support both query params (frontend sends here) and body
+    const type: InviteType =
+      ((req.query['type'] ?? req.body?.type) as InviteType | undefined) ?? 'general';
+    const teamId: string | undefined =
+      (req.query['teamId'] as string | undefined) ?? req.body?.teamId;
 
-      if (type && !VALID_INVITE_TYPES.includes(type)) {
-        return res.status(400).json({ success: false, error: 'Invalid invite type' });
-      }
-
-      // Get or create persistent referral code
-      const referralCode = await getOrCreateReferralCode(db, userId);
-      const baseUrl = getAppBaseUrl(isStaging);
-
-      // Build the invite URL with attribution parameters
-      const params = new URLSearchParams({
-        ref: userId,
-        code: referralCode,
-        type,
-      });
-      if (teamId) params.set('team', teamId);
-
-      const url = `${baseUrl}/join/${referralCode}?${params.toString()}`;
-      const shortUrl = `${baseUrl.replace('https://', '')}/join/${referralCode}`;
-
-      // Calculate expiration
-      const expiresAt = new Date(
-        Date.now() + INVITE_UI_CONFIG.linkExpirationDays * 24 * 60 * 60 * 1000
-      ).toISOString();
-
-      logger.info('[POST /invite/link] Generated invite link', { userId, referralCode, type });
-
-      return res.json({
-        success: true,
-        data: { url, shortUrl, referralCode, expiresAt },
-      });
-    } catch (error) {
-      logger.error('[POST /invite/link] Failed', { error });
-      return res.status(500).json({ success: false, error: 'Failed to generate invite link' });
+    if (type && !VALID_INVITE_TYPES.includes(type)) {
+      return res.status(400).json({ success: false, error: 'Invalid invite type' });
     }
+
+    // Get or create persistent referral code
+    const referralCode = await getOrCreateReferralCode(db, userId);
+    const baseUrl = getAppBaseUrl(isStaging);
+
+    // When it's a team invite, look up teamCode + teamName to embed in the URL
+    let teamCode: string | undefined;
+    let teamName: string | undefined;
+    if (teamId) {
+      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
+      const teamData = teamDoc.data() as TeamDoc | undefined;
+      teamCode = teamData?.teamCode ?? undefined;
+      teamName = teamData?.name ?? teamData?.teamName ?? undefined;
+    }
+
+    // Build the invite URL.
+    // The inviter UID can be resolved later from the referral code itself,
+    // so we keep share links clean and only include team-specific context.
+    const params = new URLSearchParams();
+    if (type !== 'general') params.set('type', type);
+    if (teamCode) params.set('teamCode', teamCode);
+    if (teamName) params.set('teamName', teamName);
+
+    const path = `/join/${referralCode}`;
+    const query = params.toString();
+    const url = `${baseUrl}${path}${query ? `?${query}` : ''}`;
+    const shortUrl = url;
+
+    // Calculate expiration
+    const expiresAt = new Date(
+      Date.now() + INVITE_UI_CONFIG.linkExpirationDays * 24 * 60 * 60 * 1000
+    ).toISOString();
+
+    logger.info('[POST /invite/link] Generated invite link', {
+      userId,
+      referralCode,
+      type,
+      teamCode,
+    });
+
+    return res.json({
+      success: true,
+      data: { url, shortUrl, referralCode, expiresAt, teamCode, teamName },
+    });
+  } catch (error) {
+    logger.error('[POST /invite/link] Failed', { error });
+    return res.status(500).json({ success: false, error: 'Failed to generate invite link' });
   }
-);
+});
 
 /**
  * POST /api/v1/invite/send
@@ -591,6 +611,7 @@ router.post('/validate', validateBody(ValidateInviteDto), async (req: Request, r
       success: true,
       data: {
         valid: true,
+        inviterUid: inviterDoc.id,
         inviterName:
           `${inviterData.firstName ?? ''} ${inviterData.lastName ?? ''}`.trim() || 'NXT1 User',
         inviterAvatar: inviterData.profileImgs?.[0] ?? null,
@@ -604,9 +625,11 @@ router.post('/validate', validateBody(ValidateInviteDto), async (req: Request, r
 
 /**
  * POST /api/v1/invite/accept
- * Accept an invite — links the new user to the inviter, awards XP to both.
+ * Accept an invite — links the new user to the inviter.
+ * If teamCode + role are provided, also adds the user to the team roster.
+ * Staff roles (Coach, Administrative) are added with pending status for admin approval.
  *
- * Body: { code: string }
+ * Body: { code: string, teamCode?: string, role?: TeamMemberRole }
  */
 router.post(
   '/accept',
@@ -616,11 +639,11 @@ router.post(
     try {
       const userId = req.user!.uid;
       const db = req.firebase.db;
-      const { code } = req.body as { code?: string };
-
-      if (!code || typeof code !== 'string') {
-        return res.status(400).json({ success: false, error: 'Missing referral code' });
-      }
+      const { code, teamCode, role } = req.body as {
+        code: string;
+        teamCode?: string;
+        role?: TeamMemberRole;
+      };
 
       // Find inviter by referral code
       const usersSnapshot = await db
@@ -665,6 +688,7 @@ router.post(
         .get();
 
       let teamJoined: string | undefined;
+      let joinedAsPending = false;
 
       if (!pendingInvites.empty) {
         const inviteRef = pendingInvites.docs[0].ref;
@@ -680,25 +704,64 @@ router.post(
         { merge: true }
       );
 
-      // Award XP to inviter
-      const inviterStatsRef = db.collection(INVITE_STATS_COLLECTION).doc(inviterId);
-      const inviterStats = await inviterStatsRef.get();
-      if (inviterStats.exists) {
-        const data = inviterStats.data() as InviteStatsDoc;
-        batch.update(inviterStatsRef, {
-          accepted: (data.accepted ?? 0) + 1,
-          pending: Math.max(0, (data.pending ?? 0) - 1),
-          updatedAt: now,
-        });
-      }
-
       await batch.commit();
 
-      logger.info('[POST /invite/accept] Invite accepted', { userId, inviterId, code });
+      // ── Team join (outside the batch; uses its own Firestore operations) ──
+      if (teamCode) {
+        try {
+          const userDoc = await db.collection(USERS_COLLECTION).doc(userId).get();
+          const userData = userDoc.data() as UserDoc | undefined;
+
+          // Staff roles (Coach / Administrative) are added as pending for admin approval.
+          // All other roles (Athlete, Parent, Media) join immediately.
+          const isStaffRole =
+            role === TeamMemberRole.COACH || role === TeamMemberRole.ADMINISTRATIVE;
+
+          // Map TeamMemberRole → ROLE enum used by joinTeam
+          const roleMap: Partial<Record<TeamMemberRole, ROLE>> = {
+            [TeamMemberRole.ATHLETE]: ROLE.athlete,
+            [TeamMemberRole.COACH]: ROLE.coach,
+            [TeamMemberRole.ADMINISTRATIVE]: ROLE.admin,
+            [TeamMemberRole.MEDIA]: ROLE.media,
+          };
+          const mappedRole = role ? (roleMap[role] ?? ROLE.athlete) : ROLE.athlete;
+
+          const team = await teamCodeService.joinTeam(db, {
+            userId,
+            teamCode,
+            role: mappedRole,
+            userProfile: {
+              firstName: userData?.firstName ?? '',
+              lastName: userData?.lastName ?? '',
+              email: userData?.email ?? '',
+            },
+          });
+
+          teamJoined = team.teamName ?? teamJoined;
+          joinedAsPending = isStaffRole;
+
+          logger.info('[POST /invite/accept] User joined team via invite', {
+            userId,
+            teamCode,
+            role: mappedRole,
+            pending: joinedAsPending,
+          });
+        } catch (teamErr) {
+          // Non-blocking — if team join fails (e.g. team full), invite is still accepted
+          logger.warn('[POST /invite/accept] Team join failed (non-blocking)', {
+            userId,
+            teamCode,
+            error: teamErr instanceof Error ? teamErr.message : String(teamErr),
+          });
+        }
+      }
+
+      logger.info('[POST /invite/accept] Invite accepted', { userId, inviterId, code, teamCode });
 
       return res.json({
         success: true,
         teamJoined,
+        joinedAsPending,
       });
     } catch (error) {
       logger.error('[POST /invite/accept] Failed', { error });

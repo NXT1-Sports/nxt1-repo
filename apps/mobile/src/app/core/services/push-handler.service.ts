@@ -31,7 +31,7 @@ import {
 } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import { ActivityService } from '../../features/activity/services';
+import { ActivityService } from '@nxt1/ui';
 import { AgentXService } from '../../features/agent-x/services';
 
 /**
@@ -164,8 +164,9 @@ export class PushHandlerService {
       hasDeepLink: !!data.deepLink,
     });
 
-    // Increment badge on the agent tab
-    this.activityService.incrementBadge('agent');
+    // Refresh badge counts from backend (source of truth).
+    // The shell's poll would catch it at 60s; this gives instant update.
+    void this.activityService.refreshBadges();
     this._unreadPushCount.update((c) => c + 1);
 
     // Haptic tap for attention
@@ -178,6 +179,11 @@ export class PushHandlerService {
         content: body,
         imageUrl: data.imageUrl,
         source: 'foreground_push',
+      });
+
+      this.queuePendingThreadFromDeepLink(data.deepLink, {
+        title,
+        operationId: data.operationId,
       });
 
       void this.navController.navigateForward('/agent');
@@ -254,6 +260,11 @@ export class PushHandlerService {
         source: 'background_push',
       });
 
+      this.queuePendingThreadFromDeepLink(data.deepLink, {
+        title: action.notification.title ?? 'Agent X',
+        operationId: data.operationId,
+      });
+
       void this.navController.navigateForward('/agent');
       return;
     }
@@ -278,6 +289,12 @@ export class PushHandlerService {
     try {
       // Normalize deep links: web uses /agent-x, mobile uses /agent
       const normalizedLink = deepLink.replace(/^\/agent-x(?=[/?]|$)/, '/agent');
+
+      if (normalizedLink.startsWith('/agent')) {
+        this.queuePendingThreadFromDeepLink(normalizedLink, {
+          title: 'Agent X',
+        });
+      }
 
       this.logger.info('Navigating to push deep link', { deepLink, normalizedLink });
       void this.breadcrumbs.trackNavigation('push-notification', normalizedLink);
@@ -322,6 +339,37 @@ export class PushHandlerService {
    */
   private isAgentMediaNotification(data: PushData): boolean {
     return !!(data.imageUrl && data.deepLink && data.deepLink.includes('agent'));
+  }
+
+  /**
+   * Extract a thread ID from an agent deep link and queue it for the Agent X shell.
+   */
+  private queuePendingThreadFromDeepLink(
+    deepLink: string | undefined,
+    options: { title: string; operationId?: string }
+  ): void {
+    if (!deepLink) return;
+
+    try {
+      const normalizedLink = deepLink.replace(/^\/agent-x(?=[/?]|$)/, '/agent');
+      if (!normalizedLink.startsWith('/agent')) return;
+
+      const url = new URL(normalizedLink, 'https://nxt1.local');
+      const threadId = url.searchParams.get('thread');
+      if (!threadId) return;
+
+      this.agentX.queuePendingThread({
+        threadId,
+        title: options.title,
+        operationId: options.operationId,
+        icon: 'sparkles',
+      });
+    } catch (error) {
+      this.logger.warn('Failed to queue pending thread from push deep link', {
+        deepLink,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**

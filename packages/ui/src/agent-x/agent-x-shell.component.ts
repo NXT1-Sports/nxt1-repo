@@ -34,6 +34,7 @@ import {
   signal,
   computed,
   afterNextRender,
+  effect,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -42,21 +43,18 @@ import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import { NxtIconComponent } from '../components/icon';
 import { AgentXService } from './agent-x.service';
-import { AgentXChatComponent } from './agent-x-chat.component';
+
 import { AgentXInputComponent } from './agent-x-input.component';
 import {
   AgentXOperationChatComponent,
   type OperationQuickAction,
 } from './agent-x-operation-chat.component';
+import { AgentXDashboardSkeletonComponent } from './agent-x-dashboard-skeleton.component';
 import { AgentXOperationsLogComponent } from './agent-x-operations-log.component';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
-import {
-  getShellContentForRole,
-  type ShellWeeklyPlaybookItem,
-  type ShellActiveOperation,
-} from '@nxt1/core/ai';
+import { type ShellWeeklyPlaybookItem, type ShellActiveOperation } from '@nxt1/core/ai';
 
 // ============================================
 // INTERFACES
@@ -76,6 +74,8 @@ export interface ActiveOperation {
   readonly progress: number; // 0–100
   readonly icon: string;
   readonly status: 'processing' | 'complete' | 'error';
+  /** MongoDB thread ID — when set, opening this card loads the persisted worker conversation. */
+  readonly threadId?: string;
 }
 
 /** A contextual action chip for quick workflows. */
@@ -131,7 +131,7 @@ export interface WeeklyPlaybookItem {
     NxtPageHeaderComponent,
     NxtRefresherComponent,
     NxtIconComponent,
-    AgentXChatComponent,
+    AgentXDashboardSkeletonComponent,
     AgentXInputComponent,
   ],
   template: `
@@ -165,7 +165,7 @@ export interface WeeklyPlaybookItem {
           pageHeaderSlot="end"
           type="button"
           class="agent-history-action"
-          aria-label="Activity log"
+          aria-label="Agent Logs"
           (click)="onActivityLogClick()"
         >
           <nxt1-icon name="time" [size]="22" className="agent-history-icon" />
@@ -178,8 +178,12 @@ export interface WeeklyPlaybookItem {
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
       <div class="agent-x-container">
+        @if (agentX.dashboardLoading() && !agentX.dashboardLoaded()) {
+          <nxt1-agent-x-dashboard-skeleton />
+        }
+
         <!-- ═══ 1. DAILY BRIEFING ═══ -->
-        @if (agentX.isEmpty()) {
+        @if (!agentX.dashboardLoading()) {
           <section class="briefing-section" aria-label="Daily briefing">
             <!-- AI Pulse Indicator -->
             <div class="briefing-status">
@@ -212,7 +216,79 @@ export interface WeeklyPlaybookItem {
               }
             </div>
 
-            <!-- ═══ 2. COORDINATORS (2×2 Grid) ═══ -->
+            <!-- ═══ 2. DAILY OPERATIONS (Conditional) ═══ -->
+            @if (activeOperations().length > 0) {
+              <section class="operations-section" aria-label="Daily operations">
+                <h3 class="section-title">Daily Operations</h3>
+                <div class="operations-scroll">
+                  @for (op of activeOperations(); track op.id) {
+                    <button
+                      type="button"
+                      class="operation-card"
+                      [class.operation-card--processing]="op.status === 'processing'"
+                      [class.operation-card--complete]="op.status === 'complete'"
+                      [class.operation-card--error]="op.status === 'error'"
+                      (click)="onOperationTap(op)"
+                    >
+                      <!-- Top row: task icon + label -->
+                      <div class="operation-top">
+                        <div class="operation-icon">
+                          <nxt1-icon [name]="op.icon" [size]="14" />
+                        </div>
+                        <span class="operation-label">{{ op.label }}</span>
+                      </div>
+
+                      <!-- Progress bar -->
+                      <div
+                        class="operation-progress"
+                        [class.operation-progress--complete]="op.status === 'complete'"
+                        [class.operation-progress--error]="op.status === 'error'"
+                      >
+                        <div
+                          class="operation-progress-bar"
+                          [class.operation-progress-bar--processing]="op.status === 'processing'"
+                          [class.operation-progress-bar--complete]="op.status === 'complete'"
+                          [class.operation-progress-bar--error]="op.status === 'error'"
+                          [style.width.%]="op.status === 'complete' ? 100 : op.progress"
+                        ></div>
+                      </div>
+
+                      <!-- Bottom row: status badge + spinner/icon -->
+                      <div class="operation-status-row">
+                        @switch (op.status) {
+                          @case ('processing') {
+                            <span class="operation-status-badge operation-status-badge--processing">
+                              In progress
+                            </span>
+                            <span class="operation-spinner">
+                              <nxt1-icon name="refresh" [size]="12" />
+                            </span>
+                          }
+                          @case ('complete') {
+                            <span class="operation-status-badge operation-status-badge--complete">
+                              Complete
+                            </span>
+                            <span class="operation-status-icon operation-status-icon--complete">
+                              <nxt1-icon name="checkmarkCircle" [size]="12" />
+                            </span>
+                          }
+                          @case ('error') {
+                            <span class="operation-status-badge operation-status-badge--error">
+                              Failed
+                            </span>
+                            <span class="operation-status-icon operation-status-icon--error">
+                              <nxt1-icon name="alertCircle" [size]="12" />
+                            </span>
+                          }
+                        }
+                      </div>
+                    </button>
+                  }
+                </div>
+              </section>
+            }
+
+            <!-- ═══ 3. COORDINATORS (2×2 Grid) ═══ -->
             <section class="coordinators-section" aria-label="Coordinators">
               <h3 class="section-title">Coordinators</h3>
               <div class="coordinators-grid">
@@ -227,7 +303,7 @@ export interface WeeklyPlaybookItem {
               </div>
             </section>
 
-            <!-- ═══ 3. WEEKLY PLAYBOOK (Always Visible) ═══ -->
+            <!-- ═══ 4. WEEKLY PLAYBOOK (Always Visible) ═══ -->
             <section class="playbook-section" aria-label="Weekly playbook">
               <div class="playbook-section-header">
                 <div class="playbook-title-row">
@@ -374,91 +450,14 @@ export interface WeeklyPlaybookItem {
                 </div>
               }
             </section>
-
-            <!-- ═══ 4. DAILY OPERATIONS (Conditional) ═══ -->
-            @if (activeOperations().length > 0) {
-              <section class="operations-section" aria-label="Daily operations">
-                <h3 class="section-title">Daily Operations</h3>
-                <div class="operations-scroll">
-                  @for (op of activeOperations(); track op.id) {
-                    <button
-                      type="button"
-                      class="operation-card"
-                      [class.operation-card--processing]="op.status === 'processing'"
-                      [class.operation-card--complete]="op.status === 'complete'"
-                      [class.operation-card--error]="op.status === 'error'"
-                      (click)="onOperationTap(op)"
-                    >
-                      <!-- Top row: task icon + label -->
-                      <div class="operation-top">
-                        <div class="operation-icon">
-                          <nxt1-icon [name]="op.icon" [size]="14" />
-                        </div>
-                        <span class="operation-label">{{ op.label }}</span>
-                      </div>
-
-                      <!-- Progress bar -->
-                      <div
-                        class="operation-progress"
-                        [class.operation-progress--complete]="op.status === 'complete'"
-                        [class.operation-progress--error]="op.status === 'error'"
-                      >
-                        <div
-                          class="operation-progress-bar"
-                          [class.operation-progress-bar--processing]="op.status === 'processing'"
-                          [class.operation-progress-bar--complete]="op.status === 'complete'"
-                          [class.operation-progress-bar--error]="op.status === 'error'"
-                          [style.width.%]="op.status === 'complete' ? 100 : op.progress"
-                        ></div>
-                      </div>
-
-                      <!-- Bottom row: status badge + spinner/icon -->
-                      <div class="operation-status-row">
-                        @switch (op.status) {
-                          @case ('processing') {
-                            <span class="operation-status-badge operation-status-badge--processing">
-                              In progress
-                            </span>
-                            <span class="operation-spinner">
-                              <nxt1-icon name="refresh" [size]="12" />
-                            </span>
-                          }
-                          @case ('complete') {
-                            <span class="operation-status-badge operation-status-badge--complete">
-                              Complete
-                            </span>
-                            <span class="operation-status-icon operation-status-icon--complete">
-                              <nxt1-icon name="checkmarkCircle" [size]="12" />
-                            </span>
-                          }
-                          @case ('error') {
-                            <span class="operation-status-badge operation-status-badge--error">
-                              Failed
-                            </span>
-                            <span class="operation-status-icon operation-status-icon--error">
-                              <nxt1-icon name="alertCircle" [size]="12" />
-                            </span>
-                          }
-                        }
-                      </div>
-                    </button>
-                  }
-                </div>
-              </section>
-            }
           </section>
-        }
-
-        <!-- ═══ CHAT MESSAGES ═══ -->
-        @if (!agentX.isEmpty()) {
-          <nxt1-agent-x-chat [messages]="agentX.messages()" />
         }
       </div>
     </ion-content>
 
     <!-- ═══ INPUT BAR — Fixed above footer ═══ -->
     <nxt1-agent-x-input
-      [hasMessages]="!agentX.isEmpty()"
+      [hasMessages]="false"
       [selectedTask]="agentX.selectedTask()"
       [isLoading]="agentX.isLoading()"
       [canSend]="agentX.canSend()"
@@ -1457,44 +1456,24 @@ export class AgentXShellComponent {
 
   // ============================================
   // ROLE-AWARE SHELL CONTENT
-  // Uses live dashboard data from AgentXService when loaded,
-  // falls back to static role-based content for initial render.
+  // Uses live dashboard data from AgentXService only.
+  // Static fallback content is intentionally disabled to avoid mock-data flashes.
   // ============================================
 
-  /** Static fallback content based on user role (SSR / pre-dashboard). */
-  private readonly shellFallback = computed(() => {
-    const role = this.user()?.role ?? null;
-    return getShellContentForRole(role);
-  });
-
-  /** Active background operations — live when dashboard loaded, static fallback otherwise. */
+  /** Active background operations — live from service only. */
   protected readonly activeOperations = computed<ShellActiveOperation[]>(() =>
-    this.agentX.dashboardLoaded()
-      ? this.agentX.activeOperations()
-      : [...this.shellFallback().activeOperations]
+    this.agentX.activeOperations()
   );
 
-  /** Proactive insights from Agent X — live or static fallback. */
-  protected readonly briefingInsights = computed(() =>
-    this.agentX.dashboardLoaded()
-      ? this.agentX.briefingInsights()
-      : [...this.shellFallback().briefingInsights]
-  );
+  /** Proactive insights from Agent X — live from service only. */
+  protected readonly briefingInsights = computed(() => this.agentX.briefingInsights());
 
-  /** Briefing preview text — live or static fallback. */
-  protected readonly briefingPreview = computed(() => {
-    if (this.agentX.dashboardLoaded()) {
-      return this.agentX.briefingPreviewText();
-    }
-    const template = this.shellFallback().briefingPreviewText;
-    return template.replace('{count}', String(this.briefingInsights().length));
-  });
+  /** Briefing preview text — live from service only. */
+  protected readonly briefingPreview = computed(() => this.agentX.briefingPreviewText());
 
-  /** AI-generated weekly playbook timeline items — live or static fallback. */
+  /** AI-generated weekly playbook timeline items — live from service only. */
   protected readonly weeklyPlaybook = computed<ShellWeeklyPlaybookItem[]>(() =>
-    this.agentX.dashboardLoaded()
-      ? this.agentX.weeklyPlaybook()
-      : [...this.shellFallback().weeklyPlaybook]
+    this.agentX.weeklyPlaybook()
   );
 
   /** Number of completed playbook tasks. */
@@ -1509,12 +1488,8 @@ export class AgentXShellComponent {
   // COORDINATORS — Role-Aware Virtual Staff
   // ============================================
 
-  /** Coordinator cards — live or static fallback. */
-  protected readonly commandCategories = computed(() =>
-    this.agentX.dashboardLoaded()
-      ? this.agentX.coordinators()
-      : [...this.shellFallback().coordinators]
-  );
+  /** Coordinator cards — live from service only. */
+  protected readonly commandCategories = computed(() => this.agentX.coordinators());
 
   // ============================================
   // HEADER CONFIG
@@ -1524,6 +1499,25 @@ export class AgentXShellComponent {
     afterNextRender(() => {
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
+    });
+
+    effect(() => {
+      const pending = this.agentX.pendingThread();
+      if (!pending) return;
+
+      // Consume the request immediately to prevent duplicate sheet opens
+      // if dashboard signals or route rendering re-run the effect.
+      this.agentX.clearPendingThread();
+
+      void this.openOperationChat(
+        pending.operationId ?? pending.threadId,
+        pending.title,
+        pending.icon ?? 'sparkles',
+        'operation',
+        [],
+        '',
+        pending.threadId
+      );
     });
   }
 
@@ -1611,7 +1605,9 @@ export class AgentXShellComponent {
    */
   protected async onOperationTap(op: ActiveOperation): Promise<void> {
     await this.haptics.impact('light');
-    await this.openOperationChat(op.id, op.label, op.icon, 'operation');
+    // Pass the persisted thread ID so the sheet loads the worker's actual output logs
+    // rather than opening a blank new chat session.
+    await this.openOperationChat(op.id, op.label, op.icon, 'operation', [], '', op.threadId ?? '');
   }
 
   /**
@@ -1623,7 +1619,8 @@ export class AgentXShellComponent {
     contextIcon: string,
     contextType: 'operation' | 'command',
     quickActions: OperationQuickAction[] = [],
-    contextDescription = ''
+    contextDescription = '',
+    threadId = ''
   ): Promise<void> {
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
@@ -1634,6 +1631,7 @@ export class AgentXShellComponent {
         contextType,
         quickActions,
         contextDescription,
+        threadId,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

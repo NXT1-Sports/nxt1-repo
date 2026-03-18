@@ -115,6 +115,17 @@ export class AgentXService {
   /** The MongoDB thread ID for the current conversation (persisted across messages). */
   private readonly _currentThreadId = signal<string | null>(null);
 
+  /**
+   * Pending thread request used by external surfaces (activity, push notifications)
+   * to tell the Agent X shell to open a bottom sheet for a specific thread.
+   */
+  private readonly _pendingThread = signal<{
+    threadId: string;
+    title: string;
+    operationId?: string;
+    icon?: string;
+  } | null>(null);
+
   // Animation interval reference
   private titleAnimationInterval?: ReturnType<typeof setInterval>;
 
@@ -126,7 +137,7 @@ export class AgentXService {
   // DASHBOARD STATE (live from backend)
   // ============================================
 
-  private readonly _dashboardLoading = signal(false);
+  private readonly _dashboardLoading = signal(true);
   private readonly _dashboardLoaded = signal(false);
   private readonly _briefingInsights = signal<ShellBriefingInsight[]>([]);
   private readonly _briefingPreviewText = signal('');
@@ -181,6 +192,9 @@ export class AgentXService {
    * Pass this back to subsequent `sendMessage()` calls to continue the thread.
    */
   readonly currentThreadId = computed(() => this._currentThreadId());
+
+  /** Pending thread open request for the Agent X shell. */
+  readonly pendingThread = computed(() => this._pendingThread());
 
   // ============================================
   // DASHBOARD COMPUTED SIGNALS
@@ -317,6 +331,37 @@ export class AgentXService {
       role: message.role,
       hasImage: !!message.imageUrl,
     });
+  }
+
+  // ============================================
+  // PENDING THREAD COORDINATION
+  // ============================================
+
+  /**
+   * Request that the Agent X shell open a specific persisted thread in a bottom sheet.
+   * Used by activity items and push notifications on mobile.
+   */
+  queuePendingThread(params: {
+    threadId: string;
+    title: string;
+    operationId?: string;
+    icon?: string;
+  }): void {
+    this._pendingThread.set({
+      threadId: params.threadId,
+      title: params.title,
+      operationId: params.operationId,
+      icon: params.icon,
+    });
+    this.logger.info('Queued pending thread open', {
+      threadId: params.threadId,
+      operationId: params.operationId,
+    });
+  }
+
+  /** Clear the pending thread request after the shell has consumed it. */
+  clearPendingThread(): void {
+    this._pendingThread.set(null);
   }
 
   // ============================================

@@ -35,6 +35,7 @@ import type {
   AnalyticsInsight,
   AnalyticsRecommendation,
 } from '@nxt1/core';
+import { USER_ROLES } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { AuthCookieService } from '../auth/services/auth-cookie.service';
 import { SeoService } from '../../core/services';
@@ -146,7 +147,7 @@ export class AnalyticsRootComponent implements OnInit {
   protected readonly userRole = computed<AnalyticsUserRole>(() => {
     const role = this.authService.userRole();
     if (!role) return 'athlete';
-    return role === 'coach' ? 'coach' : 'athlete';
+    return role === USER_ROLES.COACH ? 'coach' : 'athlete';
   });
 
   /**

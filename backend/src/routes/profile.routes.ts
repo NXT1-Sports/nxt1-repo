@@ -40,6 +40,7 @@ const router: ExpressRouter = Router();
 // ============================================
 
 const USERS_COLLECTION = 'Users';
+const PLAYER_STATS_COLLECTION = 'PlayerStats';
 
 // ============================================
 // TYPES
@@ -71,6 +72,7 @@ type UserFirestoreDoc = DocumentData & {
   height?: string;
   weight?: string;
   classOf?: number;
+  academics?: Record<string, unknown>;
 
   // Sport
   sports?: SportProfile[];
@@ -102,9 +104,9 @@ type UserFirestoreDoc = DocumentData & {
   connectedSources?: Array<{
     platform: string;
     profileUrl: string;
+    faviconUrl?: string;
     lastSyncedAt?: string;
     syncStatus?: string;
-    syncedFields?: string[];
     lastError?: string;
     scopeType?: string;
     scopeId?: string;
@@ -565,7 +567,7 @@ router.get(
 );
 
 /**
- * Get VerifiedStat entries from the sport stats sub-collection.
+ * Get VerifiedStat entries from the top-level PlayerStats collection.
  * GET /api/v1/auth/profile/:userId/sports/:sportId/stats
  */
 router.get(
@@ -586,16 +588,33 @@ router.get(
 
     const db = req.firebase!.db;
     const snap = await db
-      .collection(USERS_COLLECTION)
-      .doc(userId)
-      .collection('sports')
-      .doc(sportId)
-      .collection('stats')
-      .orderBy('dateRecorded', 'desc')
-      .limit(limit)
+      .collection(PLAYER_STATS_COLLECTION)
+      .where('userId', '==', userId)
+      .where('sportId', '==', sportId.toLowerCase())
       .get();
 
-    const stats = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const stats = snap.docs
+      .flatMap((doc) => {
+        const data = doc.data() as Record<string, unknown>;
+        const season = data['season'] as string | undefined;
+        const source = data['source'] as string | undefined;
+        const verified = data['verified'] as boolean | undefined;
+        const entries = Array.isArray(data['stats']) ? data['stats'] : [];
+
+        return entries.map((entry, index) => {
+          const stat = entry as Record<string, unknown>;
+          return {
+            id: (stat['id'] as string | undefined) ?? `${doc.id}_${index}`,
+            ...stat,
+            ...(season ? { season } : {}),
+            ...(source ? { source } : {}),
+            ...(verified !== undefined && stat['verified'] === undefined ? { verified } : {}),
+          };
+        });
+      })
+      .sort((a, b) => String(b['season'] ?? '').localeCompare(String(a['season'] ?? '')))
+      .slice(0, limit);
+
     await cache.set(cacheKey, stats, { ttl: CACHE_TTL.STATS });
     res.json({ success: true, data: stats });
   })
@@ -1063,7 +1082,9 @@ router.get(
       return;
     }
 
-    const user = docToUser(doc.id, doc.data() as UserFirestoreDoc);
+    const rawUser = docToUser(doc.id, doc.data() as UserFirestoreDoc);
+    const hydrationService = getHydrationService(db);
+    const user = await hydrationService.hydrateUser(rawUser);
 
     await cache.set(cacheKey, user, { ttl: CACHE_TTL.PROFILES });
     logger.debug('[Profile] Profile cache set', { userId });
@@ -1169,6 +1190,24 @@ router.put(
     // Fetch updated document
     const updatedDoc = await userRef.get();
     const updatedUser = docToUser(updatedDoc.id, updatedDoc.data() as UserFirestoreDoc);
+
+    // Sync cached user data across all RosterEntries for this user.
+    // Only propagate the fields that RosterEntry caches for roster list display.
+    const rosterCacheFields: Partial<import('@nxt1/core/models').RosterEntry> = {};
+    if (updates['firstName']) rosterCacheFields.firstName = updates['firstName'] as string;
+    if (updates['lastName']) rosterCacheFields.lastName = updates['lastName'] as string;
+    if (updates['profileImgs']) {
+      const imgs = updates['profileImgs'] as string[];
+      rosterCacheFields.profileImg = imgs[0] ?? null;
+    }
+    if (updates['height']) rosterCacheFields.height = updates['height'] as string;
+    if (updates['weight']) rosterCacheFields.weight = updates['weight'] as string;
+    if (updates['classOf']) rosterCacheFields.classOf = updates['classOf'] as number;
+
+    if (Object.keys(rosterCacheFields).length > 0) {
+      const rosterEntryService = createRosterEntryService(db);
+      await rosterEntryService.updateCachedUserData(userId, rosterCacheFields);
+    }
 
     // Invalidate stale cache entries
     await invalidateProfileCaches(userId, currentUsername, currentUnicode);

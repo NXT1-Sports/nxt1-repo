@@ -61,6 +61,7 @@ import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet
 import {
   ConnectedAccountsSheetComponent,
   DEFAULT_PLATFORMS,
+  type ConnectedSource,
 } from '../components/connected-sources';
 import type { SettingsSectionId } from '@nxt1/core';
 
@@ -489,11 +490,15 @@ export class SettingsShellComponent implements OnInit {
   }
 
   private async openConnectedAccounts(): Promise<void> {
-    await this.bottomSheet.openSheet<void>({
+    const result = await this.bottomSheet.openSheet<{ sources?: readonly ConnectedSource[] }>({
       component: ConnectedAccountsSheetComponent,
       ...SHEET_PRESETS.FULL,
       componentProps: { initialSources: DEFAULT_PLATFORMS },
       showHandle: true,
     });
+
+    if (result.role === 'resync') {
+      await this.settings.requestConnectedAccountsResync(result.data?.sources ?? DEFAULT_PLATFORMS);
+    }
   }
 }

@@ -57,8 +57,9 @@ export async function logAgentTaskCompletion(
     ? NOTIFICATION_TYPES.AGENT_WELCOME
     : NOTIFICATION_TYPES.AI_TASK_COMPLETE;
 
-  // Extract image URL from result data (e.g. generated welcome graphic)
+  // Extract media URLs from result data (e.g. generated graphics, highlight reels)
   const imageUrl = (result.data?.['imageUrl'] as string) ?? '';
+  const videoUrl = (result.data?.['videoUrl'] as string) ?? '';
 
   const dispatchResult = await dispatch(db, {
     userId,
@@ -67,20 +68,24 @@ export async function logAgentTaskCompletion(
     body,
     deepLink,
     ...(imageUrl ? { mediaUrl: imageUrl, mediaType: 'image' as const } : {}),
+    ...(videoUrl && !imageUrl ? { mediaUrl: videoUrl, mediaType: 'video' as const } : {}),
     data: {
       sessionId: job.sessionId,
       operationId: job.operationId,
       ...(threadId ? { threadId } : {}),
       ...(imageUrl ? { imageUrl } : {}),
+      ...(videoUrl ? { videoUrl } : {}),
     },
     source: { userName: 'Agent X' },
     metadata: {
       sessionId: job.sessionId,
+      ...(threadId ? { threadId } : {}),
       operationId: job.operationId,
       agentId: job.agent,
       resultSummary: result.summary,
       mode: job.context?.['mode'],
       ...(imageUrl ? { imageUrl } : {}),
+      ...(videoUrl ? { videoUrl } : {}),
     },
   });
 
@@ -142,6 +147,7 @@ export async function logAgentTaskFailure(
     source: { userName: 'Agent X' },
     metadata: {
       sessionId: job.sessionId,
+      ...(threadId ? { threadId } : {}),
       operationId: job.operationId,
       agentId: job.agent,
       failed: true,

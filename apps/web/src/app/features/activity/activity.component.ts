@@ -18,9 +18,11 @@
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { ActivityShellComponent, type ActivityUser } from '@nxt1/ui/activity';
+import { AgentXOperationChatComponent } from '@nxt1/ui/agent-x';
+import { NxtBottomSheetService, SHEET_PRESETS } from '@nxt1/ui/components/bottom-sheet';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
-import type { ActivityTabId, ActivityItem, InboxEmailProvider } from '@nxt1/core';
+import type { ActivityTabId, ActivityItem, InboxEmailProvider, AgentTaskActivityMetadata } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 import { WebEmailConnectionService } from './services/email-connection.service';
@@ -45,6 +47,7 @@ export class ActivityComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly router = inject(Router);
+  private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly logger = inject(NxtLoggingService).child('ActivityComponent');
   private readonly seo = inject(SeoService);
   private readonly emailConnection = inject(WebEmailConnectionService);
@@ -94,15 +97,59 @@ export class ActivityComponent implements OnInit {
    * Message items navigate to /messages/:id, others use deepLink.
    */
   protected onItemNavigate(item: ActivityItem): void {
-    if (item.deepLink) {
-      this.logger.debug('Navigating to item', {
-        id: item.id,
-        type: item.type,
-        deepLink: item.deepLink,
-      });
-      this.router.navigateByUrl(item.deepLink);
-    } else {
+    if (!item.deepLink) {
       this.logger.debug('Item clicked without deepLink', { id: item.id, type: item.type });
+      return;
+    }
+
+    this.logger.debug('Navigating to item', {
+      id: item.id,
+      type: item.type,
+      deepLink: item.deepLink,
+    });
+
+    const threadId = this.resolveAgentThreadId(item, item.deepLink);
+    if (item.type === 'agent_task' && threadId) {
+      void this.bottomSheet.openSheet({
+        component: AgentXOperationChatComponent,
+        componentProps: {
+          contextId: item.id,
+          contextTitle: item.title,
+          contextIcon: 'sparkles',
+          contextType: 'operation',
+          threadId,
+        },
+        ...SHEET_PRESETS.FULL,
+        showHandle: true,
+        handleBehavior: 'cycle',
+        backdropDismiss: true,
+        cssClass: 'agent-x-operation-sheet',
+      });
+      return;
+    }
+
+    void this.router.navigateByUrl(item.deepLink);
+  }
+
+  private resolveAgentThreadId(item: ActivityItem, deepLink: string): string | null {
+    const metadata = item.metadata as AgentTaskActivityMetadata | undefined;
+    if (metadata?.threadId?.trim()) {
+      return metadata.threadId.trim();
+    }
+
+    if (!deepLink.startsWith('/agent')) {
+      return null;
+    }
+
+    try {
+      const url = new URL(deepLink, 'https://nxt1.local');
+      return url.searchParams.get('thread');
+    } catch (error) {
+      this.logger.warn('Failed to parse agent deep link', {
+        deepLink,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
     }
   }
 

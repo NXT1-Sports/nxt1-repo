@@ -20,7 +20,12 @@ import {
 } from '@nxt1/core/api';
 import { PROFILE_CACHE_KEYS } from '@nxt1/core/profile';
 import { type ProfilePost } from '@nxt1/core/profile';
-import { type User, type SportProfile } from '@nxt1/core/models';
+import {
+  type User,
+  type SportProfile,
+  type VerifiedStat,
+  type VerifiedMetric,
+} from '@nxt1/core/models';
 import { type ScoutReport } from '@nxt1/core/scout-reports';
 import { type NewsArticle } from '@nxt1/core/news';
 import { CACHE_CONFIG } from '@nxt1/core/cache';
@@ -143,6 +148,14 @@ export class ProfileApiService {
 
     const response = await this.api.getProfileByUnicode(unicode);
     if (response.success) this.setCache(key, response);
+    return response;
+  }
+
+  async getMe(): Promise<ApiResponse<User>> {
+    const response = await this.api.getMe();
+    if (response.success && response.data?.id) {
+      this.setCache(this.cacheKey(PROFILE_CACHE_KEYS.BY_ID, response.data.id), response);
+    }
     return response;
   }
 
@@ -279,6 +292,32 @@ export class ProfileApiService {
         `${environment.apiUrl}/auth/profile/${userId}/news`
       );
       return { success: resp.success, data: resp.data ?? [] };
+    } catch {
+      return { success: false, data: [] };
+    }
+  }
+
+  async getProfileStats(
+    userId: string,
+    sportId: string
+  ): Promise<{ success: boolean; data: VerifiedStat[] }> {
+    try {
+      return await this.http.get<{ success: boolean; data: VerifiedStat[] }>(
+        `${environment.apiUrl}/auth/profile/${userId}/sports/${encodeURIComponent(sportId)}/stats`
+      );
+    } catch {
+      return { success: false, data: [] };
+    }
+  }
+
+  async getProfileMetrics(
+    userId: string,
+    sportId: string
+  ): Promise<{ success: boolean; data: VerifiedMetric[] }> {
+    try {
+      return await this.http.get<{ success: boolean; data: VerifiedMetric[] }>(
+        `${environment.apiUrl}/auth/profile/${userId}/sports/${encodeURIComponent(sportId)}/metrics`
+      );
     } catch {
       return { success: false, data: [] };
     }

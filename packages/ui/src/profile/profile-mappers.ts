@@ -28,12 +28,9 @@ import type {
   ProfileContact,
   ProfileCoachContact,
   ProfileConnectedSource,
-  AthleticStat,
   AthleticStatsCategory,
   ProfileRecruitingActivity,
   ProfileRecruitingCategory,
-  VerifiedStat,
-  VerifiedMetric,
   RecruitingActivity,
   ProfileSeasonGameLog,
 } from '@nxt1/core';
@@ -53,9 +50,12 @@ function mapAward(award: UserAward, index: number): ProfileAward {
 
 /** Map a TeamHistoryEntry (User model) → ProfileTeamAffiliation (UI model). */
 function mapTeamHistory(entry: TeamHistoryEntry): ProfileTeamAffiliation {
-  const location = entry.location
-    ? [entry.location.city, entry.location.state].filter(Boolean).join(', ')
-    : undefined;
+  const location =
+    typeof entry.location === 'string'
+      ? entry.location
+      : entry.location
+        ? [entry.location.city, entry.location.state].filter(Boolean).join(', ')
+        : undefined;
 
   const seasonRecord =
     entry.record?.wins !== undefined && entry.record?.losses !== undefined
@@ -97,56 +97,6 @@ function mapConnectedSource(
 function toIso(v: Date | string | undefined, now: string): string {
   if (!v) return now;
   return v instanceof Date ? v.toISOString() : v;
-}
-
-/** Convert a value to a display string, appending unit when present. */
-function formatStatValue(value: string | number | undefined, unit?: string): string {
-  if (value === undefined || value === null) return '';
-  const str = String(value);
-  return unit ? `${str} ${unit}` : str;
-}
-
-/** Capitalize first letter of a string. */
-function capitalize(s: string): string {
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
-}
-
-/**
- * Convert VerifiedStat[] → AthleticStatsCategory[] grouped by category.
- * Used for the Stats tab.
- */
-function verifiedStatsToCategories(stats: VerifiedStat[]): AthleticStatsCategory[] {
-  const groups = new Map<string, AthleticStat[]>();
-  for (const stat of stats) {
-    const key = capitalize(stat.category ?? 'general');
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push({
-      label: stat.label,
-      value: formatStatValue(stat.value),
-      unit: stat.unit,
-      verified: stat.verified,
-    });
-  }
-  return Array.from(groups.entries()).map(([name, s]) => ({ name, stats: s }));
-}
-
-/**
- * Convert VerifiedMetric[] → AthleticStatsCategory[] grouped by category.
- * Used for the Metrics tab.
- */
-function verifiedMetricsToCategories(metrics: VerifiedMetric[]): AthleticStatsCategory[] {
-  const groups = new Map<string, AthleticStat[]>();
-  for (const metric of metrics) {
-    const key = capitalize(metric.category ?? 'general');
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push({
-      label: metric.label,
-      value: formatStatValue(metric.value),
-      unit: metric.unit,
-      verified: metric.verified,
-    });
-  }
-  return Array.from(groups.entries()).map(([name, s]) => ({ name, stats: s }));
 }
 
 /** Convert RecruitingActivity → ProfileRecruitingActivity. */
@@ -251,8 +201,12 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     : undefined;
 
   // ── Team affiliations (from User.teamHistory) ─────────────────────────────
-  const teamAffiliations: readonly ProfileTeamAffiliation[] | undefined = user.teamHistory?.length
-    ? user.teamHistory.map(mapTeamHistory)
+  const legacySportHistory = (
+    activeSport as unknown as { teamHistory?: TeamHistoryEntry[] } | undefined
+  )?.teamHistory;
+  const teamHistory = user.teamHistory?.length ? user.teamHistory : legacySportHistory;
+  const teamAffiliations: readonly ProfileTeamAffiliation[] | undefined = teamHistory?.length
+    ? teamHistory.map(mapTeamHistory)
     : undefined;
 
   // ── Awards (from User.awards) ─────────────────────────────────────────────
@@ -297,8 +251,8 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     ? (activeSport.verifications as DataVerification[])
     : undefined;
 
-  // ── Academic data (User.athlete.academics) ─────────────────────────────────
-  const academics = user.athlete?.academics;
+  // ── Academic data (top-level canonical, athlete.academics fallback) ────────
+  const academics = user.academics ?? user.athlete?.academics;
   const gpa = academics?.gpa !== undefined ? String(academics.gpa) : undefined;
   const sat = academics?.satScore !== undefined ? String(academics.satScore) : undefined;
   const act = academics?.actScore !== undefined ? String(academics.actScore) : undefined;
@@ -406,17 +360,8 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
 
   const sportAny = activeSport as unknown as Record<string, unknown> | undefined;
 
-  const athleticStats: AthleticStatsCategory[] =
-    sportAny?.['verifiedStats'] && Array.isArray(sportAny['verifiedStats'])
-      ? verifiedStatsToCategories(sportAny['verifiedStats'] as VerifiedStat[])
-      : [];
-
-  const metrics: AthleticStatsCategory[] =
-    sportAny?.['verifiedMetrics'] && Array.isArray(sportAny['verifiedMetrics'])
-      ? verifiedMetricsToCategories(sportAny['verifiedMetrics'] as VerifiedMetric[])
-      : activeSport?.verifiedMetrics?.length
-        ? verifiedMetricsToCategories(activeSport.verifiedMetrics)
-        : [];
+  const athleticStats: AthleticStatsCategory[] = [];
+  const metrics: AthleticStatsCategory[] = [];
 
   // Events are now ONLY loaded from the dedicated /schedule API endpoint.
   // Do NOT extract embedded upcomingEvents to prevent data flash/inconsistency.

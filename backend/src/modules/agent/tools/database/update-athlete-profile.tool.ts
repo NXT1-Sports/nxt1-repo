@@ -16,23 +16,21 @@
  *    user's existing `sports[]` array, or appending a new entry if the sport
  *    doesn't exist yet.
  *
- * 2. **VerifiedMetric / VerifiedStat**: Extracted physical measurements and
- *    season statistics are written as `VerifiedMetric[]` into
- *    `sports[i].verifiedMetrics` and `VerifiedStat[]` into
- *    `sports[i].featuredStats` — each stamped with `source`, `verified: false`,
- *    and `dateRecorded`. Duplicates are detected by `field` key and merged
- *    (latest value wins).
+ * 2. **Collection-backed stats**: Extracted physical measurements and season
+ *    statistics are persisted into dedicated collections:
+ *    `Users/{uid}/sports/{sportId}/metrics/{metricId}` and top-level
+ *    `PlayerStats/{userId}_{sportId}_{season}`.
  *
  * 3. **ConnectedSource sync records**: Every successful write appends or updates
  *    a `ConnectedSource` entry in the top-level `connectedSources[]` array with
- *    the actual `profileUrl`, `syncStatus`, `syncedFields`, and `lastSyncedAt`.
+ *    the actual `profileUrl`, `syncStatus`, and `lastSyncedAt`.
  *
  * 4. **Append-safe arrays**: `teamHistory[]` and `awards[]` are merged by
  *    deduplication keys (name+sport+season for team history, title+sport+season
  *    for awards) — new entries are appended, existing entries are updated.
  *
  * 5. **Academics**: GPA, SAT, ACT, class rank, and intended major are written
- *    to `athlete.academics` — the correct location per the AthleteData model.
+ *    to top-level `academics` so the profile UI can consume them directly.
  *
  * Security:
  * - Only `data_coordinator` and `performance_coordinator` can invoke this tool.
@@ -43,15 +41,20 @@
  */
 
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
+import type { TeamTypeApi } from '@nxt1/core';
 import { BaseTool, type ToolResult } from '../base.tool.js';
 import { getCacheService } from '../../../../services/cache.service.js';
+import { normalizeProgramType } from '../../../../services/onboarding-program-provisioning.service.js';
+import { createOrganizationService } from '../../../../services/organization.service.js';
+import { invalidateTeamCache } from '../../../../services/team-code.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
-import { logger } from '../../../../utils/logger.js';
+import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const USERS_COLLECTION = 'Users';
+const PLAYER_STATS_COLLECTION = 'PlayerStats';
 
 const VALIDATION = {
   MIN_GRADUATION_YEAR: new Date().getFullYear() - 2,
@@ -87,6 +90,7 @@ interface StatInput {
 interface TeamInfoInput {
   readonly name?: string;
   readonly type?: string;
+  readonly programType?: string;
   readonly mascot?: string;
   readonly logoUrl?: string;
   readonly primaryColor?: string;
@@ -195,7 +199,7 @@ export class UpdateAthleteProfileTool extends BaseTool {
     '    - aboutMe: sport-specific bio.\n' +
     '    - metrics: array of { field, label, value, unit?, category? } — physical measurements.\n' +
     '    - stats: array of { field, label, value, unit?, category?, season? } — season statistics.\n' +
-    '    - team: { name, type?, mascot?, colors?, conference?, division? }.\n' +
+    '    - team: { name, type?, programType?, mascot?, colors?, conference?, division? }.\n' +
     '    - clubTeam: same shape as team.\n' +
     '    - coach: { firstName, lastName, email?, phone?, title? }.\n' +
     '  • teamHistory: array of { name, type?, sport?, location?, record?, startDate?, endDate?, isCurrent? }.\n' +
@@ -205,37 +209,13 @@ export class UpdateAthleteProfileTool extends BaseTool {
   readonly parameters = {
     type: 'object',
     properties: {
-      userId: {
-        type: 'string',
-        description: 'The Firebase UID of the athlete whose profile to update.',
-      },
-      source: {
-        type: 'string',
-        description:
-          'The platform slug the data was extracted from (e.g. "maxpreps", "hudl", "247sports"). ' +
-          'Stamped as the DataSource on every VerifiedMetric and VerifiedStat.',
-      },
-      profileUrl: {
-        type: 'string',
-        description: 'The exact URL that was scraped. Stored in the connectedSources sync record.',
-      },
-      faviconUrl: {
-        type: 'string',
-        description:
-          'The favicon URL of the scraped platform, extracted from the page <link rel="icon"> tag by the scrape_webpage tool. ' +
-          'Stored in connectedSources for UI display when no built-in platform icon exists.',
-      },
-      targetSport: {
-        type: 'string',
-        description:
-          'The sport key to scope sport-specific data into (e.g. "football", "basketball", "soccer"). ' +
-          "Must match one of the user's existing sports, or a new sport entry will be created.",
-      },
+      userId: { type: 'string' },
+      source: { type: 'string' },
+      profileUrl: { type: 'string' },
+      faviconUrl: { type: 'string' },
+      targetSport: { type: 'string' },
       fields: {
         type: 'object',
-        description:
-          'The extracted profile data. See the tool description for the full schema. ' +
-          'Only recognized fields are accepted — unknown keys are silently dropped.',
         properties: {
           firstName: { type: 'string' },
           lastName: { type: 'string' },
@@ -293,6 +273,7 @@ export class UpdateAthleteProfileTool extends BaseTool {
                 properties: {
                   name: { type: 'string' },
                   type: { type: 'string' },
+                  programType: { type: 'string' },
                   mascot: { type: 'string' },
                   colors: { type: 'array', items: { type: 'string' } },
                   conference: { type: 'string' },
@@ -304,6 +285,7 @@ export class UpdateAthleteProfileTool extends BaseTool {
                 properties: {
                   name: { type: 'string' },
                   type: { type: 'string' },
+                  programType: { type: 'string' },
                   mascot: { type: 'string' },
                   colors: { type: 'array', items: { type: 'string' } },
                   conference: { type: 'string' },
@@ -390,13 +372,13 @@ export class UpdateAthleteProfileTool extends BaseTool {
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const userId = this.requireString(input, 'userId');
-    if (!userId) return this.paramError('userId', 'non-empty string');
+    if (!userId) return this.paramTypeError('userId', 'non-empty string');
 
     const source = this.requireString(input, 'source');
-    if (!source) return this.paramError('source', 'non-empty string (e.g. "maxpreps")');
+    if (!source) return this.paramTypeError('source', 'non-empty string (e.g. "maxpreps")');
 
     const profileUrl = this.requireString(input, 'profileUrl');
-    if (!profileUrl) return this.paramError('profileUrl', 'non-empty string (the scraped URL)');
+    if (!profileUrl) return this.paramTypeError('profileUrl', 'non-empty string (the scraped URL)');
 
     const faviconUrl =
       typeof input['faviconUrl'] === 'string' && input['faviconUrl'].trim().length > 0
@@ -404,11 +386,12 @@ export class UpdateAthleteProfileTool extends BaseTool {
         : undefined;
 
     const targetSport = this.requireString(input, 'targetSport');
-    if (!targetSport) return this.paramError('targetSport', 'non-empty string (e.g. "football")');
+    if (!targetSport)
+      return this.paramTypeError('targetSport', 'non-empty string (e.g. "football")');
 
     const rawFields = input['fields'];
     if (!rawFields || typeof rawFields !== 'object' || Array.isArray(rawFields)) {
-      return this.paramError('fields', 'an object with profile data');
+      return this.paramTypeError('fields', 'an object with profile data');
     }
 
     const fields = rawFields as FieldsInput;
@@ -466,7 +449,6 @@ export class UpdateAthleteProfileTool extends BaseTool {
         const newSportProfile = this.buildNewSportProfile(
           targetSport,
           fields.sportData,
-          source,
           now,
           existingSports.length
         );
@@ -483,7 +465,6 @@ export class UpdateAthleteProfileTool extends BaseTool {
           fields.sportData,
           sportIndex,
           existingSports[sportIndex] as Record<string, unknown>,
-          source,
           now,
           tempPayload,
           writtenSections
@@ -561,6 +542,12 @@ export class UpdateAthleteProfileTool extends BaseTool {
         faviconUrl
       );
 
+      if (fields.sportData?.team || fields.sportData?.clubTeam) {
+        payload['conference'] = FieldValue.delete();
+        payload['division'] = FieldValue.delete();
+        payload['level'] = FieldValue.delete();
+      }
+
       // --- Timestamp ---
       payload['updatedAt'] = FieldValue.serverTimestamp();
 
@@ -571,33 +558,61 @@ export class UpdateAthleteProfileTool extends BaseTool {
         };
       }
 
-      // ── Reroute Organization branding from scraper (Single Source of Truth) ─
-      // If the scraped data contains team branding (mascot, colors, logoUrl),
-      // write those fields to the Organization document — NOT the User document.
+      const resolvedSportIndex = isNewSport ? existingSports.length : sportIndex;
+      const nextSports = Array.isArray(payload['sports'])
+        ? (payload['sports'] as Record<string, unknown>[])
+        : existingSports;
+      const resolvedSport = nextSports[resolvedSportIndex] as Record<string, unknown> | undefined;
+
       if (fields.sportData?.team) {
-        const branding = this.extractOrgBranding(fields.sportData.team);
-        if (branding) {
-          // Read the organizationId from the existing sport's team reference
-          const resolvedSportIndex = isNewSport ? existingSports.length - 1 : sportIndex;
-          const existingSportObj = existingSports[resolvedSportIndex] as
-            | Record<string, unknown>
-            | undefined;
-          const existingTeamRef = existingSportObj?.['team'] as Record<string, unknown> | undefined;
-          const orgId = existingTeamRef?.['organizationId'] as string | undefined;
-          if (orgId) {
-            // Fire-and-forget — failure must not block the user profile write
-            void this.applyBrandingToOrganization(orgId, branding);
-          }
-        }
+        await this.syncTeamAndOrganizationMetadata(
+          resolvedSport?.['team'] as Record<string, unknown> | undefined,
+          fields.sportData.team,
+          'team'
+        );
       }
+
+      if (fields.sportData?.clubTeam) {
+        await this.syncTeamAndOrganizationMetadata(
+          resolvedSport?.['clubTeam'] as Record<string, unknown> | undefined,
+          fields.sportData.clubTeam,
+          'clubTeam'
+        );
+      }
+
+      const sportId = this.normalizeSportId(targetSport);
 
       // ── Write ────────────────────────────────────────────────────────
       await userRef.update(payload);
 
+      if (fields.sportData?.metrics?.length) {
+        await this.syncMetricsCollection(userId, sportId, fields.sportData.metrics, source, now);
+      }
+
+      if (fields.sportData?.stats?.length) {
+        await this.syncPlayerStatsCollection(
+          userId,
+          sportId,
+          fields.sportData.stats,
+          fields.sportData.positions?.[0],
+          source,
+          now
+        );
+      }
+
       // ── Cache invalidation (best-effort) ─────────────────────────────
       try {
         const cache = getCacheService();
-        await cache.del(USER_CACHE_KEYS.USER_BY_ID(userId));
+        await Promise.all([
+          cache.del(USER_CACHE_KEYS.USER_BY_ID(userId)),
+          cache.del(`profile:sub:stats:${userId}:${sportId}`),
+          cache.del(`profile:sub:metrics:${userId}:${sportId}`),
+          invalidateProfileCaches(
+            userId,
+            typeof userData['username'] === 'string' ? userData['username'] : undefined,
+            typeof userData['unicode'] === 'string' ? userData['unicode'] : null
+          ),
+        ]);
         const contextBuilder = new ContextBuilder();
         await contextBuilder.invalidateContext(userId);
       } catch {
@@ -872,7 +887,6 @@ export class UpdateAthleteProfileTool extends BaseTool {
   private buildNewSportProfile(
     targetSport: string,
     sportData: SportDataInput | undefined,
-    source: string,
     now: string,
     order: number
   ): Record<string, unknown> {
@@ -891,18 +905,9 @@ export class UpdateAthleteProfileTool extends BaseTool {
     if (sportData.side) profile['side'] = sportData.side;
     if (sportData.aboutMe) profile['aboutMe'] = sportData.aboutMe.trim();
 
-    if (sportData.metrics?.length) {
-      profile['verifiedMetrics'] = sportData.metrics.map((m) =>
-        this.toVerifiedMetric(m, source, now)
-      );
-    }
-
-    if (sportData.stats?.length) {
-      profile['featuredStats'] = sportData.stats.map((s) => this.toVerifiedStat(s, source, now));
-    }
-
-    if (sportData.team) profile['team'] = this.sanitizeTeamInfo(sportData.team);
-    if (sportData.clubTeam) profile['clubTeam'] = this.sanitizeTeamInfo(sportData.clubTeam);
+    if (sportData.team) profile['team'] = this.mergeUserTeamReference(undefined, sportData.team);
+    if (sportData.clubTeam)
+      profile['clubTeam'] = this.mergeUserTeamReference(undefined, sportData.clubTeam);
     if (sportData.coach) profile['coach'] = this.sanitizeCoach(sportData.coach);
 
     return profile;
@@ -916,7 +921,6 @@ export class UpdateAthleteProfileTool extends BaseTool {
     sportData: SportDataInput,
     sportIndex: number,
     existingSport: Record<string, unknown>,
-    source: string,
     now: string,
     payload: Record<string, unknown>,
     written: string[]
@@ -943,40 +947,15 @@ export class UpdateAthleteProfileTool extends BaseTool {
       written.push('sportData.aboutMe');
     }
 
-    if (sportData.metrics?.length) {
-      const existingMetrics = (existingSport['verifiedMetrics'] ?? []) as Record<string, unknown>[];
-      payload[`${prefix}.verifiedMetrics`] = this.mergeVerifiedMetrics(
-        existingMetrics,
-        sportData.metrics,
-        source,
-        now
-      );
-      written.push('sportData.verifiedMetrics');
-    }
-
-    if (sportData.stats?.length) {
-      const existingStats = (existingSport['featuredStats'] ?? []) as Record<string, unknown>[];
-      payload[`${prefix}.featuredStats`] = this.mergeVerifiedStats(
-        existingStats,
-        sportData.stats,
-        source,
-        now
-      );
-      written.push('sportData.featuredStats');
-    }
-
     if (sportData.team) {
       const existingTeam = (existingSport['team'] ?? {}) as Record<string, unknown>;
-      payload[`${prefix}.team`] = { ...existingTeam, ...this.sanitizeTeamInfo(sportData.team) };
+      payload[`${prefix}.team`] = this.mergeUserTeamReference(existingTeam, sportData.team);
       written.push('sportData.team');
     }
 
     if (sportData.clubTeam) {
       const existingClub = (existingSport['clubTeam'] ?? {}) as Record<string, unknown>;
-      payload[`${prefix}.clubTeam`] = {
-        ...existingClub,
-        ...this.sanitizeTeamInfo(sportData.clubTeam),
-      };
+      payload[`${prefix}.clubTeam`] = this.mergeUserTeamReference(existingClub, sportData.clubTeam);
       written.push('sportData.clubTeam');
     }
 
@@ -990,43 +969,6 @@ export class UpdateAthleteProfileTool extends BaseTool {
   }
 
   // ─── VerifiedMetric / VerifiedStat Merging ──────────────────────────────
-
-  /**
-   * Merge new metrics into existing ones. Deduplicates by `field` key —
-   * if a metric with the same field already exists, it is updated in place
-   * (latest value wins). New metrics are appended.
-   */
-  private mergeVerifiedMetrics(
-    existing: Record<string, unknown>[],
-    incoming: MetricInput[],
-    source: string,
-    now: string
-  ): Record<string, unknown>[] {
-    const merged = [...existing];
-    const indexMap = new Map<string, number>();
-
-    for (let i = 0; i < merged.length; i++) {
-      const field = merged[i]['field'];
-      if (typeof field === 'string') indexMap.set(field.toLowerCase(), i);
-    }
-
-    for (const m of incoming) {
-      const key = m.field.toLowerCase();
-      const record = this.toVerifiedMetric(m, source, now);
-      const existingIndex = indexMap.get(key);
-
-      if (existingIndex !== undefined) {
-        // Preserve the original id, update value and metadata
-        record['id'] = merged[existingIndex]['id'] ?? record['id'];
-        merged[existingIndex] = record;
-      } else {
-        indexMap.set(key, merged.length);
-        merged.push(record);
-      }
-    }
-
-    return merged;
-  }
 
   /**
    * Merge new stats into existing ones. Deduplicates by `field` + `season`.
@@ -1094,6 +1036,84 @@ export class UpdateAthleteProfileTool extends BaseTool {
       dateRecorded: now,
       updatedAt: now,
     };
+  }
+
+  private normalizeSportId(value: string): string {
+    return value.trim().toLowerCase();
+  }
+
+  private async syncMetricsCollection(
+    userId: string,
+    sportId: string,
+    metrics: MetricInput[],
+    source: string,
+    now: string
+  ): Promise<void> {
+    if (!metrics.length) return;
+
+    const metricsCol = this.db
+      .collection(USERS_COLLECTION)
+      .doc(userId)
+      .collection('sports')
+      .doc(sportId)
+      .collection('metrics');
+
+    await Promise.all(
+      metrics.map(async (metric) => {
+        const docId = metric.field.trim().toLowerCase();
+        const record = this.toVerifiedMetric(metric, source, now);
+        await metricsCol.doc(docId).set({ ...record, id: docId, sportId }, { merge: true });
+      })
+    );
+  }
+
+  private async syncPlayerStatsCollection(
+    userId: string,
+    sportId: string,
+    stats: StatInput[],
+    position: string | undefined,
+    source: string,
+    now: string
+  ): Promise<void> {
+    if (!stats.length) return;
+
+    const statsBySeason = new Map<string, StatInput[]>();
+    for (const stat of stats) {
+      const season = (stat.season ?? 'career').trim() || 'career';
+      if (!statsBySeason.has(season)) statsBySeason.set(season, []);
+      statsBySeason.get(season)!.push(stat);
+    }
+
+    await Promise.all(
+      Array.from(statsBySeason.entries()).map(async ([season, seasonStats]) => {
+        const docId = `${userId}_${sportId}_${season}`;
+        const docRef = this.db.collection(PLAYER_STATS_COLLECTION).doc(docId);
+        const existingDoc = await docRef.get();
+        const existingStats = existingDoc.exists
+          ? (((existingDoc.data()?.['stats'] as Record<string, unknown>[] | undefined) ??
+              []) as Record<string, unknown>[])
+          : [];
+
+        const mergedStats = this.mergeVerifiedStats(existingStats, seasonStats, source, now);
+        const existingData = existingDoc.data() as Record<string, unknown> | undefined;
+
+        await docRef.set(
+          {
+            id: docId,
+            userId,
+            sportId,
+            season,
+            ...(position ? { position } : {}),
+            stats: mergedStats,
+            source,
+            verified: false,
+            createdAt: existingData?.['createdAt'] ?? now,
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+      })
+    );
   }
 
   // ─── Array Merge Helpers (Team History, Awards) ─────────────────────────
@@ -1242,17 +1262,108 @@ export class UpdateAthleteProfileTool extends BaseTool {
     return updated;
   }
 
+  private mergeUserTeamReference(
+    existing: Record<string, unknown> | undefined,
+    team: TeamInfoInput
+  ): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
+
+    for (const key of ['teamId', 'organizationId', 'teamCode', 'updatedAt']) {
+      const value = existing?.[key];
+      if (value !== undefined && value !== null && value !== '') {
+        result[key] = value;
+      }
+    }
+
+    return {
+      ...result,
+      ...this.sanitizeTeamInfo(team),
+    };
+  }
+
   // ─── Sanitizers ─────────────────────────────────────────────────────────
 
   private sanitizeTeamInfo(team: TeamInfoInput): Record<string, unknown> {
-    // Only store relationship/context data on the User document.
-    // Brand fields (mascot, colors, logoUrl) belong on the Organization — see extractOrgBranding().
+    // Only store the lightweight user→team relationship on the User document.
+    // Conference/division/program type live on Team/Organization docs.
     const result: Record<string, unknown> = {};
     if (team.name) result['name'] = team.name.trim();
     if (team.type) result['type'] = team.type;
-    if (team.conference) result['conference'] = team.conference.trim();
-    if (team.division) result['division'] = team.division.trim();
     return result;
+  }
+
+  private parseProgramType(value?: string): TeamTypeApi | null {
+    const normalized = (value ?? '').trim().toLowerCase();
+
+    if (!normalized) return null;
+
+    switch (normalized) {
+      case 'high-school':
+      case 'high school':
+      case 'school':
+      case 'hs':
+        return 'high-school';
+      case 'middle-school':
+      case 'middle school':
+      case 'ms':
+        return 'middle-school';
+      case 'club':
+      case 'travel':
+      case 'travel-ball':
+      case 'travel ball':
+      case 'aau':
+      case 'academy':
+      case 'elite':
+        return 'club';
+      case 'college':
+      case 'university':
+      case 'ncaa':
+      case 'naia':
+        return 'college';
+      case 'juco':
+      case 'junior college':
+      case 'community college':
+        return 'juco';
+      case 'organization':
+        return 'organization';
+      default:
+        return null;
+    }
+  }
+
+  private inferProgramType(
+    team: TeamInfoInput,
+    relationKind: 'team' | 'clubTeam',
+    existingTeamType?: string
+  ): TeamTypeApi {
+    const explicit = this.parseProgramType(team.programType);
+    if (explicit) return normalizeProgramType(explicit);
+
+    const normalizedName = `${team.name ?? ''} ${team.type ?? ''}`.toLowerCase();
+    if (relationKind === 'clubTeam' || /(travel|aau|academy|elite|club)/.test(normalizedName)) {
+      return 'club';
+    }
+    if (/(high school|\bhs\b|varsity|junior varsity|\bjv\b|freshman|prep)/.test(normalizedName)) {
+      return 'high-school';
+    }
+    if (/(middle school|\bms\b)/.test(normalizedName)) {
+      return 'middle-school';
+    }
+    if (/(juco|junior college|community college)/.test(normalizedName)) {
+      return 'juco';
+    }
+    if (/(college|university|ncaa|naia)/.test(normalizedName)) {
+      return 'college';
+    }
+
+    return this.parseProgramType(existingTeamType) ?? 'organization';
+  }
+
+  private normalizeTeamLevel(team: TeamInfoInput): string | null {
+    const level = team.type?.trim();
+    if (!level) return null;
+    if (this.parseProgramType(level)) return null;
+    return level;
   }
 
   /**
@@ -1269,26 +1380,82 @@ export class UpdateAthleteProfileTool extends BaseTool {
     return Object.keys(branding).length > 0 ? branding : null;
   }
 
-  /**
-   * Best-effort: patch Organization document with scraped branding data.
-   * Fires asynchronously — failure is logged but never throws.
-   */
-  private async applyBrandingToOrganization(
-    organizationId: string,
-    branding: Record<string, unknown>
+  private async syncTeamAndOrganizationMetadata(
+    teamRef: Record<string, unknown> | undefined,
+    teamInput: TeamInfoInput,
+    relationKind: 'team' | 'clubTeam'
   ): Promise<void> {
-    try {
-      await this.db
-        .collection('Organizations')
-        .doc(organizationId)
-        .update({ ...branding, updatedAt: FieldValue.serverTimestamp() });
-    } catch (err) {
-      // Best-effort — don't fail the overall sync if the org patch fails
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn(
-        `[UpdateAthleteProfile] Failed to patch Organization "${organizationId}" with branding: ${msg}`
-      );
+    const teamId = this.requireString(teamRef ?? {}, 'teamId');
+    const orgIdFromRef = this.requireString(teamRef ?? {}, 'organizationId');
+
+    let teamCode: string | undefined;
+    let teamUnicode: string | undefined;
+    let existingTeamType: string | undefined;
+    let organizationId = orgIdFromRef;
+
+    if (teamId) {
+      const teamDoc = await this.db.collection('Teams').doc(teamId).get();
+      if (teamDoc.exists) {
+        const data = teamDoc.data() ?? {};
+        teamCode = typeof data['teamCode'] === 'string' ? data['teamCode'] : undefined;
+        teamUnicode = typeof data['unicode'] === 'string' ? data['unicode'] : undefined;
+        existingTeamType = typeof data['teamType'] === 'string' ? data['teamType'] : undefined;
+        organizationId ||=
+          typeof data['organizationId'] === 'string' ? data['organizationId'] : null;
+
+        const updateData: Record<string, unknown> = {
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        const programType = this.inferProgramType(teamInput, relationKind, existingTeamType);
+        const teamLevel = this.normalizeTeamLevel(teamInput);
+
+        if (programType !== existingTeamType) {
+          updateData['teamType'] = programType;
+        }
+        if (teamLevel && teamLevel !== data['level']) {
+          updateData['level'] = teamLevel;
+        }
+        if (teamInput.conference !== undefined) {
+          updateData['conference'] = teamInput.conference.trim();
+        }
+        if (teamInput.division !== undefined) {
+          updateData['division'] = teamInput.division.trim();
+        }
+
+        if (Object.keys(updateData).length > 1) {
+          await this.db.collection('Teams').doc(teamId).update(updateData);
+          await invalidateTeamCache(teamId, teamCode, teamUnicode);
+        }
+
+        await this.syncOrganizationMetadata(organizationId, teamInput, programType);
+        return;
+      }
     }
+
+    await this.syncOrganizationMetadata(
+      organizationId,
+      teamInput,
+      this.inferProgramType(teamInput, relationKind, existingTeamType)
+    );
+  }
+
+  private async syncOrganizationMetadata(
+    organizationId: string | null,
+    teamInput: TeamInfoInput,
+    programType: TeamTypeApi
+  ): Promise<void> {
+    if (!organizationId) return;
+
+    const branding = this.extractOrgBranding(teamInput);
+    const updateData: Record<string, unknown> = {
+      type: programType,
+      ...(branding ?? {}),
+    };
+
+    if (Object.keys(updateData).length === 0) return;
+
+    const organizationService = createOrganizationService(this.db);
+    await organizationService.updateOrganization(organizationId, updateData, 'agent-x-scraper');
   }
 
   private sanitizeCoach(coach: CoachInput): Record<string, unknown> {
@@ -1324,7 +1491,7 @@ export class UpdateAthleteProfileTool extends BaseTool {
     return null;
   }
 
-  private paramError(param: string, expected: string): ToolResult {
+  private paramTypeError(param: string, expected: string): ToolResult {
     return {
       success: false,
       error: `Parameter "${param}" is required and must be a ${expected}.`,

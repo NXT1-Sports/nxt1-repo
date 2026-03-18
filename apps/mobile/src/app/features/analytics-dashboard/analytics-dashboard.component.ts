@@ -31,6 +31,7 @@ import type {
   AnalyticsInsight,
   AnalyticsRecommendation,
 } from '@nxt1/core';
+import { USER_ROLES } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 
 @Component({
@@ -114,7 +115,7 @@ export class AnalyticsDashboardComponent {
 
     // Map UserRole to AnalyticsUserRole
     // UserRole includes: 'athlete', 'coach', 'director', 'recruiter', 'parent'
-    if (role === 'coach') {
+    if (role === USER_ROLES.COACH) {
       return 'coach';
     }
 

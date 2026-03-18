@@ -38,6 +38,7 @@ import {
 } from '@angular/core';
 import { NxtIconComponent } from '../icon';
 import { HapticsService } from '../../services/haptics';
+import { NxtLoggingService } from '../../services/logging';
 import {
   NxtThemeService,
   THEME_OPTIONS,
@@ -661,6 +662,7 @@ export interface ThemeSelectEvent {
 export class NxtThemeSelectorComponent {
   protected readonly themeService = inject(NxtThemeService);
   private readonly haptics = inject(HapticsService);
+  private readonly logger = inject(NxtLoggingService).child('ThemeSelector');
 
   /** Component variant */
   @Input() variant: ThemeSelectorVariant = 'default';
@@ -691,8 +693,10 @@ export class NxtThemeSelectorComponent {
    * In singleRow mode (desktop), also clears sport theme so appearance change is visible.
    */
   protected selectAppearance(option: ThemeOption): void {
-    console.log('[ThemeSelector] selectAppearance clicked:', option.id);
-    console.log('[ThemeSelector] current preference:', this.themeService.preference());
+    this.logger.debug('selectAppearance clicked', {
+      optionId: option.id,
+      currentPreference: this.themeService.preference(),
+    });
 
     // In singleRow mode (desktop), always clear sport theme first
     const hadSportTheme = this.singleRow && this.themeService.hasSportTheme();
@@ -702,11 +706,11 @@ export class NxtThemeSelectorComponent {
 
     // Skip if same preference AND no sport theme was cleared
     if (this.themeService.preference() === option.id && !hadSportTheme) {
-      console.log('[ThemeSelector] Same theme selected, skipping');
+      this.logger.debug('Same theme selected, skipping');
       return;
     }
 
-    console.log('[ThemeSelector] Calling haptics and setTheme');
+    this.logger.debug('Calling haptics and setTheme', { theme: option.id });
     void this.haptics.impact('light');
     this.themeService.setTheme(option.id);
 

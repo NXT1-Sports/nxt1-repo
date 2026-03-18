@@ -25,6 +25,7 @@ import { NxtLoggingService } from '../../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import { LINK_SOURCES_TEST_IDS } from '@nxt1/core/testing';
 import type { ConnectedSource } from './connected-sources.component';
 
 @Component({
@@ -39,6 +40,15 @@ import type { ConnectedSource } from './connected-sources.component';
       [showBorder]="true"
       (closeSheet)="dismiss()"
     >
+      <button
+        sheetHeaderAction
+        type="button"
+        class="nxt1-sheet-resync"
+        [attr.data-testid]="testIds.RESYNC_BUTTON"
+        (click)="requestResync()"
+      >
+        Re-sync
+      </button>
       @if (hasChanges()) {
         <button sheetHeaderAction type="button" class="nxt1-sheet-done" (click)="dismiss()">
           Done
@@ -87,6 +97,20 @@ import type { ConnectedSource } from './connected-sources.component';
         font-size: var(--nxt1-fontSize-sm);
         font-weight: var(--nxt1-fontWeight-bold);
         color: var(--nxt1-color-primary);
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .nxt1-sheet-resync {
+        appearance: none;
+        -webkit-appearance: none;
+        border: none;
+        background: none;
+        padding: 0;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-bold);
+        color: var(--nxt1-color-text-secondary);
         cursor: pointer;
         -webkit-tap-highlight-color: transparent;
       }
@@ -221,6 +245,7 @@ export class ConnectedAccountsSheetComponent implements OnInit {
   private readonly _sources = signal<ConnectedSource[]>([]);
   private readonly _hasChanges = signal(false);
 
+  protected readonly testIds = LINK_SOURCES_TEST_IDS;
   readonly sources = computed(() => this._sources());
   readonly hasChanges = computed(() => this._hasChanges());
 
@@ -284,5 +309,19 @@ export class ConnectedAccountsSheetComponent implements OnInit {
       this.breadcrumb.trackStateChange('connected-accounts-sheet:cancelled');
       void this.modalCtrl.dismiss(null, 'cancel');
     }
+  }
+
+  requestResync(): void {
+    const sources = this._sources();
+
+    this.logger.info('Connected accounts re-sync requested', {
+      sourceCount: sources.length,
+      connectedCount: sources.filter(
+        (source) => source.connected || !!source.url || !!source.username
+      ).length,
+    });
+    this.breadcrumb.trackStateChange('connected-accounts-sheet:resync-requested');
+
+    void this.modalCtrl.dismiss({ sources }, 'resync');
   }
 }

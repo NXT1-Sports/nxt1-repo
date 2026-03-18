@@ -3,8 +3,8 @@
  * @module @nxt1/ui/profile/components
  *
  * Shared profile section component used by both web and mobile shells.
- * Overview tab content including player-profile, bio, history,
- * awards, academic, and contact sub-sections, plus mobile XP ring & badges.
+ * Overview tab content including player info, history,
+ * awards, academic, and contact sub-sections.
  */
 import {
   Component,
@@ -60,46 +60,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
   other: 'shield',
 };
 
-const XP_LEVELS: ReadonlyArray<{
-  readonly level: number;
-  readonly name: string;
-  readonly min: number;
-  readonly max: number;
-}> = [
-  { level: 1, name: 'ROOKIE', min: 0, max: 999 },
-  { level: 2, name: 'STARTER', min: 1_000, max: 2_999 },
-  { level: 3, name: 'ALL-STAR', min: 3_000, max: 5_999 },
-  { level: 4, name: 'PRO', min: 6_000, max: 9_999 },
-  { level: 5, name: 'ELITE', min: 10_000, max: 14_999 },
-  { level: 6, name: 'LEGEND', min: 15_000, max: 24_999 },
-  { level: 7, name: 'GOAT', min: 25_000, max: Infinity },
-];
-
-const MOBILE_RING_RADIUS = 40;
-const MOBILE_ARC_DEGREES = 270;
-const MOBILE_ARC_CIRCUMFERENCE = 2 * Math.PI * MOBILE_RING_RADIUS;
-const MOBILE_ARC_LENGTH = MOBILE_ARC_CIRCUMFERENCE * (MOBILE_ARC_DEGREES / 360);
-
-interface MobileHeaderBadge {
-  readonly id: string;
-  readonly name: string;
-  readonly icon: string;
-  readonly rarity: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
-}
-
-const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
-  { id: 'profile-pro', name: 'Profile Pro', icon: 'person', rarity: 'rare' },
-  { id: 'highlight-star', name: 'Highlight Star', icon: 'videocam', rarity: 'epic' },
-  { id: 'team-player', name: 'Team Player', icon: 'users', rarity: 'uncommon' },
-  { id: 'stat-tracker', name: 'Stat Tracker', icon: 'barChart', rarity: 'common' },
-  { id: 'early-adopter', name: 'Early Adopter', icon: 'rocket', rarity: 'rare' },
-  { id: 'on-fire', name: 'On Fire', icon: 'flame', rarity: 'legendary' },
-  { id: 'clutch-performer', name: 'Clutch Performer', icon: 'bolt', rarity: 'epic' },
-  { id: 'film-room', name: 'Film Room', icon: 'eye', rarity: 'uncommon' },
-  { id: 'captain', name: 'Captain', icon: 'shield', rarity: 'rare' },
-  { id: 'grind-mode', name: 'Grind Mode', icon: 'barbell', rarity: 'common' },
-];
-
 @Component({
   selector: 'nxt1-profile-overview',
   standalone: true,
@@ -110,47 +70,59 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
       <h2 id="overview-heading" class="sr-only">Player Overview</h2>
 
       <!-- Mobile-only team affiliations (swapped from hero) -->
-      @if (activeSideTab() === 'player-profile' && teamAffiliations().length > 0) {
+      @if (activeSideTab() === 'player-profile') {
         <div class="ov-mobile-teams">
-          <h3 class="ov-section-title ov-overview-title">Player Profile</h3>
-          <div class="madden-team-stack">
-            @for (team of teamAffiliations(); track team.name + '-' + (team.type || 'other')) {
-              <div
-                class="madden-team-block madden-team-block--clickable"
-                role="button"
-                tabindex="0"
-                (click)="onEditTeam()"
-                (keydown.enter)="onEditTeam()"
-                (keydown.space)="onEditTeam(); $event.preventDefault()"
-              >
-                @if (team.logoUrl) {
-                  <nxt1-image
-                    class="madden-team-logo"
-                    [src]="team.logoUrl"
-                    [alt]="team.name"
-                    [width]="32"
-                    [height]="32"
-                    variant="avatar"
-                    fit="contain"
-                    [priority]="true"
-                    [showPlaceholder]="false"
-                  />
-                } @else {
-                  <div class="madden-team-logo-placeholder">
-                    <nxt1-icon [name]="teamIconName(team.type)" [size]="22" />
-                  </div>
-                }
-                <div class="madden-team-info">
-                  <div class="madden-team-headline">
-                    <span class="madden-team-name">{{ team.name }}</span>
-                  </div>
-                  @if (team.location) {
-                    <span class="madden-team-location">{{ team.location }}</span>
-                  }
-                </div>
-              </div>
-            }
+          <h4 class="ov-section-title ov-section-title--subsection">Player Bio</h4>
+          <div class="ov-bio-card ov-bio-card--mobile-info">
+            <nxt1-icon name="person" [size]="18" />
+            <p>
+              {{
+                profile.user()?.aboutMe ||
+                  'No bio added yet. Add a short player bio to help coaches understand your story and goals.'
+              }}
+            </p>
           </div>
+
+          @if (teamAffiliations().length > 0) {
+            <div class="madden-team-stack ov-mobile-team-stack">
+              @for (team of teamAffiliations(); track team.name + '-' + (team.type || 'other')) {
+                <div
+                  class="madden-team-block madden-team-block--clickable"
+                  role="button"
+                  tabindex="0"
+                  (click)="onEditTeam()"
+                  (keydown.enter)="onEditTeam()"
+                  (keydown.space)="onEditTeam(); $event.preventDefault()"
+                >
+                  @if (team.logoUrl) {
+                    <nxt1-image
+                      class="madden-team-logo"
+                      [src]="team.logoUrl"
+                      [alt]="team.name"
+                      [width]="32"
+                      [height]="32"
+                      variant="avatar"
+                      fit="contain"
+                      [priority]="true"
+                      [showPlaceholder]="false"
+                    />
+                  } @else {
+                    <div class="madden-team-logo-placeholder">
+                      <nxt1-icon [name]="teamIconName(team.type)" [size]="22" />
+                    </div>
+                  }
+                  <div class="madden-team-info">
+                    <div class="madden-team-headline">
+                      <span class="madden-team-name">{{ team.name }}</span>
+                    </div>
+                    @if (team.location) {
+                      <span class="madden-team-location">{{ team.location }}</span>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          }
         </div>
       }
 
@@ -158,7 +130,6 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
         <div class="ov-top-row">
           <!-- ═══ PLAYER PROFILE — Key/Value Pairs (like Madden) ═══ -->
           <div class="ov-section ov-section--profile ov-section--player-stats">
-            <h3 class="ov-section-title ov-overview-title">Player Profile</h3>
             <div class="ov-profile-grid">
               @if (profile.user()?.classYear) {
                 <div class="ov-profile-row">
@@ -219,7 +190,7 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
                 <div class="ov-profile-row">
                   <span class="ov-profile-key">Weight:</span>
                   <span class="ov-profile-val-wrap">
-                    <span class="ov-profile-val">{{ profile.user()?.weight }} lb</span>
+                    <span class="ov-profile-val">{{ profile.user()?.weight }}</span>
                     @if (measurablesVerification()) {
                       @if (measurablesProviderUrl()) {
                         <a
@@ -270,6 +241,17 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
                   <span class="ov-profile-val">{{ profile.user()?.location }}</span>
                 </div>
               }
+            </div>
+
+            <h4 class="ov-section-title ov-section-title--subsection">Player Bio</h4>
+            <div class="ov-bio-card">
+              <nxt1-icon name="person" [size]="18" />
+              <p>
+                {{
+                  profile.user()?.aboutMe ||
+                    'No bio added yet. Add a short player bio to help coaches understand your story and goals.'
+                }}
+              </p>
             </div>
           </div>
 
@@ -337,7 +319,20 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
                   [attr.aria-label]="acct.label"
                 >
                   <span class="ov-connected-icon" [style.color]="acct.color">
-                    <nxt1-icon [name]="acct.icon" [size]="14" />
+                    @if (acct.faviconUrl && acct.icon === 'link') {
+                      <img
+                        [src]="acct.faviconUrl"
+                        [alt]="acct.label + ' icon'"
+                        class="ov-connected-favicon"
+                        width="14"
+                        height="14"
+                        loading="lazy"
+                        referrerpolicy="no-referrer"
+                        (error)="onFaviconError($event)"
+                      />
+                    } @else {
+                      <nxt1-icon [name]="acct.icon" [size]="14" />
+                    }
                   </span>
                   <span class="ov-connected-label">{{ acct.label }}</span>
                   <span class="ov-connected-check">
@@ -368,66 +363,6 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
             </p>
           </div>
         }
-
-        <!-- ═══ MOBILE XP RING + BADGES (below connected accounts) ═══ -->
-        <div
-          class="ov-mobile-xp-section"
-          [class.ov-mobile-xp-section--centered]="mobileBadgesEarned() <= 5"
-          aria-label="Player XP"
-        >
-          <div
-            class="ov-mobile-xp-ring"
-            [attr.aria-label]="'Level ' + mobileXpLevel() + ' — ' + mobileXpTier()"
-          >
-            <div class="ov-mobile-xp-glow"></div>
-            <svg class="ov-mobile-xp-svg" viewBox="0 0 96 96" aria-hidden="true">
-              <circle cx="48" cy="48" r="38" fill="var(--nxt1-color-surface-100, #161616)" />
-              <circle
-                cx="48"
-                cy="48"
-                r="40"
-                fill="none"
-                stroke="var(--ring-track, rgba(255,255,255,0.06))"
-                stroke-width="6"
-                stroke-linecap="round"
-                [attr.stroke-dasharray]="mobileArcLength + ' ' + mobileArcGap"
-                transform="rotate(135 48 48)"
-              />
-              <circle
-                cx="48"
-                cy="48"
-                r="40"
-                fill="none"
-                stroke="var(--m-accent, #ceff00)"
-                stroke-width="6"
-                stroke-linecap="round"
-                [attr.stroke-dasharray]="mobileXpArcDash()"
-                transform="rotate(135 48 48)"
-                class="ov-mobile-xp-arc"
-              />
-            </svg>
-            <div class="ov-mobile-xp-inner">
-              <span class="ov-mobile-xp-lvl">Lv {{ mobileXpLevel() }}</span>
-              <span class="ov-mobile-xp-tier">{{ mobileXpTier() }}</span>
-            </div>
-          </div>
-          @if (mobileDisplayBadges().length > 0) {
-            <div class="ov-mobile-xp-badge-grid" aria-label="Earned badges">
-              @for (badge of mobileDisplayBadges(); track badge.id) {
-                <div
-                  class="ov-mobile-xp-badge-orb"
-                  [class]="'ov-mobile-xp-badge-orb ov-mobile-xp-badge-orb--' + badge.rarity"
-                  [attr.aria-label]="badge.name + ' badge'"
-                >
-                  <nxt1-icon [name]="badge.icon" [size]="12" />
-                </div>
-              }
-              @if (mobileRemainingBadgeCount() > 0) {
-                <span class="ov-mobile-xp-badge-more">+{{ mobileRemainingBadgeCount() }}</span>
-              }
-            </div>
-          }
-        </div>
 
         <div class="ov-section ov-section--profile">
           <button
@@ -503,23 +438,6 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
             </div>
           </div>
         }
-      }
-
-      @if (activeSideTab() === 'player-bio') {
-        <div class="ov-top-row ov-top-row--single">
-          <div class="ov-section ov-section--profile">
-            <h3 class="ov-section-title ov-overview-title">Player Bio</h3>
-            <div class="ov-bio-card">
-              <nxt1-icon name="person" [size]="18" />
-              <p>
-                {{
-                  profile.user()?.aboutMe ||
-                    'No bio added yet. Add a short player bio to help coaches understand your story and goals.'
-                }}
-              </p>
-            </div>
-          </div>
-        </div>
       }
 
       @if (activeSideTab() === 'player-history') {
@@ -766,6 +684,15 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
         color: var(--m-text);
         margin: 0 0 14px;
         letter-spacing: -0.01em;
+      }
+      .ov-section-title--subsection {
+        margin-top: 0;
+      }
+      .ov-mobile-teams {
+        margin-top: -10px;
+      }
+      .ov-mobile-team-stack {
+        margin-top: 12px;
       }
       .ov-overview-title {
         font-size: 16px;
@@ -1177,9 +1104,13 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
         align-items: flex-start;
         gap: 12px;
         padding: 14px 16px;
+        margin-top: 16px;
         border-radius: 10px;
         background: var(--m-surface);
         border: 1px solid var(--m-border);
+      }
+      .ov-bio-card--mobile-info {
+        margin-top: 4px;
       }
       .ov-bio-card nxt1-icon {
         color: var(--m-accent);
@@ -1192,123 +1123,6 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
         color: var(--m-text-2);
         line-height: 1.6;
         margin: 0;
-      }
-
-      /* XP section — visible on all viewports */
-      .ov-mobile-xp-section {
-        display: flex;
-        align-items: center;
-        gap: 20px;
-        margin: 16px 0;
-        padding: 20px;
-        border-radius: 16px;
-        background: var(--m-surface);
-        border: 1px solid var(--m-border);
-      }
-      .ov-mobile-xp-section--centered {
-        justify-content: center;
-      }
-      .ov-mobile-xp-ring {
-        position: relative;
-        width: 110px;
-        height: 110px;
-        flex-shrink: 0;
-      }
-      .ov-mobile-xp-glow {
-        position: absolute;
-        inset: -6px;
-        border-radius: 50%;
-        background: radial-gradient(
-          circle,
-          color-mix(in srgb, var(--m-accent) 18%, transparent) 0%,
-          transparent 70%
-        );
-        pointer-events: none;
-      }
-      .ov-mobile-xp-svg {
-        width: 100%;
-        height: 100%;
-      }
-      .ov-mobile-xp-arc {
-        transition: stroke-dasharray 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-      }
-      .ov-mobile-xp-inner {
-        position: absolute;
-        inset: 0;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 1px;
-      }
-      .ov-mobile-xp-lvl {
-        font-size: 22px;
-        font-weight: 900;
-        color: var(--m-text);
-        line-height: 1;
-      }
-      .ov-mobile-xp-tier {
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        color: var(--m-accent);
-        line-height: 1;
-      }
-      .ov-mobile-xp-badge-grid {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        align-items: center;
-      }
-      .ov-mobile-xp-badge-orb {
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border: 1.5px solid rgba(255, 255, 255, 0.1);
-        background: rgba(255, 255, 255, 0.04);
-        color: var(--m-text-3);
-        transition:
-          transform 0.15s ease,
-          box-shadow 0.15s ease;
-      }
-      .ov-mobile-xp-badge-orb:hover {
-        transform: scale(1.1);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-      }
-      .ov-mobile-xp-badge-orb--common {
-        border-color: color-mix(in srgb, #9e9e9e 30%, transparent);
-        background: color-mix(in srgb, #9e9e9e 8%, transparent);
-        color: #9e9e9e;
-      }
-      .ov-mobile-xp-badge-orb--uncommon {
-        border-color: color-mix(in srgb, #4caf50 35%, transparent);
-        background: color-mix(in srgb, #4caf50 10%, transparent);
-        color: #4caf50;
-      }
-      .ov-mobile-xp-badge-orb--rare {
-        border-color: color-mix(in srgb, #2196f3 35%, transparent);
-        background: color-mix(in srgb, #2196f3 10%, transparent);
-        color: #2196f3;
-      }
-      .ov-mobile-xp-badge-orb--epic {
-        border-color: color-mix(in srgb, #9c27b0 40%, transparent);
-        background: color-mix(in srgb, #9c27b0 12%, transparent);
-        color: #9c27b0;
-      }
-      .ov-mobile-xp-badge-orb--legendary {
-        border-color: color-mix(in srgb, #ff9800 45%, transparent);
-        background: color-mix(in srgb, #ff9800 14%, transparent);
-        color: #ff9800;
-      }
-      .ov-mobile-xp-badge-more {
-        font-size: 11px;
-        font-weight: 700;
-        color: var(--m-text-3);
-        padding: 4px 8px;
       }
 
       /* Mobile-only team affiliations — hidden on desktop */
@@ -1359,8 +1173,8 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
         align-items: center;
         justify-content: center;
         border-radius: 6px;
-        background: rgba(255, 255, 255, 0.06);
-        color: var(--m-text-3);
+        background: color-mix(in srgb, var(--m-accent) 10%, transparent);
+        color: var(--m-accent);
         flex-shrink: 0;
       }
       .madden-team-logo-wrap {
@@ -1946,6 +1760,7 @@ export class ProfileOverviewComponent implements OnDestroy {
       readonly icon: string;
       readonly color: string;
       readonly url: string;
+      readonly faviconUrl: string | null;
     }> => {
       const connectedSources = this.profile.user()?.connectedSources ?? [];
 
@@ -1971,10 +1786,18 @@ export class ProfileOverviewComponent implements OnDestroy {
             icon: meta.icon,
             color: meta.color,
             url: cs.profileUrl,
+            faviconUrl: cs.faviconUrl ?? null,
           };
         });
     }
   );
+
+  protected onFaviconError(event: Event): void {
+    const img = event.target;
+    if (img instanceof HTMLImageElement) {
+      img.style.display = 'none';
+    }
+  }
 
   // ── Awards ──
 
@@ -2058,97 +1881,23 @@ export class ProfileOverviewComponent implements OnDestroy {
   // ── Last synced ──
 
   protected readonly lastSyncedLabel = computed(() => {
+    const connectedSources = this.profile.user()?.connectedSources ?? [];
+    const latestConnectedSync = connectedSources
+      .map((source) => source.lastSyncedAt)
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .map((value) => new Date(value))
+      .filter((value) => !Number.isNaN(value.getTime()))
+      .sort((left, right) => right.getTime() - left.getTime())[0];
+
+    if (latestConnectedSync) {
+      return this.formatRelativeTime(latestConnectedSync);
+    }
+
     const updatedAt = this.profile.user()?.updatedAt;
     if (!updatedAt) return 'Never synced';
     const parsed = new Date(updatedAt);
     if (Number.isNaN(parsed.getTime())) return 'Never synced';
     return this.formatRelativeTime(parsed);
-  });
-
-  // ── Mobile XP ring + badges ──
-
-  private readUserNumericField(fieldName: string): number | null {
-    const raw = (this.profile.user() as unknown as Record<string, unknown> | null)?.[fieldName];
-    if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
-    if (typeof raw === 'string') {
-      const parsed = Number(raw.replace(/,/g, '').trim());
-      if (Number.isFinite(parsed)) return parsed;
-    }
-    return null;
-  }
-
-  protected readonly mobileXpValue = computed(() => {
-    const xpFromUser =
-      this.readUserNumericField('xp') ??
-      this.readUserNumericField('xpPoints') ??
-      this.readUserNumericField('totalXp') ??
-      this.readUserNumericField('xpTotal') ??
-      this.readUserNumericField('xpRating');
-    if (xpFromUser !== null && xpFromUser >= 0) return Math.round(xpFromUser);
-    const overall = this.profile.playerCard()?.prospectGrade?.overall;
-    if (typeof overall === 'number' && Number.isFinite(overall) && overall > 0)
-      return Math.round(overall * 100);
-    return 8_000;
-  });
-
-  private readonly mobileCurrentXpLevel = computed(() => {
-    const xp = this.mobileXpValue();
-    return XP_LEVELS.find((level) => xp >= level.min && xp <= level.max) ?? XP_LEVELS[0];
-  });
-
-  protected readonly mobileXpLevel = computed(() => this.mobileCurrentXpLevel().level);
-  protected readonly mobileXpTier = computed(() => this.mobileCurrentXpLevel().name);
-
-  protected readonly mobileArcLength = MOBILE_ARC_LENGTH;
-  protected readonly mobileArcGap = MOBILE_ARC_CIRCUMFERENCE - MOBILE_ARC_LENGTH;
-
-  protected readonly mobileXpArcDash = computed(() => {
-    const xp = this.mobileXpValue();
-    const lvl = this.mobileCurrentXpLevel();
-    const range = lvl.max === Infinity ? 25_000 : lvl.max - lvl.min;
-    const progress = Math.min(1, (xp - lvl.min) / range);
-    const filled = MOBILE_ARC_LENGTH * progress;
-    const remaining = MOBILE_ARC_CIRCUMFERENCE - filled;
-    return `${filled} ${remaining}`;
-  });
-
-  protected readonly mobileBadgesEarned = computed(() => {
-    const numericBadges =
-      this.readUserNumericField('badgesEarned') ??
-      this.readUserNumericField('badgeCount') ??
-      this.readUserNumericField('badgesCount');
-    if (numericBadges !== null && numericBadges >= 0) return Math.round(numericBadges);
-    const badges = (this.profile.user() as unknown as Record<string, unknown> | null)?.['badges'];
-    if (Array.isArray(badges)) return badges.length;
-    const overall = this.profile.playerCard()?.prospectGrade?.overall;
-    const ovrRating =
-      typeof overall === 'number' && Number.isFinite(overall) && overall > 0 ? overall : 80;
-    return Math.max(1, Math.round(ovrRating / 6));
-  });
-
-  protected readonly mobileDisplayBadges = computed((): ReadonlyArray<MobileHeaderBadge> => {
-    const userBadges = (this.profile.user() as unknown as Record<string, unknown> | null)?.[
-      'earnedBadges'
-    ];
-    if (Array.isArray(userBadges) && userBadges.length > 0) {
-      const VALID_RARITIES = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
-      return userBadges.slice(0, 10).map((b: Record<string, unknown>) => ({
-        id: String(b['id'] ?? ''),
-        name: String(b['name'] ?? 'Badge'),
-        icon: String(b['icon'] ?? 'star'),
-        rarity: (VALID_RARITIES.includes(String(b['rarity'] ?? ''))
-          ? String(b['rarity'])
-          : 'common') as MobileHeaderBadge['rarity'],
-      }));
-    }
-    const count = Math.min(this.mobileBadgesEarned(), 10);
-    return MOBILE_PLACEHOLDER_BADGES.slice(0, count);
-  });
-
-  protected readonly mobileRemainingBadgeCount = computed(() => {
-    const total = this.mobileBadgesEarned();
-    const shown = this.mobileDisplayBadges().length;
-    return Math.max(0, total - shown);
   });
 
   // ── Actions ──

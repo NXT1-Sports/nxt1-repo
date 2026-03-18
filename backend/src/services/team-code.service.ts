@@ -194,7 +194,7 @@ function canManageRole(requesterRole: ROLE, targetRole: ROLE): boolean {
 /**
  * Invalidate all team-related cache
  */
-async function invalidateTeamCache(
+export async function invalidateTeamCache(
   teamId: string,
   teamCode?: string,
   unicode?: string

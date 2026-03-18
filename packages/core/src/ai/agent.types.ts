@@ -242,7 +242,99 @@ export type AgentTriggerType =
   | 'coach_reply' // A coach replied to a recruiting email
   | 'content_milestone' // Post hit a view/like milestone
   | 'stale_profile' // Profile hasn't been updated in X days
+  | 'daily_sync_complete' // Daily background scraper found changes
   | 'custom'; // Custom trigger (extensible)
+
+// ─── Sync Delta Report ─────────────────────────────────────────────────────
+
+/** A single changed stat metric detected during a daily sync. */
+export interface SyncStatChange {
+  readonly category: string; // e.g. "Passing"
+  readonly key: string; // e.g. "Yds"
+  readonly label: string; // e.g. "Yards"
+  readonly oldValue: string | number | null;
+  readonly newValue: string | number;
+  readonly delta?: number; // Numeric difference (if both values are numbers)
+}
+
+/** A new season or category detected for the first time. */
+export interface SyncNewCategory {
+  readonly season: string;
+  readonly category: string;
+  readonly columns: readonly string[];
+  readonly totalCount: number;
+}
+
+/** A new schedule event detected during a daily sync. */
+export interface SyncNewScheduleEvent {
+  readonly date: string;
+  readonly opponent?: string;
+  readonly location?: string;
+  readonly result?: string;
+  readonly score?: string;
+}
+
+/** A new video/highlight detected during a daily sync. */
+export interface SyncNewVideo {
+  readonly src: string;
+  readonly provider: string;
+  readonly videoId?: string;
+  readonly title?: string;
+}
+
+/**
+ * Deterministic report of what changed between the previous DB state
+ * and the latest AI-extracted web data during a daily sync.
+ *
+ * This is computed by pure structural diffing (not AI) for speed and accuracy.
+ * Agent X reads this to decide what actions to take proactively.
+ */
+export interface SyncDeltaReport {
+  readonly userId: string;
+  readonly sport: string;
+  readonly source: string;
+  readonly syncedAt: string;
+
+  /** True if nothing changed since the last sync — Agent X stays asleep. */
+  readonly isEmpty: boolean;
+
+  /** Identity fields that changed (e.g. school name, class year, city). */
+  readonly identityChanges: ReadonlyArray<{
+    readonly field: string;
+    readonly oldValue: unknown;
+    readonly newValue: unknown;
+  }>;
+
+  /** New season/category stat tables detected for the first time. */
+  readonly newCategories: readonly SyncNewCategory[];
+
+  /** Individual stat values that changed within existing categories. */
+  readonly statChanges: readonly SyncStatChange[];
+
+  /** New recruiting activities detected. */
+  readonly newRecruitingActivities: ReadonlyArray<Record<string, unknown>>;
+
+  /** New awards detected. */
+  readonly newAwards: ReadonlyArray<Record<string, unknown>>;
+
+  /** New schedule events detected (games, practices, etc.). */
+  readonly newScheduleEvents: readonly SyncNewScheduleEvent[];
+
+  /** New videos/highlights detected on external platforms. */
+  readonly newVideos: readonly SyncNewVideo[];
+
+  /** Summary counts for quick decisions. */
+  readonly summary: {
+    readonly identityFieldsChanged: number;
+    readonly newCategoriesAdded: number;
+    readonly statsUpdated: number;
+    readonly newRecruitingActivities: number;
+    readonly newAwards: number;
+    readonly newScheduleEvents: number;
+    readonly newVideos: number;
+    readonly totalChanges: number;
+  };
+}
 
 /** Priority levels for trigger events. */
 export type AgentTriggerPriority = 'low' | 'normal' | 'high' | 'critical';

@@ -326,6 +326,8 @@ export interface ShellActiveOperation {
   readonly progress: number;
   readonly icon: string;
   readonly status: 'processing' | 'complete' | 'error';
+  /** MongoDB thread ID — when set, opening this operation displays the persisted worker conversation. */
+  readonly threadId?: string;
 }
 
 /** Resolved shell content for a given user role. */
@@ -424,6 +426,8 @@ export interface OperationLogEntry {
   readonly category: OperationLogCategory;
   readonly timestamp: string;
   readonly duration?: string;
+  /** MongoDB thread ID linking to the Agent X conversation for this operation. */
+  readonly threadId?: string;
   readonly metadata?: Record<string, unknown>;
 }
 

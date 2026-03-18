@@ -34,6 +34,8 @@ import {
   type ApiErrorDetail,
 } from '@nxt1/core/errors';
 import { NxtToastService } from '../../services/toast';
+import { NxtLoggingService } from '../../services/logging';
+import type { ILogger } from '@nxt1/core/logging';
 
 /**
  * HTTP Error Interceptor Configuration
@@ -82,6 +84,7 @@ export function httpErrorInterceptor(options: HttpErrorInterceptorOptions = {}):
     const router = inject(Router);
     const platformId = inject(PLATFORM_ID);
     const toast = inject(NxtToastService);
+    const logger = inject(NxtLoggingService).child('HttpErrorInterceptor');
 
     // Check if request should be skipped
     const shouldSkip = config.skipPatterns.some((pattern) => pattern.test(req.url));
@@ -95,7 +98,7 @@ export function httpErrorInterceptor(options: HttpErrorInterceptorOptions = {}):
         const apiError = parseApiError(error);
 
         // Log error for debugging
-        logHttpError(req, error, apiError);
+        logHttpError(req, error, apiError, logger);
 
         // Handle 401 Unauthorized
         if (error.status === 401 && config.redirectOnUnauthorized) {
@@ -104,12 +107,12 @@ export function httpErrorInterceptor(options: HttpErrorInterceptorOptions = {}):
 
         // Handle 429 Rate Limit
         if (error.status === 429) {
-          handleRateLimit(error, apiError);
+          handleRateLimit(error, apiError, logger);
         }
 
         // Handle network errors
         if (error.status === 0) {
-          handleNetworkError(platformId);
+          handleNetworkError(platformId, logger);
         }
 
         // Show notification if enabled
@@ -130,16 +133,16 @@ export function httpErrorInterceptor(options: HttpErrorInterceptorOptions = {}):
 function logHttpError(
   req: HttpRequest<unknown>,
   error: HttpErrorResponse,
-  apiError: ApiErrorDetail
+  apiError: ApiErrorDetail,
+  logger: ILogger
 ): void {
-  console.error('[HTTP Error]', {
+  logger.error('HTTP error', error, {
     url: req.url,
     method: req.method,
     status: error.status,
     statusText: error.statusText,
     code: apiError.code,
     message: apiError.message,
-    timestamp: new Date().toISOString(),
   });
 }
 
@@ -164,11 +167,15 @@ function handleUnauthorized(router: Router, platformId: object, redirectPath: st
 /**
  * Handle 429 Rate Limit - log retry-after if available
  */
-function handleRateLimit(error: HttpErrorResponse, apiError: ApiErrorDetail): void {
+function handleRateLimit(
+  error: HttpErrorResponse,
+  apiError: ApiErrorDetail,
+  logger: ILogger
+): void {
   const retryAfter = error.headers.get('Retry-After');
   const retryDelay = getRetryDelay(apiError);
 
-  console.warn('[HTTP Error] Rate limited', {
+  logger.warn('Rate limited', {
     retryAfter,
     retryDelay,
     shouldRetry: shouldRetry(apiError),
@@ -178,14 +185,14 @@ function handleRateLimit(error: HttpErrorResponse, apiError: ApiErrorDetail): vo
 /**
  * Handle network errors (status 0)
  */
-function handleNetworkError(platformId: object): void {
+function handleNetworkError(platformId: object, logger: ILogger): void {
   if (!isPlatformBrowser(platformId)) return;
 
   // Check if actually offline
   if (!navigator.onLine) {
-    console.warn('[HTTP Error] Device is offline');
+    logger.warn('Device is offline');
   } else {
-    console.error('[HTTP Error] Network error - server may be unreachable');
+    logger.error('Network error - server may be unreachable');
   }
 }
 

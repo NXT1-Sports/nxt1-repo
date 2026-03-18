@@ -58,6 +58,7 @@ import { NxtIconComponent } from '../icon';
 import { NxtAvatarComponent } from '../avatar';
 import { NxtPlatformService } from '../../services/platform';
 import { HapticsService } from '../../services/haptics';
+import { NxtLoggingService } from '../../services/logging';
 import type {
   FooterTabItem,
   FooterConfig,
@@ -757,6 +758,7 @@ export class NxtMobileFooterComponent {
   private readonly platform = inject(NxtPlatformService);
   private readonly haptics = inject(HapticsService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly logger = inject(NxtLoggingService).child('MobileFooter');
 
   // ============================================
   // INPUTS
@@ -1033,7 +1035,7 @@ export class NxtMobileFooterComponent {
       }
     } catch (error) {
       // Log but don't throw - tab click failures shouldn't crash the app
-      console.warn('[NxtMobileFooter] Tab click handler failed:', error);
+      this.logger.error('Tab click handler failed', error);
     }
   }
 }

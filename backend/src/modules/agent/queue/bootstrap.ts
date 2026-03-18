@@ -29,8 +29,21 @@ import { AgentJobRepository } from './job.repository.js';
 import { AgentRouter } from '../agent.router.js';
 import { OpenRouterService } from '../llm/openrouter.service.js';
 import { ToolRegistry } from '../tools/tool-registry.js';
-import { ScrapeWebpageTool } from '../tools/scraping/index.js';
-import { UpdateAthleteProfileTool, UpdateTeamProfileTool } from '../tools/database/index.js';
+import {
+  ScrapeWebpageTool,
+  ScrapeAndIndexProfileTool,
+  ReadDistilledSectionTool,
+} from '../tools/scraping/index.js';
+import {
+  UpdateAthleteProfileTool,
+  UpdateTeamProfileTool,
+  WriteCoreIdentityTool,
+  WriteCombineMetricsTool,
+  WriteSeasonStatsTool,
+  WriteRecruitingActivityTool,
+  WriteCalendarEventsTool,
+  WriteAthleteVideosTool,
+} from '../tools/database/index.js';
 import { GenerateImageTool } from '../tools/media/index.js';
 import { ContextBuilder } from '../memory/context-builder.js';
 import { AgentChatService } from '../services/agent-chat.service.js';
@@ -79,8 +92,16 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   });
   const toolRegistry = new ToolRegistry();
   toolRegistry.register(new ScrapeWebpageTool());
+  toolRegistry.register(new ScrapeAndIndexProfileTool(undefined, llm));
+  toolRegistry.register(new ReadDistilledSectionTool());
   toolRegistry.register(new UpdateAthleteProfileTool(stagingDb));
   toolRegistry.register(new UpdateTeamProfileTool());
+  toolRegistry.register(new WriteCoreIdentityTool(stagingDb));
+  toolRegistry.register(new WriteCombineMetricsTool(stagingDb));
+  toolRegistry.register(new WriteSeasonStatsTool(stagingDb));
+  toolRegistry.register(new WriteRecruitingActivityTool(stagingDb));
+  toolRegistry.register(new WriteCalendarEventsTool(stagingDb));
+  toolRegistry.register(new WriteAthleteVideosTool(stagingDb));
   toolRegistry.register(new GenerateImageTool(llm));
   const contextBuilder = new ContextBuilder();
 

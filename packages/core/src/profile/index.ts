@@ -117,6 +117,8 @@ export {
   PROFILE_VALIDATION,
   // Cache
   PROFILE_CACHE_KEYS,
+  // Verification scope mapper
+  getVerificationScopesForTab,
 } from './profile.constants';
 
 // ============================================

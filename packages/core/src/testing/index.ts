@@ -480,6 +480,8 @@ export const LINK_SOURCES_TEST_IDS = {
   QUICK_ADD_INPUT: 'link-sources-quick-add-input',
   /** Quick-add submit button */
   QUICK_ADD_SUBMIT: 'link-sources-quick-add-submit',
+  /** Connected accounts manual re-sync button */
+  RESYNC_BUTTON: 'link-sources-resync-button',
 } as const;
 
 /**

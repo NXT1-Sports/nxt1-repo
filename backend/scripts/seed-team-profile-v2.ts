@@ -1527,49 +1527,20 @@ async function seedRosterEntries(
       approvedBy: REAL_USER_IDS[0],
       approvedAt: now,
 
-      // ⚠️ MINIMAL cached user data for UI performance (roster list display)
-      // Only cache what's needed for list rendering without joining Users table
-      // Full user data should be fetched from Users collection when needed
-      displayName: `${member.firstName} ${member.lastName}`,
-      profileImg: member.profileImgs?.[0] || undefined,
+      // ✅ Cached display fields — firstName + lastName (NOT displayName)
+      // Matches RosterEntry model exactly. Used for roster list rendering
+      // without a separate Users join. Kept in sync via updateCachedUserData().
+      firstName: member.firstName,
+      lastName: member.lastName,
     };
 
-    // Remove undefined fields (Firestore doesn't allow them)
-    const cleanEntry = removeUndefined(rosterEntry);
-    batch.set(ref, cleanEntry);
+    batch.set(ref, rosterEntry);
   }
 
   await batch.commit();
-  console.log(
-    `    ✓ Seeded ${members.length} roster entries (IDs: ${entryIds.slice(0, 3).join(', ')}...)`
-  );
+  console.log(`  ✅ Seeded ${entryIds.length} roster entries`);
 }
 
-// ─── DELETE ROSTER ENTRIES ────────────────────────────────────────────────────
-async function deleteRosterEntries(teamId: string): Promise<void> {
-  const snap = await db.collection(ROSTER_ENTRIES_COL).where('teamId', '==', teamId).get();
-  if (snap.empty) {
-    console.log(`    ℹ️  No roster entries found for team ${teamId}`);
-    return;
-  }
-  const batch = db.batch();
-  snap.docs.forEach((doc) => batch.delete(doc.ref));
-  await batch.commit();
-  console.log(`    ✓ Deleted ${snap.size} roster entries for team ${teamId}`);
-}
-
-// ─── SEED FOLLOWERS/FOLLOWING ─────────────────────────────────────────────────
-/**
- * Seed follower/following relationships between team members
- * Uses TOP-LEVEL Follows collection (not subcollections!)
- *
- * Architecture:
- * - Collection: Follows (top-level)
- * - Document ID: {followerId}_{followingId}
- * - Fields: followerId, followingId, followerType, followingType, createdAt
- * - Query "who follows X": where('followingId', '==', X)
- * - Query "who X follows": where('followerId', '==', X)
- */
 async function seedFollowerRelationships(members: TeamMember[]): Promise<void> {
   console.log(`\n  💫 Seeding follower/following relationships (top-level Follows collection)...`);
 

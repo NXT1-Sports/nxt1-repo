@@ -984,6 +984,9 @@ export {
   isValidSession as isValidMachineSession,
   serializeSession,
   deserializeSession,
+  // Invite team-skip helpers
+  getSkipStepIdsForInviteUser,
+  INVITE_TEAM_JOINED_KEY,
   // Welcome Slides Config
   type WelcomeSlide,
   type WelcomeSlidesConfig,

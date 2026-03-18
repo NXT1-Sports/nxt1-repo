@@ -1,26 +1,14 @@
 /**
- * @fileoverview Team Service Compatibility Adapter
+ * @fileoverview Team Service Adapter
  * @module @nxt1/backend/services/team-adapter
  *
- * Provides unified API for Teams + RosterEntries architecture.
- * This adapter:
- * 1. Uses new structure (Teams + RosterEntries)
- * 2. Returns data in TeamCode format for backend compatibility
- * 3. Maps RosterEntries to legacy TeamMember structure
+ * Unified API layer for Teams + RosterEntries architecture.
  *
- * @version 3.0.0
+ * @version 4.0.0
  */
 
 import type { Firestore } from 'firebase-admin/firestore';
-import {
-  Team,
-  TeamCode,
-  TeamMember,
-  RosterEntry,
-  RosterEntryStatus,
-  RosterRole,
-  rosterEntryToTeamMember,
-} from '@nxt1/core/models';
+import { Team, TeamCode, RosterEntry, RosterEntryStatus, RosterRole } from '@nxt1/core/models';
 import { createRosterEntryService } from './roster-entry.service.js';
 import { logger } from '../utils/logger.js';
 
@@ -34,43 +22,33 @@ export class TeamServiceAdapter {
   }
 
   /**
-   * Get team by ID with members (uses Teams + RosterEntries structure)
-   * Returns legacy TeamCode format for compatibility
+   * Get team by ID with its roster.
    */
-  async getTeamWithMembers(teamId: string): Promise<TeamCode> {
+  async getTeamWithMembers(teamId: string): Promise<TeamCode & { roster: RosterEntry[] }> {
     logger.debug('[TeamAdapter] Getting team with members', { teamId });
 
     const teamDoc = await this.db.collection('Teams').doc(teamId).get();
 
     if (!teamDoc.exists) {
-      throw new Error(`Team ${teamId} not found in Teams collection`);
+      throw new Error(`Team ${teamId} not found`);
     }
 
-    // Get team + query roster entries
     const team = teamDoc.data() as Team;
-    const rosterEntries = await this.rosterService.getTeamRoster({
+    const roster = await this.rosterService.getTeamRoster({
       teamId,
       status: [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING],
     });
 
-    // Convert RosterEntries to legacy TeamMember format
-    const members = rosterEntries.map((entry) => rosterEntryToTeamMember(entry)) as TeamMember[];
-    const memberIds = members.map((m) => m.id);
+    logger.debug('[TeamAdapter] Loaded team', { teamId, memberCount: roster.length });
 
-    logger.debug('[TeamAdapter] Loaded team', {
-      teamId,
-      memberCount: members.length,
-    });
-
-    // Return in TeamCode format
     return {
       ...team,
       id: teamId,
       sport:
         ((team as unknown as Record<string, unknown>)['sport'] as string) ?? team.sportName ?? '',
-      members,
-      memberIds,
-    } as TeamCode;
+      memberIds: roster.map((e) => e.userId),
+      roster,
+    } as TeamCode & { roster: RosterEntry[] };
   }
 
   /**
@@ -235,31 +213,25 @@ export class TeamServiceAdapter {
     const teamDoc = teamsSnapshot.docs[0];
     const team = teamDoc.data() as Team;
 
-    // Get roster entries
-    const rosterEntries = await this.rosterService.getTeamRoster({
+    const roster = await this.rosterService.getTeamRoster({
       teamId: teamDoc.id,
       status: [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING],
     });
 
-    // Convert RosterEntries to legacy TeamMember format
-    const members = rosterEntries.map((entry) => rosterEntryToTeamMember(entry)) as TeamMember[];
-    const memberIds = members.map((m) => m.id);
-
     logger.debug('[TeamAdapter] Found team', {
       unicode,
       teamId: teamDoc.id,
-      memberCount: members.length,
+      memberCount: roster.length,
     });
 
-    // Return in TeamCode format
     return {
       ...team,
       id: teamDoc.id,
       sport:
         ((team as unknown as Record<string, unknown>)['sport'] as string) ?? team.sportName ?? '',
-      members,
-      memberIds,
-    } as TeamCode;
+      memberIds: roster.map((e) => e.userId),
+      roster,
+    } as TeamCode & { roster: RosterEntry[] };
   }
 
   /**

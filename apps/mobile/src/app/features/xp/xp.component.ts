@@ -19,6 +19,7 @@ import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/c
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import { XpShellComponent, NxtSidenavService, NxtLoggingService } from '@nxt1/ui';
 import type { MissionUserRole } from '@nxt1/core';
+import { USER_ROLES } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 
 @Component({
@@ -85,7 +86,7 @@ export class XpComponent {
     const role = user?.role;
 
     // Only athlete and coach are valid mission roles, default to athlete
-    if (role === 'athlete' || role === 'coach') {
+    if (role === USER_ROLES.ATHLETE || role === USER_ROLES.COACH) {
       return role;
     }
     return 'athlete';

@@ -33,6 +33,7 @@ export {
   AgentXOperationsLogComponent,
   OPERATIONS_LOG_TEST_IDS,
 } from './agent-x-operations-log.component';
+export { AgentXDashboardSkeletonComponent } from './agent-x-dashboard-skeleton.component';
 export { AgentXWelcomeComponent } from './agent-x-welcome.component';
 export { AgentXChatComponent } from './agent-x-chat.component';
 export { AgentXInputComponent } from './agent-x-input.component';

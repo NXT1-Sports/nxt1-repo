@@ -23,7 +23,13 @@ import type {
   EarnedBadge,
   Streak,
 } from '@nxt1/core';
-import { ATHLETE_CATEGORIES, COACH_CATEGORIES, MISSION_LEVELS, MISSION_BADGES } from '@nxt1/core';
+import {
+  ATHLETE_CATEGORIES,
+  COACH_CATEGORIES,
+  MISSION_LEVELS,
+  MISSION_BADGES,
+  USER_ROLES,
+} from '@nxt1/core';
 
 // ============================================
 // HELPER FUNCTIONS
@@ -1215,21 +1221,21 @@ export const MOCK_COACH_PROGRESS: MissionProgress = {
  * Get XP tasks by user role.
  */
 export function getMockXpTasks(role: MissionUserRole): Mission[] {
-  return role === 'athlete' ? MOCK_ATHLETE_XP_TASKS : MOCK_COACH_XP_TASKS;
+  return role === USER_ROLES.ATHLETE ? MOCK_ATHLETE_XP_TASKS : MOCK_COACH_XP_TASKS;
 }
 
 /**
  * Get progress by user role.
  */
 export function getMockProgress(role: MissionUserRole): MissionProgress {
-  return role === 'athlete' ? MOCK_ATHLETE_PROGRESS : MOCK_COACH_PROGRESS;
+  return role === USER_ROLES.ATHLETE ? MOCK_ATHLETE_PROGRESS : MOCK_COACH_PROGRESS;
 }
 
 /**
  * Get categories by user role.
  */
 export function getMockCategories(role: MissionUserRole): readonly MissionCategoryConfig[] {
-  return role === 'athlete' ? ATHLETE_CATEGORIES : COACH_CATEGORIES;
+  return role === USER_ROLES.ATHLETE ? ATHLETE_CATEGORIES : COACH_CATEGORIES;
 }
 
 /**

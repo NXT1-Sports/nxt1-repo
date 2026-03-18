@@ -14,7 +14,13 @@ import { Component, ChangeDetectionStrategy, inject, DestroyRef } from '@angular
 import { ActivatedRoute } from '@angular/router';
 import { map, distinctUntilChanged } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
+import {
+  IonHeader,
+  IonContent,
+  IonToolbar,
+  IonRouterOutlet,
+  NavController,
+} from '@ionic/angular/standalone';
 import { UsageShellComponent, UsageService, type UsageSection } from '@nxt1/ui';
 
 @Component({
@@ -61,6 +67,7 @@ import { UsageShellComponent, UsageService, type UsageSection } from '@nxt1/ui';
 })
 export class UsageComponent {
   private readonly navController = inject(NavController);
+  private readonly routerOutlet = inject(IonRouterOutlet, { optional: true });
   private readonly route = inject(ActivatedRoute);
   private readonly usage = inject(UsageService);
   private readonly destroyRef = inject(DestroyRef);
@@ -94,6 +101,14 @@ export class UsageComponent {
   }
 
   protected navigateBack(): void {
-    this.navController.navigateBack('/settings');
+    if (this.routerOutlet?.canGoBack()) {
+      this.navController.back();
+      return;
+    }
+
+    void this.navController.navigateRoot('/settings', {
+      animated: true,
+      animationDirection: 'back',
+    });
   }
 }

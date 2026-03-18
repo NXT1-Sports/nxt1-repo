@@ -378,5 +378,18 @@ export class ValidateInviteDto {
 export class AcceptInviteDto {
   @IsString()
   @IsNotEmpty()
-  inviteCode!: string;
+  code!: string;
+
+  /** Team code to join after accepting (present for team invites) */
+  @IsString()
+  @IsOptional()
+  teamCode?: string;
+
+  /**
+   * Role the invitee chose on the /join landing page.
+   * Athlete/Parent/Media join automatically; Coach/Administrative are added as pending.
+   */
+  @IsEnum(TeamMemberRole)
+  @IsOptional()
+  role?: TeamMemberRole;
 }

@@ -48,7 +48,7 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../services/breadcrumb';
 import { MessagesService } from '../messages/messages.service';
-import { ActivityApiService } from './activity-api.service';
+import { ACTIVITY_API_ADAPTER } from './activity-api.service';
 
 /**
  * Activity state management service.
@@ -56,7 +56,7 @@ import { ActivityApiService } from './activity-api.service';
  */
 @Injectable({ providedIn: 'root' })
 export class ActivityService {
-  private readonly api = inject(ActivityApiService);
+  private readonly api = inject(ACTIVITY_API_ADAPTER);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ActivityService');
@@ -450,9 +450,15 @@ export class ActivityService {
 
     if (unreadCount === 0) return;
 
-    // Optimistic update
+    // Optimistic update — clear both items and badge counts immediately
     const previousItems = this._items();
+    const previousBadges = this._badges();
     this._items.update((items) => items.map((item) => ({ ...item, isRead: true })));
+    this._badges.update((badges) => ({
+      ...badges,
+      all: 0,
+      [tab]: 0,
+    }));
 
     this.logger.debug('Marking all as read', { tab, count: unreadCount });
     await this.breadcrumbs.trackStateChange('activity_mark_all_read', {
@@ -463,15 +469,9 @@ export class ActivityService {
     try {
       const response = await this.api.markAllRead(tab);
 
-      // Update badge counts from server response
+      // Reconcile with authoritative server response if available
       if (response.badges) {
         this._badges.set(response.badges);
-      } else {
-        this._badges.update((badges) => ({
-          ...badges,
-          all: Math.max(0, (badges['all'] ?? 0) - unreadCount),
-          [tab]: 0,
-        }));
       }
 
       this.analytics?.trackEvent(APP_EVENTS.TAB_CHANGED, {
@@ -482,8 +482,9 @@ export class ActivityService {
       this.toast.success('All marked as read');
       await this.haptics.notification('success');
     } catch (err) {
-      // Rollback on failure
+      // Rollback items and badges on failure
       this._items.set(previousItems);
+      this._badges.set(previousBadges);
       const message = err instanceof Error ? err.message : 'Failed to mark all as read';
       this.toast.error(message);
       this.logger.error('Failed to mark all as read', err, { tab });

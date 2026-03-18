@@ -42,11 +42,13 @@ import { firstValueFrom } from 'rxjs';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../components/icon/icon.component';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { AGENT_X_API_BASE_URL } from './agent-x-job.service';
+import { AgentXOperationChatComponent } from './agent-x-operation-chat.component';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { OperationLogEntry, OperationLogStatus, OperationsLogResponse } from '@nxt1/core';
 
@@ -102,7 +104,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
   template: `
     <!-- ═══ HEADER ═══ -->
     <nxt1-sheet-header
-      title="Activity Log"
+      title="Agent Logs"
       subtitle="Operations"
       icon="time"
       iconShape="circle"
@@ -725,6 +727,9 @@ export class AgentXOperationsLogComponent {
   /** Optional ModalController — available when hosted inside Ionic bottom sheet, null on web. */
   private readonly modalCtrl = inject(ModalController, { optional: true });
 
+  /** Bottom sheet service for drilling into a specific operation thread. */
+  private readonly bottomSheet = inject(NxtBottomSheetService);
+
   /** Emitted when close button is tapped (for inline/web usage). */
   readonly closePanel = output<void>();
 
@@ -854,7 +859,42 @@ export class AgentXOperationsLogComponent {
       status: entry.status,
       item_category: entry.category,
     });
-    // Future: open operation detail bottom sheet or navigate
+
+    // If the operation is linked to a persisted thread, open that exact conversation.
+    if (entry.threadId) {
+      await this.bottomSheet.openSheet({
+        component: AgentXOperationChatComponent,
+        componentProps: {
+          contextId: entry.id,
+          contextTitle: entry.title,
+          contextIcon: entry.icon,
+          contextType: 'operation',
+          threadId: entry.threadId,
+        },
+        ...SHEET_PRESETS.FULL,
+        showHandle: true,
+        handleBehavior: 'cycle',
+        backdropDismiss: true,
+        cssClass: 'agent-x-operation-sheet',
+      });
+      return;
+    }
+
+    // Fall back to an isolated operation chat when historical thread data is unavailable.
+    await this.bottomSheet.openSheet({
+      component: AgentXOperationChatComponent,
+      componentProps: {
+        contextId: entry.id,
+        contextTitle: entry.title,
+        contextIcon: entry.icon,
+        contextType: 'operation',
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'agent-x-operation-sheet',
+    });
   }
 
   /** Close the panel with haptic feedback. */

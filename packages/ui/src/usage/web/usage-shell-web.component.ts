@@ -46,6 +46,7 @@ import { HapticsService } from '../../services/haptics/haptics.service';
 import { UsageService, USAGE_SECTION_NAVS, type UsageSection } from '../usage.service';
 import { UsageSkeletonComponent } from '../usage-skeleton.component';
 import { UsageHelpContentComponent } from '../usage-help-content.component';
+import { UsageErrorStateComponent } from '../usage-error-state.component';
 import {
   UsageOverviewComponent,
   UsageSubscriptionsComponent,
@@ -69,6 +70,7 @@ export type { UsageUser };
     NxtSectionNavWebComponent,
     NxtRefresherComponent,
     UsageSkeletonComponent,
+    UsageErrorStateComponent,
     UsageOverviewComponent,
     UsageSubscriptionsComponent,
     UsageChartComponent,
@@ -95,13 +97,10 @@ export type { UsageUser };
         />
 
         @if (svc.error() && !hasData()) {
-          <section class="error-state" aria-label="Error">
-            <div class="error-card">
-              <h3 class="error-title">Unable to load usage data</h3>
-              <p class="error-message">{{ svc.error() }}</p>
-              <button class="retry-btn" (click)="svc.loadDashboard()">Try again</button>
-            </div>
-          </section>
+          <nxt1-usage-error-state
+            [message]="svc.error() ?? 'Failed to load usage data'"
+            (retry)="svc.loadDashboard()"
+          />
         } @else {
           <div class="dashboard-layout">
             <!-- Side Navigation (Desktop) / Scroll Tabs (Mobile) -->
@@ -269,52 +268,6 @@ export type { UsageUser };
 
       .section-content {
         min-width: 0;
-      }
-
-      /* ==============================
-       ERROR STATE
-       ============================== */
-
-      .error-state {
-        display: flex;
-        justify-content: center;
-        padding: var(--nxt1-spacing-16) 0;
-      }
-
-      .error-card {
-        text-align: center;
-        max-width: var(--nxt1-spacing-96, 384px);
-      }
-
-      .error-title {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-lg);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        color: var(--nxt1-color-text-primary);
-        margin: 0 0 var(--nxt1-spacing-2) 0;
-      }
-
-      .error-message {
-        font-size: var(--nxt1-fontSize-sm);
-        color: var(--nxt1-color-text-secondary);
-        margin: 0 0 var(--nxt1-spacing-4) 0;
-        line-height: var(--nxt1-lineHeight-normal);
-      }
-
-      .retry-btn {
-        padding: var(--nxt1-spacing-2-5) var(--nxt1-spacing-6);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-medium);
-        color: var(--nxt1-color-text-onPrimary);
-        background: var(--nxt1-color-primary);
-        border: none;
-        border-radius: var(--nxt1-radius-md);
-        cursor: pointer;
-        transition: opacity var(--nxt1-duration-fast, 100ms) var(--nxt1-easing-out, ease-out);
-      }
-
-      .retry-btn:hover {
-        opacity: 0.9;
       }
 
       /* ==============================

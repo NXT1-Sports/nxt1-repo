@@ -385,8 +385,8 @@ export class NxtBottomSheetComponent {
     if (action.handler) {
       try {
         await action.handler();
-      } catch (error) {
-        console.error('[BottomSheet] Action handler error:', error);
+      } catch {
+        // Action handler failures are not critical — the sheet will still dismiss
       }
     }
 

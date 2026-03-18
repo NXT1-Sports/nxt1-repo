@@ -424,7 +424,7 @@ export class NxtPlatformService {
         navigator.vibrate(durationMap[style]);
       }
     } catch (error) {
-      console.warn('[PlatformService] Haptic feedback failed:', error);
+      // Haptic feedback failures are non-critical; suppress silently
     }
   }
 
@@ -443,7 +443,7 @@ export class NxtPlatformService {
         navigator.vibrate(5);
       }
     } catch (error) {
-      console.warn('[PlatformService] Selection haptic failed:', error);
+      // Haptic feedback failures are non-critical; suppress silently
     }
   }
 
@@ -471,7 +471,7 @@ export class NxtPlatformService {
         navigator.vibrate(patterns[type]);
       }
     } catch (error) {
-      console.warn('[PlatformService] Notification haptic failed:', error);
+      // Haptic feedback failures are non-critical; suppress silently
     }
   }
 

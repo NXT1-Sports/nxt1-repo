@@ -354,7 +354,56 @@ function extractVideos(html: string): readonly PageVideo[] {
     videos.push({ src, provider: 'hudl', videoId: extractHudlId(src) });
   }
 
+  // Hudl CDN direct mp4 URLs from __hudlEmbed script blocks.
+  // Pattern: https://vi.hudl.com/p-highlights/User/{userId}/{highlightId}/{hash}_{quality}.mp4
+  // Multiple quality variants (360/480/720) exist per highlight — keep only the best.
+  extractHudlCdnVideos(html, seen, videos);
+
   return videos;
+}
+
+/**
+ * Extract Hudl CDN direct video URLs from __hudlEmbed script blocks.
+ *
+ * Hudl stores highlight mp4 URLs across two CDN domains:
+ *   - vi.hudl.com/p-highlights/User/{userId}/{highlightId}/{hash}_{quality}.mp4
+ *   - vc.hudl.com/p-highlights/User/{userId}/{highlightId}/{hash}_{quality}.mp4
+ *
+ * Multiple quality variants (360/480/720) exist per highlight.
+ * We group by highlightId and keep only the highest quality variant.
+ */
+function extractHudlCdnVideos(html: string, seen: Set<string>, videos: PageVideo[]): void {
+  // Match Hudl CDN direct mp4 URLs from both vi.hudl.com and vc.hudl.com
+  const cdnRe = /https?:\/\/v[ic]\.hudl\.com\/p-highlights\/[^\s"'<>]+\.mp4[^\s"'<>]*/gi;
+  // Group by highlight ID, tracking best quality per highlight
+  const bestByHighlight = new Map<string, { src: string; quality: number }>();
+
+  let cm: RegExpExecArray | null;
+  while ((cm = cdnRe.exec(html)) !== null) {
+    const src = cm[0];
+    // Extract highlight ID and quality from URL:
+    // .../User/{userId}/{highlightId}/{hash}_{quality}.mp4
+    const parts = /\/([a-f0-9]{20,})\/[a-f0-9]+_(\d+)\.mp4/i.exec(src);
+    if (!parts) continue;
+
+    const highlightId = parts[1];
+    const quality = parseInt(parts[2], 10);
+    const existing = bestByHighlight.get(highlightId);
+
+    if (!existing || quality > existing.quality) {
+      bestByHighlight.set(highlightId, { src, quality });
+    }
+  }
+
+  for (const [highlightId, { src }] of bestByHighlight) {
+    if (seen.has(src)) continue;
+    seen.add(src);
+    videos.push({
+      src,
+      provider: 'hudl',
+      videoId: highlightId,
+    });
+  }
 }
 
 function classifyVideo(src: string): PageVideo | null {
@@ -395,8 +444,13 @@ function classifyVideo(src: string): PageVideo | null {
 }
 
 function extractHudlId(url: string): string | undefined {
-  const m = /hudl\.com\/(?:video|embed\/athlete)\/(\w+)/i.exec(url);
-  return m?.[1];
+  // Standard Hudl URLs: hudl.com/video/{id} or hudl.com/embed/athlete/{id}
+  const standard = /hudl\.com\/(?:video|embed\/athlete)\/(\w+)/i.exec(url);
+  if (standard) return standard[1];
+
+  // CDN URLs: vi.hudl.com/p-highlights/User/{userId}/{highlightId}/{hash}_{quality}.mp4
+  const cdn = /vi\.hudl\.com\/p-highlights\/[^/]+\/[^/]+\/([a-f0-9]{20,})\//i.exec(url);
+  return cdn?.[1];
 }
 
 // ─── Colors ─────────────────────────────────────────────────────────────────

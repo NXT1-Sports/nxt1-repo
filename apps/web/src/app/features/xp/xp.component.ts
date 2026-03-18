@@ -21,6 +21,7 @@ import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@a
 import { XpShellWebComponent, NxtXpLandingComponent } from '@nxt1/ui/xp';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { MissionUserRole } from '@nxt1/core';
+import { USER_ROLES } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 
@@ -108,6 +109,6 @@ export class XpComponent implements OnInit {
   protected readonly userRole = computed<MissionUserRole>(() => {
     const role = this.authService.userRole();
     if (!role) return 'athlete';
-    return role === 'coach' ? 'coach' : 'athlete';
+    return role === USER_ROLES.COACH ? 'coach' : 'athlete';
   });
 }

@@ -54,6 +54,7 @@ import {
 } from '@nxt1/core/auth';
 import { createNativeStorageAdapter } from '../../../core/infrastructure/native-storage.adapter';
 import { AUTH_ROUTES, AUTH_REDIRECTS, AUTH_METHODS } from '@nxt1/core/constants';
+import { INVITE_TEAM_JOINED_KEY } from '@nxt1/core/api';
 import {
   type AnalyticsAdapter,
   createMobileAnalyticsAdapterSync,
@@ -790,6 +791,11 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           throw new Error(
             'error' in createResult ? createResult.error.message : 'Failed to create user'
           );
+        }
+
+        // Flag that this user joined a team via invite so onboarding can skip team selection
+        if (credentials.teamCode) {
+          await createNativeStorageAdapter().set(INVITE_TEAM_JOINED_KEY, 'true');
         }
 
         // Set user state BEFORE navigating (required for onboarding page)

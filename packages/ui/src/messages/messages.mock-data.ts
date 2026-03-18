@@ -9,6 +9,7 @@
  */
 
 import type { Conversation, Message, MessagesFilterId, ConversationParticipant } from '@nxt1/core';
+import { USER_ROLES } from '@nxt1/core';
 
 // ============================================
 // TIMESTAMP HELPERS
@@ -418,7 +419,7 @@ export function getMockConversations(
       filtered = filtered.filter(
         (c) =>
           c.type === 'coach' ||
-          c.participants.some((p) => p.role === 'coach' || p.role === 'recruiter')
+          c.participants.some((p) => p.role === USER_ROLES.COACH || p.role === USER_ROLES.RECRUITER)
       );
       break;
     case 'teams':

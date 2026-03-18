@@ -110,15 +110,6 @@ import { EmailTokensService } from '../../services/email-tokens.service';
               <nxt1-icon name="checkmarkDone" size="18" />
             </button>
           }
-          <button
-            type="button"
-            class="nxt1-notif-popover__action-btn"
-            aria-label="Notification settings"
-            title="Settings"
-            (click)="onSettingsClick()"
-          >
-            <nxt1-icon name="settings" size="18" />
-          </button>
         </div>
       </div>
 
@@ -127,7 +118,13 @@ import { EmailTokensService } from '../../services/email-tokens.service';
         <nxt1-option-scroller
           [options]="tabOptions()"
           [selectedId]="activity.activeTab()"
-          [config]="{ scrollable: true, stretchToFill: false, showDivider: true, size: 'sm' }"
+          [config]="{
+            scrollable: false,
+            stretchToFill: true,
+            centered: true,
+            showDivider: true,
+            size: 'sm',
+          }"
           (selectionChange)="onTabChange($event)"
         />
       </div>
@@ -152,14 +149,6 @@ import { EmailTokensService } from '../../services/email-tokens.service';
           (archive)="onArchive($event)"
           (connectProvider)="onConnectProvider($event)"
         />
-      </div>
-
-      <!-- Footer -->
-      <div class="nxt1-notif-popover__footer">
-        <a class="nxt1-notif-popover__footer-link" routerLink="/activity" (click)="close()">
-          View all notifications
-          <nxt1-icon name="arrowForward" size="16" />
-        </a>
       </div>
     </div>
   `,
@@ -211,14 +200,10 @@ import { EmailTokensService } from '../../services/email-tokens.service';
         );
         display: flex;
         flex-direction: column;
-        background: var(--nxt1-color-surface-primary, #141414);
-        border: var(--nxt1-spacing-px) solid
-          var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-200);
+        border: var(--nxt1-spacing-px) solid var(--nxt1-color-border-subtle);
         border-radius: var(--nxt1-borderRadius-2xl);
-        box-shadow:
-          0 var(--nxt1-spacing-6) var(--nxt1-spacing-12) calc(-1 * var(--nxt1-spacing-3))
-            rgba(0, 0, 0, 0.5),
-          0 0 0 var(--nxt1-spacing-px) rgba(255, 255, 255, 0.03);
+        box-shadow: var(--nxt1-glass-shadow), var(--nxt1-glass-shadowInner);
         overflow: hidden;
 
         /* Closed state */
@@ -257,8 +242,8 @@ import { EmailTokensService } from '../../services/email-tokens.service';
 
       .nxt1-notif-popover__title {
         font-size: var(--nxt1-fontSize-md);
-        font-weight: var(--nxt1-fontWeight-bold, 700);
-        color: var(--nxt1-color-text-primary, #ffffff);
+        font-weight: var(--nxt1-fontWeight-bold);
+        color: var(--nxt1-color-text-primary);
         margin: 0;
         letter-spacing: -0.01em;
       }
@@ -274,10 +259,10 @@ import { EmailTokensService } from '../../services/email-tokens.service';
         height: var(--badge-size);
         padding: 0 var(--nxt1-spacing-2);
         border-radius: var(--nxt1-borderRadius-full);
-        background: var(--nxt1-color-primary, #ccff00);
-        color: var(--nxt1-color-text-onPrimary, #000000);
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-text-onPrimary);
         font-size: var(--nxt1-fontSize-xs);
-        font-weight: var(--nxt1-fontWeight-bold, 700);
+        font-weight: var(--nxt1-fontWeight-bold);
         line-height: 1;
       }
 
@@ -299,7 +284,7 @@ import { EmailTokensService } from '../../services/email-tokens.service';
         border: none;
         border-radius: var(--nxt1-borderRadius-lg);
         background: transparent;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.6));
+        color: var(--nxt1-color-text-secondary);
         cursor: pointer;
         transition:
           background-color 0.15s ease,
@@ -308,8 +293,8 @@ import { EmailTokensService } from '../../services/email-tokens.service';
       }
 
       .nxt1-notif-popover__action-btn:hover {
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
-        color: var(--nxt1-color-text-primary, #ffffff);
+        background: var(--nxt1-color-surface-200);
+        color: var(--nxt1-color-text-primary);
       }
 
       .nxt1-notif-popover__action-btn:active {
@@ -317,7 +302,7 @@ import { EmailTokensService } from '../../services/email-tokens.service';
       }
 
       .nxt1-notif-popover__action-btn:focus-visible {
-        outline: var(--nxt1-spacing-0_5) solid var(--nxt1-color-primary, #ccff00);
+        outline: var(--nxt1-spacing-0_5) solid var(--nxt1-color-primary);
         outline-offset: var(--nxt1-spacing-0_5);
       }
 
@@ -328,8 +313,7 @@ import { EmailTokensService } from '../../services/email-tokens.service';
       .nxt1-notif-popover__tabs {
         padding: 0 var(--nxt1-spacing-1);
         flex-shrink: 0;
-        border-bottom: var(--nxt1-spacing-px) solid
-          var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
+        border-bottom: var(--nxt1-spacing-px) solid var(--nxt1-color-border-subtle);
       }
 
       /* ============================================
@@ -350,7 +334,7 @@ import { EmailTokensService } from '../../services/email-tokens.service';
 
         /* Custom scrollbar */
         scrollbar-width: thin;
-        scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+        scrollbar-color: var(--nxt1-color-border-default) transparent;
       }
 
       .nxt1-notif-popover__content::-webkit-scrollbar {
@@ -362,12 +346,12 @@ import { EmailTokensService } from '../../services/email-tokens.service';
       }
 
       .nxt1-notif-popover__content::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.12);
+        background: var(--nxt1-color-border-default);
         border-radius: var(--nxt1-borderRadius-sm);
       }
 
       .nxt1-notif-popover__content::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.2);
+        background: var(--nxt1-color-border-strong);
       }
 
       /* Compact overrides for popover context (scoped, no ::ng-deep) */
@@ -405,48 +389,6 @@ import { EmailTokensService } from '../../services/email-tokens.service';
 
       .nxt1-notif-popover__content .activity-list__load-more {
         padding: var(--nxt1-spacing-3) var(--nxt1-spacing-5);
-      }
-
-      /* ============================================
-       FOOTER
-       ============================================ */
-
-      .nxt1-notif-popover__footer {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-5);
-        border-top: var(--nxt1-spacing-px) solid
-          var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
-        flex-shrink: 0;
-      }
-
-      .nxt1-notif-popover__footer-link {
-        display: inline-flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-1_5);
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4);
-        border-radius: var(--nxt1-borderRadius-lg);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-semibold, 600);
-        color: var(--nxt1-color-primary, #ccff00);
-        text-decoration: none;
-        transition:
-          background-color 0.15s ease,
-          transform 0.1s ease;
-      }
-
-      .nxt1-notif-popover__footer-link:hover {
-        background: var(--nxt1-color-alpha-primary8, rgba(204, 255, 0, 0.08));
-      }
-
-      .nxt1-notif-popover__footer-link:active {
-        transform: scale(0.98);
-      }
-
-      .nxt1-notif-popover__footer-link:focus-visible {
-        outline: var(--nxt1-spacing-0_5) solid var(--nxt1-color-primary, #ccff00);
-        outline-offset: var(--nxt1-spacing-0_5);
       }
 
       /* ============================================
@@ -500,7 +442,6 @@ export class NotificationPopoverComponent {
     return ACTIVITY_TABS.map((tab) => ({
       id: tab.id,
       label: tab.label,
-      icon: tab.icon,
       badge: badges[tab.id] ?? 0,
     }));
   });
@@ -573,11 +514,6 @@ export class NotificationPopoverComponent {
 
   protected async onMarkAllRead(): Promise<void> {
     await this.activity.markAllRead();
-  }
-
-  protected onSettingsClick(): void {
-    this.close();
-    this.router.navigate(['/settings/notifications']);
   }
 
   protected async onLoadMore(): Promise<void> {

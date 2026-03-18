@@ -49,6 +49,7 @@ import type {
 } from '@nxt1/core';
 import { POST_MAX_CHARACTERS, POST_MAX_MEDIA, validatePost } from '@nxt1/core';
 import { HapticsService } from '../services/haptics/haptics.service';
+import { NxtLoggingService } from '../services/logging';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { CreatePostEditorComponent } from './create-post-editor.component';
 import { CreatePostToolbarComponent } from './create-post-toolbar.component';
@@ -428,6 +429,7 @@ export class CreatePostShellComponent {
   }
 
   private readonly haptics = inject(HapticsService);
+  private readonly logger = inject(NxtLoggingService).child('CreatePostShell');
 
   /** Current user */
   readonly user = input<TaggableUser | null>(null);
@@ -640,7 +642,7 @@ export class CreatePostShellComponent {
    */
   protected onFilesDropped(files: FileList): void {
     // TODO: Process dropped files
-    console.log('Files dropped:', files);
+    this.logger.debug('Files dropped', { count: files.length });
   }
 
   /**

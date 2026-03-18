@@ -15,10 +15,16 @@
  * - Express routes for webhook-based triggers
  */
 
-import type { AgentTriggerEvent } from '@nxt1/core';
+import type { AgentTriggerEvent, SyncDeltaReport } from '@nxt1/core';
 import { AgentTriggerService } from './trigger.service.js';
+import { logger } from '../../../utils/logger.js';
 
-const triggerService = new AgentTriggerService();
+/** Lazy singleton — avoids eager Firestore access at module load time. */
+let _triggerService: AgentTriggerService | null = null;
+function getTriggerService(): AgentTriggerService {
+  if (!_triggerService) _triggerService = new AgentTriggerService();
+  return _triggerService;
+}
 
 // ─── Database Event Listeners ───────────────────────────────────────────────
 
@@ -49,7 +55,7 @@ export async function onProfileView(data: {
     createdAt: new Date().toISOString(),
   };
 
-  await triggerService.processTrigger(event);
+  await getTriggerService().processTrigger(event);
 }
 
 /**
@@ -75,7 +81,7 @@ export async function onNewFollower(data: {
     createdAt: new Date().toISOString(),
   };
 
-  await triggerService.processTrigger(event);
+  await getTriggerService().processTrigger(event);
 }
 
 /**
@@ -105,7 +111,57 @@ export async function onCoachReply(data: {
     createdAt: new Date().toISOString(),
   };
 
-  await triggerService.processTrigger(event);
+  await getTriggerService().processTrigger(event);
+}
+
+// ─── Sync Event Listeners ───────────────────────────────────────────────────
+
+/**
+ * Called by the daily background scraper after computing a delta report.
+ * If the delta report is empty (nothing changed), this is a no-op.
+ * Otherwise, it fires a `daily_sync_complete` trigger to wake Agent X.
+ *
+ * Wired to: The daily sync worker/cron after write_season_stats completes.
+ */
+export async function onDailySyncComplete(delta: SyncDeltaReport): Promise<void> {
+  // Gate: If nothing changed, don't wake the agent
+  if (delta.isEmpty) {
+    logger.info('[TriggerListener] Daily sync complete — no changes detected', {
+      userId: delta.userId,
+      sport: delta.sport,
+      source: delta.source,
+    });
+    return;
+  }
+
+  logger.info('[TriggerListener] Daily sync detected changes, firing trigger', {
+    userId: delta.userId,
+    sport: delta.sport,
+    source: delta.source,
+    totalChanges: delta.summary.totalChanges,
+  });
+
+  const event: AgentTriggerEvent = {
+    id: `sync_${Date.now()}_${delta.userId}`,
+    type: 'daily_sync_complete',
+    userId: delta.userId,
+    intent: '', // Synthesized from the AGENT_TRIGGER_RULES template
+    eventData: {
+      source: delta.source,
+      sport: delta.sport,
+      syncedAt: delta.syncedAt,
+      // Flatten summary into eventData so the intent template can interpolate
+      ...delta.summary,
+      // Attach full delta for Agent X's context
+      deltaReport: delta,
+    },
+    origin: 'system_cron',
+    priority:
+      delta.summary.newRecruitingActivities > 0 || delta.summary.newVideos > 0 ? 'high' : 'normal',
+    createdAt: new Date().toISOString(),
+  };
+
+  await getTriggerService().processTrigger(event);
 }
 
 // ─── Cron / Scheduled Triggers ──────────────────────────────────────────────
@@ -119,7 +175,7 @@ export async function runDailyBriefings(): Promise<void> {
   // const eligibleUserIds = await getUserIdsForCron('daily_briefing');
   const eligibleUserIds: string[] = []; // Placeholder
 
-  await triggerService.processBatchTrigger('daily_briefing', eligibleUserIds);
+  await getTriggerService().processBatchTrigger('daily_briefing', eligibleUserIds);
 }
 
 /**
@@ -130,7 +186,7 @@ export async function runWeeklyRecaps(): Promise<void> {
   // TODO: Fetch all users with autonomousEnabled = true and subscriptionTier >= 'premium'
   const eligibleUserIds: string[] = []; // Placeholder
 
-  await triggerService.processBatchTrigger('weekly_recap', eligibleUserIds);
+  await getTriggerService().processBatchTrigger('weekly_recap', eligibleUserIds);
 }
 
 /**
@@ -141,5 +197,5 @@ export async function runStaleProfileCheck(): Promise<void> {
   // TODO: Query database for users with lastProfileUpdate < 14 days ago
   const staleUserIds: string[] = []; // Placeholder
 
-  await triggerService.processBatchTrigger('stale_profile', staleUserIds);
+  await getTriggerService().processBatchTrigger('stale_profile', staleUserIds);
 }

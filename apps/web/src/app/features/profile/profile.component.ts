@@ -469,7 +469,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
         switchMap(({ mode, param, uid }) => {
           if (mode === 'me') {
             // uid is always defined here (fetchSource blocks when uid is missing)
-            return this.apiProfileService.getProfile(uid!);
+            return this.apiProfileService.getMe();
           }
           if (mode === 'unicode') return this.apiProfileService.getProfileByUnicode(param);
           if (mode === 'userid') return this.apiProfileService.getProfile(param);
@@ -570,6 +570,22 @@ export class ProfileComponent implements OnInit, OnDestroy {
     const sportId = activeSport?.sport?.toLowerCase();
     // Fetch all sub-collections in parallel — single subscription, parallel requests.
     forkJoin({
+      stats: sportId
+        ? this.apiProfileService.getProfileStats(profile.id, sportId).pipe(
+            catchError((err) => {
+              this.logger.warn('Failed to load profile stats', { err });
+              return of({ success: false as const, data: [] });
+            })
+          )
+        : of({ success: false as const, data: [] }),
+      metrics: sportId
+        ? this.apiProfileService.getProfileMetrics(profile.id, sportId).pipe(
+            catchError((err) => {
+              this.logger.warn('Failed to load profile metrics', { err });
+              return of({ success: false as const, data: [] });
+            })
+          )
+        : of({ success: false as const, data: [] }),
       timeline: this.apiProfileService.getProfileTimeline(profile.id).pipe(
         catchError((err) => {
           this.logger.warn('Failed to load timeline posts', { err });
@@ -608,7 +624,9 @@ export class ProfileComponent implements OnInit, OnDestroy {
       ),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(({ timeline, rankings, scoutReports, videos, schedule, news }) => {
+      .subscribe(({ stats, metrics, timeline, rankings, scoutReports, videos, schedule, news }) => {
+        if (stats.success) this.profileService.setAthleticStatsFromRaw(stats.data);
+        if (metrics.success) this.profileService.setMetricsFromRaw(metrics.data);
         if (timeline.success) this.profileService.setTimelinePosts(timeline.data);
         if (rankings.success && rankings.data.length > 0) {
           this.profileService.setRankings(rankings.data as unknown as RankingSource[]);

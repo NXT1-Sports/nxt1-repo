@@ -29,6 +29,7 @@ import {
   MOCK_XP_PREVIEW,
 } from '@nxt1/ui';
 import type { CreatePostState, TaggableUser, PostXpBreakdown } from '@nxt1/core';
+import { USER_ROLES } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 
 type CreateOptionId = 'post' | 'video' | 'graphic' | 'event';
@@ -408,9 +409,9 @@ export class CreatePostComponent implements OnInit, OnDestroy {
   }
 
   private mapRoleToTagType(role: string | undefined): TaggableUser['type'] {
-    if (role === 'coach') return 'coach';
-    if (role === 'recruiter') return 'college';
-    if (role === 'director') return 'team';
+    if (role === USER_ROLES.COACH) return 'coach';
+    if (role === USER_ROLES.RECRUITER) return 'college';
+    if (role === USER_ROLES.DIRECTOR) return 'team';
     return 'athlete';
   }
 }

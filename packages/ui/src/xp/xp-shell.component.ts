@@ -54,6 +54,7 @@ import {
 import type { Mission, MissionUserRole, MissionCategory, MissionQuickAction } from '@nxt1/core';
 import { isAthleteRole } from '@nxt1/core';
 import { XpService } from './xp.service';
+import { NxtLoggingService } from '../services/logging';
 import { XpProgressComponent } from './xp-progress.component';
 import { XpCategoryComponent } from './xp-category.component';
 import { XpItemComponent } from './xp-item.component';
@@ -551,6 +552,7 @@ export class XpShellComponent {
   // ============================================
 
   private readonly xpService = inject(XpService);
+  private readonly logger = inject(NxtLoggingService).child('XpShell');
 
   // ============================================
   // INPUTS
@@ -688,16 +690,16 @@ export class XpShellComponent {
 
   protected handleQuickAction(quickAction: MissionQuickAction | undefined): void {
     if (quickAction) {
-      console.log('Quick action:', quickAction.route, quickAction.queryParams);
+      this.logger.debug('Quick action', { route: quickAction.route });
     }
   }
 
   protected handleBadgeClick(badge: unknown): void {
-    console.log('Badge clicked:', badge);
+    this.logger.debug('Badge clicked');
   }
 
   protected viewAllBadges(): void {
-    console.log('View all badges');
+    this.logger.debug('View all badges');
   }
 
   protected dismissCelebration(): void {

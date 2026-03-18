@@ -79,6 +79,7 @@ import {
   NxtLoggingService,
   NxtScrollService,
   InviteBottomSheetService,
+  ActivityService,
   type FooterTabItem,
   type FooterTabSelectEvent,
   type FooterScrollToTopEvent,
@@ -103,7 +104,6 @@ import {
 import { AUTH_ROUTES } from '@nxt1/core';
 import { AuthFlowService } from '../../../features/auth/services/auth-flow.service';
 import { ProfileService } from '../../../core/services/profile.service';
-import { ActivityService } from '../../../features/activity/services/activity.service';
 
 /**
  * MobileShellComponent
@@ -451,6 +451,14 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   /** Track last badge fetch time for debouncing */
   private lastBadgeFetchTime = 0;
 
+  /**
+   * One-shot retry timer for newly-signed-up users.
+   * Cloud Functions that create welcome/signup notifications run async —
+   * the initial `refreshBadges()` can fire before those writes complete.
+   * A 5-second retry catches them without waiting for the 60-second poll.
+   */
+  private earlyRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
   /** Bound handler for cleanup */
   private readonly onVisibilityChange = (): void => {
     const isAuthenticated = this.authFlow.isAuthenticated();
@@ -485,20 +493,28 @@ export class MobileShellComponent implements OnInit, OnDestroy {
         // Uses debounced fetch with token validation to prevent race conditions
         void this.fetchBadgesIfNeeded();
 
+        // Schedule a 5-second retry to catch async backend workflows
+        // (e.g., Cloud Functions creating welcome notifications after signup).
+        this.scheduleEarlyRetry();
+
         if (document.visibilityState === 'visible') {
           this.startBadgePolling();
         }
       } else {
         this.stopBadgePolling();
+        this.cancelEarlyRetry();
       }
     });
 
     // Pause/resume polling on app lifecycle changes
     document.addEventListener('visibilitychange', this.onVisibilityChange);
+    // Note: foreground push badge refresh is handled by PushHandlerService,
+    // which owns the pushNotificationReceived listener and calls refreshBadges().
   }
 
   ngOnDestroy(): void {
     this.stopBadgePolling();
+    this.cancelEarlyRetry();
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
   }
 
@@ -539,6 +555,26 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     if (this.badgePollTimer) {
       clearInterval(this.badgePollTimer);
       this.badgePollTimer = null;
+    }
+  }
+
+  /**
+   * Schedule a one-shot badge refresh 5 seconds after first auth.
+   * Handles the race where Cloud Functions (e.g. welcome notifications) finish
+   * after the shell's initial `refreshBadges()` call.
+   */
+  private scheduleEarlyRetry(): void {
+    this.cancelEarlyRetry();
+    this.earlyRetryTimer = setTimeout(() => {
+      this.activityService.refreshBadges().catch(() => {});
+      this.earlyRetryTimer = null;
+    }, 5_000);
+  }
+
+  private cancelEarlyRetry(): void {
+    if (this.earlyRetryTimer) {
+      clearTimeout(this.earlyRetryTimer);
+      this.earlyRetryTimer = null;
     }
   }
 

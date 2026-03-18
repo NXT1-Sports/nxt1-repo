@@ -9,7 +9,7 @@
  * 1. NxtSheetHeaderComponent — title, close on right, no XP badge
  * 2. Scrollable content:
  *    - Real QR code (canvas) linked to personalized invite URL
- *    - Invite-type toggle: Athlete | Coach
+ *    - Role-aware value proposition card
  *    - Value proposition card (free AI graphic on signup)
  * 3. Fixed bottom CTA: "Invite" → native OS share sheet
  *
@@ -31,8 +31,14 @@ import {
   PLATFORM_ID,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
-import { IonRippleEffect, IonSpinner } from '@ionic/angular/standalone';
-import { type InviteType, type InviteTeam, type UserRole, USER_ROLES } from '@nxt1/core';
+import { IonSpinner } from '@ionic/angular/standalone';
+import {
+  isCapacitor,
+  type InviteType,
+  type InviteTeam,
+  type UserRole,
+  USER_ROLES,
+} from '@nxt1/core';
 import { InviteService } from './invite.service';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
@@ -42,14 +48,9 @@ import { NxtSheetFooterComponent } from '../components/bottom-sheet/sheet-footer
 import { NxtLogoComponent } from '../components/logo/logo.component';
 import { NxtIconComponent } from '../components/icon/icon.component';
 
-/** Invite recipient type selection — uses the same role string constants as USER_ROLES. */
-export type InviteRecipientType = 'athlete' | 'coach';
-
 /**
  * User info for personalization.
- * `role` drives which invite design variant is shown:
- *   - athlete / parent  → toggle (Athlete | Coach/Scout), default 'athlete'
- *   - coach / director / recruiter → staff view: athlete-only (no toggle)
+ * `role` drives invite messaging.
  */
 export interface InviteUser {
   readonly displayName?: string | null;
@@ -60,30 +61,33 @@ export interface InviteUser {
 }
 
 /**
- * Copy keyed by RECIPIENT type — what the invitee receives when they join.
- * Used in the athlete/parent view (toggle visible).
+ * Copy keyed by sender role category.
  */
-const INVITE_COPY: Record<InviteRecipientType, { title: string; shareText: string }> = {
-  athlete: {
-    title: 'Free AI Highlight Graphic',
-    shareText:
-      'Join me on NXT1 — the AI sports platform built for athletes. Sign up with my link and get a free AI highlight graphic from Agent X:',
-  },
-  coach: {
-    title: 'Free AI Scouting Report',
-    shareText:
-      "I'm using NXT1 to manage recruiting and evaluate prospects with AI. Join with my link and get a free AI scouting report on your first athlete:",
-  },
-};
+interface InviteCopy {
+  readonly title: string;
+  readonly subtitle: string;
+  readonly shareText: string;
+}
 
-/**
- * Copy for the staff (coach/director/recruiter) view — always inviting athletes.
- */
-const STAFF_INVITE_COPY = {
-  title: 'Free AI Highlight Graphic',
-  subtitle: 'Athletes you invite get a free AI graphic when they sign up.',
-  shareText:
-    'Discover and manage top talent on NXT1. Join with my link and get a free AI highlight graphic for your first athlete:',
+const INVITE_COPY = {
+  athleteParent: {
+    title: 'Free AI Highlight Graphic',
+    subtitle: 'Friends and teammates who join through your invite unlock a free highlight graphic.',
+    shareText:
+      'Join me on NXT1 and build your profile, connect with teammates, and get started fast:',
+  },
+  coachDirector: {
+    title: 'Build Your Program Network',
+    subtitle: 'Invite players and staff to join your program on NXT1 through this link.',
+    shareText:
+      "We're building our program on NXT1. Join with this link so players and staff can stay connected in one place:",
+  },
+  recruiter: {
+    title: 'Free AI Highlight Graphic',
+    subtitle: 'Prospects who join through this link get a free Agent X highlight graphic.',
+    shareText:
+      'Join NXT1 to build your profile, showcase your talent, and get discovered more easily:',
+  },
 } as const;
 
 @Component({
@@ -91,7 +95,6 @@ const STAFF_INVITE_COPY = {
   standalone: true,
   imports: [
     CommonModule,
-    IonRippleEffect,
     IonSpinner,
     NxtSheetHeaderComponent,
     NxtSheetFooterComponent,
@@ -139,60 +142,20 @@ const STAFF_INVITE_COPY = {
             <p class="invite-qr-label">Scan to join NXT1</p>
           </div>
 
-          @if (isStaffRole()) {
-            <!-- ══════════════════════════════════════════════
-                 STAFF VARIANT: Recruiter only
-                 Always inviting athletes — no toggle needed.
-                 ══════════════════════════════════════════════ -->
-            <div class="invite-value-card">
-              <div class="invite-value-card__icon" aria-hidden="true">
-                <nxt1-icon name="gift" [size]="24" />
-              </div>
-              <div class="invite-value-card__text">
-                <p class="invite-value-card__title">{{ staffCopy.title }}</p>
-                <p class="invite-value-card__subtitle">{{ staffCopy.subtitle }}</p>
-              </div>
-            </div>
-          } @else {
-            <!-- ══════════════════════════════════════════════
-                 ATHLETE / PARENT VARIANT
-                 Can invite teammates OR coaches — toggle visible.
-                 ══════════════════════════════════════════════ -->
-            <div class="invite-type-section">
-              <p class="invite-type-label">Who are you inviting?</p>
-              <div class="invite-type-pills" role="group" aria-label="Select invite type">
-                <button
-                  type="button"
-                  class="invite-type-pill"
-                  [class.invite-type-pill--active]="recipientType() === USER_ROLES.ATHLETE"
-                  (click)="setRecipientType(USER_ROLES.ATHLETE)"
-                  [attr.aria-pressed]="recipientType() === USER_ROLES.ATHLETE"
-                >
-                  <ion-ripple-effect />
-                  <nxt1-icon name="person" [size]="18" aria-hidden="true" />
-                  <span>Athlete</span>
-                </button>
-                <button
-                  type="button"
-                  class="invite-type-pill"
-                  [class.invite-type-pill--active]="recipientType() === USER_ROLES.COACH"
-                  (click)="setRecipientType(USER_ROLES.COACH)"
-                  [attr.aria-pressed]="recipientType() === USER_ROLES.COACH"
-                >
-                  <ion-ripple-effect />
-                  <nxt1-icon name="school" [size]="18" aria-hidden="true" />
-                  <span>Coach / Scout</span>
-                </button>
-              </div>
-            </div>
+          <div class="invite-explainer" role="note" aria-label="How invites work">
+            <p class="invite-explainer__title">How it works</p>
+            <p class="invite-explainer__body">{{ howItWorksText() }}</p>
+          </div>
 
-            <div class="invite-value-card">
-              <div class="invite-value-card__icon" aria-hidden="true">
-                <nxt1-icon name="gift" [size]="24" />
-              </div>
-              <p class="invite-value-card__title">{{ currentCopy().title }}</p>
+          <div class="invite-value-card">
+            <div class="invite-value-card__icon" aria-hidden="true">
+              <nxt1-icon name="gift" [size]="24" />
             </div>
-          }
+            <div class="invite-value-card__text">
+              <p class="invite-value-card__title">{{ currentCopy().title }}</p>
+              <p class="invite-value-card__subtitle">{{ currentCopy().subtitle }}</p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -270,11 +233,11 @@ const STAFF_INVITE_COPY = {
         width: 100%;
       }
 
-      /* Reduced from 196 → 148 px */
+      /* Larger QR for better scan reliability */
       .invite-qr-card {
         position: relative;
-        width: 148px;
-        height: 148px;
+        width: 184px;
+        height: 184px;
         padding: var(--nxt1-spacing-3, 12px);
         background: #ffffff;
         border-radius: var(--nxt1-radius-2xl, 24px);
@@ -319,8 +282,8 @@ const STAFF_INVITE_COPY = {
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        width: 28px;
-        height: 28px;
+        width: 32px;
+        height: 32px;
         background: #ffffff;
         border-radius: var(--nxt1-radius-md, 8px);
         display: flex;
@@ -347,65 +310,28 @@ const STAFF_INVITE_COPY = {
         text-align: center;
       }
 
-      /* ── INVITE TYPE TOGGLE ── */
+      /* ── INVITE EXPLAINER ── */
 
-      .invite-type-section {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: var(--nxt1-spacing-3, 12px);
+      .invite-explainer {
         width: 100%;
+        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
+        border-radius: var(--nxt1-radius-lg, 12px);
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-subtle);
       }
 
-      .invite-type-label {
+      .invite-explainer__title {
+        margin: 0 0 var(--nxt1-spacing-1, 4px) 0;
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .invite-explainer__body {
         margin: 0;
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
-        font-weight: var(--nxt1-fontWeight-semibold, 600);
+        line-height: 1.45;
         color: var(--nxt1-color-text-secondary);
-      }
-
-      .invite-type-pills {
-        display: flex;
-        gap: var(--nxt1-spacing-3, 12px);
-        width: 100%;
-      }
-
-      .invite-type-pill {
-        flex: 1;
-        position: relative;
-        overflow: hidden;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: var(--nxt1-spacing-2, 8px);
-        height: 52px;
-        border-radius: var(--nxt1-radius-xl, 16px);
-        border: 1.5px solid var(--nxt1-color-border-subtle);
-        background: var(--nxt1-color-surface-100);
-        color: var(--nxt1-color-text-secondary);
-        font-size: var(--nxt1-fontSize-sm, 0.875rem);
-        font-weight: var(--nxt1-fontWeight-semibold, 600);
-        cursor: pointer;
-        -webkit-tap-highlight-color: transparent;
-        transition:
-          border-color var(--nxt1-motion-duration-fast, 150ms)
-            var(--nxt1-motion-easing-standard, ease),
-          background var(--nxt1-motion-duration-fast, 150ms)
-            var(--nxt1-motion-easing-standard, ease),
-          color var(--nxt1-motion-duration-fast, 150ms) var(--nxt1-motion-easing-standard, ease);
-      }
-
-      .invite-type-pill:active {
-        transform: scale(0.97);
-      }
-
-      .invite-type-pill--active {
-        border-color: var(--nxt1-color-primary);
-        background: var(
-          --nxt1-color-alpha-primary10,
-          rgba(var(--nxt1-color-primary-rgb, 99, 102, 241), 0.1)
-        );
-        color: var(--nxt1-color-primary);
       }
 
       /* ── VALUE PROPOSITION CARD ── */
@@ -441,7 +367,6 @@ const STAFF_INVITE_COPY = {
         flex-shrink: 0;
       }
 
-      /* Athlete/parent variant — single-line title only */
       .invite-value-card__title {
         margin: 0;
         flex: 1;
@@ -474,18 +399,6 @@ const STAFF_INVITE_COPY = {
         .invite-body {
           padding: var(--nxt1-spacing-6, 24px);
           padding-bottom: var(--nxt1-spacing-8, 32px);
-        }
-      }
-
-      /* ── ACCESSIBILITY ── */
-
-      @media (prefers-reduced-motion: reduce) {
-        .invite-type-pill {
-          transition: none;
-        }
-
-        .invite-type-pill:active {
-          transform: none;
         }
       }
     `,
@@ -537,10 +450,6 @@ export class InviteShellComponent implements OnInit {
   // LOCAL STATE
   // ============================================
 
-  /** Expose USER_ROLES to the template for constant-based comparisons */
-  protected readonly USER_ROLES = USER_ROLES;
-
-  protected readonly recipientType = signal<InviteRecipientType>(USER_ROLES.ATHLETE);
   protected readonly qrLoading = signal(true);
   protected readonly qrError = signal(false);
   protected readonly isSharing = signal(false);
@@ -549,33 +458,52 @@ export class InviteShellComponent implements OnInit {
   // COMPUTED
   // ============================================
 
-  /**
-   * True when the signed-in user is a recruiter.
-   * Drives which invite design variant is shown:
-   *   - false (athlete/parent/coach/director) → toggle visible, can invite athlete or coach
-   *   - true  (recruiter)                     → no toggle, always inviting athletes
-   */
-  protected readonly isStaffRole = computed(() => {
-    const role = this.user()?.role;
-    return role === USER_ROLES.RECRUITER;
-  });
-
   /** True while the invite link is being fetched from the backend. */
   protected readonly isLinkLoading = computed(() => this.invite.isLoading());
 
-  /** Staff-variant copy (constant — staff always invites athletes). */
-  protected readonly staffCopy = STAFF_INVITE_COPY;
+  /** Role-aware invite copy shown in UI and used for sharing. */
+  protected readonly currentCopy = computed<InviteCopy>(() => {
+    const role = this.user()?.role;
+    if (role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR) {
+      return INVITE_COPY.coachDirector;
+    }
+    if (role === USER_ROLES.RECRUITER) {
+      return INVITE_COPY.recruiter;
+    }
+    return INVITE_COPY.athleteParent;
+  });
+
+  /** Professional explainer shown above the reward card. */
+  protected readonly howItWorksText = computed(() => {
+    const role = this.user()?.role;
+
+    if (role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR) {
+      return 'Share this QR code or link with your players and staff. Once they sign up through your invite, they are connected to your program on NXT1.';
+    }
+
+    if (role === USER_ROLES.RECRUITER) {
+      return 'Share this QR code or link with prospects. Once they create an account through your invite, their free Agent X graphic is unlocked automatically.';
+    }
+
+    return 'Share this QR code or link with friends and teammates. After they sign up through your invite, their free highlight graphic is unlocked automatically.';
+  });
 
   protected readonly headerTitle = computed(() => {
-    const role = this.user()?.role;
-    if (role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR) return 'Invite Program';
-    if (this.isStaffRole()) return 'Invite Athletes';
     const type = this.inviteType();
     if (type === 'team') return 'Invite Team';
+
+    const role = this.user()?.role;
+    if (role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR) {
+      return 'Invite Players & Staff';
+    }
+    if (role === USER_ROLES.RECRUITER) return 'Invite Prospects';
     return 'Invite';
   });
 
-  protected readonly inviteUrl = computed(() => this.invite.inviteLink()?.url ?? null);
+  protected readonly inviteUrl = computed(() => {
+    const link = this.invite.inviteLink();
+    return link?.shortUrl ?? link?.url ?? null;
+  });
 
   protected readonly displayUrl = computed(() => {
     const link = this.invite.inviteLink();
@@ -583,8 +511,6 @@ export class InviteShellComponent implements OnInit {
     // Strip protocol for display
     return url.replace(/^https?:\/\//, '');
   });
-
-  protected readonly currentCopy = computed(() => INVITE_COPY[this.recipientType()]);
 
   // ============================================
   // LIFECYCLE
@@ -598,13 +524,6 @@ export class InviteShellComponent implements OnInit {
     if (team) this.invite.selectTeam(team);
 
     this.invite.loadInviteLink();
-
-    // Recruiters always invite athletes — lock the recipient type.
-    // All other roles (including coaches/directors) default to 'athlete'
-    // but can toggle to 'coach' via the recipient type pills.
-    if (this.isStaffRole()) {
-      this.recipientType.set(USER_ROLES.ATHLETE);
-    }
   }
 
   // ============================================
@@ -639,7 +558,7 @@ export class InviteShellComponent implements OnInit {
       }
 
       await QRCode.toCanvas(canvasRef.nativeElement, url, {
-        width: 130,
+        width: 166,
         margin: 1,
         color: { dark: '#000000', light: '#ffffff' },
         errorCorrectionLevel: 'H',
@@ -656,11 +575,6 @@ export class InviteShellComponent implements OnInit {
   // ============================================
   // EVENT HANDLERS
   // ============================================
-
-  protected setRecipientType(type: InviteRecipientType): void {
-    this.haptics.impact('light');
-    this.recipientType.set(type);
-  }
 
   protected onClose(): void {
     this.haptics.impact('light');
@@ -679,10 +593,7 @@ export class InviteShellComponent implements OnInit {
 
     this.isSharing.set(true);
     await this.haptics.impact('medium');
-    // Staff role always uses the staff share text; athlete/parent uses toggle-driven copy.
-    const shareText = this.isStaffRole()
-      ? STAFF_INVITE_COPY.shareText
-      : this.currentCopy().shareText;
+    const shareText = this.currentCopy().shareText;
     const shareData: ShareData = {
       title: 'Join me on NXT1',
       text: shareText,
@@ -690,7 +601,20 @@ export class InviteShellComponent implements OnInit {
     };
 
     try {
-      if (
+      if (isCapacitor()) {
+        const { Share } = await import('@capacitor/share');
+        const result = await Share.share({
+          title: shareData.title,
+          text: shareData.text,
+          url: shareData.url,
+          dialogTitle: 'Share invite',
+        });
+
+        this.logger.info('Invite shared via Capacitor native share', {
+          senderRole: this.user()?.role ?? null,
+          activityType: result.activityType ?? null,
+        });
+      } else if (
         isPlatformBrowser(this.platformId) &&
         typeof navigator !== 'undefined' &&
         navigator.share &&
@@ -698,7 +622,7 @@ export class InviteShellComponent implements OnInit {
       ) {
         await navigator.share(shareData);
         this.logger.info('Invite shared via native share sheet', {
-          recipientType: this.recipientType(),
+          senderRole: this.user()?.role ?? null,
         });
       } else {
         // Fallback: copy invite link to clipboard
@@ -706,7 +630,7 @@ export class InviteShellComponent implements OnInit {
         await this.haptics.notification('success');
         this.toast.success('Invite link copied to clipboard');
         this.logger.info('Invite link copied (share fallback)', {
-          recipientType: this.recipientType(),
+          senderRole: this.user()?.role ?? null,
         });
       }
     } catch (err) {

@@ -355,7 +355,7 @@ export class ProfileComponent {
                 _isOwnProfile: true,
               });
             }
-            return from(this.profileApiService.getProfile(authUser.uid)).pipe(
+            return from(this.profileApiService.getMe()).pipe(
               map((res) => ({ ...res, _isOwnProfile: true }))
             );
           }
@@ -414,7 +414,9 @@ export class ProfileComponent {
               const activeSport =
                 profile.sports?.[profile.activeSportIndex ?? 0] ?? profile.sports?.[0];
               const sportId = activeSport?.sport?.toLowerCase();
-              void this.fetchSubCollections(profile.id, sportId);
+              this.fetchSubCollections(profile.id, sportId).catch((err) => {
+                this.logger.error('Failed to fetch sub-collections', err, { userId: profile.id });
+              });
             }
           } else {
             this.uiProfileService.setError(response.error ?? 'Failed to load profile');
@@ -485,14 +487,32 @@ export class ProfileComponent {
    * @param sportId - Optional sport filter (e.g. 'football', 'basketball') for schedule events
    */
   private async fetchSubCollections(userId: string, sportId?: string): Promise<void> {
-    const [timeline, rankings, scoutReports, videos, schedule, news] = await Promise.all([
-      this.profileApiService.getProfileTimeline(userId),
-      this.profileApiService.getProfileRankings(userId),
-      this.profileApiService.getProfileScoutReports(userId),
-      this.profileApiService.getProfileVideos(userId),
-      this.profileApiService.getProfileSchedule(userId, sportId),
-      this.profileApiService.getProfileNews(userId),
-    ]);
+    const [stats, metrics, timeline, rankings, scoutReports, videos, schedule, news] =
+      await Promise.all([
+        sportId
+          ? this.profileApiService.getProfileStats(userId, sportId)
+          : Promise.resolve({ success: false as const, data: [] }),
+        sportId
+          ? this.profileApiService.getProfileMetrics(userId, sportId)
+          : Promise.resolve({ success: false as const, data: [] }),
+        this.profileApiService.getProfileTimeline(userId),
+        this.profileApiService.getProfileRankings(userId),
+        this.profileApiService.getProfileScoutReports(userId),
+        this.profileApiService.getProfileVideos(userId),
+        this.profileApiService.getProfileSchedule(userId, sportId),
+        this.profileApiService.getProfileNews(userId),
+      ]);
+
+    if (stats.success) {
+      this.uiProfileService.setAthleticStatsFromRaw(stats.data);
+    } else if (sportId) {
+      this.logger.warn('Failed to load profile stats', { userId, sportId });
+    }
+    if (metrics.success) {
+      this.uiProfileService.setMetricsFromRaw(metrics.data);
+    } else if (sportId) {
+      this.logger.warn('Failed to load profile metrics', { userId, sportId });
+    }
 
     if (timeline.success) this.uiProfileService.setTimelinePosts(timeline.data);
     if (rankings.success && rankings.data.length > 0) {
@@ -873,7 +893,7 @@ export class ProfileComponent {
       let response: { success: boolean; data?: User; error?: string };
 
       if (!param && authUser?.uid) {
-        response = await this.profileApiService.getProfile(authUser.uid);
+        response = await this.profileApiService.getMe();
       } else if (profile?.id) {
         response = await this.profileApiService.getProfile(profile.id);
       } else {
@@ -896,7 +916,11 @@ export class ProfileComponent {
           const activeSport =
             freshProfile.sports?.[freshProfile.activeSportIndex ?? 0] ?? freshProfile.sports?.[0];
           const sportId = activeSport?.sport?.toLowerCase();
-          void this.fetchSubCollections(freshProfile.id, sportId);
+          this.fetchSubCollections(freshProfile.id, sportId).catch((err) => {
+            this.logger.error('Failed to fetch sub-collections on refresh', err, {
+              userId: freshProfile.id,
+            });
+          });
         }
       }
     } catch {

@@ -73,21 +73,19 @@ import { provideBadgeBridge } from './core/services';
 import { provideWebPush } from './core/services/web-push.service';
 
 // News API base URL (uses environment.apiURL — same origin + /api/v1/staging in dev)
-import {
-  NEWS_API_BASE_URL,
-  TEAM_PROFILE_API_BASE_URL,
-  AGENT_X_API_BASE_URL,
-  AGENT_X_AUTH_TOKEN_FACTORY,
-  ACTIVITY_API_BASE_URL,
-  INVITE_API_BASE_URL,
-  MESSAGES_API_BASE_URL,
-  USAGE_API_BASE_URL,
-} from '@nxt1/ui';
+import { NEWS_API_BASE_URL } from '@nxt1/ui/news';
+import { TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui/team-profile';
+import { AGENT_X_API_BASE_URL, AGENT_X_AUTH_TOKEN_FACTORY } from '@nxt1/ui/agent-x';
+import { ACTIVITY_API_BASE_URL, ACTIVITY_API_ADAPTER } from '@nxt1/ui/activity';
+import { INVITE_API_BASE_URL } from '@nxt1/ui/invite';
+import { MESSAGES_API_BASE_URL } from '@nxt1/ui/messages';
+import { USAGE_API_BASE_URL } from '@nxt1/ui/usage';
 
 // Help Center API adapter — wired at root so the shared HelpCenterService
 // (providedIn: 'root') can resolve the token when it's first injected.
 import { HELP_CENTER_API } from '@nxt1/ui/help-center';
 import { HelpCenterApiService } from './features/help-center/services/help-center-api.service';
+import { ActivityApiService as WebActivityApiService } from './features/activity/services/activity-api.service';
 
 // Firebase
 // IMPORTANT: Only import what's actually used in browser bundle
@@ -287,6 +285,9 @@ export const appConfig: ApplicationConfig = {
 
     // Activity API base URL
     { provide: ACTIVITY_API_BASE_URL, useFactory: () => environment.apiURL },
+
+    // Activity API adapter — use the web-specific service with performance tracing
+    { provide: ACTIVITY_API_ADAPTER, useExisting: WebActivityApiService },
 
     // Invite API base URL
     { provide: INVITE_API_BASE_URL, useFactory: () => environment.apiURL },

@@ -127,7 +127,6 @@ export class NxtIconComponent {
   get iconDef(): IconDefinition | null {
     const icon = ICONS[this.name as IconName];
     if (!icon) {
-      console.warn(`[NxtIconComponent] Icon "${this.name}" not found in registry`);
       return null;
     }
     return icon as IconDefinition;

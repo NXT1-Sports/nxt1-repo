@@ -73,6 +73,8 @@ interface OperationMessage {
   readonly role: 'user' | 'assistant' | 'system';
   readonly content: string;
   readonly timestamp: Date;
+  readonly imageUrl?: string;
+  readonly videoUrl?: string;
   readonly isTyping?: boolean;
   readonly error?: boolean;
 }
@@ -90,7 +92,7 @@ interface OperationMessage {
   template: `
     <!-- ═══ HEADER ═══ -->
     <nxt1-sheet-header
-      [title]="contextTitle"
+      [title]="headerTitle()"
       [subtitle]="contextTypeLabel()"
       [showAgentXIcon]="true"
       iconShape="rounded"
@@ -136,6 +138,8 @@ interface OperationMessage {
             variant="agent-operation"
             [isOwn]="msg.role === 'user'"
             [content]="msg.content"
+            [imageUrl]="msg.imageUrl"
+            [videoUrl]="msg.videoUrl"
             [isTyping]="!!msg.isTyping"
             [isError]="!!msg.error"
             [isSystem]="msg.role === 'system'"
@@ -145,28 +149,26 @@ interface OperationMessage {
     </div>
 
     <!-- ═══ INPUT ═══ -->
-    <div class="shared-input-row">
-      <nxt1-agent-x-input
-        class="embedded"
-        [hasMessages]="messages().length > 0"
-        [selectedTask]="null"
-        [isLoading]="_loading()"
-        [canSend]="canSend()"
-        [userMessage]="inputValue()"
-        [placeholder]="'Start your agent'"
-        (messageChange)="inputValue.set($event)"
-        (send)="send()"
-        (toggleTasks)="onUploadClick()"
-      />
-      <input
-        #fileInput
-        class="file-input-hidden"
-        type="file"
-        accept="image/*,.pdf,.doc,.docx,.txt"
-        multiple
-        (change)="onFileSelected($event)"
-      />
-    </div>
+    <nxt1-agent-x-input
+      class="embedded"
+      [hasMessages]="messages().length > 0"
+      [selectedTask]="null"
+      [isLoading]="_loading()"
+      [canSend]="canSend()"
+      [userMessage]="inputValue()"
+      [placeholder]="'Start your agent'"
+      (messageChange)="inputValue.set($event)"
+      (send)="send()"
+      (toggleTasks)="onUploadClick()"
+    />
+    <input
+      #fileInput
+      class="file-input-hidden"
+      type="file"
+      accept="image/*,.pdf,.doc,.docx,.txt"
+      multiple
+      (change)="onFileSelected($event)"
+    />
   `,
   styles: [
     `
@@ -235,12 +237,10 @@ interface OperationMessage {
         max-width: 100%;
       }
 
-      /* ── SHARED INPUT ROW ── */
-      .shared-input-row {
+      /* ── EMBEDDED INPUT ── */
+      .embedded {
         padding: 12px 20px;
         padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-        border-top: 1px solid var(--op-border);
-        background: var(--ion-background-color, var(--nxt1-color-bg-primary, #0a0a0a));
         flex-shrink: 0;
         /* Move input up when keyboard opens */
         transform: translateY(calc(-1 * var(--keyboard-offset, 0px)));
@@ -327,6 +327,12 @@ export class AgentXOperationChatComponent implements AfterViewInit {
   /** Optional initial message to auto-send when the sheet opens. */
   @Input() initialMessage = '';
 
+  /**
+   * Optional MongoDB thread ID — when provided, loads the historical
+   * conversation from the backend so the user can review past messages.
+   */
+  @Input() threadId = '';
+
   // ============================================
   // LOCAL STATE
   // ============================================
@@ -342,7 +348,7 @@ export class AgentXOperationChatComponent implements AfterViewInit {
 
   /** Whether the welcome message and quick option chips are visible (hide after first user message). */
   protected readonly showWelcome = computed(
-    () => this.normalizedQuickActions().length > 0 && !this.hasUserSent()
+    () => !this._isThreadMode() && this.normalizedQuickActions().length > 0 && !this.hasUserSent()
   );
 
   /** Welcome message content derived from coordinator description or a generated fallback. */
@@ -371,6 +377,9 @@ export class AgentXOperationChatComponent implements AfterViewInit {
   /** Tracks whether the user has sent at least one message. */
   private readonly hasUserSent = signal(false);
 
+  /** Whether this chat was opened to view a historical thread (suppresses generic welcome). */
+  private readonly _isThreadMode = signal(false);
+
   /** Whether the send button should be enabled. */
   protected readonly canSend = computed(
     () => this.inputValue().trim().length > 0 && !this._loading()
@@ -380,6 +389,19 @@ export class AgentXOperationChatComponent implements AfterViewInit {
   protected readonly contextTypeLabel = computed(() =>
     this.contextType === 'operation' ? 'Active Operation' : 'Quick Command'
   );
+
+  /**
+   * Short header title — truncates to ~5 words for a professional look.
+   * Strips trailing emojis and keeps only the first few words.
+   */
+  protected readonly headerTitle = computed(() => {
+    const raw = this.contextTitle || 'Agent X';
+    // Strip trailing emoji sequences
+    const cleaned = raw.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]+$/gu, '').trim();
+    const words = cleaned.split(/\s+/);
+    if (words.length <= 5) return cleaned;
+    return words.slice(0, 5).join(' ');
+  });
 
   // ============================================
   // VIEW CHILDREN
@@ -424,6 +446,13 @@ export class AgentXOperationChatComponent implements AfterViewInit {
   private initialMessageSent = false;
 
   ngAfterViewInit(): void {
+    // If opening an existing operation/thread, load its persisted messages.
+    if (this.threadId?.trim()) {
+      this._isThreadMode.set(true);
+      void this.loadThreadMessages(this.threadId.trim());
+      return;
+    }
+
     if (this.initialMessage?.trim() && !this.initialMessageSent) {
       this.initialMessageSent = true;
       // Slight delay to let the sheet animation settle
@@ -431,6 +460,77 @@ export class AgentXOperationChatComponent implements AfterViewInit {
         this.inputValue.set(this.initialMessage.trim());
         this.send();
       }, 150);
+    }
+  }
+
+  /**
+   * Load a historical thread into this isolated operation chat view.
+   * Preserves the operation sheet UX while showing the persisted conversation.
+   */
+  private async loadThreadMessages(threadId: string): Promise<void> {
+    this._loading.set(true);
+    this.logger.info('Loading operation thread', { threadId, contextId: this.contextId });
+
+    try {
+      const response = await firstValueFrom(
+        this.http.get<{
+          success: boolean;
+          data?: {
+            items: Array<{
+              id?: string;
+              role: string;
+              content: string;
+              createdAt?: string;
+              resultData?: Record<string, unknown>;
+            }>;
+            hasMore?: boolean;
+          };
+          error?: string;
+        }>(`${this.baseUrl}/agent-x/threads/${encodeURIComponent(threadId)}/messages?limit=50`)
+      );
+
+      if (!response.success || !response.data?.items?.length) {
+        this.logger.warn('Operation thread returned no messages', {
+          threadId,
+          contextId: this.contextId,
+        });
+        return;
+      }
+
+      const mapped: OperationMessage[] = response.data.items.map((msg) => ({
+        id: msg.id ?? this.uid(),
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: msg.content,
+        timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
+        ...(typeof msg.resultData?.['imageUrl'] === 'string'
+          ? { imageUrl: msg.resultData['imageUrl'] as string }
+          : {}),
+        ...(typeof msg.resultData?.['videoUrl'] === 'string'
+          ? { videoUrl: msg.resultData['videoUrl'] as string }
+          : {}),
+      }));
+
+      this.messages.set(mapped);
+      this.hasUserSent.set(mapped.some((msg) => msg.role === 'user'));
+      this.logger.info('Operation thread loaded', {
+        threadId,
+        contextId: this.contextId,
+        messageCount: mapped.length,
+      });
+    } catch (err) {
+      this.logger.error('Failed to load operation thread', err, {
+        threadId,
+        contextId: this.contextId,
+      });
+      this.pushMessage({
+        id: this.uid(),
+        role: 'assistant',
+        content: 'Failed to load this conversation. You can still continue here.',
+        timestamp: new Date(),
+        error: true,
+      });
+    } finally {
+      this._loading.set(false);
     }
   }
 

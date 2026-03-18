@@ -189,6 +189,14 @@ export interface OnboardingStateMachineConfig {
   /** Initial steps configuration (can change based on role) */
   readonly initialSteps?: readonly OnboardingStep[];
 
+  /**
+   * Step IDs to skip (remove from the flow).
+   * Used when the user already completed an action outside of onboarding
+   * (e.g., joined a team via invite link before reaching onboarding).
+   * Applied at initialization and whenever the role changes via selectRole().
+   */
+  readonly skipStepIds?: readonly OnboardingStepId[];
+
   /** Callback when state changes */
   readonly onStateChange?: (state: OnboardingStateSnapshot) => void;
 
@@ -356,10 +364,17 @@ export function createOnboardingStateMachine(
   const {
     userId,
     initialSteps = ONBOARDING_STEPS.athlete,
+    skipStepIds = [],
     onStateChange,
     onComplete,
     debug = false,
   } = config;
+
+  /** Apply skipStepIds filter to a step array */
+  const applySkipFilter = (rawSteps: readonly OnboardingStep[]): OnboardingStep[] => {
+    if (skipStepIds.length === 0) return [...rawSteps];
+    return rawSteps.filter((s) => !skipStepIds.includes(s.id));
+  };
 
   // ============================================
   // INTERNAL STATE
@@ -367,7 +382,7 @@ export function createOnboardingStateMachine(
 
   let machineState: OnboardingMachineState = 'idle';
   let currentStepIndex = 0;
-  let steps: OnboardingStep[] = [...initialSteps];
+  let steps: OnboardingStep[] = applySkipFilter(initialSteps);
   let completedStepIds = new Set<OnboardingStepId>();
   let formData: PartialOnboardingFormData = { userType: null };
   let selectedRole: OnboardingUserType | null = null;
@@ -580,12 +595,12 @@ export function createOnboardingStateMachine(
       selectedRole = role;
       formData = { ...formData, userType: role };
 
-      // Update steps based on role
-      steps = [...(ONBOARDING_STEPS[role] || ONBOARDING_STEPS.athlete)];
+      // Update steps based on role, applying skip filter
+      steps = applySkipFilter(ONBOARDING_STEPS[role] || ONBOARDING_STEPS.athlete);
 
       emit({ type: 'ROLE_SELECTED', role });
       notifyStateChange();
-      log('Role selected', { role });
+      log('Role selected', { role, skippedSteps: skipStepIds });
     },
 
     updateProfile(data: ProfileFormData): void {
@@ -655,7 +670,10 @@ export function createOnboardingStateMachine(
         return false;
       }
 
-      // Restore state
+      // Restore state — re-apply skip filter in case skipStepIds changed since session was saved
+      if (session.selectedRole) {
+        steps = applySkipFilter(ONBOARDING_STEPS[session.selectedRole] || ONBOARDING_STEPS.athlete);
+      }
       currentStepIndex = Math.min(session.stepIndex, steps.length - 1);
       completedStepIds = new Set(session.completedStepIds);
       formData = { ...session.formData };
@@ -671,7 +689,7 @@ export function createOnboardingStateMachine(
     reset(): void {
       machineState = 'idle';
       currentStepIndex = 0;
-      steps = [...initialSteps];
+      steps = applySkipFilter(initialSteps);
       completedStepIds = new Set();
       formData = { userType: null };
       selectedRole = null;

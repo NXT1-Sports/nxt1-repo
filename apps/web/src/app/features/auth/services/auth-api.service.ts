@@ -85,12 +85,7 @@ export class AuthApiService {
           const profile = wrapped?.data ?? (response as unknown as User);
           return profile;
         } catch (error) {
-          console.error('❌ [AuthApi] Failed to fetch user profile', {
-            uid,
-            error,
-            errorMessage: error instanceof Error ? error.message : String(error),
-          });
-          this.logger.error('Failed to fetch user profile', error);
+          this.logger.error('Failed to fetch user profile', error, { uid });
           throw error;
         }
       },

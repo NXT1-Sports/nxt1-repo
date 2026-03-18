@@ -181,6 +181,10 @@ export {
   buildInitialFormDataFromTeamCode,
   buildInitialFormDataFromUser,
   getRedirectPath,
+
+  // Invite team-skip helpers
+  getSkipStepIdsForInviteUser,
+  INVITE_TEAM_JOINED_KEY,
 } from './onboarding-navigation.api';
 
 // ============================================

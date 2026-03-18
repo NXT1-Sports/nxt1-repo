@@ -535,6 +535,7 @@ export {
   ActivityService,
   ActivityApiService,
   ACTIVITY_API_BASE_URL,
+  ACTIVITY_API_ADAPTER,
   // Components
   ActivityShellComponent,
   ActivityListComponent,
@@ -1347,7 +1348,6 @@ export {
   INVITE_API_BASE_URL,
   // Types
   type InviteUser,
-  type InviteRecipientType,
   type InviteBottomSheetConfig,
   // Mock Data (Development Only)
   MOCK_INVITE_STATS,

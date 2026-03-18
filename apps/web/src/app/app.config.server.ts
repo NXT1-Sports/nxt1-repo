@@ -59,7 +59,7 @@ import {
   initializeServerAuth,
 } from './features/auth/services/server-auth.service';
 import { SSR_AUTH_TOKEN, SSR_FIREBASE_CONFIG } from './features/auth/services/ssr-tokens';
-import { TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui';
+import { TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui/team-profile';
 
 // Environment for Firebase config
 import { environment } from '../environments/environment';

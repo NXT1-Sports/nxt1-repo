@@ -155,8 +155,8 @@ export class HapticsService {
       };
 
       await this.hapticsPlugin!.impact({ style: styleMap[style] });
-    } catch (error) {
-      console.debug('[HapticsService] Impact failed:', error);
+    } catch {
+      // Haptic feedback failures are non-critical
     }
   }
 
@@ -182,8 +182,8 @@ export class HapticsService {
       };
 
       await this.hapticsPlugin!.notification({ type: typeMap[type] });
-    } catch (error) {
-      console.debug('[HapticsService] Notification failed:', error);
+    } catch {
+      // Haptic feedback failures are non-critical
     }
   }
 
@@ -201,8 +201,8 @@ export class HapticsService {
     try {
       await this.hapticsPlugin!.selectionStart();
       // Note: selectionEnd() should be called when selection completes
-    } catch (error) {
-      console.debug('[HapticsService] Selection failed:', error);
+    } catch {
+      // Haptic feedback failures are non-critical
     }
   }
 
@@ -221,8 +221,8 @@ export class HapticsService {
 
     try {
       await this.hapticsPlugin!.vibrate({ duration });
-    } catch (error) {
-      console.debug('[HapticsService] Vibrate failed:', error);
+    } catch {
+      // Haptic feedback failures are non-critical
     }
   }
 

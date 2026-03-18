@@ -4,6 +4,8 @@
  */
 
 export { ScrapeWebpageTool } from './scrape-webpage.tool.js';
+export { ScrapeAndIndexProfileTool } from './scrape-and-index-profile.tool.js';
+export { ReadDistilledSectionTool } from './read-distilled-section.tool.js';
 export { ScraperService } from './scraper.service.js';
 export { extractPageData } from './page-data-extractor.js';
 export type { ScrapeRequest, ScrapeResult, ScrapeProvider } from './scraper.types.js';

@@ -169,8 +169,6 @@ export interface ProfileConnectedSource {
   readonly lastSyncedAt?: string;
   /** Current sync status */
   readonly syncStatus?: 'idle' | 'syncing' | 'error' | 'success';
-  /** Fields that were synced from this source */
-  readonly syncedFields?: readonly string[];
   /** Display order (lower = first) */
   readonly displayOrder?: number;
   /** Scope type: 'global', 'sport', or 'team' */
@@ -475,7 +473,7 @@ export interface GameLogEntry {
   /** Game result — "W 44-0", "L 20-51", "T 14-14" */
   readonly result: string;
   /** Whether the game was a win, loss, or tie (drives green/red coloring) */
-  readonly outcome: 'win' | 'loss' | 'tie';
+  readonly outcome?: 'win' | 'loss' | 'tie';
   /** Opponent team name — "Selma", "Thomasville" */
   readonly opponent: string;
   /** Dynamic stat values keyed by GameLogColumn.key */

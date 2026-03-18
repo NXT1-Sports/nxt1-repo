@@ -22,6 +22,7 @@ import type {
   ProfileHeaderAction,
   ProfileUser,
 } from './profile.types';
+import type { VerificationScope } from '../models/user.model';
 
 // ============================================
 // TAB CONFIGURATION
@@ -136,7 +137,7 @@ export function getOverviewSectionLabels(user: ProfileUser | null): {
   if (user?.isTeamManager) {
     return { profile: 'Team Profile', bio: 'About', history: 'History' };
   }
-  return { profile: 'Player Profile', bio: 'Player Bio', history: 'Player History' };
+  return { profile: 'Player Info', bio: 'Player Bio', history: 'Player History' };
 }
 
 /**
@@ -144,6 +145,56 @@ export function getOverviewSectionLabels(user: ProfileUser | null): {
  * Override by providing a custom set via input if needed.
  */
 export const PROFILE_VERIFICATION_HIDDEN_TABS: ReadonlySet<ProfileTabId> = new Set(['contact']);
+
+// ── Verification scope lookup tables (module-level for zero allocation) ──
+
+const TAB_SCOPES: Readonly<Record<string, readonly VerificationScope[]>> = {
+  metrics: ['measurables'],
+  stats: ['stats'],
+  roster: ['stats'],
+  schedule: ['schedule'],
+  academic: ['academics'],
+};
+
+const OVERVIEW_SIDE_TAB_SCOPES: Readonly<Record<string, readonly VerificationScope[]>> = {
+  'player-profile': ['measurables'],
+  'player-info': ['measurables'],
+  'player-history': ['recruiting'],
+  awards: ['stats'],
+  academic: ['academics'],
+};
+
+const OFFERS_SIDE_TAB_SCOPES: Readonly<Record<string, readonly VerificationScope[]>> = {
+  timeline: ['recruiting'],
+  committed: ['recruiting'],
+  'all-offers': ['recruiting'],
+  interests: ['recruiting'],
+  rankings: ['recruiting'],
+};
+
+const EMPTY_SCOPES: readonly VerificationScope[] = [];
+
+/**
+ * Maps a profile tab (and optional side-tab) to the `VerificationScope`(s)
+ * that apply. Returns an empty array when no scopes are relevant,
+ * which means the verification banner should be hidden.
+ *
+ * @pure — no side effects, zero allocations, safe for computed().
+ */
+export function getVerificationScopesForTab(
+  tabId: string,
+  sideTabId?: string
+): readonly VerificationScope[] {
+  if (tabId === 'overview' && sideTabId) {
+    return OVERVIEW_SIDE_TAB_SCOPES[sideTabId] ?? EMPTY_SCOPES;
+  }
+
+  if (tabId === 'offers' && sideTabId) {
+    return OFFERS_SIDE_TAB_SCOPES[sideTabId] ?? EMPTY_SCOPES;
+  }
+
+  return TAB_SCOPES[tabId] ?? EMPTY_SCOPES;
+}
 
 // ============================================
 // TIMELINE FILTER CONFIGURATION

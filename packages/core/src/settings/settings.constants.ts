@@ -57,10 +57,10 @@ export const SETTINGS_SECTIONS_META: Record<
   },
   legal: {
     title: 'Legal',
-    description: 'Privacy policy and terms of service',
+    description: 'Privacy, terms, and legal information',
     icon: 'document-text-outline',
   },
-} as const;
+};
 
 /**
  * Section order for rendering.
@@ -248,15 +248,6 @@ export const SETTINGS_SUPPORT_ITEMS: readonly SettingsItem[] = [
     description: 'Let us know about any issues',
     icon: 'bug-outline',
     action: 'reportBug',
-  },
-  {
-    id: 'checkUpdate',
-    section: 'support',
-    type: 'action',
-    label: 'Check for Updates',
-    description: 'Make sure you have the latest version',
-    icon: 'refresh-outline',
-    action: 'checkUpdate',
   },
 ] as const;
 

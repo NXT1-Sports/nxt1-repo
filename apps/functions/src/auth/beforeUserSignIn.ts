@@ -36,19 +36,13 @@ export const beforeUserSignIn = beforeUserSignedIn(async (event) => {
   }
 
   // Check for banned users in Firestore
-  const userDoc = await db.collection('users').doc(uid).get();
+  const userDoc = await db.collection('Users').doc(uid).get();
   if (userDoc.exists) {
     const data = userDoc.data();
     if (data && data['banned']) {
       throw new HttpsError('permission-denied', 'This account has been banned');
     }
   }
-
-  // Update last sign-in timestamp
-  await db
-    .collection('users')
-    .doc(uid)
-    .set({ lastSignIn: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
 
   return {};
 });

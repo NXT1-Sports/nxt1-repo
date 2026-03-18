@@ -56,4 +56,47 @@ export abstract class BaseTool {
 
   /** Execute the tool with validated input. */
   abstract execute(input: Record<string, unknown>): Promise<ToolResult>;
+
+  // ─── Shared Input Helpers ─────────────────────────────────────────────
+
+  /** Extract a trimmed non-empty string from input, or null. */
+  protected str(obj: Record<string, unknown>, key: string): string | null {
+    const val = obj[key];
+    if (typeof val === 'string' && val.trim().length > 0) return val.trim();
+    return null;
+  }
+
+  /** Extract a nested object from input, or null. */
+  protected obj(obj: Record<string, unknown>, key: string): Record<string, unknown> | null {
+    const val = obj[key];
+    if (val && typeof val === 'object' && !Array.isArray(val))
+      return val as Record<string, unknown>;
+    return null;
+  }
+
+  /** Extract a non-empty array from input, or null. */
+  protected arr(obj: Record<string, unknown>, key: string): unknown[] | null {
+    const val = obj[key];
+    if (Array.isArray(val) && val.length > 0) return val;
+    return null;
+  }
+
+  /** Extract a finite number from input, or null. */
+  protected num(obj: Record<string, unknown>, key: string): number | null {
+    const val = obj[key];
+    if (typeof val === 'number' && Number.isFinite(val)) return val;
+    if (typeof val === 'string') {
+      const n = Number(val);
+      return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  }
+
+  /** Build a standardized "missing required param" error. */
+  protected paramError(param: string): ToolResult {
+    return {
+      success: false,
+      error: `Parameter "${param}" is required and must be a non-empty string.`,
+    };
+  }
 }

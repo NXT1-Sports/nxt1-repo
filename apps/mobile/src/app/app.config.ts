@@ -39,9 +39,13 @@ import {
   httpErrorInterceptor,
   AGENT_X_API_BASE_URL,
   ACTIVITY_API_BASE_URL,
+  ACTIVITY_API_ADAPTER,
   INVITE_API_BASE_URL,
   MESSAGES_API_BASE_URL,
+  USAGE_API_BASE_URL,
 } from '@nxt1/ui';
+// Mobile-specific Activity API adapter (uses CapacitorHttpAdapter + auth)
+import { ActivityApiService as MobileActivityApiService } from './features/activity/services/activity-api.service';
 import { mobileAuthInterceptor } from './core/infrastructure/interceptors/auth.interceptor';
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 
@@ -182,11 +186,17 @@ export const appConfig: ApplicationConfig = {
     // Activity API base URL
     { provide: ACTIVITY_API_BASE_URL, useFactory: () => environment.apiUrl },
 
+    // Activity API adapter — use the mobile Capacitor adapter (auth headers, native SSL)
+    { provide: ACTIVITY_API_ADAPTER, useExisting: MobileActivityApiService },
+
     // Invite API base URL
     { provide: INVITE_API_BASE_URL, useFactory: () => environment.apiUrl },
 
     // Messages API base URL
     { provide: MESSAGES_API_BASE_URL, useFactory: () => environment.apiUrl },
+
+    // Usage API base URL
+    { provide: USAGE_API_BASE_URL, useFactory: () => environment.apiUrl },
 
     // Settings persistence adapter (connects SettingsService → backend API)
     { provide: SETTINGS_PERSISTENCE_ADAPTER, useExisting: SettingsApiService },

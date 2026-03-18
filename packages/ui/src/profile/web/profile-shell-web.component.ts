@@ -262,6 +262,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                   <nxt1-profile-verification-banner
                     [activeTab]="profile.activeTab()"
                     [activeSideTab]="activeSideTab()"
+                    [profileUser]="profile.user()"
                   />
 
                   @switch (profile.activeTab()) {

@@ -38,8 +38,11 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
     } @else if (isSystem()) {
       <p class="bubble-text bubble-text--system">{{ content() }}</p>
     } @else {
+      @if (content()) {
+        <p class="bubble-text">{{ content() }}</p>
+      }
       @if (imageUrl()) {
-        <div class="bubble-image">
+        <div class="bubble-media">
           <img
             [src]="imageUrl()"
             [alt]="content() || 'Generated image'"
@@ -47,9 +50,16 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
             loading="lazy"
           />
         </div>
-      }
-      @if (content()) {
-        <p class="bubble-text">{{ content() }}</p>
+      } @else if (videoUrl()) {
+        <div class="bubble-media">
+          <video
+            [src]="videoUrl()"
+            class="bubble-video"
+            controls
+            playsinline
+            preload="metadata"
+          ></video>
+        </div>
       }
     }
     <ng-content />
@@ -224,8 +234,8 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
       }
 
       :host(.variant-agent-operation.own) {
-        background: var(--nxt1-color-primary, #ccff00);
-        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
+        background: var(--nxt1-color-surface-400, #2a2a2a);
+        color: var(--nxt1-color-text-primary, #fff);
         border-bottom-right-radius: 4px;
       }
 
@@ -302,11 +312,11 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
          ============================================ */
 
       /* ============================================
-         IMAGE — Rendered above text in any variant
+         MEDIA — Image / Video rendered below text
          ============================================ */
 
-      .bubble-image {
-        margin-bottom: 0.5rem;
+      .bubble-media {
+        margin-top: 0.75rem;
         border-radius: 12px;
         overflow: hidden;
       }
@@ -320,11 +330,20 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         object-fit: cover;
       }
 
-      :host(.own) .bubble-img {
+      .bubble-video {
+        display: block;
+        width: 100%;
+        max-width: 320px;
+        border-radius: 12px;
+      }
+
+      :host(.own) .bubble-img,
+      :host(.own) .bubble-video {
         max-width: 240px;
       }
 
-      :host(.variant-agent-fab) .bubble-img {
+      :host(.variant-agent-fab) .bubble-img,
+      :host(.variant-agent-fab) .bubble-video {
         max-width: 260px;
       }
 
@@ -350,6 +369,9 @@ export class NxtChatBubbleComponent {
 
   /** Optional image URL to display above the text content. */
   readonly imageUrl = input<string | undefined>(undefined);
+
+  /** Optional video URL to display above the text content. */
+  readonly videoUrl = input<string | undefined>(undefined);
 
   /** Show typing indicator dots instead of text. */
   readonly isTyping = input(false);

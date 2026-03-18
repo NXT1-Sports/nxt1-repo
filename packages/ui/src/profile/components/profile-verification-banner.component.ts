@@ -3,72 +3,62 @@
  * @module @nxt1/ui/profile/components
  *
  * Shared profile section component used by both web and mobile shells.
- * Per-tab verification banner showing data source provider info.
+ * Data-driven verification banner — renders ONLY when the user's
+ * `verifications[]` array contains entries matching the active tab's scope.
+ * No mock data, no static mappings.
  */
 import { Component, ChangeDetectionStrategy, input, computed } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { NxtIconComponent } from '../../components/icon';
+import { NgTemplateOutlet } from '@angular/common';
 import { NxtImageComponent } from '../../components/image';
+import { getVerificationScopesForTab } from '@nxt1/core/profile';
+import type { DataVerification, ProfileUser } from '@nxt1/core';
 
 @Component({
   selector: 'nxt1-profile-verification-banner',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent, NxtImageComponent],
+  imports: [NgTemplateOutlet, NxtImageComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (showVerificationBanner()) {
+    @if (activeVerifications().length > 0) {
       <div class="profile-verification-banner" role="status">
-        @if (isProfileVerified()) {
-          <span class="verified-by__label">Verified by</span>
-          @if (verificationProviderUrl(); as providerUrl) {
+        <span class="verified-by__label">Verified by</span>
+        @for (v of activeVerifications(); track v.scope) {
+          @if (v.sourceUrl) {
             <a
               class="verified-by__chip"
-              [href]="providerUrl"
+              [href]="v.sourceUrl"
               target="_blank"
               rel="noopener noreferrer"
-              [attr.aria-label]="
-                'Verified by ' +
-                (verificationProvider() || 'verification provider') +
-                ' (opens in new tab)'
-              "
+              [attr.aria-label]="'Verified by ' + v.verifiedBy + ' (opens in new tab)'"
             >
-              <ng-container *ngTemplateOutlet="verifiedChipContent"></ng-container>
+              <ng-container
+                *ngTemplateOutlet="chipContent; context: { $implicit: v }"
+              ></ng-container>
             </a>
           } @else {
-            <span
-              class="verified-by__chip"
-              [attr.aria-label]="
-                'Verified by ' + (verificationProvider() || 'verification provider')
-              "
-            >
-              <ng-container *ngTemplateOutlet="verifiedChipContent"></ng-container>
+            <span class="verified-by__chip" [attr.aria-label]="'Verified by ' + v.verifiedBy">
+              <ng-container
+                *ngTemplateOutlet="chipContent; context: { $implicit: v }"
+              ></ng-container>
             </span>
           }
-        } @else {
-          <span class="verified-by__chip verified-by__chip--unverified">
-            <nxt1-icon name="alertCircle" [size]="14" />
-            <span class="verified-by__name">Not Verified</span>
-          </span>
         }
       </div>
     }
 
-    <!-- Reusable chip content (DRY — logo + name) -->
-    <ng-template #verifiedChipContent>
-      @if (verificationProviderLogoSrc(); as logoSrc) {
+    <ng-template #chipContent let-v>
+      @if (v.sourceLogoUrl) {
         <nxt1-image
           class="verified-by__logo"
-          [src]="logoSrc"
-          [alt]="(verificationProvider() || 'provider') + ' logo'"
+          [src]="v.sourceLogoUrl"
+          [alt]="v.verifiedBy + ' logo'"
           [width]="60"
           [height]="14"
           fit="contain"
           [showPlaceholder]="false"
         />
       }
-      @if (verificationProvider(); as providerName) {
-        <span class="verified-by__name">{{ providerName }}</span>
-      }
+      <span class="verified-by__name">{{ v.verifiedBy }}</span>
     </ng-template>
   `,
   styles: [
@@ -116,15 +106,6 @@ import { NxtImageComponent } from '../../components/image';
         border-color: var(--nxt1-color-primary, #d4ff00);
         background: color-mix(in srgb, var(--nxt1-color-primary, #d4ff00) 10%, transparent);
       }
-      .verified-by__chip--unverified {
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.6));
-        border-color: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.12));
-        background: color-mix(
-          in srgb,
-          var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04)) 75%,
-          transparent
-        );
-      }
       .verified-by__logo {
         width: 16px;
         height: 16px;
@@ -156,116 +137,24 @@ export class ProfileVerificationBannerComponent {
   /** Current active side tab from parent */
   readonly activeSideTab = input<string>('');
 
-  // ── Static provider config ──
+  /** The profile user object — source of truth for verifications */
+  readonly profileUser = input<ProfileUser | null>(null);
 
-  private static readonly VERIFICATION_PROVIDERS: Readonly<
-    Record<
-      string,
-      {
-        readonly displayName: string;
-        readonly url: string;
-        readonly logoSrc: string;
-        readonly fallbackLogoSrc: string;
-      }
-    >
-  > = {
-    maxpreps: {
-      displayName: 'MaxPreps',
-      url: 'https://www.maxpreps.com',
-      logoSrc: 'https://logo.clearbit.com/maxpreps.com',
-      fallbackLogoSrc: 'https://www.google.com/s2/favicons?domain=maxpreps.com&sz=64',
-    },
-    prepsports: {
-      displayName: 'PrepSports',
-      url: 'https://www.prepsports.com',
-      logoSrc: 'https://logo.clearbit.com/prepsports.com',
-      fallbackLogoSrc: 'https://www.google.com/s2/favicons?domain=prepsports.com&sz=64',
-    },
-    rivals: {
-      displayName: 'Rivals',
-      url: 'https://www.rivals.com',
-      logoSrc: 'https://logo.clearbit.com/rivals.com',
-      fallbackLogoSrc: 'https://www.google.com/s2/favicons?domain=rivals.com&sz=64',
-    },
-    twitter: {
-      displayName: 'Twitter',
-      url: 'https://x.com',
-      logoSrc: 'https://logo.clearbit.com/x.com',
-      fallbackLogoSrc: 'https://www.google.com/s2/favicons?domain=x.com&sz=64',
-    },
-    transcript: {
-      displayName: 'Transcript',
-      url: '',
-      logoSrc: '',
-      fallbackLogoSrc: '',
-    },
-  };
+  /**
+   * Resolves the active DataVerification entries for the current tab.
+   * Reads directly from `profileUser().verifications[]` — no legacy fields,
+   * no static mappings. Returns empty array when nothing is verified,
+   * which collapses the banner from the DOM.
+   */
+  protected readonly activeVerifications = computed<readonly DataVerification[]>(() => {
+    const user = this.profileUser();
+    const verifications = user?.verifications;
+    if (!verifications?.length) return [];
 
-  private static readonly TAB_VERIFICATION_MAP: Readonly<
-    Record<string, string | Readonly<Record<string, string>>>
-  > = {
-    overview: {
-      'player-history': 'rivals',
-      awards: 'maxpreps',
-      academic: 'transcript',
-      contact: 'twitter',
-    },
-    offers: {
-      timeline: 'rivals',
-      committed: 'rivals',
-      'all-offers': 'rivals',
-      interests: 'rivals',
-      rankings: 'rivals',
-    },
-    metrics: 'prepsports',
-    roster: 'maxpreps',
-    stats: 'maxpreps',
-    schedule: 'maxpreps',
-  };
+    const scopes = getVerificationScopesForTab(this.activeTab(), this.activeSideTab());
+    if (!scopes.length) return [];
 
-  private readonly _activeProviderKey = computed<string | null>(() => {
-    const tab = this.activeTab();
-    const entry = ProfileVerificationBannerComponent.TAB_VERIFICATION_MAP[tab];
-    if (!entry) return null;
-
-    if (typeof entry === 'string') return entry;
-
-    const sideTab = this.activeSideTab();
-    return (entry as Readonly<Record<string, string>>)[sideTab] ?? null;
-  });
-
-  protected readonly showVerificationBanner = computed(() => {
-    return this._activeProviderKey() !== null;
-  });
-
-  protected readonly verificationProvider = computed<string | null>(() => {
-    const key = this._activeProviderKey();
-    if (!key) return null;
-    const provider = ProfileVerificationBannerComponent.VERIFICATION_PROVIDERS[key];
-    if (provider?.displayName) return provider.displayName;
-    return key.charAt(0).toUpperCase() + key.slice(1);
-  });
-
-  protected readonly isProfileVerified = computed(() => this._activeProviderKey() !== null);
-
-  protected readonly verificationProviderUrl = computed<string | null>(() => {
-    const key = this._activeProviderKey();
-    if (!key) return null;
-    const provider = ProfileVerificationBannerComponent.VERIFICATION_PROVIDERS[key];
-    return provider?.url || null;
-  });
-
-  protected readonly verificationProviderLogoSrc = computed<string | null>(() => {
-    const key = this._activeProviderKey();
-    if (!key) return null;
-    const provider = ProfileVerificationBannerComponent.VERIFICATION_PROVIDERS[key];
-    return provider?.logoSrc || null;
-  });
-
-  protected readonly verificationProviderLogoFallbackSrc = computed<string | null>(() => {
-    const key = this._activeProviderKey();
-    if (!key) return null;
-    const provider = ProfileVerificationBannerComponent.VERIFICATION_PROVIDERS[key];
-    return provider?.fallbackLogoSrc || null;
+    const scopeSet = new Set(scopes);
+    return verifications.filter((v) => scopeSet.has(v.scope));
   });
 }

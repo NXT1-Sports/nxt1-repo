@@ -79,9 +79,6 @@ export {
   type GetOrganizationMembersQuery,
   type RosterEntryWithTeam,
   type RosterEntryWithUser,
-  type LegacyTeamMember,
-  teamMemberToRosterEntry,
-  rosterEntryToTeamMember,
 } from './roster-entry.model';
 
 // ============================================

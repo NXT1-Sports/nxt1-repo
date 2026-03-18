@@ -21,11 +21,13 @@ import {
   ActivityShellComponent,
   NxtSidenavService,
   NxtLoggingService,
+  NxtBottomSheetService,
+  SHEET_PRESETS,
+  AgentXOperationChatComponent,
   type ActivityUser,
 } from '@nxt1/ui';
-import type { ActivityTabId, ActivityItem, InboxEmailProvider } from '@nxt1/core';
+import type { ActivityTabId, ActivityItem, InboxEmailProvider, AgentTaskActivityMetadata } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
-import { AgentXService } from '../agent-x/services';
 import { MobileEmailConnectionService } from './services/email-connection.service';
 import { ProfileService } from '../../core/services/profile.service';
 
@@ -82,7 +84,7 @@ export class ActivityComponent {
   private readonly profileService = inject(ProfileService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly navController = inject(NavController);
-  private readonly agentX = inject(AgentXService);
+  private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly logger = inject(NxtLoggingService).child('ActivityComponent');
   private readonly emailConnection = inject(MobileEmailConnectionService);
 
@@ -120,8 +122,8 @@ export class ActivityComponent {
    * Handle item navigation — route based on item type and deepLink.
    * Uses NavController for native page transitions.
    *
-   * For agent_task items with imageUrl metadata (e.g. welcome graphic),
-   * injects the image into the Agent X chat before navigating.
+   * For agent_task items, opens the thread in a bottom sheet
+   * so users can view the conversation and any generated media.
    */
   protected onItemNavigate(item: ActivityItem): void {
     if (!item.deepLink) {
@@ -135,19 +137,34 @@ export class ActivityComponent {
       deepLink: item.deepLink,
     });
 
-    // Agent task with image (welcome graphic, generated content) —
-    // inject the message into Agent X chat so it's visible on arrival.
-    const imageUrl = item.metadata?.['imageUrl'] as string | undefined;
-    if (item.type === 'agent_task' && imageUrl && item.deepLink.includes('agent')) {
-      this.agentX.pushMessage({
-        role: 'assistant',
-        content: item.body ?? "Here's your personalized welcome graphic!",
-        imageUrl,
-      });
-    }
-
     // Normalize deep link: web uses /agent-x, mobile uses /agent
     const normalizedLink = item.deepLink.replace(/^\/agent-x(?=[/?]|$)/, '/agent');
+
+    const threadId = this.resolveAgentThreadId(item, normalizedLink);
+    if (item.type === 'agent_task' && threadId) {
+      this.logger.info('Opening agent task from activity in bottom sheet', {
+        id: item.id,
+        threadId,
+      });
+
+      void this.bottomSheet.openSheet({
+        component: AgentXOperationChatComponent,
+        componentProps: {
+          contextId: item.id,
+          contextTitle: item.title,
+          contextIcon: 'sparkles',
+          contextType: 'operation',
+          threadId,
+        },
+        ...SHEET_PRESETS.FULL,
+        showHandle: true,
+        handleBehavior: 'cycle',
+        backdropDismiss: true,
+        cssClass: 'agent-x-operation-sheet',
+      });
+      return;
+    }
+
     void this.navController.navigateForward(normalizedLink);
   }
 
@@ -166,5 +183,27 @@ export class ActivityComponent {
     // Delegate to EmailConnectionService
     // Service handles account selection, OAuth flow, API calls, and error handling
     await this.emailConnection.connectProvider(provider, user.uid);
+  }
+
+  private resolveAgentThreadId(item: ActivityItem, normalizedLink: string): string | null {
+    const metadata = item.metadata as AgentTaskActivityMetadata | undefined;
+    if (metadata?.threadId?.trim()) {
+      return metadata.threadId.trim();
+    }
+
+    if (!normalizedLink.startsWith('/agent')) {
+      return null;
+    }
+
+    try {
+      const url = new URL(normalizedLink, 'https://nxt1.local');
+      return url.searchParams.get('thread');
+    } catch (error) {
+      this.logger.warn('Failed to parse agent deep link', {
+        deepLink: item.deepLink,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   }
 }

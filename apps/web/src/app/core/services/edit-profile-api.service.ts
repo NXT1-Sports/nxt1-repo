@@ -7,6 +7,7 @@
  */
 
 import { Injectable, inject } from '@angular/core';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { createEditProfileApi, type EditProfileApi } from '@nxt1/core/edit-profile';
 import type {
   EditProfileData,
@@ -33,6 +34,7 @@ import { ProfileService as ApiProfileService } from '../../features/profile/serv
 export class EditProfileApiService {
   private readonly http = inject(AngularHttpAdapter);
   private readonly apiProfileService = inject(ApiProfileService);
+  private readonly logger = inject(NxtLoggingService).child('EditProfileApi');
   private readonly api: EditProfileApi;
 
   constructor() {
@@ -56,6 +58,7 @@ export class EditProfileApiService {
       const data = await this.api.getProfile(userId, sportIndex);
       return { success: true, data };
     } catch (err) {
+      this.logger.error('Failed to load profile', err, { userId, sportIndex });
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to load profile',
@@ -84,6 +87,7 @@ export class EditProfileApiService {
 
       return { success: true, data: result };
     } catch (err) {
+      this.logger.error('Failed to update profile', err, { userId, fields: Object.keys(data) });
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to update profile',
@@ -117,6 +121,7 @@ export class EditProfileApiService {
 
       return { success: true, data: result };
     } catch (err) {
+      this.logger.error('Failed to update section', err, { userId, sectionId, sportIndex });
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to update section',
@@ -145,6 +150,7 @@ export class EditProfileApiService {
 
       return { success: true, data: result };
     } catch (err) {
+      this.logger.error('Failed to update active sport index', err, { userId, activeSportIndex });
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to update active sport index',
@@ -165,6 +171,7 @@ export class EditProfileApiService {
       const data = await this.api.getCompletion(userId);
       return { success: true, data };
     } catch (err) {
+      this.logger.error('Failed to load completion data', err, { userId });
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to load completion data',
@@ -195,6 +202,7 @@ export class EditProfileApiService {
 
       return { success: true, data: result };
     } catch (err) {
+      this.logger.error('Failed to upload photo', err, { userId, type });
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to upload photo',

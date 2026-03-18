@@ -415,7 +415,6 @@ export class NxtRefresherComponent implements OnDestroy {
     if (this.timeout > 0) {
       this.timeoutId = setTimeout(() => {
         if (this._isRefreshing()) {
-          console.warn('[NxtRefresher] Refresh timed out after', this.timeout, 'ms');
           this.completeRefresh(false);
           this.onTimeout.emit();
         }

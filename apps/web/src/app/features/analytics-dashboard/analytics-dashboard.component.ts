@@ -30,6 +30,7 @@ import type {
   AnalyticsInsight,
   AnalyticsRecommendation,
 } from '@nxt1/core';
+import { USER_ROLES } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 
@@ -87,7 +88,7 @@ export class AnalyticsDashboardComponent implements OnInit {
 
     // Map UserRole to AnalyticsUserRole
     // UserRole includes: 'athlete', 'coach', 'director', 'recruiter', 'parent'
-    if (role === 'coach') {
+    if (role === USER_ROLES.COACH) {
       return 'coach';
     }
 

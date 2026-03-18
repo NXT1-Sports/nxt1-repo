@@ -49,6 +49,7 @@ import { NxtBrowserService } from '../services/browser/browser.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
+import { AgentXJobService } from '../agent-x/agent-x-job.service';
 import {
   SETTINGS_PERSISTENCE_ADAPTER,
   type SettingsPersistenceAdapter,
@@ -95,6 +96,7 @@ export class SettingsService {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly analytics: AnalyticsAdapter | null =
     inject(ANALYTICS_ADAPTER, { optional: true }) ?? null;
+  private readonly agentXJobService = inject(AgentXJobService);
   private readonly persistence: SettingsPersistenceAdapter | null =
     inject(SETTINGS_PERSISTENCE_ADAPTER, { optional: true }) ?? null;
   private readonly platformId = inject(PLATFORM_ID);
@@ -340,6 +342,69 @@ export class SettingsService {
       const message = err instanceof Error ? err.message : 'Failed to disconnect provider';
       this.toast.error(message);
       this.logger.error('Failed to disconnect provider', err, { providerId });
+    }
+  }
+
+  /**
+   * Request an immediate user-triggered re-sync of connected accounts.
+   */
+  async requestConnectedAccountsResync(
+    accounts: ReadonlyArray<{
+      platform: string;
+      label?: string;
+      username?: string;
+      url?: string;
+      connected?: boolean;
+    }> = []
+  ): Promise<void> {
+    const requestedAccounts = accounts
+      .filter((account) => account.connected || !!account.username || !!account.url)
+      .map((account) => ({
+        platform: account.platform,
+        label: account.label ?? account.platform,
+        username: account.username,
+        url: account.url,
+      }));
+
+    const platformSummary = requestedAccounts.map((account) => account.label).join(', ');
+    const intent =
+      requestedAccounts.length > 0
+        ? `Re-sync my connected accounts right now. Refresh these linked accounts: ${platformSummary}. Pull in the latest public updates and update my NXT1 profile with any changed data.`
+        : 'Re-sync all of my connected accounts right now. Review the accounts linked on my NXT1 profile, pull in the latest public updates, and refresh my profile with any changed data.';
+
+    this.logger.info('Requesting connected accounts re-sync', {
+      requestedAccountCount: requestedAccounts.length,
+      platforms: requestedAccounts.map((account) => account.platform),
+    });
+    this.breadcrumb.trackUserAction('settings:connected-accounts-resync');
+
+    try {
+      const job = await this.agentXJobService.enqueue(intent, {
+        source: 'settings_connected_accounts',
+        trigger: 'manual_resync',
+        requestedAt: new Date().toISOString(),
+        requestedAccounts,
+      });
+
+      if (!job) {
+        this.toast.error('Unable to start re-sync right now. Please try again.');
+        this.logger.warn('Connected accounts re-sync enqueue returned null');
+        return;
+      }
+
+      await this.haptics.notification('success');
+      this.toast.success('Re-sync started. Agent X is refreshing your connected accounts.');
+      this.logger.info('Connected accounts re-sync enqueued', {
+        jobId: job.jobId,
+        operationId: job.operationId,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to start re-sync';
+      this.toast.error('Unable to start re-sync right now. Please try again.');
+      this.logger.error('Failed to request connected accounts re-sync', err, {
+        requestedAccountCount: requestedAccounts.length,
+      });
+      this._error.set(message);
     }
   }
 

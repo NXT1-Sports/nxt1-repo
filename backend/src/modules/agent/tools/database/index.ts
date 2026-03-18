@@ -14,3 +14,9 @@
 
 export { UpdateAthleteProfileTool } from './update-athlete-profile.tool.js';
 export { UpdateTeamProfileTool } from './update-team-profile.tool.js';
+export { WriteCoreIdentityTool } from './write-core-identity.tool.js';
+export { WriteCombineMetricsTool } from './write-combine-metrics.tool.js';
+export { WriteSeasonStatsTool } from './write-season-stats.tool.js';
+export { WriteRecruitingActivityTool } from './write-recruiting-activity.tool.js';
+export { WriteCalendarEventsTool } from './write-calendar-events.tool.js';
+export { WriteAthleteVideosTool } from './write-athlete-videos.tool.js';

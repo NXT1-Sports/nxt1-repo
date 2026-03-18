@@ -2165,6 +2165,42 @@ export function configureStepsForUserType(
   return getStepsForUserType(userType, teamCode);
 }
 
+// ============================================
+// INVITE TEAM-SKIP HELPERS
+// ============================================
+
+/**
+ * Step IDs that should be removed from the onboarding flow when the user
+ * has already joined a team via an invite link (before reaching onboarding).
+ *
+ * - Athletes & Parents see `select-teams` → skip it
+ * - Coaches & Directors see `create-team-profile` + `team-link-sources` → skip both
+ *
+ * ⭐ PURE FUNCTION - No dependencies
+ */
+export function getSkipStepIdsForInviteUser(role?: OnboardingUserType | null): OnboardingStepId[] {
+  if (!role) {
+    // When role is unknown, skip both athlete and coach team steps.
+    // The state machine will re-apply the filter when selectRole() is called.
+    return ['select-teams', 'create-team-profile', 'team-link-sources'];
+  }
+
+  switch (role) {
+    case 'athlete':
+    case 'parent':
+    case 'recruiter':
+      return ['select-teams'];
+    case 'coach':
+    case 'director':
+      return ['create-team-profile', 'team-link-sources'];
+    default:
+      return ['select-teams'];
+  }
+}
+
+/** SessionStorage / Capacitor Preferences key for the invite-team-joined flag */
+export const INVITE_TEAM_JOINED_KEY = 'nxt1:invite_team_joined' as const;
+
 /**
  * Build initial form data from team code (v3.0)
  * Uses the new sport-centric model

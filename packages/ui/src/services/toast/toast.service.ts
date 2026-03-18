@@ -45,6 +45,7 @@ import { checkmarkCircle, alertCircle, warning, informationCircle, close } from 
 
 import { NxtPlatformService } from '../platform';
 import { HapticsService } from '../haptics';
+import { NxtLoggingService } from '../logging';
 import {
   ToastType,
   ToastOptions,
@@ -73,6 +74,7 @@ export class NxtToastService {
   private readonly platform = inject(NxtPlatformService);
   private readonly haptics = inject(HapticsService);
   private readonly ngZone = inject(NgZone);
+  private readonly logger = inject(NxtLoggingService).child('ToastService');
 
   // ============================================
   // STATE
@@ -160,7 +162,7 @@ export class NxtToastService {
   show(options: ToastOptions): void {
     if (!this.platform.isBrowser()) {
       // SSR: log but don't queue
-      console.log(`[Toast] ${options.type ?? 'info'}: ${options.message}`);
+      this.logger.debug('Toast suppressed (SSR)', { type: options.type, message: options.message });
       return;
     }
 

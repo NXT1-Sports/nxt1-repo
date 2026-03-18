@@ -230,7 +230,7 @@ export interface ProfileShellUser {
             />
           </nav>
 
-          <!-- Section Nav Pills (Player Profile / Bio / History / Awards …) -->
+          <!-- Section Nav Pills (Player Info / History / Awards …) -->
           <div class="section-nav-row">
             <nxt1-section-nav-web
               [items]="sideTabItems()"
@@ -244,6 +244,7 @@ export interface ProfileShellUser {
           <nxt1-profile-verification-banner
             [activeTab]="profile.activeTab()"
             [activeSideTab]="activeSideTab()"
+            [profileUser]="profile.user()"
           />
 
           <!-- ═══ TAB CONTENT ═══ -->
@@ -754,7 +755,6 @@ export class ProfileShellComponent implements OnInit {
     const sections: Record<string, SectionNavItem[]> = {
       overview: [
         { id: 'player-profile', label: labels.profile },
-        { id: 'player-bio', label: labels.bio },
         { id: 'player-history', label: labels.history },
         {
           id: 'awards',

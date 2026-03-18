@@ -206,6 +206,9 @@ export {
   buildInitialFormDataFromTeamCode,
   buildInitialFormDataFromUser,
   getRedirectPath,
+  // Invite team-skip helpers
+  getSkipStepIdsForInviteUser,
+  INVITE_TEAM_JOINED_KEY,
   // Session API (localStorage/sessionStorage persistence)
   createOnboardingSessionApi,
   type OnboardingSessionApi,

@@ -93,8 +93,11 @@ import {
   type PartialOnboardingFormData,
   serializeSession,
   deserializeSession,
+  // Invite team-skip
+  getSkipStepIdsForInviteUser,
+  INVITE_TEAM_JOINED_KEY,
 } from '@nxt1/core/api';
-import { AUTH_ROUTES } from '@nxt1/core/constants';
+import { AUTH_ROUTES, USER_ROLES } from '@nxt1/core/constants';
 import { STORAGE_KEYS } from '@nxt1/core/storage';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { createNativeStorageAdapter } from '../../../../core/infrastructure/native-storage.adapter';
@@ -211,7 +214,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                 [disabled]="isLoading()"
                 [showGender]="true"
                 [showLocation]="true"
-                [showClassYear]="selectedRole() === 'athlete'"
+                [showClassYear]="selectedRole() === USER_ROLES.ATHLETE"
                 [showCoachTitleField]="false"
                 variant="list-row"
                 (profileChange)="onProfileChange($event)"
@@ -230,7 +233,9 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                 [role]="selectedRole()"
                 [disabled]="isLoading()"
                 [scope]="
-                  selectedRole() === 'coach' || selectedRole() === 'director' ? 'team' : 'athlete'
+                  selectedRole() === USER_ROLES.COACH || selectedRole() === USER_ROLES.DIRECTOR
+                    ? 'team'
+                    : 'athlete'
                 "
                 (linkSourcesChange)="onLinkSourcesChange($event)"
               />
@@ -446,6 +451,8 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OnboardingPage implements OnInit, OnDestroy {
+  protected readonly USER_ROLES = USER_ROLES;
+
   private readonly router = inject(Router);
   private readonly navController = inject(NavController);
   private readonly authFlow = inject(AuthFlowService);
@@ -753,30 +760,53 @@ export class OnboardingPage implements OnInit, OnDestroy {
   private initializeStateMachine(userId: string): void {
     this.logger.info('Initializing shared state machine', { userId });
 
-    // Create the portable state machine
-    this.machine = createOnboardingStateMachine({
-      userId,
-      initialSteps: ONBOARDING_STEPS.athlete,
-      debug: false,
-      onComplete: async (formData) => {
-        await this.handleCompletion(formData);
-      },
-    });
+    // Check if user joined a team via invite, then create the machine
+    this.resolveSkipStepIds().then((skipStepIds) => {
+      // Create the portable state machine
+      this.machine = createOnboardingStateMachine({
+        userId,
+        initialSteps: ONBOARDING_STEPS.athlete,
+        skipStepIds,
+        debug: false,
+        onComplete: async (formData) => {
+          await this.handleCompletion(formData);
+        },
+      });
 
-    // Subscribe to state machine events and sync Angular signals
-    this.machineUnsubscribe = this.machine.addEventListener((event) => {
-      this.handleMachineEvent(event);
-    });
+      // Subscribe to state machine events and sync Angular signals
+      this.machineUnsubscribe = this.machine.addEventListener((event) => {
+        this.handleMachineEvent(event);
+      });
 
-    // Try to restore session from Capacitor storage
-    this.tryRestoreSession(userId).then((restored) => {
-      if (!restored) {
-        // No valid session - start fresh
-        this.machine.start();
-        // Track onboarding started
-        this.trackStarted();
+      // Try to restore session from Capacitor storage
+      this.tryRestoreSession(userId).then((restored) => {
+        if (!restored) {
+          // No valid session - start fresh
+          this.machine.start();
+          // Track onboarding started
+          this.trackStarted();
+        }
+      });
+    });
+  }
+
+  /**
+   * Read and clear the invite-team-joined flag from native storage.
+   * Returns step IDs to skip if the user joined a team via invite link.
+   */
+  private async resolveSkipStepIds(): Promise<OnboardingStepId[]> {
+    try {
+      const value = await this.storage.get(INVITE_TEAM_JOINED_KEY);
+      if (value === 'true') {
+        await this.storage.remove(INVITE_TEAM_JOINED_KEY);
+        const ids = getSkipStepIdsForInviteUser();
+        this.logger.info('User joined team via invite — skipping team steps', { skipStepIds: ids });
+        return ids;
       }
-    });
+    } catch (err) {
+      this.logger.warn('Failed to read invite-team-joined flag from storage', { error: err });
+    }
+    return [];
   }
 
   /**
@@ -1217,7 +1247,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
 
       // Map 'recruiter' to 'recruiting-service' for backend API compatibility
       const userType: OnboardingProfileData['userType'] =
-        formData.userType === 'recruiter'
+        formData.userType === USER_ROLES.RECRUITER
           ? 'recruiting-service'
           : (formData.userType as OnboardingProfileData['userType']);
 

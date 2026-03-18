@@ -766,8 +766,7 @@ export class NxtThemeService {
         return saved as ThemePreference;
       }
     } catch {
-      // Storage access denied or unavailable
-      console.warn('[NxtThemeService] Could not access localStorage');
+      // Storage access denied or unavailable — fall through to default
     }
 
     // Default to 'dark' — must match the inline script in index.html
@@ -783,7 +782,7 @@ export class NxtThemeService {
     try {
       localStorage.setItem(THEME_STORAGE_KEY, preference);
     } catch {
-      console.warn('[NxtThemeService] Could not save to localStorage');
+      // Storage unavailable — preference won't persist
     }
   }
 
@@ -801,7 +800,7 @@ export class NxtThemeService {
         return saved as SportTheme;
       }
     } catch {
-      console.warn('[NxtThemeService] Could not access localStorage');
+      // Storage unavailable — fall through to default
     }
 
     return null;
@@ -816,7 +815,7 @@ export class NxtThemeService {
     try {
       localStorage.setItem(SPORT_STORAGE_KEY, sport);
     } catch {
-      console.warn('[NxtThemeService] Could not save to localStorage');
+      // Storage unavailable — sport theme won't persist
     }
   }
 
@@ -829,7 +828,7 @@ export class NxtThemeService {
     try {
       localStorage.removeItem(SPORT_STORAGE_KEY);
     } catch {
-      console.warn('[NxtThemeService] Could not clear localStorage');
+      // Storage unavailable — non-critical
     }
   }
 

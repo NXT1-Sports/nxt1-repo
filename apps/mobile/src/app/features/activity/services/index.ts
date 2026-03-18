@@ -6,5 +6,4 @@
  * Exports all Activity-related services for the mobile app.
  */
 
-export { ActivityService } from './activity.service';
-export { ActivityApiService, ACTIVITY_API_BASE_URL } from './activity-api.service';
+export { ActivityApiService } from './activity-api.service';

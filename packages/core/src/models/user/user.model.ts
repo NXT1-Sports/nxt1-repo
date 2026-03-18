@@ -36,6 +36,7 @@ import type {
   VerificationStatus,
   TeamHistoryEntry,
   UserAward,
+  AcademicInfo,
 } from './user-base.model';
 import type { SportProfile } from './user-sport.model';
 import type {
@@ -192,6 +193,12 @@ export interface User {
    * Previously on AthleteData.classOf — moved here for top-level access.
    */
   classOf?: number;
+
+  /**
+   * Academic information at the top level.
+   * Historical documents may still also carry athlete.academics.
+   */
+  academics?: AcademicInfo;
 
   // ============================================
   // ROLE & STATUS

@@ -18,6 +18,15 @@
       ]
     },
     {
+      "collectionGroup": "agentJobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "completedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "Posts",
       "queryScope": "COLLECTION",
       "fields": [

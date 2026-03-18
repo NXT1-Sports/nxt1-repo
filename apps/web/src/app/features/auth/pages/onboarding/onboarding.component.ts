@@ -109,8 +109,11 @@ import {
   type PartialOnboardingFormData,
   serializeSession,
   deserializeSession,
+  // Invite team-skip
+  getSkipStepIdsForInviteUser,
+  INVITE_TEAM_JOINED_KEY,
 } from '@nxt1/core/api';
-import { AUTH_ROUTES, AUTH_REDIRECTS as _AUTH_REDIRECTS } from '@nxt1/core/constants';
+import { AUTH_ROUTES, AUTH_REDIRECTS as _AUTH_REDIRECTS, USER_ROLES } from '@nxt1/core/constants';
 import { createBrowserStorageAdapter, STORAGE_KEYS as _STORAGE_KEYS } from '@nxt1/core/storage';
 
 // Geolocation - Cross-platform location detection
@@ -240,7 +243,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                 [disabled]="isLoading()"
                 [showGender]="true"
                 [showLocation]="true"
-                [showClassYear]="selectedRole() === 'athlete'"
+                [showClassYear]="selectedRole() === USER_ROLES.ATHLETE"
                 [showCoachTitleField]="false"
                 (profileChange)="onProfileChange($event)"
                 (photoSelect)="onPhotoSelect()"
@@ -257,7 +260,9 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                 [role]="selectedRole()"
                 [disabled]="isLoading()"
                 [scope]="
-                  selectedRole() === 'coach' || selectedRole() === 'director' ? 'team' : 'athlete'
+                  selectedRole() === USER_ROLES.COACH || selectedRole() === USER_ROLES.DIRECTOR
+                    ? 'team'
+                    : 'athlete'
                 "
                 (linkSourcesChange)="onLinkSourcesChange($event)"
               />
@@ -442,6 +447,8 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OnboardingComponent implements OnInit, OnDestroy {
+  protected readonly USER_ROLES = USER_ROLES;
+
   private readonly platformId = inject(PLATFORM_ID);
   private readonly router = inject(Router);
   private readonly authFlow = inject(AuthFlowService);
@@ -691,10 +698,23 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   private initializeStateMachine(userId: string): void {
     this.logger.info('Initializing shared state machine', { userId });
 
+    // Check if user already joined a team via invite link — skip team step
+    const joinedViaInvite =
+      isPlatformBrowser(this.platformId) &&
+      sessionStorage.getItem(INVITE_TEAM_JOINED_KEY) === 'true';
+    const skipStepIds = joinedViaInvite ? getSkipStepIdsForInviteUser() : [];
+
+    if (joinedViaInvite) {
+      this.logger.info('User joined team via invite — skipping team steps', { skipStepIds });
+      // Clear the flag so it doesn't persist across page refreshes
+      sessionStorage.removeItem(INVITE_TEAM_JOINED_KEY);
+    }
+
     // Create the portable state machine
     this.machine = createOnboardingStateMachine({
       userId,
       initialSteps: ONBOARDING_STEPS.athlete,
+      skipStepIds,
       debug: false, // Set to true for debugging
       onComplete: async (formData) => {
         // This is called when the machine completes
@@ -1165,7 +1185,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
       // Map 'recruiter' to 'recruiting-service' for backend API compatibility
       const userType: OnboardingProfileData['userType'] =
-        formData.userType === 'recruiter'
+        formData.userType === USER_ROLES.RECRUITER
           ? 'recruiting-service'
           : (formData.userType as OnboardingProfileData['userType']);
 

@@ -120,11 +120,11 @@ export class AgentXComponent implements OnInit {
       this.onboarding.initialize(role, needsOnboarding);
       this.logger.info('Agent X initialized', { role, needsOnboarding });
 
-      // Load thread from deep link query param (?thread=<id>)
+      // Load thread from deep link query param (?thread=<id>) — opens in bottom sheet
       const threadId = this.route.snapshot.queryParamMap.get('thread');
       if (threadId) {
-        this.logger.info('Loading thread from query param', { threadId });
-        void this.agentX.loadThread(threadId);
+        this.logger.info('Queuing thread from query param', { threadId });
+        this.agentX.queuePendingThread({ threadId, title: 'Agent X' });
       }
     }
   }

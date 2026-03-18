@@ -18,6 +18,10 @@ import {
   type ProfileEvent,
   type ProfileStatItem,
   type ProfileSport,
+  type AthleticStatsCategory,
+  type AthleticStat,
+  type VerifiedStat,
+  type VerifiedMetric,
   type FeedPost,
   type User,
   type ScoutReport,
@@ -101,6 +105,8 @@ export class ProfileService {
   private readonly _recruitingActivities = signal<readonly ProfileRecruitingActivity[] | null>(
     null
   );
+  private readonly _athleticStatsOverride = signal<readonly AthleticStatsCategory[] | null>(null);
+  private readonly _metricsOverride = signal<readonly AthleticStatsCategory[] | null>(null);
 
   /** Active season filter ('season' field value, or null = all) */
   private readonly _activeSeason = signal<string | null>(null);
@@ -136,13 +142,15 @@ export class ProfileService {
   readonly quickStats = computed(() => this._profileData()?.quickStats ?? null);
 
   /** Athletic stats by category */
-  readonly athleticStats = computed(() => this._profileData()?.athleticStats ?? []);
+  readonly athleticStats = computed(
+    () => this._athleticStatsOverride() ?? this._profileData()?.athleticStats ?? []
+  );
 
   /** Game log data — all seasons (MaxPreps-style game-by-game rows) */
   readonly gameLog = computed(() => this._profileData()?.gameLog ?? []);
 
   /** Metrics (Combine/Measurables) by category */
-  readonly metrics = computed(() => this._profileData()?.metrics ?? []);
+  readonly metrics = computed(() => this._metricsOverride() ?? this._profileData()?.metrics ?? []);
 
   /** Pinned video/mixtape */
   readonly pinnedVideo = computed(() => this._profileData()?.pinnedVideo ?? null);
@@ -637,6 +645,8 @@ export class ProfileService {
     this._scoutReports.set([]);
     this._scheduleEvents.set(null);
     this._recruitingActivities.set(null);
+    this._athleticStatsOverride.set(null);
+    this._metricsOverride.set(null);
     this._newsArticles.set([]);
     this._activeSeason.set(null);
     this._activeSportFilter.set(null);
@@ -728,6 +738,67 @@ export class ProfileService {
    */
   setRecruitingActivities(activities: readonly ProfileRecruitingActivity[]): void {
     this._recruitingActivities.set(activities);
+  }
+
+  private mapVerifiedStatsToCategories(
+    stats: readonly VerifiedStat[]
+  ): readonly AthleticStatsCategory[] {
+    const groups = new Map<string, AthleticStat[]>();
+
+    for (const stat of stats) {
+      const category = stat.category
+        ? stat.category.charAt(0).toUpperCase() + stat.category.slice(1)
+        : 'General';
+      const label = stat.season ? `${stat.label} (${stat.season})` : stat.label;
+      const mapped: AthleticStat = {
+        label,
+        value: String(stat.value),
+        unit: stat.unit,
+        verified: stat.verified,
+      };
+
+      if (!groups.has(category)) groups.set(category, []);
+      groups.get(category)!.push(mapped);
+    }
+
+    return Array.from(groups.entries()).map(([name, groupedStats]) => ({
+      name,
+      stats: groupedStats,
+    }));
+  }
+
+  private mapVerifiedMetricsToCategories(
+    metrics: readonly VerifiedMetric[]
+  ): readonly AthleticStatsCategory[] {
+    const groups = new Map<string, AthleticStat[]>();
+
+    for (const metric of metrics) {
+      const category = metric.category
+        ? metric.category.charAt(0).toUpperCase() + metric.category.slice(1)
+        : 'General';
+      const mapped: AthleticStat = {
+        label: metric.label,
+        value: String(metric.value),
+        unit: metric.unit,
+        verified: metric.verified,
+      };
+
+      if (!groups.has(category)) groups.set(category, []);
+      groups.get(category)!.push(mapped);
+    }
+
+    return Array.from(groups.entries()).map(([name, groupedStats]) => ({
+      name,
+      stats: groupedStats,
+    }));
+  }
+
+  setAthleticStatsFromRaw(stats: readonly VerifiedStat[]): void {
+    this._athleticStatsOverride.set(this.mapVerifiedStatsToCategories(stats));
+  }
+
+  setMetricsFromRaw(metrics: readonly VerifiedMetric[]): void {
+    this._metricsOverride.set(this.mapVerifiedMetricsToCategories(metrics));
   }
 
   /**
@@ -980,6 +1051,8 @@ export class ProfileService {
     this._editSection.set(null);
     this._activeSportIndex.set(0);
     this._videoPosts.set([]);
+    this._athleticStatsOverride.set(null);
+    this._metricsOverride.set(null);
     this._activeSeason.set(null);
     this._activeSportFilter.set(null);
     this._scheduleEvents.set(null);
