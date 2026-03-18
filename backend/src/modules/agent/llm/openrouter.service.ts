@@ -618,6 +618,59 @@ export class OpenRouterService {
     };
   }
 
+  // ─── Text Embeddings ────────────────────────────────────────────────────
+
+  /**
+   * Generate a text embedding using the OpenAI embeddings API.
+   * Used by VectorMemoryService for MongoDB Atlas Vector Search.
+   *
+   * Falls back to the OPENAI_API_KEY environment variable since OpenRouter
+   * does not expose an /embeddings endpoint.
+   *
+   * @param text - The text to embed (truncated to 8,192 tokens by the model).
+   * @returns A 1536-dimensional embedding vector (text-embedding-3-small).
+   */
+  async embed(text: string): Promise<readonly number[]> {
+    const openAiKey = process.env['OPENAI_API_KEY'];
+    if (!openAiKey) {
+      throw new Error(
+        'OPENAI_API_KEY is not set. Required for text embeddings (VectorMemoryService).'
+      );
+    }
+
+    const response = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${openAiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'text-embedding-3-small',
+        // Character-based truncation: at ~4 chars/token this fits within the
+        // model's 8,192-token context window for typical ASCII/Latin text.
+        // Non-ASCII text uses more bytes per character but the model handles
+        // graceful truncation internally for edge cases.
+        input: text.slice(0, 8_000),
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error(`OpenAI embeddings API error ${response.status}: ${body.slice(0, 200)}`);
+    }
+
+    const json = (await response.json()) as {
+      data: Array<{ embedding: number[] }>;
+    };
+
+    const embedding = json.data?.[0]?.embedding;
+    if (!Array.isArray(embedding) || embedding.length === 0) {
+      throw new Error('OpenAI embeddings API returned empty or invalid embedding.');
+    }
+
+    return embedding;
+  }
+
   // ─── Cost Estimation ────────────────────────────────────────────────────
 
   /**
