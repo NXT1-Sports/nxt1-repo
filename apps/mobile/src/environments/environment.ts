@@ -41,4 +41,8 @@ export const environment = {
 
   googleClientId: '1099429444442-n4nnpevnqm8on4dp91il0f6rl39e3nvs.apps.googleusercontent.com',
   googleServerClientId: '1099429444442-v8mlmoiu6kc27nhdl661d12te7cg2j4h.apps.googleusercontent.com',
+  msClientId: 'aaceb7d3-bc1d-4c44-a871-cb96826558de',
+  yahooClientId:
+    'dj1yJmk9dml1QlJOTnpMSzNNJmQ9WVdrOVdsaGFUMjlJZVRVbWNHbzlNQT09JnM9Y29uc3VtZXJzZWNyZXQmc3Y9MCZ4PWE2',
+  appScheme: 'nxt1sports',
 };

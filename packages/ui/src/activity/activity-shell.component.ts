@@ -32,6 +32,7 @@ import {
   output,
   computed,
   OnInit,
+  effect,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonContent } from '@ionic/angular/standalone';
@@ -62,6 +63,7 @@ export interface ActivityUser {
   readonly profileImg?: string | null;
   readonly displayName?: string | null;
   readonly connectedEmails?: readonly ConnectedEmail[];
+  readonly email?: string | null;
 }
 
 @Component({
@@ -208,6 +210,19 @@ export class ActivityShellComponent implements OnInit {
   private readonly logger = inject(NxtLoggingService).child('ActivityShell');
   private readonly browser = inject(NxtBrowserService);
 
+  private _hasLoadedInitialData = false;
+
+  constructor() {
+    effect(() => {
+      const user = this.user();
+      if (user && !this._hasLoadedInitialData) {
+        this._hasLoadedInitialData = true;
+        this.logger.debug('User authenticated, loading activity data');
+        void this.activity.loadFeed(this.activity.activeTab());
+      }
+    });
+  }
+
   // ============================================
   // INPUTS
   // ============================================
@@ -243,7 +258,13 @@ export class ActivityShellComponent implements OnInit {
 
   /** Connected email accounts from user data */
   protected readonly connectedEmails = computed(() => {
-    return this.user()?.connectedEmails ?? [];
+    const emails = this.user()?.connectedEmails ?? [];
+    console.log('🔍 [ActivityShell] Connected emails computed:', {
+      user: this.user()?.email,
+      connectedEmails: emails,
+      count: emails.length,
+    });
+    return emails;
   });
 
   /** Header actions */
@@ -279,13 +300,7 @@ export class ActivityShellComponent implements OnInit {
   // LIFECYCLE
   // ============================================
 
-  ngOnInit(): void {
-    // Load initial feed (ActivityService handles loading messages for inbox/all tabs)
-    this.activity.loadFeed(this.activity.activeTab());
-
-    // Load badge counts
-    this.activity.refreshBadges();
-  }
+  ngOnInit(): void {}
 
   // ============================================
   // EVENT HANDLERS

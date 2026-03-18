@@ -448,18 +448,24 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   /** Badge polling interval handle */
   private badgePollTimer: ReturnType<typeof setInterval> | null = null;
 
+  /** Track last badge fetch time for debouncing */
+  private lastBadgeFetchTime = 0;
+
   /** Bound handler for cleanup */
   private readonly onVisibilityChange = (): void => {
-    if (!this.authFlow.isAuthenticated()) return;
+    const isAuthenticated = this.authFlow.isAuthenticated();
+    const isInitialized = this.authFlow.isInitialized();
+    const user = this.authFlow.user();
+
+    if (!isAuthenticated || !isInitialized || !user) return;
 
     if (document.visibilityState === 'visible') {
-      // App/tab foregrounded — refresh immediately + resume polling
-      this.activityService.refreshBadges().catch(() => {
-        // Silent fail
-      });
+      // App/tab foregrounded — resume polling (will fetch on next interval)
+      this.logger.debug('Tab visible, resuming badge polling');
       this.startBadgePolling();
     } else {
       // App/tab backgrounded — pause polling to save resources
+      this.logger.debug('Tab hidden, pausing badge polling');
       this.stopBadgePolling();
     }
   };
@@ -469,11 +475,15 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     // This ensures the red dot on the bell icon is accurate from first render.
     effect(() => {
       const isAuthenticated = this.authFlow.isAuthenticated();
+      const isInitialized = this.authFlow.isInitialized();
+      const user = this.authFlow.user();
 
-      if (isAuthenticated) {
-        this.activityService.refreshBadges().catch(() => {
-          this.logger.warn('Initial badge fetch failed — will retry on next poll');
-        });
+      // ⭐ Wait for auth to be FULLY initialized before calling badge API
+      // isInitialized becomes true AFTER Firebase token provider is ready
+      if (isAuthenticated && isInitialized && user) {
+        // Only fetch badges when we have actual user data AND token is ready
+        // Uses debounced fetch with token validation to prevent race conditions
+        void this.fetchBadgesIfNeeded();
 
         if (document.visibilityState === 'visible') {
           this.startBadgePolling();
@@ -490,6 +500,30 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.stopBadgePolling();
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
+  }
+
+  private async fetchBadgesIfNeeded(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastBadgeFetchTime < 2000) {
+      this.logger.debug('Skipping badge fetch (too soon after previous fetch)');
+      return;
+    }
+
+    try {
+      const token = await this.authFlow.getIdToken();
+      if (!token) {
+        this.logger.debug('No auth token available yet, skipping badge fetch');
+        return;
+      }
+    } catch (err) {
+      this.logger.debug('Failed to get auth token, skipping badge fetch', { error: err });
+      return;
+    }
+
+    this.lastBadgeFetchTime = now;
+    this.activityService.refreshBadges().catch((err) => {
+      this.logger.debug('Badge fetch failed (will retry on next poll)', err);
+    });
   }
 
   private startBadgePolling(): void {

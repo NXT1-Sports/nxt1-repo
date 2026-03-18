@@ -25,4 +25,8 @@ export const environment = {
 
   // Web client ID (server-side verification)
   googleServerClientId: '112256620070-v6sa43846pdd27972btg8o82kj84aoap.apps.googleusercontent.com',
+  msClientId: 'aaceb7d3-bc1d-4c44-a871-cb96826558de',
+  yahooClientId:
+    'dj1yJmk9dml1QlJOTnpMSzNNJmQ9WVdrOVdsaGFUMjlJZVRVbWNHbzlNQT09JnM9Y29uc3VtZXJzZWNyZXQmc3Y9MCZ4PWE2',
+  appScheme: 'nxt1sports',
 };

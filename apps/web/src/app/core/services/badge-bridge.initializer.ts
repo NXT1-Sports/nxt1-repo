@@ -84,6 +84,7 @@ export function provideBadgeBridge(): EnvironmentProviders {
         if (isPlatformBrowser(platformId)) {
           let pollTimer: ReturnType<typeof setInterval> | null = null;
           let isAuthed = false;
+          let lastFetchTime = 0;
 
           const startPolling = (): void => {
             stopPolling();
@@ -101,20 +102,40 @@ export function provideBadgeBridge(): EnvironmentProviders {
             }
           };
 
+          const fetchBadgesIfNeeded = async (): Promise<void> => {
+            const now = Date.now();
+            if (now - lastFetchTime < 2000) {
+              logger.debug('Skipping badge fetch (too soon after previous fetch)');
+              return;
+            }
+            try {
+              const token = await authFlow.getIdToken();
+              if (!token) {
+                logger.debug('No auth token available yet, skipping badge fetch');
+                return;
+              }
+            } catch (err) {
+              logger.debug('Failed to get auth token, skipping badge fetch', { error: err });
+              return;
+            }
+
+            lastFetchTime = now;
+            activityService.refreshBadges().catch((err) => {
+              logger.debug('Badge fetch failed (will retry on next poll)', err);
+            });
+          };
+
           // Visibility API: pause polling when tab is hidden,
-          // refresh immediately + resume polling when tab is visible.
+          // resume polling when tab becomes visible.
           // (Discord / Slack / Twitter pattern)
           document.addEventListener('visibilitychange', () => {
             if (!isAuthed) return;
 
             if (document.visibilityState === 'visible') {
-              // Tab became visible — fetch immediately, then resume polling
-              activityService.refreshBadges().catch(() => {
-                // Silent fail
-              });
+              logger.debug('Tab visible, resuming badge polling');
               startPolling();
             } else {
-              // Tab hidden — pause polling to save resources
+              logger.debug('Tab hidden, pausing badge polling');
               stopPolling();
             }
           });
@@ -122,20 +143,18 @@ export function provideBadgeBridge(): EnvironmentProviders {
           // Auth state watcher
           effect(() => {
             const authenticated = authFlow.isAuthenticated();
-            isAuthed = authenticated;
-
-            if (authenticated) {
-              // Fetch badges immediately on auth
-              activityService.refreshBadges().catch(() => {
-                logger.warn('Initial badge fetch failed — will retry on next poll');
-              });
+            const initialized = authFlow.isInitialized();
+            const user = authFlow.user();
+            isAuthed = authenticated && initialized;
+            if (authenticated && initialized && user) {
+              void fetchBadgesIfNeeded();
 
               // Start polling (only when tab is visible)
               if (document.visibilityState === 'visible') {
                 startPolling();
               }
             } else {
-              // Signed out — clear badges and stop polling
+              // Signed out or no user data yet — clear badges and stop polling
               badges.clearAll();
               stopPolling();
             }

@@ -44,7 +44,12 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { isPlatformBrowser, CommonModule } from '@angular/common';
 import { Router, RouterModule, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
-import { type ActivityItem, type ActivityTabId, ACTIVITY_TABS } from '@nxt1/core';
+import {
+  type ActivityItem,
+  type ActivityTabId,
+  type InboxEmailProvider,
+  ACTIVITY_TABS,
+} from '@nxt1/core';
 import { ActivityService, ActivityListComponent } from '@nxt1/ui/activity';
 import {
   NxtOptionScrollerComponent,
@@ -53,6 +58,9 @@ import {
 } from '@nxt1/ui/components/option-scroller';
 import { NxtIconComponent } from '@nxt1/ui/components/icon';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { AUTH_SERVICE, type IAuthService } from '../../../../features/auth/services/auth.interface';
+import { WebEmailConnectionService } from '../../services/email-connection.service';
+import { EmailTokensService } from '../../services/email-tokens.service';
 
 @Component({
   selector: 'app-notification-popover',
@@ -127,13 +135,14 @@ import { NxtLoggingService } from '@nxt1/ui/services/logging';
       <!-- Content (scrollable) -->
       <div class="nxt1-notif-popover__content">
         <nxt1-activity-list
-          [items]="activity.items()"
+          [items]="activity.unifiedItems()"
           [isLoading]="activity.isLoading()"
           [isLoadingMore]="activity.isLoadingMore()"
           [isEmpty]="activity.isEmpty()"
           [error]="activity.error()"
           [hasMore]="activity.hasMore()"
           [activeTab]="activity.activeTab()"
+          [connectedEmails]="connectedEmails()"
           (loadMore)="onLoadMore()"
           (retry)="onRetry()"
           (emptyCta)="onEmptyCta()"
@@ -141,6 +150,7 @@ import { NxtLoggingService } from '@nxt1/ui/services/logging';
           (actionClick)="onActionClick($event)"
           (markRead)="onMarkRead($event)"
           (archive)="onArchive($event)"
+          (connectProvider)="onConnectProvider($event)"
         />
       </div>
 
@@ -458,6 +468,10 @@ export class NotificationPopoverComponent {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly destroyRef = inject(DestroyRef);
   private readonly logger = inject(NxtLoggingService).child('NotificationPopover');
+  private readonly authService = inject(AUTH_SERVICE) as IAuthService;
+  private readonly emailConnection = inject(WebEmailConnectionService);
+  private readonly emailTokens = inject(EmailTokensService);
+  protected readonly connectedEmails = this.emailTokens.connectedEmails;
 
   /** Reference to the panel element for focus management */
   private readonly panelEl = viewChild<ElementRef<HTMLElement>>('panelEl');
@@ -496,9 +510,7 @@ export class NotificationPopoverComponent {
   // ============================================
 
   constructor() {
-    // Load initial data once
     this.activity.loadFeed(this.activity.activeTab());
-    this.activity.refreshBadges();
 
     // Auto-close on route navigation
     this.router.events
@@ -604,5 +616,20 @@ export class NotificationPopoverComponent {
 
   protected async onArchive(id: string): Promise<void> {
     await this.activity.archive(id);
+  }
+
+  /**
+   * Handle connect email provider request from notification popover.
+   * Shows OAuth popup for user to select account.
+   */
+  protected async onConnectProvider(provider: InboxEmailProvider): Promise<void> {
+    const user = this.authService.user();
+    if (!user?.uid) {
+      this.logger.warn('User not authenticated, cannot connect email provider');
+      return;
+    }
+
+    // Connect via popup (Gmail/Microsoft/Yahoo account picker)
+    await this.emailConnection.connectProvider(provider, user.uid);
   }
 }

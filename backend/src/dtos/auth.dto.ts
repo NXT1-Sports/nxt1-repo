@@ -375,10 +375,25 @@ export class RegisterDto {
 }
 
 export class ConnectMicrosoftDto {
-  /** Microsoft accessToken from native or web popup sign-in */
+  /** Authorization code from Microsoft OAuth redirect (recommended for long-term access) */
+  @IsString({ message: 'code must be a string' })
+  @IsOptional()
+  code?: string;
+
+  /** Redirect URI used in OAuth flow (required when using code) */
+  @IsString({ message: 'redirectUri must be a string' })
+  @IsOptional()
+  redirectUri?: string;
+
+  /** Microsoft accessToken from native or web popup sign-in (fallback for mobile) */
   @IsString({ message: 'accessToken must be a string' })
-  @IsNotEmpty({ message: 'accessToken is required' })
-  accessToken!: string;
+  @IsOptional()
+  accessToken?: string;
+
+  /** Microsoft refreshToken (optional - for long-term email sending access) */
+  @IsString({ message: 'refreshToken must be a string' })
+  @IsOptional()
+  refreshToken?: string;
 }
 
 export class ConnectGmailDto {
@@ -391,6 +406,18 @@ export class ConnectGmailDto {
   @IsString({ message: 'accessToken must be a string' })
   @IsOptional()
   accessToken?: string;
+}
+
+export class ConnectYahooDto {
+  /** Authorization code from Yahoo OAuth redirect */
+  @IsString({ message: 'code must be a string' })
+  @IsNotEmpty({ message: 'code is required' })
+  code!: string;
+
+  /** Redirect URI used in OAuth flow (must match exactly) */
+  @IsString({ message: 'redirectUri must be a string' })
+  @IsNotEmpty({ message: 'redirectUri is required' })
+  redirectUri!: string;
 }
 
 export class ForgotPasswordDto {

@@ -350,6 +350,24 @@ export const routes: Routes = [
     loadComponent: () => import('./features/join/join.component').then((m) => m.JoinComponent),
   },
 
+  // OAuth Callback Pages (Microsoft, Yahoo)
+  // These are minimal pages that show loading state
+  // while parent window polls the URL and extracts authorization code
+  {
+    path: 'microsoft/callback',
+    loadComponent: () =>
+      import('./features/activity/components/oauth-callback.component').then(
+        (m) => m.OAuthCallbackComponent
+      ),
+  },
+  {
+    path: 'yahoo/callback',
+    loadComponent: () =>
+      import('./features/activity/components/oauth-callback.component').then(
+        (m) => m.OAuthCallbackComponent
+      ),
+  },
+
   // 404 Not Found Page (catch-all route)
   {
     path: '**',

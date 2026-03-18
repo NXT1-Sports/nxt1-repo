@@ -48,6 +48,7 @@ import {
   JoinTeamDto,
   ConnectGmailDto,
   ConnectMicrosoftDto,
+  ConnectYahooDto,
 } from '../dtos/auth.dto.js';
 import { createOrganizationService } from '../services/organization.service.js';
 import { createRosterEntryService } from '../services/roster-entry.service.js';
@@ -2257,6 +2258,11 @@ router.post(
         email: connectedEmail,
       });
 
+      // Invalidate Redis cache so GET /auth/profile/:userId returns fresh connectedEmails
+      await invalidateProfileCaches(uid).catch((err) =>
+        logger.warn('[Google Connect Gmail] Cache invalidation failed', { uid, err })
+      );
+
       res.json({ success: true, email: connectedEmail });
       return;
     }
@@ -2358,16 +2364,20 @@ router.post(
 /**
  * POST /auth/microsoft/connect-mail
  *
- * Store Microsoft accessToken so the backend can send emails on behalf
- * of the user via Microsoft Graph API.
+ * Store Microsoft credentials for sending/reading emails via Microsoft Graph API.
  *
- * Called fire-and-forget after every Microsoft sign-in (native + web).
- * For NEW users, beforeUserCreate already captures the refreshToken;
- * this endpoint covers EXISTING users signing in again (only accessToken
- * is available from the Capacitor plugin / signInWithPopup).
+ * Supports two flows:
+ * 1. Authorization Code Flow (Web - Recommended):
+ *    - Frontend sends { code, redirectUri }
+ *    - Backend exchanges code for access_token + refresh_token
+ *    - Provides long-term access (refresh_token doesn't expire)
  *
- * Uses the same writeWithRetry pattern as connect-gmail to handle the
- * race condition where create-user hasn't finished yet.
+ * 2. Direct Token Flow  (Mobile Fallback):
+ *    - Frontend sends { accessToken, refreshToken? }
+ *    - Backend stores tokens directly
+ *    - May have limited refresh_token availability
+ *
+ * Uses writeWithRetry pattern to handle race conditions.
  */
 router.post(
   '/microsoft/connect-mail',
@@ -2376,17 +2386,93 @@ router.post(
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { db } = req.firebase!;
     const uid = req.user!.uid;
-    const { accessToken } = req.body as ConnectMicrosoftDto;
+    const { code, redirectUri, accessToken, refreshToken } = req.body as ConnectMicrosoftDto;
 
-    logger.debug('[Microsoft Connect Mail] Storing accessToken', {
+    // Validate: Either code+redirectUri OR accessToken must be provided
+    if (!code && !accessToken) {
+      res.status(400).json({
+        error: 'invalid_request',
+        message: 'Either code+redirectUri or accessToken must be provided',
+      });
+      return;
+    }
+
+    logger.debug('[Microsoft Connect Mail] Processing request', {
       uid: uid.substring(0, 8) + '...',
+      flow: code ? 'authorization_code' : 'direct_token',
+      hasRefreshToken: !!refreshToken,
     });
 
+    let finalAccessToken: string;
+    let finalRefreshToken: string | undefined;
+    let email: string | undefined;
+    if (code && redirectUri) {
+      logger.debug('[Microsoft Connect Mail] Exchanging authorization code');
+
+      const tokenUrl = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+      const params = new URLSearchParams({
+        client_id: process.env['MICROSOFT_CLIENT_ID'] || '',
+        client_secret: process.env['MICROSOFT_CLIENT_SECRET'] || '',
+        code,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code',
+      });
+
+      try {
+        const tokenResponse = await fetch(tokenUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params,
+        });
+
+        if (!tokenResponse.ok) {
+          const errorData = await tokenResponse.json().catch(() => ({}));
+          logger.error('[Microsoft Connect Mail] Token exchange failed', {
+            status: tokenResponse.status,
+            error: errorData,
+          });
+          res.status(tokenResponse.status).json({
+            error: 'token_exchange_failed',
+            message: `Failed to exchange Microsoft authorization code: ${(errorData as any).error_description || tokenResponse.statusText}`,
+          });
+          return;
+        }
+
+        const tokenData = await tokenResponse.json();
+        finalAccessToken = tokenData.access_token;
+        finalRefreshToken = tokenData.refresh_token;
+
+        // Get user email from Graph API
+        const graphResponse = await fetch('https://graph.microsoft.com/v1.0/me', {
+          headers: { Authorization: `Bearer ${finalAccessToken}` },
+        });
+
+        if (graphResponse.ok) {
+          const userData = await graphResponse.json();
+          email = userData.mail || userData.userPrincipalName;
+        }
+
+        logger.debug('[Microsoft Connect Mail] Token exchange successful', {
+          hasAccessToken: !!finalAccessToken,
+          hasRefreshToken: !!finalRefreshToken,
+          email,
+        });
+      } catch (err) {
+        logger.error('[Microsoft Connect Mail] Token exchange error', { error: err });
+        throw err;
+      }
+    } else {
+      // Flow 2: Direct token (mobile fallback)
+      finalAccessToken = accessToken!;
+      finalRefreshToken = refreshToken;
+      email = req.user!.email;
+      logger.debug('[Microsoft Connect Mail] Using direct token flow');
+    }
+
     /**
-     * Same writeWithRetry helper as connect-gmail:
-     * retries on NOT_FOUND (gRPC 5) when create-user hasn't finished yet.
+     * Write tokens to Firestore with retry logic
      */
-    const writeWithRetry = async (email: string | undefined): Promise<void> => {
+    const writeWithRetry = async (userEmail: string | undefined): Promise<void> => {
       const MAX_RETRIES = 4;
       const BASE_DELAY_MS = 500;
       const userRef = db.collection('Users').doc(uid);
@@ -2410,7 +2496,7 @@ router.post(
           const filtered = existing.filter((e) => e.provider !== 'microsoft');
 
           const meta: ConnectedEmail = {
-            email: email ?? '',
+            email: userEmail ?? '',
             provider: 'microsoft',
             isActive: true,
             connectedAt: now,
@@ -2422,13 +2508,25 @@ router.post(
             connectedEmails: [...filtered, meta],
             updatedAt: now,
           });
+
           // Token in server-only subcollection
-          batch.set(tokenRef, {
+          const tokenData: Record<string, unknown> = {
             provider: 'microsoft',
-            accessToken,
-            email: email ?? '',
+            accessToken: finalAccessToken,
+            email: userEmail ?? '',
             lastRefreshedAt: now,
-          });
+          };
+
+          if (finalRefreshToken) {
+            tokenData['refreshToken'] = finalRefreshToken;
+            logger.debug('[Microsoft Connect Mail] ✅ Storing refreshToken for long-term access');
+          } else {
+            logger.warn(
+              '[Microsoft Connect Mail] ⚠️ No refreshToken - accessToken will expire in 1 hour'
+            );
+          }
+
+          batch.set(tokenRef, tokenData);
           await batch.commit();
           return;
         } catch (err) {
@@ -2440,13 +2538,203 @@ router.post(
       }
     };
 
-    const connectedEmail = req.user!.email;
-    await writeWithRetry(connectedEmail);
+    await writeWithRetry(email || req.user!.email);
 
-    logger.info('[Microsoft Connect Mail] accessToken saved successfully', {
+    logger.info('[Microsoft Connect Mail] Token saved successfully', {
+      uid: uid.substring(0, 8) + '...',
+      email: email || req.user!.email,
+      hasRefreshToken: !!finalRefreshToken,
+    });
+
+    // Invalidate Redis cache so GET /auth/profile/:userId returns fresh connectedEmails
+    await invalidateProfileCaches(uid).catch((err) =>
+      logger.warn('[Microsoft Connect Mail] Cache invalidation failed', { uid, err })
+    );
+
+    res.json({ success: true, email: email || req.user!.email });
+  })
+);
+
+// ============================================
+// YAHOO MAIL CONNECT
+// ============================================
+
+/**
+ * POST /auth/yahoo/connect-mail
+ *
+ * Exchange Yahoo authorization code for refresh_token and store it
+ * securely in the emailTokens subcollection.
+ *
+ * Yahoo OAuth Flow:
+ * 1. Frontend opens OAuth URL (https://api.login.yahoo.com/oauth2/request_auth)
+ * 2. User grants permission, Yahoo redirects with authorization code
+ * 3. Frontend calls this endpoint with code + redirectUri
+ * 4. Backend exchanges code for access_token + refresh_token
+ * 5. Backend stores refresh_token in Users/{uid}/emailTokens/yahoo
+ *
+ * SECURITY:
+ * - Requires valid Firebase ID token (appGuard)
+ * - CLIENT_SECRET never exposed to client
+ * - Tokens stored only in server-only subcollection
+ *
+ * Body: { code: string, redirectUri: string }
+ * Returns: { success: true, email: string }
+ */
+router.post(
+  '/yahoo/connect-mail',
+  appGuard,
+  validateBody(ConnectYahooDto),
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { db } = req.firebase!;
+    const uid = req.user!.uid;
+    const { code, redirectUri } = req.body as ConnectYahooDto;
+
+    logger.debug('[Yahoo Connect Mail] Exchanging authorization code', {
+      uid: uid.substring(0, 8) + '...',
+      redirectUri,
+    });
+
+    /**
+     * Write Yahoo token + connectedEmails metadata to Firestore with retry.
+     * Same retry pattern as Gmail/Microsoft for race conditions.
+     */
+    const writeWithRetry = async (
+      tokenFields: Record<string, unknown>,
+      email: string | undefined
+    ): Promise<void> => {
+      const MAX_RETRIES = 4;
+      const BASE_DELAY_MS = 500;
+      const userRef = db.collection('Users').doc(uid);
+      const tokenRef = userRef.collection('emailTokens').doc('yahoo');
+
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+          const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1);
+          logger.debug('[Yahoo Connect Mail] User doc not ready — retrying', {
+            uid: uid.substring(0, 8) + '...',
+            attempt,
+            delayMs: delay,
+          });
+          await new Promise<void>((resolve) => setTimeout(resolve, delay));
+        }
+
+        try {
+          const now = new Date().toISOString();
+          const snap = await userRef.get();
+          const existing = (snap.data()?.['connectedEmails'] as ConnectedEmail[] | undefined) ?? [];
+          const filtered = existing.filter((e) => e.provider !== 'yahoo');
+
+          const meta: ConnectedEmail = {
+            email: email ?? '',
+            provider: 'yahoo',
+            isActive: true,
+            connectedAt: now,
+          };
+
+          const batch = db.batch();
+          // Metadata on user doc (no token — OWASP A01/A02)
+          batch.update(userRef, {
+            connectedEmails: [...filtered, meta],
+            updatedAt: now,
+          });
+          // Token in server-only subcollection
+          batch.set(tokenRef, { ...tokenFields, email: email ?? '', lastRefreshedAt: now });
+          await batch.commit();
+          return;
+        } catch (err) {
+          const e = err as { code?: number; message?: string };
+          const isNotFound =
+            e.code === 5 || (typeof e.message === 'string' && e.message.includes('NOT_FOUND'));
+          if (!isNotFound || attempt === MAX_RETRIES) throw err;
+        }
+      }
+    };
+
+    // Exchange authorization code for tokens
+    const tokenEndpoint = 'https://api.login.yahoo.com/oauth2/get_token';
+    const params = new URLSearchParams({
+      code,
+      client_id: process.env['YAHOO_CLIENT_ID'] ?? '',
+      client_secret: process.env['YAHOO_CLIENT_SECRET'] ?? '',
+      grant_type: 'authorization_code',
+      redirect_uri: redirectUri,
+    });
+
+    let tokenData: {
+      access_token?: string;
+      refresh_token?: string;
+      error?: string;
+      error_description?: string;
+    };
+
+    try {
+      const tokenResponse = await fetch(tokenEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+      tokenData = (await tokenResponse.json()) as typeof tokenData;
+    } catch (fetchErr) {
+      logger.error('[Yahoo Connect Mail] Network error contacting Yahoo token endpoint', {
+        uid,
+        error: fetchErr,
+      });
+      sendError(res, internalError(fetchErr));
+      return;
+    }
+
+    if (tokenData.error || !tokenData.refresh_token) {
+      logger.warn('[Yahoo Connect Mail] Token exchange failed', {
+        uid,
+        error: tokenData.error,
+        description: tokenData.error_description,
+        hasRefreshToken: !!tokenData.refresh_token,
+      });
+      const error = validationError([
+        {
+          field: 'code',
+          message:
+            tokenData.error_description ??
+            'Failed to exchange code — code may be expired or already used',
+          rule: 'invalid',
+        },
+      ]);
+      sendError(res, error);
+      return;
+    }
+
+    // Get user's email from Yahoo userinfo endpoint
+    let connectedEmail = req.user!.email;
+    if (tokenData.access_token) {
+      try {
+        const userinfoResponse = await fetch('https://api.login.yahoo.com/openid/v1/userinfo', {
+          headers: {
+            Authorization: `Bearer ${tokenData.access_token}`,
+          },
+        });
+        const userinfo = (await userinfoResponse.json()) as { email?: string };
+        if (userinfo.email) {
+          connectedEmail = userinfo.email;
+        }
+      } catch {
+        // Fallback to req.user.email if userinfo fails
+      }
+    }
+
+    await writeWithRetry(
+      { provider: 'yahoo', refreshToken: tokenData.refresh_token },
+      connectedEmail
+    );
+
+    logger.info('[Yahoo Connect Mail] Yahoo token saved successfully', {
       uid: uid.substring(0, 8) + '...',
       email: connectedEmail,
     });
+
+    // Invalidate Redis cache so GET /auth/profile/:userId returns fresh connectedEmails
+    await invalidateProfileCaches(uid).catch((err) =>
+      logger.warn('[Yahoo Connect Mail] Cache invalidation failed', { uid, err })
+    );
 
     res.json({ success: true, email: connectedEmail });
   })

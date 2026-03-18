@@ -445,6 +445,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         emailVerified: firebaseUser.emailVerified,
         createdAt: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        connectedEmails: Array.isArray(userProfile?.connectedEmails)
+          ? userProfile.connectedEmails
+          : [],
       };
 
       await this.authManager.setUser(authUser);

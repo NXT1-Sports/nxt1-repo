@@ -17,7 +17,7 @@
  */
 
 import { InjectionToken, Signal } from '@angular/core';
-import type { UserRole } from '@nxt1/core';
+import type { ConnectedEmail, UserRole } from '@nxt1/core';
 
 // ============================================
 // USER TYPES
@@ -38,10 +38,10 @@ export interface AppUser {
   hasCompletedOnboarding: boolean;
   createdAt: string;
   updatedAt: string;
-  /** Unique profile identifier for profile URLs (e.g., /profile/abc123) */
   unicode?: string | null;
   username?: string | null;
   referralCode?: string | null;
+  connectedEmails?: ConnectedEmail[];
 }
 
 /**

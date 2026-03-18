@@ -271,6 +271,9 @@ export class ServerAuthService implements IAuthService, OnDestroy {
         followingIds: Array.isArray(data['following'])
           ? data['following'].filter((item): item is string => typeof item === 'string')
           : undefined,
+        connectedEmails: Array.isArray(data['connectedEmails'])
+          ? data['connectedEmails']
+          : undefined,
         role: (data['role'] as UserRole) ?? 'athlete',
         isPremium: data['isPremium'] ?? data['premium'] ?? false,
         hasCompletedOnboarding:

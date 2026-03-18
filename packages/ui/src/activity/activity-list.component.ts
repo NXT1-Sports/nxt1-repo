@@ -132,37 +132,29 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
           }
 
           <!-- Inbox: Connect Email Sources -->
-          @if (isInboxTab() && !hasConnectedEmails()) {
+          @if (isInboxTab() && hasUnconnectedProviders()) {
             <div class="activity-list__connect-sources">
               <h4 class="activity-list__connect-title">Connect your email</h4>
               <p class="activity-list__connect-subtitle">Sync messages from your email accounts</p>
               <div class="activity-list__provider-list">
                 @for (provider of emailProviders; track provider.id) {
-                  <button
-                    type="button"
-                    class="activity-list__provider-card"
-                    [class.activity-list__provider-card--connected]="
-                      isProviderConnected(provider.id)
-                    "
-                    (click)="onConnectProvider(provider)"
-                  >
-                    <nxt1-icon [name]="provider.icon" [size]="24" />
-                    <div class="activity-list__provider-info">
-                      <span class="activity-list__provider-name">{{ provider.name }}</span>
-                      <span class="activity-list__provider-desc">{{ provider.description }}</span>
-                    </div>
-                    @if (isProviderConnected(provider.id)) {
-                      <ion-icon
-                        name="checkmark-circle-outline"
-                        class="activity-list__provider-check"
-                      ></ion-icon>
-                    } @else {
+                  @if (!isProviderConnected(provider.id)) {
+                    <button
+                      type="button"
+                      class="activity-list__provider-card"
+                      (click)="onConnectProvider(provider)"
+                    >
+                      <nxt1-icon [name]="provider.icon" [size]="24" />
+                      <div class="activity-list__provider-info">
+                        <span class="activity-list__provider-name">{{ provider.name }}</span>
+                        <span class="activity-list__provider-desc">{{ provider.description }}</span>
+                      </div>
                       <ion-icon
                         name="chevron-forward"
                         class="activity-list__provider-arrow"
                       ></ion-icon>
-                    }
-                  </button>
+                    </button>
+                  }
                 }
               </div>
             </div>
@@ -583,6 +575,9 @@ export class ActivityListComponent {
 
   /** Whether any email accounts are connected */
   protected readonly hasConnectedEmails = computed(() => this.connectedEmails().length > 0);
+  protected readonly hasUnconnectedProviders = computed(() =>
+    INBOX_EMAIL_PROVIDERS.some((p) => !this.isProviderConnected(p.id))
+  );
 
   /** Agent X logo SVG data */
   protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;

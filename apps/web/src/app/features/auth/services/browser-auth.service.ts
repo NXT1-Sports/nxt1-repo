@@ -204,6 +204,14 @@ export class BrowserAuthService implements IAuthService {
             (item: unknown): item is string => typeof item === 'string'
           )
         : undefined;
+      const connectedEmails = Array.isArray(profileRecord['connectedEmails'])
+        ? profileRecord['connectedEmails']
+        : undefined;
+      this.logger.debug('🔍 [Auth] Syncing user profile with connectedEmails', {
+        uid: firebaseUser.uid,
+        connectedEmailsCount: connectedEmails?.length ?? 0,
+        connectedEmails,
+      });
 
       this._user.set({
         uid: firebaseUser.uid,
@@ -218,6 +226,7 @@ export class BrowserAuthService implements IAuthService {
         isPremium: false, // extend when backend exposes isPremium
         hasCompletedOnboarding,
         unicode: profile.unicode ?? undefined,
+        connectedEmails,
         createdAt:
           profile.createdAt instanceof Date
             ? profile.createdAt.toISOString()

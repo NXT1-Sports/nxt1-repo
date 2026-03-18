@@ -33,4 +33,10 @@ export const environment = {
   // Third-party API Keys
   removeBgKey: 'sCyRfLKyXDS5ySnuXmEiqXpK',
   googleClientId: '112256620070-v6sa43846pdd27972btg8o82kj84aoap.apps.googleusercontent.com',
+  msalConfig: {
+    clientId: 'aaceb7d3-bc1d-4c44-a871-cb96826558de',
+    authority: 'https://login.microsoftonline.com/common',
+  },
+  yahooClientId:
+    'dj1yJmk9dml1QlJOTnpMSzNNJmQ9WVdrOVdsaGFUMjlJZVRVbWNHbzlNQT09JnM9Y29uc3VtZXJzZWNyZXQmc3Y9MCZ4PWE2',
 };

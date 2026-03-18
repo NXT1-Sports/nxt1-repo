@@ -9,6 +9,7 @@
  */
 
 import type { UserRole } from '../constants/user.constants';
+import { ConnectedEmail } from '../models';
 
 // Re-export UserRole from single source of truth
 export type { UserRole } from '../constants/user.constants';
@@ -44,6 +45,8 @@ export interface AuthUser {
   createdAt: string;
   /** Last update timestamp (ISO string) */
   updatedAt: string;
+
+  connectedEmails?: ConnectedEmail[];
 }
 
 /**

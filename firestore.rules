@@ -93,9 +93,10 @@ service cloud.firestore {
       // USER SUB-COLLECTIONS
       // ============================================
       
-      // Email OAuth tokens - Backend/Functions ONLY
+      // Email OAuth tokens - Owner can read (to check connection status), backend/Functions ONLY for write
       match /emailTokens/{provider} {
-        allow read, write: if false; // Only Cloud Functions can access
+        allow read: if isOwner(userId);   // User can check which providers are connected
+        allow write: if false;            // Only Cloud Functions / Admin SDK can write tokens
       }
       
       // User metrics (stats, analytics)
