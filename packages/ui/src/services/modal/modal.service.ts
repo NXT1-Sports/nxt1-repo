@@ -118,7 +118,6 @@ import { Dialog } from '@capacitor/dialog';
 import { ActionSheet, ActionSheetButtonStyle } from '@capacitor/action-sheet';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 
-import { NxtPlatformService } from '../platform';
 import { NxtBottomSheetService } from '../../components/bottom-sheet';
 import type {
   AlertConfig,
@@ -136,7 +135,6 @@ import type {
 @Injectable({ providedIn: 'root' })
 export class NxtModalService {
   private readonly platformId = inject(PLATFORM_ID);
-  private readonly platform = inject(NxtPlatformService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly alertCtrl = inject(AlertController);
   private readonly actionSheetCtrl = inject(ActionSheetController);

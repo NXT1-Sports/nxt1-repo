@@ -48,7 +48,7 @@ export type Theme = 'light' | 'dark' | string; // 'string' allows custom themes 
       <img
         [src]="logoSrc()"
         [alt]="alt"
-        class="h-auto max-w-full object-contain select-none"
+        class="h-auto max-w-full select-none object-contain"
         [style.user-drag]="'none'"
         [style.-webkit-user-drag]="'none'"
         [width]="width"

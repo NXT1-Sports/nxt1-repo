@@ -329,7 +329,7 @@ export class InviteService {
       const message = this._customMessage() || undefined;
 
       // Record the invite on the backend
-      const response = await this.api.sendInvite({
+      await this.api.sendInvite({
         type,
         channel,
         recipients: recipients.length > 0 ? recipients : [{ id: `share_${Date.now()}` }],

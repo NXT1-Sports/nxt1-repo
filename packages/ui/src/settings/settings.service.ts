@@ -48,7 +48,7 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBrowserService } from '../services/browser/browser.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
-import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
+import { NxtBottomSheetService } from '../components/bottom-sheet';
 import { AgentXJobService } from '../agent-x/agent-x-job.service';
 import {
   SETTINGS_PERSISTENCE_ADAPTER,

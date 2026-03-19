@@ -62,8 +62,8 @@ const REDIRECT_DELAY_MS = 2000;
               />
             </svg>
           </div>
-          <h1 authTitle class="text-text-primary text-2xl font-bold">Email Verified!</h1>
-          <p authSubtitle class="text-text-secondary text-sm">
+          <h1 authTitle class="text-2xl font-bold text-text-primary">Email Verified!</h1>
+          <p authSubtitle class="text-sm text-text-secondary">
             Your email has been verified. Redirecting you to complete your profile...
           </p>
 
@@ -103,8 +103,8 @@ const REDIRECT_DELAY_MS = 2000;
             </svg>
           </div>
 
-          <h1 authTitle class="text-text-primary text-2xl font-bold">Check your email</h1>
-          <p authSubtitle class="text-text-secondary text-sm">
+          <h1 authTitle class="text-2xl font-bold text-text-primary">Check your email</h1>
+          <p authSubtitle class="text-sm text-text-secondary">
             We sent a verification link to
             <strong class="text-text-primary">{{ maskedEmail() }}</strong>
           </p>

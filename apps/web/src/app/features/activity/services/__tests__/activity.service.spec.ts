@@ -70,6 +70,7 @@ const createAnalyticsMock = () => ({
 
 const createApiMock = () => ({
   getFeed: vi.fn().mockResolvedValue({
+    success: true,
     items: [],
     pagination: { page: 1, limit: 20, total: 0, totalPages: 0, hasMore: false },
     badges: { all: 0, inbox: 0, agent: 0, alerts: 0 },
@@ -110,7 +111,7 @@ const createMessagesServiceMock = () => ({
 
 const MOCK_ITEM: ActivityItem = {
   id: 'act-1',
-  type: 'alert',
+  type: 'system',
   tab: 'alerts',
   priority: 'normal',
   title: 'New follower',
@@ -122,7 +123,7 @@ const MOCK_ITEM: ActivityItem = {
 
 const MOCK_ITEM_2: ActivityItem = {
   id: 'act-2',
-  type: 'agent',
+  type: 'agent_task',
   tab: 'agent',
   priority: 'high',
   title: 'Agent X completed task',
@@ -133,12 +134,14 @@ const MOCK_ITEM_2: ActivityItem = {
 };
 
 const MOCK_FEED_RESPONSE: ActivityFeedResponse = {
+  success: true,
   items: [MOCK_ITEM, MOCK_ITEM_2],
   pagination: { page: 1, limit: 20, total: 2, totalPages: 1, hasMore: false },
   badges: { all: 3, inbox: 1, agent: 1, alerts: 1 },
 };
 
 const MOCK_FEED_PAGE_2: ActivityFeedResponse = {
+  success: true,
   items: [{ ...MOCK_ITEM, id: 'act-3', title: 'Page 2 item' }],
   pagination: { page: 2, limit: 20, total: 3, totalPages: 2, hasMore: false },
   badges: { all: 3, inbox: 1, agent: 1, alerts: 1 },

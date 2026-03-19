@@ -781,6 +781,7 @@ export {
   // Verification helpers
   getVerification,
   getAllVerifications,
+  getVerificationScopesForTab,
   // Schedule helpers (pure functions)
   mapProfileEventsToScheduleRows,
   filterScheduleEvents,

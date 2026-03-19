@@ -31,15 +31,15 @@ import { AuthFlowService } from '../../services';
       (backClick)="onBackClick()"
     >
       <!-- Title -->
-      <h1 authTitle class="text-text-primary text-2xl font-bold">
+      <h1 authTitle class="text-2xl font-bold text-text-primary">
         {{ emailSent() ? 'Check Your Email' : 'Reset Password' }}
       </h1>
 
       <!-- Subtitle -->
-      <p authSubtitle class="text-text-secondary mb-2 text-sm">
+      <p authSubtitle class="mb-2 text-sm text-text-secondary">
         @if (emailSent()) {
           We've sent reset instructions to
-          <strong class="text-text-primary font-semibold">{{ sentEmail() }}</strong>
+          <strong class="font-semibold text-text-primary">{{ sentEmail() }}</strong>
         } @else {
           Enter your email and we'll send you a link to reset your password
         }
@@ -66,10 +66,10 @@ import { AuthFlowService } from '../../services';
 
             <!-- Instructions -->
             <div class="instructions-box">
-              <p class="text-text-secondary text-sm">
+              <p class="text-sm text-text-secondary">
                 Click the link in your email to reset your password.
               </p>
-              <p class="text-text-tertiary mt-1 text-xs">
+              <p class="mt-1 text-xs text-text-tertiary">
                 If you don't see it, check your spam folder.
               </p>
             </div>

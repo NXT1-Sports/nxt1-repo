@@ -84,7 +84,7 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
             <!-- Recent Searches -->
             @if (explore.recentSearches().length > 0) {
               <div class="mb-6">
-                <h3 class="text-text-tertiary mb-3 text-xs font-semibold tracking-wider uppercase">
+                <h3 class="text-text-tertiary mb-3 text-xs font-semibold uppercase tracking-wider">
                   Recent
                 </h3>
                 @for (search of explore.recentSearches(); track search) {
@@ -133,7 +133,7 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
             <!-- Trending Searches -->
             @if (explore.trendingSearches().length > 0) {
               <div>
-                <h3 class="text-text-tertiary mb-3 text-xs font-semibold tracking-wider uppercase">
+                <h3 class="text-text-tertiary mb-3 text-xs font-semibold uppercase tracking-wider">
                   Trending
                 </h3>
                 @for (search of explore.trendingSearches(); track search) {

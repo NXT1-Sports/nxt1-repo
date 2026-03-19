@@ -79,14 +79,14 @@ import { PENDING_REFERRAL_KEY, type PendingReferral } from '../../../join/join.c
         <!-- Title & Subtitle -->
         <h1
           authTitle
-          class="text-text-primary text-2xl font-bold"
+          class="text-2xl font-bold text-text-primary"
           [attr.data-testid]="mode() === 'login' ? 'login-title' : 'signup-title'"
         >
           {{ title() }}
         </h1>
         <p
           authSubtitle
-          class="text-text-secondary mb-2 text-sm"
+          class="mb-2 text-sm text-text-secondary"
           [attr.data-testid]="mode() === 'login' ? 'login-subtitle' : 'signup-subtitle'"
         >
           {{ subtitle() }}

@@ -10,7 +10,7 @@
 import { Component, ChangeDetectionStrategy, input, computed } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { NxtImageComponent } from '../../components/image';
-import { getVerificationScopesForTab } from '@nxt1/core/profile';
+import { getVerificationScopesForTab } from '@nxt1/core';
 import type { DataVerification, ProfileUser } from '@nxt1/core';
 
 @Component({

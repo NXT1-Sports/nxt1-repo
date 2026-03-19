@@ -44,7 +44,7 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
           </span>
 
           <!-- Title -->
-          <h1 class="text-text-primary mb-4 text-2xl leading-tight font-bold md:text-3xl">
+          <h1 class="text-text-primary mb-4 text-2xl font-bold leading-tight md:text-3xl">
             {{ article()!.title }}
           </h1>
 

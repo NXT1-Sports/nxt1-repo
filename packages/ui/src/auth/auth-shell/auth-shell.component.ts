@@ -111,7 +111,7 @@ export type AuthShellVariant =
         <div class="auth-bg-gradient absolute inset-0"></div>
         <!-- Glow Effect (Desktop only - hidden on mobile for clean corner fades) -->
         <div
-          class="auth-bg-glow absolute top-[-300px] left-1/2 hidden h-[800px] w-[800px] -translate-x-1/2 opacity-60 blur-[60px] md:block"
+          class="auth-bg-glow absolute left-1/2 top-[-300px] hidden h-[800px] w-[800px] -translate-x-1/2 opacity-60 blur-[60px] md:block"
         ></div>
       </div>
 

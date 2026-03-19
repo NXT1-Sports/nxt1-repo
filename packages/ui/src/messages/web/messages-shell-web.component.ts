@@ -47,7 +47,7 @@ import type { MessagesUser } from '../messages-shell.component';
       <div pageHeaderSlot="actions" class="flex items-center gap-3">
         <div class="relative">
           <svg
-            class="text-text-tertiary pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2"
+            class="text-text-tertiary pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -66,12 +66,12 @@ import type { MessagesUser } from '../messages-shell.component';
             [(ngModel)]="searchValue"
             (input)="onSearchInput($event)"
             (keydown.escape)="onClearSearch()"
-            class="bg-surface-100 text-text-primary placeholder:text-text-tertiary focus:ring-primary/30 focus:border-primary h-9 w-64 rounded-full border border-transparent py-2 pr-10 pl-10 text-sm transition-all focus:ring-2 focus:outline-none"
+            class="bg-surface-100 text-text-primary placeholder:text-text-tertiary focus:ring-primary/30 focus:border-primary h-9 w-64 rounded-full border border-transparent py-2 pl-10 pr-10 text-sm transition-all focus:outline-none focus:ring-2"
             [attr.aria-label]="searchPlaceholder"
           />
           @if (searchValue().length > 0) {
             <button
-              class="text-text-tertiary hover:text-text-primary absolute top-1/2 right-3 -translate-y-1/2 transition-colors"
+              class="text-text-tertiary hover:text-text-primary absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
               (click)="onClearSearch()"
               aria-label="Clear search"
             >

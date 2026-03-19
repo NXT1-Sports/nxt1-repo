@@ -694,7 +694,7 @@ export class XpShellComponent {
     }
   }
 
-  protected handleBadgeClick(badge: unknown): void {
+  protected handleBadgeClick(_badge: unknown): void {
     this.logger.debug('Badge clicked');
   }
 

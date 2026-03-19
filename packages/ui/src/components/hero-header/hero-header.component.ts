@@ -171,7 +171,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
       }
 
       <div
-        class="hero-content mx-auto w-full px-4 pt-2 pb-12 sm:px-6 sm:pt-4 sm:pb-16 lg:px-8 lg:pt-6 lg:pb-20"
+        class="hero-content mx-auto w-full px-4 pb-12 pt-2 sm:px-6 sm:pb-16 sm:pt-4 lg:px-8 lg:pb-20 lg:pt-6"
         style="max-width: var(--nxt1-root-shell-max-width, 80rem)"
       >
         <!-- SEO heading (screen reader only) -->
@@ -197,7 +197,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
           >
             @for (card of audienceCards(); track card.id) {
               <article
-                class="hero-card group border-border bg-surface-200/80 hover:border-border-primary hover:shadow-glow/10 relative flex flex-col overflow-hidden rounded-2xl border p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-lg"
+                class="hero-card border-border bg-surface-200/80 hover:border-border-primary hover:shadow-glow/10 group relative flex flex-col overflow-hidden rounded-2xl border p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-lg"
                 [class]="card.gradientClass"
                 [attr.aria-label]="card.ariaLabel"
               >
@@ -246,7 +246,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
             <div class="hero-cta__desktop">
               <a
                 [routerLink]="['/auth']"
-                class="btn-hero-primary group bg-primary text-text-inverse hover:bg-primaryLight hover:shadow-glow focus:ring-primary focus:ring-offset-bg-primary inline-flex items-center justify-center gap-2 rounded-xl px-8 py-4 text-lg font-semibold shadow-lg transition-all duration-300 hover:shadow-xl focus:ring-2 focus:ring-offset-2 focus:outline-none"
+                class="btn-hero-primary bg-primary text-text-inverse hover:bg-primaryLight hover:shadow-glow focus:ring-primary focus:ring-offset-bg-primary group inline-flex items-center justify-center gap-2 rounded-xl px-8 py-4 text-lg font-semibold shadow-lg transition-all duration-300 hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-offset-2"
               >
                 Get Started Free
                 <nxt1-icon

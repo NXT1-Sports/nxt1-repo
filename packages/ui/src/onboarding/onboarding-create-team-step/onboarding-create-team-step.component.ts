@@ -1,13 +1,4 @@
-import {
-  Component,
-  ChangeDetectionStrategy,
-  input,
-  output,
-  signal,
-  computed,
-  effect,
-  inject,
-} from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output, signal, effect } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { type CreateTeamProfileFormData, type OnboardingTeamType } from '@nxt1/core/api';
 import { TEST_IDS } from '@nxt1/core/testing';

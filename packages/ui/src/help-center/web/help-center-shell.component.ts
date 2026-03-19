@@ -64,14 +64,14 @@ export interface HelpNavigateEvent {
             <nxt1-icon
               name="search"
               [size]="20"
-              class="text-text-tertiary absolute top-1/2 left-4 -translate-y-1/2"
+              class="text-text-tertiary absolute left-4 top-1/2 -translate-y-1/2"
             />
             <input
               type="search"
               [ngModel]="helpService.searchQuery()"
               (ngModelChange)="onSearch($event)"
               placeholder="Search help articles..."
-              class="bg-surface-100 border-border-subtle text-text-primary placeholder:text-text-tertiary focus:ring-primary/30 focus:border-primary h-12 w-full rounded-xl border pr-4 pl-12 transition-all duration-200 focus:ring-2 focus:outline-none"
+              class="bg-surface-100 border-border-subtle text-text-primary placeholder:text-text-tertiary focus:ring-primary/30 focus:border-primary h-12 w-full rounded-xl border pl-12 pr-4 transition-all duration-200 focus:outline-none focus:ring-2"
             />
           </div>
         </div>
@@ -220,7 +220,7 @@ export interface HelpNavigateEvent {
                           </button>
                           @if (expandedFaqId() === faq.id) {
                             <div
-                              class="text-text-secondary border-border-subtle border-t px-4 py-3 pl-18 text-sm"
+                              class="text-text-secondary border-border-subtle pl-18 border-t px-4 py-3 text-sm"
                               [innerHTML]="faq.answer"
                             ></div>
                           }

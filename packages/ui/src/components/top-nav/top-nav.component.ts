@@ -152,7 +152,7 @@ import type {
         >
           <!-- When sidebar mode (showLogo=false), show centered search bar -->
           @if (config().showLogo === false && showSearch()) {
-            <div class="nav-search-centered relative w-full max-w-[640px] min-w-0">
+            <div class="nav-search-centered relative w-full min-w-0 max-w-[640px]">
               <nxt1-search-bar
                 variant="desktop-centered"
                 [placeholder]="config().searchPlaceholder || 'Search anything with Agent X'"
@@ -603,7 +603,7 @@ import type {
              ============================================ -->
         <button
           type="button"
-          class="mobile-menu-btn hover:bg-(--nxt1-nav-hover-bg)] relative z-1001 flex h-10 w-10 flex-col items-center justify-center gap-1.5 rounded-lg bg-transparent transition-colors duration-200 lg:hidden"
+          class="mobile-menu-btn hover:bg-(--nxt1-nav-hover-bg)] z-1001 relative flex h-10 w-10 flex-col items-center justify-center gap-1.5 rounded-lg bg-transparent transition-colors duration-200 lg:hidden"
           [class.open]="mobileMenuOpen()"
           [attr.aria-expanded]="mobileMenuOpen()"
           aria-controls="mobile-menu"

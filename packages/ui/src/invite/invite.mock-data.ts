@@ -21,7 +21,7 @@ import type {
 // MOCK XP TIERS
 // ============================================
 
-const MOCK_TIERS: InviteXpTier[] = [
+export const MOCK_TIERS: InviteXpTier[] = [
   {
     name: 'Rookie',
     minInvites: 0,
