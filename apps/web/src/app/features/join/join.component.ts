@@ -29,6 +29,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtLogoComponent } from '@nxt1/ui/components/logo';
 import { InviteApiService } from '@nxt1/ui/invite';
+import { SeoService } from '../../core/services/seo.service';
 
 /** Shape of referral data persisted to sessionStorage. */
 export interface PendingReferral {
@@ -147,6 +148,7 @@ export class JoinComponent implements OnInit {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly logger = inject(NxtLoggingService).child('JoinComponent');
   private readonly inviteApi = inject(InviteApiService);
+  private readonly seo = inject(SeoService);
 
   protected readonly showRoleSelection = signal(false);
   protected readonly teamName = signal<string | undefined>(undefined);
@@ -156,9 +158,19 @@ export class JoinComponent implements OnInit {
   private pendingBase: Omit<PendingReferral, 'role'> | null = null;
 
   async ngOnInit(): Promise<void> {
+    const code = this.route.snapshot.paramMap.get('code')?.trim().toUpperCase() ?? '';
+    this.seo.updatePage({
+      title: 'Join Team Invite',
+      description: 'Accept your NXT1 invite to join a team or referral experience.',
+      canonicalUrl: code
+        ? `https://nxt1sports.com/join/${encodeURIComponent(code)}`
+        : 'https://nxt1sports.com/join',
+      noIndex: true,
+      noFollow: true,
+    });
+
     if (!isPlatformBrowser(this.platformId)) return;
 
-    const code = this.route.snapshot.paramMap.get('code')?.trim().toUpperCase() ?? '';
     const ref = this.route.snapshot.queryParamMap.get('ref') ?? '';
     const type = this.route.snapshot.queryParamMap.get('type') ?? 'general';
     const teamId = this.route.snapshot.queryParamMap.get('team') ?? undefined;
