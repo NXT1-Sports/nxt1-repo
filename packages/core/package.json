@@ -122,7 +122,7 @@
     "src"
   ],
   "scripts": {
-    "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 tsup && rimraf dist/.tsbuildinfo && tsc --emitDeclarationOnly --declaration --declarationMap --project tsconfig.json",
+    "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 tsup && node -e \"require('fs').rmSync('dist/.tsbuildinfo',{force:true})\" && tsc --emitDeclarationOnly --declaration --declarationMap --project tsconfig.json",
     "dev": "cross-env NODE_OPTIONS=--max-old-space-size=8192 tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
