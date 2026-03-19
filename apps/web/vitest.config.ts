@@ -75,7 +75,16 @@ export default defineConfig({
     alias: {
       '@nxt1/core': resolve(__dirname, '../../packages/core/src'),
       '@nxt1/ui': resolve(__dirname, '../../packages/ui/src'),
-      '@nxt1/design-tokens': resolve(__dirname, '../../packages/design-tokens/src'),
+      // design-tokens has no src/ dir; point to package root so sub-paths
+      // like /assets/icons resolve via directory index lookup
+      '@nxt1/design-tokens': resolve(__dirname, '../../packages/design-tokens'),
+      // Stub @ionic/angular/standalone so Node.js never loads the FESM bundle
+      // (which uses ESM directory imports unsupported by Node.js). The mock
+      // exports all symbols used across @nxt1/ui as minimal class stubs.
+      '@ionic/angular/standalone': resolve(
+        __dirname,
+        '../../packages/ui/src/__vitest__/ionic-standalone.mock.ts'
+      ),
     },
   },
 });

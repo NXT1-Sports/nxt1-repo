@@ -6,14 +6,11 @@
 # ============================================================================
 
 name: Deploy Web
+# NOTE: Firebase App Hosting handles all web deployments automatically
+# via its GitHub integration (connected to john-nxt1sports/nxt1-repo, main branch).
+# This workflow is disabled to avoid conflicts.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'apps/web/**'
-      - 'packages/core/**'
-      - 'apphosting.yaml'
   workflow_dispatch:
     inputs:
       environment:
@@ -103,7 +100,7 @@ jobs:
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_STAGING }}
-          projectId: nxt-1-staging
+          projectId: nxt-1-staging-v2
           channelId: staging
           entryPoint: .
 

@@ -15,7 +15,7 @@ import {
   BrowserDynamicTestingModule,
   platformBrowserDynamicTesting,
 } from '@angular/platform-browser-dynamic/testing';
-import { SettingsService } from '@nxt1/ui/settings';
+import { SettingsService, SETTINGS_PERSISTENCE_ADAPTER } from '@nxt1/ui/settings';
 import { HapticsService } from '@nxt1/ui/services/haptics';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
@@ -173,6 +173,13 @@ describe('SettingsService', () => {
         { provide: NxtBrowserService, useValue: browserMock },
         { provide: AgentXJobService, useValue: agentXJobMock },
         { provide: PLATFORM_ID, useValue: 'browser' },
+        {
+          provide: SETTINGS_PERSISTENCE_ADAPTER,
+          useValue: {
+            loadPreferences: vi.fn().mockResolvedValue({}),
+            updatePreference: vi.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     });
 

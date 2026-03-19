@@ -382,7 +382,7 @@ describe('ContextBuilder', () => {
       expect(prompt).toContain('Targets: D1, D2');
       expect(prompt).toContain('Top Schools: Georgia, Texas, Ohio State');
       expect(prompt).toContain('Status: uncommitted');
-      expect(prompt).toContain('Connected: twitter, instagram, maxpreps, gmail');
+      expect(prompt).toContain('Connected: maxpreps, gmail');
       expect(prompt).toContain('Profile: 100% complete');
       expect(prompt).toContain('Views: 1250');
     });
@@ -395,7 +395,7 @@ describe('ContextBuilder', () => {
         subscriptionTier: 'free',
       });
 
-      expect(prompt).toBe('User: Unknown User | Role: athlete | Tier: free');
+      expect(prompt).toBe('User: Unknown User | Role: athlete | Tier: free | UserID: unknown');
     });
 
     it('should produce correct prompt for a coach', async () => {

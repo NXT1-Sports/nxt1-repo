@@ -95,11 +95,20 @@ export interface AgentXUser {
         <!-- ═══ 1. DAILY BRIEFING ═══ -->
         @if (!agentX.dashboardLoading()) {
           <section class="briefing-section" aria-label="Daily briefing">
-            <!-- AI Pulse Indicator -->
-            <div class="briefing-status">
-              <div class="pulse-ring"></div>
-              <div class="pulse-dot"></div>
-              <span class="status-label">Active</span>
+            <!-- AI Pulse Indicator & Badges -->
+            <div class="briefing-top-badges">
+              <div class="header-badge status-badge">
+                <div class="pulse-dot"></div>
+                <span>Active</span>
+              </div>
+              <div class="header-badge budget-badge">
+                <nxt1-icon name="wallet" [size]="14"></nxt1-icon>
+                <span>$150 Budget</span>
+              </div>
+              <div class="header-badge goals-badge">
+                <nxt1-icon name="settings" [size]="14"></nxt1-icon>
+                <span>Manage Goals</span>
+              </div>
             </div>
 
             <!-- Greeting -->
@@ -198,185 +207,62 @@ export interface AgentXUser {
               </section>
             }
 
-            <!-- ═══ 4. WEEKLY PLAYBOOK (Always Visible) ═══ -->
-            <section class="playbook-section" aria-label="Weekly playbook">
-              <div class="playbook-section-header">
-                <div class="playbook-title-row">
-                  <h3 class="section-title">Weekly Playbook</h3>
-                  @if (agentX.hasGoals() && agentX.canRegenerate()) {
-                    <button
-                      type="button"
-                      class="playbook-regen-btn"
-                      [disabled]="agentX.playbookGenerating()"
-                      (click)="onRegeneratePlaybook()"
-                    >
-                      @if (agentX.playbookGenerating()) {
-                        <span class="regen-spinner"></span>
-                        Generating...
-                      } @else {
-                        <nxt1-icon name="refresh" [size]="14" />
-                        Regenerate
-                      }
-                    </button>
-                  }
+            <!-- ═══ 3. ACTION CARDS ═══ -->
+            <section class="action-cards-section" aria-label="Action Cards">
+              <h3 class="section-title">RECOMMENDED TODAY BASED ON YOUR GOALS AND PROFILE</h3>
+
+              <div class="action-card">
+                <div class="card-icon-wrapper action">
+                  <nxt1-icon name="flash" [size]="20"></nxt1-icon>
+                </div>
+                <div class="card-content">
+                  <div class="card-title">You scored 22 points last night</div>
+                </div>
+                <button type="button" class="action-btn secondary-btn">Run action</button>
+              </div>
+
+              <div class="action-card insight">
+                <div class="card-icon-wrapper insight">
+                  <nxt1-icon name="eye" [size]="20"></nxt1-icon>
+                </div>
+                <div class="card-content">
+                  <div class="card-title">3 coaches viewed your profile this week</div>
                 </div>
               </div>
 
-              <!-- Pill Tabs -->
-              <div class="playbook-pills" role="tablist" aria-label="Playbook tabs">
-                <button
-                  type="button"
-                  role="tab"
-                  class="playbook-pill"
-                  [class.playbook-pill--active]="playbookTab() === 'get-started'"
-                  [attr.aria-selected]="playbookTab() === 'get-started'"
-                  (click)="playbookTab.set('get-started')"
-                >
-                  @if (agentX.hasGoals()) {
-                    My Playbook
-                  } @else {
-                    Get Started
-                  }
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  class="playbook-pill"
-                  [class.playbook-pill--active]="playbookTab() === 'create-goals'"
-                  [attr.aria-selected]="playbookTab() === 'create-goals'"
-                  (click)="playbookTab.set('create-goals')"
-                >
-                  @if (agentX.hasGoals()) {
-                    My Goals
-                  } @else {
-                    Create Goals
-                  }
-                </button>
+              <div class="action-card bundle">
+                <div class="card-icon-wrapper bundle">
+                  <nxt1-icon name="cube" [size]="20"></nxt1-icon>
+                </div>
+                <div class="card-content">
+                  <div class="card-title">Big game detected — want me to handle everything?</div>
+                  <div class="card-actions">
+                    <button type="button" class="action-btn primary-btn">Post highlight</button>
+                    <button type="button" class="action-btn primary-btn">Send emails</button>
+                    <button type="button" class="action-btn primary-btn">Update profile</button>
+                  </div>
+                </div>
               </div>
 
-              <!-- Tab Content: Get Started -->
-              @if (playbookTab() === 'get-started') {
-                <ol class="weekly-timeline">
-                  @for (item of weeklyPlaybook(); track item.id; let isLast = $last) {
-                    <li class="timeline-item">
-                      <div class="timeline-rail" aria-hidden="true">
-                        <span
-                          class="timeline-marker"
-                          [class.timeline-marker--pending]="item.status === 'pending'"
-                          [class.timeline-marker--in-progress]="item.status === 'in-progress'"
-                          [class.timeline-marker--complete]="item.status === 'complete'"
-                          [class.timeline-marker--problem]="item.status === 'problem'"
-                        >
-                          @if (item.status === 'in-progress') {
-                            <nxt1-icon name="play" [size]="10" />
-                          } @else if (item.status === 'complete') {
-                            <nxt1-icon name="checkmark" [size]="12" />
-                          } @else if (item.status === 'problem') {
-                            <nxt1-icon name="pause" [size]="10" />
-                          } @else {
-                            <span class="timeline-marker-dot"></span>
-                          }
-                        </span>
-                        @if (!isLast) {
-                          <span class="timeline-line"></span>
-                        }
-                      </div>
-
-                      <article class="timeline-card">
-                        <button
-                          type="button"
-                          class="timeline-toggle"
-                          (click)="onPlaybookAction(item)"
-                        >
-                          <div class="timeline-toggle-top">
-                            <h4 class="timeline-title">{{ item.title }}</h4>
-                            @if (item.goal) {
-                              <span class="timeline-goal-tag">{{ item.goal.label }}</span>
-                            }
-                          </div>
-                        </button>
-                      </article>
-                    </li>
-                  }
-                </ol>
-              }
-
-              <!-- Tab Content: Create Goals / My Goals -->
-              @if (playbookTab() === 'create-goals') {
-                <div class="playbook-create-goals">
-                  @if (agentX.hasGoals()) {
-                    <!-- Show existing goals -->
-                    <ul class="goals-list">
-                      @for (goal of agentX.goals(); track goal.id) {
-                        <li class="goal-item">
-                          <nxt1-icon
-                            [name]="goal.icon ?? 'flag'"
-                            [size]="18"
-                            className="goal-icon"
-                          />
-                          <span class="goal-text">{{ goal.text }}</span>
-                        </li>
-                      }
-                    </ul>
-                    <button
-                      type="button"
-                      class="playbook-setup-btn playbook-setup-btn--secondary"
-                      (click)="onSetupGoals()"
-                    >
-                      <nxt1-icon name="create" [size]="16" />
-                      Update Goals
-                    </button>
-                  } @else {
-                    <div class="playbook-empty">
-                      <div class="playbook-empty-icon">
-                        <nxt1-icon name="flag" [size]="24" />
-                      </div>
-                      <h4 class="playbook-empty-title">Set Your Goals</h4>
-                      <p class="playbook-empty-description">
-                        Tell Agent X what you want to achieve this season and it will build a
-                        personalized weekly playbook for you.
-                      </p>
-                      <button type="button" class="playbook-setup-btn" (click)="onSetupGoals()">
-                        <nxt1-icon name="plus" [size]="16" />
-                        Create Goals
-                      </button>
-                    </div>
-                  }
+              <div class="action-card">
+                <div class="card-icon-wrapper progress">
+                  <nxt1-icon name="trendingUp" [size]="20"></nxt1-icon>
                 </div>
-              }
+                <div class="card-content">
+                  <div class="card-title">Your exposure is up 32% this week</div>
+                </div>
+                <button type="button" class="action-btn secondary-btn">Keep momentum going</button>
+              </div>
+
+              <div class="action-card system">
+                <div class="card-icon-wrapper system">
+                  <nxt1-icon name="search" [size]="20"></nxt1-icon>
+                </div>
+                <div class="card-content">
+                  <div class="card-title">I found 18 matching coaches</div>
+                </div>
+              </div>
             </section>
-
-            <!-- ═══ 4. DAILY OPERATIONS (Conditional) ═══ -->
-            @if (activeOperations().length > 0) {
-              <section class="operations-section" aria-label="Daily operations">
-                <h3 class="section-title">Daily Operations</h3>
-                <div class="operations-scroll">
-                  @for (op of activeOperations(); track op.id) {
-                    <div
-                      class="operation-card"
-                      [class.operation-card--complete]="op.status === 'complete'"
-                      [class.operation-card--error]="op.status === 'error'"
-                      (click)="onOperationTap(op)"
-                      role="button"
-                      tabindex="0"
-                      [attr.aria-label]="'View logs for ' + op.label"
-                    >
-                      <div class="operation-icon">
-                        <nxt1-icon [name]="op.icon" [size]="16" />
-                      </div>
-                      <span class="operation-label">{{ op.label }}</span>
-                      @if (op.status === 'processing') {
-                        <div class="operation-progress">
-                          <div class="operation-progress-bar" [style.width.%]="op.progress"></div>
-                        </div>
-                      } @else if (op.status === 'complete') {
-                        <nxt1-icon name="checkCircle" [size]="14" className="operation-done" />
-                      }
-                    </div>
-                  }
-                </div>
-              </section>
-            }
           </section>
         }
       </div>
@@ -577,49 +463,50 @@ export interface AgentXUser {
         padding: var(--nxt1-spacing-6, 24px) 0 var(--nxt1-spacing-4, 16px);
       }
 
-      .briefing-status {
+      .briefing-top-badges {
         display: flex;
         align-items: center;
         gap: var(--nxt1-spacing-2, 8px);
         margin-bottom: var(--nxt1-spacing-5, 20px);
-        position: relative;
+        flex-wrap: wrap;
+      }
+
+      .header-badge {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        line-height: 1;
+        white-space: nowrap;
+        background: var(--agent-surface);
+        border: 1px solid var(--agent-border);
+      }
+
+      .header-badge.status-badge {
+        color: var(--agent-primary);
+        border-color: var(--agent-primary-glow);
+        background: var(--agent-primary-glow);
+      }
+
+      .header-badge.budget-badge {
+        color: var(--agent-text-primary);
+      }
+
+      .header-badge.goals-badge {
+        color: var(--agent-text-secondary);
       }
 
       .pulse-dot {
-        width: 8px;
-        height: 8px;
+        width: 6px;
+        height: 6px;
         border-radius: 50%;
         background: var(--agent-primary);
-      }
-
-      .pulse-ring {
-        position: absolute;
-        left: 0;
-        top: 50%;
-        transform: translateY(-50%);
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        border: 1.5px solid var(--agent-primary);
-        animation: pulse-expand 2s ease-out infinite;
-      }
-
-      @keyframes pulse-expand {
-        0% {
-          transform: translateY(-50%) scale(1);
-          opacity: 0.8;
-        }
-        100% {
-          transform: translateY(-50%) scale(3);
-          opacity: 0;
-        }
-      }
-
-      .status-label {
-        font-size: 12px;
-        font-weight: 600;
-        letter-spacing: 0.03em;
-        color: var(--agent-primary);
+        position: relative;
+        z-index: 2;
       }
 
       .briefing-greeting {
@@ -701,417 +588,131 @@ export interface AgentXUser {
         font-size: 13px;
         font-weight: 600;
         letter-spacing: 0.02em;
+        text-transform: uppercase;
         color: var(--agent-text-muted);
-        margin: 0 0 var(--nxt1-spacing-3, 12px);
+        margin: 0 0 var(--nxt1-spacing-4, 16px);
       }
 
       /* ──────────────────────────────────
-         3. WEEKLY PLAYBOOK (Timeline)
+         3. ACTION CARDS
          ────────────────────────────────── */
-      .playbook-section {
+      .action-cards-section {
         width: 100%;
         max-width: 480px;
         margin-bottom: var(--nxt1-spacing-6, 24px);
       }
 
-      .playbook-section-header {
+      .action-card {
         display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: var(--nxt1-spacing-2, 8px);
-        margin-bottom: var(--nxt1-spacing-3, 12px);
-      }
-
-      .playbook-section-header .section-title {
-        margin: 0;
-        flex-shrink: 0;
-      }
-
-      .playbook-title-row {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-2, 8px);
-        min-width: 0;
-        flex: 1;
-      }
-
-      /* Playbook Pill Tabs */
-      .playbook-pills {
-        display: flex;
-        gap: var(--nxt1-spacing-2, 8px);
-        margin-bottom: var(--nxt1-spacing-4, 16px);
-      }
-
-      .playbook-pill {
-        display: inline-flex;
-        align-items: center;
-        padding: 6px 16px;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        border: 1px solid var(--agent-border);
-        background: var(--agent-surface);
-        color: var(--agent-text-secondary);
-        font-size: 13px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.15s ease;
-        white-space: nowrap;
-      }
-
-      .playbook-pill:hover {
-        background: var(--agent-surface-hover);
-        border-color: var(--agent-text-muted);
-      }
-
-      .playbook-pill--active {
-        background: var(--agent-primary);
-        border-color: var(--agent-primary);
-        color: #000;
-      }
-
-      .playbook-pill--active:hover {
-        background: var(--agent-primary);
-        border-color: var(--agent-primary);
-        opacity: 0.9;
-      }
-
-      .playbook-create-goals {
-        margin-top: var(--nxt1-spacing-1, 4px);
-      }
-
-      .weekly-timeline {
-        list-style: none;
-        margin: 0;
-        padding: 0;
-        display: flex;
-        flex-direction: column;
+        align-items: flex-start;
         gap: var(--nxt1-spacing-3, 12px);
-      }
-
-      .timeline-item {
-        display: flex;
-        align-items: stretch;
-        gap: var(--nxt1-spacing-2, 8px);
-      }
-
-      .timeline-rail {
-        width: 18px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-      }
-
-      .timeline-marker {
-        width: 18px;
-        height: 18px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 50%;
-        margin-top: 9px;
-        background: var(--agent-surface);
-        border: 1px solid var(--agent-border);
-      }
-
-      .timeline-marker-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: var(--agent-primary);
-      }
-
-      .timeline-marker--pending {
-        border-color: color-mix(in srgb, var(--agent-primary) 40%, var(--agent-border));
-      }
-
-      .timeline-marker--in-progress {
-        border-color: var(--agent-primary);
-        background: var(--agent-primary-glow);
-        color: var(--agent-primary);
-      }
-
-      .timeline-marker--complete {
-        border-color: var(--nxt1-color-success, #4caf50);
-        background: color-mix(in srgb, var(--nxt1-color-success, #4caf50) 16%, transparent);
-        color: var(--nxt1-color-success, #4caf50);
-      }
-
-      .timeline-marker--problem {
-        border-color: var(--nxt1-color-warning, #ffb020);
-        background: color-mix(in srgb, var(--nxt1-color-warning, #ffb020) 16%, transparent);
-        color: var(--nxt1-color-warning, #ffb020);
-      }
-
-      .timeline-line {
-        flex: 1;
-        width: 1px;
-        margin-top: 6px;
-        background: var(--agent-border);
-      }
-
-      .timeline-card {
-        flex: 1;
+        padding: var(--nxt1-spacing-4, 16px);
         background: var(--agent-surface);
         border: 1px solid var(--agent-border);
         border-radius: var(--nxt1-radius-lg, 12px);
+        margin-bottom: var(--nxt1-spacing-3, 12px);
         transition:
-          border-color 0.2s ease,
-          background 0.2s ease;
-        overflow: hidden;
+          background 0.2s ease,
+          border-color 0.2s ease;
       }
 
-      .timeline-item--expanded .timeline-card,
-      .timeline-card:hover {
+      .action-card:hover {
         background: var(--agent-surface-hover);
-        border-color: var(--agent-primary);
       }
 
-      .timeline-toggle {
-        display: block;
-        width: 100%;
-        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
-        border: 0;
-        background: transparent;
-        color: inherit;
-        text-align: left;
-        cursor: pointer;
-      }
-
-      .timeline-toggle-top {
+      /* Core Icon Wrappers */
+      .card-icon-wrapper {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: var(--nxt1-spacing-2, 8px);
-        margin-bottom: 0;
-      }
-
-      .timeline-goal-tag {
-        display: inline-flex;
-        align-items: center;
-        padding: 2px 8px;
-        background: var(--agent-primary-glow);
-        border-radius: var(--nxt1-radius-full, 9999px);
-        color: var(--agent-primary);
-        font-size: 11px;
-        font-weight: 600;
-        white-space: nowrap;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
         flex-shrink: 0;
       }
 
-      .timeline-title {
-        font-size: 15px;
-        font-weight: 600;
-        color: var(--agent-text-primary);
-        margin: 0;
-        line-height: 1.3;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .timeline-summary {
-        font-size: 13px;
-        line-height: 1.4;
-        color: var(--agent-text-secondary);
-        margin: 0;
-      }
-
-      .timeline-details {
-        border-top: 1px solid var(--agent-border);
-        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
-      }
-
-      .timeline-details-text {
-        margin: 0 0 var(--nxt1-spacing-3, 12px);
-        font-size: 13px;
-        line-height: 1.45;
-        color: var(--agent-text-secondary);
-      }
-
-      .timeline-actions {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: var(--nxt1-spacing-2, 8px);
-      }
-
-      .timeline-status {
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.03em;
-        text-transform: uppercase;
-      }
-
-      .timeline-status--pending {
-        color: var(--agent-text-muted);
-      }
-
-      .timeline-status--in-progress {
+      /* Action variants */
+      .card-icon-wrapper.action {
+        background: var(--agent-primary-glow);
         color: var(--agent-primary);
       }
 
-      .timeline-status--complete {
+      /* Insight variants */
+      .card-icon-wrapper.insight {
+        background: rgba(33, 150, 243, 0.1);
+        color: #2196f3;
+      }
+      .action-card.insight .card-icon-wrapper {
+        background: rgba(33, 150, 243, 0.15);
+        color: #2196f3;
+      }
+
+      /* Bundle variants */
+      .card-icon-wrapper.bundle {
+        background: rgba(156, 39, 176, 0.1);
+        color: #9c27b0;
+      }
+      .action-card.bundle {
+        background: linear-gradient(145deg, var(--agent-surface), rgba(156, 39, 176, 0.05));
+        border-color: rgba(156, 39, 176, 0.2);
+      }
+
+      /* Progress variants */
+      .card-icon-wrapper.progress {
+        background: rgba(76, 175, 80, 0.1);
         color: #4caf50;
       }
 
-      .playbook-action-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 14px;
-        background: var(--agent-primary);
-        color: #000;
-        border: none;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        font-size: 13px;
+      /* System variants */
+      .card-icon-wrapper.system {
+        background: var(--agent-surface-hover);
+        color: var(--agent-text-secondary);
+      }
+
+      /* Layout */
+      .card-content {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .card-title {
+        font-size: 15px;
         font-weight: 600;
-        cursor: pointer;
-        transition: opacity 0.15s ease;
+        color: var(--agent-text-primary);
+        line-height: 1.4;
+        margin-bottom: var(--nxt1-spacing-2, 8px);
       }
 
-      .playbook-action-btn:hover {
-        opacity: 0.9;
-      }
-
-      /* Playbook Empty State ("Need a Game Plan") */
-      .playbook-empty {
+      /* Buttons */
+      .card-actions {
         display: flex;
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
-        padding: var(--nxt1-spacing-6, 24px) var(--nxt1-spacing-4, 16px);
-        background: var(--agent-surface);
-        border: 1px dashed color-mix(in srgb, var(--agent-primary) 35%, var(--agent-border));
-        border-radius: var(--nxt1-radius-lg, 12px);
+        flex-wrap: wrap;
+        gap: var(--nxt1-spacing-2, 8px);
+        margin-top: var(--nxt1-spacing-3, 12px);
       }
 
-      .playbook-empty-icon {
-        width: 48px;
-        height: 48px;
-        display: flex;
+      .action-btn {
+        display: inline-flex;
         align-items: center;
         justify-content: center;
-        border-radius: 50%;
-        background: var(--agent-primary-glow);
-        color: var(--agent-primary);
-        margin-bottom: var(--nxt1-spacing-3, 12px);
-      }
-
-      .playbook-empty-title {
-        font-size: 15px;
-        font-weight: 700;
-        color: var(--agent-text-primary);
-        margin: 0 0 var(--nxt1-spacing-1, 4px);
-      }
-
-      .playbook-empty-description {
-        font-size: 13px;
-        line-height: 1.45;
-        color: var(--agent-text-secondary);
-        margin: 0 0 var(--nxt1-spacing-4, 16px);
-        max-width: 300px;
-      }
-
-      .playbook-setup-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 10px 20px;
-        background: var(--agent-primary);
-        color: #000;
-        border: none;
+        padding: 6px 14px;
         border-radius: var(--nxt1-radius-full, 9999px);
-        font-size: 14px;
-        font-weight: 700;
+        font-size: 13px;
+        font-weight: 600;
         cursor: pointer;
         transition: opacity 0.15s ease;
+        border: none;
       }
-
-      .playbook-setup-btn:hover {
+      .action-btn:hover {
         opacity: 0.9;
       }
-
-      .playbook-setup-btn--secondary {
-        background: var(--agent-surface);
-        color: var(--agent-text-primary);
-        border: 1px solid var(--agent-border);
+      .action-btn.primary-btn {
+        background: var(--agent-primary);
+        color: #000;
       }
-
-      .playbook-title-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: var(--nxt1-spacing-3, 12px);
-      }
-
-      .playbook-regen-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        padding: 6px 12px;
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--agent-text-secondary);
-        background: var(--agent-surface);
-        border: 1px solid var(--agent-border);
-        border-radius: var(--nxt1-radius-full, 9999px);
-        cursor: pointer;
-        transition: all 0.15s ease;
-      }
-
-      .playbook-regen-btn:hover:not(:disabled) {
+      .action-btn.secondary-btn {
         background: var(--agent-surface-hover);
-        color: var(--agent-text-primary);
-      }
-
-      .playbook-regen-btn:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-      }
-
-      .regen-spinner {
-        display: inline-block;
-        width: 12px;
-        height: 12px;
-        border: 2px solid var(--agent-border);
-        border-top-color: var(--agent-text-secondary);
-        border-radius: 50%;
-        animation: spin 0.6s linear infinite;
-      }
-
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-
-      .goals-list {
-        list-style: none;
-        margin: 0 0 var(--nxt1-spacing-4, 16px);
-        padding: 0;
-        display: flex;
-        flex-direction: column;
-        gap: var(--nxt1-spacing-2, 8px);
-      }
-
-      .goal-item {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-3, 12px);
-        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
-        background: var(--agent-surface);
         border: 1px solid var(--agent-border);
-        border-radius: var(--nxt1-radius-md, 8px);
-      }
-
-      .goal-icon {
-        color: var(--agent-primary);
-        flex-shrink: 0;
-      }
-
-      .goal-text {
-        font-size: 14px;
-        font-weight: 500;
         color: var(--agent-text-primary);
       }
 
