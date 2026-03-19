@@ -168,6 +168,22 @@ async function getValidAccessToken(userId: string, tokens: EmailTokens): Promise
   }
 }
 
+// ─── Email Header Parsing ───────────────────────────────────────────────────
+
+/** RFC 2822 address pattern: "Display Name" <user@example.com> or user@example.com */
+const EMAIL_ADDRESS_PATTERN = /^(?:"?(.+?)"?\s+)?<?([^\s>]+@[^\s>]+)>?$/;
+
+/**
+ * Parse an RFC 2822 email address header into name and email components.
+ */
+function parseEmailAddress(raw: string): { name: string; email: string } {
+  const match = raw.trim().match(EMAIL_ADDRESS_PATTERN);
+  return {
+    name: match?.[1] ?? raw.trim(),
+    email: match?.[2] ?? raw.trim(),
+  };
+}
+
 // ─── Gmail API ──────────────────────────────────────────────────────────────
 
 /**
@@ -229,22 +245,16 @@ async function fetchGmailMessages(
       }
 
       // Parse From header
-      const fromHeader = headers['From'] ?? '';
-      const fromMatch = fromHeader.match(/^(?:"?(.+?)"?\s+)?<?([^\s>]+)>?$/);
-      const fromName = fromMatch?.[1] ?? fromHeader;
-      const fromEmail = fromMatch?.[2] ?? fromHeader;
+      const from = parseEmailAddress(headers['From'] ?? '');
 
       // Parse To header
       const toHeader = headers['To'] ?? '';
-      const toRecipients = toHeader.split(',').map((t) => {
-        const m = t.trim().match(/^(?:"?(.+?)"?\s+)?<?([^\s>]+)>?$/);
-        return { name: m?.[1] ?? t.trim(), email: m?.[2] ?? t.trim() };
-      });
+      const toRecipients = toHeader.split(',').map((t) => parseEmailAddress(t));
 
       results.push({
         externalMessageId: msg.id,
         externalThreadId: msg.threadId,
-        from: { email: fromEmail, name: fromName },
+        from,
         to: toRecipients,
         subject: headers['Subject'] ?? '(No Subject)',
         bodyText: bodyText || '(No content)',
@@ -509,7 +519,9 @@ export async function syncUserEmails(userId: string, provider: EmailProvider): P
         { upsert: true, new: true, setDefaultsOnInsert: true }
       );
 
-      // Upsert messages
+      // Upsert messages — track newly synced inbound messages for unread count
+      let newInboundCount = 0;
+
       for (const email of threadEmails) {
         const isOwn = email.from.email.toLowerCase() === userEmail;
 
@@ -540,14 +552,16 @@ export async function syncUserEmails(userId: string, provider: EmailProvider): P
         });
 
         result.synced++;
+        if (!isOwn) newInboundCount++;
       }
 
-      // Update unread count: count messages not sent by user
-      const unreadMsgs = threadEmails.filter((e) => e.from.email.toLowerCase() !== userEmail);
-      await ConversationModel.updateOne(
-        { _id: conversation._id },
-        { $set: { [`unreadCounts.${userId}`]: unreadMsgs.length } }
-      );
+      // Increment unread count only for newly synced inbound messages
+      if (newInboundCount > 0) {
+        await ConversationModel.updateOne(
+          { _id: conversation._id },
+          { $inc: { [`unreadCounts.${userId}`]: newInboundCount } }
+        );
+      }
     } catch (err) {
       result.errors++;
       logger.error(`[EmailSync] Thread upsert failed`, {

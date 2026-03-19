@@ -15,7 +15,7 @@ import { appGuard } from '../middleware/auth.middleware.js';
 import { logger } from '../utils/logger.js';
 import * as messagesService from '../services/messages.service.js';
 import { syncAllUserEmails } from '../services/email-sync.service.js';
-import type { MessagesFilterId } from '@nxt1/core';
+import { type MessagesFilterId, MESSAGES_UI_CONFIG } from '@nxt1/core';
 
 const router = Router();
 
@@ -119,8 +119,11 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    if (body.length > 2000) {
-      res.status(400).json({ success: false, error: 'Message exceeds 2000 character limit' });
+    if (body.length > MESSAGES_UI_CONFIG.maxMessageLength) {
+      res.status(400).json({
+        success: false,
+        error: `Message exceeds ${MESSAGES_UI_CONFIG.maxMessageLength} character limit`,
+      });
       return;
     }
 

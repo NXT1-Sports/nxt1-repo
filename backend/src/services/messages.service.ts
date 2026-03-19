@@ -76,8 +76,8 @@ function mapMessage(doc: IMessage & { _id: unknown }, userId: string): Message {
     timestamp: doc.createdAt,
     status: doc.status,
     isOwn: doc.sender.userId === userId,
-    attachments: doc.attachments?.map((a) => ({
-      id: `att-${Date.now()}`,
+    attachments: doc.attachments?.map((a, index) => ({
+      id: `${String(doc._id)}-att-${index}`,
       type: a.type,
       name: a.name,
       url: a.url,
@@ -191,7 +191,15 @@ export async function getThread(
   if (!doc) {
     return {
       success: false,
-      conversation: {} as Conversation,
+      conversation: {
+        id: conversationId,
+        type: 'direct',
+        title: '',
+        participants: [],
+        unreadCount: 0,
+        createdAt: '',
+        updatedAt: '',
+      },
       messages: [],
       pagination: buildPagination(1, limit, 0),
       error: 'Conversation not found',
