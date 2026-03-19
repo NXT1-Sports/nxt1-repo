@@ -29,8 +29,6 @@ import type {
   ShellWeeklyPlaybookItem,
   ShellBriefingInsight,
   OperationLogEntry,
-  OperationLogStatus,
-  OperationLogCategory,
   AgentThreadCategory,
 } from '@nxt1/core';
 import { getShellContentForRole } from '@nxt1/core';
@@ -38,6 +36,13 @@ import type { AgentChatService } from '../modules/agent/services/agent-chat.serv
 import type { ContextBuilder } from '../modules/agent/memory/context-builder.js';
 import type { OpenRouterService } from '../modules/agent/llm/openrouter.service.js';
 import { logger } from '../utils/logger.js';
+import {
+  validateJobOrigin,
+  mapJobStatus,
+  inferCategory,
+  iconForCategory,
+  computeDuration,
+} from './operations-log.helpers.js';
 
 /** Extract the authenticated user from the request (set by appGuard). */
 function getAuthUser(req: Request): { uid: string } | undefined {
@@ -326,110 +331,8 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
 });
 
 // ─── GET /operations-log — Formatted operations activity log ──────────────
-
-/**
- * Maps the raw AgentOperationStatus from Firestore to the display-friendly
- * OperationLogStatus used by the frontend bottom sheet component.
- */
-function mapJobStatus(status: string): OperationLogStatus {
-  switch (status) {
-    case 'completed':
-      return 'complete';
-    case 'failed':
-      return 'error';
-    case 'cancelled':
-      return 'cancelled';
-    default:
-      return 'in-progress';
-  }
-}
-
-/** Infer an operation category from the job intent text. */
-function inferCategory(intent: string): OperationLogCategory {
-  const lower = intent.toLowerCase();
-  if (
-    lower.includes('email') ||
-    lower.includes('outreach') ||
-    lower.includes('coach') ||
-    lower.includes('send')
-  )
-    return 'outreach';
-  if (
-    lower.includes('highlight') ||
-    lower.includes('graphic') ||
-    lower.includes('video') ||
-    lower.includes('reel') ||
-    lower.includes('post') ||
-    lower.includes('brand')
-  )
-    return 'content';
-  if (
-    lower.includes('film') ||
-    lower.includes('game') ||
-    lower.includes('footage') ||
-    lower.includes('play')
-  )
-    return 'film';
-  if (
-    lower.includes('recruit') ||
-    lower.includes('camp') ||
-    lower.includes('ncaa') ||
-    lower.includes('transfer') ||
-    lower.includes('prospect')
-  )
-    return 'recruiting';
-  if (
-    lower.includes('stat') ||
-    lower.includes('analytics') ||
-    lower.includes('report') ||
-    lower.includes('scout') ||
-    lower.includes('compare')
-  )
-    return 'analytics';
-  if (
-    lower.includes('profile') ||
-    lower.includes('bio') ||
-    lower.includes('photo') ||
-    lower.includes('gpa') ||
-    lower.includes('academic')
-  )
-    return 'profile';
-  return 'system';
-}
-
-/** Pick an icon based on category. */
-function iconForCategory(category: OperationLogCategory): string {
-  switch (category) {
-    case 'outreach':
-      return 'mail';
-    case 'content':
-      return 'sparkles';
-    case 'film':
-      return 'videocam';
-    case 'recruiting':
-      return 'school';
-    case 'analytics':
-      return 'barChart';
-    case 'profile':
-      return 'person';
-    case 'system':
-      return 'settings';
-  }
-}
-
-/** Compute a human-readable duration between two Firestore Timestamps. */
-function computeDuration(
-  createdAt: Timestamp | undefined,
-  completedAt: Timestamp | undefined | null
-): string | undefined {
-  if (!createdAt || !completedAt) return undefined;
-  const diffMs = completedAt.toMillis() - createdAt.toMillis();
-  if (diffMs <= 0) return '0m 00s';
-  const totalSeconds = Math.floor(diffMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
-}
+// Helper functions (validateJobOrigin, mapJobStatus, inferCategory,
+// iconForCategory, computeDuration) are imported from ./operations-log.helpers.ts
 
 router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
   try {
@@ -445,7 +348,9 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     }
 
     const limitParam = req.query['limit'];
-    const limit = Math.min(parseInt(typeof limitParam === 'string' ? limitParam : '50') || 50, 100);
+    const rawLimit = typeof limitParam === 'string' ? Number(limitParam) : NaN;
+    const limit =
+      Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 100) : 50;
 
     const { db } = req.firebase!;
 
@@ -463,16 +368,26 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     }
 
     const entries: OperationLogEntry[] = [];
+    // Track thread IDs already represented by a Firestore job so MongoDB threads
+    // are only added for conversations that have no recent Firestore job entry.
+    const representedThreadIds = new Set<string>();
 
     for (const job of jobs) {
       const intent = (job['intent'] as string) ?? '';
       if (!intent) continue; // skip malformed documents
 
-      const status = mapJobStatus((job['status'] as string) ?? '');
+      const status = mapJobStatus((job['status'] as string) ?? '', (raw) =>
+        logger.warn('Unknown job status mapped to in-progress', { status: raw })
+      );
       const category = inferCategory(intent);
       const createdAt = job['createdAt'] as Timestamp | undefined;
       const completedAt = job['completedAt'] as Timestamp | undefined | null;
       const result = job['result'] as { summary?: string } | null | undefined;
+      const jobOrigin = validateJobOrigin(job['origin']);
+      const isScheduled = jobOrigin !== 'user';
+      const threadId = (job['threadId'] as string) ?? undefined;
+
+      if (threadId) representedThreadIds.add(threadId);
 
       entries.push({
         id: (job['operationId'] as string) ?? '',
@@ -487,13 +402,71 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
           ? new Date(createdAt.toMillis()).toISOString()
           : new Date().toISOString(),
         duration: computeDuration(createdAt, completedAt),
-        threadId: (job['threadId'] as string) ?? undefined,
+        threadId,
+        origin: jobOrigin,
+        isScheduled,
         metadata: {
-          origin: job['origin'],
+          // 'origin' is promoted to a top-level field on OperationLogEntry.
+          // 'agent' remains here as supplementary detail (not standardised across all entry types).
           agent: (result as Record<string, unknown> | null)?.['agent'] ?? null,
         },
       });
     }
+
+    // ── Augment with MongoDB threads not yet in the Firestore result ──────────
+    // This surfaces older conversations whose Firestore job TTL has expired,
+    // as well as threads created directly (not via a queued job).
+    if (chatService) {
+      try {
+        const threadResult = await chatService.getUserThreads({
+          userId: user.uid,
+          archived: false,
+          limit,
+        });
+        const threads = threadResult.items ?? [];
+        const threadsHasMore = threadResult.hasMore ?? false;
+
+        if (threadsHasMore) {
+          logger.warn('Operations log thread augmentation truncated — consider increasing limit', {
+            userId: user.uid,
+            displayedCount: threads.length,
+            limit,
+          });
+        }
+
+        for (const thread of threads) {
+          if (!thread.id || representedThreadIds.has(thread.id)) continue;
+
+          const category = inferCategory(thread.title);
+          entries.push({
+            id: thread.id,
+            title: thread.title.slice(0, 120),
+            summary: `${thread.messageCount} message${thread.messageCount !== 1 ? 's' : ''} · ${thread.category ?? 'general'}`,
+            icon: iconForCategory(category),
+            status: 'complete',
+            category,
+            timestamp: thread.lastMessageAt,
+            threadId: thread.id,
+            origin: 'user',
+            isScheduled: false,
+            metadata: {
+              source: 'thread',
+              messageCount: thread.messageCount,
+              threadCategory: thread.category ?? null,
+            },
+          });
+        }
+      } catch (threadErr) {
+        // Thread augmentation must never block the primary Firestore result
+        logger.warn('Failed to augment operations log with MongoDB threads', {
+          userId: user.uid,
+          error: threadErr instanceof Error ? threadErr.message : String(threadErr),
+        });
+      }
+    }
+
+    // Sort merged entries by timestamp descending (newest first)
+    entries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
     logger.info('Operations log fetched', { userId: user.uid, count: entries.length });
     res.json({ success: true, data: entries });

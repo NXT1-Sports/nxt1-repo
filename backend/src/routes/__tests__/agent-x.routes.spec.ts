@@ -22,10 +22,11 @@ describe('Agent X Routes', () => {
         { path: '/status/:id', method: 'get' },
         { path: '/cancel/:id', method: 'post' },
         { path: '/history', method: 'get' },
+        { path: '/operations-log', method: 'get' },
         { path: '/dashboard', method: 'get' },
         { path: '/threads', method: 'get' },
       ],
-      6
+      7
     );
   });
 });

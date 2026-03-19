@@ -37,7 +37,7 @@ import {
   computed,
   output,
 } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../components/icon/icon.component';
@@ -65,7 +65,7 @@ interface OperationDayGroup {
 
 /** Filter chip definition. */
 interface StatusFilter {
-  readonly id: OperationLogStatus | 'all';
+  readonly id: OperationLogStatus | 'all' | 'scheduled';
   readonly label: string;
 }
 
@@ -79,6 +79,7 @@ const STATUS_FILTERS: readonly StatusFilter[] = [
   { id: 'in-progress', label: 'Active' },
   { id: 'error', label: 'Failed' },
   { id: 'cancelled', label: 'Cancelled' },
+  { id: 'scheduled', label: 'Scheduled' },
 ] as const;
 
 // ============================================
@@ -95,6 +96,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
   DAY_GROUP: 'operations-log-day-group',
   ENTRY: 'operations-log-entry',
   EMPTY_STATE: 'operations-log-empty',
+  ERROR_STATE: 'operations-log-error',
   SKELETON: 'operations-log-skeleton',
 } as const;
 
@@ -170,6 +172,19 @@ export const OPERATIONS_LOG_TEST_IDS = {
             <div class="log-skeleton__time"></div>
           </div>
         }
+      } @else if (error()) {
+        <!-- Error State -->
+        <div class="log-empty" [attr.data-testid]="testIds.ERROR_STATE">
+          <div class="log-empty-icon log-empty-icon--error">
+            <nxt1-icon name="alertCircle" [size]="32" />
+          </div>
+          <h3 class="log-empty-title">Couldn't load operations</h3>
+          <p class="log-empty-message">{{ error() }}</p>
+          <button type="button" class="log-retry-button" (click)="loadOperations()">
+            <nxt1-icon name="refresh" [size]="14" />
+            Retry
+          </button>
+        </div>
       } @else if (filteredGroups().length === 0) {
         <!-- Empty State -->
         <div class="log-empty" [attr.data-testid]="testIds.EMPTY_STATE">
@@ -242,6 +257,12 @@ export const OPERATIONS_LOG_TEST_IDS = {
                       <span class="log-entry-duration">
                         <nxt1-icon name="time" [size]="10" />
                         {{ entry.duration }}
+                      </span>
+                    }
+                    @if (entry.isScheduled) {
+                      <span class="log-entry-scheduled">
+                        <nxt1-icon name="timer" [size]="10" />
+                        Scheduled
                       </span>
                     }
                   </div>
@@ -595,6 +616,20 @@ export const OPERATIONS_LOG_TEST_IDS = {
         color: var(--log-text-muted);
       }
 
+      .log-entry-scheduled {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--log-primary);
+        background: var(--log-primary-glow);
+        padding: 2px 6px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+
       /* ═══ SKELETON ═══ */
       .log-skeleton {
         display: flex;
@@ -691,6 +726,11 @@ export const OPERATIONS_LOG_TEST_IDS = {
         margin-bottom: var(--nxt1-spacing-4, 16px);
       }
 
+      .log-empty-icon--error {
+        background: color-mix(in srgb, var(--log-error) 12%, transparent);
+        color: var(--log-error);
+      }
+
       .log-empty-title {
         font-size: 16px;
         font-weight: 600;
@@ -704,6 +744,29 @@ export const OPERATIONS_LOG_TEST_IDS = {
         color: var(--log-text-secondary);
         margin: 0;
         max-width: 240px;
+      }
+
+      .log-retry-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: var(--nxt1-spacing-4, 16px);
+        padding: 8px 16px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--log-primary);
+        background: var(--log-primary-glow);
+        border: 1px solid color-mix(in srgb, var(--log-primary) 20%, transparent);
+        border-radius: var(--nxt1-radius-full, 9999px);
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease;
+      }
+
+      .log-retry-button:hover {
+        background: color-mix(in srgb, var(--log-primary) 16%, transparent);
+        border-color: color-mix(in srgb, var(--log-primary) 30%, transparent);
       }
     `,
   ],
@@ -742,11 +805,13 @@ export class AgentXOperationsLogComponent {
 
   private readonly _loading = signal(true);
   private readonly _operations = signal<readonly OperationLogEntry[]>([]);
-  private readonly _activeFilter = signal<OperationLogStatus | 'all'>('all');
+  private readonly _activeFilter = signal<OperationLogStatus | 'all' | 'scheduled'>('all');
+  private readonly _error = signal<string | null>(null);
 
   protected readonly loading = computed(() => this._loading());
   protected readonly operations = computed(() => this._operations());
   protected readonly activeFilter = computed(() => this._activeFilter());
+  protected readonly error = computed(() => this._error());
   protected readonly statusFilters = STATUS_FILTERS;
 
   // ============================================
@@ -771,11 +836,19 @@ export class AgentXOperationsLogComponent {
     () => this._operations().filter((o) => o.status === 'error').length
   );
 
-  /** Filtered operations based on active filter. */
+  /**
+   * Filtered operations based on the active filter chip.
+   *
+   * Filter semantics:
+   * - `'all'`         → all entries, no filtering
+   * - `'scheduled'`   → entries where `isScheduled === true` (autonomous/cron-triggered)
+   * - status filters  → entries matching the exact `status` field
+   */
   protected readonly filteredOperations = computed(() => {
     const filter = this._activeFilter();
     const ops = this._operations();
     if (filter === 'all') return ops;
+    if (filter === 'scheduled') return ops.filter((o) => o.isScheduled === true);
     return ops.filter((o) => o.status === filter);
   });
 
@@ -810,8 +883,9 @@ export class AgentXOperationsLogComponent {
   }
 
   /** Fetch operations from the backend API. */
-  private async loadOperations(): Promise<void> {
+  protected async loadOperations(): Promise<void> {
     this._loading.set(true);
+    this._error.set(null);
     this.logger.info('Loading operations log');
     this.breadcrumb.trackStateChange('operations-log: loading');
     this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATIONS_LOG_VIEWED);
@@ -826,18 +900,35 @@ export class AgentXOperationsLogComponent {
         this.breadcrumb.trackStateChange('operations-log: loaded', { count: response.data.length });
       } else {
         this.logger.warn('Operations log returned empty', { error: response.error });
+        this._error.set(response.error ?? 'No data returned');
         this._operations.set([]);
       }
     } catch (err) {
-      this.logger.error('Failed to load operations log', err);
+      const msg = this.classifyError(err);
+      this.logger.error('Failed to load operations log', { error: msg });
+      this._error.set(msg);
       this._operations.set([]);
     } finally {
       this._loading.set(false);
     }
   }
 
+  /**
+   * Classifies an error into a user-friendly message based on its type.
+   * Handles network failures, auth errors, and generic API errors distinctly.
+   */
+  private classifyError(err: unknown): string {
+    if (err instanceof HttpErrorResponse) {
+      if (err.status === 0) return 'Network error — check your connection';
+      if (err.status === 401 || err.status === 403) return 'Session expired — please sign in again';
+      if (err.status >= 500) return 'Server error — try again in a moment';
+      return err.error?.error ?? `Request failed (${err.status})`;
+    }
+    return err instanceof Error ? err.message : 'Failed to load operations';
+  }
+
   /** Set active filter with haptic and tracking. */
-  protected async onFilterTap(filter: OperationLogStatus | 'all'): Promise<void> {
+  protected async onFilterTap(filter: OperationLogStatus | 'all' | 'scheduled'): Promise<void> {
     await this.haptics.impact('light');
     this._activeFilter.set(filter);
     this.logger.info('Filter applied', { filter });
@@ -845,8 +936,9 @@ export class AgentXOperationsLogComponent {
   }
 
   /** Get count for a specific filter. */
-  protected getFilterCount(status: OperationLogStatus | 'all'): number {
+  protected getFilterCount(status: OperationLogStatus | 'all' | 'scheduled'): number {
     if (status === 'all') return this.totalCount();
+    if (status === 'scheduled') return this._operations().filter((o) => o.isScheduled).length;
     return this._operations().filter((o) => o.status === status).length;
   }
 

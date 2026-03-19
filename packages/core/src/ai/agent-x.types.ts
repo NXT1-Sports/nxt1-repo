@@ -7,6 +7,8 @@
  * 100% portable - works on web, mobile, and backend.
  */
 
+import type { AgentJobOrigin } from './agent.types';
+
 // ============================================
 // CHAT TYPES
 // ============================================
@@ -424,11 +426,40 @@ export interface OperationLogEntry {
   readonly icon: string;
   readonly status: OperationLogStatus;
   readonly category: OperationLogCategory;
+  /** ISO-8601 timestamp for display ordering and day-grouping. */
   readonly timestamp: string;
+  /** Human-readable duration string (e.g. `"2m 15s"`). Only present for completed operations. */
   readonly duration?: string;
   /** MongoDB thread ID linking to the Agent X conversation for this operation. */
   readonly threadId?: string;
-  readonly metadata?: Record<string, unknown>;
+  /**
+   * How this operation was initiated.
+   * - `'user'` — direct user prompt in chat UI
+   * - `'system_cron'` — scheduled task (daily briefing, weekly recap)
+   * - `'database_event'` — Firestore/MongoDB change stream trigger
+   * - `'webhook'` — external webhook (Stripe, MaxPreps, etc.)
+   * - `'agent_chain'` — another agent spawned this job
+   */
+  readonly origin?: AgentJobOrigin;
+  /**
+   * `true` when the operation was initiated automatically (not by the user directly).
+   * Derived from origin: any non-`'user'` origin is considered scheduled/automated.
+   */
+  readonly isScheduled?: boolean;
+  /**
+   * Supplementary context for this entry. Shape varies by source:
+   *
+   * Firestore job entries:
+   * ```ts
+   * { agent?: string | null }
+   * ```
+   *
+   * MongoDB thread entries:
+   * ```ts
+   * { source: 'thread'; messageCount: number; threadCategory: string | null }
+   * ```
+   */
+  readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
 /** API response for the operations log endpoint. */

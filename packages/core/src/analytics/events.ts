@@ -694,6 +694,7 @@ export const APP_EVENTS = {
   AGENT_X_MESSAGE_SENT: 'agent_x_message_sent',
   /** User executed a playbook action */
   AGENT_X_PLAYBOOK_ACTION_EXECUTED: 'agent_x_playbook_action_executed',
+  AGENT_X_ACTION_CARD_EXECUTED: 'agent_x_action_card_executed',
   /** User opened the operations activity log */
   AGENT_X_OPERATIONS_LOG_VIEWED: 'agent_x_operations_log_viewed',
   /** User tapped an entry in the operations log */
