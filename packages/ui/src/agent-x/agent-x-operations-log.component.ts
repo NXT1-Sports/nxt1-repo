@@ -37,7 +37,7 @@ import {
   computed,
   output,
 } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../components/icon/icon.component';
@@ -179,7 +179,11 @@ export const OPERATIONS_LOG_TEST_IDS = {
             <nxt1-icon name="alertCircle" [size]="32" />
           </div>
           <h3 class="log-empty-title">Couldn't load operations</h3>
-          <p class="log-empty-message">Check your connection and try again.</p>
+          <p class="log-empty-message">{{ error() }}</p>
+          <button type="button" class="log-retry-button" (click)="loadOperations()">
+            <nxt1-icon name="refresh" [size]="14" />
+            Retry
+          </button>
         </div>
       } @else if (filteredGroups().length === 0) {
         <!-- Empty State -->
@@ -741,6 +745,29 @@ export const OPERATIONS_LOG_TEST_IDS = {
         margin: 0;
         max-width: 240px;
       }
+
+      .log-retry-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: var(--nxt1-spacing-4, 16px);
+        padding: 8px 16px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--log-primary);
+        background: var(--log-primary-glow);
+        border: 1px solid color-mix(in srgb, var(--log-primary) 20%, transparent);
+        border-radius: var(--nxt1-radius-full, 9999px);
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease;
+      }
+
+      .log-retry-button:hover {
+        background: color-mix(in srgb, var(--log-primary) 16%, transparent);
+        border-color: color-mix(in srgb, var(--log-primary) 30%, transparent);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -856,7 +883,7 @@ export class AgentXOperationsLogComponent {
   }
 
   /** Fetch operations from the backend API. */
-  private async loadOperations(): Promise<void> {
+  protected async loadOperations(): Promise<void> {
     this._loading.set(true);
     this._error.set(null);
     this.logger.info('Loading operations log');
@@ -873,17 +900,31 @@ export class AgentXOperationsLogComponent {
         this.breadcrumb.trackStateChange('operations-log: loaded', { count: response.data.length });
       } else {
         this.logger.warn('Operations log returned empty', { error: response.error });
-        this._error.set(response.error ?? null);
+        this._error.set(response.error ?? 'No data returned');
         this._operations.set([]);
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to load operations';
+      const msg = this.classifyError(err);
       this.logger.error('Failed to load operations log', { error: msg });
       this._error.set(msg);
       this._operations.set([]);
     } finally {
       this._loading.set(false);
     }
+  }
+
+  /**
+   * Classifies an error into a user-friendly message based on its type.
+   * Handles network failures, auth errors, and generic API errors distinctly.
+   */
+  private classifyError(err: unknown): string {
+    if (err instanceof HttpErrorResponse) {
+      if (err.status === 0) return 'Network error — check your connection';
+      if (err.status === 401 || err.status === 403) return 'Session expired — please sign in again';
+      if (err.status >= 500) return 'Server error — try again in a moment';
+      return err.error?.error ?? `Request failed (${err.status})`;
+    }
+    return err instanceof Error ? err.message : 'Failed to load operations';
   }
 
   /** Set active filter with haptic and tracking. */

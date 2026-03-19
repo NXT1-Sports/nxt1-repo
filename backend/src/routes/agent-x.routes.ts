@@ -29,8 +29,6 @@ import type {
   ShellWeeklyPlaybookItem,
   ShellBriefingInsight,
   OperationLogEntry,
-  OperationLogStatus,
-  OperationLogCategory,
   AgentThreadCategory,
 } from '@nxt1/core';
 import { getShellContentForRole } from '@nxt1/core';
@@ -38,6 +36,13 @@ import type { AgentChatService } from '../modules/agent/services/agent-chat.serv
 import type { ContextBuilder } from '../modules/agent/memory/context-builder.js';
 import type { OpenRouterService } from '../modules/agent/llm/openrouter.service.js';
 import { logger } from '../utils/logger.js';
+import {
+  validateJobOrigin,
+  mapJobStatus,
+  inferCategory,
+  iconForCategory,
+  computeDuration,
+} from './operations-log.helpers.js';
 
 /** Extract the authenticated user from the request (set by appGuard). */
 function getAuthUser(req: Request): { uid: string } | undefined {
@@ -326,117 +331,8 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
 });
 
 // ─── GET /operations-log — Formatted operations activity log ──────────────
-
-/**
- * Validates and coerces a raw Firestore string to a typed {@link AgentJobOrigin}.
- * Protects against stale or invalid data written to Firestore before the enum
- * was fully enforced. Returns `'user'` as a safe default for unrecognised values.
- */
-const VALID_JOB_ORIGINS: ReadonlySet<AgentJobOrigin> = new Set([
-  'user',
-  'system_cron',
-  'database_event',
-  'webhook',
-  'agent_chain',
-]);
-
-function validateJobOrigin(value: unknown): AgentJobOrigin {
-  if (typeof value === 'string' && VALID_JOB_ORIGINS.has(value as AgentJobOrigin)) {
-    return value as AgentJobOrigin;
-  }
-  return 'user';
-}
-
-/**
- * Maps Firestore {@link AgentOperationStatus} to the display-friendly
- * {@link OperationLogStatus} consumed by the frontend bottom sheet.
- *
- * Any unrecognised status (e.g. `'queued'`, `'thinking'`, `'acting'`) is treated as
- * `'in-progress'` so the UI shows a spinner while the job is active.
- */
-function mapJobStatus(status: string): OperationLogStatus {
-  switch (status) {
-    case 'completed':
-      return 'complete';
-    case 'failed':
-      return 'error';
-    case 'cancelled':
-      return 'cancelled';
-    default:
-      return 'in-progress';
-  }
-}
-
-/**
- * Infers the best-fit {@link OperationLogCategory} from a job intent string
- * using keyword matching.  Matching is case-insensitive and first-match wins.
- *
- * Category → keywords:
- * - `outreach`   → email, outreach, coach, send
- * - `content`    → highlight, graphic, video, reel, post, brand
- * - `film`       → film, game, footage, play
- * - `recruiting` → recruit, camp, ncaa, transfer, prospect
- * - `analytics`  → stat, analytics, report, scout, compare
- * - `profile`    → profile, bio, photo, gpa, academic
- * - `system`     → (default / fallback)
- */
-const CATEGORY_KEYWORDS: ReadonlyArray<{
-  readonly category: OperationLogCategory;
-  readonly keywords: readonly string[];
-}> = [
-  { category: 'outreach', keywords: ['email', 'outreach', 'coach', 'send'] },
-  { category: 'content', keywords: ['highlight', 'graphic', 'video', 'reel', 'post', 'brand'] },
-  { category: 'film', keywords: ['film', 'game', 'footage', 'play'] },
-  { category: 'recruiting', keywords: ['recruit', 'camp', 'ncaa', 'transfer', 'prospect'] },
-  { category: 'analytics', keywords: ['stat', 'analytics', 'report', 'scout', 'compare'] },
-  { category: 'profile', keywords: ['profile', 'bio', 'photo', 'gpa', 'academic'] },
-];
-
-function inferCategory(intent: string): OperationLogCategory {
-  const lower = intent.toLowerCase();
-  for (const { category, keywords } of CATEGORY_KEYWORDS) {
-    if (keywords.some((kw) => lower.includes(kw))) return category;
-  }
-  return 'system';
-}
-
-/**
- * Returns the icon name for an {@link OperationLogCategory}.
- * Uses an exhaustive record lookup to guarantee a return value for every category.
- */
-const CATEGORY_ICONS: Record<OperationLogCategory, string> = {
-  outreach: 'mail',
-  content: 'sparkles',
-  film: 'videocam',
-  recruiting: 'school',
-  analytics: 'barChart',
-  profile: 'person',
-  system: 'settings',
-};
-
-function iconForCategory(category: OperationLogCategory): string {
-  return CATEGORY_ICONS[category];
-}
-
-/**
- * Computes a human-readable duration string between two Firestore Timestamps.
- *
- * @param createdAt   - Operation start timestamp
- * @param completedAt - Operation end timestamp; `null` = still running
- * @returns `"Xm YYs"` string, or `undefined` if timestamps are absent or invalid
- */
-function computeDuration(
-  createdAt: Timestamp | undefined,
-  completedAt: Timestamp | undefined | null
-): string | undefined {
-  if (!createdAt || !completedAt) return undefined;
-  const diffMs = completedAt.toMillis() - createdAt.toMillis();
-  if (diffMs <= 0) return '0m 00s';
-  const totalSeconds = Math.floor(diffMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
-}
+// Helper functions (validateJobOrigin, mapJobStatus, inferCategory,
+// iconForCategory, computeDuration) are imported from ./operations-log.helpers.ts
 
 router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
   try {
@@ -452,7 +348,9 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     }
 
     const limitParam = req.query['limit'];
-    const limit = Math.min(parseInt(typeof limitParam === 'string' ? limitParam : '50') || 50, 100);
+    const rawLimit = typeof limitParam === 'string' ? Number(limitParam) : NaN;
+    const limit =
+      Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 100) : 50;
 
     const { db } = req.firebase!;
 
@@ -478,7 +376,9 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       const intent = (job['intent'] as string) ?? '';
       if (!intent) continue; // skip malformed documents
 
-      const status = mapJobStatus((job['status'] as string) ?? '');
+      const status = mapJobStatus((job['status'] as string) ?? '', (raw) =>
+        logger.warn('Unknown job status mapped to in-progress', { status: raw })
+      );
       const category = inferCategory(intent);
       const createdAt = job['createdAt'] as Timestamp | undefined;
       const completedAt = job['completedAt'] as Timestamp | undefined | null;
@@ -518,11 +418,13 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     // as well as threads created directly (not via a queued job).
     if (chatService) {
       try {
-        const { items: threads, hasMore: threadsHasMore } = await chatService.getUserThreads({
+        const threadResult = await chatService.getUserThreads({
           userId: user.uid,
           archived: false,
           limit,
         });
+        const threads = threadResult.items ?? [];
+        const threadsHasMore = threadResult.hasMore ?? false;
 
         if (threadsHasMore) {
           logger.warn('Operations log thread augmentation truncated — consider increasing limit', {
@@ -533,7 +435,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
         }
 
         for (const thread of threads) {
-          if (representedThreadIds.has(thread.id)) continue;
+          if (!thread.id || representedThreadIds.has(thread.id)) continue;
 
           const category = inferCategory(thread.title);
           entries.push({
