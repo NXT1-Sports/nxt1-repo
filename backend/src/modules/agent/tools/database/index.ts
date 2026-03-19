@@ -20,3 +20,4 @@ export { WriteSeasonStatsTool } from './write-season-stats.tool.js';
 export { WriteRecruitingActivityTool } from './write-recruiting-activity.tool.js';
 export { WriteCalendarEventsTool } from './write-calendar-events.tool.js';
 export { WriteAthleteVideosTool } from './write-athlete-videos.tool.js';
+export { SearchKnowledgeBaseTool } from './search-knowledge-base.tool.js';

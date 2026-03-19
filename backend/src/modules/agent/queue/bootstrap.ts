@@ -43,9 +43,12 @@ import {
   WriteRecruitingActivityTool,
   WriteCalendarEventsTool,
   WriteAthleteVideosTool,
+  SearchKnowledgeBaseTool,
 } from '../tools/database/index.js';
 import { GenerateImageTool } from '../tools/media/index.js';
+import { WebSearchTool } from '../tools/integrations/web-search.tool.js';
 import { ContextBuilder } from '../memory/context-builder.js';
+import { VectorMemoryService } from '../memory/vector.service.js';
 import { AgentChatService } from '../services/agent-chat.service.js';
 import { TelemetryService } from '../services/telemetry.service.js';
 import { GuardrailRunner } from '../guardrails/guardrail-runner.js';
@@ -103,6 +106,12 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteCalendarEventsTool(stagingDb));
   toolRegistry.register(new WriteAthleteVideosTool(stagingDb));
   toolRegistry.register(new GenerateImageTool(llm));
+
+  // ── 1a. Vector memory & knowledge tools ──────────────────────────────
+  const vectorMemory = new VectorMemoryService(llm);
+  toolRegistry.register(new WebSearchTool());
+  toolRegistry.register(new SearchKnowledgeBaseTool(vectorMemory));
+
   const contextBuilder = new ContextBuilder();
 
   // ── 1b. Guardrails (safety layer) ───────────────────────────────────

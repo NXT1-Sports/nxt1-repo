@@ -618,6 +618,55 @@ export class OpenRouterService {
     };
   }
 
+  // ─── Text Embeddings ────────────────────────────────────────────────────
+
+  /**
+   * Generate a text embedding via the OpenRouter embeddings endpoint.
+   * Used by VectorMemoryService for MongoDB Atlas Vector Search.
+   *
+   * Routes through OpenRouter (openai/text-embedding-3-small) so no separate
+   * OPENAI_API_KEY is required — only the existing OPENROUTER_API_KEY.
+   *
+   * @param text - The text to embed (truncated to 8,192 tokens by the model).
+   * @returns A 1536-dimensional embedding vector (text-embedding-3-small).
+   */
+  async embed(text: string): Promise<readonly number[]> {
+    const response = await fetch('https://openrouter.ai/api/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': this.siteUrl,
+        'X-Title': this.siteName,
+      },
+      body: JSON.stringify({
+        model: 'openai/text-embedding-3-small',
+        encoding_format: 'float',
+        // Character-based truncation: at ~4 chars/token this fits within the
+        // model's 8,192-token context window for typical ASCII/Latin text.
+        // Non-ASCII text uses more bytes per character but the model handles
+        // graceful truncation internally for edge cases.
+        input: text.slice(0, 8_000),
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error(`OpenRouter embeddings API error ${response.status}: ${body.slice(0, 200)}`);
+    }
+
+    const json = (await response.json()) as {
+      data: Array<{ embedding: number[] }>;
+    };
+
+    const embedding = json.data?.[0]?.embedding;
+    if (!Array.isArray(embedding) || embedding.length === 0) {
+      throw new Error('OpenRouter embeddings API returned empty or invalid embedding.');
+    }
+
+    return embedding;
+  }
+
   // ─── Cost Estimation ────────────────────────────────────────────────────
 
   /**
