@@ -13,13 +13,14 @@ import { Component, ChangeDetectionStrategy, input, output } from '@angular/core
 import { CommonModule } from '@angular/common';
 import type { Conversation, MessagesFilterId } from '@nxt1/core';
 import { MESSAGES_EMPTY_STATES } from '@nxt1/core';
+import { NxtIconComponent } from '../components/icon/icon.component';
 import { MessagesItemComponent } from './messages-item.component';
 import { MessagesSkeletonComponent } from './messages-skeleton.component';
 
 @Component({
   selector: 'nxt1-messages-list',
   standalone: true,
-  imports: [CommonModule, MessagesItemComponent, MessagesSkeletonComponent],
+  imports: [CommonModule, NxtIconComponent, MessagesItemComponent, MessagesSkeletonComponent],
   template: `
     <!-- Loading skeleton -->
     @if (isLoading()) {
@@ -28,65 +29,29 @@ import { MessagesSkeletonComponent } from './messages-skeleton.component';
 
     <!-- Error state -->
     @else if (error()) {
-      <div class="messages-error" role="alert">
-        <div class="error-icon-wrapper">
-          <svg
-            class="error-icon"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="1.5"
-              d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
-            />
-          </svg>
+      <div class="messages-list__error" role="alert">
+        <div class="messages-list__error-icon">
+          <nxt1-icon name="alertCircle" [size]="36" />
         </div>
-        <p class="error-message">{{ error() }}</p>
-        <button class="retry-btn" (click)="retry.emit()">Try Again</button>
+        <h3 class="messages-list__error-title">Something went wrong</h3>
+        <p class="messages-list__error-message">{{ error() }}</p>
+        <button type="button" class="messages-list__error-action" (click)="retry.emit()">
+          <nxt1-icon name="refresh" [size]="18" />
+          <span>Try Again</span>
+        </button>
       </div>
     }
 
     <!-- Empty state -->
     @else if (isEmpty()) {
-      <div class="messages-empty" role="status">
-        <div class="empty-icon-wrapper">
-          <svg
-            class="empty-icon"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="1.5"
-              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-            />
-          </svg>
+      <div class="messages-list__empty" role="status">
+        <div class="messages-list__empty-icon">
+          <nxt1-icon [name]="emptyState().icon" [size]="36" />
         </div>
-        <h3 class="empty-title">{{ emptyState().title }}</h3>
-        <p class="empty-description">{{ emptyState().message }}</p>
+        <h3 class="messages-list__empty-title">{{ emptyState().title }}</h3>
+        <p class="messages-list__empty-message">{{ emptyState().message }}</p>
         @if (activeFilter() === 'all') {
-          <button class="compose-btn" (click)="compose.emit()">
-            <svg
-              class="compose-icon"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
+          <button type="button" class="messages-list__empty-action" (click)="compose.emit()">
             New Message
           </button>
         }
@@ -129,129 +94,117 @@ import { MessagesSkeletonComponent } from './messages-skeleton.component';
         flex-direction: column;
       }
 
-      /* Empty state */
-      .messages-empty {
+      /* ============================================
+         EMPTY STATE
+         ============================================ */
+
+      .messages-list__empty {
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
+        padding: 48px 24px;
         text-align: center;
-        padding: var(--nxt1-spacing-16) var(--nxt1-spacing-6);
-        min-height: var(--nxt1-spacing-72);
       }
 
-      .empty-icon-wrapper {
-        width: calc(var(--nxt1-spacing-16) + var(--nxt1-spacing-2));
-        height: calc(var(--nxt1-spacing-16) + var(--nxt1-spacing-2));
-        border-radius: var(--nxt1-borderRadius-full);
-        background: var(--nxt1-color-surface-100);
+      .messages-list__empty-icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
         display: flex;
         align-items: center;
         justify-content: center;
-        margin-bottom: var(--nxt1-spacing-5);
+        margin-bottom: 20px;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
       }
 
-      .empty-icon {
-        width: var(--nxt1-spacing-9);
-        height: var(--nxt1-spacing-9);
-        color: var(--nxt1-color-text-tertiary);
+      .messages-list__empty-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        margin: 0 0 8px;
       }
 
-      .empty-title {
-        font-size: var(--nxt1-fontSize-lg);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        color: var(--nxt1-color-text-primary);
-        margin: 0 0 var(--nxt1-spacing-2);
+      .messages-list__empty-message {
+        font-size: 14px;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        margin: 0 0 20px;
+        max-width: 280px;
       }
 
-      .empty-description {
-        font-size: var(--nxt1-fontSize-sm);
-        line-height: 1.5;
-        color: var(--nxt1-color-text-tertiary);
-        margin: 0 0 var(--nxt1-spacing-6);
-        max-width: var(--nxt1-spacing-72);
-      }
-
-      .compose-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-2);
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-5);
-        border-radius: var(--nxt1-borderRadius-full);
-        background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-text-onPrimary);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-semibold);
+      .messages-list__empty-action {
+        padding: 10px 24px;
+        border-radius: 20px;
+        background: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-text-onPrimary, #000000);
+        font-size: 14px;
+        font-weight: 600;
         border: none;
         cursor: pointer;
-        transition: opacity var(--nxt1-ui-transition-fast);
+        transition: background-color 0.15s ease;
       }
 
-      .compose-btn:hover {
-        opacity: 0.9;
+      .messages-list__empty-action:hover {
+        background: var(--nxt1-color-primaryDark, #a3cc00);
       }
 
-      .compose-btn:active {
-        opacity: 0.8;
-      }
+      /* ============================================
+         ERROR STATE
+         ============================================ */
 
-      .compose-icon {
-        width: var(--nxt1-spacing-4);
-        height: var(--nxt1-spacing-4);
-      }
-
-      /* Error state */
-      .messages-error {
+      .messages-list__error {
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
+        padding: 48px 24px;
         text-align: center;
-        padding: var(--nxt1-spacing-16) var(--nxt1-spacing-6);
-        min-height: var(--nxt1-spacing-72);
       }
 
-      .error-icon-wrapper {
-        width: calc(var(--nxt1-spacing-16) + var(--nxt1-spacing-2));
-        height: calc(var(--nxt1-spacing-16) + var(--nxt1-spacing-2));
-        border-radius: var(--nxt1-borderRadius-full);
-        background: var(--nxt1-color-error-bg);
+      .messages-list__error-icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: var(--nxt1-color-errorBg, rgba(239, 68, 68, 0.1));
         display: flex;
         align-items: center;
         justify-content: center;
-        margin-bottom: var(--nxt1-spacing-5);
+        margin-bottom: 20px;
+        color: var(--nxt1-color-error, #ef4444);
       }
 
-      .error-icon {
-        width: var(--nxt1-spacing-9);
-        height: var(--nxt1-spacing-9);
-        color: var(--nxt1-color-error);
+      .messages-list__error-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        margin: 0 0 8px;
       }
 
-      .error-message {
-        font-size: var(--nxt1-fontSize-sm);
-        color: var(--nxt1-color-text-secondary);
-        margin: 0 0 var(--nxt1-spacing-5);
-        max-width: var(--nxt1-spacing-72);
+      .messages-list__error-message {
+        font-size: 14px;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        margin: 0 0 20px;
+        max-width: 280px;
       }
 
-      .retry-btn {
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-5);
-        border-radius: var(--nxt1-borderRadius-full);
-        background: transparent;
-        color: var(--nxt1-color-primary);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-medium);
-        border: var(--nxt1-spacing-px) solid var(--nxt1-color-primary);
+      .messages-list__error-action {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 24px;
+        border-radius: 20px;
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
+        border: 1px solid var(--nxt1-color-border-primary, rgba(204, 255, 0, 0.3));
+        color: var(--nxt1-color-text-primary, #ffffff);
+        font-size: 14px;
+        font-weight: 500;
         cursor: pointer;
-        transition:
-          background-color var(--nxt1-ui-transition-fast),
-          color var(--nxt1-ui-transition-fast);
+        transition: background-color 0.15s ease;
       }
 
-      .retry-btn:hover {
-        background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-text-onPrimary);
+      .messages-list__error-action:hover {
+        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.1));
       }
 
       /* Load more */

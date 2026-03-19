@@ -83,10 +83,6 @@ export class MessagesApiService implements MessagesApi {
     return this.api.markAsRead(conversationId);
   }
 
-  archiveConversation(conversationId: string): Promise<void> {
-    return this.api.archiveConversation(conversationId);
-  }
-
   toggleMute(conversationId: string, muted: boolean): Promise<void> {
     return this.api.toggleMute(conversationId, muted);
   }

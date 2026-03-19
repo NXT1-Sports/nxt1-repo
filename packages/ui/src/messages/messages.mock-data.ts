@@ -303,7 +303,6 @@ export const MOCK_CONVERSATIONS: Conversation[] = [
     },
     unreadCount: 0,
     isOnline: false,
-    isArchived: true,
     createdAt: daysAgo(30),
     updatedAt: daysAgo(5),
   },
@@ -415,22 +414,8 @@ export function getMockConversations(
     case 'unread':
       filtered = filtered.filter((c) => c.unreadCount > 0);
       break;
-    case 'coaches':
-      filtered = filtered.filter(
-        (c) =>
-          c.type === 'coach' ||
-          c.participants.some((p) => p.role === USER_ROLES.COACH || p.role === USER_ROLES.RECRUITER)
-      );
-      break;
-    case 'teams':
-      filtered = filtered.filter((c) => c.type === 'team' || c.type === 'group');
-      break;
-    case 'archived':
-      filtered = filtered.filter((c) => c.isArchived);
-      break;
     case 'all':
     default:
-      filtered = filtered.filter((c) => !c.isArchived);
       break;
   }
 
