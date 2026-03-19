@@ -7,6 +7,20 @@
  */
 
 import '@testing-library/jest-dom/vitest';
+import { getTestBed } from '@angular/core/testing';
+import {
+  BrowserDynamicTestingModule,
+  platformBrowserDynamicTesting,
+} from '@angular/platform-browser-dynamic/testing';
+
+// Initialize Angular TestBed environment globally (once per worker)
+try {
+  getTestBed().initTestEnvironment(BrowserDynamicTestingModule, platformBrowserDynamicTesting());
+} catch (e) {
+  if (!String(e).includes('Cannot set base providers because it has already been called')) {
+    throw e;
+  }
+}
 
 // Mock window.matchMedia (not implemented in jsdom)
 Object.defineProperty(window, 'matchMedia', {
