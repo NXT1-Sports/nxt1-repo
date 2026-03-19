@@ -211,7 +211,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                   />
 
                   <!-- ═══ SPORT PROFILE SWITCHER ═══ -->
-                  @if (profile.hasMultipleSports()) {
+                  @if (profile.hasMultipleSports() && !profile.isOwnProfile()) {
                     <div class="sport-switcher" role="group" aria-label="Sport profiles">
                       <span class="sport-switcher__title">Sport Profiles</span>
                       <div class="sport-switcher__list">

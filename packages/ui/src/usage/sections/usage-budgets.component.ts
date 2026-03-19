@@ -10,21 +10,14 @@
 
 import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  addOutline,
-  alertCircleOutline,
-  checkmarkCircleOutline,
-  closeCircleOutline,
-} from 'ionicons/icons';
+import { NxtIconComponent } from '../../components/icon';
 import type { UsageBudget } from '@nxt1/core';
 import { formatPrice } from '@nxt1/core';
 
 @Component({
   selector: 'nxt1-usage-budgets',
   standalone: true,
-  imports: [CommonModule, IonIcon],
+  imports: [CommonModule, NxtIconComponent],
   template: `
     <section class="budgets">
       <div class="section-header">
@@ -35,7 +28,7 @@ import { formatPrice } from '@nxt1/core';
           </p>
         </div>
         <button class="new-budget-btn" (click)="createBudget.emit()">
-          <ion-icon name="add-outline"></ion-icon>
+          <nxt1-icon name="plus" size="16" />
           New budget
         </button>
       </div>
@@ -57,15 +50,13 @@ import { formatPrice } from '@nxt1/core';
                 <td class="col-product">{{ budget.productName }}</td>
                 <td class="col-stop">
                   @if (budget.stopOnLimit) {
-                    <ion-icon
+                    <nxt1-icon
                       name="checkmark-circle-outline"
-                      class="stop-icon stop-icon--on"
-                    ></ion-icon>
+                      className="stop-icon stop-icon--on"
+                      size="20"
+                    />
                   } @else {
-                    <ion-icon
-                      name="close-circle-outline"
-                      class="stop-icon stop-icon--off"
-                    ></ion-icon>
+                    <nxt1-icon name="close" className="stop-icon stop-icon--off" size="20" />
                   }
                 </td>
                 <td class="col-progress">
@@ -83,7 +74,7 @@ import { formatPrice } from '@nxt1/core';
                     <span class="progress-label">
                       {{ formatAmount(budget.spent) }} / {{ formatAmount(budget.budgetLimit) }}
                       @if (getPercent(budget) >= 90) {
-                        <ion-icon name="alert-circle-outline" class="alert-icon"></ion-icon>
+                        <nxt1-icon name="alert-circle-outline" className="alert-icon" size="14" />
                       }
                     </span>
                   </div>
@@ -142,10 +133,6 @@ import { formatPrice } from '@nxt1/core';
 
         &:hover {
           background: var(--nxt1-color-surface-300);
-        }
-
-        ion-icon {
-          font-size: var(--nxt1-icon-size-sm, 16px);
         }
       }
 
@@ -272,10 +259,6 @@ import { formatPrice } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsageBudgetsComponent {
-  constructor() {
-    addIcons({ addOutline, alertCircleOutline, checkmarkCircleOutline, closeCircleOutline });
-  }
-
   readonly budgets = input.required<readonly UsageBudget[]>();
 
   readonly createBudget = output<void>();

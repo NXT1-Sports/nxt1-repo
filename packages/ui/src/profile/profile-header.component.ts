@@ -17,7 +17,7 @@ import type {
   PlayerCardData,
   ProspectTier,
 } from '@nxt1/core';
-import { getVerification } from '@nxt1/core';
+import { getVerification, normalizeWeightDisplay, isFemaleGender } from '@nxt1/core';
 import { NxtAvatarComponent } from '../components/avatar';
 import { NxtIconComponent } from '../components/icon';
 import { NxtImageComponent } from '../components/image';
@@ -172,10 +172,10 @@ import { ProfileService } from './profile.service';
                 }
               </div>
             }
-            @if (user()?.weight) {
+            @if (showWeight()) {
               <div class="mc-profile-row">
                 <span class="mc-profile-label">Weight:</span>
-                <span class="mc-profile-value">{{ user()?.weight }} lb</span>
+                <span class="mc-profile-value">{{ formattedWeight() }}</span>
                 @if (measurablesVerification(); as v) {
                   <a
                     class="mc-verified-badge"
@@ -1212,6 +1212,14 @@ export class ProfileHeaderComponent {
       u?.school?.name
     );
   });
+
+  protected readonly isFemaleProfile = computed(() => isFemaleGender(this.user()?.gender));
+
+  protected readonly formattedWeight = computed(() => normalizeWeightDisplay(this.user()?.weight));
+
+  protected readonly showWeight = computed(
+    () => this.formattedWeight().length > 0 && !this.isFemaleProfile()
+  );
 
   /** Resolved measurables verification from new verifications[] or deprecated flat fields */
   protected readonly measurablesVerification = computed(() =>

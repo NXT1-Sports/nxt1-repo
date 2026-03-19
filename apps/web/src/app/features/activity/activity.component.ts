@@ -22,7 +22,12 @@ import { AgentXOperationChatComponent } from '@nxt1/ui/agent-x';
 import { NxtBottomSheetService, SHEET_PRESETS } from '@nxt1/ui/components/bottom-sheet';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
-import type { ActivityTabId, ActivityItem, InboxEmailProvider, AgentTaskActivityMetadata } from '@nxt1/core';
+import type {
+  ActivityTabId,
+  ActivityItem,
+  InboxEmailProvider,
+  AgentTaskActivityMetadata,
+} from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 import { WebEmailConnectionService } from './services/email-connection.service';

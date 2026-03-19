@@ -288,21 +288,6 @@ export interface WeeklyPlaybookItem {
               </section>
             }
 
-            <!-- ═══ 3. COORDINATORS (2×2 Grid) ═══ -->
-            <section class="coordinators-section" aria-label="Coordinators">
-              <h3 class="section-title">Coordinators</h3>
-              <div class="coordinators-grid">
-                @for (cat of commandCategories(); track cat.id) {
-                  <button type="button" class="coordinator-card" (click)="onCategoryTap(cat)">
-                    <div class="coordinator-card-icon">
-                      <nxt1-icon [name]="cat.icon" [size]="18" />
-                    </div>
-                    <span class="coordinator-card-label">{{ cat.label }}</span>
-                  </button>
-                }
-              </div>
-            </section>
-
             <!-- ═══ 4. WEEKLY PLAYBOOK (Always Visible) ═══ -->
             <section class="playbook-section" aria-label="Weekly playbook">
               <div class="playbook-section-header">
@@ -455,6 +440,22 @@ export interface WeeklyPlaybookItem {
       </div>
     </ion-content>
 
+    <!-- ═══ FLOATING COORDINATOR CHIPS — Fixed above input ═══ -->
+    <section class="floating-coordinators" aria-label="Coordinators">
+      <div class="floating-coordinators-scroll" role="list">
+        @for (cat of commandCategories(); track cat.id) {
+          <button
+            type="button"
+            role="listitem"
+            class="floating-coordinator-pill"
+            (click)="onCategoryTap(cat)"
+          >
+            {{ cat.label }}
+          </button>
+        }
+      </div>
+    </section>
+
     <!-- ═══ INPUT BAR — Fixed above footer ═══ -->
     <nxt1-agent-x-input
       [hasMessages]="false"
@@ -563,12 +564,12 @@ export interface WeeklyPlaybookItem {
         flex-direction: column;
         min-height: 100%;
         padding: var(--nxt1-spacing-4, 16px);
-        padding-bottom: calc(200px + env(safe-area-inset-bottom, 0px));
+        padding-bottom: calc(280px + env(safe-area-inset-bottom, 0px));
       }
 
       @media (max-width: 767px) {
         .agent-x-container {
-          padding-bottom: calc(260px + env(safe-area-inset-bottom, 0px));
+          padding-bottom: calc(330px + env(safe-area-inset-bottom, 0px));
         }
       }
 
@@ -1337,65 +1338,74 @@ export interface WeeklyPlaybookItem {
       }
 
       /* ──────────────────────────────────
-         2. COORDINATORS (2×2 Grid)
+         2. FLOATING COORDINATOR PILLS
          ────────────────────────────────── */
-      .coordinators-section {
+      .floating-coordinators {
+        position: fixed;
+        left: var(--agent-input-left, 0);
+        right: var(--agent-input-right, 0);
+        bottom: calc(84px + var(--keyboard-offset, 0px));
+        z-index: calc(var(--nxt1-z-index-fixed, 999) - 1);
+        pointer-events: none;
+      }
+
+      @media (min-width: 768px) {
+        .floating-coordinators {
+          left: var(--agent-input-desktop-left, var(--nxt1-sidebar-width, 280px));
+          right: var(--agent-input-desktop-right, 0);
+        }
+      }
+
+      @media (max-width: 767px) {
+        .floating-coordinators {
+          left: var(--nxt1-footer-left, 16px);
+          right: var(--nxt1-footer-right, 16px);
+          bottom: calc(
+            var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 60px +
+              var(--keyboard-offset, 0px)
+          );
+        }
+      }
+
+      .floating-coordinators-scroll {
+        pointer-events: auto;
         display: flex;
-        flex-direction: column;
-        gap: var(--nxt1-spacing-3, 12px);
-        margin-bottom: var(--nxt1-spacing-5, 20px);
-        width: 100%;
-      }
-
-      .coordinators-section .section-title {
-        margin-bottom: 0;
-      }
-
-      .coordinators-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: var(--nxt1-spacing-3, 12px);
-      }
-
-      .coordinator-card {
-        display: flex;
-        flex-direction: column;
         align-items: center;
-        justify-content: center;
         gap: var(--nxt1-spacing-2, 8px);
-        padding: var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-3, 12px);
-        background: var(--agent-surface);
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+        padding: 0 0;
+      }
+
+      .floating-coordinators-scroll::-webkit-scrollbar {
+        display: none;
+      }
+
+      .floating-coordinator-pill {
+        flex-shrink: 0;
         border: 1px solid var(--agent-border);
-        border-radius: var(--nxt1-radius-lg, 12px);
-        cursor: pointer;
-        -webkit-tap-highlight-color: transparent;
-        transition:
-          background 0.15s ease,
-          border-color 0.15s ease;
-      }
-
-      .coordinator-card:active {
-        background: var(--agent-surface-hover);
-        border-color: var(--agent-primary);
-      }
-
-      .coordinator-card-icon {
-        width: 36px;
-        height: 36px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: var(--nxt1-radius-md, 8px);
-        background: var(--agent-primary-glow);
-        color: var(--agent-primary);
-      }
-
-      .coordinator-card-label {
-        font-size: 12px;
-        font-weight: 600;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        padding: 12px 16px;
+        background: var(--agent-glass-bg);
         color: var(--agent-text-primary);
-        text-align: center;
-        line-height: 1.3;
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1;
+        white-space: nowrap;
+        box-shadow: var(--nxt1-glass-shadow, 0 4px 16px rgba(0, 0, 0, 0.16));
+        backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+        -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+        transition:
+          border-color 0.15s ease,
+          background 0.15s ease,
+          transform 0.15s ease;
+      }
+
+      .floating-coordinator-pill:active {
+        border-color: var(--agent-primary);
+        background: var(--agent-primary-glow);
+        transform: scale(0.98);
       }
     `,
   ],

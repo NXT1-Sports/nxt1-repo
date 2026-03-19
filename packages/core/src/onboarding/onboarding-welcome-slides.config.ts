@@ -69,17 +69,18 @@ const ATHLETE_SLIDES: WelcomeSlidesConfig = {
     {
       id: 'athlete-celebrate',
       icon: 'agent-x',
-      headline: 'Meet Agent X',
+      headline: 'Welcome to NXT 1',
       description:
-        'Your all-around sports assistant in your pocket. Set your goals and let Agent X get to work.',
+        'NXT 1 is your AI agent sports platform. Agent X helps you run recruiting outreach, content, film breakdown, and daily actions from one command center.',
       accentColor: 'var(--nxt1-color-primary)',
       gradient: ['#0f172a', '#1e293b'],
     },
     {
       id: 'athlete-showcase',
       icon: '🎬',
-      headline: 'Your Everyday Advantage',
-      description: 'From videos to analysis, Agent X handles whatever you need help with.',
+      headline: 'Connect Accounts to Power Agent X',
+      description:
+        'Link your social, video, and communication accounts so Agent X can publish highlights, draft outreach, and execute tasks with your live data.',
       accentColor: '#8B5CF6',
       gradient: ['#1e1b4b', '#312e81'],
     },
@@ -87,7 +88,7 @@ const ATHLETE_SLIDES: WelcomeSlidesConfig = {
       id: 'athlete-discover',
       icon: '🏆',
       headline: 'Set Up Your Agent',
-      description: "Now let's set up your Agent X experience and actions.",
+      description: "Now let's finalize your Agent X setup and launch your first action plan.",
       accentColor: '#F59E0B',
       gradient: ['#1c1917', '#292524'],
     },
@@ -106,18 +107,18 @@ const COACH_SLIDES: WelcomeSlidesConfig = {
     {
       id: 'coach-celebrate',
       icon: 'agent-x',
-      headline: 'Meet Agent X',
+      headline: 'Welcome to NXT 1',
       description:
-        'Your all-around sports assistant in your pocket. Set your goals and let Agent X get to work.',
+        'NXT 1 is your AI agent sports platform. Agent X helps your staff run planning, recruiting communication, player development workflows, and daily operations.',
       accentColor: 'var(--nxt1-color-primary)',
       gradient: ['#0f172a', '#1e293b'],
     },
     {
       id: 'coach-manage',
       icon: '📋',
-      headline: 'Delegate the Busywork',
+      headline: 'Connect Accounts to Power Agent X',
       description:
-        'From planning to operations, Agent X handles whatever your program needs help with.',
+        'Connect your team communication, video, and social accounts so Agent X can coordinate tasks, publish updates, and run recruiting actions for your program.',
       accentColor: '#3B82F6',
       gradient: ['#0c1929', '#1e3a5f'],
     },
@@ -125,7 +126,7 @@ const COACH_SLIDES: WelcomeSlidesConfig = {
       id: 'coach-connect',
       icon: '🤝',
       headline: 'Set Up Your Agent',
-      description: "Now let's set up your Agent X experience and actions.",
+      description: "Now let's finalize your Agent X setup and launch your team action workflow.",
       accentColor: '#10B981',
       gradient: ['#0d1f17', '#1a3c2e'],
     },
@@ -144,17 +145,18 @@ const RECRUITER_SLIDES: WelcomeSlidesConfig = {
     {
       id: 'recruiter-celebrate',
       icon: 'agent-x',
-      headline: 'Meet Agent X',
+      headline: 'Welcome to NXT 1',
       description:
-        'Your all-around sports assistant in your pocket. Set your goals and let Agent X get to work.',
+        'NXT 1 is your AI agent sports platform. Agent X helps you evaluate prospects, automate communication, and keep recruiting pipelines moving.',
       accentColor: 'var(--nxt1-color-primary)',
       gradient: ['#0f172a', '#1e293b'],
     },
     {
       id: 'recruiter-search',
       icon: '🔍',
-      headline: 'Operate Smarter, Faster',
-      description: 'From analysis to communications, Agent X handles whatever you need help with.',
+      headline: 'Connect Accounts to Power Agent X',
+      description:
+        'Connect your CRM, communication, and video accounts so Agent X can trigger outreach, organize intel, and execute recruiting actions from one place.',
       accentColor: '#6366F1',
       gradient: ['#1e1b4b', '#312e81'],
     },
@@ -162,7 +164,7 @@ const RECRUITER_SLIDES: WelcomeSlidesConfig = {
       id: 'recruiter-evaluate',
       icon: '📊',
       headline: 'Set Up Your Agent',
-      description: "Now let's set up your Agent X experience and actions.",
+      description: "Now let's finalize your Agent X setup and launch your recruiting action flow.",
       accentColor: '#EC4899',
       gradient: ['#2d1f2d', '#3d2d3d'],
     },
@@ -181,18 +183,18 @@ const DIRECTOR_SLIDES: WelcomeSlidesConfig = {
     {
       id: 'director-celebrate',
       icon: 'agent-x',
-      headline: 'Meet Agent X',
+      headline: 'Welcome to NXT 1',
       description:
-        'Your all-around sports assistant in your pocket. Set your goals and let Agent X get to work.',
+        'NXT 1 is your AI agent sports platform. Agent X helps your organization align strategy, automate workflows, and execute high-impact operations at scale.',
       accentColor: 'var(--nxt1-color-primary)',
       gradient: ['#0f172a', '#1e293b'],
     },
     {
       id: 'director-oversight',
       icon: '📈',
-      headline: 'Lead with Clarity',
+      headline: 'Connect Accounts to Power Agent X',
       description:
-        'From analytics to execution, Agent X handles whatever your department needs help with.',
+        'Connect your program systems, communication channels, and reporting tools so Agent X can orchestrate decisions and execution from one control center.',
       accentColor: '#0EA5E9',
       gradient: ['#0c1929', '#1e3a5f'],
     },
@@ -200,7 +202,8 @@ const DIRECTOR_SLIDES: WelcomeSlidesConfig = {
       id: 'director-manage',
       icon: '🏫',
       headline: 'Set Up Your Agent',
-      description: "Now let's set up your Agent X experience and actions.",
+      description:
+        "Now let's finalize your Agent X setup and launch your program action framework.",
       accentColor: '#14B8A6',
       gradient: ['#0d1f17', '#1a3c2e'],
     },
@@ -219,18 +222,18 @@ const PARENT_SLIDES: WelcomeSlidesConfig = {
     {
       id: 'parent-celebrate',
       icon: 'agent-x',
-      headline: 'Meet Agent X',
+      headline: 'Welcome to NXT 1',
       description:
-        'Your all-around sports assistant in your pocket. Set your goals and let Agent X get to work.',
+        'NXT 1 is your AI agent sports platform. Agent X helps your family stay organized with recruiting tasks, milestones, and communication support.',
       accentColor: 'var(--nxt1-color-primary)',
       gradient: ['#0f172a', '#1e293b'],
     },
     {
       id: 'parent-track',
       icon: '📱',
-      headline: 'Support with Confidence',
+      headline: 'Connect Accounts to Power Agent X',
       description:
-        'From progress updates to planning, Agent X handles whatever support your family needs.',
+        'Connect communication and scheduling accounts so Agent X can keep everyone synced, track progress, and support your athlete with real-time context.',
       accentColor: '#E879F9',
       gradient: ['#2d1f2d', '#3d2d3d'],
     },
@@ -238,7 +241,8 @@ const PARENT_SLIDES: WelcomeSlidesConfig = {
       id: 'parent-learn',
       icon: '📚',
       headline: 'Set Up Your Agent',
-      description: "Now let's set up your Agent X experience and actions.",
+      description:
+        "Now let's finalize your Agent X setup and launch your family support action plan.",
       accentColor: '#22D3EE',
       gradient: ['#0c1929', '#1e3a5f'],
     },

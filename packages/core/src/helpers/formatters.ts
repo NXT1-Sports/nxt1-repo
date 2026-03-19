@@ -283,11 +283,43 @@ export function formatHeight(inches: number): string {
 }
 
 /**
- * Format weight
+ * Format weight from numeric pounds.
  */
 export function formatWeight(pounds: number): string {
   if (!pounds || typeof pounds !== 'number') return '';
   return `${pounds} lbs`;
+}
+
+/**
+ * Normalize a raw weight string from the backend into a consistent display
+ * format. Handles cases where the backend already includes a unit suffix
+ * (e.g. "185 lbs", "185lb", "185 pounds") to prevent duplicate units.
+ *
+ * - Metric values (kg) are returned as-is.
+ * - Imperial values have their unit stripped and re-appended as " lb".
+ * - Bare numbers get " lb" appended.
+ */
+export function normalizeWeightDisplay(rawWeight: string | undefined): string {
+  const normalized = rawWeight?.trim().replace(/\s+/g, ' ') ?? '';
+  if (!normalized) return '';
+
+  if (/(^|\s|(?<=\d))(kg|kgs|kilogram|kilograms)\b/i.test(normalized)) return normalized;
+
+  if (/(^|\s|(?<=\d))(lb|lbs|pound|pounds)\b\.?/i.test(normalized)) {
+    const stripped = normalized.replace(/(^|\s|(?<=\d))(lb|lbs|pound|pounds)\b\.?/gi, '$1').trim();
+    return stripped.length > 0 ? `${stripped} lb` : '';
+  }
+
+  return `${normalized} lb`;
+}
+
+/**
+ * Check whether a gender string represents female.
+ * Handles the known "femail" typo in legacy data.
+ */
+export function isFemaleGender(gender: string | undefined): boolean {
+  const g = gender?.trim().toLowerCase() ?? '';
+  return g === 'female' || g === 'femail';
 }
 
 /**

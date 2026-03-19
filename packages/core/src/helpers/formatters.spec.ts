@@ -31,6 +31,8 @@ import {
   formatWeight,
   formatTime,
   formatDistance,
+  normalizeWeightDisplay,
+  isFemaleGender,
 } from './formatters';
 
 // ============================================
@@ -613,5 +615,110 @@ describe('formatDistance', () => {
   it('should handle null/invalid', () => {
     expect(formatDistance(null as unknown as number)).toBe('');
     expect(formatDistance('132' as unknown as number)).toBe('');
+  });
+});
+
+// ============================================
+// WEIGHT DISPLAY NORMALIZATION
+// ============================================
+
+describe('normalizeWeightDisplay', () => {
+  it('should return empty string for undefined', () => {
+    expect(normalizeWeightDisplay(undefined)).toBe('');
+  });
+
+  it('should return empty string for empty string', () => {
+    expect(normalizeWeightDisplay('')).toBe('');
+    expect(normalizeWeightDisplay('   ')).toBe('');
+  });
+
+  it('should append " lb" to plain numeric strings', () => {
+    expect(normalizeWeightDisplay('185')).toBe('185 lb');
+    expect(normalizeWeightDisplay(' 200 ')).toBe('200 lb');
+  });
+
+  it('should normalize "lb" to single " lb" suffix', () => {
+    expect(normalizeWeightDisplay('185 lb')).toBe('185 lb');
+    expect(normalizeWeightDisplay('185lb')).toBe('185 lb');
+  });
+
+  it('should normalize "lbs" to " lb"', () => {
+    expect(normalizeWeightDisplay('185 lbs')).toBe('185 lb');
+    expect(normalizeWeightDisplay('185lbs')).toBe('185 lb');
+  });
+
+  it('should normalize "pound" / "pounds" to " lb"', () => {
+    expect(normalizeWeightDisplay('185 pound')).toBe('185 lb');
+    expect(normalizeWeightDisplay('185 pounds')).toBe('185 lb');
+  });
+
+  it('should fix duplicate units like "185 lb lb"', () => {
+    expect(normalizeWeightDisplay('185 lb lb')).toBe('185 lb');
+  });
+
+  it('should preserve metric units as-is', () => {
+    expect(normalizeWeightDisplay('84 kg')).toBe('84 kg');
+    expect(normalizeWeightDisplay('84 kgs')).toBe('84 kgs');
+    expect(normalizeWeightDisplay('84 kilogram')).toBe('84 kilogram');
+    expect(normalizeWeightDisplay('84 kilograms')).toBe('84 kilograms');
+  });
+
+  it('should collapse extra whitespace', () => {
+    expect(normalizeWeightDisplay('185   lb')).toBe('185 lb');
+    expect(normalizeWeightDisplay('  185   lbs  ')).toBe('185 lb');
+  });
+
+  it('should handle trailing period after unit', () => {
+    expect(normalizeWeightDisplay('185 lb.')).toBe('185 lb');
+    expect(normalizeWeightDisplay('185 lbs.')).toBe('185 lb');
+  });
+
+  it('should return empty for unit-only strings', () => {
+    expect(normalizeWeightDisplay('lb')).toBe('');
+    expect(normalizeWeightDisplay('lbs')).toBe('');
+  });
+});
+
+// ============================================
+// FEMALE GENDER CHECK
+// ============================================
+
+describe('isFemaleGender', () => {
+  it('should return false for undefined', () => {
+    expect(isFemaleGender(undefined)).toBe(false);
+  });
+
+  it('should return false for empty string', () => {
+    expect(isFemaleGender('')).toBe(false);
+  });
+
+  it('should return true for "female"', () => {
+    expect(isFemaleGender('female')).toBe(true);
+  });
+
+  it('should return true for "Female" (case-insensitive)', () => {
+    expect(isFemaleGender('Female')).toBe(true);
+    expect(isFemaleGender('FEMALE')).toBe(true);
+  });
+
+  it('should return true for "femail" typo', () => {
+    expect(isFemaleGender('femail')).toBe(true);
+    expect(isFemaleGender('Femail')).toBe(true);
+  });
+
+  it('should handle whitespace', () => {
+    expect(isFemaleGender('  female  ')).toBe(true);
+    expect(isFemaleGender('  femail  ')).toBe(true);
+  });
+
+  it('should return false for male', () => {
+    expect(isFemaleGender('male')).toBe(false);
+    expect(isFemaleGender('Male')).toBe(false);
+  });
+
+  it('should return false for other values', () => {
+    expect(isFemaleGender('other')).toBe(false);
+    expect(isFemaleGender('non-binary')).toBe(false);
+    expect(isFemaleGender('prefer-not-to-say')).toBe(false);
   });
 });

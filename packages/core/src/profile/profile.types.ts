@@ -67,7 +67,7 @@ export type ProfileUserRole = 'athlete' | 'coach' | 'director' | 'recruiter' | '
  * Verification status for profiles.
  * Re-exported from user.model.ts (single source of truth).
  */
-import type { VerificationStatus, DataVerification } from '../models/user.model';
+import type { VerificationStatus, DataVerification, Gender } from '../models/user.model';
 export type { VerificationStatus } from '../models/user.model';
 export type { DataVerification } from '../models/user.model';
 
@@ -295,6 +295,8 @@ export interface ProfileUser {
   readonly height?: string;
   /** Weight (for athletes) */
   readonly weight?: string;
+  /** Gender (optional profile field) */
+  readonly gender?: Gender | string;
   /** Measurables verified by source (e.g., "Rivals", "247Sports") */
   readonly measurablesVerifiedBy?: string;
   /** URL for the verification source */

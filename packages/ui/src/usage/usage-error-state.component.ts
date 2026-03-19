@@ -1,22 +1,20 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import { alertCircleOutline, refreshOutline } from 'ionicons/icons';
+import { NxtIconComponent } from '../components/icon';
 
 @Component({
   selector: 'nxt1-usage-error-state',
   standalone: true,
-  imports: [CommonModule, IonIcon],
+  imports: [CommonModule, NxtIconComponent],
   template: `
     <section class="usage-error-state" aria-label="Error">
       <div class="usage-error-state__icon">
-        <ion-icon name="alert-circle-outline"></ion-icon>
+        <nxt1-icon name="alert-circle-outline" size="36" />
       </div>
       <h3 class="usage-error-state__title">Something went wrong</h3>
       <p class="usage-error-state__message">{{ message() }}</p>
       <button type="button" class="usage-error-state__action" (click)="retry.emit()">
-        <ion-icon name="refresh-outline"></ion-icon>
+        <nxt1-icon name="refresh-outline" size="18" />
         <span>Try Again</span>
       </button>
     </section>
@@ -47,8 +45,7 @@ import { alertCircleOutline, refreshOutline } from 'ionicons/icons';
         margin-bottom: 20px;
       }
 
-      .usage-error-state__icon ion-icon {
-        font-size: 36px;
+      .usage-error-state__icon nxt1-icon {
         color: var(--nxt1-color-error, #ef4444);
       }
 
@@ -84,10 +81,6 @@ import { alertCircleOutline, refreshOutline } from 'ionicons/icons';
       .usage-error-state__action:hover {
         background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.1));
       }
-
-      .usage-error-state__action ion-icon {
-        font-size: 18px;
-      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -95,11 +88,4 @@ import { alertCircleOutline, refreshOutline } from 'ionicons/icons';
 export class UsageErrorStateComponent {
   readonly message = input('Failed to load usage data');
   readonly retry = output<void>();
-
-  constructor() {
-    addIcons({
-      alertCircleOutline,
-      refreshOutline,
-    });
-  }
 }

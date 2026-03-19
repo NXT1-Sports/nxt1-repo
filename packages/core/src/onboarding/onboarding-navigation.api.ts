@@ -1578,7 +1578,7 @@ const SELECT_TEAMS_STEP: OnboardingStep = {
   id: 'select-teams',
   title: 'Select Teams',
   subtitle: 'Find your team or create a program',
-  required: false,
+  required: true,
   order: 4,
 };
 
@@ -1770,7 +1770,7 @@ const ROLE_MESSAGES: Readonly<
     'link-sources':
       'Connect your accounts so I can pull data, run tasks, and act on opportunities — no manual work required.',
     sport: 'Choose one sport for now. You can add more later.',
-    'select-teams': "Find a program you're scouting for, or skip this step.",
+    'select-teams': "Find a program you're scouting for.",
     'referral-source': 'Last one — how did you hear about us?',
     complete: "You're ready. Let's scout some talent.",
   }),
@@ -1916,12 +1916,12 @@ export function validateContact(_data?: ContactFormData): boolean {
 }
 
 /**
- * Validate team selection step data (always valid - optional step)
- * Users can skip this step entirely — selecting teams is not required.
+ * Validate team selection step data
+ * At least one program must be selected.
  * ⭐ PURE FUNCTION - No dependencies
  */
-export function validateTeamSelection(_data?: TeamSelectionFormData): boolean {
-  return true;
+export function validateTeamSelection(data?: TeamSelectionFormData): boolean {
+  return Boolean(data?.teams?.length && data.teams.length > 0);
 }
 
 export function validateCreateTeamProfile(data?: CreateTeamProfileFormData): boolean {

@@ -37,6 +37,8 @@ import {
   type TimelineDotConfig,
   getVerification,
   formatSportDisplayName,
+  normalizeWeightDisplay,
+  isFemaleGender,
 } from '@nxt1/core';
 import { ICONS, type IconName } from '@nxt1/design-tokens/assets/icons';
 
@@ -215,11 +217,11 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
                   </span>
                 </div>
               }
-              @if (profile.user()?.weight) {
+              @if (showWeight()) {
                 <div class="ov-profile-row">
                   <span class="ov-profile-key">Weight:</span>
                   <span class="ov-profile-val-wrap">
-                    <span class="ov-profile-val">{{ profile.user()?.weight }} lb</span>
+                    <span class="ov-profile-val">{{ formattedWeight() }}</span>
                     @if (measurablesVerification()) {
                       @if (measurablesProviderUrl()) {
                         <a
@@ -480,7 +482,7 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
           </button>
         </div>
 
-        @if (profile.hasMultipleSports()) {
+        @if (profile.hasMultipleSports() && !profile.isOwnProfile()) {
           <div class="ov-mobile-sport-switcher" role="group" aria-label="Sport profiles">
             <span class="ov-mobile-sport-switcher__title">Sport Profiles</span>
             <div class="ov-mobile-sport-switcher__list">
@@ -1811,6 +1813,16 @@ export class ProfileOverviewWebComponent implements OnDestroy {
     if (!this.isBrowser || this._hasPlayedTypewriter()) return summary;
     return this.typedAgentXSummary();
   });
+
+  protected readonly isFemaleProfile = computed(() => isFemaleGender(this.profile.user()?.gender));
+
+  protected readonly formattedWeight = computed(() =>
+    normalizeWeightDisplay(this.profile.user()?.weight)
+  );
+
+  protected readonly showWeight = computed(
+    () => this.formattedWeight().length > 0 && !this.isFemaleProfile()
+  );
 
   constructor() {
     effect(

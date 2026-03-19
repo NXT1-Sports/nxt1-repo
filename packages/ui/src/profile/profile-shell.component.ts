@@ -1157,28 +1157,28 @@ export class ProfileShellComponent implements OnInit {
 
   /**
    * Opens the profile quick-actions bottom sheet.
-   * Quarter-height presentation for easy thumb access.
+   * Uses shared sheet header and a taller breakpoint so all actions stay visible.
    */
   protected async onMenuClick(): Promise<void> {
     const isOwn = this.profile.isOwnProfile();
 
     const actions: BottomSheetAction[] = isOwn
       ? [
-          { label: 'Share Profile', role: 'secondary', icon: 'share' },
+          { label: 'Share Profile', role: 'primary', icon: 'share' },
           { label: 'QR Code', role: 'secondary', icon: 'qrCode' },
           { label: 'Copy Link', role: 'secondary', icon: 'link' },
         ]
       : [
-          { label: 'Share Profile', role: 'secondary', icon: 'share' },
+          { label: 'Share Profile', role: 'primary', icon: 'share' },
           { label: 'Copy Link', role: 'secondary', icon: 'link' },
           { label: 'Report', role: 'destructive', icon: 'flag' },
         ];
 
     const result = await this.bottomSheet.show<BottomSheetAction>({
+      title: 'Profile Actions',
       actions,
-      showClose: false,
       backdropDismiss: true,
-      ...SHEET_PRESETS.COMPACT,
+      ...SHEET_PRESETS.HALF,
     });
 
     const selected = result?.data as BottomSheetAction | undefined;

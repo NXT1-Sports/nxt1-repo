@@ -11,16 +11,14 @@
 
 import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import { chevronForwardOutline, chevronDownOutline } from 'ionicons/icons';
+import { NxtIconComponent } from '../../components/icon';
 import type { UsageBreakdownRow, UsageTimeframe } from '@nxt1/core';
 import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
 
 @Component({
   selector: 'nxt1-usage-breakdown-table',
   standalone: true,
-  imports: [CommonModule, IonIcon],
+  imports: [CommonModule, NxtIconComponent],
   template: `
     <section class="usage-breakdown">
       <div class="section-header">
@@ -62,14 +60,11 @@ import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
               >
                 <td class="col-date">
                   <div class="date-cell">
-                    <ion-icon
-                      [name]="
-                        expandedRow() === row.date
-                          ? 'chevron-down-outline'
-                          : 'chevron-forward-outline'
-                      "
-                      class="expand-icon"
-                    ></ion-icon>
+                    <nxt1-icon
+                      [name]="expandedRow() === row.date ? 'chevronDown' : 'chevronForward'"
+                      className="expand-icon"
+                      size="14"
+                    />
                     <span>{{ row.dateLabel }}</span>
                   </div>
                 </td>
@@ -281,10 +276,6 @@ import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsageBreakdownTableComponent {
-  constructor() {
-    addIcons({ chevronForwardOutline, chevronDownOutline });
-  }
-
   readonly rows = input.required<readonly UsageBreakdownRow[]>();
   readonly expandedRow = input.required<string | null>();
   readonly periodLabel = input<string>('');

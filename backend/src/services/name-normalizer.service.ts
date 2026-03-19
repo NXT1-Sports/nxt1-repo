@@ -3,7 +3,7 @@
  * @module @nxt1/backend/services/name-normalizer
  *
  * Uses OpenRouter LLM (fast tier) to normalize organization/program names.
- * Examples: "Katy HS" → "Katy High School", "st marys" → "St. Mary's"
+ * Examples: "Katy HS" → "Katy", "st marys basketball" → "St. Mary's"
  *
  * Features:
  * - Redis caching of normalized names (24h TTL) to avoid repeated LLM calls
@@ -32,24 +32,55 @@ const SYSTEM_PROMPT = `You are a data normalization assistant for US sports prog
 Your ONLY job is to normalize the given program name into a clean, proper organization name.
 
 Rules:
-- Return ONLY the organization/school name — do NOT include the sport name (e.g. "Football", "Basketball") or program type suffix
-- Fix capitalization: "katy high school" → "Katy High School"
+- Return ONLY the base organization/program name.
+- Do NOT include sport names (e.g. "Football", "Basketball").
+- Do NOT include program type suffixes (e.g. "High School", "HS", "Middle School", "Club", "College", "University", "JUCO").
+- Fix capitalization: "katy high school" → "Katy"
 - Add punctuation: "st marys" → "St. Mary's"
 - Expand abbreviations: "HS" → "High School", "MS" → "Middle School", "CC" → "Community College"
-- Remove trailing sport names: "Harvey High School Football" → "Harvey High School"
-- Keep location qualifiers: "Katy High School" stays as-is (do NOT add city/state)
+- Remove trailing sport names: "Harvey High School Football" → "Harvey"
+- Keep location qualifiers only when they are part of the name.
 - Do NOT invent or add information not in the input
 - Do NOT add "Academy", "Prep", etc. unless the input suggests it
 - If the input is already properly formatted, return it unchanged
 
 Examples:
-- "Harvey HS Football" → "Harvey High School"
+- "Harvey HS Football" → "Harvey"
 - "st marys basketball" → "St. Mary's"
-- "katy high school" → "Katy High School"
+- "katy high school" → "Katy"
 - "Lincoln Prep" → "Lincoln Prep"
-- "westlake hs" → "Westlake High School"
+- "westlake hs" → "Westlake"
 
 Respond with ONLY the normalized name. No explanation, no quotes, no extra text.`;
+
+const TRAILING_SPORT_PATTERN =
+  /\s+(football|basketball|baseball|softball|soccer|volleyball|lacrosse|wrestling|track|cross\s*country|swim(?:ming)?|tennis|golf|hockey)\s*$/i;
+
+const TRAILING_PROGRAM_TYPE_PATTERNS: readonly RegExp[] = [
+  /\s+high\s+school\s*$/i,
+  /\s+hs\s*$/i,
+  /\s+middle\s+school\s*$/i,
+  /\s+ms\s*$/i,
+  /\s+junior\s+college\s*$/i,
+  /\s+juco\s*$/i,
+  /\s+community\s+college\s*$/i,
+  /\s+college\s*$/i,
+  /\s+university\s*$/i,
+  /\s+club\s*$/i,
+  /\s+travel\s*$/i,
+];
+
+function stripProgramSuffixes(rawName: string): string {
+  let normalized = rawName.trim().replace(/\s+/g, ' ');
+
+  normalized = normalized.replace(TRAILING_SPORT_PATTERN, '').trim();
+
+  for (const pattern of TRAILING_PROGRAM_TYPE_PATTERNS) {
+    normalized = normalized.replace(pattern, '').trim();
+  }
+
+  return normalized;
+}
 
 // ============================================
 // SERVICE
@@ -63,8 +94,10 @@ export async function normalizeProgramName(rawName: string): Promise<string> {
   const trimmed = rawName.trim();
   if (!trimmed) return trimmed;
 
+  const preNormalized = stripProgramSuffixes(trimmed) || trimmed;
+
   // Check cache first
-  const cacheKey = `${CACHE_PREFIX}${trimmed.toLowerCase()}`;
+  const cacheKey = `${CACHE_PREFIX}${preNormalized.toLowerCase()}`;
   const cache = getCacheService();
 
   try {
@@ -82,13 +115,14 @@ export async function normalizeProgramName(rawName: string): Promise<string> {
     const { OpenRouterService } = await import('../modules/agent/llm/openrouter.service.js');
     const llm = new OpenRouterService();
 
-    const result = await llm.prompt(SYSTEM_PROMPT, trimmed, {
+    const result = await llm.prompt(SYSTEM_PROMPT, preNormalized, {
       tier: 'fast',
       maxTokens: 100,
       temperature: 0,
     });
 
-    const normalized = result.content?.trim() || trimmed;
+    const llmNormalized = result.content?.trim() || preNormalized;
+    const normalized = stripProgramSuffixes(llmNormalized) || preNormalized;
 
     // Sanity check: LLM response should be a reasonable name, not a paragraph
     if (normalized.length > 200 || normalized.includes('\n')) {
@@ -96,7 +130,7 @@ export async function normalizeProgramName(rawName: string): Promise<string> {
         raw: trimmed,
         response: normalized.substring(0, 100),
       });
-      return trimmed;
+      return preNormalized;
     }
 
     logger.info('[NameNormalizer] Normalized', { raw: trimmed, normalized });
@@ -110,10 +144,11 @@ export async function normalizeProgramName(rawName: string): Promise<string> {
 
     return normalized;
   } catch (err) {
-    logger.error('[NameNormalizer] LLM call failed, using raw input', {
+    logger.error('[NameNormalizer] LLM call failed, using pre-normalized input', {
       raw: trimmed,
+      preNormalized,
       error: err,
     });
-    return trimmed;
+    return preNormalized;
   }
 }

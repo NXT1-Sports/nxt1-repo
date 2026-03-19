@@ -38,7 +38,7 @@
 import {
   Component,
   ChangeDetectionStrategy,
-  Input,
+  input,
   Output,
   EventEmitter,
   inject,
@@ -127,7 +127,7 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
           [class.footer--centered-create]="isCenteredCreateVariant()"
           [class.footer--show-labels]="shouldShowLabels()"
           [class.footer--hide-labels]="!shouldShowLabels()"
-          [selectedTab]="activeTabId ?? _activeTabId()"
+          [selectedTab]="activeTabId() ?? _activeTabId()"
           [style.--ion-tab-bar-background]="'transparent'"
           [style.--background]="'transparent'"
         >
@@ -168,8 +168,8 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
                     [class.profile-avatar-wrapper--active]="isActiveTab(tab)"
                   >
                     <nxt1-avatar
-                      [src]="profileAvatarSrc"
-                      [name]="profileAvatarName"
+                      [src]="profileAvatarSrc()"
+                      [name]="profileAvatarName()"
                       [customSize]="28"
                       [showSkeleton]="false"
                       cssClass="footer-profile-avatar"
@@ -765,22 +765,19 @@ export class NxtMobileFooterComponent {
   // ============================================
 
   /** Tab items to display */
-  @Input() tabs: FooterTabItem[] = DEFAULT_FOOTER_TABS;
+  readonly tabs = input<FooterTabItem[]>(DEFAULT_FOOTER_TABS);
 
   /** Profile avatar image URL (for profile tab) */
-  @Input() profileAvatarSrc?: string | null;
+  readonly profileAvatarSrc = input<string | null | undefined>(undefined);
 
   /** Profile avatar display name (for initials fallback) */
-  @Input() profileAvatarName?: string;
+  readonly profileAvatarName = input<string | undefined>(undefined);
 
   /** Currently active tab ID (if controlling externally). Set to null for no selection. */
-  @Input() activeTabId?: string | null;
+  readonly activeTabId = input<string | null | undefined>(undefined);
 
   /** Footer configuration */
-  @Input()
-  set config(value: Partial<FooterConfig> | undefined) {
-    this._config.set(createFooterConfig(value));
-  }
+  readonly configInput = input<Partial<FooterConfig> | undefined>(undefined, { alias: 'config' });
 
   get config(): FooterConfig {
     return this._config();
@@ -808,7 +805,7 @@ export class NxtMobileFooterComponent {
   readonly _activeTabId = signal<string | null>(null);
 
   /** Normalized footer config with shared navigation-surface defaults applied. */
-  private readonly _config = signal<FooterConfig>(createFooterConfig());
+  private readonly _config = computed(() => createFooterConfig(this.configInput()));
 
   /** Whether component is in browser */
   private readonly isBrowser = isPlatformBrowser(this.platformId);
@@ -835,8 +832,9 @@ export class NxtMobileFooterComponent {
 
   /** Whether to show labels based on config and device */
   readonly shouldShowLabels = computed(() => {
-    if (this.config.showLabels !== undefined) {
-      return this.config.showLabels;
+    const cfg = this._config();
+    if (cfg.showLabels !== undefined) {
+      return cfg.showLabels;
     }
     // Default: show on mobile, hide on tablet
     return this.platform.isMobile();
@@ -844,31 +842,31 @@ export class NxtMobileFooterComponent {
 
   /** Get the currently active tab */
   readonly activeTab = computed(() => {
-    const id = this.activeTabId ?? this._activeTabId();
-    return this.tabs.find((t) => t.id === id);
+    const id = this.activeTabId() ?? this._activeTabId();
+    return this.tabs().find((t) => t.id === id);
   });
 
   /** Regular tabs (non-action buttons) for the tab bar */
   readonly regularTabs = computed(() => {
     if (this.isCenteredCreateVariant()) {
-      return this.tabs;
+      return this.tabs();
     }
-    return this.tabs.filter((tab) => !tab.isActionButton);
+    return this.tabs().filter((tab) => !tab.isActionButton);
   });
 
   /** Action button tab (floating FAB) */
   readonly actionTab = computed(() => {
-    return this.tabs.find((tab) => tab.isActionButton) ?? null;
+    return this.tabs().find((tab) => tab.isActionButton) ?? null;
   });
 
   /** Whether floating action FAB should render on the left side */
   readonly isActionFabOnLeft = computed(() => {
     if (this.isCenteredCreateVariant()) return false;
-    return this.tabs[0]?.isActionButton === true;
+    return this.tabs()[0]?.isActionButton === true;
   });
 
   /** Whether centered-create variant is active */
-  readonly isCenteredCreateVariant = computed(() => this.config.variant === 'centeredCreate');
+  readonly isCenteredCreateVariant = computed(() => this._config().variant === 'centeredCreate');
 
   /** Whether floating action FAB should render */
   readonly shouldRenderActionFab = computed(() => !this.isCenteredCreateVariant());
@@ -932,7 +930,7 @@ export class NxtMobileFooterComponent {
    * pages like Settings that aren't part of the main navigation).
    */
   private updateActiveTabFromRoute(url: string): void {
-    const matchedTab = this.tabs.find((tab) => {
+    const matchedTab = this.tabs().find((tab) => {
       if (tab.routeExact) {
         return url === tab.route;
       }
@@ -959,7 +957,7 @@ export class NxtMobileFooterComponent {
    * Check if a tab is the currently active tab
    */
   isActiveTab(tab: FooterTabItem): boolean {
-    const activeId = this.activeTabId ?? this._activeTabId();
+    const activeId = this.activeTabId() ?? this._activeTabId();
     return tab.id === activeId;
   }
 

@@ -101,7 +101,7 @@ import {
   SIDENAV_WIDTHS,
   SIDENAV_ANIMATION,
 } from '@nxt1/ui';
-import { AUTH_ROUTES } from '@nxt1/core';
+import { AUTH_ROUTES, formatSportDisplayName } from '@nxt1/core';
 import { AuthFlowService } from '../../../features/auth/services/auth-flow.service';
 import { ProfileService } from '../../../core/services/profile.service';
 
@@ -352,35 +352,43 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     const authUser = this.authFlow.user();
 
     if (profile) {
-      // Normalise: Firestore dot-notation writes can convert sports array to a map
-      const sports = Array.isArray(profile.sports)
-        ? profile.sports
-        : profile.sports
-          ? (Object.values(profile.sports) as typeof profile.sports)
-          : undefined;
-      // Get primary sport using order === 0 (User model uses 'order', not 'isPrimary')
-      const primarySport = sports?.find((s) => s.order === 0) ?? sports?.[0];
+      // Normalise: Firestore dot-notation writes can convert sports array to a map.
+      const sports = this.normalizeSports(profile.sports);
+
+      // Get primary sport using order === 0 (User model uses 'order', not 'isPrimary').
+      const primarySport = sports.find((s) => s.order === 0) ?? sports[0];
+      const primarySportName = this.resolveSportName(primarySport);
       const position = primarySport?.positions?.[0] ?? '';
       const displayName = `${profile.firstName} ${profile.lastName}`.trim();
       const profileImg = profile.profileImgs?.[0] || authUser?.profileImg || undefined;
+
+      const subtitle = primarySportName
+        ? position
+          ? `${primarySportName} • ${position}`
+          : primarySportName
+        : position || 'Athlete';
+
       return {
         name: displayName || 'User',
-        subtitle: position ? `${primarySport?.sport ?? ''} • ${position}` : profile.email,
+        subtitle,
         profileImg,
         initials: this.getInitials(displayName || profile.email || 'U'),
         verified: false,
         isPremium: this.profileService.isPremium(),
         userId: profile.id,
-        sportProfiles: (sports ?? []).map((s, index: number) => ({
-          id: `${profile.id}-${s.sport?.toLowerCase().replace(/\s+/g, '-') ?? index}`,
-          sport: s.sport ?? 'Unknown Sport',
-          sportIcon: this.getSportIcon(s.sport),
-          position: s.positions?.[0] ?? undefined,
-          isActive: s.order === 0, // Primary sport has order === 0
-          classYear: undefined, // TODO: Get from backend profile
-        })),
-        activeSportProfileId: primarySport
-          ? `${profile.id}-${primarySport.sport?.toLowerCase().replace(/\s+/g, '-')}`
+        sportProfiles: sports.map((s, index: number) => {
+          const sportName = this.resolveSportName(s) || s.positions?.[0] || `Sport ${index + 1}`;
+          return {
+            id: `${profile.id}-${sportName.toLowerCase().replace(/\s+/g, '-')}`,
+            sport: sportName,
+            sportIcon: this.getSportIcon(s.sport),
+            position: s.positions?.[0] ?? undefined,
+            isActive: s.order === 0, // Primary sport has order === 0
+            classYear: undefined, // TODO: Get from backend profile
+          };
+        }),
+        activeSportProfileId: primarySportName
+          ? `${profile.id}-${primarySportName.toLowerCase().replace(/\s+/g, '-')}`
           : undefined,
       };
     }
@@ -619,6 +627,42 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
     }
     return nameOrEmail.charAt(0).toUpperCase();
+  }
+
+  /**
+   * Firestore writes can produce either an array or object map for sports.
+   * Normalize to an array and preserve sport names when possible.
+   */
+  private normalizeSports(
+    sports: unknown
+  ): Array<{ sport?: string; positions?: string[]; order?: number }> {
+    if (Array.isArray(sports)) {
+      return sports as Array<{ sport?: string; positions?: string[]; order?: number }>;
+    }
+
+    if (!sports || typeof sports !== 'object') {
+      return [];
+    }
+
+    return Object.entries(sports as Record<string, unknown>).map(([key, value]) => {
+      const sportFromKey = key ? formatSportDisplayName(key.replace(/[_-]+/g, ' ')) : undefined;
+
+      if (value && typeof value === 'object') {
+        const entry = value as { sport?: string; positions?: string[]; order?: number };
+        const sport = entry.sport?.trim() ? entry.sport : sportFromKey;
+        return { ...entry, sport };
+      }
+
+      return { sport: sportFromKey };
+    });
+  }
+
+  /**
+   * Resolve a safe display sport name for sidebar labels.
+   */
+  private resolveSportName(sport: { sport?: string } | undefined): string | null {
+    const name = sport?.sport?.trim();
+    return name ? formatSportDisplayName(name) : null;
   }
 
   /**

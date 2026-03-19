@@ -70,6 +70,8 @@ export {
   // Athletic measurements
   formatHeight,
   formatWeight,
+  normalizeWeightDisplay,
+  isFemaleGender,
   formatTime,
   formatDistance,
 } from './formatters';

@@ -198,21 +198,6 @@ export interface AgentXUser {
               </section>
             }
 
-            <!-- ═══ 3. COORDINATORS (2×2 Grid) ═══ -->
-            <section class="coordinators-section" aria-label="Coordinators">
-              <h3 class="section-title">Coordinators</h3>
-              <div class="coordinators-grid">
-                @for (coord of commandCategories(); track coord.id) {
-                  <button type="button" class="coordinator-card" (click)="onCoordinatorTap(coord)">
-                    <div class="coordinator-card-icon">
-                      <nxt1-icon [name]="coord.icon" [size]="18" />
-                    </div>
-                    <span class="coordinator-card-label">{{ coord.label }}</span>
-                  </button>
-                }
-              </div>
-            </section>
-
             <!-- ═══ 4. WEEKLY PLAYBOOK (Always Visible) ═══ -->
             <section class="playbook-section" aria-label="Weekly playbook">
               <div class="playbook-section-header">
@@ -405,6 +390,22 @@ export interface AgentXUser {
       </aside>
     }
 
+    <!-- Floating Coordinator Pills (fixed, above input) -->
+    <section class="floating-coordinators" aria-label="Coordinators">
+      <div class="floating-coordinators-scroll" role="list">
+        @for (coord of commandCategories(); track coord.id) {
+          <button
+            type="button"
+            role="listitem"
+            class="floating-coordinator-pill"
+            (click)="onCoordinatorTap(coord)"
+          >
+            {{ coord.label }}
+          </button>
+        }
+      </div>
+    </section>
+
     <!-- Shared Input Bar (fixed, outside main scroll) -->
     @if (!hideInput()) {
       <nxt1-agent-x-input
@@ -466,7 +467,7 @@ export interface AgentXUser {
         flex-direction: column;
         min-height: calc(100vh - 280px);
         padding-top: var(--nxt1-spacing-4, 16px);
-        padding-bottom: calc(100px + env(safe-area-inset-bottom, 0));
+        padding-bottom: calc(180px + env(safe-area-inset-bottom, 0));
         max-width: 640px;
         margin: 0 auto;
       }
@@ -1115,61 +1116,79 @@ export interface AgentXUser {
       }
 
       /* ──────────────────────────────────
-         2. COORDINATORS (2×2 Grid)
+         2. FLOATING COORDINATOR PILLS
          ────────────────────────────────── */
-      .coordinators-section {
-        width: 100%;
-        max-width: 480px;
-        margin-bottom: var(--nxt1-spacing-5, 20px);
+      .floating-coordinators {
+        position: fixed;
+        left: var(--agent-input-left, 0);
+        right: var(--agent-input-right, 0);
+        bottom: calc(84px + var(--keyboard-offset, 0px));
+        z-index: calc(var(--nxt1-z-index-fixed, 999) - 1);
+        pointer-events: none;
       }
 
-      .coordinators-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: var(--nxt1-spacing-3, 12px);
-        margin-top: var(--nxt1-spacing-3, 12px);
+      @media (min-width: 768px) {
+        .floating-coordinators {
+          left: var(--agent-input-desktop-left, var(--nxt1-sidebar-width, 280px));
+          right: var(--agent-input-desktop-right, 0);
+        }
       }
 
-      .coordinator-card {
+      @media (max-width: 767px) {
+        .floating-coordinators {
+          left: var(--nxt1-footer-left, 16px);
+          right: var(--nxt1-footer-right, 16px);
+          bottom: calc(
+            var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 60px +
+              var(--keyboard-offset, 0px)
+          );
+        }
+
+        .agent-content {
+          padding-bottom: calc(240px + env(safe-area-inset-bottom, 0));
+        }
+      }
+
+      .floating-coordinators-scroll {
+        pointer-events: auto;
         display: flex;
-        flex-direction: column;
         align-items: center;
-        justify-content: center;
         gap: var(--nxt1-spacing-2, 8px);
-        padding: var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-3, 12px);
-        background: var(--agent-surface);
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+        padding: 0;
+      }
+
+      .floating-coordinators-scroll::-webkit-scrollbar {
+        display: none;
+      }
+
+      .floating-coordinator-pill {
+        flex-shrink: 0;
         border: 1px solid var(--agent-border);
-        border-radius: var(--nxt1-radius-lg, 12px);
-        cursor: pointer;
-        transition:
-          background 0.15s ease,
-          border-color 0.15s ease,
-          transform 0.1s ease;
-      }
-
-      .coordinator-card:hover {
-        background: var(--agent-surface-hover);
-        border-color: var(--agent-primary);
-        transform: translateY(-1px);
-      }
-
-      .coordinator-card-icon {
-        width: 36px;
-        height: 36px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: var(--nxt1-radius-md, 8px);
-        background: var(--agent-primary-glow);
-        color: var(--agent-primary);
-      }
-
-      .coordinator-card-label {
-        font-size: 12px;
-        font-weight: 600;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        padding: 12px 16px;
+        background: var(--nxt1-glass-bg, rgba(18, 18, 18, 0.8));
         color: var(--agent-text-primary);
-        text-align: center;
-        line-height: 1.3;
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1;
+        white-space: nowrap;
+        box-shadow: var(--nxt1-glass-shadow, 0 4px 16px rgba(0, 0, 0, 0.16));
+        backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+        -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+        transition:
+          border-color 0.15s ease,
+          background 0.15s ease,
+          transform 0.15s ease;
+      }
+
+      .floating-coordinator-pill:hover,
+      .floating-coordinator-pill:active {
+        border-color: var(--agent-primary);
+        background: var(--agent-primary-glow);
+        transform: translateY(-1px);
       }
 
       /* ==============================

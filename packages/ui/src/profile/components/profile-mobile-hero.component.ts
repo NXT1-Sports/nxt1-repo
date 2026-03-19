@@ -12,7 +12,7 @@ import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';
 import { NxtImageCarouselComponent } from '../../components/image-carousel';
 import { ProfileService } from '../profile.service';
-import { getVerification } from '@nxt1/core';
+import { getVerification, normalizeWeightDisplay, isFemaleGender } from '@nxt1/core';
 
 @Component({
   selector: 'nxt1-profile-mobile-hero',
@@ -118,11 +118,11 @@ import { getVerification } from '@nxt1/core';
               </span>
             </div>
           }
-          @if (profile.user()?.weight) {
+          @if (showWeight()) {
             <div class="mobile-hero-stat">
               <span class="mobile-hero-stat__key">Weight:</span>
               <span class="mobile-hero-stat__val-wrap">
-                <span class="mobile-hero-stat__val">{{ profile.user()?.weight }} lb</span>
+                <span class="mobile-hero-stat__val">{{ formattedWeight() }}</span>
                 @if (measurablesVerification()) {
                   @if (measurablesProviderUrl()) {
                     <a
@@ -422,6 +422,16 @@ export class ProfileMobileHeroComponent {
     if (jersey) return `#${jersey}`;
     return '';
   });
+
+  protected readonly isFemaleProfile = computed(() => isFemaleGender(this.profile.user()?.gender));
+
+  protected readonly formattedWeight = computed(() =>
+    normalizeWeightDisplay(this.profile.user()?.weight)
+  );
+
+  protected readonly showWeight = computed(
+    () => this.formattedWeight().length > 0 && !this.isFemaleProfile()
+  );
 
   // ── Carousel overlay signals ──
 

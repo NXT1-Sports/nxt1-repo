@@ -17,21 +17,7 @@
 
 import { Component, ChangeDetectionStrategy, signal, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  helpCircleOutline,
-  cashOutline,
-  calendarOutline,
-  cardOutline,
-  trendingUpOutline,
-  alertCircleOutline,
-  checkmarkCircleOutline,
-  chevronDownOutline,
-  chevronUpOutline,
-  mailOutline,
-  closeOutline,
-} from 'ionicons/icons';
+import { NxtIconComponent } from '../components/icon';
 
 interface HelpSection {
   readonly id: string;
@@ -49,7 +35,7 @@ interface FaqItem {
 @Component({
   selector: 'nxt1-usage-help-content',
   standalone: true,
-  imports: [CommonModule, IonIcon],
+  imports: [CommonModule, NxtIconComponent],
   template: `
     <div class="help-scroll-content">
       <div class="help-content">
@@ -66,7 +52,7 @@ interface FaqItem {
           @for (section of helpSections; track section.id) {
             <article class="help-section">
               <div class="section-icon">
-                <ion-icon [name]="section.icon"></ion-icon>
+                <nxt1-icon [name]="section.icon" size="24" />
               </div>
               <div class="section-content">
                 <h3 class="section-title">{{ section.title }}</h3>
@@ -81,19 +67,19 @@ interface FaqItem {
           <h3 class="key-points-title">Key Points</h3>
           <ul class="key-points-list">
             <li class="key-point">
-              <ion-icon name="checkmark-circle-outline" class="key-point-icon"></ion-icon>
+              <nxt1-icon name="checkmark-circle-outline" className="key-point-icon" size="16" />
               <span>Usage is tracked in real-time and updated hourly</span>
             </li>
             <li class="key-point">
-              <ion-icon name="checkmark-circle-outline" class="key-point-icon"></ion-icon>
+              <nxt1-icon name="checkmark-circle-outline" className="key-point-icon" size="16" />
               <span>Your included usage resets at the start of each billing cycle</span>
             </li>
             <li class="key-point">
-              <ion-icon name="checkmark-circle-outline" class="key-point-icon"></ion-icon>
+              <nxt1-icon name="checkmark-circle-outline" className="key-point-icon" size="16" />
               <span>Set spending limits to avoid unexpected charges</span>
             </li>
             <li class="key-point">
-              <ion-icon name="checkmark-circle-outline" class="key-point-icon"></ion-icon>
+              <nxt1-icon name="checkmark-circle-outline" className="key-point-icon" size="16" />
               <span>Download detailed invoices for your records</span>
             </li>
           </ul>
@@ -107,11 +93,10 @@ interface FaqItem {
               <div class="faq-item" [class.faq-item--expanded]="expandedFaq() === faq.id">
                 <button type="button" class="faq-question" (click)="toggleFaq(faq.id)">
                   <span>{{ faq.question }}</span>
-                  <ion-icon
-                    [name]="
-                      expandedFaq() === faq.id ? 'chevron-up-outline' : 'chevron-down-outline'
-                    "
-                  ></ion-icon>
+                  <nxt1-icon
+                    [name]="expandedFaq() === faq.id ? 'chevronUp' : 'chevronDown'"
+                    size="16"
+                  />
                 </button>
                 @if (expandedFaq() === faq.id) {
                   <div class="faq-answer">
@@ -126,7 +111,7 @@ interface FaqItem {
         <!-- Contact CTA -->
         <footer class="help-footer">
           <div class="footer-content">
-            <ion-icon name="mail-outline" class="footer-icon"></ion-icon>
+            <nxt1-icon name="mail-outline" className="footer-icon" size="24" />
             <div class="footer-text">
               <p class="footer-title">Still have questions?</p>
               <p class="footer-subtitle">Our support team is here to help 24/7.</p>
@@ -211,11 +196,10 @@ interface FaqItem {
         height: var(--nxt1-spacing-10);
         background: var(--nxt1-color-surface-200);
         border-radius: var(--nxt1-radius-md, 8px);
+      }
 
-        ion-icon {
-          font-size: var(--nxt1-icon-size-lg, 24px);
-          color: var(--nxt1-color-primary);
-        }
+      .section-icon nxt1-icon {
+        color: var(--nxt1-color-primary);
       }
 
       .section-content {
@@ -333,12 +317,11 @@ interface FaqItem {
         &:hover {
           background: var(--nxt1-color-surface-200);
         }
+      }
 
-        ion-icon {
-          flex-shrink: 0;
-          font-size: var(--nxt1-icon-size-sm, 16px);
-          color: var(--nxt1-color-text-tertiary);
-        }
+      .faq-question nxt1-icon {
+        flex-shrink: 0;
+        color: var(--nxt1-color-text-tertiary);
       }
 
       .faq-answer {
@@ -455,22 +438,6 @@ interface FaqItem {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsageHelpContentComponent {
-  constructor() {
-    addIcons({
-      helpCircleOutline,
-      cashOutline,
-      calendarOutline,
-      cardOutline,
-      trendingUpOutline,
-      alertCircleOutline,
-      checkmarkCircleOutline,
-      chevronDownOutline,
-      chevronUpOutline,
-      mailOutline,
-      closeOutline,
-    });
-  }
-
   /** Emitted when contact support is clicked */
   readonly contactSupport = output<void>();
 

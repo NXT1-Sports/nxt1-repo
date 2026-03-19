@@ -10,16 +10,15 @@
 
 import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon, IonRippleEffect } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import { informationCircleOutline } from 'ionicons/icons';
+import { IonRippleEffect } from '@ionic/angular/standalone';
+import { NxtIconComponent } from '../../components/icon';
 import type { UsageSubscription } from '@nxt1/core';
 import { formatPrice } from '@nxt1/core';
 
 @Component({
   selector: 'nxt1-usage-subscriptions',
   standalone: true,
-  imports: [CommonModule, IonIcon, IonRippleEffect],
+  imports: [CommonModule, IonRippleEffect, NxtIconComponent],
   template: `
     <section class="usage-subscriptions">
       <div class="section-header">
@@ -43,7 +42,7 @@ import { formatPrice } from '@nxt1/core';
       </div>
 
       <p class="tax-note">
-        <ion-icon name="information-circle-outline" class="note-icon"></ion-icon>
+        <nxt1-icon name="infoCircle" className="note-icon" size="14" />
         U.S. Sales tax is not included in the amounts shown above.
       </p>
     </section>
@@ -152,10 +151,6 @@ import { formatPrice } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsageSubscriptionsComponent {
-  constructor() {
-    addIcons({ informationCircleOutline });
-  }
-
   readonly subscriptions = input.required<readonly UsageSubscription[]>();
   readonly manage = output<void>();
 

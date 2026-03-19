@@ -277,6 +277,8 @@ export {
   formatLocation,
   formatHeight,
   formatWeight,
+  normalizeWeightDisplay,
+  isFemaleGender,
   formatTime,
   formatDistance,
 } from './helpers';

@@ -26,7 +26,12 @@ import {
   AgentXOperationChatComponent,
   type ActivityUser,
 } from '@nxt1/ui';
-import type { ActivityTabId, ActivityItem, InboxEmailProvider, AgentTaskActivityMetadata } from '@nxt1/core';
+import type {
+  ActivityTabId,
+  ActivityItem,
+  InboxEmailProvider,
+  AgentTaskActivityMetadata,
+} from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 import { MobileEmailConnectionService } from './services/email-connection.service';
 import { ProfileService } from '../../core/services/profile.service';

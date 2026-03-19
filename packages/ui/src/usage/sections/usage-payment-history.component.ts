@@ -10,16 +10,14 @@
 
 import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import { receiptOutline, documentTextOutline, downloadOutline } from 'ionicons/icons';
+import { NxtIconComponent } from '../../components/icon';
 import type { UsagePaymentHistoryRecord } from '@nxt1/core';
 import { formatPrice } from '@nxt1/core';
 
 @Component({
   selector: 'nxt1-usage-payment-history',
   standalone: true,
-  imports: [CommonModule, IonIcon],
+  imports: [CommonModule, NxtIconComponent],
   template: `
     <section class="payment-history">
       <h2 class="section-heading">Payment history</h2>
@@ -64,7 +62,7 @@ import { formatPrice } from '@nxt1/core';
                         title="Download receipt"
                         (click)="downloadReceipt.emit(record.id)"
                       >
-                        <ion-icon name="receipt-outline"></ion-icon>
+                        <nxt1-icon name="receipt-outline" size="16" />
                       </button>
                     }
                     @if (record.invoiceUrl) {
@@ -73,7 +71,7 @@ import { formatPrice } from '@nxt1/core';
                         title="Download invoice"
                         (click)="downloadInvoice.emit(record.id)"
                       >
-                        <ion-icon name="document-text-outline"></ion-icon>
+                        <nxt1-icon name="document-text-outline" size="16" />
                       </button>
                     }
                   </div>
@@ -216,10 +214,6 @@ import { formatPrice } from '@nxt1/core';
           color: var(--nxt1-color-text-primary);
           background: var(--nxt1-color-surface-300);
         }
-
-        ion-icon {
-          font-size: var(--nxt1-icon-size-sm, 16px);
-        }
       }
 
       .load-more {
@@ -259,10 +253,6 @@ import { formatPrice } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsagePaymentHistoryComponent {
-  constructor() {
-    addIcons({ receiptOutline, documentTextOutline, downloadOutline });
-  }
-
   readonly records = input.required<readonly UsagePaymentHistoryRecord[]>();
   readonly hasMore = input<boolean>(false);
 

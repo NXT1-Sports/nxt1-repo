@@ -10,21 +10,13 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  cardOutline,
-  locationOutline,
-  giftOutline,
-  informationCircleOutline,
-  createOutline,
-} from 'ionicons/icons';
+import { NxtIconComponent } from '../../components/icon';
 import type { UsageBillingInfo, UsagePaymentMethod, UsageCoupon } from '@nxt1/core';
 
 @Component({
   selector: 'nxt1-usage-payment-info',
   standalone: true,
-  imports: [CommonModule, IonIcon],
+  imports: [CommonModule, NxtIconComponent],
   template: `
     <section class="payment-info">
       <h2 class="section-heading">Payment information</h2>
@@ -34,11 +26,11 @@ import type { UsageBillingInfo, UsagePaymentMethod, UsageCoupon } from '@nxt1/co
         <div class="info-card">
           <div class="card-header">
             <div class="card-title">
-              <ion-icon name="location-outline" class="card-icon"></ion-icon>
+              <nxt1-icon name="location-outline" className="card-icon" />
               <span>Billing information</span>
             </div>
             <button class="edit-btn" (click)="editBilling.emit()">
-              <ion-icon name="create-outline"></ion-icon>
+              <nxt1-icon name="pencil" className="edit-icon" />
               Edit
             </button>
           </div>
@@ -60,11 +52,11 @@ import type { UsageBillingInfo, UsagePaymentMethod, UsageCoupon } from '@nxt1/co
         <div class="info-card">
           <div class="card-header">
             <div class="card-title">
-              <ion-icon name="card-outline" class="card-icon"></ion-icon>
+              <nxt1-icon name="card-outline" className="card-icon" />
               <span>Payment method</span>
             </div>
             <button class="edit-btn" (click)="editPayment.emit()">
-              <ion-icon name="create-outline"></ion-icon>
+              <nxt1-icon name="pencil" className="edit-icon" />
               Edit
             </button>
           </div>
@@ -93,7 +85,7 @@ import type { UsageBillingInfo, UsagePaymentMethod, UsageCoupon } from '@nxt1/co
         <div class="info-card">
           <div class="card-header">
             <div class="card-title">
-              <ion-icon name="gift-outline" class="card-icon"></ion-icon>
+              <nxt1-icon name="gift-outline" className="card-icon" />
               <span>Coupon</span>
             </div>
           </div>
@@ -117,11 +109,11 @@ import type { UsageBillingInfo, UsagePaymentMethod, UsageCoupon } from '@nxt1/co
         <div class="info-card">
           <div class="card-header">
             <div class="card-title">
-              <ion-icon name="information-circle-outline" class="card-icon"></ion-icon>
+              <nxt1-icon name="infoCircle" className="card-icon" />
               <span>Additional information</span>
             </div>
             <button class="edit-btn" (click)="editAdditional.emit()">
-              <ion-icon name="create-outline"></ion-icon>
+              <nxt1-icon name="pencil" className="edit-icon" />
               Edit
             </button>
           </div>
@@ -201,10 +193,11 @@ import type { UsageBillingInfo, UsagePaymentMethod, UsageCoupon } from '@nxt1/co
         &:hover {
           background: var(--nxt1-color-surface-200);
         }
+      }
 
-        ion-icon {
-          font-size: var(--nxt1-fontSize-sm, 14px);
-        }
+      .edit-icon {
+        width: var(--nxt1-fontSize-sm, 14px);
+        height: var(--nxt1-fontSize-sm, 14px);
       }
 
       .card-body {
@@ -325,16 +318,6 @@ import type { UsageBillingInfo, UsagePaymentMethod, UsageCoupon } from '@nxt1/co
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsagePaymentInfoComponent {
-  constructor() {
-    addIcons({
-      cardOutline,
-      locationOutline,
-      giftOutline,
-      informationCircleOutline,
-      createOutline,
-    });
-  }
-
   readonly billingInfo = input<UsageBillingInfo | null>(null);
   readonly paymentMethods = input<readonly UsagePaymentMethod[]>([]);
   readonly coupon = input<UsageCoupon | null>(null);

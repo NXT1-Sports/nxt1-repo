@@ -50,6 +50,7 @@ import type {
 // Re-export for convenience
 export { USER_SCHEMA_VERSION } from './user-base.model';
 export type { SportProfile } from './user-sport.model';
+export type { Gender } from '../../constants/user.constants';
 
 // ============================================
 // TEAM CODE (legacy import)

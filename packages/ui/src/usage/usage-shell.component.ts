@@ -32,11 +32,10 @@ import {
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonContent, IonIcon, ModalController } from '@ionic/angular/standalone';
+import { IonContent, ModalController } from '@ionic/angular/standalone';
 import { SHEET_PRESETS } from '../components/bottom-sheet';
-import { addIcons } from 'ionicons';
-import { helpCircleOutline, closeOutline } from 'ionicons/icons';
-import { NxtPageHeaderComponent, type PageHeaderAction } from '../components/page-header';
+import { NxtIconComponent } from '../components/icon';
+import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import {
   NxtOptionScrollerComponent,
@@ -86,7 +85,7 @@ export interface UsageUser {
     UsagePaymentInfoComponent,
     UsageBudgetsComponent,
     NxtOptionScrollerComponent,
-    IonIcon,
+    NxtIconComponent,
   ],
   template: `
     <!-- Professional Page Header with Back Button (hidden on desktop web) -->
@@ -94,11 +93,19 @@ export interface UsageUser {
       <nxt1-page-header
         title="Billing & Usage"
         [showBack]="true"
-        [actions]="headerActions"
         (backClick)="back.emit()"
         (menuClick)="avatarClick.emit()"
-        (actionClick)="onHeaderAction($event)"
-      />
+      >
+        <button
+          type="button"
+          pageHeaderSlot="end"
+          class="usage-help-header-btn"
+          aria-label="How it works"
+          (click)="showHelp()"
+        >
+          <nxt1-icon name="help-circle-outline" size="20" />
+        </button>
+      </nxt1-page-header>
     }
 
     <!-- Mobile: Twitter/TikTok Style Tab Selector (outside ion-content like Agent X) -->
@@ -127,7 +134,7 @@ export interface UsageUser {
                 </p>
               </div>
               <button type="button" class="help-btn" (click)="showHelp()">
-                <ion-icon name="help-circle-outline"></ion-icon>
+                <nxt1-icon name="help-circle-outline" size="16" />
                 <span>How it works</span>
               </button>
             </div>
@@ -271,6 +278,24 @@ export interface UsageUser {
         --background: var(--usage-bg);
       }
 
+      .usage-help-header-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border: none;
+        border-radius: var(--nxt1-radius-full);
+        background: transparent;
+        color: var(--nxt1-color-text-secondary);
+        cursor: pointer;
+      }
+
+      .usage-help-header-btn:hover {
+        color: var(--nxt1-color-primary);
+        background: var(--nxt1-color-state-hover);
+      }
+
       .usage-dashboard {
         max-width: 1120px;
         margin: 0 auto;
@@ -318,8 +343,7 @@ export interface UsageUser {
         white-space: nowrap;
       }
 
-      .help-btn ion-icon {
-        font-size: var(--nxt1-iconSize-sm);
+      .help-btn nxt1-icon {
         color: var(--nxt1-color-text-tertiary);
         transition: color var(--nxt1-duration-fast) var(--nxt1-easing-out);
       }
@@ -330,7 +354,7 @@ export interface UsageUser {
         border-color: var(--nxt1-color-border-subtle);
       }
 
-      .help-btn:hover ion-icon {
+      .help-btn:hover nxt1-icon {
         color: var(--nxt1-color-primary);
       }
 
@@ -454,21 +478,12 @@ export interface UsageUser {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsageShellComponent implements OnInit {
-  constructor() {
-    addIcons({ helpCircleOutline, closeOutline });
-  }
-
   protected readonly svc = inject(UsageService);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
   private readonly platform = inject(NxtPlatformService);
   private readonly modalController = inject(ModalController);
   protected readonly sectionNavs = USAGE_SECTION_NAVS;
-
-  // Header actions for page header
-  protected readonly headerActions: PageHeaderAction[] = [
-    { id: 'help', icon: 'help-circle-outline', label: 'How it works' },
-  ];
 
   // ============================================
   // INPUTS
@@ -512,13 +527,6 @@ export class UsageShellComponent implements OnInit {
   /** Handle tab change from option scroller */
   protected onTabChange(event: OptionScrollerChangeEvent): void {
     this.svc.setActiveSection(event.option.id as UsageSection);
-  }
-
-  /** Handle header action clicks */
-  protected onHeaderAction(action: PageHeaderAction): void {
-    if (action.id === 'help') {
-      this.showHelp();
-    }
   }
 
   /** Show the "How it works" help modal/bottom sheet */

@@ -109,7 +109,7 @@ import { formatSportDisplayName } from '@nxt1/core';
       [contentId]="contentId()"
       [side]="config().position === 'right' ? 'end' : 'start'"
       [type]="config().mode === 'push' ? 'push' : 'overlay'"
-      [swipeGesture]="config().swipeGesture !== false"
+      [swipeGesture]="menuSwipeGestureEnabled()"
       [maxEdgeStart]="60"
       class="nxt1-sidenav-menu"
       [class.nxt1-sidenav-menu--blur]="config().variant === 'blur'"
@@ -458,7 +458,16 @@ import { formatSportDisplayName } from '@nxt1/core';
           <div class="nxt1-sidenav-footer">
             <!-- Theme Selector -->
             @if (config().showThemeSelector !== false) {
-              <div class="nxt1-sidenav-theme">
+              <div
+                class="nxt1-sidenav-theme"
+                (touchstart)="onThemeInteractionStart($event)"
+                (touchmove)="onThemeInteractionMove($event)"
+                (touchend)="onThemeInteractionEnd()"
+                (touchcancel)="onThemeInteractionEnd()"
+                (pointerdown)="onThemeInteractionStart($event)"
+                (pointerup)="onThemeInteractionEnd()"
+                (pointercancel)="onThemeInteractionEnd()"
+              >
                 <h3 class="nxt1-sidenav-theme__title">
                   <nxt1-icon name="contrast" [size]="16" class="nxt1-sidenav-theme__icon" />
                   Themes
@@ -1206,6 +1215,8 @@ import { formatSportDisplayName } from '@nxt1/core';
         margin-bottom: 20px;
         padding-bottom: 16px;
         border-bottom: 1px solid var(--nxt1-sidenav-border);
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
       }
 
       .nxt1-sidenav-theme__title {
@@ -1401,6 +1412,12 @@ export class NxtSidenavComponent {
   /** Active route for highlighting */
   private readonly activeRoute = signal<string>('');
 
+  /** Temporarily disables swipe-to-close while interacting with theme options. */
+  private readonly isThemeInteractionActive = signal(false);
+
+  /** Timer used to release interaction lock shortly after touch/pointer end. */
+  private themeInteractionResetTimer: ReturnType<typeof setTimeout> | null = null;
+
   /** Whether component is in browser */
   private readonly isBrowser = isPlatformBrowser(this.platformId);
 
@@ -1410,6 +1427,11 @@ export class NxtSidenavComponent {
 
   /** Platform detection */
   readonly isIos = computed(() => this.platform.isIOS());
+
+  /** Keep swipe gestures enabled except while user is actively scrolling theme options. */
+  readonly menuSwipeGestureEnabled = computed(
+    () => this.config().swipeGesture !== false && !this.isThemeInteractionActive()
+  );
 
   // ============================================
   // HOST BINDINGS
@@ -1433,6 +1455,13 @@ export class NxtSidenavComponent {
       this.initExpandedSections();
       this.initRouteListener();
       this.detectInitialRoute();
+    });
+
+    this.destroyRef.onDestroy(() => {
+      if (this.themeInteractionResetTimer) {
+        clearTimeout(this.themeInteractionResetTimer);
+        this.themeInteractionResetTimer = null;
+      }
     });
   }
 
@@ -1475,6 +1504,7 @@ export class NxtSidenavComponent {
   onMenuDidClose(): void {
     this.sidenavService.setAnimating(false);
     this.sidenavService.setState(false);
+    this.isThemeInteractionActive.set(false);
 
     const event: SidenavToggleEvent = {
       isOpen: false,
@@ -1685,6 +1715,47 @@ export class NxtSidenavComponent {
   async onSocialClick(social: SocialLink, event: Event): Promise<void> {
     await this.triggerHaptic('light');
     this.socialClick.emit({ social, event });
+  }
+
+  /**
+   * Keep Ionic menu swipe-close disabled while user starts dragging inside theme selector.
+   */
+  onThemeInteractionStart(event: Event): void {
+    event.stopPropagation();
+
+    if (this.themeInteractionResetTimer) {
+      clearTimeout(this.themeInteractionResetTimer);
+      this.themeInteractionResetTimer = null;
+    }
+
+    this.isThemeInteractionActive.set(true);
+  }
+
+  /**
+   * Continue consuming move events so horizontal theme scrolling doesn't close the menu.
+   */
+  onThemeInteractionMove(event: Event): void {
+    event.stopPropagation();
+    this.isThemeInteractionActive.set(true);
+  }
+
+  /**
+   * Release gesture lock shortly after interaction end to avoid edge-case flick closes.
+   */
+  onThemeInteractionEnd(): void {
+    if (!this.isBrowser) {
+      this.isThemeInteractionActive.set(false);
+      return;
+    }
+
+    if (this.themeInteractionResetTimer) {
+      clearTimeout(this.themeInteractionResetTimer);
+    }
+
+    this.themeInteractionResetTimer = setTimeout(() => {
+      this.isThemeInteractionActive.set(false);
+      this.themeInteractionResetTimer = null;
+    }, 120);
   }
 
   /**
