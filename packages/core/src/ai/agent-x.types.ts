@@ -7,6 +7,8 @@
  * 100% portable - works on web, mobile, and backend.
  */
 
+import type { AgentJobOrigin } from './agent.types';
+
 // ============================================
 // CHAT TYPES
 // ============================================
@@ -428,6 +430,17 @@ export interface OperationLogEntry {
   readonly duration?: string;
   /** MongoDB thread ID linking to the Agent X conversation for this operation. */
   readonly threadId?: string;
+  /**
+   * How this operation was initiated.
+   * 'user' = direct user prompt; 'system_cron' = scheduled task;
+   * 'database_event' = autonomous event trigger; etc.
+   */
+  readonly origin?: AgentJobOrigin;
+  /**
+   * True when the operation was initiated automatically (not by the user directly).
+   * Derived from origin: any non-'user' origin is considered scheduled/automated.
+   */
+  readonly isScheduled?: boolean;
   readonly metadata?: Record<string, unknown>;
 }
 

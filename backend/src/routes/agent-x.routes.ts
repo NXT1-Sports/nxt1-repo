@@ -463,6 +463,9 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     }
 
     const entries: OperationLogEntry[] = [];
+    // Track thread IDs already represented by a Firestore job so MongoDB threads
+    // are only added for conversations that have no recent Firestore job entry.
+    const representedThreadIds = new Set<string>();
 
     for (const job of jobs) {
       const intent = (job['intent'] as string) ?? '';
@@ -473,6 +476,11 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       const createdAt = job['createdAt'] as Timestamp | undefined;
       const completedAt = job['completedAt'] as Timestamp | undefined | null;
       const result = job['result'] as { summary?: string } | null | undefined;
+      const jobOrigin = (job['origin'] as AgentJobOrigin | undefined) ?? 'user';
+      const isScheduled = jobOrigin !== 'user';
+      const threadId = (job['threadId'] as string) ?? undefined;
+
+      if (threadId) representedThreadIds.add(threadId);
 
       entries.push({
         id: (job['operationId'] as string) ?? '',
@@ -487,13 +495,61 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
           ? new Date(createdAt.toMillis()).toISOString()
           : new Date().toISOString(),
         duration: computeDuration(createdAt, completedAt),
-        threadId: (job['threadId'] as string) ?? undefined,
+        threadId,
+        origin: jobOrigin,
+        isScheduled,
         metadata: {
-          origin: job['origin'],
+          // 'origin' is promoted to a top-level field on OperationLogEntry.
+          // 'agent' remains here as supplementary detail (not standardised across all entry types).
           agent: (result as Record<string, unknown> | null)?.['agent'] ?? null,
         },
       });
     }
+
+    // ── Augment with MongoDB threads not yet in the Firestore result ──────────
+    // This surfaces older conversations whose Firestore job TTL has expired,
+    // as well as threads created directly (not via a queued job).
+    if (chatService) {
+      try {
+        const { items: threads } = await chatService.getUserThreads({
+          userId: user.uid,
+          archived: false,
+          limit,
+        });
+
+        for (const thread of threads) {
+          if (representedThreadIds.has(thread.id)) continue;
+
+          const category = inferCategory(thread.title);
+          entries.push({
+            id: thread.id,
+            title: thread.title.slice(0, 120),
+            summary: `${thread.messageCount} message${thread.messageCount !== 1 ? 's' : ''} · ${thread.category ?? 'general'}`,
+            icon: iconForCategory(category),
+            status: 'complete',
+            category,
+            timestamp: thread.lastMessageAt,
+            threadId: thread.id,
+            origin: 'user',
+            isScheduled: false,
+            metadata: {
+              source: 'thread',
+              messageCount: thread.messageCount,
+              threadCategory: thread.category ?? null,
+            },
+          });
+        }
+      } catch (threadErr) {
+        // Thread augmentation must never block the primary Firestore result
+        logger.warn('Failed to augment operations log with MongoDB threads', {
+          userId: user.uid,
+          error: threadErr instanceof Error ? threadErr.message : String(threadErr),
+        });
+      }
+    }
+
+    // Sort merged entries by timestamp descending (newest first)
+    entries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
     logger.info('Operations log fetched', { userId: user.uid, count: entries.length });
     res.json({ success: true, data: entries });

@@ -65,7 +65,7 @@ interface OperationDayGroup {
 
 /** Filter chip definition. */
 interface StatusFilter {
-  readonly id: OperationLogStatus | 'all';
+  readonly id: OperationLogStatus | 'all' | 'scheduled';
   readonly label: string;
 }
 
@@ -79,6 +79,7 @@ const STATUS_FILTERS: readonly StatusFilter[] = [
   { id: 'in-progress', label: 'Active' },
   { id: 'error', label: 'Failed' },
   { id: 'cancelled', label: 'Cancelled' },
+  { id: 'scheduled', label: 'Scheduled' },
 ] as const;
 
 // ============================================
@@ -242,6 +243,12 @@ export const OPERATIONS_LOG_TEST_IDS = {
                       <span class="log-entry-duration">
                         <nxt1-icon name="time" [size]="10" />
                         {{ entry.duration }}
+                      </span>
+                    }
+                    @if (entry.isScheduled) {
+                      <span class="log-entry-scheduled">
+                        <nxt1-icon name="timer" [size]="10" />
+                        Scheduled
                       </span>
                     }
                   </div>
@@ -595,6 +602,20 @@ export const OPERATIONS_LOG_TEST_IDS = {
         color: var(--log-text-muted);
       }
 
+      .log-entry-scheduled {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--log-primary);
+        background: var(--log-primary-glow);
+        padding: 2px 6px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+
       /* ═══ SKELETON ═══ */
       .log-skeleton {
         display: flex;
@@ -742,7 +763,7 @@ export class AgentXOperationsLogComponent {
 
   private readonly _loading = signal(true);
   private readonly _operations = signal<readonly OperationLogEntry[]>([]);
-  private readonly _activeFilter = signal<OperationLogStatus | 'all'>('all');
+  private readonly _activeFilter = signal<OperationLogStatus | 'all' | 'scheduled'>('all');
 
   protected readonly loading = computed(() => this._loading());
   protected readonly operations = computed(() => this._operations());
@@ -776,6 +797,7 @@ export class AgentXOperationsLogComponent {
     const filter = this._activeFilter();
     const ops = this._operations();
     if (filter === 'all') return ops;
+    if (filter === 'scheduled') return ops.filter((o) => o.isScheduled);
     return ops.filter((o) => o.status === filter);
   });
 
@@ -837,7 +859,7 @@ export class AgentXOperationsLogComponent {
   }
 
   /** Set active filter with haptic and tracking. */
-  protected async onFilterTap(filter: OperationLogStatus | 'all'): Promise<void> {
+  protected async onFilterTap(filter: OperationLogStatus | 'all' | 'scheduled'): Promise<void> {
     await this.haptics.impact('light');
     this._activeFilter.set(filter);
     this.logger.info('Filter applied', { filter });
@@ -845,8 +867,9 @@ export class AgentXOperationsLogComponent {
   }
 
   /** Get count for a specific filter. */
-  protected getFilterCount(status: OperationLogStatus | 'all'): number {
+  protected getFilterCount(status: OperationLogStatus | 'all' | 'scheduled'): number {
     if (status === 'all') return this.totalCount();
+    if (status === 'scheduled') return this._operations().filter((o) => o.isScheduled).length;
     return this._operations().filter((o) => o.status === status).length;
   }
 
