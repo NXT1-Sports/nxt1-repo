@@ -4,8 +4,8 @@
  * @version 3.0.0
  *
  * PLATFORM-SPECIFIC COMPONENTS:
- * - Mobile (Ionic): ExploreShellComponent, ExploreListComponent, ExploreItemComponent
- * - Web (Zero Ionic): ExploreShellWebComponent, ExploreListWebComponent, ExploreItemWebComponent
+ * - Mobile (Ionic): ExploreShellComponent, ExploreListComponent, ExploreItemComponent, ExploreVideosMobileComponent
+ * - Web (Zero Ionic): ExploreShellWebComponent, ExploreListWebComponent, ExploreItemWebComponent, ExploreVideosWebComponent
  * - Shared: ExploreSkeletonComponent, ExploreService
  */
 
@@ -16,6 +16,7 @@ export { ExploreShellComponent, type ExploreUser } from './explore-shell.compone
 export { ExploreListComponent } from './explore-list.component';
 export { ExploreItemComponent } from './explore-item.component';
 export { ExploreForYouComponent } from './explore-for-you.component';
+export { ExploreVideosMobileComponent } from './mobile/explore-videos-mobile.component';
 
 // ============================================
 // WEB — Zero Ionic, SSR-optimized
@@ -24,6 +25,7 @@ export { ExploreShellWebComponent } from './web/explore-shell-web.component';
 export { ExploreListWebComponent } from './web/explore-list-web.component';
 export { ExploreItemWebComponent } from './web/explore-item-web.component';
 export { ExploreForYouWebComponent } from './web/explore-for-you-web.component';
+export { ExploreVideosWebComponent } from './web/explore-videos-web.component';
 
 // ============================================
 // SHARED — Works on both platforms

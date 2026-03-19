@@ -13,3 +13,4 @@ export { ExploreShellWebComponent } from './explore-shell-web.component';
 export { ExploreListWebComponent } from './explore-list-web.component';
 export { ExploreItemWebComponent } from './explore-item-web.component';
 export { ExploreForYouWebComponent } from './explore-for-you-web.component';
+export { ExploreVideosWebComponent } from './explore-videos-web.component';
