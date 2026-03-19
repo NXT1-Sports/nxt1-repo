@@ -96,6 +96,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
   DAY_GROUP: 'operations-log-day-group',
   ENTRY: 'operations-log-entry',
   EMPTY_STATE: 'operations-log-empty',
+  ERROR_STATE: 'operations-log-error',
   SKELETON: 'operations-log-skeleton',
 } as const;
 
@@ -171,6 +172,15 @@ export const OPERATIONS_LOG_TEST_IDS = {
             <div class="log-skeleton__time"></div>
           </div>
         }
+      } @else if (error()) {
+        <!-- Error State -->
+        <div class="log-empty" [attr.data-testid]="testIds.ERROR_STATE">
+          <div class="log-empty-icon log-empty-icon--error">
+            <nxt1-icon name="alertCircle" [size]="32" />
+          </div>
+          <h3 class="log-empty-title">Couldn't load operations</h3>
+          <p class="log-empty-message">Check your connection and try again.</p>
+        </div>
       } @else if (filteredGroups().length === 0) {
         <!-- Empty State -->
         <div class="log-empty" [attr.data-testid]="testIds.EMPTY_STATE">
@@ -712,6 +722,11 @@ export const OPERATIONS_LOG_TEST_IDS = {
         margin-bottom: var(--nxt1-spacing-4, 16px);
       }
 
+      .log-empty-icon--error {
+        background: color-mix(in srgb, var(--log-error) 12%, transparent);
+        color: var(--log-error);
+      }
+
       .log-empty-title {
         font-size: 16px;
         font-weight: 600;
@@ -764,10 +779,12 @@ export class AgentXOperationsLogComponent {
   private readonly _loading = signal(true);
   private readonly _operations = signal<readonly OperationLogEntry[]>([]);
   private readonly _activeFilter = signal<OperationLogStatus | 'all' | 'scheduled'>('all');
+  private readonly _error = signal<string | null>(null);
 
   protected readonly loading = computed(() => this._loading());
   protected readonly operations = computed(() => this._operations());
   protected readonly activeFilter = computed(() => this._activeFilter());
+  protected readonly error = computed(() => this._error());
   protected readonly statusFilters = STATUS_FILTERS;
 
   // ============================================
@@ -792,12 +809,19 @@ export class AgentXOperationsLogComponent {
     () => this._operations().filter((o) => o.status === 'error').length
   );
 
-  /** Filtered operations based on active filter. */
+  /**
+   * Filtered operations based on the active filter chip.
+   *
+   * Filter semantics:
+   * - `'all'`         → all entries, no filtering
+   * - `'scheduled'`   → entries where `isScheduled === true` (autonomous/cron-triggered)
+   * - status filters  → entries matching the exact `status` field
+   */
   protected readonly filteredOperations = computed(() => {
     const filter = this._activeFilter();
     const ops = this._operations();
     if (filter === 'all') return ops;
-    if (filter === 'scheduled') return ops.filter((o) => o.isScheduled);
+    if (filter === 'scheduled') return ops.filter((o) => o.isScheduled === true);
     return ops.filter((o) => o.status === filter);
   });
 
@@ -834,6 +858,7 @@ export class AgentXOperationsLogComponent {
   /** Fetch operations from the backend API. */
   private async loadOperations(): Promise<void> {
     this._loading.set(true);
+    this._error.set(null);
     this.logger.info('Loading operations log');
     this.breadcrumb.trackStateChange('operations-log: loading');
     this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATIONS_LOG_VIEWED);
@@ -848,10 +873,13 @@ export class AgentXOperationsLogComponent {
         this.breadcrumb.trackStateChange('operations-log: loaded', { count: response.data.length });
       } else {
         this.logger.warn('Operations log returned empty', { error: response.error });
+        this._error.set(response.error ?? null);
         this._operations.set([]);
       }
     } catch (err) {
-      this.logger.error('Failed to load operations log', err);
+      const msg = err instanceof Error ? err.message : 'Failed to load operations';
+      this.logger.error('Failed to load operations log', { error: msg });
+      this._error.set(msg);
       this._operations.set([]);
     } finally {
       this._loading.set(false);

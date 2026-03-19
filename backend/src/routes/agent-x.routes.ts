@@ -328,8 +328,31 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
 // ─── GET /operations-log — Formatted operations activity log ──────────────
 
 /**
- * Maps the raw AgentOperationStatus from Firestore to the display-friendly
- * OperationLogStatus used by the frontend bottom sheet component.
+ * Validates and coerces a raw Firestore string to a typed {@link AgentJobOrigin}.
+ * Protects against stale or invalid data written to Firestore before the enum
+ * was fully enforced. Returns `'user'` as a safe default for unrecognised values.
+ */
+const VALID_JOB_ORIGINS: ReadonlySet<AgentJobOrigin> = new Set([
+  'user',
+  'system_cron',
+  'database_event',
+  'webhook',
+  'agent_chain',
+]);
+
+function validateJobOrigin(value: unknown): AgentJobOrigin {
+  if (typeof value === 'string' && VALID_JOB_ORIGINS.has(value as AgentJobOrigin)) {
+    return value as AgentJobOrigin;
+  }
+  return 'user';
+}
+
+/**
+ * Maps Firestore {@link AgentOperationStatus} to the display-friendly
+ * {@link OperationLogStatus} consumed by the frontend bottom sheet.
+ *
+ * Any unrecognised status (e.g. `'queued'`, `'thinking'`, `'acting'`) is treated as
+ * `'in-progress'` so the UI shows a spinner while the job is active.
  */
 function mapJobStatus(status: string): OperationLogStatus {
   switch (status) {
@@ -344,80 +367,64 @@ function mapJobStatus(status: string): OperationLogStatus {
   }
 }
 
-/** Infer an operation category from the job intent text. */
+/**
+ * Infers the best-fit {@link OperationLogCategory} from a job intent string
+ * using keyword matching.  Matching is case-insensitive and first-match wins.
+ *
+ * Category → keywords:
+ * - `outreach`   → email, outreach, coach, send
+ * - `content`    → highlight, graphic, video, reel, post, brand
+ * - `film`       → film, game, footage, play
+ * - `recruiting` → recruit, camp, ncaa, transfer, prospect
+ * - `analytics`  → stat, analytics, report, scout, compare
+ * - `profile`    → profile, bio, photo, gpa, academic
+ * - `system`     → (default / fallback)
+ */
+const CATEGORY_KEYWORDS: ReadonlyArray<{
+  readonly category: OperationLogCategory;
+  readonly keywords: readonly string[];
+}> = [
+  { category: 'outreach', keywords: ['email', 'outreach', 'coach', 'send'] },
+  { category: 'content', keywords: ['highlight', 'graphic', 'video', 'reel', 'post', 'brand'] },
+  { category: 'film', keywords: ['film', 'game', 'footage', 'play'] },
+  { category: 'recruiting', keywords: ['recruit', 'camp', 'ncaa', 'transfer', 'prospect'] },
+  { category: 'analytics', keywords: ['stat', 'analytics', 'report', 'scout', 'compare'] },
+  { category: 'profile', keywords: ['profile', 'bio', 'photo', 'gpa', 'academic'] },
+];
+
 function inferCategory(intent: string): OperationLogCategory {
   const lower = intent.toLowerCase();
-  if (
-    lower.includes('email') ||
-    lower.includes('outreach') ||
-    lower.includes('coach') ||
-    lower.includes('send')
-  )
-    return 'outreach';
-  if (
-    lower.includes('highlight') ||
-    lower.includes('graphic') ||
-    lower.includes('video') ||
-    lower.includes('reel') ||
-    lower.includes('post') ||
-    lower.includes('brand')
-  )
-    return 'content';
-  if (
-    lower.includes('film') ||
-    lower.includes('game') ||
-    lower.includes('footage') ||
-    lower.includes('play')
-  )
-    return 'film';
-  if (
-    lower.includes('recruit') ||
-    lower.includes('camp') ||
-    lower.includes('ncaa') ||
-    lower.includes('transfer') ||
-    lower.includes('prospect')
-  )
-    return 'recruiting';
-  if (
-    lower.includes('stat') ||
-    lower.includes('analytics') ||
-    lower.includes('report') ||
-    lower.includes('scout') ||
-    lower.includes('compare')
-  )
-    return 'analytics';
-  if (
-    lower.includes('profile') ||
-    lower.includes('bio') ||
-    lower.includes('photo') ||
-    lower.includes('gpa') ||
-    lower.includes('academic')
-  )
-    return 'profile';
+  for (const { category, keywords } of CATEGORY_KEYWORDS) {
+    if (keywords.some((kw) => lower.includes(kw))) return category;
+  }
   return 'system';
 }
 
-/** Pick an icon based on category. */
+/**
+ * Returns the icon name for an {@link OperationLogCategory}.
+ * Uses an exhaustive record lookup to guarantee a return value for every category.
+ */
+const CATEGORY_ICONS: Record<OperationLogCategory, string> = {
+  outreach: 'mail',
+  content: 'sparkles',
+  film: 'videocam',
+  recruiting: 'school',
+  analytics: 'barChart',
+  profile: 'person',
+  system: 'settings',
+};
+
 function iconForCategory(category: OperationLogCategory): string {
-  switch (category) {
-    case 'outreach':
-      return 'mail';
-    case 'content':
-      return 'sparkles';
-    case 'film':
-      return 'videocam';
-    case 'recruiting':
-      return 'school';
-    case 'analytics':
-      return 'barChart';
-    case 'profile':
-      return 'person';
-    case 'system':
-      return 'settings';
-  }
+  return CATEGORY_ICONS[category];
 }
 
-/** Compute a human-readable duration between two Firestore Timestamps. */
+/**
+ * Computes a human-readable duration string between two Firestore Timestamps.
+ *
+ * @param createdAt   - Operation start timestamp
+ * @param completedAt - Operation end timestamp; `null` = still running
+ * @returns `"Xm YYs"` string, or `undefined` if timestamps are absent or invalid
+ */
 function computeDuration(
   createdAt: Timestamp | undefined,
   completedAt: Timestamp | undefined | null
@@ -476,7 +483,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       const createdAt = job['createdAt'] as Timestamp | undefined;
       const completedAt = job['completedAt'] as Timestamp | undefined | null;
       const result = job['result'] as { summary?: string } | null | undefined;
-      const jobOrigin = (job['origin'] as AgentJobOrigin | undefined) ?? 'user';
+      const jobOrigin = validateJobOrigin(job['origin']);
       const isScheduled = jobOrigin !== 'user';
       const threadId = (job['threadId'] as string) ?? undefined;
 
@@ -511,11 +518,19 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     // as well as threads created directly (not via a queued job).
     if (chatService) {
       try {
-        const { items: threads } = await chatService.getUserThreads({
+        const { items: threads, hasMore: threadsHasMore } = await chatService.getUserThreads({
           userId: user.uid,
           archived: false,
           limit,
         });
+
+        if (threadsHasMore) {
+          logger.warn('Operations log thread augmentation truncated — consider increasing limit', {
+            userId: user.uid,
+            displayedCount: threads.length,
+            limit,
+          });
+        }
 
         for (const thread of threads) {
           if (representedThreadIds.has(thread.id)) continue;
