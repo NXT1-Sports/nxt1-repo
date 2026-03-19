@@ -54,16 +54,12 @@ import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 
-// ⚠️ TEMPORARY: Mock data for development (remove when backend is ready)
-import { getMockAthleteReport, getMockCoachReport } from './analytics-dashboard.mock-data';
-
 /**
  * Analytics Dashboard state management service.
  * Provides reactive state for the analytics interface.
  */
 @Injectable({ providedIn: 'root' })
 export class AnalyticsDashboardService implements OnDestroy {
-  // ⚠️ TEMPORARY: API service commented out - using mock data
   // private readonly api = inject(AnalyticsDashboardApiService);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
@@ -215,14 +211,11 @@ export class AnalyticsDashboardService implements OnDestroy {
     this._selectedPeriod.set(period);
 
     try {
-      // ⚠️ TEMPORARY: Using mock data
-      // TODO: Replace with real API call
+      // TODO: Connect real API
       // const report = await this.api.getReport({ userId, role, period });
 
-      // Simulate network delay
-      await new Promise((resolve) => setTimeout(resolve, 800));
-
-      const report = !isTeamRole(role) ? getMockAthleteReport() : getMockCoachReport();
+      // No data available yet
+      const report = null;
 
       // Update cache
       this._cacheTimestamp = now;
@@ -230,7 +223,7 @@ export class AnalyticsDashboardService implements OnDestroy {
       this._cachedRole = role;
 
       // Update state
-      this._report.set(report);
+      if (report) this._report.set(report);
       this._lastRefresh.set(new Date());
       this._error.set(null);
 

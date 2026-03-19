@@ -20,24 +20,14 @@ import type { ActivityTab, ActivityTabId, ActivityType, ActivityPriority } from 
  */
 export const ACTIVITY_TABS: readonly ActivityTab[] = [
   {
-    id: 'all',
-    label: 'All',
-    icon: 'layers-outline',
-  },
-  {
-    id: 'inbox',
-    label: 'Inbox',
-    icon: 'mail-outline',
-  },
-  {
-    id: 'agent',
-    label: 'Agent',
-    icon: 'sparkles-outline',
-  },
-  {
     id: 'alerts',
     label: 'Alerts',
     icon: 'heart-outline',
+  },
+  {
+    id: 'analytics',
+    label: 'Analytics',
+    icon: 'bar-chart-outline',
   },
 ] as const;
 
@@ -45,7 +35,7 @@ export const ACTIVITY_TABS: readonly ActivityTab[] = [
  * Default selected tab.
  * 'all' provides the best overview experience on first load.
  */
-export const ACTIVITY_DEFAULT_TAB: ActivityTabId = 'all';
+export const ACTIVITY_DEFAULT_TAB: ActivityTabId = 'alerts';
 
 // ============================================
 // ACTIVITY TYPE CONFIGURATION
@@ -155,25 +145,15 @@ export const ACTIVITY_EMPTY_STATES: Record<
   ActivityTabId,
   { title: string; message: string; icon: string; ctaLabel?: string }
 > = {
-  all: {
-    title: 'All caught up!',
-    message: "You're up to date. New activity will appear here.",
-    icon: 'checkmark-done-outline',
-  },
-  inbox: {
-    title: 'No messages yet',
-    message: 'Notifications, messages, and direct alerts will appear here.',
-    icon: 'mail-outline',
-  },
-  agent: {
-    title: 'No Agent X activity',
-    message: 'AI operations, task updates, and Agent X results will show up here.',
-    icon: 'sparkles-outline',
-  },
   alerts: {
     title: 'No alerts yet',
     message: 'Social activity and system updates will appear here.',
     icon: 'heart-outline',
+  },
+  analytics: {
+    title: 'No analytics yet',
+    message: 'Your recruiting stats and Agent X performance will appear here.',
+    icon: 'bar-chart-outline',
   },
 } as const;
 

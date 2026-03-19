@@ -261,45 +261,45 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   profile_view: 'alerts',
   video_view: 'alerts',
 
-  // Recruiting → inbox
-  college_view: 'inbox',
-  coach_view: 'inbox',
-  new_offer: 'inbox',
-  offer_update: 'inbox',
-  camp_reminder: 'inbox',
-  visit_reminder: 'inbox',
-  recruiting_update: 'inbox',
-  message_from_coach: 'inbox',
+  // Recruiting → alerts
+  college_view: 'alerts',
+  coach_view: 'alerts',
+  new_offer: 'alerts',
+  offer_update: 'alerts',
+  camp_reminder: 'alerts',
+  visit_reminder: 'alerts',
+  recruiting_update: 'alerts',
+  message_from_coach: 'alerts',
 
-  // Team → inbox
-  team_invite: 'inbox',
-  team_join_request: 'inbox',
+  // Team → alerts
+  team_invite: 'alerts',
+  team_join_request: 'alerts',
   team_member_joined: 'alerts',
   team_member_left: 'alerts',
-  team_announcement: 'inbox',
-  team_event: 'inbox',
+  team_announcement: 'alerts',
+  team_event: 'alerts',
 
-  // Content → agent
-  video_processed: 'agent',
-  video_failed: 'agent',
-  card_ready: 'agent',
-  ai_task_complete: 'agent',
-  agent_welcome: 'agent',
+  // Content → alerts
+  video_processed: 'alerts',
+  video_failed: 'alerts',
+  card_ready: 'alerts',
+  ai_task_complete: 'alerts',
+  agent_welcome: 'alerts',
 
-  // System → inbox
-  account_created: 'inbox',
-  email_verified: 'inbox',
-  password_changed: 'inbox',
-  security_alert: 'inbox',
-  profile_incomplete: 'inbox',
+  // System → alerts
+  account_created: 'alerts',
+  email_verified: 'alerts',
+  password_changed: 'alerts',
+  security_alert: 'alerts',
+  profile_incomplete: 'alerts',
 
-  // Billing → inbox
-  payment_received: 'inbox',
-  payment_failed: 'inbox',
-  credits_low: 'inbox',
-  credits_added: 'inbox',
-  budget_warning: 'inbox',
-  budget_reached: 'inbox',
+  // Billing → alerts
+  payment_received: 'alerts',
+  payment_failed: 'alerts',
+  credits_low: 'alerts',
+  credits_added: 'alerts',
+  budget_warning: 'alerts',
+  budget_reached: 'alerts',
 
   // Marketing → alerts
   feature_announcement: 'alerts',

@@ -89,7 +89,7 @@ export function conversationToActivityItem(conversation: Conversation): Activity
   return {
     id: `msg-${conversation.id}`,
     type: 'message',
-    tab: 'inbox',
+    tab: 'alerts',
     priority: 'normal',
     title: conversation.title,
     body,

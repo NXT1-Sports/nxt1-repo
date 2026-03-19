@@ -39,7 +39,6 @@ import {
   ACTIVITY_DEFAULT_TAB,
   ACTIVITY_TABS,
   ACTIVITY_PAGINATION_DEFAULTS,
-  conversationsToActivityItems,
 } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
@@ -71,10 +70,8 @@ export class ActivityService {
   private readonly _items = signal<ActivityItem[]>([]);
   private readonly _activeTab = signal<ActivityTabId>(ACTIVITY_DEFAULT_TAB);
   private readonly _badges = signal<Record<ActivityTabId, number>>({
-    all: 0,
-    inbox: 0,
-    agent: 0,
     alerts: 0,
+    analytics: 0,
   });
   private readonly _isLoading = signal(false);
   private readonly _isLoadingMore = signal(false);
@@ -104,40 +101,13 @@ export class ActivityService {
    * - 'all': Merged conversations + activity items, sorted by timestamp
    * - Other tabs: Regular activity items only
    */
-  readonly unifiedItems = computed((): ActivityItem[] => {
-    const tab = this._activeTab();
-
-    if (tab === 'inbox') {
-      // Inbox: only conversations as ActivityItems
-      const conversations = this.messagesService.conversations();
-      return conversationsToActivityItems(conversations);
-    }
-
-    if (tab === 'all') {
-      // All: merge conversations + activity items, sorted by timestamp
-      const conversations = this.messagesService.conversations();
-      const messageItems = conversationsToActivityItems(conversations);
-      const activityItems = this._items();
-      const merged = [...messageItems, ...activityItems];
-      return merged.sort(
-        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-      );
-    }
-
-    // Agent, Alerts: regular activity items only
-    return this._items();
-  });
+  readonly unifiedItems = computed((): ActivityItem[] => this._items());
 
   /** Badge counts per tab */
   readonly badges = computed(() => this._badges());
 
   /** Whether initial load is in progress (suppressed for cached tabs to avoid skeleton flash) */
-  readonly isLoading = computed(() => {
-    const tab = this._activeTab();
-    if (tab === 'inbox') return this.messagesService.isLoading();
-    if (tab === 'all') return this._isLoading() || this.messagesService.isLoading();
-    return this._isLoading();
-  });
+  readonly isLoading = computed(() => this._isLoading());
 
   /** Whether loading more items */
   readonly isLoadingMore = computed(() => this._isLoadingMore());
@@ -146,40 +116,22 @@ export class ActivityService {
   readonly isRefreshing = computed(() => this._isRefreshing());
 
   /** Current error message (includes message service errors for inbox/all tabs) */
-  readonly error = computed(() => {
-    const tab = this._activeTab();
-    const activityError = this._error();
-    const messagesError = this.messagesService.error();
-
-    if (tab === 'inbox') return messagesError;
-    if (tab === 'all') return activityError ?? messagesError;
-    return activityError;
-  });
+  readonly error = computed(() => this._error());
 
   /** Current pagination info */
   readonly pagination = computed(() => this._pagination());
 
   /** Whether the feed is empty (uses unified items) */
-  readonly isEmpty = computed(() => {
-    const tab = this._activeTab();
-    const isLoadingActivity = this._isLoading();
-    const isLoadingMessages = this.messagesService.isLoading();
-
-    // For tabs that include messages, check both loading states
-    if (tab === 'inbox') {
-      return this.messagesService.isEmpty() && !isLoadingMessages;
-    }
-    if (tab === 'all') {
-      return this.unifiedItems().length === 0 && !isLoadingActivity && !isLoadingMessages;
-    }
-    return this._items().length === 0 && !isLoadingActivity;
-  });
+  readonly isEmpty = computed(() => this._items().length === 0 && !this._isLoading());
 
   /** Whether there are more items to load */
   readonly hasMore = computed(() => this._pagination()?.hasMore ?? false);
 
-  /** Total unread count (uses 'all' tab which is the authoritative total from backend) */
-  readonly totalUnread = computed(() => this._badges()['all'] ?? 0);
+  /** Total unread count (sum of all tab badges) */
+  readonly totalUnread = computed(() => {
+    const b = this._badges();
+    return (b['alerts'] ?? 0) + (b['analytics'] ?? 0);
+  });
 
   /** Badge count for current tab */
   readonly currentTabBadge = computed(() => {
@@ -225,13 +177,6 @@ export class ActivityService {
     // if (tab === 'inbox' || tab === 'all') {
     //   this.messagesService.loadConversations();
     // }
-
-    // Inbox tab only needs conversations — skip activity API data
-    if (tab === 'inbox') {
-      this._items.set([]);
-      this._pagination.set(null);
-      return;
-    }
 
     // Restore cached data instantly to avoid skeleton flash on tab switch
     const cached = this._tabCache.get(tab);
@@ -343,27 +288,7 @@ export class ActivityService {
     //   return;
     // }
 
-    // For all tab — refresh both in parallel
-    // TODO: Re-enable messagesService.refresh() in Promise.allSettled when backend /messages routes are ready
-    if (tab === 'all') {
-      try {
-        await this.refreshActivityData();
-        this.analytics?.trackEvent(APP_EVENTS.TAB_CHANGED, {
-          tab,
-          action: 'refresh',
-        });
-        await this.haptics.notification('success');
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to refresh';
-        this.toast.error(message);
-        this.logger.error('Failed to refresh combined feed', err, { tab });
-      } finally {
-        this._isRefreshing.set(false);
-      }
-      return;
-    }
-
-    // For other tabs — refresh activity data only
+    // For all tabs — refresh activity data only
     try {
       await this.refreshActivityData();
       this.analytics?.trackEvent(APP_EVENTS.TAB_CHANGED, {
@@ -420,7 +345,6 @@ export class ActivityService {
         const tab = this._activeTab();
         this._badges.update((badges) => ({
           ...badges,
-          all: Math.max(0, (badges['all'] ?? 0) - activityIds.length),
           [tab]: Math.max(0, (badges[tab] ?? 0) - activityIds.length),
         }));
       }
@@ -456,7 +380,6 @@ export class ActivityService {
     this._items.update((items) => items.map((item) => ({ ...item, isRead: true })));
     this._badges.update((badges) => ({
       ...badges,
-      all: 0,
       [tab]: 0,
     }));
 
@@ -604,14 +527,12 @@ export class ActivityService {
 
     // Invalidate tab cache so the next tab switch shows fresh data
     this._tabCache.delete(item.tab);
-    this._tabCache.delete('all');
 
-    // Increment badge for the relevant tab + 'all'
+    // Increment badge for the relevant tab
     if (!item.isRead) {
       this._badges.update((badges) => ({
         ...badges,
         [item.tab]: (badges[item.tab] ?? 0) + 1,
-        all: (badges['all'] ?? 0) + 1,
       }));
     }
 
@@ -623,11 +544,10 @@ export class ActivityService {
    * Used by PushHandlerService when a foreground push is received
    * but the full activity item hasn't been fetched yet.
    */
-  incrementBadge(tab: ActivityTabId = 'agent'): void {
+  incrementBadge(tab: ActivityTabId = 'alerts'): void {
     this._badges.update((badges) => ({
       ...badges,
       [tab]: (badges[tab] ?? 0) + 1,
-      all: (badges['all'] ?? 0) + 1,
     }));
   }
 }

@@ -608,7 +608,7 @@ export class ActivityItemComponent {
   });
 
   /** Agent tab/system visual uses branded Agent X mark */
-  protected readonly isAgentItem = computed(() => this.item().tab === 'agent');
+  protected readonly isAgentItem = computed(() => false);
 
   readonly agentXLogoPath = AGENT_X_LOGO_PATH;
   readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;

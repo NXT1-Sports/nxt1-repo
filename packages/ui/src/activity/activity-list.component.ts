@@ -518,7 +518,7 @@ export class ActivityListComponent {
   readonly hasMore = input(false);
 
   /** Current active tab (for empty state) */
-  readonly activeTab = input<ActivityTabId>('all');
+  readonly activeTab = input<ActivityTabId>('alerts');
 
   /** Connected email accounts (for inbox empty state) */
   readonly connectedEmails = input<readonly ConnectedEmail[]>([]);
@@ -564,14 +564,14 @@ export class ActivityListComponent {
   /** Empty state config for current tab */
   protected readonly emptyState = computed(() => {
     const tab = this.activeTab();
-    return ACTIVITY_EMPTY_STATES[tab] ?? ACTIVITY_EMPTY_STATES.all;
+    return ACTIVITY_EMPTY_STATES[tab] ?? ACTIVITY_EMPTY_STATES['alerts'];
   });
 
   /** Whether the active tab is the Agent X tab */
-  protected readonly isAgentTab = computed(() => this.activeTab() === 'agent');
+  protected readonly isAgentTab = computed(() => false);
 
   /** Whether the active tab is the Inbox tab */
-  protected readonly isInboxTab = computed(() => this.activeTab() === 'inbox');
+  protected readonly isInboxTab = computed(() => false);
 
   /** Whether any email accounts are connected */
   protected readonly hasConnectedEmails = computed(() => this.connectedEmails().length > 0);

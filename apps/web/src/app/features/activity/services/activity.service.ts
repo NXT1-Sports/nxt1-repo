@@ -63,10 +63,8 @@ export class ActivityService {
   private readonly _items = signal<ActivityItem[]>([]);
   private readonly _activeTab = signal<ActivityTabId>(ACTIVITY_DEFAULT_TAB);
   private readonly _badges = signal<Record<ActivityTabId, number>>({
-    all: 0,
-    inbox: 0,
-    agent: 0,
     alerts: 0,
+    analytics: 0,
   });
   private readonly _isLoading = signal(false);
   private readonly _isLoadingMore = signal(false);
