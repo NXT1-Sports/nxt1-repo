@@ -20,7 +20,17 @@
  * - Onboarding flow orchestration
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  computed,
+  signal,
+  effect,
+  Injector,
+  OnInit,
+  afterNextRender,
+} from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { AgentXShellWebComponent } from '@nxt1/ui/agent-x/web';
 import { NxtAgentXLandingComponent, type AgentXUser } from '@nxt1/ui/agent-x';
@@ -43,6 +53,11 @@ import { SeoService } from '../../core/services';
     AgentOnboardingShellComponent,
   ],
   template: `
+    <!-- Auth-init mask: covers landing→shell flash while Firebase session resolves -->
+    @if (showAuthMask()) {
+      <div class="auth-init-mask"></div>
+    }
+
     @if (isAuthenticated()) {
       @if (showOnboarding()) {
         <!-- Authenticated users who haven't completed onboarding -->
@@ -71,6 +86,24 @@ import { SeoService } from '../../core/services';
         background: var(--nxt1-color-bg-primary);
       }
 
+      .auth-init-mask {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: var(--nxt1-color-bg-primary);
+        pointer-events: none;
+        animation: authMaskFadeOut 200ms ease 50ms both;
+      }
+
+      @keyframes authMaskFadeOut {
+        from {
+          opacity: 1;
+        }
+        to {
+          opacity: 0;
+        }
+      }
+
       .agent-landing-shell {
         position: relative;
         min-height: 100vh;
@@ -93,6 +126,32 @@ export class AgentXComponent implements OnInit {
   private readonly onboarding = inject(AgentOnboardingService);
   private readonly route = inject(ActivatedRoute);
   private readonly agentX = inject(AgentXService);
+  private readonly injector = inject(Injector);
+
+  /**
+   * Auth-init overlay: prevents the marketing landing page from flashing
+   * for authenticated users while Firebase resolves the session token.
+   * Starts hidden on SSR/first render, shows only if auth is not yet ready
+   * on the client, then fades away once Firebase resolves.
+   */
+  protected readonly showAuthMask = signal(false);
+
+  constructor() {
+    afterNextRender(() => {
+      if (!this.authFlow.isInitialized()) {
+        this.showAuthMask.set(true);
+        const stop = effect(
+          () => {
+            if (this.authFlow.isInitialized()) {
+              this.showAuthMask.set(false);
+              stop.destroy();
+            }
+          },
+          { injector: this.injector }
+        );
+      }
+    });
+  }
 
   /** Auth state — hard-gates shell visibility */
   protected readonly isAuthenticated = computed(() => this.authFlow.isAuthenticated());

@@ -15,13 +15,13 @@
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
-import { Meta, Title } from '@angular/platform-browser';
 import {
   ScoutReportsShellComponent,
   ScoutReportsService,
   ScoutReportFilterPanelComponent,
 } from '@nxt1/ui/scout-reports';
 import type { ScoutReport, ScoutReportCategoryId, ScoutReportFilter } from '@nxt1/core';
+import { SeoService } from '../../core/services/seo.service';
 
 @Component({
   selector: 'app-scout-reports',
@@ -75,19 +75,23 @@ import type { ScoutReport, ScoutReportCategoryId, ScoutReportFilter } from '@nxt
 export class ScoutReportsComponent implements OnInit {
   protected readonly service = inject(ScoutReportsService);
   private readonly router = inject(Router);
-  private readonly meta = inject(Meta);
-  private readonly title = inject(Title);
+  private readonly seo = inject(SeoService);
 
   /** Filter panel open state */
   protected isFilterPanelOpen = false;
 
   ngOnInit(): void {
-    // Set page meta for SEO
-    this.title.setTitle('Scout Reports | NXT1 - Athlete Recruiting Platform');
-    this.meta.updateTag({
-      name: 'description',
-      content:
-        'Browse comprehensive scout reports on top high school athletes. Ratings, stats, and analysis for college recruiting.',
+    this.seo.updatePage({
+      title: 'Scout Reports',
+      description:
+        'Browse comprehensive scout reports on top high school athletes with ratings, stats, and recruiting analysis.',
+      canonicalUrl: 'https://nxt1sports.com/scout-reports',
+      keywords: [
+        'scout reports',
+        'athlete ratings',
+        'recruiting analysis',
+        'high school prospects',
+      ],
     });
 
     // Load initial data

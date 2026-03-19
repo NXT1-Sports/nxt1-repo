@@ -1438,14 +1438,14 @@ export class WebShellComponent {
   }
 
   /**
-   * Handle create/brand button click.
+   * Handle create button click.
    * Gated behind auth — logged out users see the auth modal first.
    */
   async onCreateClick(): Promise<void> {
-    const authenticated = await this.requireAuthentication('access Brand Vault');
+    const authenticated = await this.requireAuthentication('create a post');
     if (!authenticated) return;
 
-    this.router.navigate(['/brand']);
+    this.router.navigate(['/post/create']);
   }
 
   /**

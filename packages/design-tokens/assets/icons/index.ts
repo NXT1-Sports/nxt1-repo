@@ -517,6 +517,30 @@ export const UI_ICONS = {
     ],
   },
 
+  /** Inbox icon (outline) — tray-style inbox */
+  inbox: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M22 12h-6l-2 3h-4l-2-3H2' },
+      {
+        d: 'M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z',
+      },
+    ],
+  },
+
+  /** Inbox filled icon */
+  inboxFilled: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M18.56 4.11A2 2 0 0 0 16.76 3H7.24a2 2 0 0 0-1.8 1.11L2 11v7a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-7l-3.44-6.89zM16 12l-2 3h-4l-2-3H3.28l3.36-6.72A1 1 0 0 1 7.24 5h9.52a1 1 0 0 1 .9.55L20.72 12H16z',
+      },
+    ],
+  },
+
   /** Settings/Gear icon (outline) */
   settings: {
     viewBox: '0 0 24 24',
@@ -2112,6 +2136,8 @@ export type NavIconName =
   | 'boltFilled'
   | 'bell'
   | 'bellFilled'
+  | 'inbox'
+  | 'inboxFilled'
   | 'plusCircle'
   | 'plusCircleFilled'
   | 'brand'

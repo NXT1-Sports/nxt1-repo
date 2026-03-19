@@ -3,54 +3,29 @@
  * @module @nxt1/backend/routes/__tests__/agent-x
  */
 
-import { describe, it, expect } from 'vitest';
-import request from 'supertest';
-import app from '../../index.js';
+import { beforeAll, describe, it } from 'vitest';
+import { expectExpressRouter } from './route-test.utils.js';
 
 describe('Agent X Routes', () => {
-  describe('Production Routes', () => {
-    it('POST /api/v1/agent-x/chat should return 501', async () => {
-      const response = await request(app).post('/api/v1/agent-x/chat');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  let router: unknown;
 
-    it('GET /api/v1/agent-x/tasks should return 501', async () => {
-      const response = await request(app).get('/api/v1/agent-x/tasks');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  beforeAll(async () => {
+    const module = await import('../../routes/agent-x.routes.js');
+    router = module.default;
+  }, 15_000);
 
-    it('GET /api/v1/agent-x/history should return 501', async () => {
-      const response = await request(app).get('/api/v1/agent-x/history');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('DELETE /api/v1/agent-x/history should return 501', async () => {
-      const response = await request(app).delete('/api/v1/agent-x/history');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('POST /api/v1/agent-x/stream should return 501', async () => {
-      const response = await request(app).post('/api/v1/agent-x/stream');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-  });
-
-  describe('Staging Routes', () => {
-    it('POST /api/v1/staging/agent-x/chat should return 501', async () => {
-      const response = await request(app).post('/api/v1/staging/agent-x/chat');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('GET /api/v1/staging/agent-x/tasks should return 501', async () => {
-      const response = await request(app).get('/api/v1/staging/agent-x/tasks');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  it('should export a valid Express router', () => {
+    expectExpressRouter(
+      router,
+      [
+        { path: '/ask', method: 'post' },
+        { path: '/status/:id', method: 'get' },
+        { path: '/cancel/:id', method: 'post' },
+        { path: '/history', method: 'get' },
+        { path: '/dashboard', method: 'get' },
+        { path: '/threads', method: 'get' },
+      ],
+      6
+    );
   });
 });

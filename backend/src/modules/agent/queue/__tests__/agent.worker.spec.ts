@@ -126,7 +126,7 @@ describe('AgentWorker', () => {
 
     await capturedProcessor!(job);
 
-    expect(mockRouter.run).toHaveBeenCalledWith(payload, expect.any(Function));
+    expect(mockRouter.run).toHaveBeenCalledWith(payload, expect.any(Function), undefined);
   });
 
   it('should return an AgentQueueJobResult on success', async () => {

@@ -14,6 +14,13 @@ import {
 } from '../usage.service.js';
 import { UsageFeature, UsageEventStatus } from '../types/index.js';
 
+// Mock config to avoid env-var dependency for Stripe price IDs
+vi.mock('../config.js', () => ({
+  COLLECTIONS: { USAGE_EVENTS: 'usageEvents' },
+  getStripePriceId: vi.fn().mockReturnValue('price_test123'),
+  getUnitCost: vi.fn().mockReturnValue(0.5),
+}));
+
 // Mock Firestore
 const createMockFirestore = () => {
   const mockDoc = {
@@ -113,11 +120,11 @@ describe('Usage Service', () => {
       const input: CreateUsageEventInput = {
         userId: 'user123',
         teamId: 'team456',
-        feature: UsageFeature.AI_CONTENT,
+        feature: UsageFeature.HIGHLIGHTS,
         quantity: 1,
         unitCostSnapshot: 0.5,
         currency: 'usd',
-        stripePriceId: 'price_123',
+        stripePriceId: 'price_test123',
         jobId: 'job789',
       };
 
@@ -134,11 +141,11 @@ describe('Usage Service', () => {
       const input: CreateUsageEventInput = {
         userId: 'user123',
         teamId: 'team456',
-        feature: UsageFeature.AI_CONTENT,
+        feature: UsageFeature.HIGHLIGHTS,
         quantity: 1,
         unitCostSnapshot: 0.5,
         currency: 'usd',
-        stripePriceId: 'price_123',
+        stripePriceId: 'price_test123',
         jobId: 'job789',
       };
 

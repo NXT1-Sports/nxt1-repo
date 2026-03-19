@@ -3,54 +3,33 @@
  * @module @nxt1/backend/routes/__tests__/profile
  */
 
-import { describe, it, expect } from 'vitest';
-import request from 'supertest';
-import app from '../../index.js';
+import { beforeAll, describe, it } from 'vitest';
+import { expectExpressRouter } from './route-test.utils.js';
 
 describe('Profile Routes', () => {
-  describe('Production Routes', () => {
-    it('GET /api/v1/auth/profile/search should return 501 or 500', async () => {
-      const response = await request(app).get('/api/v1/auth/profile/search');
-      // Allow 500 (no Firebase in test env) or 501 (not implemented)
-      expect([500, 501]).toContain(response.status);
-    }, 12000); // 12 second timeout for Firestore queries
+  let router: unknown;
 
-    it('GET /api/v1/auth/profile/username/:username should return 501', async () => {
-      const response = await request(app).get('/api/v1/auth/profile/username/testuser');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  beforeAll(async () => {
+    const module = await import('../../routes/profile.routes.js');
+    router = module.default;
+  }, 15_000);
 
-    it('GET /api/v1/auth/profile/:userId should return 501 or 500', async () => {
-      const response = await request(app).get('/api/v1/auth/profile/test-user-id');
-      // Allow 500 (no Firebase in test env) or 501 (not implemented)
-      expect([500, 501]).toContain(response.status);
-    }, 12000); // 12 second timeout for Firestore queries
-
-    it('PUT /api/v1/auth/profile/:userId should return 501', async () => {
-      const response = await request(app).put('/api/v1/auth/profile/test-user-id');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('POST /api/v1/auth/profile/:userId/image should return 501', async () => {
-      const response = await request(app).post('/api/v1/auth/profile/test-user-id/image');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-  });
-
-  describe('Staging Routes', () => {
-    it('GET /api/v1/staging/auth/profile/search should return 501 or 500', async () => {
-      const response = await request(app).get('/api/v1/staging/auth/profile/search');
-      // Allow 500 (no Firebase in test env) or 501 (not implemented)
-      expect([500, 501]).toContain(response.status);
-    }, 12000); // 12 second timeout for Firestore queries
-
-    it('GET /api/v1/staging/auth/profile/:userId should return 501 or 500', async () => {
-      const response = await request(app).get('/api/v1/staging/auth/profile/test-user-id');
-      // Allow 500 (no Firebase in test env) or 501 (not implemented)
-      expect([500, 501]).toContain(response.status);
-    });
+  it('should register the profile endpoints', () => {
+    expectExpressRouter(
+      router,
+      [
+        { path: '/me', method: 'get' },
+        { path: '/unicode/:unicode', method: 'get' },
+        { path: '/search', method: 'get' },
+        { path: '/username/:username', method: 'get' },
+        { path: '/:userId', method: 'get' },
+        { path: '/:userId', method: 'put' },
+        { path: '/:userId/image', method: 'post' },
+        { path: '/:userId/sport', method: 'put' },
+        { path: '/:userId/sport', method: 'post' },
+        { path: '/:userId/sport/:sportIndex', method: 'delete' },
+      ],
+      10
+    );
   });
 });

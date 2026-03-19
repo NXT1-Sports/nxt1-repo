@@ -3,24 +3,18 @@
  * @module @nxt1/backend/routes/__tests__/colleges
  */
 
-import { describe, it, expect } from 'vitest';
-import request from 'supertest';
-import app from '../../index.js';
+import { beforeAll, describe, it } from 'vitest';
+import { expectExpressRouter } from './route-test.utils.js';
 
 describe('Colleges Routes', () => {
-  describe('Production Routes', () => {
-    it('GET /api/v1/colleges/:id should return 501', async () => {
-      const response = await request(app).get('/api/v1/colleges/test-college-id');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-  });
+  let router: unknown;
 
-  describe('Staging Routes', () => {
-    it('GET /api/v1/staging/colleges/:id should return 501', async () => {
-      const response = await request(app).get('/api/v1/staging/colleges/test-college-id');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  beforeAll(async () => {
+    const module = await import('../../routes/colleges.routes.js');
+    router = module.default;
+  }, 15_000);
+
+  it('should register the filter route', () => {
+    expectExpressRouter(router, [{ path: '/filter', method: 'get' }]);
   });
 });

@@ -3,54 +3,31 @@
  * @module @nxt1/backend/routes/__tests__/help-center
  */
 
-import { describe, it, expect } from 'vitest';
-import request from 'supertest';
-import app from '../../index.js';
+import { beforeAll, describe, it } from 'vitest';
+import { expectExpressRouter } from './route-test.utils.js';
 
 describe('Help Center Routes', () => {
-  describe('Production Routes', () => {
-    it('GET /api/v1/help-center/articles should return 501', async () => {
-      const response = await request(app).get('/api/v1/help-center/articles');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  let router: unknown;
 
-    it('GET /api/v1/help-center/articles/:id should return 501', async () => {
-      const response = await request(app).get('/api/v1/help-center/articles/test123');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  beforeAll(async () => {
+    const module = await import('../../routes/help-center.routes.js');
+    router = module.default;
+  }, 15_000);
 
-    it('GET /api/v1/help-center/search should return 501', async () => {
-      const response = await request(app).get('/api/v1/help-center/search');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('POST /api/v1/help-center/tickets should return 501', async () => {
-      const response = await request(app).post('/api/v1/help-center/tickets');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('GET /api/v1/help-center/faq should return 501', async () => {
-      const response = await request(app).get('/api/v1/help-center/faq');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-  });
-
-  describe('Staging Routes', () => {
-    it('GET /api/v1/staging/help-center/articles should return 501', async () => {
-      const response = await request(app).get('/api/v1/staging/help-center/articles');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('GET /api/v1/staging/help-center/articles/:id should return 501', async () => {
-      const response = await request(app).get('/api/v1/staging/help-center/articles/test123');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  it('should register the help center endpoints', () => {
+    expectExpressRouter(
+      router,
+      [
+        { path: '/', method: 'get' },
+        { path: '/categories/:id', method: 'get' },
+        { path: '/articles/:slug', method: 'get' },
+        { path: '/search', method: 'get' },
+        { path: '/faqs', method: 'get' },
+        { path: '/articles/:id/feedback', method: 'post' },
+        { path: '/chat', method: 'post' },
+        { path: '/support', method: 'post' },
+      ],
+      8
+    );
   });
 });

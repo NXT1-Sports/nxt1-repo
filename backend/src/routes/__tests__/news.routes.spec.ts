@@ -3,48 +3,30 @@
  * @module @nxt1/backend/routes/__tests__/news
  */
 
-import { describe, it, expect } from 'vitest';
-import request from 'supertest';
-import app from '../../index.js';
+import { beforeAll, describe, it } from 'vitest';
+import { expectExpressRouter } from './route-test.utils.js';
 
 describe('News Routes', () => {
-  describe('Production Routes', () => {
-    it('GET /api/v1/news should return 501', async () => {
-      const response = await request(app).get('/api/v1/news');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  let router: unknown;
 
-    it('GET /api/v1/news/:id should return 501', async () => {
-      const response = await request(app).get('/api/v1/news/test123');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  beforeAll(async () => {
+    const module = await import('../../routes/news.routes.js');
+    router = module.default;
+  }, 15_000);
 
-    it('GET /api/v1/news/personalized should return 501', async () => {
-      const response = await request(app).get('/api/v1/news/personalized');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('GET /api/v1/news/trending should return 501', async () => {
-      const response = await request(app).get('/api/v1/news/trending');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-  });
-
-  describe('Staging Routes', () => {
-    it('GET /api/v1/staging/news should return 501', async () => {
-      const response = await request(app).get('/api/v1/staging/news');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('GET /api/v1/staging/news/:id should return 501', async () => {
-      const response = await request(app).get('/api/v1/staging/news/test123');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  it('should register the news endpoints', () => {
+    expectExpressRouter(
+      router,
+      [
+        { path: '/', method: 'get' },
+        { path: '/trending', method: 'get' },
+        { path: '/search', method: 'get' },
+        { path: '/stats', method: 'get' },
+        { path: '/:id', method: 'get' },
+        { path: '/:id/bookmark', method: 'post' },
+        { path: '/generate', method: 'post' },
+      ],
+      7
+    );
   });
 });

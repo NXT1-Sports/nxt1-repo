@@ -3,24 +3,34 @@
  * @module @nxt1/backend/routes/__tests__/teams
  */
 
-import { describe, it, expect } from 'vitest';
-import request from 'supertest';
-import app from '../../index.js';
+import { beforeAll, describe, it } from 'vitest';
+import { expectExpressRouter } from './route-test.utils.js';
 
 describe('Teams Routes', () => {
-  describe('Production Routes', () => {
-    it('GET /api/v1/teams/:id should return 501', async () => {
-      const response = await request(app).get('/api/v1/teams/test-team-id');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-  });
+  let router: unknown;
 
-  describe('Staging Routes', () => {
-    it('GET /api/v1/staging/teams/:id should return 501', async () => {
-      const response = await request(app).get('/api/v1/staging/teams/test-team-id');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  beforeAll(async () => {
+    const module = await import('../../routes/teams.routes.js');
+    router = module.default;
+  }, 15_000);
+
+  it('should register the team endpoints', () => {
+    expectExpressRouter(
+      router,
+      [
+        { path: '/', method: 'get' },
+        { path: '/all', method: 'get' },
+        { path: '/:id', method: 'get' },
+        { path: '/code/:teamCode', method: 'get' },
+        { path: '/by-slug/:slug', method: 'get' },
+        { path: '/:id', method: 'patch' },
+        { path: '/:teamCode/join', method: 'post' },
+        { path: '/:id/invite', method: 'post' },
+        { path: '/user/my-teams', method: 'get' },
+        { path: '/:teamId/events', method: 'get' },
+        { path: '/:id/view', method: 'post' },
+      ],
+      11
+    );
   });
 });

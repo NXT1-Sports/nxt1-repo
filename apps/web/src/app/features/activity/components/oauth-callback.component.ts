@@ -7,8 +7,9 @@
  * This page should never be seen by users as the popup closes immediately.
  */
 
-import { Component } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { SeoService } from '../../../core/services/seo.service';
 
 @Component({
   selector: 'app-oauth-callback',
@@ -62,4 +63,15 @@ import { CommonModule } from '@angular/common';
     `,
   ],
 })
-export class OAuthCallbackComponent {}
+export class OAuthCallbackComponent implements OnInit {
+  private readonly seo = inject(SeoService);
+
+  ngOnInit(): void {
+    this.seo.updatePage({
+      title: 'OAuth Callback',
+      description: 'Authentication callback for account connection.',
+      noIndex: true,
+      noFollow: true,
+    });
+  }
+}

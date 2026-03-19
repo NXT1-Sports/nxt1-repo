@@ -13,6 +13,7 @@ import { HelpCenterService } from '@nxt1/ui/help-center';
 import { NxtBrowserService } from '@nxt1/ui/services/browser';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 import type { HelpUserType } from '@nxt1/core';
+import { SeoService } from '../../core/services/seo.service';
 
 @Component({
   selector: 'app-help-center',
@@ -32,8 +33,17 @@ export class HelpCenterComponent {
   private readonly helpService = inject(HelpCenterService);
   private readonly authFlow = inject(AuthFlowService);
   private readonly browser = inject(NxtBrowserService);
+  private readonly seo = inject(SeoService);
 
   constructor() {
+    this.seo.updatePage({
+      title: 'Help Center',
+      description:
+        'Find answers, troubleshooting guides, and support resources for your NXT1 account.',
+      canonicalUrl: 'https://nxt1sports.com/help-center',
+      keywords: ['help center', 'support', 'nxt1 support', 'recruiting platform help'],
+    });
+
     // Reactively sync user role to help center service
     effect(() => {
       const role = this.authFlow.userRole();

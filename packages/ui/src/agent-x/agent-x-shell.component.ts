@@ -31,6 +31,7 @@ import {
   inject,
   input,
   output,
+  signal,
   computed,
   afterNextRender,
   effect,
@@ -42,6 +43,11 @@ import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import { NxtIconComponent } from '../components/icon';
 import { AgentXService } from './agent-x.service';
+import { AgentXBriefingPanelComponent } from './agent-x-briefing-panel.component';
+import {
+  AgentXBriefingBadgeStateService,
+  type AgentXBriefingPanelKind,
+} from './agent-x-briefing-badge-state.service';
 
 import { AgentXInputComponent } from './agent-x-input.component';
 import {
@@ -182,29 +188,43 @@ export interface WeeklyPlaybookItem {
         }
 
         <!-- ═══ 1. DAILY BRIEFING ═══ -->
-        @if (!agentX.dashboardLoading()) {
+        @if (agentX.dashboardLoaded()) {
           <section class="briefing-section" aria-label="Daily briefing">
             <!-- Greeting -->
             <h2 class="briefing-greeting">{{ greeting() }}</h2>
 
+            <!-- Briefing Summary (Compact) -->
+            <p class="briefing-summary">{{ briefingPreview() }}</p>
+
             <!-- AI Pulse Indicator & Badges -->
             <div class="briefing-top-badges">
-              <div class="header-badge status-badge">
-                <div class="pulse-dot"></div>
-                <span>Active</span>
-              </div>
-              <div class="header-badge budget-badge">
+              <button
+                type="button"
+                class="header-badge status-badge"
+                [class.status-badge--degraded]="agentStatusTone() === 'warning'"
+                [class.status-badge--down]="agentStatusTone() === 'critical'"
+                (click)="openBriefingPanel('status')"
+              >
+                <div
+                  class="pulse-dot"
+                  [class.pulse-dot--degraded]="agentStatusTone() === 'warning'"
+                  [class.pulse-dot--down]="agentStatusTone() === 'critical'"
+                ></div>
+                <span>{{ agentStatusLabel() }}</span>
+              </button>
+              <button
+                type="button"
+                class="header-badge budget-badge"
+                (click)="openBriefingPanel('budget')"
+              >
                 <nxt1-icon name="wallet" [size]="14"></nxt1-icon>
-                <span>$150 Budget</span>
-              </div>
+                <span>{{ agentBudgetBadgeLabel() }}</span>
+              </button>
               <button type="button" class="header-badge goals-badge" (click)="onSetupGoals()">
                 <nxt1-icon name="settings" [size]="14"></nxt1-icon>
                 <span>Manage Goals</span>
               </button>
             </div>
-
-            <!-- Briefing Summary (Compact) -->
-            <p class="briefing-summary">{{ briefingPreview() }}</p>
 
             <!-- ═══ 2. DAILY OPERATIONS (Conditional) ═══ -->
             @if (activeOperations().length > 0) {
@@ -280,61 +300,309 @@ export interface WeeklyPlaybookItem {
 
             <!-- ═══ 3. ACTION CARDS ═══ -->
             <section class="action-cards-section" aria-label="Action Cards">
-              <h3 class="section-title action-plan-title">Today's Action Plan</h3>
-
-              <div class="action-card">
-                <div class="card-icon-wrapper action">
-                  <nxt1-icon name="flash" [size]="20"></nxt1-icon>
-                </div>
-                <div class="card-content">
-                  <div class="card-title">You scored 22 points last night</div>
-                </div>
-                <button type="button" class="action-btn secondary-btn">Run action</button>
-              </div>
-
-              <div class="action-card insight">
-                <div class="card-icon-wrapper insight">
-                  <nxt1-icon name="eye" [size]="20"></nxt1-icon>
-                </div>
-                <div class="card-content">
-                  <div class="card-title">3 coaches viewed your profile this week</div>
-                </div>
-              </div>
-
-              <div class="action-card bundle">
-                <div class="card-icon-wrapper bundle">
-                  <nxt1-icon name="cube" [size]="20"></nxt1-icon>
-                </div>
-                <div class="card-content">
-                  <div class="card-title">Big game detected — want me to handle everything?</div>
-                  <button
-                    type="button"
-                    class="action-btn primary-btn"
-                    (click)="onBundleCardAction()"
+              <div class="action-plan-header">
+                <h3 class="section-title action-plan-title">Today's Action Plan</h3>
+                <div class="action-plan-status">
+                  <span class="action-plan-percent">{{ actionPlanProgressPercent() }}%</span>
+                  <div
+                    class="action-plan-progress"
+                    aria-label="Action plan progress"
+                    [attr.aria-valuenow]="actionPlanProgressPercent()"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    role="progressbar"
                   >
-                    Execute Game Plan
+                    <div
+                      class="action-plan-progress-bar"
+                      [style.width.%]="actionPlanProgressPercent()"
+                    ></div>
+                  </div>
+                  <p class="action-plan-meta">{{ actionPlanCompletionLabel() }}</p>
+                </div>
+              </div>
+
+              @if (hasPendingActionCards()) {
+                @if (shouldRenderActionCard('post-game-package')) {
+                  <div
+                    class="action-card"
+                    [class.action-card--exiting]="isActionCardExiting('post-game-package')"
+                  >
+                    <div class="card-coordinator">
+                      <div class="coordinator-avatar" aria-hidden="true">
+                        <svg viewBox="0 0 612 792" class="coordinator-mark">
+                          <path
+                            d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
+                          />
+                        </svg>
+                      </div>
+                      <div class="coordinator-copy">
+                        <span class="coordinator-brand">Agent X</span>
+                        <span class="coordinator-role">Media Coordinator</span>
+                      </div>
+                    </div>
+                    <div class="card-content">
+                      <div class="card-title">
+                        You scored 22 points last night. Want me to turn that into a post-game
+                        graphic package?
+                      </div>
+                      <p class="card-description">
+                        I can build the creative, write the caption, and queue it for approval.
+                      </p>
+                    </div>
+                    <div class="card-actions">
+                      <button
+                        type="button"
+                        class="action-btn primary-btn"
+                        (click)="
+                          onActionCardExecute(
+                            'post-game-package',
+                            'post-game-package',
+                            'Post-Game Package',
+                            'image',
+                            'Create a post-game graphic package from my 22-point performance last night.'
+                          )
+                        "
+                      >
+                        Build post-game package
+                      </button>
+                      <button
+                        type="button"
+                        class="action-btn snooze-btn"
+                        (click)="onSnoozeActionCard('post-game-package')"
+                      >
+                        Snooze for now
+                      </button>
+                    </div>
+                  </div>
+                }
+
+                @if (shouldRenderActionCard('warm-lead-follow-up')) {
+                  <div
+                    class="action-card"
+                    [class.action-card--exiting]="isActionCardExiting('warm-lead-follow-up')"
+                  >
+                    <div class="card-coordinator">
+                      <div class="coordinator-avatar" aria-hidden="true">
+                        <svg viewBox="0 0 612 792" class="coordinator-mark">
+                          <path
+                            d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
+                          />
+                        </svg>
+                      </div>
+                      <div class="coordinator-copy">
+                        <span class="coordinator-brand">Agent X</span>
+                        <span class="coordinator-role">Recruiting Coordinator</span>
+                      </div>
+                    </div>
+                    <div class="card-content">
+                      <div class="card-title">
+                        Three coaches viewed your profile this week. Want me to draft the follow-up
+                        outreach?
+                      </div>
+                      <p class="card-description">
+                        I can prioritize the warmest leads and prep messages for approval.
+                      </p>
+                    </div>
+                    <div class="card-actions">
+                      <button
+                        type="button"
+                        class="action-btn secondary-btn"
+                        (click)="
+                          onActionCardExecute(
+                            'warm-lead-follow-up',
+                            'warm-lead-follow-up',
+                            'Warm Lead Follow-Up',
+                            'mail',
+                            'Draft follow-up outreach for the three coaches who viewed my profile this week.'
+                          )
+                        "
+                      >
+                        Draft follow-up outreach
+                      </button>
+                      <button
+                        type="button"
+                        class="action-btn snooze-btn"
+                        (click)="onSnoozeActionCard('warm-lead-follow-up')"
+                      >
+                        Snooze for now
+                      </button>
+                    </div>
+                  </div>
+                }
+
+                @if (shouldRenderActionCard('bundle-big-game-plan')) {
+                  <div
+                    class="action-card action-card--featured"
+                    [class.action-card--exiting]="isActionCardExiting('bundle-big-game-plan')"
+                  >
+                    <div class="card-coordinator">
+                      <div class="coordinator-avatar" aria-hidden="true">
+                        <svg viewBox="0 0 612 792" class="coordinator-mark">
+                          <path
+                            d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
+                          />
+                        </svg>
+                      </div>
+                      <div class="coordinator-copy">
+                        <span class="coordinator-brand">Agent X</span>
+                        <span class="coordinator-role">Game Plan Coordinator</span>
+                      </div>
+                    </div>
+                    <div class="card-content">
+                      <div class="card-title">
+                        Big game detected. Want me to package the best next moves into one approval
+                        flow?
+                      </div>
+                      <p class="card-description">
+                        I can group the most important recruiting, media, and profile updates into
+                        one run.
+                      </p>
+                    </div>
+                    <div class="card-actions">
+                      <button
+                        type="button"
+                        class="action-btn secondary-btn"
+                        (click)="onBundleCardExecute()"
+                      >
+                        Execute Game Plan
+                      </button>
+                      <button
+                        type="button"
+                        class="action-btn snooze-btn"
+                        (click)="onSnoozeActionCard('bundle-big-game-plan')"
+                      >
+                        Snooze for now
+                      </button>
+                    </div>
+                  </div>
+                }
+
+                @if (shouldRenderActionCard('momentum-outreach')) {
+                  <div
+                    class="action-card"
+                    [class.action-card--exiting]="isActionCardExiting('momentum-outreach')"
+                  >
+                    <div class="card-coordinator">
+                      <div class="coordinator-avatar" aria-hidden="true">
+                        <svg viewBox="0 0 612 792" class="coordinator-mark">
+                          <path
+                            d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
+                          />
+                        </svg>
+                      </div>
+                      <div class="coordinator-copy">
+                        <span class="coordinator-brand">Agent X</span>
+                        <span class="coordinator-role">Growth Coordinator</span>
+                      </div>
+                    </div>
+                    <div class="card-content">
+                      <div class="card-title">
+                        Your exposure is up 32% this week. Want me to turn that momentum into
+                        targeted outreach?
+                      </div>
+                      <p class="card-description">
+                        I can choose the strongest angle and prepare the next set of messages.
+                      </p>
+                    </div>
+                    <div class="card-actions">
+                      <button
+                        type="button"
+                        class="action-btn secondary-btn"
+                        (click)="
+                          onActionCardExecute(
+                            'momentum-outreach',
+                            'momentum-outreach',
+                            'Momentum Outreach',
+                            'trendingUp',
+                            'Use my 32 percent exposure increase to build the next best outreach wave.'
+                          )
+                        "
+                      >
+                        Turn momentum into outreach
+                      </button>
+                      <button
+                        type="button"
+                        class="action-btn snooze-btn"
+                        (click)="onSnoozeActionCard('momentum-outreach')"
+                      >
+                        Snooze for now
+                      </button>
+                    </div>
+                  </div>
+                }
+
+                @if (shouldRenderActionCard('coach-shortlist')) {
+                  <div
+                    class="action-card"
+                    [class.action-card--exiting]="isActionCardExiting('coach-shortlist')"
+                  >
+                    <div class="card-coordinator">
+                      <div class="coordinator-avatar" aria-hidden="true">
+                        <svg viewBox="0 0 612 792" class="coordinator-mark">
+                          <path
+                            d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
+                          />
+                        </svg>
+                      </div>
+                      <div class="coordinator-copy">
+                        <span class="coordinator-brand">Agent X</span>
+                        <span class="coordinator-role">Prospecting Coordinator</span>
+                      </div>
+                    </div>
+                    <div class="card-content">
+                      <div class="card-title">
+                        I found 18 matching coaches. Want me to shortlist the five best fits and
+                        prep intros?
+                      </div>
+                      <p class="card-description">
+                        I can rank them by fit, urgency, and likelihood to respond.
+                      </p>
+                    </div>
+                    <div class="card-actions">
+                      <button
+                        type="button"
+                        class="action-btn secondary-btn"
+                        (click)="
+                          onActionCardExecute(
+                            'coach-shortlist',
+                            'coach-shortlist',
+                            'Coach Shortlist',
+                            'search',
+                            'Shortlist the five best coach matches and prepare intro outreach for me.'
+                          )
+                        "
+                      >
+                        Shortlist best-fit coaches
+                      </button>
+                      <button
+                        type="button"
+                        class="action-btn snooze-btn"
+                        (click)="onSnoozeActionCard('coach-shortlist')"
+                      >
+                        Snooze for now
+                      </button>
+                    </div>
+                  </div>
+                }
+              } @else {
+                <div
+                  class="action-empty-state action-empty-state--visible"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div class="action-empty-icon" aria-hidden="true">
+                    <nxt1-icon name="checkmarkCircle" [size]="30"></nxt1-icon>
+                  </div>
+                  <h4 class="action-empty-title">Today's Action Plan Complete</h4>
+                  <p class="action-empty-copy">
+                    You are all caught up. Agent X is still monitoring for new opportunities you can
+                    execute right now.
+                  </p>
+                  <button type="button" class="action-empty-btn" (click)="onReloadActionPlan()">
+                    Load More Actions
                   </button>
                 </div>
-              </div>
-
-              <div class="action-card">
-                <div class="card-icon-wrapper progress">
-                  <nxt1-icon name="trendingUp" [size]="20"></nxt1-icon>
-                </div>
-                <div class="card-content">
-                  <div class="card-title">Your exposure is up 32% this week</div>
-                </div>
-                <button type="button" class="action-btn secondary-btn">Keep momentum going</button>
-              </div>
-
-              <div class="action-card system">
-                <div class="card-icon-wrapper system">
-                  <nxt1-icon name="search" [size]="20"></nxt1-icon>
-                </div>
-                <div class="card-content">
-                  <div class="card-title">I found 18 matching coaches</div>
-                </div>
-              </div>
+              }
             </section>
           </section>
         }
@@ -704,7 +972,7 @@ export interface WeeklyPlaybookItem {
         display: flex;
         align-items: center;
         gap: var(--nxt1-spacing-2, 8px);
-        margin-bottom: var(--nxt1-spacing-5, 20px);
+        margin-bottom: var(--nxt1-spacing-6, 24px);
         flex-wrap: wrap;
       }
 
@@ -713,6 +981,8 @@ export interface WeeklyPlaybookItem {
         align-items: center;
         gap: 6px;
         padding: 4px 10px;
+        appearance: none;
+        -webkit-appearance: none;
         border-radius: var(--nxt1-radius-full, 9999px);
         font-size: 12px;
         font-weight: 600;
@@ -721,6 +991,17 @@ export interface WeeklyPlaybookItem {
         white-space: nowrap;
         background: var(--agent-surface);
         border: 1px solid var(--agent-border);
+        color: var(--agent-text-primary);
+        cursor: pointer;
+        font-family: inherit;
+        transition:
+          color 0.15s ease,
+          background 0.15s ease,
+          border-color 0.15s ease;
+      }
+
+      .header-badge:active {
+        background: var(--agent-surface-hover);
       }
 
       .header-badge.status-badge {
@@ -729,18 +1010,24 @@ export interface WeeklyPlaybookItem {
         background: var(--agent-primary-glow);
       }
 
+      .header-badge.status-badge.status-badge--degraded {
+        color: #f59e0b;
+        border-color: rgba(245, 158, 11, 0.24);
+        background: rgba(245, 158, 11, 0.12);
+      }
+
+      .header-badge.status-badge.status-badge--down {
+        color: #ef4444;
+        border-color: rgba(239, 68, 68, 0.24);
+        background: rgba(239, 68, 68, 0.12);
+      }
+
       .header-badge.budget-badge {
         color: var(--agent-text-primary);
       }
 
       .header-badge.goals-badge {
-        appearance: none;
-        -webkit-appearance: none;
         color: var(--agent-text-secondary);
-        cursor: pointer;
-        transition:
-          color 0.15s ease,
-          background 0.15s ease;
       }
 
       .header-badge.goals-badge:active {
@@ -755,6 +1042,14 @@ export interface WeeklyPlaybookItem {
         background: var(--agent-primary);
         position: relative;
         flex-shrink: 0;
+      }
+
+      .pulse-dot--degraded {
+        background: #f59e0b;
+      }
+
+      .pulse-dot--down {
+        background: #ef4444;
       }
 
       /* Greeting */
@@ -793,6 +1088,7 @@ export interface WeeklyPlaybookItem {
 
       .action-plan-title {
         text-transform: none;
+        margin-bottom: 0;
       }
 
       /* ──────────────────────────────────
@@ -800,7 +1096,62 @@ export interface WeeklyPlaybookItem {
          ────────────────────────────────── */
       .action-cards-section {
         width: 100%;
+        border-top: 1px solid var(--agent-border);
+        padding-top: var(--nxt1-spacing-5, 20px);
         margin-bottom: var(--nxt1-spacing-6, 24px);
+      }
+
+      .action-plan-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--nxt1-spacing-3, 12px);
+        margin-bottom: var(--nxt1-spacing-4, 16px);
+      }
+
+      .action-plan-status {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+        flex: 0 0 auto;
+        min-width: 0;
+        white-space: nowrap;
+      }
+
+      .action-plan-meta {
+        margin: 0;
+        font-size: 10px;
+        line-height: 1;
+        color: var(--agent-text-secondary);
+      }
+
+      .action-plan-percent {
+        font-size: 14px;
+        font-weight: 700;
+        line-height: 1;
+        color: var(--agent-text-primary);
+      }
+
+      .action-plan-progress {
+        position: relative;
+        width: 52px;
+        flex: 0 0 52px;
+        height: 4px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: var(--agent-surface-hover);
+      }
+
+      .action-plan-progress-bar {
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(
+          90deg,
+          var(--agent-primary),
+          color-mix(in srgb, var(--agent-primary) 65%, white)
+        );
+        transition: width 0.28s ease;
       }
 
       .action-card {
@@ -814,62 +1165,73 @@ export interface WeeklyPlaybookItem {
         margin-bottom: var(--nxt1-spacing-3, 12px);
         transition:
           background 0.2s ease,
-          border-color 0.2s ease;
+          border-color 0.2s ease,
+          opacity 0.22s ease,
+          transform 0.22s ease,
+          filter 0.22s ease;
+      }
+
+      .action-card--exiting {
+        opacity: 0;
+        transform: translateY(-10px) scale(0.98);
+        filter: blur(2px);
+        pointer-events: none;
+      }
+
+      .action-card--featured {
+        border-color: var(--agent-primary-glow);
+        background: linear-gradient(180deg, var(--agent-surface), var(--agent-surface-hover));
       }
 
       .action-card:active {
         background: var(--agent-surface-hover);
       }
 
-      /* Core Icon Wrappers */
-      .card-icon-wrapper {
+      .card-coordinator {
         display: flex;
         align-items: center;
+        gap: var(--nxt1-spacing-3, 12px);
+      }
+
+      .coordinator-avatar {
+        display: inline-flex;
+        align-items: center;
         justify-content: center;
-        width: 36px;
-        height: 36px;
+        width: 56px;
+        height: 56px;
         border-radius: 50%;
+        background: var(--agent-primary-glow);
+        color: var(--agent-primary);
         flex-shrink: 0;
       }
 
-      /* Action variants */
-      .card-icon-wrapper.action {
-        background: var(--agent-primary-glow);
+      .coordinator-mark {
+        width: 34px;
+        height: 34px;
+        fill: currentColor;
+      }
+
+      .coordinator-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .coordinator-brand {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
         color: var(--agent-primary);
       }
 
-      /* Insight variants */
-      .card-icon-wrapper.insight {
-        background: rgba(33, 150, 243, 0.1);
-        color: #2196f3;
-      }
-      .action-card.insight .card-icon-wrapper {
-        background: rgba(33, 150, 243, 0.15);
-      }
-
-      /* Bundle variants */
-      .card-icon-wrapper.bundle {
-        background: rgba(156, 39, 176, 0.1);
-        color: #9c27b0;
-      }
-      .action-card.bundle {
-        background: linear-gradient(145deg, var(--agent-surface), rgba(156, 39, 176, 0.05));
-        border-color: rgba(156, 39, 176, 0.2);
-      }
-
-      /* Progress variants */
-      .card-icon-wrapper.progress {
-        background: rgba(76, 175, 80, 0.1);
-        color: #4caf50;
-      }
-
-      /* System variants */
-      .card-icon-wrapper.system {
-        background: var(--agent-surface-hover);
+      .coordinator-role {
+        font-size: 13px;
+        font-weight: 600;
         color: var(--agent-text-secondary);
       }
 
-      /* Layout */
       .card-content {
         flex: 1;
         min-width: 0;
@@ -882,7 +1244,24 @@ export interface WeeklyPlaybookItem {
         line-height: 1.4;
       }
 
+      .card-description {
+        margin: 8px 0 0;
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--agent-text-secondary);
+      }
+
       /* Buttons */
+      @keyframes agent-pulse {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 var(--agent-primary-glow);
+        }
+        50% {
+          box-shadow: 0 0 10px 4px var(--agent-primary-glow);
+        }
+      }
+
       .action-btn {
         display: inline-flex;
         align-items: center;
@@ -892,22 +1271,110 @@ export interface WeeklyPlaybookItem {
         font-size: 13px;
         font-weight: 600;
         cursor: pointer;
-        transition: opacity 0.15s ease;
+        transition:
+          opacity 0.15s ease,
+          transform 0.1s ease;
         border: none;
-        margin-top: var(--nxt1-spacing-3, 12px);
         align-self: flex-start;
       }
       .action-btn:active {
         opacity: 0.9;
+        transform: scale(0.96);
       }
       .action-btn.primary-btn {
         background: var(--agent-primary);
         color: #000;
+        animation: agent-pulse 2.8s ease-in-out infinite;
       }
       .action-btn.secondary-btn {
         background: var(--agent-surface-hover);
         border: 1px solid var(--agent-border);
         color: var(--agent-text-primary);
+      }
+
+      .action-btn.snooze-btn {
+        background: transparent;
+        border: 1px solid var(--agent-border);
+        color: var(--agent-text-secondary);
+      }
+
+      .card-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .action-empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: var(--nxt1-spacing-3, 12px);
+        padding: var(--nxt1-spacing-5, 20px);
+        border-radius: var(--nxt1-radius-lg, 12px);
+        border: 1px dashed var(--agent-border);
+        background: var(--agent-surface);
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      .action-empty-state--visible {
+        opacity: 1;
+        transform: translateY(0);
+        transition:
+          opacity 0.28s ease,
+          transform 0.28s ease;
+      }
+
+      .action-empty-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        color: var(--agent-primary);
+        background: var(--agent-primary-glow);
+      }
+
+      .action-empty-title {
+        margin: 0;
+        font-size: var(--nxt1-font-size-lg, 18px);
+        font-weight: var(--nxt1-font-weight-semibold, 600);
+        color: var(--agent-text-primary);
+      }
+
+      .action-empty-copy {
+        margin: 0;
+        font-size: var(--nxt1-font-size-sm, 14px);
+        line-height: 1.5;
+        color: var(--agent-text-secondary);
+        max-width: 38ch;
+      }
+
+      .action-empty-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 8px 16px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        border: 1px solid transparent;
+        background: var(--agent-primary);
+        color: #000;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        cursor: pointer;
+        transition:
+          opacity 0.15s ease,
+          transform 0.1s ease;
+        animation: agent-pulse 2.8s ease-in-out infinite;
+      }
+
+      .action-empty-btn:active {
+        opacity: 0.9;
+        transform: scale(0.96);
       }
 
       /* ──────────────────────────────────
@@ -917,7 +1384,7 @@ export interface WeeklyPlaybookItem {
         position: fixed;
         left: var(--agent-input-left, 0);
         right: var(--agent-input-right, 0);
-        bottom: calc(84px + var(--keyboard-offset, 0px));
+        bottom: calc(76px + var(--keyboard-offset, 0px));
         z-index: calc(var(--nxt1-z-index-fixed, 999) - 1);
         pointer-events: none;
       }
@@ -934,7 +1401,7 @@ export interface WeeklyPlaybookItem {
           left: var(--nxt1-footer-left, 16px);
           right: var(--nxt1-footer-right, 16px);
           bottom: calc(
-            var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 60px +
+            var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 52px +
               var(--keyboard-offset, 0px)
           );
         }
@@ -966,7 +1433,6 @@ export interface WeeklyPlaybookItem {
         font-weight: 600;
         line-height: 1;
         white-space: nowrap;
-        box-shadow: var(--nxt1-glass-shadow, 0 4px 16px rgba(0, 0, 0, 0.16));
         backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         transition:
@@ -986,9 +1452,18 @@ export interface WeeklyPlaybookItem {
 })
 export class AgentXShellComponent {
   protected readonly agentX = inject(AgentXService);
+  protected readonly briefingBadges = inject(AgentXBriefingBadgeStateService);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private static readonly ACTION_CARD_EXIT_MS = 220;
+  private readonly actionCardIds = [
+    'post-game-package',
+    'warm-lead-follow-up',
+    'bundle-big-game-plan',
+    'momentum-outreach',
+    'coach-shortlist',
+  ] as const;
 
   // ============================================
   // INPUTS
@@ -1003,6 +1478,26 @@ export class AgentXShellComponent {
   // ============================================
   // LOCAL STATE
   // ============================================
+
+  private readonly completedActionCardIds = signal<Set<string>>(new Set());
+  private readonly snoozedActionCardIds = signal<Set<string>>(new Set());
+  private readonly exitingActionCardIds = signal<Set<string>>(new Set());
+  protected readonly actionPlanClearedCount = computed(
+    () => this.completedActionCardIds().size + this.snoozedActionCardIds().size
+  );
+  protected readonly actionPlanCompletionLabel = computed(() => {
+    const cleared = this.actionPlanClearedCount();
+    const total = Number(this.actionCardIds.length);
+    return `${cleared} of ${total} cleared today`;
+  });
+  protected readonly actionPlanProgressPercent = computed(() => {
+    const total = Number(this.actionCardIds.length);
+    if (total === 0) return 0;
+    return Math.round((this.actionPlanClearedCount() / total) * 100);
+  });
+  protected readonly hasPendingActionCards = computed(
+    () => this.actionPlanClearedCount() < this.actionCardIds.length
+  );
 
   // ============================================
   // OUTPUTS
@@ -1044,6 +1539,9 @@ export class AgentXShellComponent {
 
   /** Briefing preview text — live from service only. */
   protected readonly briefingPreview = computed(() => this.agentX.briefingPreviewText());
+  protected readonly agentStatusLabel = this.briefingBadges.statusLabel;
+  protected readonly agentStatusTone = this.briefingBadges.statusTone;
+  protected readonly agentBudgetBadgeLabel = this.briefingBadges.budgetBadgeLabel;
 
   // ============================================
   // COORDINATORS — Role-Aware Virtual Staff
@@ -1100,11 +1598,28 @@ export class AgentXShellComponent {
 
   /**
    * Handle "Set Your Goals" button from the empty playbook state.
-   * Opens Agent X goal setup conversation.
+   * Opens the shared Agent X goals panel.
    */
   protected async onSetupGoals(): Promise<void> {
-    await this.haptics.impact('medium');
-    await this.openOperationChat('goal-setup', 'Set Your Goals', 'flag', 'command');
+    await this.openBriefingPanel('goals');
+  }
+
+  protected async openBriefingPanel(panel: AgentXBriefingPanelKind): Promise<void> {
+    await this.haptics.impact('light');
+    this.briefingBadges.notePanelOpened(panel, 'sheet');
+
+    await this.bottomSheet.openSheet({
+      component: AgentXBriefingPanelComponent,
+      componentProps: {
+        panel,
+        presentation: 'sheet',
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'agent-x-briefing-badge-sheet',
+    });
   }
 
   /**
@@ -1125,7 +1640,115 @@ export class AgentXShellComponent {
       'cube',
       'command',
       quickActions,
-      'Choose what Agent X should execute for this big-game moment.'
+      'Choose what Agent X should execute for this big-game moment.',
+      'Bundle my best post-game actions into one approval flow.'
+    );
+  }
+
+  protected async onBundleCardExecute(): Promise<void> {
+    void this.resolveActionCard('bundle-big-game-plan', 'completed');
+    await this.onBundleCardAction();
+  }
+
+  protected async onActionCardExecute(
+    cardId: string,
+    contextId: string,
+    contextTitle: string,
+    contextIcon: string,
+    initialMessage: string
+  ): Promise<void> {
+    void this.resolveActionCard(cardId, 'completed');
+    await this.onActionCardTap(contextId, contextTitle, contextIcon, initialMessage);
+  }
+
+  protected shouldRenderActionCard(cardId: string): boolean {
+    return !this.completedActionCardIds().has(cardId) && !this.snoozedActionCardIds().has(cardId);
+  }
+
+  protected isActionCardExiting(cardId: string): boolean {
+    return this.exitingActionCardIds().has(cardId);
+  }
+
+  protected async onSnoozeActionCard(cardId: string): Promise<void> {
+    await this.haptics.impact('light');
+    await this.resolveActionCard(cardId, 'snoozed');
+    this.toast.success('Task snoozed for now.');
+  }
+
+  protected async onReloadActionPlan(): Promise<void> {
+    this.completedActionCardIds.set(new Set());
+    this.snoozedActionCardIds.set(new Set());
+    this.exitingActionCardIds.set(new Set());
+    await this.haptics.impact('light');
+    this.toast.success('Loaded more tasks for today.');
+  }
+
+  private markActionCardDone(cardId: string): void {
+    this.completedActionCardIds.update((current) => {
+      if (current.has(cardId)) return current;
+      const next = new Set(current);
+      next.add(cardId);
+      return next;
+    });
+  }
+
+  private markActionCardSnoozed(cardId: string): void {
+    this.snoozedActionCardIds.update((current) => {
+      if (current.has(cardId)) return current;
+      const next = new Set(current);
+      next.add(cardId);
+      return next;
+    });
+  }
+
+  private async resolveActionCard(
+    cardId: string,
+    resolution: 'completed' | 'snoozed'
+  ): Promise<void> {
+    if (!this.shouldRenderActionCard(cardId) || this.exitingActionCardIds().has(cardId)) {
+      return;
+    }
+
+    this.exitingActionCardIds.update((current) => {
+      const next = new Set(current);
+      next.add(cardId);
+      return next;
+    });
+
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, AgentXShellComponent.ACTION_CARD_EXIT_MS);
+    });
+
+    this.exitingActionCardIds.update((current) => {
+      const next = new Set(current);
+      next.delete(cardId);
+      return next;
+    });
+
+    if (resolution === 'completed') {
+      this.markActionCardDone(cardId);
+      return;
+    }
+
+    this.markActionCardSnoozed(cardId);
+  }
+
+  protected async onActionCardTap(
+    contextId: string,
+    contextTitle: string,
+    contextIcon: string,
+    initialMessage: string
+  ): Promise<void> {
+    await this.haptics.impact('light');
+    await this.openOperationChat(
+      contextId,
+      contextTitle,
+      contextIcon,
+      'command',
+      [],
+      '',
+      '',
+      initialMessage
     );
   }
 
@@ -1178,7 +1801,8 @@ export class AgentXShellComponent {
     contextType: 'operation' | 'command',
     quickActions: OperationQuickAction[] = [],
     contextDescription = '',
-    threadId = ''
+    threadId = '',
+    initialMessage = ''
   ): Promise<void> {
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
@@ -1190,6 +1814,7 @@ export class AgentXShellComponent {
         quickActions,
         contextDescription,
         threadId,
+        initialMessage,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

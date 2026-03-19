@@ -53,6 +53,13 @@ export class SportLandingComponent implements OnInit {
     this.seo.updatePage({
       title: cfg.seoTitle,
       description: cfg.seoDescription,
+      canonicalUrl: `https://nxt1sports.com/${cfg.slug}`,
+      keywords: [
+        `${cfg.displayName} recruiting`,
+        `${cfg.displayName} athletes`,
+        `${cfg.displayName} scouting`,
+        'nxt1 sports',
+      ],
     });
   }
 }

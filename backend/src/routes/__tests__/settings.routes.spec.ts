@@ -3,60 +3,31 @@
  * @module @nxt1/backend/routes/__tests__/settings
  */
 
-import { describe, it, expect } from 'vitest';
-import request from 'supertest';
-import app from '../../index.js';
+import { beforeAll, describe, it } from 'vitest';
+import { expectExpressRouter } from './route-test.utils.js';
 
 describe('Settings Routes', () => {
-  describe('Production Routes', () => {
-    it('GET /api/v1/settings should return 501', async () => {
-      const response = await request(app).get('/api/v1/settings');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  let router: unknown;
 
-    it('PUT /api/v1/settings should return 501', async () => {
-      const response = await request(app).put('/api/v1/settings');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  beforeAll(async () => {
+    const module = await import('../../routes/settings.routes.js');
+    router = module.default;
+  }, 15_000);
 
-    it('GET /api/v1/settings/notifications should return 501', async () => {
-      const response = await request(app).get('/api/v1/settings/notifications');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('PUT /api/v1/settings/notifications should return 501', async () => {
-      const response = await request(app).put('/api/v1/settings/notifications');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('GET /api/v1/settings/privacy should return 501', async () => {
-      const response = await request(app).get('/api/v1/settings/privacy');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('PUT /api/v1/settings/privacy should return 501', async () => {
-      const response = await request(app).put('/api/v1/settings/privacy');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-  });
-
-  describe('Staging Routes', () => {
-    it('GET /api/v1/staging/settings should return 501', async () => {
-      const response = await request(app).get('/api/v1/staging/settings');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('PUT /api/v1/staging/settings should return 501', async () => {
-      const response = await request(app).put('/api/v1/staging/settings');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  it('should register the settings endpoints', () => {
+    expectExpressRouter(
+      router,
+      [
+        { path: '/preferences', method: 'get' },
+        { path: '/preferences/:key', method: 'patch' },
+        { path: '/preferences', method: 'patch' },
+        { path: '/subscription', method: 'get' },
+        { path: '/usage', method: 'get' },
+        { path: '/providers', method: 'get' },
+        { path: '/password', method: 'post' },
+        { path: '/account', method: 'delete' },
+      ],
+      8
+    );
   });
 });

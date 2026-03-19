@@ -3,100 +3,28 @@
  * @module @nxt1/backend/routes/__tests__/feed
  */
 
-import { describe, it, expect, beforeAll as _beforeAll, afterAll as _afterAll } from 'vitest';
-import request from 'supertest';
-import app from '../../index.js';
+import { beforeAll, describe, it } from 'vitest';
+import { expectExpressRouter } from './route-test.utils.js';
 
 describe('Feed Routes', () => {
-  describe('Production Routes', () => {
-    describe('GET /api/v1/feed', () => {
-      it('should return 501 Not Implemented', async () => {
-        const response = await request(app).get('/api/v1/feed');
-        expect(response.status).toBe(501);
-        expect(response.body).toEqual({
-          success: false,
-          error: 'Not implemented',
-        });
-      });
-    });
+  let router: unknown;
 
-    describe('GET /api/v1/feed/posts/:id', () => {
-      it('should return 501 Not Implemented', async () => {
-        const response = await request(app).get('/api/v1/feed/posts/test123');
-        expect(response.status).toBe(501);
-        expect(response.body).toEqual({
-          success: false,
-          error: 'Not implemented',
-        });
-      });
-    });
+  beforeAll(async () => {
+    const module = await import('../../routes/feed.routes.js');
+    router = module.default;
+  }, 15_000);
 
-    describe('POST /api/v1/feed/posts/:id/like', () => {
-      it('should return 501 Not Implemented', async () => {
-        const response = await request(app).post('/api/v1/feed/posts/test123/like');
-        expect(response.status).toBe(501);
-        expect(response.body).toEqual({
-          success: false,
-          error: 'Not implemented',
-        });
-      });
-    });
-
-    describe('POST /api/v1/feed/posts/:id/bookmark', () => {
-      it('should return 501 Not Implemented', async () => {
-        const response = await request(app).post('/api/v1/feed/posts/test123/bookmark');
-        expect(response.status).toBe(501);
-        expect(response.body).toEqual({
-          success: false,
-          error: 'Not implemented',
-        });
-      });
-    });
-
-    describe('GET /api/v1/feed/trending', () => {
-      it('should return 501 Not Implemented', async () => {
-        const response = await request(app).get('/api/v1/feed/trending');
-        expect(response.status).toBe(501);
-        expect(response.body).toEqual({
-          success: false,
-          error: 'Not implemented',
-        });
-      });
-    });
-  });
-
-  describe('Staging Routes', () => {
-    describe('GET /api/v1/staging/feed', () => {
-      it('should return 501 Not Implemented', async () => {
-        const response = await request(app).get('/api/v1/staging/feed');
-        expect(response.status).toBe(501);
-        expect(response.body).toEqual({
-          success: false,
-          error: 'Not implemented',
-        });
-      });
-    });
-
-    describe('GET /api/v1/staging/feed/posts/:id', () => {
-      it('should return 501 Not Implemented', async () => {
-        const response = await request(app).get('/api/v1/staging/feed/posts/test123');
-        expect(response.status).toBe(501);
-        expect(response.body).toEqual({
-          success: false,
-          error: 'Not implemented',
-        });
-      });
-    });
-
-    describe('POST /api/v1/staging/feed/posts/:id/like', () => {
-      it('should return 501 Not Implemented', async () => {
-        const response = await request(app).post('/api/v1/staging/feed/posts/test123/like');
-        expect(response.status).toBe(501);
-        expect(response.body).toEqual({
-          success: false,
-          error: 'Not implemented',
-        });
-      });
-    });
+  it('should register the feed endpoints', () => {
+    expectExpressRouter(
+      router,
+      [
+        { path: '/', method: 'get' },
+        { path: '/trending', method: 'get' },
+        { path: '/discover', method: 'get' },
+        { path: '/users/:uid', method: 'get' },
+        { path: '/teams/:teamCode', method: 'get' },
+      ],
+      5
+    );
   });
 });

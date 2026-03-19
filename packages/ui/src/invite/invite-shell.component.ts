@@ -25,9 +25,8 @@ import {
   computed,
   signal,
   OnInit,
-  afterNextRender,
-  viewChild,
-  ElementRef,
+  effect,
+  untracked,
   PLATFORM_ID,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
@@ -71,20 +70,16 @@ interface InviteCopy {
 
 const INVITE_COPY = {
   athleteParent: {
-    title: 'Free AI Highlight Graphic',
-    subtitle: 'Friends and teammates who join through your invite unlock a free highlight graphic.',
+    title: 'Earn $5 in Agent X Credits',
+    subtitle:
+      'You earn $5 added to your Agent X budget every time a friend joins through your invite.',
     shareText:
       'Join me on NXT1 and build your profile, connect with teammates, and get started fast:',
   },
-  coachDirector: {
-    title: 'Build Your Program Network',
-    subtitle: 'Invite players and staff to join your program on NXT1 through this link.',
-    shareText:
-      "We're building our program on NXT1. Join with this link so players and staff can stay connected in one place:",
-  },
   recruiter: {
-    title: 'Free AI Highlight Graphic',
-    subtitle: 'Prospects who join through this link get a free Agent X highlight graphic.',
+    title: 'Earn $5 in Agent X Credits',
+    subtitle:
+      'You earn $5 added to your Agent X budget every time a prospect joins through your invite.',
     shareText:
       'Join NXT1 to build your profile, showcase your talent, and get discovered more easily:',
   },
@@ -128,12 +123,12 @@ const INVITE_COPY = {
                   <span>Could not generate QR code</span>
                 </div>
               } @else {
-                <canvas
-                  #qrCanvas
+                <img
+                  [src]="qrDataUrl()"
                   class="invite-qr-canvas"
-                  aria-label="NXT1 invite QR code"
+                  alt="NXT1 invite QR code"
                   role="img"
-                ></canvas>
+                />
               }
               <div class="invite-qr-logo" aria-hidden="true">
                 <nxt1-logo variant="default" size="xs" />
@@ -147,15 +142,17 @@ const INVITE_COPY = {
             <p class="invite-explainer__body">{{ howItWorksText() }}</p>
           </div>
 
-          <div class="invite-value-card">
-            <div class="invite-value-card__icon" aria-hidden="true">
-              <nxt1-icon name="gift" [size]="24" />
+          @if (showValueCard()) {
+            <div class="invite-value-card">
+              <div class="invite-value-card__icon" aria-hidden="true">
+                <nxt1-icon name="gift" [size]="24" />
+              </div>
+              <div class="invite-value-card__text">
+                <p class="invite-value-card__title">{{ currentCopy().title }}</p>
+                <p class="invite-value-card__subtitle">{{ currentCopy().subtitle }}</p>
+              </div>
             </div>
-            <div class="invite-value-card__text">
-              <p class="invite-value-card__title">{{ currentCopy().title }}</p>
-              <p class="invite-value-card__subtitle">{{ currentCopy().subtitle }}</p>
-            </div>
-          </div>
+          }
         </div>
       </div>
 
@@ -412,11 +409,12 @@ export class InviteShellComponent implements OnInit {
   private readonly logger = inject(NxtLoggingService).child('InviteShellComponent');
   private readonly platformId = inject(PLATFORM_ID);
 
-  private readonly qrCanvas = viewChild<ElementRef<HTMLCanvasElement>>('qrCanvas');
-
   constructor() {
-    afterNextRender(() => {
-      this.generateQrCode();
+    // Re-generate whenever the invite URL becomes available (handles async load)
+    effect(() => {
+      const url = this.inviteUrl();
+      if (!url) return;
+      untracked(() => void this.generateQrCode(url));
     });
   }
 
@@ -452,6 +450,8 @@ export class InviteShellComponent implements OnInit {
 
   protected readonly qrLoading = signal(true);
   protected readonly qrError = signal(false);
+  private readonly _qrDataUrl = signal<string>('');
+  protected readonly qrDataUrl = this._qrDataUrl.asReadonly();
   protected readonly isSharing = signal(false);
 
   // ============================================
@@ -464,13 +464,16 @@ export class InviteShellComponent implements OnInit {
   /** Role-aware invite copy shown in UI and used for sharing. */
   protected readonly currentCopy = computed<InviteCopy>(() => {
     const role = this.user()?.role;
-    if (role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR) {
-      return INVITE_COPY.coachDirector;
-    }
     if (role === USER_ROLES.RECRUITER) {
       return INVITE_COPY.recruiter;
     }
     return INVITE_COPY.athleteParent;
+  });
+
+  /** Only show the reward card for athletes, parents, and recruiters — not coaches/directors. */
+  protected readonly showValueCard = computed(() => {
+    const role = this.user()?.role;
+    return role !== USER_ROLES.COACH && role !== USER_ROLES.DIRECTOR;
   });
 
   /** Professional explainer shown above the reward card. */
@@ -482,10 +485,10 @@ export class InviteShellComponent implements OnInit {
     }
 
     if (role === USER_ROLES.RECRUITER) {
-      return 'Share this QR code or link with prospects. Once they create an account through your invite, their free Agent X graphic is unlocked automatically.';
+      return 'Share this QR code or link with prospects. Each time someone joins through your invite, you earn $5 in Agent X credits.';
     }
 
-    return 'Share this QR code or link with friends and teammates. After they sign up through your invite, their free highlight graphic is unlocked automatically.';
+    return 'Share this QR code or link with friends and teammates. Each time someone joins through your invite, you earn $5 added to your Agent X budget.';
   });
 
   protected readonly headerTitle = computed(() => {
@@ -530,7 +533,7 @@ export class InviteShellComponent implements OnInit {
   // QR CODE GENERATION
   // ============================================
 
-  async generateQrCode(): Promise<void> {
+  async generateQrCode(url: string): Promise<void> {
     if (!isPlatformBrowser(this.platformId)) return;
 
     this.qrLoading.set(true);
@@ -538,32 +541,14 @@ export class InviteShellComponent implements OnInit {
 
     try {
       const QRCode = await import('qrcode');
-      const url = this.inviteUrl();
-
-      if (!url) {
-        this.qrError.set(true);
-        this.qrLoading.set(false);
-        return;
-      }
-
-      // Wait for canvas to render after loading clears
-      this.qrLoading.set(false);
-      await new Promise<void>((r) => requestAnimationFrame(() => r()));
-      await new Promise<void>((r) => requestAnimationFrame(() => r()));
-
-      const canvasRef = this.qrCanvas();
-      if (!canvasRef?.nativeElement) {
-        this.qrError.set(true);
-        return;
-      }
-
-      await QRCode.toCanvas(canvasRef.nativeElement, url, {
+      const dataUrl = await QRCode.toDataURL(url, {
         width: 166,
         margin: 1,
         color: { dark: '#000000', light: '#ffffff' },
-        errorCorrectionLevel: 'H',
+        errorCorrectionLevel: 'H' as const,
       });
-
+      this._qrDataUrl.set(dataUrl);
+      this.qrLoading.set(false);
       this.logger.info('Invite QR code generated', { url });
     } catch (err) {
       this.logger.error('Failed to generate invite QR code', err);

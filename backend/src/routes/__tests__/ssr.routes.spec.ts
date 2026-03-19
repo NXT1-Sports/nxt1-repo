@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
-import app from '../../index.js';
+import app from '../../test-app.js';
 
 describe('SSR Routes', () => {
   describe('Production Routes', () => {

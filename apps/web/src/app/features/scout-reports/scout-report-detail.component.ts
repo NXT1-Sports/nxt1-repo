@@ -24,7 +24,6 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
-import { Meta, Title } from '@angular/platform-browser';
 import {
   ScoutReportsService,
   ScoutReportRatingDisplayComponent,
@@ -36,6 +35,7 @@ import {
 } from '@nxt1/ui/scout-reports';
 import { formatViewCount, formatGradYear, getRatingTier } from '@nxt1/core';
 import { AnalyticsService } from '../../core/services';
+import { SeoService } from '../../core/services/seo.service';
 
 @Component({
   selector: 'app-scout-report-detail',
@@ -576,8 +576,7 @@ export class ScoutReportDetailComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly service = inject(ScoutReportsService);
-  private readonly meta = inject(Meta);
-  private readonly title = inject(Title);
+  private readonly seo = inject(SeoService);
   private readonly analytics = inject(AnalyticsService);
 
   /** Current report */
@@ -663,11 +662,17 @@ export class ScoutReportDetailComponent implements OnInit {
 
       const r = this.report();
       if (r) {
-        // Update page title and meta
-        this.title.setTitle(`${r.athlete.name} Scout Report | NXT1`);
-        this.meta.updateTag({
-          name: 'description',
-          content: `Scout report for ${r.athlete.name}, ${r.athlete.position} from ${r.athlete.school ?? 'Unknown School'}. Overall rating: ${r.rating.overall}.`,
+        this.seo.updatePage({
+          title: `${r.athlete.name} Scout Report`,
+          description: `Scout report for ${r.athlete.name}, ${r.athlete.position} from ${r.athlete.school ?? 'Unknown School'}. Overall rating: ${r.rating.overall}.`,
+          canonicalUrl: `https://nxt1sports.com/scout-reports/${r.id}`,
+          keywords: [
+            'scout report',
+            r.athlete.name,
+            r.athlete.sport,
+            r.athlete.position,
+            'recruiting profile',
+          ],
         });
       }
     } finally {

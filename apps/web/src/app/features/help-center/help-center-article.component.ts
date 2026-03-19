@@ -10,6 +10,7 @@ import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/cor
 import { Router, ActivatedRoute } from '@angular/router';
 import { HelpArticleDetailWebComponent } from '@nxt1/ui/help-center';
 import { HelpCenterService } from '@nxt1/ui/help-center';
+import { SeoService } from '../../core/services/seo.service';
 
 @Component({
   selector: 'app-help-center-article',
@@ -28,6 +29,7 @@ export class HelpCenterArticleComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly helpService = inject(HelpCenterService);
+  private readonly seo = inject(SeoService);
 
   protected articleSlug = '';
 
@@ -37,6 +39,18 @@ export class HelpCenterArticleComponent implements OnInit {
       this.router.navigate(['/help-center']);
       return;
     }
+
+    const articleTitle = this.articleSlug
+      .split('-')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+    this.seo.updatePage({
+      title: `${articleTitle} Help Article`,
+      description: `Read NXT1 Help Center guidance for ${articleTitle.toLowerCase()}.`,
+      canonicalUrl: `https://nxt1sports.com/help-center/article/${this.articleSlug}`,
+      keywords: ['help article', 'nxt1 support', this.articleSlug.replace(/-/g, ' ')],
+    });
+
     this.helpService.loadArticle(this.articleSlug);
   }
 

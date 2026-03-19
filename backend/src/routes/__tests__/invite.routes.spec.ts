@@ -3,72 +3,31 @@
  * @module @nxt1/backend/routes/__tests__/invite
  */
 
-import { describe, it, expect } from 'vitest';
-import request from 'supertest';
-import app from '../../index.js';
+import { beforeAll, describe, it } from 'vitest';
+import { expectExpressRouter } from './route-test.utils.js';
 
 describe('Invite Routes', () => {
-  describe('Production Routes', () => {
-    it('POST /api/v1/invite/link should return 501', async () => {
-      const response = await request(app).post('/api/v1/invite/link');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  let router: unknown;
 
-    it('POST /api/v1/invite/send should return 501', async () => {
-      const response = await request(app).post('/api/v1/invite/send');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  beforeAll(async () => {
+    const module = await import('../../routes/invite.routes.js');
+    router = module.default;
+  }, 15_000);
 
-    it('GET /api/v1/invite/history should return 501', async () => {
-      const response = await request(app).get('/api/v1/invite/history');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('GET /api/v1/invite/stats should return 501', async () => {
-      const response = await request(app).get('/api/v1/invite/stats');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('POST /api/v1/invite/validate should return 501', async () => {
-      const response = await request(app).post('/api/v1/invite/validate');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('POST /api/v1/invite/accept should return 501', async () => {
-      const response = await request(app).post('/api/v1/invite/accept');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('GET /api/v1/invite/team/:teamId/members should return 501', async () => {
-      const response = await request(app).get('/api/v1/invite/team/team123/members');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-  });
-
-  describe('Staging Routes', () => {
-    it('POST /api/v1/staging/invite/link should return 501', async () => {
-      const response = await request(app).post('/api/v1/staging/invite/link');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('POST /api/v1/staging/invite/send should return 501', async () => {
-      const response = await request(app).post('/api/v1/staging/invite/send');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-
-    it('GET /api/v1/staging/invite/history should return 501', async () => {
-      const response = await request(app).get('/api/v1/staging/invite/history');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  it('should register the invite endpoints', () => {
+    expectExpressRouter(
+      router,
+      [
+        { path: '/link', method: 'post' },
+        { path: '/send', method: 'post' },
+        { path: '/send-bulk', method: 'post' },
+        { path: '/history', method: 'get' },
+        { path: '/stats', method: 'get' },
+        { path: '/validate', method: 'post' },
+        { path: '/accept', method: 'post' },
+        { path: '/team/:teamId/members', method: 'get' },
+      ],
+      8
+    );
   });
 });

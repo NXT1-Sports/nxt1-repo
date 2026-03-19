@@ -34,9 +34,22 @@ export {
   OPERATIONS_LOG_TEST_IDS,
 } from './agent-x-operations-log.component';
 export { AgentXDashboardSkeletonComponent } from './agent-x-dashboard-skeleton.component';
+export { AgentXBriefingPanelComponent } from './agent-x-briefing-panel.component';
 export { AgentXWelcomeComponent } from './agent-x-welcome.component';
 export { AgentXChatComponent } from './agent-x-chat.component';
 export { AgentXInputComponent } from './agent-x-input.component';
+export {
+  AgentXBriefingBadgeStateService,
+  AGENT_X_STATUS_DEFINITIONS,
+  AGENT_X_GOAL_OPTIONS,
+  type AgentXBriefingPanelKind,
+  type AgentXBriefingPresentation,
+  type AgentXSystemStatus,
+  type AgentXSystemStatusTone,
+  type AgentXStatusDefinition,
+  type AgentXGoalOption,
+  type AgentXBudgetSettings,
+} from './agent-x-briefing-badge-state.service';
 
 // Mode Content (shared between web & mobile)
 export {

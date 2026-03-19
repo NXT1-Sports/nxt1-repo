@@ -16,12 +16,13 @@
  * - Search overlay integration
  */
 
-import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { NewsShellComponent } from '@nxt1/ui/news';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { NewsArticle } from '@nxt1/core';
+import { SeoService } from '../../core/services/seo.service';
 
 @Component({
   selector: 'app-news',
@@ -36,10 +37,21 @@ import type { NewsArticle } from '@nxt1/core';
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class NewsComponent {
+export class NewsComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly logger = inject(NxtLoggingService).child('NewsComponent');
+  private readonly seo = inject(SeoService);
+
+  ngOnInit(): void {
+    this.seo.updatePage({
+      title: 'Recruiting News',
+      description:
+        'Stay current with recruiting trends, athlete stories, and college sports updates on NXT1.',
+      canonicalUrl: 'https://nxt1sports.com/news',
+      keywords: ['sports recruiting news', 'college recruiting', 'athlete news', 'nxt1'],
+    });
+  }
 
   /**
    * Handle article selection for analytics/logging.

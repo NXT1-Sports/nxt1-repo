@@ -13,9 +13,19 @@ const resolve = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
 export default defineConfig({
   resolve: {
-    alias: {
-      '@nxt1/core': resolve('../packages/core/src/index.ts'),
-    },
+    alias: [
+      // Must come before the root alias — maps to the actual source file
+      {
+        find: '@nxt1/core/errors/express',
+        replacement: resolve('../packages/core/src/errors/express.middleware.ts'),
+      },
+      // Generic root alias — subpath imports like @nxt1/core/models resolve to
+      // packages/core/src/models/index.ts automatically via directory resolution
+      {
+        find: '@nxt1/core',
+        replacement: resolve('../packages/core/src'),
+      },
+    ],
   },
   test: {
     globals: true,
@@ -23,6 +33,7 @@ export default defineConfig({
     include: ['src/**/*.{test,spec}.ts'],
     exclude: ['**/node_modules/**', '**/dist/**'],
     passWithNoTests: true,
+    setupFiles: ['reflect-metadata'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

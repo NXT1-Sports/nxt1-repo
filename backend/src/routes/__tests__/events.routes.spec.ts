@@ -3,24 +3,18 @@
  * @module @nxt1/backend/routes/__tests__/events
  */
 
-import { describe, it, expect } from 'vitest';
-import request from 'supertest';
-import app from '../../index.js';
+import { beforeAll, describe, it } from 'vitest';
+import { expectExpressRouter } from './route-test.utils.js';
 
 describe('Events Routes', () => {
-  describe('Production Routes', () => {
-    it('GET /api/v1/events/:id should return 501', async () => {
-      const response = await request(app).get('/api/v1/events/test-event-id');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
-  });
+  let router: unknown;
 
-  describe('Staging Routes', () => {
-    it('GET /api/v1/staging/events/:id should return 501', async () => {
-      const response = await request(app).get('/api/v1/staging/events/test-event-id');
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
+  beforeAll(async () => {
+    const module = await import('../../routes/events.routes.js');
+    router = module.default;
+  }, 15_000);
+
+  it('should register the event detail route', () => {
+    expectExpressRouter(router, [{ path: '/:id', method: 'get' }]);
   });
 });

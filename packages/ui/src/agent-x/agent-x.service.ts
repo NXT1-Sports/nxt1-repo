@@ -795,8 +795,12 @@ export class AgentXService {
   async loadDashboard(): Promise<void> {
     if (!isPlatformBrowser(this.platformId)) return;
 
-    this._dashboardLoading.set(true);
-    this.logger.info('Loading Agent X dashboard');
+    // On first load: show skeleton. On background refresh (already loaded): update silently.
+    const isRefresh = this._dashboardLoaded();
+    if (!isRefresh) {
+      this._dashboardLoading.set(true);
+    }
+    this.logger.info('Loading Agent X dashboard', { isRefresh });
     this.breadcrumb.trackStateChange('agent-x:dashboard-loading');
 
     try {

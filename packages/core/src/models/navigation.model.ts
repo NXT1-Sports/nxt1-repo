@@ -32,6 +32,8 @@ export type NavIconName =
   | 'sparklesFilled'
   | 'bell'
   | 'bellFilled'
+  | 'inbox'
+  | 'inboxFilled'
   | 'plusCircle'
   | 'plusCircleFilled'
   | 'bolt'
@@ -225,12 +227,12 @@ export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
     ariaLabel: 'View your messages',
   },
   {
-    id: 'activity',
-    label: 'Activity',
-    icon: 'bell',
-    iconActive: 'bellFilled',
-    route: '/activity',
-    ariaLabel: 'View your activity and notifications',
+    id: 'inbox',
+    label: 'Inbox',
+    icon: 'inbox',
+    iconActive: 'inboxFilled',
+    route: '/messages',
+    ariaLabel: 'View your inbox',
   },
 ];
 
@@ -268,12 +270,12 @@ export const CENTERED_CREATE_FOOTER_TABS: FooterTabItem[] = [
     ariaLabel: 'Create a new post',
   },
   {
-    id: 'activity',
-    label: 'Notifications',
-    icon: 'bell',
-    iconActive: 'bellFilled',
-    route: '/activity',
-    ariaLabel: 'View your notifications',
+    id: 'inbox',
+    label: 'Inbox',
+    icon: 'inbox',
+    iconActive: 'inboxFilled',
+    route: '/messages',
+    ariaLabel: 'View your inbox',
   },
   {
     id: 'ai',
@@ -321,12 +323,12 @@ export const AGENT_X_CENTER_FOOTER_TABS: FooterTabItem[] = [
     ariaLabel: 'Open AI Agent X',
   },
   {
-    id: 'activity',
-    label: 'Activity',
-    icon: 'bell',
-    iconActive: 'bellFilled',
-    route: '/activity',
-    ariaLabel: 'View your activity and notifications',
+    id: 'inbox',
+    label: 'Inbox',
+    icon: 'inbox',
+    iconActive: 'inboxFilled',
+    route: '/messages',
+    ariaLabel: 'View your inbox',
   },
   {
     id: 'profile',
@@ -366,12 +368,12 @@ export const AGENT_X_LEFT_FOOTER_TABS: FooterTabItem[] = [
     ariaLabel: 'Explore athletes and teams',
   },
   {
-    id: 'activity',
-    label: 'Activity',
-    icon: 'bell',
-    iconActive: 'bellFilled',
-    route: '/activity',
-    ariaLabel: 'View your activity and notifications',
+    id: 'inbox',
+    label: 'Inbox',
+    icon: 'inbox',
+    iconActive: 'inboxFilled',
+    route: '/messages',
+    ariaLabel: 'View your inbox',
   },
   {
     id: 'profile',

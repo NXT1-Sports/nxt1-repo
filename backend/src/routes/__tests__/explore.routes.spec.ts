@@ -3,100 +3,27 @@
  * @module @nxt1/backend/routes/__tests__/explore
  */
 
-import { describe, it, expect } from 'vitest';
-import request from 'supertest';
-import app from '../../index.js';
+import { beforeAll, describe, it } from 'vitest';
+import { expectExpressRouter } from './route-test.utils.js';
 
 describe('Explore Routes', () => {
-  describe('Production Routes', () => {
-    describe('GET /api/v1/explore/search', () => {
-      it('should return 501 Not Implemented', async () => {
-        const response = await request(app).get('/api/v1/explore/search');
-        expect(response.status).toBe(501);
-        expect(response.body).toEqual({
-          success: false,
-          error: 'Not implemented',
-        });
-      });
-    });
+  let router: unknown;
 
-    describe('GET /api/v1/explore/suggestions', () => {
-      it('should return 501 Not Implemented', async () => {
-        const response = await request(app).get('/api/v1/explore/suggestions');
-        expect(response.status).toBe(501);
-        expect(response.body).toEqual({
-          success: false,
-          error: 'Not implemented',
-        });
-      });
-    });
+  beforeAll(async () => {
+    const module = await import('../../routes/explore.routes.js');
+    router = module.default;
+  }, 15_000);
 
-    describe('GET /api/v1/explore/trending', () => {
-      it('should return 501 Not Implemented', async () => {
-        const response = await request(app).get('/api/v1/explore/trending');
-        expect(response.status).toBe(501);
-        expect(response.body).toEqual({
-          success: false,
-          error: 'Not implemented',
-        });
-      });
-    });
-
-    describe('GET /api/v1/explore/counts', () => {
-      it('should return 501 Not Implemented', async () => {
-        const response = await request(app).get('/api/v1/explore/counts');
-        expect(response.status).toBe(501);
-        expect(response.body).toEqual({
-          success: false,
-          error: 'Not implemented',
-        });
-      });
-    });
-  });
-
-  describe('Staging Routes', () => {
-    describe('GET /api/v1/staging/explore/search', () => {
-      it('should return 501 Not Implemented', async () => {
-        const response = await request(app).get('/api/v1/staging/explore/search');
-        expect(response.status).toBe(501);
-        expect(response.body).toEqual({
-          success: false,
-          error: 'Not implemented',
-        });
-      });
-    });
-
-    describe('GET /api/v1/staging/explore/suggestions', () => {
-      it('should return 501 Not Implemented', async () => {
-        const response = await request(app).get('/api/v1/staging/explore/suggestions');
-        expect(response.status).toBe(501);
-        expect(response.body).toEqual({
-          success: false,
-          error: 'Not implemented',
-        });
-      });
-    });
-
-    describe('GET /api/v1/staging/explore/trending', () => {
-      it('should return 501 Not Implemented', async () => {
-        const response = await request(app).get('/api/v1/staging/explore/trending');
-        expect(response.status).toBe(501);
-        expect(response.body).toEqual({
-          success: false,
-          error: 'Not implemented',
-        });
-      });
-    });
-
-    describe('GET /api/v1/staging/explore/counts', () => {
-      it('should return 501 Not Implemented', async () => {
-        const response = await request(app).get('/api/v1/staging/explore/counts');
-        expect(response.status).toBe(501);
-        expect(response.body).toEqual({
-          success: false,
-          error: 'Not implemented',
-        });
-      });
-    });
+  it('should register the explore endpoints', () => {
+    expectExpressRouter(
+      router,
+      [
+        { path: '/search', method: 'get' },
+        { path: '/suggestions', method: 'get' },
+        { path: '/trending', method: 'get' },
+        { path: '/counts', method: 'get' },
+      ],
+      4
+    );
   });
 });

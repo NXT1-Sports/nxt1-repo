@@ -22,6 +22,7 @@ import { InviteShellComponent, InviteService, type InviteUser } from '@nxt1/ui/i
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { InviteType } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
+import { SeoService } from '../../core/services/seo.service';
 
 @Component({
   selector: 'app-invite',
@@ -37,6 +38,7 @@ export class InviteComponent implements OnInit {
   private readonly inviteService = inject(InviteService);
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('InviteComponent');
+  private readonly seo = inject(SeoService);
 
   /**
    * Default invite type - can be overridden via route data or query params.
@@ -59,6 +61,12 @@ export class InviteComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     this.logger.debug('Invite feature initialized');
+    this.seo.updatePage({
+      title: 'Invite Friends',
+      description: 'Invite athletes, families, and coaches to join NXT1 Sports.',
+      canonicalUrl: 'https://nxt1sports.com/invite',
+      keywords: ['invite', 'referral', 'team invite', 'nxt1'],
+    });
 
     // Initialize the invite service
     if (this.userInfo()) {
