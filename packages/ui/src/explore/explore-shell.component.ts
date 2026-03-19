@@ -57,6 +57,7 @@ import { ExploreService } from './explore.service';
 import { ExploreListComponent } from './explore-list.component';
 import { ExploreSkeletonComponent } from './explore-skeleton.component';
 import { ExploreForYouComponent } from './explore-for-you.component';
+import { ExploreTeamsMobileComponent } from './mobile/explore-teams-mobile.component';
 import { ScoutReportsContentComponent } from '../scout-reports/scout-reports-content.component';
 import { NewsContentComponent } from '../news/news-content.component';
 import { FeedListComponent } from '../feed/feed-list.component';
@@ -88,6 +89,7 @@ export interface ExploreUser {
     ExploreListComponent,
     ExploreSkeletonComponent,
     ExploreForYouComponent,
+    ExploreTeamsMobileComponent,
     ScoutReportsContentComponent,
     NewsContentComponent,
     FeedListComponent,
@@ -235,6 +237,9 @@ export interface ExploreUser {
               (reportSelect)="onScoutReportSelect($event)"
               (openFilters)="onScoutReportFiltersOpen()"
             />
+          } @else if (explore.activeTab() === 'teams' && !explore.hasQuery()) {
+            <!-- Teams Tab: Elite Teams Dashboard -->
+            <nxt1-explore-teams-mobile />
           } @else {
             @defer (on viewport; prefetch on idle) {
               <nxt1-explore-list
