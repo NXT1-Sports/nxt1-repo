@@ -146,18 +146,6 @@ export function createMessagesApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Archive a conversation.
-     */
-    async archiveConversation(conversationId: string): Promise<void> {
-      const url = `${baseUrl}${MESSAGES_API_ENDPOINTS.archive}/${conversationId}`;
-      const response = await http.put<ApiResponse<void>>(url, {});
-
-      if (!response.success) {
-        throw new Error(response.error ?? 'Failed to archive conversation');
-      }
-    },
-
-    /**
      * Mute/unmute a conversation.
      */
     async toggleMute(conversationId: string, muted: boolean): Promise<void> {

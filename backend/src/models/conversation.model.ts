@@ -11,7 +11,6 @@
  *
  * Indexes:
  * - { 'participants.userId': 1, updatedAt: -1 }  → Conversation list per user
- * - { 'participants.userId': 1, isArchived: 1 }   → Archived filter
  * - { emailProvider: 1, externalThreadId: 1 }      → Deduplicate synced threads
  * - { updatedAt: -1 }                              → Global sort
  */
@@ -57,8 +56,6 @@ export interface IConversation {
   mutedBy: string[];
   /** Per-user pin flags */
   pinnedBy: string[];
-  /** Per-user archive flags */
-  archivedBy: string[];
   /** Whether a verified participant exists */
   hasVerifiedParticipant?: boolean;
   /** Email provider that originated this conversation (null for platform-native) */
@@ -116,7 +113,6 @@ const ConversationSchema = new Schema<IConversation>(
     unreadCounts: { type: Map, of: Number, default: new Map() },
     mutedBy: { type: [String], default: [] },
     pinnedBy: { type: [String], default: [] },
-    archivedBy: { type: [String], default: [] },
     hasVerifiedParticipant: { type: Boolean },
     emailProvider: { type: String, enum: ['gmail', 'microsoft', 'yahoo'] },
     externalThreadId: { type: String },
@@ -131,9 +127,6 @@ const ConversationSchema = new Schema<IConversation>(
 
 // Primary: user's conversation list sorted by recency
 ConversationSchema.index({ 'participants.userId': 1, updatedAt: -1 });
-
-// Archived filter
-ConversationSchema.index({ 'participants.userId': 1, archivedBy: 1 });
 
 // Email thread deduplication (sparse — most conversations are platform-native)
 ConversationSchema.index({ emailProvider: 1, externalThreadId: 1 }, { sparse: true, unique: true });

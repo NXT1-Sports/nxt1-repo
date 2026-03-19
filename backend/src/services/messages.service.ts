@@ -51,7 +51,6 @@ function mapConversation(doc: IConversation & { _id: unknown }, userId: string):
     unreadCount,
     isMuted: doc.mutedBy?.includes(userId),
     isPinned: doc.pinnedBy?.includes(userId),
-    isArchived: doc.archivedBy?.includes(userId),
     hasVerifiedParticipant: doc.hasVerifiedParticipant,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
@@ -124,26 +123,8 @@ export async function getConversations(
   };
 
   // Apply filter
-  switch (filter) {
-    case 'unread':
-      query[`unreadCounts.${userId}`] = { $gt: 0 };
-      query['archivedBy'] = { $ne: userId };
-      break;
-    case 'coaches':
-      query['type'] = { $in: ['coach', 'direct'] };
-      query['hasVerifiedParticipant'] = true;
-      query['archivedBy'] = { $ne: userId };
-      break;
-    case 'teams':
-      query['type'] = { $in: ['team', 'group'] };
-      query['archivedBy'] = { $ne: userId };
-      break;
-    case 'archived':
-      query['archivedBy'] = userId;
-      break;
-    default: // 'all'
-      query['archivedBy'] = { $ne: userId };
-      break;
+  if (filter === 'unread') {
+    query[`unreadCounts.${userId}`] = { $gt: 0 };
   }
 
   // Apply search
@@ -419,16 +400,6 @@ export async function markAsRead(userId: string, conversationId: string): Promis
 }
 
 /**
- * Archive a conversation for a user.
- */
-export async function archiveConversation(userId: string, conversationId: string): Promise<void> {
-  await ConversationModel.updateOne(
-    { _id: conversationId, 'participants.userId': userId },
-    { $addToSet: { archivedBy: userId } }
-  );
-}
-
-/**
  * Toggle mute on a conversation for a user.
  */
 export async function toggleMute(
@@ -491,10 +462,7 @@ export async function deleteConversation(userId: string, conversationId: string)
  */
 export async function getUnreadCount(userId: string): Promise<number> {
   const docs = await ConversationModel.find(
-    {
-      'participants.userId': userId,
-      archivedBy: { $ne: userId },
-    },
+    { 'participants.userId': userId },
     { unreadCounts: 1 }
   ).lean();
 

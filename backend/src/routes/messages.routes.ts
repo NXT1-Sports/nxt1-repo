@@ -34,7 +34,7 @@ router.use(appGuard);
  *
  * List conversations for the authenticated user.
  * Query params:
- *   - filter: MessagesFilterId ('all' | 'unread' | 'coaches' | 'teams' | 'archived')
+ *   - filter: MessagesFilterId ('all' | 'unread')
  *   - page: number (default 1)
  *   - limit: number (default 20, max 100)
  *   - q: search query string
@@ -219,29 +219,6 @@ router.put('/read/:conversationId', async (req: Request, res: Response): Promise
       error: err instanceof Error ? err.message : String(err),
     });
     res.status(500).json({ success: false, error: 'Failed to mark as read' });
-  }
-});
-
-// ============================================
-// ARCHIVE
-// ============================================
-
-/**
- * PUT /api/v1/messages/archive/:conversationId
- */
-router.put('/archive/:conversationId', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userId = req.user!.uid;
-    const conversationId = req.params['conversationId'] as string;
-
-    await messagesService.archiveConversation(userId, conversationId);
-
-    res.json({ success: true });
-  } catch (err) {
-    logger.error('[Messages] PUT /archive/:id failed', {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    res.status(500).json({ success: false, error: 'Failed to archive conversation' });
   }
 });
 

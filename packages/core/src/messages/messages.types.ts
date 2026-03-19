@@ -125,8 +125,6 @@ export interface Conversation {
   readonly isMuted?: boolean;
   /** Whether the conversation is pinned */
   readonly isPinned?: boolean;
-  /** Whether the conversation is archived */
-  readonly isArchived?: boolean;
   /** Whether any participant is verified */
   readonly hasVerifiedParticipant?: boolean;
   /** Online status of the other participant (DMs only) */
@@ -144,7 +142,7 @@ export interface Conversation {
 /**
  * Messages filter tab identifiers.
  */
-export type MessagesFilterId = 'all' | 'unread' | 'coaches' | 'teams' | 'archived';
+export type MessagesFilterId = 'all' | 'unread';
 
 /**
  * Messages filter tab configuration.

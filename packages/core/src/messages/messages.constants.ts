@@ -20,9 +20,6 @@ import type { MessagesFilter, MessagesFilterId, MessagesPagination } from './mes
 export const MESSAGES_FILTERS: readonly MessagesFilter[] = [
   { id: 'all', label: 'All', icon: 'chatbubbles-outline' },
   { id: 'unread', label: 'Unread', icon: 'mail-unread-outline' },
-  { id: 'coaches', label: 'Coaches', icon: 'school-outline' },
-  { id: 'teams', label: 'Teams', icon: 'people-outline' },
-  { id: 'archived', label: 'Archived', icon: 'archive-outline' },
 ] as const;
 
 /**
@@ -97,27 +94,12 @@ export const MESSAGES_EMPTY_STATES: Record<
   all: {
     title: 'No conversations yet',
     message: 'Start connecting with coaches, recruiters, and teammates',
-    icon: 'chatbubbles-outline',
+    icon: 'messages',
   },
   unread: {
     title: 'All caught up',
     message: "You've read all your messages — nice work!",
-    icon: 'checkmark-done-outline',
-  },
-  coaches: {
-    title: 'No coach messages',
-    message: 'Messages from coaches and recruiters will appear here',
-    icon: 'school-outline',
-  },
-  teams: {
-    title: 'No team messages',
-    message: 'Conversations with your teams will appear here',
-    icon: 'people-outline',
-  },
-  archived: {
-    title: 'No archived messages',
-    message: 'Archived conversations will appear here',
-    icon: 'archive-outline',
+    icon: 'checkmarkDone',
   },
 } as const;
 
@@ -136,8 +118,6 @@ export const MESSAGES_API_ENDPOINTS = {
   create: '/messages/create',
   /** Mark conversation as read */
   markRead: '/messages/read',
-  /** Archive conversation */
-  archive: '/messages/archive',
   /** Mute conversation */
   mute: '/messages/mute',
   /** Pin conversation */

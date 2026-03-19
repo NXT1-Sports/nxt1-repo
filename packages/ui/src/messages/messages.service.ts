@@ -279,31 +279,6 @@ export class MessagesService {
   }
 
   /**
-   * Archive a conversation (optimistic).
-   */
-  async archiveConversation(conversationId: string): Promise<void> {
-    const previous = this._conversations();
-    const previousConversation = previous.find((c) => c.id === conversationId);
-    const previousUnreadCount = previousConversation?.unreadCount ?? 0;
-
-    // Optimistic: remove from list
-    this._conversations.update((convos) => convos.filter((c) => c.id !== conversationId));
-    if (previousUnreadCount > 0) {
-      this._totalUnreadCount.update((count) => Math.max(0, count - previousUnreadCount));
-    }
-
-    try {
-      await this.api.archiveConversation(conversationId);
-      await this.haptics.notification('success');
-      this.toast.success('Conversation archived');
-      this.logger.info('Conversation archived', { conversationId });
-    } catch {
-      this._conversations.set(previous);
-      this.toast.error('Failed to archive conversation');
-    }
-  }
-
-  /**
    * Delete a conversation (optimistic).
    */
   async deleteConversation(conversationId: string): Promise<void> {
