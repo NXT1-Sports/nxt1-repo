@@ -586,11 +586,13 @@ export {
   ExploreListComponent,
   ExploreItemComponent,
   ExploreForYouComponent,
+  ExploreAthletesMobileComponent,
   // Web (Zero Ionic)
   ExploreShellWebComponent,
   ExploreListWebComponent,
   ExploreItemWebComponent,
   ExploreForYouWebComponent,
+  ExploreAthletesWebComponent,
   // Shared
   ExploreSkeletonComponent,
   ExploreFilterModalComponent,

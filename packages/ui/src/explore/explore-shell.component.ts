@@ -62,6 +62,7 @@ import { NewsContentComponent } from '../news/news-content.component';
 import { FeedListComponent } from '../feed/feed-list.component';
 import { FeedService } from '../feed/feed.service';
 import { ExploreFilterModalService } from './explore-filter-modal.service';
+import { ExploreAthletesMobileComponent } from './mobile/explore-athletes-mobile.component';
 
 // Register icons for search suggestions
 /** User info for header display */
@@ -91,6 +92,7 @@ export interface ExploreUser {
     ScoutReportsContentComponent,
     NewsContentComponent,
     FeedListComponent,
+    ExploreAthletesMobileComponent,
   ],
   template: `
     <!-- Professional Page Header with shared Top Nav search styling -->
@@ -235,6 +237,9 @@ export interface ExploreUser {
               (reportSelect)="onScoutReportSelect($event)"
               (openFilters)="onScoutReportFiltersOpen()"
             />
+          } @else if (explore.activeTab() === 'athletes' && !explore.hasQuery()) {
+            <!-- Athletes Tab: Elite Dashboard -->
+            <nxt1-explore-athletes-mobile />
           } @else {
             @defer (on viewport; prefetch on idle) {
               <nxt1-explore-list
