@@ -51,8 +51,8 @@ export default defineConfig({
         'src/api/**/*.ts',
         'src/storage/*-storage.ts', // Keep storage-adapter.ts
         'src/logging/**/*.ts',
-        // seo/index.ts is already excluded as barrel; share-copy.ts has no tests yet
-        'src/seo/**/*.ts',
+        // share-copy.ts has no tests yet — seo/index.ts IS tested (seo.spec.ts)
+        'src/seo/share-copy.ts',
       ],
       // Thresholds for CI - enforces minimum coverage
       thresholds: {
@@ -74,6 +74,13 @@ export default defineConfig({
           branches: 40,
           functions: 50,
           lines: 20,
+        },
+        // seo/index.ts contains all SEO builders tested by seo.spec.ts (56 tests)
+        'src/seo/**/*.ts': {
+          statements: 50,
+          branches: 50,
+          functions: 50,
+          lines: 50,
         },
       },
     },
