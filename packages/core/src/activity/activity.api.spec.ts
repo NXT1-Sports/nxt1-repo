@@ -38,7 +38,7 @@ describe('createActivityApi', () => {
         success: true,
         items: [{ id: '1', title: 'Test', type: 'like', tab: 'alerts' }],
         pagination: { page: 1, limit: 20, total: 1, totalPages: 1, hasMore: false },
-        badges: { all: 1, inbox: 0, agent: 0, alerts: 1 },
+        badges: { alerts: 1, analytics: 0 },
       };
       vi.mocked(http.get).mockResolvedValue(mockResponse);
 
@@ -51,10 +51,10 @@ describe('createActivityApi', () => {
     it('should pass filter params as query string', async () => {
       vi.mocked(http.get).mockResolvedValue({ success: true, items: [] });
 
-      await api.getFeed({ tab: 'agent', page: 2, limit: 10 });
+      await api.getFeed({ tab: 'analytics', page: 2, limit: 10 });
 
       const calledUrl = vi.mocked(http.get).mock.calls[0][0];
-      expect(calledUrl).toContain('tab=agent');
+      expect(calledUrl).toContain('tab=analytics');
       expect(calledUrl).toContain('page=2');
       expect(calledUrl).toContain('limit=10');
     });
@@ -116,7 +116,7 @@ describe('createActivityApi', () => {
       vi.mocked(http.post).mockResolvedValue({
         success: true,
         count: 2,
-        badges: { all: 3, inbox: 1, agent: 1, alerts: 1 },
+        badges: { alerts: 1, analytics: 2 },
       });
 
       const result = await api.markRead(['id1', 'id2']);
@@ -145,7 +145,7 @@ describe('createActivityApi', () => {
       vi.mocked(http.post).mockResolvedValue({
         success: true,
         count: 5,
-        badges: { all: 0, inbox: 0, agent: 0, alerts: 0 },
+        badges: { alerts: 0, analytics: 0 },
       });
 
       const result = await api.markAllRead('alerts');
@@ -157,7 +157,7 @@ describe('createActivityApi', () => {
     it('should throw on failure', async () => {
       vi.mocked(http.post).mockResolvedValue({ success: false, error: 'Forbidden' });
 
-      await expect(api.markAllRead('all')).rejects.toThrow('Forbidden');
+      await expect(api.markAllRead('analytics')).rejects.toThrow('Forbidden');
     });
   });
 
@@ -167,7 +167,7 @@ describe('createActivityApi', () => {
 
   describe('getBadges', () => {
     it('should return badge counts per tab', async () => {
-      const badges = { all: 10, inbox: 3, agent: 2, alerts: 5 };
+      const badges = { alerts: 5, analytics: 5 };
       vi.mocked(http.get).mockResolvedValue({ success: true, badges });
 
       const result = await api.getBadges();
@@ -191,7 +191,7 @@ describe('createActivityApi', () => {
     it('should return activity summary', async () => {
       const summary = {
         totalUnread: 10,
-        badges: { all: 10, inbox: 3, agent: 2, alerts: 5 },
+        badges: { alerts: 5, analytics: 5 },
         lastActivity: '2026-03-01T12:00:00Z',
       };
       vi.mocked(http.get).mockResolvedValue({ success: true, data: summary });
