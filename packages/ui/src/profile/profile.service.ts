@@ -34,11 +34,6 @@ import {
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtToastService } from '../services/toast/toast.service';
-import {
-  MOCK_PROFILE_PAGE_DATA,
-  getMockOwnProfileData,
-  MOCK_ACTIVITY_FEED_ITEMS,
-} from './profile.mock-data';
 import { type RankingSource } from './rankings/profile-rankings.component';
 
 type ProfileUserTeamExtension = {
@@ -851,48 +846,18 @@ export class ProfileService {
   }
 
   // ============================================
-  // PUBLIC METHODS — Data Fetching (Internal / Mock)
+  // PUBLIC METHODS — Data Fetching
   // ============================================
 
   /**
-   * Load profile data by profile code.
-   * @internal Uses mock data — replace TODO with real API call once backend is ready.
-   *           For production web/mobile, prefer calling `startLoading()` then
-   *           `loadFromExternalData()` with data fetched from the platform API service.
-   */
-  async loadProfile(profileCode: string, isOwnProfile = false): Promise<void> {
-    this.logger.info('Loading profile (internal/mock)', { profileCode, isOwnProfile });
-    this._isLoading.set(true);
-    this._error.set(null);
-    this._profileData.set(null);
-    this._activityFeedItems.set([]);
-
-    try {
-      // TODO: Replace with actual API call
-      await this.simulateDelay(800);
-
-      const data = isOwnProfile ? getMockOwnProfileData() : MOCK_PROFILE_PAGE_DATA;
-      this._profileData.set(data);
-      this._activityFeedItems.set(MOCK_ACTIVITY_FEED_ITEMS);
-
-      this.logger.info('Profile loaded successfully', { profileCode });
-    } catch (err) {
-      const message = parseApiError(err).message;
-      this.logger.error('Failed to load profile', err, { profileCode });
-      this.setError(message);
-    } finally {
-      this._isLoading.set(false);
-    }
-  }
-
-  /**
    * Refresh profile data.
+   * Emits a log warning — callers should use startLoading() + loadFromExternalData()
+   * via the platform-specific API service to re-fetch.
    */
   async refresh(): Promise<void> {
-    const user = this.user();
-    if (!user) return;
-
-    await this.loadProfile(user.profileCode, this.isOwnProfile());
+    this.logger.warn(
+      'refresh() called on ProfileService — platform shell should handle re-fetch via loadFromExternalData()'
+    );
   }
 
   /**
@@ -908,19 +873,9 @@ export class ProfileService {
    */
   async loadMorePosts(): Promise<void> {
     if (this._isLoadingMore()) return;
-
-    this.logger.debug('Loading more posts');
-    this._isLoadingMore.set(true);
-
-    try {
-      // TODO: Replace with actual API call
-      await this.simulateDelay(500);
-      // Would append more posts here
-    } catch (err) {
-      this.logger.error('Failed to load more posts', err);
-    } finally {
-      this._isLoadingMore.set(false);
-    }
+    this.logger.warn(
+      'loadMorePosts() called — platform shell should implement pagination via the API service.'
+    );
   }
 
   /**
@@ -945,22 +900,10 @@ export class ProfileService {
       },
     });
 
-    try {
-      // TODO: Replace with actual API call
-      await this.simulateDelay(300);
-
-      // Track follow/unfollow event
-      // Note: Analytics should be injected in platform-specific wrappers for best practice,
-      // but we log here as a signal that tracking should occur
-      this.logger.info(newIsFollowing ? 'User followed' : 'User unfollowed', {
-        followed_user_id: profileUserId,
-        event: newIsFollowing ? APP_EVENTS.USER_FOLLOWED : APP_EVENTS.USER_UNFOLLOWED,
-      });
-    } catch (err) {
-      // Rollback on error
-      this._profileData.set(data);
-      this.logger.error('Failed to toggle follow', err);
-    }
+    this.logger.info(newIsFollowing ? 'User followed' : 'User unfollowed', {
+      followed_user_id: profileUserId,
+      event: newIsFollowing ? APP_EVENTS.USER_FOLLOWED : APP_EVENTS.USER_UNFOLLOWED,
+    });
   }
 
   /**
@@ -1058,13 +1001,5 @@ export class ProfileService {
     this._scheduleEvents.set(null);
     this._recruitingActivities.set(null);
     this._newsArticles.set([]);
-  }
-
-  // ============================================
-  // PRIVATE HELPERS
-  // ============================================
-
-  private simulateDelay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

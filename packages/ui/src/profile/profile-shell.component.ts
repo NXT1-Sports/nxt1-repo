@@ -1036,15 +1036,11 @@ export class ProfileShellComponent implements OnInit {
     if (this.skipInternalLoad()) {
       return; // Parent component handles data loading via loadFromExternalData()
     }
-
-    const unicode = this.profileUnicode();
-    const isOwn = this.isOwnProfile();
-
-    if (unicode) {
-      this.profile.loadProfile(unicode, isOwn);
-    } else {
-      this.profile.loadProfile('me', true);
-    }
+    // Internal data loading is no longer supported.
+    // Platform shells must provide data via loadFromExternalData() and set [skipInternalLoad]="true".
+    this.logger.warn(
+      'ProfileShell: skipInternalLoad is false — use loadFromExternalData() from the platform component.'
+    );
   }
 
   // ============================================

@@ -1805,23 +1805,11 @@ export class ProfileShellWebComponent implements OnInit {
     if (this.skipInternalLoad()) {
       return; // Parent component handles data loading via loadFromExternalData()
     }
-
-    // Immediately set loading so the skeleton renders on BOTH server and client.
-    // SSR: skeleton HTML is baked into the initial response — no blank flash.
-    // Client: skeleton stays visible until loadProfile() resolves with data.
-    this.profile.startLoading();
-
-    // Only fetch data on the browser — SSR just renders the skeleton.
-    if (!this.isBrowser) return;
-
-    const unicode = this.profileUnicode();
-    const isOwn = this.isOwnProfile();
-
-    if (unicode) {
-      this.profile.loadProfile(unicode, isOwn);
-    } else {
-      this.profile.loadProfile('me', true);
-    }
+    // Internal data loading is no longer supported.
+    // Platform shells must provide data via loadFromExternalData() and set [skipInternalLoad]="true".
+    this.logger.warn(
+      'ProfileShellWeb: skipInternalLoad is false — use loadFromExternalData() from the platform component.'
+    );
   }
 
   // ============================================
