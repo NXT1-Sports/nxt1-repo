@@ -2,7 +2,7 @@
  * @fileoverview Usage Overview Section — Summary Cards
  * @module @nxt1/ui/usage
  *
- * Three top-level overview cards: Current Metered Usage, Included Usage, Next Payment.
+ * Two top-level overview cards: Current Metered Usage, Next Payment.
  * GitHub-style card layout with token-based design.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
@@ -31,19 +31,6 @@ import { formatPrice } from '@nxt1/core';
           </div>
           <div class="card-value">{{ currentUsage() }}</div>
           <span class="card-caption"> Gross metered usage for {{ periodLabel() }}. </span>
-        </div>
-
-        <!-- Included Usage -->
-        <div class="overview-card">
-          <ion-ripple-effect></ion-ripple-effect>
-          <div class="card-header">
-            <span class="card-label">Current included usage</span>
-            <button type="button" class="card-link" (click)="viewDetails.emit()">
-              More details
-            </button>
-          </div>
-          <div class="card-value">{{ includedUsage() }}</div>
-          <span class="card-caption"> Included usage discounts for {{ periodLabel() }}. </span>
         </div>
 
         <!-- Next Payment Due -->
@@ -151,18 +138,11 @@ export class UsageOverviewComponent {
   /** Overview data */
   readonly data = input.required<UsageOverview | null>();
 
-  /** Emitted when "More details" is clicked */
-  readonly viewDetails = output<void>();
-
   /** Emitted when "Payment history" link is clicked */
   readonly viewPaymentHistory = output<void>();
 
   protected readonly currentUsage = computed(() =>
     formatPrice(this.data()?.currentMeteredUsage ?? 0)
-  );
-
-  protected readonly includedUsage = computed(() =>
-    formatPrice(this.data()?.currentIncludedUsage ?? 0)
   );
 
   protected readonly periodLabel = computed(() => this.data()?.period.label ?? '');
