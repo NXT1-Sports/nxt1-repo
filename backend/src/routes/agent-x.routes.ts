@@ -12,6 +12,8 @@
  *   GET  /api/v1/agent-x/status/:id  → Poll job progress/result
  *   POST /api/v1/agent-x/cancel/:id  → Cancel an active job
  *   GET  /api/v1/agent-x/history     → Get user's job history
+ *   POST /api/v1/agent-x/playbook/item/:id/status → Update playbook item status
+ *   POST /api/v1/agent-x/briefing/generate         → Generate daily AI briefing
  *   POST /api/v1/agent-x/pause       → Pause the entire queue (admin)
  *   POST /api/v1/agent-x/resume      → Resume the entire queue (admin)
  */
@@ -19,7 +21,13 @@
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
 import { appGuard, adminGuard } from '../middleware/auth.middleware.js';
 import { validateBody } from '../middleware/validation.middleware.js';
-import { AskAgentDto, SetGoalsDto, AgentChatRequestDto } from '../dtos/agent-x.dto.js';
+import {
+  AskAgentDto,
+  SetGoalsDto,
+  AgentChatRequestDto,
+  UpdatePlaybookItemStatusDto,
+  GenerateBriefingDto,
+} from '../dtos/agent-x.dto.js';
 import { Timestamp } from 'firebase-admin/firestore';
 import type {
   AgentJobPayload,
@@ -43,6 +51,14 @@ import {
   iconForCategory,
   computeDuration,
 } from './operations-log.helpers.js';
+import { AgentGenerationService } from '../modules/agent/services/generation.service.js';
+
+/** Lazy singleton for content generation — avoids eager init at import time. */
+let _generationService: AgentGenerationService | null = null;
+function getGenerationService(): AgentGenerationService {
+  if (!_generationService) _generationService = new AgentGenerationService();
+  return _generationService;
+}
 
 /** Extract the authenticated user from the request (set by appGuard). */
 function getAuthUser(req: Request): { uid: string } | undefined {
@@ -891,141 +907,121 @@ router.post('/playbook/generate', appGuard, async (req: Request, res: Response) 
       return;
     }
 
-    const { db } = req.firebase!;
-    const userDoc = await db.collection('users').doc(user.uid).get();
-    const userData = userDoc.data() ?? {};
-    const role = (userData['role'] ?? 'athlete') as string;
-    const sport = (userData['sport'] ?? '') as string;
-    const displayName = (userData['displayName'] ?? '') as string;
-    const agentGoals: AgentDashboardGoal[] = (userData['agentGoals'] ?? []) as AgentDashboardGoal[];
-
-    if (agentGoals.length === 0) {
-      res
-        .status(400)
-        .json({ success: false, error: 'Set at least one goal before generating a playbook' });
-      return;
-    }
-
-    const goalsText = agentGoals
-      .map((g, i) => `${i + 1}. ${g.text} (category: ${g.category})`)
-      .join('\n');
-
-    const prompt = [
-      `You are Agent X, the AI assistant for NXT1 sports platform.`,
-      `Generate a personalized weekly playbook for ${displayName || 'the user'}, a ${role}${sport ? ` in ${sport}` : ''}.`,
-      `Their goals are:\n${goalsText}`,
-      ``,
-      `Return EXACTLY a JSON array of 3-5 playbook items. Each item must have:`,
-      `- "id": unique string like "wp-1"`,
-      `- "weekLabel": day abbreviation ("Mon", "Tue", "Wed", "Thu", "Fri")`,
-      `- "title": short action title (max 50 chars)`,
-      `- "summary": one-sentence description`,
-      `- "details": detailed explanation of what Agent X prepared`,
-      `- "actionLabel": button text (e.g., "Review Draft", "Send Emails")`,
-      `- "status": always "pending"`,
-      `- "goal": object with "id" and "label" matching one of the user's goals`,
-      ``,
-      `Return ONLY the JSON array, no markdown fences, no explanation.`,
-    ].join('\n');
-
-    let playbookItems: ShellWeeklyPlaybookItem[] = [];
-
-    try {
-      const { OpenRouterService } = await import('../modules/agent/llm/openrouter.service.js');
-      const llm = new OpenRouterService();
-      const llmResult = await llm.complete(
-        [
-          { role: 'system', content: 'You are a JSON generator. Return only valid JSON arrays.' },
-          { role: 'user', content: prompt },
-        ],
-        {
-          tier: 'balanced',
-          maxTokens: 2048,
-          temperature: 0.7,
-          jsonMode: true,
-        }
-      );
-
-      try {
-        // Strip any markdown fences if present
-        let jsonText = (llmResult.content ?? '').trim();
-        if (jsonText.startsWith('```')) {
-          jsonText = jsonText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-        }
-        const parsed = JSON.parse(jsonText) as unknown;
-        if (Array.isArray(parsed)) {
-          playbookItems = parsed.map((item: Record<string, unknown>) => ({
-            id: String(item['id'] ?? `wp-${crypto.randomUUID().slice(0, 8)}`),
-            weekLabel: String(item['weekLabel'] ?? ''),
-            title: String(item['title'] ?? ''),
-            summary: String(item['summary'] ?? ''),
-            details: String(item['details'] ?? ''),
-            actionLabel: String(item['actionLabel'] ?? 'Take Action'),
-            status: 'pending' as const,
-            goal:
-              item['goal'] && typeof item['goal'] === 'object'
-                ? {
-                    id: String((item['goal'] as Record<string, unknown>)['id'] ?? ''),
-                    label: String((item['goal'] as Record<string, unknown>)['label'] ?? ''),
-                  }
-                : undefined,
-          }));
-        }
-      } catch (parseErr) {
-        logger.error('Failed to parse playbook JSON from LLM', { error: String(parseErr) });
-      }
-    } catch {
-      // OpenRouter not available or failed — fall through to template fallback
-      logger.warn('OpenRouter not available for playbook generation, using fallback');
-    }
-
-    // Fallback: generate template-based playbook if LLM unavailable or parse fails
-    if (playbookItems.length === 0) {
-      playbookItems = agentGoals.flatMap((goal, gi) => [
-        {
-          id: `wp-${gi * 2 + 1}`,
-          weekLabel: gi === 0 ? 'Mon' : 'Wed',
-          title: `Work on: ${goal.text.slice(0, 40)}`,
-          summary: `Agent X has prepared action steps for your "${goal.text}" goal.`,
-          details: `Review the plan and take the first step toward achieving your goal.`,
-          actionLabel: 'Review Plan',
-          status: 'pending' as const,
-          goal: { id: goal.id, label: goal.text.slice(0, 30) },
-        },
-      ]);
-    }
-
-    const generatedAt = new Date().toISOString();
-
-    // Persist the generated playbook
-    await db.collection('users').doc(user.uid).collection('agent_playbooks').add({
-      items: playbookItems,
-      goals: agentGoals,
-      generatedAt,
-      role,
-    });
-
-    logger.info('Agent playbook generated', {
-      userId: user.uid,
-      itemCount: playbookItems.length,
-      goalCount: agentGoals.length,
-    });
-
-    res.json({
-      success: true,
-      data: {
-        items: playbookItems,
-        goals: agentGoals,
-        generatedAt,
-        canRegenerate: true,
-      },
-    });
+    const result = await getGenerationService().generatePlaybook(user.uid);
+    res.json({ success: true, data: result });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
+    if (error.message.includes('Set at least one goal')) {
+      res.status(400).json({ success: false, error: error.message });
+      return;
+    }
     logger.error('Failed to generate playbook', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to generate playbook' });
   }
 });
+
+// ─── POST /playbook/item/:id/status — Update a playbook item's status ─────
+//
+// Allows users (or Agent X) to mark a playbook item as complete, in-progress,
+// or problem. Uses a Firestore transaction to prevent concurrent-update races.
+
+router.post(
+  '/playbook/item/:id/status',
+  appGuard,
+  validateBody(UpdatePlaybookItemStatusDto),
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const itemId = req.params['id'];
+      if (!itemId || typeof itemId !== 'string') {
+        res.status(400).json({ success: false, error: 'Item ID is required' });
+        return;
+      }
+
+      const { status } = req.body as { status: ShellWeeklyPlaybookItem['status'] };
+      const { db } = req.firebase!;
+      const playbooksRef = db.collection('users').doc(user.uid).collection('agent_playbooks');
+
+      // Find the latest playbook doc ref outside the transaction (immutable query)
+      const latestPlaybook = await playbooksRef.orderBy('generatedAt', 'desc').limit(1).get();
+      if (latestPlaybook.empty) {
+        res.status(404).json({ success: false, error: 'No playbook found' });
+        return;
+      }
+
+      const playbookRef = latestPlaybook.docs[0].ref;
+
+      // Use a transaction to atomically read-modify-write the items array,
+      // preventing concurrent status updates from silently overwriting each other.
+      const updatedItem = await db.runTransaction(async (tx) => {
+        const doc = await tx.get(playbookRef);
+        const items = (doc.data()?.['items'] ?? []) as ShellWeeklyPlaybookItem[];
+        const itemIndex = items.findIndex((i) => i.id === itemId);
+
+        if (itemIndex === -1) return null;
+
+        const patched: ShellWeeklyPlaybookItem = { ...items[itemIndex], status };
+        const updatedItems = items.map((item, idx) => (idx === itemIndex ? patched : item));
+        tx.update(playbookRef, { items: updatedItems });
+        return patched;
+      });
+
+      if (!updatedItem) {
+        res.status(404).json({ success: false, error: `Playbook item "${itemId}" not found` });
+        return;
+      }
+
+      logger.info('Playbook item status updated', {
+        userId: user.uid,
+        itemId,
+        status,
+      });
+
+      res.json({ success: true, data: updatedItem });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to update playbook item status', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to update playbook item status' });
+    }
+  }
+);
+
+// ─── POST /briefing/generate — Generate or refresh daily AI briefing ───────
+//
+// Generates a personalized daily briefing from the user's goals, recent
+// operations, and delta sync data. Persists to agent_briefings subcollection
+// and prunes old entries (keep last 7 days worth).
+
+router.post(
+  '/briefing/generate',
+  appGuard,
+  validateBody(GenerateBriefingDto),
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { force = false } = req.body as { force?: boolean };
+      const result = await getGenerationService().generateBriefing(user.uid, force);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to generate briefing', { error: error.message, stack: error.stack });
+      res.status(500).json({ success: false, error: 'Failed to generate briefing' });
+    }
+  }
+);
 
 // ─── POST /pause — Pause the entire queue (admin only) ────────────────────
 

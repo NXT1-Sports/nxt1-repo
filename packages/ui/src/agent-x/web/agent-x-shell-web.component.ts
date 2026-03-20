@@ -12,11 +12,10 @@
  * Layout (top → bottom):
  * 1. Desktop Page Header — Agent X title + subtitle
  * 2. Daily Briefing — Proactive AI insights card
- * 3. Coordinators — 2×2 grid of virtual staff cards (Recruiting, Media, Scout, Academics)
- * 4. Weekly Playbook — Always visible (with "Need a Game Plan" state if no goals)
- * 5. Daily Operations — Active background task cards (conditional)
- * 6. Chat Messages — Conversation history
- * 7. Input Bar — Fixed above footer (already exists)
+ * 3. Today's Action Plan — AI-generated playbook cards (generating / pending / complete / empty states)
+ * 4. Daily Operations — Active background task cards (conditional)
+ * 5. Coordinators — Role-aware virtual staff cards
+ * 6. Input Bar — Fixed above footer
  *
  * For mobile app, use AgentXShellComponent (Ionic variant) instead.
  *
@@ -39,7 +38,7 @@ import {
   effect,
   afterNextRender,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtOverlayService } from '../../components/overlay';
@@ -48,19 +47,21 @@ import { AgentXDashboardSkeletonComponent } from '../agent-x-dashboard-skeleton.
 import { AgentXBriefingPanelComponent } from '../agent-x-briefing-panel.component';
 import { AgentXInputComponent } from '../agent-x-input.component';
 import { AgentXOperationsLogComponent } from '../agent-x-operations-log.component';
-import {
-  AgentXOperationChatComponent,
-  type OperationQuickAction,
-} from '../agent-x-operation-chat.component';
+import { AgentXOperationChatComponent } from '../agent-x-operation-chat.component';
 import {
   AgentXBriefingBadgeStateService,
+  AGENT_X_GOAL_OPTIONS,
   type AgentXBriefingPanelKind,
 } from '../agent-x-briefing-badge-state.service';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../../components/bottom-sheet';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import type { CommandCategory, WeeklyPlaybookItem } from '../agent-x-shell.component';
-import { type ShellWeeklyPlaybookItem, type ShellActiveOperation } from '@nxt1/core/ai';
+import {
+  type ShellWeeklyPlaybookItem,
+  type ShellActiveOperation,
+  type AgentDashboardGoal,
+} from '@nxt1/core/ai';
 
 /**
  * User info for header display.
@@ -75,7 +76,6 @@ export interface AgentXUser {
   selector: 'nxt1-agent-x-shell-web',
   standalone: true,
   imports: [
-    CommonModule,
     NxtDesktopPageHeaderComponent,
     NxtIconComponent,
     AgentXDashboardSkeletonComponent,
@@ -243,35 +243,39 @@ export interface AgentXUser {
               </section>
             }
 
-            <!-- ═══ 3. ACTION CARDS ═══ -->
-            <section class="action-cards-section" aria-label="Action Cards">
+            <!-- ═══ 3. TODAY'S ACTION PLAN (AI-Generated Playbook) ═══ -->
+            <section class="action-cards-section" aria-label="Today's Action Plan">
               <div class="action-plan-header">
                 <h3 class="section-title action-plan-title">Today's Action Plan</h3>
-                <div class="action-plan-status">
-                  <span class="action-plan-percent">{{ actionPlanProgressPercent() }}%</span>
-                  <div
-                    class="action-plan-progress"
-                    aria-label="Action plan progress"
-                    [attr.aria-valuenow]="actionPlanProgressPercent()"
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                    role="progressbar"
-                  >
+                @if (playbookTotalCount() > 0) {
+                  <div class="action-plan-status">
+                    <span class="action-plan-percent">{{ actionPlanProgressPercent() }}%</span>
                     <div
-                      class="action-plan-progress-bar"
-                      [style.width.%]="actionPlanProgressPercent()"
-                    ></div>
+                      class="action-plan-progress"
+                      aria-label="Action plan progress"
+                      [attr.aria-valuenow]="actionPlanProgressPercent()"
+                      aria-valuemin="0"
+                      aria-valuemax="100"
+                      role="progressbar"
+                    >
+                      <div
+                        class="action-plan-progress-bar"
+                        [style.width.%]="actionPlanProgressPercent()"
+                      ></div>
+                    </div>
+                    <p class="action-plan-meta">{{ actionPlanCompletionLabel() }}</p>
                   </div>
-                  <p class="action-plan-meta">{{ actionPlanCompletionLabel() }}</p>
-                </div>
+                }
               </div>
 
-              @if (hasPendingActionCards()) {
-                @if (shouldRenderActionCard('post-game-package')) {
-                  <div
-                    class="action-card"
-                    [class.action-card--exiting]="isActionCardExiting('post-game-package')"
-                  >
+              @if (agentX.playbookGenerating()) {
+                <div class="action-plan-generating">
+                  <div class="generating-pulse" aria-hidden="true"></div>
+                  <p class="generating-text">Agent X is building your action plan…</p>
+                </div>
+              } @else if (weeklyPlaybook().length > 0 && !allTasksComplete()) {
+                @for (task of pendingPlaybookItems(); track task.id) {
+                  <div class="action-card">
                     <div class="card-coordinator">
                       <div class="coordinator-avatar" aria-hidden="true">
                         <svg viewBox="0 0 612 792" class="coordinator-mark">
@@ -282,254 +286,27 @@ export interface AgentXUser {
                       </div>
                       <div class="coordinator-copy">
                         <span class="coordinator-brand">Agent X</span>
-                        <span class="coordinator-role">Media Coordinator</span>
+                        @if (task.goal) {
+                          <span class="coordinator-role">{{ task.goal }}</span>
+                        }
                       </div>
                     </div>
                     <div class="card-content">
-                      <div class="card-title">
-                        You scored 22 points last night. Want me to turn that into a post-game
-                        graphic package?
-                      </div>
-                      <p class="card-description">
-                        I can build the creative, write the caption, and queue it for approval.
-                      </p>
+                      <div class="card-title">{{ task.title }}</div>
+                      <p class="card-description">{{ task.summary }}</p>
                     </div>
                     <div class="card-actions">
                       <button
                         type="button"
                         class="action-btn primary-btn"
-                        (click)="
-                          onActionCardExecute(
-                            'post-game-package',
-                            'post-game-package',
-                            'Post-Game Package',
-                            'image',
-                            'Create a post-game graphic package from my 22-point performance last night.'
-                          )
-                        "
+                        (click)="onPlaybookAction(task)"
                       >
-                        Build post-game package
-                      </button>
-                      <button
-                        type="button"
-                        class="action-btn snooze-btn"
-                        (click)="onSnoozeActionCard('post-game-package')"
-                      >
-                        Snooze for now
+                        {{ task.actionLabel }}
                       </button>
                     </div>
                   </div>
                 }
-
-                @if (shouldRenderActionCard('warm-lead-follow-up')) {
-                  <div
-                    class="action-card"
-                    [class.action-card--exiting]="isActionCardExiting('warm-lead-follow-up')"
-                  >
-                    <div class="card-coordinator">
-                      <div class="coordinator-avatar" aria-hidden="true">
-                        <svg viewBox="0 0 612 792" class="coordinator-mark">
-                          <path
-                            d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                          />
-                        </svg>
-                      </div>
-                      <div class="coordinator-copy">
-                        <span class="coordinator-brand">Agent X</span>
-                        <span class="coordinator-role">Recruiting Coordinator</span>
-                      </div>
-                    </div>
-                    <div class="card-content">
-                      <div class="card-title">
-                        Three coaches viewed your profile this week. Want me to draft the follow-up
-                        outreach?
-                      </div>
-                      <p class="card-description">
-                        I can prioritize the warmest leads and prep messages for approval.
-                      </p>
-                    </div>
-                    <div class="card-actions">
-                      <button
-                        type="button"
-                        class="action-btn secondary-btn"
-                        (click)="
-                          onActionCardExecute(
-                            'warm-lead-follow-up',
-                            'warm-lead-follow-up',
-                            'Warm Lead Follow-Up',
-                            'mail',
-                            'Draft follow-up outreach for the three coaches who viewed my profile this week.'
-                          )
-                        "
-                      >
-                        Draft follow-up outreach
-                      </button>
-                      <button
-                        type="button"
-                        class="action-btn snooze-btn"
-                        (click)="onSnoozeActionCard('warm-lead-follow-up')"
-                      >
-                        Snooze for now
-                      </button>
-                    </div>
-                  </div>
-                }
-
-                @if (shouldRenderActionCard('bundle-big-game-plan')) {
-                  <div
-                    class="action-card action-card--featured"
-                    [class.action-card--exiting]="isActionCardExiting('bundle-big-game-plan')"
-                  >
-                    <div class="card-coordinator">
-                      <div class="coordinator-avatar" aria-hidden="true">
-                        <svg viewBox="0 0 612 792" class="coordinator-mark">
-                          <path
-                            d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                          />
-                        </svg>
-                      </div>
-                      <div class="coordinator-copy">
-                        <span class="coordinator-brand">Agent X</span>
-                        <span class="coordinator-role">Game Plan Coordinator</span>
-                      </div>
-                    </div>
-                    <div class="card-content">
-                      <div class="card-title">
-                        Big game detected. Want me to package the best next moves into one approval
-                        flow?
-                      </div>
-                      <p class="card-description">
-                        I can group the most important recruiting, media, and profile updates into
-                        one run.
-                      </p>
-                    </div>
-                    <div class="card-actions">
-                      <button
-                        type="button"
-                        class="action-btn secondary-btn"
-                        (click)="onBundleCardExecute()"
-                      >
-                        Execute game plan
-                      </button>
-                      <button
-                        type="button"
-                        class="action-btn snooze-btn"
-                        (click)="onSnoozeActionCard('bundle-big-game-plan')"
-                      >
-                        Snooze for now
-                      </button>
-                    </div>
-                  </div>
-                }
-
-                @if (shouldRenderActionCard('momentum-outreach')) {
-                  <div
-                    class="action-card"
-                    [class.action-card--exiting]="isActionCardExiting('momentum-outreach')"
-                  >
-                    <div class="card-coordinator">
-                      <div class="coordinator-avatar" aria-hidden="true">
-                        <svg viewBox="0 0 612 792" class="coordinator-mark">
-                          <path
-                            d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                          />
-                        </svg>
-                      </div>
-                      <div class="coordinator-copy">
-                        <span class="coordinator-brand">Agent X</span>
-                        <span class="coordinator-role">Growth Coordinator</span>
-                      </div>
-                    </div>
-                    <div class="card-content">
-                      <div class="card-title">
-                        Your exposure is up 32% this week. Want me to turn that momentum into
-                        targeted outreach?
-                      </div>
-                      <p class="card-description">
-                        I can choose the strongest angle and prepare the next set of messages.
-                      </p>
-                    </div>
-                    <div class="card-actions">
-                      <button
-                        type="button"
-                        class="action-btn secondary-btn"
-                        (click)="
-                          onActionCardExecute(
-                            'momentum-outreach',
-                            'momentum-outreach',
-                            'Momentum Outreach',
-                            'trendingUp',
-                            'Use my 32 percent exposure increase to build the next best outreach wave.'
-                          )
-                        "
-                      >
-                        Turn momentum into outreach
-                      </button>
-                      <button
-                        type="button"
-                        class="action-btn snooze-btn"
-                        (click)="onSnoozeActionCard('momentum-outreach')"
-                      >
-                        Snooze for now
-                      </button>
-                    </div>
-                  </div>
-                }
-
-                @if (shouldRenderActionCard('coach-shortlist')) {
-                  <div
-                    class="action-card"
-                    [class.action-card--exiting]="isActionCardExiting('coach-shortlist')"
-                  >
-                    <div class="card-coordinator">
-                      <div class="coordinator-avatar" aria-hidden="true">
-                        <svg viewBox="0 0 612 792" class="coordinator-mark">
-                          <path
-                            d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                          />
-                        </svg>
-                      </div>
-                      <div class="coordinator-copy">
-                        <span class="coordinator-brand">Agent X</span>
-                        <span class="coordinator-role">Prospecting Coordinator</span>
-                      </div>
-                    </div>
-                    <div class="card-content">
-                      <div class="card-title">
-                        I found 18 matching coaches. Want me to shortlist the five best fits and
-                        prep intros?
-                      </div>
-                      <p class="card-description">
-                        I can rank them by fit, urgency, and likelihood to respond.
-                      </p>
-                    </div>
-                    <div class="card-actions">
-                      <button
-                        type="button"
-                        class="action-btn secondary-btn"
-                        (click)="
-                          onActionCardExecute(
-                            'coach-shortlist',
-                            'coach-shortlist',
-                            'Coach Shortlist',
-                            'search',
-                            'Shortlist the five best coach matches and prepare intro outreach for me.'
-                          )
-                        "
-                      >
-                        Shortlist best-fit coaches
-                      </button>
-                      <button
-                        type="button"
-                        class="action-btn snooze-btn"
-                        (click)="onSnoozeActionCard('coach-shortlist')"
-                      >
-                        Snooze for now
-                      </button>
-                    </div>
-                  </div>
-                }
-              } @else {
+              } @else if (allTasksComplete()) {
                 <div
                   class="action-empty-state action-empty-state--visible"
                   role="status"
@@ -540,12 +317,26 @@ export interface AgentXUser {
                   </div>
                   <h4 class="action-empty-title">Today's Action Plan Complete</h4>
                   <p class="action-empty-copy">
-                    You are all caught up. Agent X is still monitoring for new opportunities you can
-                    execute right now.
+                    You crushed it. Agent X is still monitoring for new opportunities.
                   </p>
-                  <button type="button" class="action-empty-btn" (click)="onReloadActionPlan()">
-                    Load More Actions
+                  <button type="button" class="action-empty-btn" (click)="onRegeneratePlaybook()">
+                    Give Me More
                   </button>
+                </div>
+              } @else {
+                <div
+                  class="action-empty-state action-empty-state--visible"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div class="action-empty-icon" aria-hidden="true">
+                    <nxt1-icon name="sparkles" [size]="30"></nxt1-icon>
+                  </div>
+                  <h4 class="action-empty-title">No Actions Yet</h4>
+                  <p class="action-empty-copy">
+                    Agent X will generate your personalized action plan based on your goals and
+                    profile data.
+                  </p>
                 </div>
               }
             </section>
@@ -1182,6 +973,44 @@ export interface AgentXUser {
         max-width: 38ch;
       }
 
+      /* Generating Skeleton State */
+      .action-plan-generating {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-3, 12px);
+        padding: var(--nxt1-spacing-4, 16px);
+        background: var(--agent-surface);
+        border-radius: var(--nxt1-radius-lg, 12px);
+        border: 1px solid var(--agent-border);
+      }
+
+      .generating-pulse {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--agent-primary);
+        animation: generating-dot-pulse 1.4s ease-in-out infinite;
+      }
+
+      .generating-text {
+        margin: 0;
+        font-size: var(--nxt1-font-size-sm, 14px);
+        color: var(--agent-text-secondary);
+        font-style: italic;
+      }
+
+      @keyframes generating-dot-pulse {
+        0%,
+        100% {
+          opacity: 0.3;
+          transform: scale(0.8);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.2);
+        }
+      }
+
       .action-empty-btn {
         display: inline-flex;
         align-items: center;
@@ -1385,14 +1214,6 @@ export class AgentXShellWebComponent {
   private readonly toast = inject(NxtToastService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly haptics = inject(HapticsService);
-  private static readonly ACTION_CARD_EXIT_MS = 220;
-  private readonly actionCardIds = [
-    'post-game-package',
-    'warm-lead-follow-up',
-    'bundle-big-game-plan',
-    'momentum-outreach',
-    'coach-shortlist',
-  ] as const;
 
   // ============================================
   // INPUTS
@@ -1414,27 +1235,24 @@ export class AgentXShellWebComponent {
   /** Whether the operations log overlay panel is open. */
   protected readonly isOperationsLogOpen = signal(false);
 
-  /** Active playbook tab. */
-  protected readonly playbookTab = signal<'get-started' | 'create-goals'>('get-started');
+  /** Guard: prevents the required-goals panel from re-opening once shown. */
+  private goalsSheetShown = false;
 
-  private readonly completedActionCardIds = signal<Set<string>>(new Set());
-  private readonly snoozedActionCardIds = signal<Set<string>>(new Set());
-  private readonly exitingActionCardIds = signal<Set<string>>(new Set());
-  protected readonly actionPlanClearedCount = computed(
-    () => this.completedActionCardIds().size + this.snoozedActionCardIds().size
-  );
+  /** Playbook-derived progress: count of completed items. */
   protected readonly actionPlanCompletionLabel = computed(() => {
-    const cleared = this.actionPlanClearedCount();
-    const total = Number(this.actionCardIds.length);
-    return `${cleared} of ${total} cleared today`;
+    const completed = this.playbookCompletedCount();
+    const total = this.playbookTotalCount();
+    return `${completed} of ${total} cleared today`;
   });
   protected readonly actionPlanProgressPercent = computed(() => {
-    const total = Number(this.actionCardIds.length);
+    const total = this.playbookTotalCount();
     if (total === 0) return 0;
-    return Math.round((this.actionPlanClearedCount() / total) * 100);
+    return Math.round((this.playbookCompletedCount() / total) * 100);
   });
-  protected readonly hasPendingActionCards = computed(
-    () => this.actionPlanClearedCount() < this.actionCardIds.length
+
+  /** Pending (non-complete) playbook items to render as action cards. */
+  protected readonly pendingPlaybookItems = computed(() =>
+    this.weeklyPlaybook().filter((t) => t.status !== 'complete')
   );
 
   // ============================================
@@ -1489,6 +1307,13 @@ export class AgentXShellWebComponent {
   /** Total number of playbook tasks. */
   protected readonly playbookTotalCount = computed(() => this.weeklyPlaybook().length);
 
+  /** Whether all playbook tasks are complete (show "Give Me More" state). */
+  protected readonly allTasksComplete = computed(
+    () =>
+      this.weeklyPlaybook().length > 0 &&
+      this.weeklyPlaybook().every((t) => t.status === 'complete')
+  );
+
   // ============================================
   // COORDINATORS — Role-Aware Virtual Staff
   // ============================================
@@ -1500,6 +1325,16 @@ export class AgentXShellWebComponent {
     afterNextRender(() => {
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
+    });
+
+    // Auto-open goal selection when dashboard loads with zero goals
+    effect(() => {
+      const loaded = this.agentX.dashboardLoaded();
+      const hasGoals = this.agentX.hasGoals();
+      if (!loaded || hasGoals || this.goalsSheetShown) return;
+
+      this.goalsSheetShown = true;
+      void this.openBriefingPanel('goals', true);
     });
 
     // React to pending thread requests (push notifications, deep links, activity taps)
@@ -1552,7 +1387,10 @@ export class AgentXShellWebComponent {
     await this.openBriefingPanel('goals');
   }
 
-  protected async openBriefingPanel(panel: AgentXBriefingPanelKind): Promise<void> {
+  protected async openBriefingPanel(
+    panel: AgentXBriefingPanelKind,
+    required = false
+  ): Promise<void> {
     this.briefingBadges.notePanelOpened(panel, 'modal');
 
     const ref = this.overlay.open<
@@ -1563,9 +1401,11 @@ export class AgentXShellWebComponent {
       inputs: {
         panel,
         presentation: 'modal',
+        required,
       },
       size: 'full',
-      backdropDismiss: true,
+      backdropDismiss: !required,
+      escDismiss: !required,
       ariaLabel:
         panel === 'status'
           ? 'Agent status information'
@@ -1575,122 +1415,24 @@ export class AgentXShellWebComponent {
       panelClass: 'agent-x-briefing-badge-modal',
     });
 
-    await ref.closed;
-  }
+    const result = await ref.closed;
 
-  protected async onBundleCardAction(): Promise<void> {
-    await this.haptics.impact('medium');
-    const quickActions: OperationQuickAction[] = [
-      { id: 'bundle-post-highlight', label: 'Post highlight', icon: 'playCircle' },
-      { id: 'bundle-send-emails', label: 'Send emails', icon: 'mail' },
-      { id: 'bundle-update-profile', label: 'Update profile', icon: 'person' },
-    ];
+    // After saving goals, sync to backend and trigger generation
+    if (panel === 'goals' && result?.data?.saved) {
+      const goalIds = this.briefingBadges.goals();
+      const dashboardGoals: AgentDashboardGoal[] = goalIds.map((id) => {
+        const option = AGENT_X_GOAL_OPTIONS.find((o) => o.id === id);
+        return {
+          id,
+          text: option?.label ?? id,
+          category: 'custom',
+          createdAt: new Date().toISOString(),
+        };
+      });
 
-    await this.openOperationChat(
-      'bundle-big-game-plan',
-      'Big Game Plan',
-      'cube',
-      quickActions,
-      'Choose what Agent X should execute for this big-game moment.',
-      'Bundle my best post-game actions into one approval flow.'
-    );
-  }
-
-  protected async onBundleCardExecute(): Promise<void> {
-    void this.resolveActionCard('bundle-big-game-plan', 'completed');
-    await this.onBundleCardAction();
-  }
-
-  protected async onActionCardExecute(
-    cardId: string,
-    contextId: string,
-    contextTitle: string,
-    contextIcon: string,
-    initialMessage: string
-  ): Promise<void> {
-    void this.resolveActionCard(cardId, 'completed');
-    await this.onActionCardTap(contextId, contextTitle, contextIcon, initialMessage);
-  }
-
-  protected shouldRenderActionCard(cardId: string): boolean {
-    return !this.completedActionCardIds().has(cardId) && !this.snoozedActionCardIds().has(cardId);
-  }
-
-  protected isActionCardExiting(cardId: string): boolean {
-    return this.exitingActionCardIds().has(cardId);
-  }
-
-  protected async onSnoozeActionCard(cardId: string): Promise<void> {
-    await this.haptics.impact('light');
-    await this.resolveActionCard(cardId, 'snoozed');
-    this.toast.success('Task snoozed for now.');
-  }
-
-  protected onReloadActionPlan(): void {
-    this.completedActionCardIds.set(new Set());
-    this.snoozedActionCardIds.set(new Set());
-    this.exitingActionCardIds.set(new Set());
-    this.toast.success('Loaded more tasks for today.');
-  }
-
-  private markActionCardDone(cardId: string): void {
-    this.completedActionCardIds.update((current) => {
-      if (current.has(cardId)) return current;
-      const next = new Set(current);
-      next.add(cardId);
-      return next;
-    });
-  }
-
-  private markActionCardSnoozed(cardId: string): void {
-    this.snoozedActionCardIds.update((current) => {
-      if (current.has(cardId)) return current;
-      const next = new Set(current);
-      next.add(cardId);
-      return next;
-    });
-  }
-
-  private async resolveActionCard(
-    cardId: string,
-    resolution: 'completed' | 'snoozed'
-  ): Promise<void> {
-    if (!this.shouldRenderActionCard(cardId) || this.exitingActionCardIds().has(cardId)) {
-      return;
+      await this.agentX.setGoals(dashboardGoals);
+      this.agentX.generateBriefing(true).catch(() => {});
     }
-
-    this.exitingActionCardIds.update((current) => {
-      const next = new Set(current);
-      next.add(cardId);
-      return next;
-    });
-
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, AgentXShellWebComponent.ACTION_CARD_EXIT_MS);
-    });
-
-    this.exitingActionCardIds.update((current) => {
-      const next = new Set(current);
-      next.delete(cardId);
-      return next;
-    });
-
-    if (resolution === 'completed') {
-      this.markActionCardDone(cardId);
-      return;
-    }
-
-    this.markActionCardSnoozed(cardId);
-  }
-
-  protected async onActionCardTap(
-    contextId: string,
-    contextTitle: string,
-    contextIcon: string,
-    initialMessage: string
-  ): Promise<void> {
-    await this.haptics.impact('light');
-    await this.openOperationChat(contextId, contextTitle, contextIcon, [], '', initialMessage);
   }
 
   /**
@@ -1726,33 +1468,6 @@ export class AgentXShellWebComponent {
         contextType: 'operation',
         // threadId drives loadThreadMessages() — shows the real worker logs.
         threadId: op.threadId ?? '',
-      },
-      ...SHEET_PRESETS.FULL,
-      showHandle: true,
-      handleBehavior: 'cycle',
-      backdropDismiss: true,
-      cssClass: 'agent-x-operation-sheet',
-    });
-  }
-
-  private async openOperationChat(
-    contextId: string,
-    contextTitle: string,
-    contextIcon: string,
-    quickActions: OperationQuickAction[] = [],
-    contextDescription = '',
-    initialMessage = ''
-  ): Promise<void> {
-    await this.bottomSheet.openSheet({
-      component: AgentXOperationChatComponent,
-      componentProps: {
-        contextId,
-        contextTitle,
-        contextIcon,
-        contextType: 'command',
-        quickActions,
-        contextDescription,
-        initialMessage,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

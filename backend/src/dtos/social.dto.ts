@@ -47,7 +47,7 @@ export class MarkActivityReadDto {
 export class MarkAllActivityReadDto {
   @IsString()
   @IsNotEmpty()
-  @IsEnum(['all', 'inbox', 'agent', 'alerts'])
+  @IsEnum(['alerts', 'analytics'])
   tab!: string;
 }
 

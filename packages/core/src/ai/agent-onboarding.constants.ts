@@ -62,7 +62,7 @@ export const AGENT_ONBOARDING_STEPS: readonly AgentOnboardingStep[] = [
 /**
  * Maximum number of goals a user can select.
  */
-export const AGENT_MAX_GOALS = 2;
+export const AGENT_MAX_GOALS = 3;
 
 /**
  * Minimum number of goals required to proceed.
