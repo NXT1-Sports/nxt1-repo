@@ -92,9 +92,6 @@ function buildBadges(items: ReturnType<typeof docToItem>[]): Record<ActivityTabI
   return {
     alerts: items.filter((item) => item.tab === 'alerts').length,
     analytics: items.filter((item) => item.tab === 'analytics').length,
-    inbox: items.filter((item) => item.tab === 'inbox').length,
-    agent: items.filter((item) => item.tab === 'agent').length,
-    all: items.length,
   };
 }
 
