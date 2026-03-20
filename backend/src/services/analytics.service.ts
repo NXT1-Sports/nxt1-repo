@@ -136,17 +136,14 @@ async function fetchUserProfile(
 
 async function fetchUserVideos(
   db: Firestore,
-  uid: string,
-  since?: Date
+  uid: string
 ): Promise<Array<Record<string, unknown>>> {
   try {
-    let query = db.collection(VIDEOS_COLLECTION).where('creatorId', '==', uid);
-
-    if (since) {
-      query = query.where('createdAt', '>=', Timestamp.fromDate(since));
-    }
-
-    const snapshot = await query.limit(100).get();
+    const snapshot = await db
+      .collection(VIDEOS_COLLECTION)
+      .where('creatorId', '==', uid)
+      .limit(100)
+      .get();
     return snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<Record<string, unknown>>;
   } catch (err) {
     logger.warn('Failed to fetch user videos for analytics', { uid, error: err });
@@ -273,14 +270,17 @@ function buildAthleteOverviewCards(
 function computeProfileScore(profile: Record<string, unknown>): number {
   let score = 0;
   if (profile['displayName']) score += 10;
-  if (profile['profileImgs'] && Array.isArray(profile['profileImgs']) && (profile['profileImgs'] as unknown[]).length > 0) score += 15;
+  const imgs = profile['profileImgs'];
+  if (Array.isArray(imgs) && imgs.length > 0) score += 15;
   if (profile['aboutMe']) score += 10;
-  if (profile['sports'] && Array.isArray(profile['sports']) && (profile['sports'] as unknown[]).length > 0) score += 20;
+  const sports = profile['sports'];
+  if (Array.isArray(sports) && sports.length > 0) score += 20;
   if (profile['height']) score += 5;
   if (profile['weight']) score += 5;
   if (profile['classOf']) score += 10;
   if (profile['location']) score += 5;
-  if (profile['social'] && Array.isArray(profile['social']) && (profile['social'] as unknown[]).length > 0) score += 10;
+  const social = profile['social'];
+  if (Array.isArray(social) && social.length > 0) score += 10;
   if (profile['contact']) score += 10;
   return Math.min(score, 100);
 }
@@ -575,13 +575,21 @@ export async function buildAthleteReport(
   const dateRange = getPeriodDateRange(period);
   const since = new Date(dateRange.start);
 
-  const [profile, allVideos, videosInPeriod, posts, activityItems] = await Promise.all([
+  // Fetch all-time videos, posts in period, and supporting data in parallel.
+  // Videos are fetched once (all-time) and filtered in memory for the period view
+  // to avoid a second Firestore round-trip.
+  const [profile, allVideos, posts, activityItems] = await Promise.all([
     fetchUserProfile(db, uid),
     fetchUserVideos(db, uid),
-    fetchUserVideos(db, uid, since),
     fetchUserPosts(db, uid, since),
     fetchActivityItems(db, uid),
   ]);
+
+  // Filter videos to the selected period in memory (no extra query)
+  const videosInPeriod = allVideos.filter((v) => {
+    const d = toDate(v['createdAt']);
+    return d && d >= since;
+  });
 
   const safeProfile = profile ?? {};
   const followers = Number(safeProfile['followersCount']) || 0;
@@ -725,7 +733,12 @@ async function fetchRosterAthleteStats(
 
       for (const doc of profileSnap.docs) {
         const p = doc.data();
-        const videos = await fetchUserVideos(db, doc.id, since);
+        const allAthleteVideos = await fetchUserVideos(db, doc.id);
+        // Filter to selected period in memory
+        const videos = allAthleteVideos.filter((v) => {
+          const d = toDate(v['createdAt']);
+          return d && d >= since;
+        });
         const profileViews = 0; // Would need profile view tracking
         const videoViews = videos.reduce((acc, v) => acc + (Number(v['views']) || 0), 0);
         const totalEngagement = profileViews + videoViews;

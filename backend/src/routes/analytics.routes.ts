@@ -90,7 +90,7 @@ router.get('/report', appGuard, async (req: Request, res: Response) => {
     });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to fetch analytics report', { error: error.message });
+    logger.error('Failed to fetch analytics report', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to fetch analytics report' });
   }
 });
@@ -128,7 +128,7 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
     res.json({ success: true, data: result });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to fetch analytics overview', { error: error.message });
+    logger.error('Failed to fetch analytics overview', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to fetch analytics overview' });
   }
 });
@@ -171,7 +171,7 @@ router.get('/engagement', appGuard, async (req: Request, res: Response) => {
     res.json({ success: true, data: result });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to fetch engagement analytics', { error: error.message });
+    logger.error('Failed to fetch engagement analytics', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to fetch engagement analytics' });
   }
 });
@@ -214,7 +214,7 @@ router.get('/content', appGuard, async (req: Request, res: Response) => {
     res.json({ success: true, data: result });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to fetch content analytics', { error: error.message });
+    logger.error('Failed to fetch content analytics', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to fetch content analytics' });
   }
 });
@@ -260,7 +260,7 @@ router.get('/recruiting', appGuard, async (req: Request, res: Response) => {
     res.json({ success: true, data: result });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to fetch recruiting analytics', { error: error.message });
+    logger.error('Failed to fetch recruiting analytics', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to fetch recruiting analytics' });
   }
 });
@@ -318,7 +318,7 @@ router.get('/roster', appGuard, async (req: Request, res: Response) => {
     res.json({ success: true, data: result });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to fetch roster analytics', { error: error.message });
+    logger.error('Failed to fetch roster analytics', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to fetch roster analytics' });
   }
 });
@@ -361,7 +361,7 @@ router.get('/insights', appGuard, async (req: Request, res: Response) => {
     res.json({ success: true, data: result });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to fetch insights', { error: error.message });
+    logger.error('Failed to fetch insights', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to fetch insights' });
   }
 });
@@ -411,7 +411,7 @@ router.post('/profile-view', optionalAuth, async (req: Request, res: Response) =
     res.json({ success: true, tracked: true });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to track profile view', { error: error.message });
+    logger.error('Failed to track profile view', { error: error.message, stack: error.stack });
     // Non-critical — always return success
     res.json({ success: true, tracked: false });
   }
@@ -444,6 +444,7 @@ router.get('/:userId', appGuard, async (req: Request, res: Response) => {
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('Failed to fetch user analytics', {
       error: error.message,
+      stack: error.stack,
       userId: req.params['userId'],
     });
     res.status(500).json({ success: false, error: 'Failed to fetch user analytics' });
