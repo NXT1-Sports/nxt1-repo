@@ -63,6 +63,7 @@ import { AnalyticsDashboardSkeletonComponent } from './analytics-dashboard-skele
  * User info for header display.
  */
 export interface AnalyticsUser {
+  readonly uid?: string | null;
   readonly profileImg?: string | null;
   readonly displayName?: string | null;
 }
@@ -894,8 +895,8 @@ export class AnalyticsDashboardShellComponent implements OnInit {
   // ============================================
 
   ngOnInit(): void {
-    // Initialize analytics with role
-    this.analytics.initialize(this.role());
+    const userId = this.user()?.uid ?? undefined;
+    this.analytics.initialize(this.role(), userId);
   }
 
   // ============================================

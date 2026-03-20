@@ -100,6 +100,7 @@ export class AnalyticsDashboardComponent {
     if (!user) return null;
 
     return {
+      uid: user.uid,
       profileImg: user.profileImg ?? null,
       displayName: user.displayName,
     };
