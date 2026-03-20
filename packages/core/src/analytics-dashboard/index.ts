@@ -114,4 +114,12 @@ export {
 // API
 // ============================================
 
-export { createAnalyticsDashboardApi, type AnalyticsDashboardApi } from './analytics-dashboard.api';
+export {
+  createAnalyticsDashboardApi,
+  type AnalyticsDashboardApi,
+  type OverviewResponse,
+  type EngagementResponse,
+  type ContentResponse,
+  type RosterResponse,
+  type InsightsResponse,
+} from './analytics-dashboard.api';
