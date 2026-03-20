@@ -80,7 +80,7 @@ router.get('/report', appGuard, async (req: Request, res: Response) => {
         ? await buildCoachReport(db, uid, period)
         : await buildAthleteReport(db, uid, period);
 
-    await cache.set(cacheKey, JSON.stringify(report), CACHE_TTL.PROFILES);
+    await cache.set(cacheKey, JSON.stringify(report), { ttl: CACHE_TTL.PROFILES });
 
     res.setHeader('X-Cache', 'MISS');
     res.json({
@@ -123,12 +123,15 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
 
     const result = await buildOverviewMetrics(db, uid, role, period);
 
-    await cache.set(cacheKey, JSON.stringify(result), CACHE_TTL.STATS);
+    await cache.set(cacheKey, JSON.stringify(result), { ttl: CACHE_TTL.STATS });
     res.setHeader('X-Cache', 'MISS');
     res.json({ success: true, data: result });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to fetch analytics overview', { error: error.message, stack: error.stack });
+    logger.error('Failed to fetch analytics overview', {
+      error: error.message,
+      stack: error.stack,
+    });
     res.status(500).json({ success: false, error: 'Failed to fetch analytics overview' });
   }
 });
@@ -166,12 +169,15 @@ router.get('/engagement', appGuard, async (req: Request, res: Response) => {
       viewerTypes: report.engagement.viewerTypes,
     };
 
-    await cache.set(cacheKey, JSON.stringify(result), CACHE_TTL.PROFILES);
+    await cache.set(cacheKey, JSON.stringify(result), { ttl: CACHE_TTL.PROFILES });
     res.setHeader('X-Cache', 'MISS');
     res.json({ success: true, data: result });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to fetch engagement analytics', { error: error.message, stack: error.stack });
+    logger.error('Failed to fetch engagement analytics', {
+      error: error.message,
+      stack: error.stack,
+    });
     res.status(500).json({ success: false, error: 'Failed to fetch engagement analytics' });
   }
 });
@@ -209,7 +215,7 @@ router.get('/content', appGuard, async (req: Request, res: Response) => {
       totalWatchTime: report.content.videos.reduce((acc, v) => acc + v.totalWatchTime, 0),
     };
 
-    await cache.set(cacheKey, JSON.stringify(result), CACHE_TTL.PROFILES);
+    await cache.set(cacheKey, JSON.stringify(result), { ttl: CACHE_TTL.PROFILES });
     res.setHeader('X-Cache', 'MISS');
     res.json({ success: true, data: result });
   } catch (err) {
@@ -255,12 +261,15 @@ router.get('/recruiting', appGuard, async (req: Request, res: Response) => {
       },
     };
 
-    await cache.set(cacheKey, JSON.stringify(result), CACHE_TTL.PROFILES);
+    await cache.set(cacheKey, JSON.stringify(result), { ttl: CACHE_TTL.PROFILES });
     res.setHeader('X-Cache', 'MISS');
     res.json({ success: true, data: result });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to fetch recruiting analytics', { error: error.message, stack: error.stack });
+    logger.error('Failed to fetch recruiting analytics', {
+      error: error.message,
+      stack: error.stack,
+    });
     res.status(500).json({ success: false, error: 'Failed to fetch recruiting analytics' });
   }
 });
@@ -294,7 +303,7 @@ router.get('/roster', appGuard, async (req: Request, res: Response) => {
 
     const report = await buildCoachReport(db, uid, period);
 
-    let sortedAthletes = [...report.roster];
+    const sortedAthletes = [...report.roster];
     if (sortBy === 'engagement') {
       sortedAthletes.sort((a, b) => b.totalEngagement - a.totalEngagement);
     } else if (sortBy === 'views') {
@@ -313,7 +322,7 @@ router.get('/roster', appGuard, async (req: Request, res: Response) => {
       activeAthletes: report.overview.activeAthletes,
     };
 
-    await cache.set(cacheKey, JSON.stringify(result), CACHE_TTL.PROFILES);
+    await cache.set(cacheKey, JSON.stringify(result), { ttl: CACHE_TTL.PROFILES });
     res.setHeader('X-Cache', 'MISS');
     res.json({ success: true, data: result });
   } catch (err) {
@@ -356,7 +365,7 @@ router.get('/insights', appGuard, async (req: Request, res: Response) => {
 
     const result = { insights: report.insights, recommendations: report.recommendations };
 
-    await cache.set(cacheKey, JSON.stringify(result), CACHE_TTL.RANKINGS);
+    await cache.set(cacheKey, JSON.stringify(result), { ttl: CACHE_TTL.RANKINGS });
     res.setHeader('X-Cache', 'MISS');
     res.json({ success: true, data: result });
   } catch (err) {

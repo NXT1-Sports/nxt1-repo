@@ -368,13 +368,12 @@ function buildGeoDistribution(): readonly GeoDistribution[] {
 // CONTENT DATA BUILDERS
 // ============================================
 
-function buildVideoAnalytics(
-  videos: Array<Record<string, unknown>>
-): readonly VideoAnalytics[] {
+function buildVideoAnalytics(videos: Array<Record<string, unknown>>): readonly VideoAnalytics[] {
   return videos.slice(0, 20).map((v) => ({
     id: String(v['id'] ?? ''),
     title: String(v['title'] ?? 'Untitled Video'),
-    thumbnailUrl: (v['thumbnail'] as string | undefined) ?? (v['thumbnailUrl'] as string | undefined),
+    thumbnailUrl:
+      (v['thumbnail'] as string | undefined) ?? (v['thumbnailUrl'] as string | undefined),
     views: Number(v['views']) || 0,
     avgWatchDuration: Number(v['avgWatchDuration']) || 0,
     completionRate: Number(v['completionRate']) || 0,
@@ -384,15 +383,13 @@ function buildVideoAnalytics(
   }));
 }
 
-function buildPostAnalytics(
-  posts: Array<Record<string, unknown>>
-): readonly PostAnalytics[] {
+function buildPostAnalytics(posts: Array<Record<string, unknown>>): readonly PostAnalytics[] {
   return posts.slice(0, 20).map((p) => {
     const stats = (p['stats'] as Record<string, number> | undefined) ?? {};
-    const impressions = stats['views'] ?? Number(p['views']) ?? 0;
-    const likes = stats['likes'] ?? Number(p['likes']) ?? 0;
-    const comments = stats['comments'] ?? Number(p['comments']) ?? 0;
-    const shares = stats['shares'] ?? Number(p['shares']) ?? 0;
+    const impressions = stats['views'] ?? (Number(p['views']) || 0);
+    const likes = stats['likes'] ?? (Number(p['likes']) || 0);
+    const comments = stats['comments'] ?? (Number(p['comments']) || 0);
+    const shares = stats['shares'] ?? (Number(p['shares']) || 0);
     const engagementRate =
       impressions > 0 ? Math.round(((likes + comments + shares) / impressions) * 1000) / 10 : 0;
 
@@ -470,7 +467,7 @@ function buildRecruitingMilestones(
 // ============================================
 
 function buildAthleteInsights(
-  profile: Record<string, unknown>,
+  _profile: Record<string, unknown>,
   videos: Array<Record<string, unknown>>,
   followers: number,
   profileScore: number
@@ -512,7 +509,8 @@ function buildAthleteInsights(
     insights.push({
       id: 'build-network',
       title: 'Build Your Network',
-      description: 'Connect with teammates, coaches, and other athletes to grow your recruiting reach.',
+      description:
+        'Connect with teammates, coaches, and other athletes to grow your recruiting reach.',
       category: 'engagement',
       priority: 'medium',
       icon: 'people-outline',
@@ -685,7 +683,7 @@ export async function buildCoachReport(
     patterns: {
       viewsByTime: buildEngagementByTime(),
       viewsByDay: buildEngagementByTime(),
-      viewsOverTime: buildCoachViewsChart(dateRange),
+      viewsOverTime: buildCoachViewsChart(),
     },
     insights: buildCoachInsights(overview, athleteStats),
     recommendations: buildCoachRecommendations(athleteStats),
@@ -780,8 +778,7 @@ function buildTopPerformer(athletes: readonly AthleteRosterAnalytics[]): TopPerf
   const top = sorted[0];
   if (!top) return null;
 
-  const avg =
-    athletes.reduce((acc, a) => acc + a.totalEngagement, 0) / athletes.length;
+  const avg = athletes.reduce((acc, a) => acc + a.totalEngagement, 0) / athletes.length;
   const vsAvg = avg > 0 ? Math.round((top.totalEngagement / avg) * 10) / 10 : 1;
 
   const highlights: string[] = [];
@@ -845,7 +842,7 @@ function buildCoachOverviewCards(
   };
 }
 
-function buildCoachViewsChart(dateRange: AnalyticsDateRange): ChartConfig {
+function buildCoachViewsChart(): ChartConfig {
   return {
     type: 'area',
     title: 'Team Views Over Time',
@@ -937,7 +934,6 @@ export async function buildOverviewMetrics(
     };
   }
 
-  const dateRange = getPeriodDateRange(period);
   const [profile, videos, activityItems] = await Promise.all([
     fetchUserProfile(db, uid),
     fetchUserVideos(db, uid),
@@ -966,11 +962,7 @@ export async function recordProfileView(
   viewerRole?: string
 ): Promise<void> {
   try {
-    const analyticsRef = db
-      .collection('users')
-      .doc(viewedUserId)
-      .collection('profileViews')
-      .doc();
+    const analyticsRef = db.collection('users').doc(viewedUserId).collection('profileViews').doc();
 
     await analyticsRef.set({
       viewedAt: Timestamp.now(),

@@ -119,6 +119,8 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
                 <path [attr.d]="agentXLogoPath" />
                 <polygon [attr.points]="agentXLogoPolygon" />
               </svg>
+            } @else if (isAnalyticsTab()) {
+              <nxt1-icon name="analytics-outline" [size]="36" />
             } @else {
               <ion-icon [name]="emptyState().icon"></ion-icon>
             }
@@ -249,6 +251,10 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
 
       .activity-list__empty-icon ion-icon {
         font-size: 36px;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
+      }
+
+      .activity-list__empty-icon nxt1-icon {
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
       }
 
@@ -569,6 +575,9 @@ export class ActivityListComponent {
 
   /** Whether the active tab is the Agent X tab */
   protected readonly isAgentTab = computed(() => false);
+
+  /** Whether the active tab is the Analytics tab */
+  protected readonly isAnalyticsTab = computed(() => this.activeTab() === 'analytics');
 
   /** Whether the active tab is the Inbox tab */
   protected readonly isInboxTab = computed(() => false);
