@@ -47,6 +47,12 @@ export { WeeklyPulseSectionComponent } from './web';
 
 export { AnalyticsDashboardService } from './analytics-dashboard.service';
 
+export {
+  AnalyticsDashboardApiService,
+  ANALYTICS_DASHBOARD_API_ADAPTER,
+  ANALYTICS_API_BASE_URL,
+} from './analytics-dashboard-api.service';
+
 // ============================================
 // MOCK DATA (Development Only)
 // ============================================

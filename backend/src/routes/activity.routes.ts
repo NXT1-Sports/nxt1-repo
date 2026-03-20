@@ -29,7 +29,7 @@ const router: ExpressRouter = Router();
 const ACTIVITY_COLLECTION = 'activity';
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
-const VALID_TABS: readonly ActivityTabId[] = ['all', 'inbox', 'agent', 'alerts'];
+const VALID_TABS: readonly ActivityTabId[] = ['alerts', 'analytics'];
 const VALID_SORT_FIELDS = ['timestamp', 'priority'] as const;
 const VALID_SORT_ORDERS = ['asc', 'desc'] as const;
 
@@ -106,7 +106,7 @@ router.get('/feed', appGuard, async (req: Request, res: Response) => {
     // Filter in memory (avoids composite index requirements)
     let filtered = snapshot.docs.map(docToItem).filter((item) => !item.isArchived);
 
-    if (tab !== 'all' && VALID_TABS.includes(tab)) {
+    if (VALID_TABS.includes(tab)) {
       filtered = filtered.filter((item) => item.tab === tab);
     }
 
@@ -137,10 +137,8 @@ router.get('/feed', appGuard, async (req: Request, res: Response) => {
     // Badge counts from already-fetched data (no extra queries)
     const allActive = snapshot.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
     const badges: Record<ActivityTabId, number> = {
-      all: allActive.length,
-      inbox: allActive.filter((i) => i.tab === 'inbox').length,
-      agent: allActive.filter((i) => i.tab === 'agent').length,
       alerts: allActive.filter((i) => i.tab === 'alerts').length,
+      analytics: allActive.filter((i) => i.tab === 'analytics').length,
     };
 
     res.json({
@@ -176,10 +174,8 @@ router.get('/badges', appGuard, async (req: Request, res: Response) => {
     const allActive = snapshot.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
 
     const badges: Record<ActivityTabId, number> = {
-      all: allActive.length,
-      inbox: allActive.filter((i) => i.tab === 'inbox').length,
-      agent: allActive.filter((i) => i.tab === 'agent').length,
       alerts: allActive.filter((i) => i.tab === 'alerts').length,
+      analytics: allActive.filter((i) => i.tab === 'analytics').length,
     };
 
     res.json({ success: true, badges });
@@ -206,10 +202,8 @@ router.get('/summary', appGuard, async (req: Request, res: Response) => {
     const unread = active.filter((i) => !i.isRead);
 
     const badges: Record<ActivityTabId, number> = {
-      all: unread.length,
-      inbox: unread.filter((i) => i.tab === 'inbox').length,
-      agent: unread.filter((i) => i.tab === 'agent').length,
       alerts: unread.filter((i) => i.tab === 'alerts').length,
+      analytics: unread.filter((i) => i.tab === 'analytics').length,
     };
 
     // Most recent timestamp
@@ -311,10 +305,8 @@ router.post(
       const allDocs = await col.get();
       const unread = allDocs.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
       const badges: Record<ActivityTabId, number> = {
-        all: unread.length,
-        inbox: unread.filter((i) => i.tab === 'inbox').length,
-        agent: unread.filter((i) => i.tab === 'agent').length,
         alerts: unread.filter((i) => i.tab === 'alerts').length,
+        analytics: unread.filter((i) => i.tab === 'analytics').length,
       };
 
       res.json({ success: true, count: ids.length, badges });
@@ -344,7 +336,7 @@ router.post(
       if (!tab || !VALID_TABS.includes(tab)) {
         res
           .status(400)
-          .json({ success: false, error: 'tab must be one of: all, inbox, agent, alerts' });
+          .json({ success: false, error: 'tab must be one of: alerts, analytics' });
         return;
       }
 
@@ -353,17 +345,15 @@ router.post(
       const toMark = snapshot.docs.filter((doc) => {
         const data = doc.data();
         if (data['isRead'] || data['isArchived']) return false;
-        if (tab !== 'all' && data['tab'] !== tab) return false;
+        if (data['tab'] !== tab) return false;
         return true;
       });
 
       if (toMark.length === 0) {
         const unread = snapshot.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
         const badges: Record<ActivityTabId, number> = {
-          all: unread.length,
-          inbox: unread.filter((i) => i.tab === 'inbox').length,
-          agent: unread.filter((i) => i.tab === 'agent').length,
           alerts: unread.filter((i) => i.tab === 'alerts').length,
+          analytics: unread.filter((i) => i.tab === 'analytics').length,
         };
         res.json({ success: true, count: 0, badges });
         return;
@@ -386,10 +376,8 @@ router.post(
       const afterSnapshot = await col.get();
       const unread = afterSnapshot.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
       const badges: Record<ActivityTabId, number> = {
-        all: unread.length,
-        inbox: unread.filter((i) => i.tab === 'inbox').length,
-        agent: unread.filter((i) => i.tab === 'agent').length,
         alerts: unread.filter((i) => i.tab === 'alerts').length,
+        analytics: unread.filter((i) => i.tab === 'analytics').length,
       };
 
       res.json({ success: true, count, badges });
