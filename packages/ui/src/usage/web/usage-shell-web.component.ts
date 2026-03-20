@@ -125,7 +125,6 @@ export type { UsageUser };
                   @case ('overview') {
                     <nxt1-usage-overview
                       [data]="svc.overview()"
-                      (viewDetails)="svc.setActiveSection('breakdown')"
                       (viewPaymentHistory)="svc.setActiveSection('payment-history')"
                     />
 
@@ -135,6 +134,12 @@ export type { UsageUser };
                         (manage)="onManageSubscriptions()"
                       />
                     }
+
+                    <nxt1-usage-budgets
+                      [budgets]="svc.budgets()"
+                      (createBudget)="onCreateBudget()"
+                      (editBudget)="onEditBudget($event)"
+                    />
                   }
 
                   @case ('metered-usage') {
@@ -142,13 +147,12 @@ export type { UsageUser };
                       [chartData]="svc.chartData()"
                       [productTabs]="svc.productDetails()"
                       [activeTab]="svc.activeProductTab()"
-                      [topItems]="svc.topItems()"
                       [timeframe]="svc.timeframe()"
                       [yLabels]="svc.chartYLabels()"
                       (tabChange)="svc.setActiveProductTab($event)"
                       (timeframeChange)="svc.setTimeframe($event)"
                       (viewBreakdown)="svc.setActiveSection('breakdown')"
-                      (manageBudgets)="svc.setActiveSection('budgets')"
+                      (manageBudgets)="svc.setActiveSection('overview')"
                     />
                   }
 
@@ -170,14 +174,6 @@ export type { UsageUser };
                       (downloadReceipt)="onDownloadReceipt($event)"
                       (downloadInvoice)="onDownloadInvoice($event)"
                       (loadMore)="svc.loadMoreHistory()"
-                    />
-                  }
-
-                  @case ('budgets') {
-                    <nxt1-usage-budgets
-                      [budgets]="svc.budgets()"
-                      (createBudget)="onCreateBudget()"
-                      (editBudget)="onEditBudget($event)"
                     />
                   }
 
@@ -220,7 +216,7 @@ export type { UsageUser };
             <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
         </button>
-        <nxt1-usage-help-content (contactSupport)="closeHelpDialog()" />
+        <nxt1-usage-help-content />
       </dialog>
     }
   `,

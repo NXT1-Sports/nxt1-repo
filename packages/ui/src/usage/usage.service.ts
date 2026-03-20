@@ -53,7 +53,6 @@ export const USAGE_SECTION_NAVS: readonly UsageSectionNav[] = [
   { id: 'metered-usage', label: 'Metered usage' },
   { id: 'breakdown', label: 'Usage breakdown' },
   { id: 'payment-history', label: 'Payment history' },
-  { id: 'budgets', label: 'Budgets & alerts' },
   { id: 'payment-info', label: 'Payment info' },
 ] as const;
 import { NxtToastService } from '../services/toast/toast.service';

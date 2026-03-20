@@ -15,7 +15,6 @@ import type {
   UsageChartDataPoint,
   UsageProductDetail,
   UsageProductCategory,
-  UsageTopItem,
   UsageTimeframe,
 } from '@nxt1/core';
 import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
@@ -178,46 +177,6 @@ import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
           </div>
         }
       </div>
-
-      <!-- TOP ITEMS STACKED BAR -->
-      @if (topItems().length > 0) {
-        <div class="top-items-section">
-          <div class="top-items-header">
-            <div>
-              <h3 class="tabs-title">Usage by product</h3>
-              <span class="chart-subtitle">Top {{ topItems().length }} products this month</span>
-            </div>
-          </div>
-
-          <!-- Stacked Bar -->
-          <div class="stacked-bar">
-            @for (item of topItems(); track item.name) {
-              <div
-                class="stacked-segment"
-                [style.flex-grow]="item.grossAmount"
-                [style.background]="item.color"
-              ></div>
-            }
-          </div>
-
-          <!-- Legend Table -->
-          <div class="top-items-table">
-            <div class="top-items-table-header">
-              <span>Product</span>
-              <span class="text-right">Gross amount</span>
-            </div>
-            @for (item of topItems(); track item.name) {
-              <div class="top-items-row">
-                <div class="top-item-name">
-                  <span class="top-item-dot" [style.background]="item.color"></span>
-                  {{ item.name }}
-                </div>
-                <span class="top-item-amount">{{ formatAmount(item.grossAmount) }}</span>
-              </div>
-            }
-          </div>
-        </div>
-      }
     </section>
   `,
   styles: [
@@ -609,87 +568,6 @@ import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
         color: var(--nxt1-color-text-tertiary);
         margin: 0;
       }
-
-      /* ── TOP ITEMS ─────────────── */
-
-      .top-items-section {
-        background: var(--nxt1-color-surface-100);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        border-radius: var(--nxt1-radius-lg, 12px);
-        padding: var(--nxt1-spacing-5);
-      }
-
-      .top-items-header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        margin-bottom: var(--nxt1-spacing-4);
-      }
-
-      .stacked-bar {
-        display: flex;
-        height: var(--nxt1-spacing-3);
-        border-radius: var(--nxt1-radius-full);
-        overflow: hidden;
-        gap: var(--nxt1-spacing-0-5);
-        margin-bottom: var(--nxt1-spacing-4);
-      }
-
-      .stacked-segment {
-        border-radius: var(--nxt1-radius-xs);
-        min-width: var(--nxt1-spacing-1);
-      }
-
-      .top-items-table {
-        display: flex;
-        flex-direction: column;
-      }
-
-      .top-items-table-header {
-        display: flex;
-        justify-content: space-between;
-        font-size: var(--nxt1-fontSize-xs);
-        color: var(--nxt1-color-text-tertiary);
-        padding-bottom: var(--nxt1-spacing-2);
-        border-bottom: 1px solid var(--nxt1-color-border-subtle);
-      }
-
-      .top-items-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: var(--nxt1-spacing-2) 0;
-        border-bottom: 1px solid var(--nxt1-color-border-subtle);
-
-        &:last-child {
-          border-bottom: none;
-        }
-      }
-
-      .top-item-name {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-2);
-        font-size: var(--nxt1-fontSize-sm);
-        color: var(--nxt1-color-text-primary);
-      }
-
-      .top-item-dot {
-        width: var(--nxt1-spacing-2);
-        height: var(--nxt1-spacing-2);
-        border-radius: var(--nxt1-radius-full);
-        flex-shrink: 0;
-      }
-
-      .top-item-amount {
-        font-size: var(--nxt1-fontSize-sm);
-        color: var(--nxt1-color-text-primary);
-        font-family: var(--nxt1-fontFamily-mono);
-      }
-
-      .text-right {
-        text-align: right;
-      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -698,7 +576,6 @@ export class UsageChartComponent {
   readonly chartData = input.required<readonly UsageChartDataPoint[]>();
   readonly productTabs = input.required<readonly UsageProductDetail[]>();
   readonly activeTab = input.required<UsageProductCategory>();
-  readonly topItems = input.required<readonly UsageTopItem[]>();
   readonly timeframe = input.required<UsageTimeframe>();
   readonly yLabels = input.required<readonly string[]>();
 
