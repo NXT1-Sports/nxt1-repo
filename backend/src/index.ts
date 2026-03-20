@@ -19,10 +19,14 @@ import { requestTracker, notFoundHandler, createErrorHandler } from '@nxt1/core/
 import { logger } from './utils/logger.js';
 
 // Import database configuration
-import { connectToMongoDB, disconnectFromMongoDB } from './config/database.config.js';
+import {
+  connectToMongoDB,
+  disconnectFromMongoDB,
+  isMongoDBConnected,
+} from './config/database.config.js';
 
 // Import cache service
-import { initializeCacheService } from './services/cache.service.js';
+import { initializeCacheService, getCacheService } from './services/cache.service.js';
 
 // Middleware
 import { firebaseContext } from './middleware/firebase-context.middleware.js';
@@ -117,9 +121,11 @@ app.use(
 // Capture raw body for Stripe webhook signature verification (MUST be before body parsers)
 app.use(webhookRawBodyMiddleware);
 
-// Body parsing — Express 5 built-in (no body-parser needed)
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Body parsing — Express 5 built-in (no body-parser needed).
+// 50 mb covers large media-upload metadata payloads; enforced once here,
+// NOT again inside setupApplication to avoid double-parsing.
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Request timeout
 app.use((_req, res, next) => {
@@ -137,8 +143,9 @@ async function setupApplication() {
   // ============================================================================
   // Global Middleware
   // ============================================================================
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+  // Body parsing is registered once at the top of the file (before setupApplication)
+  // so that it is available to the webhook raw-body middleware and all subsequent
+  // middleware without double-parsing. Do NOT re-register it here.
 
   // Add request tracking (trace IDs, timing)
   app.use(requestTracker);
@@ -159,12 +166,65 @@ async function setupApplication() {
   // ============================================================================
   // Health Checks
   // ============================================================================
-  app.get('/health', (_req, res) => {
-    res.json({ status: 'Production OK', timestamp: new Date().toISOString() });
+
+  /**
+   * Deep health check — verifies all critical dependencies are reachable.
+   * Used by Cloud Run / load balancers to determine instance readiness.
+   * Returns HTTP 200 when healthy, HTTP 503 when degraded.
+   */
+  async function deepHealthCheck(label: string): Promise<{ status: number; body: object }> {
+    const checks: Record<string, { ok: boolean; latencyMs?: number; error?: string }> = {};
+
+    // MongoDB
+    const mongoStart = Date.now();
+    try {
+      const mongoOk = isMongoDBConnected();
+      checks['mongodb'] = { ok: mongoOk, latencyMs: Date.now() - mongoStart };
+    } catch (err) {
+      checks['mongodb'] = {
+        ok: false,
+        latencyMs: Date.now() - mongoStart,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+
+    // Cache (Redis or memory fallback)
+    const cacheStart = Date.now();
+    try {
+      const cache = getCacheService();
+      const testKey = `health:ping:${Date.now()}`;
+      await cache.set(testKey, '1', { ttl: 5 });
+      const val = await cache.get(testKey);
+      checks['cache'] = { ok: val === '1', latencyMs: Date.now() - cacheStart };
+    } catch (err) {
+      checks['cache'] = {
+        ok: false,
+        latencyMs: Date.now() - cacheStart,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+
+    const allHealthy = Object.values(checks).every((c) => c.ok);
+    const httpStatus = allHealthy ? 200 : 503;
+
+    return {
+      status: httpStatus,
+      body: {
+        status: allHealthy ? `${label} OK` : `${label} DEGRADED`,
+        timestamp: new Date().toISOString(),
+        checks,
+      },
+    };
+  }
+
+  app.get('/health', async (_req, res) => {
+    const { status, body } = await deepHealthCheck('Production');
+    res.status(status).json(body);
   });
 
-  app.get('/staging/health', (_req, res) => {
-    res.json({ status: 'Staging OK', timestamp: new Date().toISOString() });
+  app.get('/staging/health', async (_req, res) => {
+    const { status, body } = await deepHealthCheck('Staging');
+    res.status(status).json(body);
   });
 
   // ============================================================================

@@ -9,6 +9,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { auth as prodAuth } from '../utils/firebase.js';
 import { unauthorizedError, forbiddenError } from '@nxt1/core/errors';
+import { logger } from '../utils/logger.js';
 
 /**
  * User information extracted from Firebase ID token
@@ -59,7 +60,9 @@ export async function appGuard(req: Request, res: Response, next: NextFunction):
 
     next();
   } catch (error) {
-    console.error('[Auth] Token verification failed:', error);
+    logger.error('[Auth] Token verification failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
 
     // Provide specific error messages using unified error codes
     if (error instanceof Error) {
@@ -145,7 +148,9 @@ export async function adminGuard(req: Request, res: Response, next: NextFunction
 
     next();
   } catch (error) {
-    console.error('[Auth] Admin verification failed:', error);
+    logger.error('[Auth] Admin verification failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
     const apiError = forbiddenError('admin');
     res.status(403).json(apiError.toResponse());
   }

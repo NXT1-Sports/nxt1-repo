@@ -2,107 +2,161 @@
  * @fileoverview Backend Logger Utility
  * @module @nxt1/backend/utils/logger
  *
- * Environment-aware logging for Node.js backend.
- * Filters logs based on NODE_ENV:
- * - production: Only errors and critical info
- * - staging/development: All logs including debug/trace
+ * Environment-aware, structured logging for Node.js backend.
+ *
+ * Production (NODE_ENV=production):
+ *   Emits newline-delimited JSON understood by Google Cloud Logging / Cloud Run.
+ *   Visible levels: error, warn, info  (debug/trace suppressed to reduce noise).
+ *
+ * Staging / Development:
+ *   Emits human-readable coloured text with emoji prefixes.
+ *   All levels (error → trace) are visible.
+ *
+ * GCP severity mapping (used when emitting JSON):
+ *   error  → ERROR
+ *   warn   → WARNING
+ *   info   → INFO
+ *   debug  → DEBUG
+ *   trace  → DEBUG
  */
 
 type LogLevel = 'error' | 'warn' | 'info' | 'debug' | 'trace';
 
+/** Structured log context – any serialisable key/value pairs. */
 interface LogContext {
   [key: string]: unknown;
 }
 
-/**
- * Determine if a log level should be visible based on environment
- */
-function shouldLog(level: LogLevel, environment: string): boolean {
-  if (environment === 'production') {
-    return ['error', 'warn'].includes(level);
-  }
-  // In staging/development, log everything
-  return true;
+// ============================================
+// ENVIRONMENT HELPERS
+// ============================================
+
+const ENV = process.env['NODE_ENV'] || 'development';
+const IS_PRODUCTION = ENV === 'production';
+
+/** Log-level visibility matrix. */
+const VISIBLE_LEVELS: Record<string, Set<LogLevel>> = {
+  production: new Set(['error', 'warn', 'info']),
+  default: new Set(['error', 'warn', 'info', 'debug', 'trace']),
+};
+
+function shouldLog(level: LogLevel): boolean {
+  const allowed = VISIBLE_LEVELS[ENV] ?? VISIBLE_LEVELS['default']!;
+  return allowed.has(level);
 }
 
+// ============================================
+// FORMATTERS
+// ============================================
+
+/** GCP Cloud Logging severity labels. */
+const GCP_SEVERITY: Record<LogLevel, string> = {
+  error: 'ERROR',
+  warn: 'WARNING',
+  info: 'INFO',
+  debug: 'DEBUG',
+  trace: 'DEBUG',
+};
+
 /**
- * Format and log a message with context
+ * Emit a structured JSON log entry (one line) as required by Google Cloud Logging.
+ * https://cloud.google.com/logging/docs/structured-logging
  */
-function formatLog(level: LogLevel, message: string, context?: LogContext): string {
+function emitJson(level: LogLevel, message: string, context?: LogContext): void {
+  const entry: Record<string, unknown> = {
+    severity: GCP_SEVERITY[level],
+    message,
+    timestamp: new Date().toISOString(),
+    ...context,
+  };
+  const line = JSON.stringify(entry);
+  if (level === 'error') {
+    process.stderr.write(line + '\n');
+  } else {
+    process.stdout.write(line + '\n');
+  }
+}
+
+/** Emoji prefix for human-readable output. */
+const LEVEL_EMOJI: Record<LogLevel, string> = {
+  error: '❌',
+  warn: '⚠️ ',
+  info: 'ℹ️ ',
+  debug: '🔍',
+  trace: '📍',
+};
+
+/**
+ * Emit a coloured, human-readable log line for local development.
+ */
+function emitText(level: LogLevel, message: string, context?: LogContext): void {
   const timestamp = new Date().toLocaleTimeString();
-  const levelEmoji = {
-    error: '❌',
-    warn: '⚠️ ',
-    info: 'ℹ️ ',
-    debug: '🔍',
-    trace: '📍',
-  }[level];
-
-  let output = `${levelEmoji} [${level.toUpperCase()}] ${timestamp} ${message}`;
-
+  let output = `${LEVEL_EMOJI[level]} [${level.toUpperCase()}] ${timestamp} ${message}`;
   if (context && Object.keys(context).length > 0) {
-    output += `\n${JSON.stringify(context, null, 2)}`;
+    output += '\n' + JSON.stringify(context, null, 2);
   }
-
-  return output;
+  if (level === 'error') {
+    console.error(output);
+  } else if (level === 'warn') {
+    console.warn(output);
+  } else {
+    console.log(output);
+  }
 }
 
+function emit(level: LogLevel, message: string, context?: LogContext): void {
+  if (!shouldLog(level)) return;
+  if (IS_PRODUCTION) {
+    emitJson(level, message, context);
+  } else {
+    emitText(level, message, context);
+  }
+}
+
+// ============================================
+// PUBLIC API
+// ============================================
+
 /**
- * Backend logger instance
+ * Backend logger instance.
+ *
+ * @example
+ * logger.info('Server started', { port: 3000 });
+ * logger.error('Database connection failed', { error: err.message });
  */
 export const logger = {
   error(message: string, context?: LogContext): void {
-    if (shouldLog('error', process.env['NODE_ENV'] || 'development')) {
-      console.error(formatLog('error', message, context));
-    }
+    emit('error', message, context);
   },
-
   warn(message: string, context?: LogContext): void {
-    if (shouldLog('warn', process.env['NODE_ENV'] || 'development')) {
-      console.warn(formatLog('warn', message, context));
-    }
+    emit('warn', message, context);
   },
-
   info(message: string, context?: LogContext): void {
-    if (shouldLog('info', process.env['NODE_ENV'] || 'development')) {
-      console.log(formatLog('info', message, context));
-    }
+    emit('info', message, context);
   },
-
   debug(message: string, context?: LogContext): void {
-    if (shouldLog('debug', process.env['NODE_ENV'] || 'development')) {
-      console.log(formatLog('debug', message, context));
-    }
+    emit('debug', message, context);
   },
-
   trace(message: string, context?: LogContext): void {
-    if (shouldLog('trace', process.env['NODE_ENV'] || 'development')) {
-      console.log(formatLog('trace', message, context));
-    }
+    emit('trace', message, context);
   },
 };
 
 /**
- * HTTP Context Logger - For request/response logging
+ * HTTP Context Logger – convenience wrapper for request/response logging.
  */
 export const httpLogger = {
   request(method: string, path: string, context?: LogContext): void {
-    if (shouldLog('debug', process.env['NODE_ENV'] || 'development')) {
-      console.log(formatLog('debug', `→ ${method} ${path}`, context));
-    }
+    emit('debug', `→ ${method} ${path}`, context);
   },
 
   response(method: string, path: string, status: number, context?: LogContext): void {
-    if (shouldLog('debug', process.env['NODE_ENV'] || 'development')) {
-      const statusEmoji = status >= 400 ? '❌' : status >= 300 ? '🟡' : '✅';
-      console.log(formatLog('debug', `${statusEmoji} ${method} ${path} → ${status}`, context));
-    }
+    const statusEmoji = status >= 400 ? '❌' : status >= 300 ? '🟡' : '✅';
+    emit('debug', `${statusEmoji} ${method} ${path} → ${status}`, context);
   },
 
   error(method: string, path: string, error: Error | string, context?: LogContext): void {
-    if (shouldLog('error', process.env['NODE_ENV'] || 'development')) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error(formatLog('error', `❌ ${method} ${path} → ${errorMsg}`, context));
-    }
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    emit('error', `❌ ${method} ${path} → ${errorMsg}`, context);
   },
 };
