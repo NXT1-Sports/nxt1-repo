@@ -62,7 +62,7 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import { getPositionGroupsForSport } from '@nxt1/core';
+import { getPositionGroupsForSport, type InboxEmailProvider } from '@nxt1/core';
 
 const MAX_GALLERY_IMAGES = 8;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
@@ -483,6 +483,9 @@ export class EditProfileShellComponent implements OnInit {
   /** Sport index to load - defaults to activeSportIndex if not provided */
   @Input() sportIndex?: number;
 
+  /** Optional callback for direct provider connection (bypasses modal dismiss chain) */
+  @Input() connectProviderCallback?: (provider: InboxEmailProvider) => void;
+
   protected readonly imageInputRef = viewChild<ElementRef<HTMLInputElement>>('imageInput');
   private readonly nxtModal = inject(NxtModalService);
   private readonly alertCtrl = inject(AlertController);
@@ -742,11 +745,15 @@ export class EditProfileShellComponent implements OnInit {
     return groups;
   });
 
-  protected readonly connectedCount = computed(
-    () =>
-      (this.profile.formData()?.socialLinks?.links ?? []).filter((l) => !!l.url || !!l.username)
-        .length
-  );
+  protected readonly connectedCount = computed(() => {
+    const socialCount = (this.profile.formData()?.socialLinks?.links ?? []).filter(
+      (l) => !!l.url || !!l.username
+    ).length;
+    const emailCount = (this.profile.rawUserData()?.connectedEmails ?? []).filter(
+      (e: { isActive: boolean }) => e.isActive
+    ).length;
+    return socialCount + emailCount;
+  });
 
   ngOnInit(): void {
     const currentSportIndex = this.profile.activeSportIndex();
@@ -805,6 +812,7 @@ export class EditProfileShellComponent implements OnInit {
   }
 
   protected async openConnectedAccounts(): Promise<void> {
+    console.log('[Edit Profile Shell] Opening connected accounts sheet...');
     const result = await this.bottomSheet.openSheet<{
       updatedLinks: { platform: string; url: string; username?: string; displayOrder: number }[];
       sources: readonly ConnectedSource[];
@@ -813,9 +821,13 @@ export class EditProfileShellComponent implements OnInit {
       ...SHEET_PRESETS.TALL,
       componentProps: {
         platformGroups: this.platformGroups(),
+        connectProviderCallback: this.connectProviderCallback,
+        connectedEmails: this.profile.rawUserData()?.connectedEmails ?? [],
       },
       showHandle: true,
     });
+
+    console.log('[Edit Profile Shell] Sheet dismissed with role:', result.role);
 
     if (result.role === 'save' && result.data?.updatedLinks) {
       this.profile.updateField('social-links', 'links', result.data.updatedLinks);
@@ -1061,13 +1073,18 @@ export class EditProfileShellComponent implements OnInit {
 
       try {
         // Upload to Firebase Storage and get permanent URL
-        // Keep the object URL in the gallery - don't replace it
         const result = await this.profile.uploadPhoto(userId, 'profile', file);
         uploadedUrls.push(result.url);
 
-        // NOTE: We intentionally keep the object URL and don't replace it with the real URL
-        // This prevents re-rendering the image after successful upload
-        // The real URL will be used only when the component is re-initialized
+        // Replace the blob preview URL with the real Firebase Storage URL
+        const currentImages = this.carouselImages();
+        const blobIndex = currentImages.indexOf(previewUrls[i]);
+        if (blobIndex >= 0) {
+          const updatedImages = [...currentImages];
+          updatedImages[blobIndex] = result.url;
+          this.profile.updatePhotoGallery(updatedImages);
+          URL.revokeObjectURL(previewUrls[i]);
+        }
       } catch (error) {
         this.logger.error('Failed to upload profile image', error, { fileName: file.name });
         this.toast.error(`Could not upload ${file.name}.`);

@@ -27,6 +27,7 @@ import { Injectable, inject } from '@angular/core';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import { EditProfileShellComponent } from './edit-profile-shell.component';
 import { EditProfileService } from './edit-profile.service';
+import type { InboxEmailProvider } from '@nxt1/core';
 
 /**
  * Edit Profile Sheet Service
@@ -56,11 +57,17 @@ export class EditProfileBottomSheetService {
    * @param sportIndex - Optional sport index to load (defaults to activeSportIndex)
    * @returns Promise resolving when the sheet is dismissed
    */
-  async open(userId?: string, sportIndex?: number): Promise<{ saved: boolean }> {
-    const result = await this.bottomSheet.openSheet<{ saved?: boolean }>({
+  async open(
+    userId?: string,
+    sportIndex?: number,
+    options?: { onConnectProvider?: (provider: InboxEmailProvider) => void }
+  ): Promise<{ saved: boolean }> {
+    const result = await this.bottomSheet.openSheet<{
+      saved?: boolean;
+    }>({
       // The component to inject
       component: EditProfileShellComponent,
-      componentProps: { userId, sportIndex },
+      componentProps: { userId, sportIndex, connectProviderCallback: options?.onConnectProvider },
 
       // Standardized sheet preset
       ...SHEET_PRESETS.FULL,
@@ -74,8 +81,8 @@ export class EditProfileBottomSheetService {
 
       // Swipe-to-dismiss confirmation for unsaved changes
       canDismiss: async (_data, role) => {
-        // Allow explicit save/cancel
-        if (role === 'save' || role === 'cancel') return true;
+        // Allow explicit save/cancel/connectProvider
+        if (role === 'save' || role === 'cancel' || role === 'connectProvider') return true;
 
         // Check for unsaved changes on gesture dismiss
         if (this.profileService.hasUnsavedChanges()) {

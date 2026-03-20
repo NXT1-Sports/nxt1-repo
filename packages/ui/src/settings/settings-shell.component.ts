@@ -63,7 +63,7 @@ import {
   DEFAULT_PLATFORMS,
   type ConnectedSource,
 } from '../components/connected-sources';
-import type { SettingsSectionId } from '@nxt1/core';
+import type { SettingsSectionId, InboxEmailProvider } from '@nxt1/core';
 
 /**
  * User info for header display.
@@ -71,6 +71,7 @@ import type { SettingsSectionId } from '@nxt1/core';
 export interface SettingsUser {
   readonly profileImg?: string | null;
   readonly displayName?: string | null;
+  readonly connectedEmails?: readonly { provider: string; email: string; isActive: boolean }[];
 }
 
 @Component({
@@ -337,6 +338,14 @@ export class SettingsShellComponent implements OnInit {
   /** Emitted when delete account is requested */
   readonly deleteAccount = output<void>();
 
+  /** Emitted when user wants to connect an email provider (Gmail, Microsoft, etc.) */
+  readonly connectProviderRequest = output<InboxEmailProvider>();
+
+  /** Optional direct callback (bypasses modal dismiss chain) */
+  readonly connectProviderCallback = input<((provider: InboxEmailProvider) => void) | undefined>(
+    undefined
+  );
+
   // ============================================
   // CONSTANTS
   // ============================================
@@ -448,6 +457,7 @@ export class SettingsShellComponent implements OnInit {
   }
 
   protected async onAction(event: SettingsActionEvent): Promise<void> {
+    console.log('[Settings Shell] onAction called with:', event.action, event);
     this.logger.debug('Action triggered', { itemId: event.itemId, action: event.action });
 
     // Handle built-in actions
@@ -476,6 +486,7 @@ export class SettingsShellComponent implements OnInit {
         break;
 
       case 'connectedAccounts':
+        console.log('[Settings Shell] connectedAccounts action - calling openConnectedAccounts()');
         await this.openConnectedAccounts();
         break;
 
@@ -490,15 +501,44 @@ export class SettingsShellComponent implements OnInit {
   }
 
   private async openConnectedAccounts(): Promise<void> {
-    const result = await this.bottomSheet.openSheet<{ sources?: readonly ConnectedSource[] }>({
+    console.log('[Settings Shell] Opening connected accounts sheet...');
+
+    // Build platform groups - simple "All Platforms" group with default platforms
+    const platformGroups = [
+      {
+        key: 'all',
+        label: 'All Platforms',
+        sources: DEFAULT_PLATFORMS,
+      },
+    ];
+
+    console.log('[Settings Shell] Calling openSheet with platformGroups:', platformGroups);
+
+    const result = await this.bottomSheet.openSheet<{
+      sources?: readonly ConnectedSource[];
+      provider?: InboxEmailProvider;
+    }>({
       component: ConnectedAccountsSheetComponent,
       ...SHEET_PRESETS.FULL,
-      componentProps: { initialSources: DEFAULT_PLATFORMS },
+      componentProps: {
+        platformGroups,
+        connectedEmails: this.user()?.connectedEmails ?? [],
+        connectProviderCallback: this.connectProviderCallback(),
+      },
       showHandle: true,
     });
 
+    console.log('[Settings Shell] openSheet returned!');
+    console.log('[Settings Shell] Sheet dismissed with role:', result.role, 'data:', result.data);
+
     if (result.role === 'resync') {
+      console.log('[Settings Shell] Handling resync...');
       await this.settings.requestConnectedAccountsResync(result.data?.sources ?? DEFAULT_PLATFORMS);
+    } else if (result.role === 'connectProvider' && result.data?.provider) {
+      console.log('[Settings Shell] Emitting connectProviderRequest:', result.data.provider);
+      this.connectProviderRequest.emit(result.data.provider);
+    } else {
+      console.log('[Settings Shell] No matching role handler. Role:', result.role);
     }
   }
 }

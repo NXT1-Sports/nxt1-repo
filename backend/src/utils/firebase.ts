@@ -8,24 +8,41 @@ import type { Firestore } from 'firebase-admin/firestore';
 import type { Auth } from 'firebase-admin/auth';
 import type { Storage } from 'firebase-admin/storage';
 
-// Initialize Firebase Admin (Production — nxt-1-v2)
+// Determine environment: 'staging' or 'production'
+const environment = process.env['NODE_ENV'] || 'production';
+const isStaging = environment === 'staging';
+
+// Initialize Firebase Admin with environment-specific credentials
 if (!admin.apps.length) {
-  const projectId = process.env['FIREBASE_PROJECT_ID'];
-  const clientEmail = process.env['FIREBASE_CLIENT_EMAIL'];
-  const privateKey = process.env['FIREBASE_PRIVATE_KEY']?.replace(/\\n/g, '\n');
-  const storageBucket = process.env['FIREBASE_STORAGE_BUCKET'];
+  // Select credentials based on environment
+  const projectId = isStaging
+    ? process.env['STAGING_FIREBASE_PROJECT_ID']
+    : process.env['FIREBASE_PROJECT_ID'];
+  const clientEmail = isStaging
+    ? process.env['STAGING_FIREBASE_CLIENT_EMAIL']
+    : process.env['FIREBASE_CLIENT_EMAIL'];
+  const privateKey = isStaging
+    ? process.env['STAGING_FIREBASE_PRIVATE_KEY']?.replace(/\\n/g, '\n')
+    : process.env['FIREBASE_PRIVATE_KEY']?.replace(/\\n/g, '\n');
+  const storageBucket = isStaging
+    ? process.env['STAGING_FIREBASE_STORAGE_BUCKET']
+    : process.env['FIREBASE_STORAGE_BUCKET'];
 
   if (projectId && clientEmail && privateKey) {
     admin.initializeApp({
       credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
       storageBucket,
     });
+    console.log(`[Firebase] Initialized for ${isStaging ? 'STAGING' : 'PRODUCTION'} environment`);
+    console.log(`[Firebase] Project: ${projectId}`);
+    console.log(`[Firebase] Storage: ${storageBucket}`);
   } else {
     // Fallback to Application Default Credentials (e.g. on Firebase hosting)
     admin.initializeApp({
       credential: admin.credential.applicationDefault(),
       storageBucket,
     });
+    console.log('[Firebase] Initialized with Application Default Credentials');
   }
 }
 

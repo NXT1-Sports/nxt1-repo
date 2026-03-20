@@ -29,8 +29,9 @@ import {
   type SettingsNavigateEvent,
   type SettingsActionEvent,
 } from '@nxt1/ui';
-import type { SettingsUserInfo, SettingsSubscription } from '@nxt1/core';
+import type { SettingsUserInfo, SettingsSubscription, InboxEmailProvider } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
+import { MobileEmailConnectionService } from '../activity/services/email-connection.service';
 
 @Component({
   selector: 'app-settings',
@@ -43,12 +44,14 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
     <ion-content [fullscreen]="true">
       <nxt1-settings-shell
         [user]="userInfo()"
+        [connectProviderCallback]="connectProviderCallback"
         (back)="onBack()"
         (editProfile)="onEditProfile()"
         (navigate)="onNavigate($event)"
         (action)="onAction($event)"
         (signOut)="onSignOut()"
         (deleteAccount)="onDeleteAccount()"
+        (connectProviderRequest)="onConnectProvider($event)"
       />
     </ion-content>
   `,
@@ -89,6 +92,7 @@ export class SettingsComponent {
   private readonly navController = inject(NavController);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('SettingsComponent');
+  private readonly emailConnection = inject(MobileEmailConnectionService);
 
   constructor() {
     // Reactively sync auth user → SettingsService whenever auth state changes
@@ -134,8 +138,13 @@ export class SettingsComponent {
     return {
       profileImg: user.profileImg ?? undefined,
       displayName: user.displayName ?? undefined,
+      connectedEmails: user.connectedEmails ?? [],
     };
   });
+
+  protected readonly connectProviderCallback = (provider: InboxEmailProvider): void => {
+    void this.onConnectProvider(provider);
+  };
 
   /**
    * Handle back navigation using Ionic's navigation stack.
@@ -281,5 +290,24 @@ export class SettingsComponent {
         this.toast.error(`Failed to delete account: ${deleteResult.error ?? 'Unknown error'}`);
       }
     }
+  }
+
+  /**
+   * Handle email provider connection request (Gmail, Outlook).
+   * Delegates to EmailConnectionService for OAuth flow.
+   */
+  protected async onConnectProvider(provider: InboxEmailProvider): Promise<void> {
+    console.log('[Settings Component] onConnectProvider called:', provider);
+    const user = this.authService.user();
+    if (!user?.uid) {
+      this.logger.warn('User not authenticated, cannot connect email provider');
+      console.warn('[Settings Component] User not authenticated');
+      return;
+    }
+
+    this.logger.info('Connect provider requested from settings', { provider: provider.id });
+    console.log('[Settings Component] Calling emailConnection.connectProvider...');
+    await this.emailConnection.connectProvider(provider, user.uid);
+    console.log('[Settings Component] emailConnection.connectProvider completed');
   }
 }

@@ -74,6 +74,7 @@ import { AuthFlowService } from '../auth/services';
 import { ShareService } from '../../core/services/share.service';
 import { ProfileApiService } from '../../core/services/profile-api.service';
 import { EditProfileApiService } from '../../core/services/edit-profile-api.service';
+import { MobileEmailConnectionService } from '../activity/services/email-connection.service';
 import { TeamProfileApiService } from '../../core/services/team-profile-api.service';
 import { AnalyticsService } from '../../core/services/analytics.service';
 import { CapacitorHttpAdapter } from '../../core/infrastructure';
@@ -211,6 +212,7 @@ export class ProfileComponent {
   private readonly shareService = inject(ShareService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly http = inject(CapacitorHttpAdapter);
+  private readonly emailConnection = inject(MobileEmailConnectionService);
   private readonly authFlow = inject(AuthFlowService);
   protected readonly generation = inject(ProfileGenerationStateService);
 
@@ -731,7 +733,11 @@ export class ProfileComponent {
     }
 
     const sportIndex = this.uiProfileService.activeSportIndex();
-    const result = await this.editProfileSheet.open(userId, sportIndex);
+    const result = await this.editProfileSheet.open(userId, sportIndex, {
+      onConnectProvider: (provider) => {
+        void this.emailConnection.connectProvider(provider, userId);
+      },
+    });
 
     if (result?.saved) {
       const param = this.routeParam();
