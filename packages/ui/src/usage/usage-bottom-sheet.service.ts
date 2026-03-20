@@ -13,7 +13,7 @@
 import { Injectable, inject } from '@angular/core';
 import { NxtBottomSheetService } from '../components/bottom-sheet/bottom-sheet.service';
 import { USAGE_TIMEFRAME_OPTIONS, type UsageTimeframe } from '@nxt1/core';
-import type { BottomSheetResult } from '../components/bottom-sheet/bottom-sheet.types';
+import type { BottomSheetAction, BottomSheetResult } from '../components/bottom-sheet/bottom-sheet.types';
 
 export interface UsageBottomSheetResult {
   readonly action: string;
@@ -88,5 +88,24 @@ export class UsageBottomSheetService {
 
     if (!result?.confirmed) return null;
     return { action: result.reason ?? 'unknown' };
+  }
+
+  /** Open budget limit selector for creating or editing a budget */
+  async showBudgetLimit(currentLimit?: number): Promise<number | null> {
+    const limits = [10, 25, 50, 100, 250, 500, 1000];
+    const result = await this.bottomSheet.show<BottomSheetAction>({
+      title: 'Set Budget Limit',
+      icon: 'wallet-outline',
+      actions: limits.map((amount) => ({
+        label: `$${amount} / month`,
+        role: 'secondary' as const,
+        icon: currentLimit === amount * 100 ? ('checkmark-circle-outline' as const) : undefined,
+      })),
+    });
+
+    if (!result?.confirmed) return null;
+    const selectedLabel = (result.data as BottomSheetAction | undefined)?.label;
+    const match = selectedLabel?.match(/^\$(\d+)\s*\/\s*month$/);
+    return match ? parseInt(match[1], 10) * 100 : null;
   }
 }

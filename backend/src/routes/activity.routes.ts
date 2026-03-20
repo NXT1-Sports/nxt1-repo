@@ -18,7 +18,7 @@ import {
   RestoreActivityDto,
 } from '../dtos/social.dto.js';
 import { logger } from '../utils/logger.js';
-import type { ActivityTabId } from '@nxt1/core';
+import { ACTIVITY_TABS, type ActivityTabId } from '@nxt1/core';
 
 const router: ExpressRouter = Router();
 
@@ -29,9 +29,11 @@ const router: ExpressRouter = Router();
 const ACTIVITY_COLLECTION = 'activity';
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
-const VALID_TABS: readonly ActivityTabId[] = ['all', 'inbox', 'agent', 'alerts'];
+const ALL_TAB = 'all';
+const VALID_TABS: readonly ActivityTabId[] = ACTIVITY_TABS.map((tab) => tab.id);
 const VALID_SORT_FIELDS = ['timestamp', 'priority'] as const;
 const VALID_SORT_ORDERS = ['asc', 'desc'] as const;
+type ActivityTabFilter = ActivityTabId | typeof ALL_TAB;
 
 // ============================================
 // HELPERS
@@ -44,6 +46,16 @@ function getUserActivityCollection(db: FirebaseFirestore.Firestore, uid: string)
 function clampPageSize(value: unknown): number {
   const num = Number(value) || DEFAULT_PAGE_SIZE;
   return Math.min(Math.max(num, 1), MAX_PAGE_SIZE);
+}
+
+function isActivityTabId(value: unknown): value is ActivityTabId {
+  return typeof value === 'string' && VALID_TABS.includes(value as ActivityTabId);
+}
+
+function parseActivityTabFilter(value: unknown): ActivityTabFilter {
+  if (value === ALL_TAB) return ALL_TAB;
+  if (isActivityTabId(value)) return value;
+  return ALL_TAB;
 }
 
 /** Parse a Firestore doc into a plain activity item object. */
@@ -76,6 +88,13 @@ function docToItem(doc: FirebaseFirestore.QueryDocumentSnapshot) {
   };
 }
 
+function buildBadges(items: ReturnType<typeof docToItem>[]): Record<ActivityTabId, number> {
+  return {
+    alerts: items.filter((item) => item.tab === 'alerts').length,
+    analytics: items.filter((item) => item.tab === 'analytics').length,
+  };
+}
+
 // ============================================
 // GET /feed — Paginated activity feed
 // ============================================
@@ -88,7 +107,7 @@ router.get('/feed', appGuard, async (req: Request, res: Response) => {
     const db = req.firebase.db;
     const col = getUserActivityCollection(db, uid);
 
-    const tab = (req.query['tab'] as ActivityTabId) || 'all';
+    const tab = parseActivityTabFilter(req.query['tab']);
     const page = Math.max(Number(req.query['page']) || 1, 1);
     const limit = clampPageSize(req.query['limit']);
     const sortBy = VALID_SORT_FIELDS.includes(req.query['sortBy'] as any)
@@ -106,7 +125,7 @@ router.get('/feed', appGuard, async (req: Request, res: Response) => {
     // Filter in memory (avoids composite index requirements)
     let filtered = snapshot.docs.map(docToItem).filter((item) => !item.isArchived);
 
-    if (tab !== 'all' && VALID_TABS.includes(tab)) {
+    if (tab !== ALL_TAB) {
       filtered = filtered.filter((item) => item.tab === tab);
     }
 
@@ -136,12 +155,7 @@ router.get('/feed', appGuard, async (req: Request, res: Response) => {
 
     // Badge counts from already-fetched data (no extra queries)
     const allActive = snapshot.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
-    const badges: Record<ActivityTabId, number> = {
-      all: allActive.length,
-      inbox: allActive.filter((i) => i.tab === 'inbox').length,
-      agent: allActive.filter((i) => i.tab === 'agent').length,
-      alerts: allActive.filter((i) => i.tab === 'alerts').length,
-    };
+    const badges = buildBadges(allActive);
 
     res.json({
       success: true,
@@ -175,12 +189,7 @@ router.get('/badges', appGuard, async (req: Request, res: Response) => {
     const snapshot = await col.get();
     const allActive = snapshot.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
 
-    const badges: Record<ActivityTabId, number> = {
-      all: allActive.length,
-      inbox: allActive.filter((i) => i.tab === 'inbox').length,
-      agent: allActive.filter((i) => i.tab === 'agent').length,
-      alerts: allActive.filter((i) => i.tab === 'alerts').length,
-    };
+    const badges = buildBadges(allActive);
 
     res.json({ success: true, badges });
   } catch (err) {
@@ -205,12 +214,7 @@ router.get('/summary', appGuard, async (req: Request, res: Response) => {
     const active = allItems.filter((i) => !i.isArchived);
     const unread = active.filter((i) => !i.isRead);
 
-    const badges: Record<ActivityTabId, number> = {
-      all: unread.length,
-      inbox: unread.filter((i) => i.tab === 'inbox').length,
-      agent: unread.filter((i) => i.tab === 'agent').length,
-      alerts: unread.filter((i) => i.tab === 'alerts').length,
-    };
+    const badges = buildBadges(unread);
 
     // Most recent timestamp
     let lastActivity: string | undefined;
@@ -310,12 +314,7 @@ router.post(
       // Recompute badges from all docs (no composite index needed)
       const allDocs = await col.get();
       const unread = allDocs.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
-      const badges: Record<ActivityTabId, number> = {
-        all: unread.length,
-        inbox: unread.filter((i) => i.tab === 'inbox').length,
-        agent: unread.filter((i) => i.tab === 'agent').length,
-        alerts: unread.filter((i) => i.tab === 'alerts').length,
-      };
+      const badges = buildBadges(unread);
 
       res.json({ success: true, count: ids.length, badges });
     } catch (err) {
@@ -340,11 +339,11 @@ router.post(
       const db = req.firebase.db;
       const col = getUserActivityCollection(db, uid);
 
-      const tab: ActivityTabId = req.body?.tab;
-      if (!tab || !VALID_TABS.includes(tab)) {
+      const tab = parseActivityTabFilter(req.body?.tab);
+      if (!tab) {
         res
           .status(400)
-          .json({ success: false, error: 'tab must be one of: all, inbox, agent, alerts' });
+          .json({ success: false, error: 'tab must be one of: all, alerts, analytics' });
         return;
       }
 
@@ -353,18 +352,13 @@ router.post(
       const toMark = snapshot.docs.filter((doc) => {
         const data = doc.data();
         if (data['isRead'] || data['isArchived']) return false;
-        if (tab !== 'all' && data['tab'] !== tab) return false;
+        if (tab !== ALL_TAB && data['tab'] !== tab) return false;
         return true;
       });
 
       if (toMark.length === 0) {
         const unread = snapshot.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
-        const badges: Record<ActivityTabId, number> = {
-          all: unread.length,
-          inbox: unread.filter((i) => i.tab === 'inbox').length,
-          agent: unread.filter((i) => i.tab === 'agent').length,
-          alerts: unread.filter((i) => i.tab === 'alerts').length,
-        };
+        const badges = buildBadges(unread);
         res.json({ success: true, count: 0, badges });
         return;
       }
@@ -385,12 +379,7 @@ router.post(
       // Recompute badges after marking
       const afterSnapshot = await col.get();
       const unread = afterSnapshot.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
-      const badges: Record<ActivityTabId, number> = {
-        all: unread.length,
-        inbox: unread.filter((i) => i.tab === 'inbox').length,
-        agent: unread.filter((i) => i.tab === 'agent').length,
-        alerts: unread.filter((i) => i.tab === 'alerts').length,
-      };
+      const badges = buildBadges(unread);
 
       res.json({ success: true, count, badges });
     } catch (err) {

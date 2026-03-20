@@ -49,6 +49,7 @@ import { UsageService, USAGE_SECTION_NAVS, type UsageSection } from './usage.ser
 import { UsageSkeletonComponent } from './usage-skeleton.component';
 import { UsageHelpContentComponent } from './usage-help-content.component';
 import { UsageErrorStateComponent } from './usage-error-state.component';
+import { UsageBottomSheetService } from './usage-bottom-sheet.service';
 import {
   UsageOverviewComponent,
   UsageSubscriptionsComponent,
@@ -173,7 +174,6 @@ export interface UsageUser {
                   @case ('overview') {
                     <nxt1-usage-overview
                       [data]="svc.overview()"
-                      (viewDetails)="svc.setActiveSection('breakdown')"
                       (viewPaymentHistory)="svc.setActiveSection('payment-history')"
                     />
 
@@ -183,6 +183,12 @@ export interface UsageUser {
                         (manage)="onManageSubscriptions()"
                       />
                     }
+
+                    <nxt1-usage-budgets
+                      [budgets]="svc.budgets()"
+                      (createBudget)="onCreateBudget()"
+                      (editBudget)="onEditBudget($event)"
+                    />
                   }
 
                   @case ('metered-usage') {
@@ -190,13 +196,12 @@ export interface UsageUser {
                       [chartData]="svc.chartData()"
                       [productTabs]="svc.productDetails()"
                       [activeTab]="svc.activeProductTab()"
-                      [topItems]="svc.topItems()"
                       [timeframe]="svc.timeframe()"
                       [yLabels]="svc.chartYLabels()"
                       (tabChange)="svc.setActiveProductTab($event)"
                       (timeframeChange)="svc.setTimeframe($event)"
                       (viewBreakdown)="svc.setActiveSection('breakdown')"
-                      (manageBudgets)="svc.setActiveSection('budgets')"
+                      (manageBudgets)="svc.setActiveSection('overview')"
                     />
                   }
 
@@ -218,14 +223,6 @@ export interface UsageUser {
                       (downloadReceipt)="onDownloadReceipt($event)"
                       (downloadInvoice)="onDownloadInvoice($event)"
                       (loadMore)="svc.loadMoreHistory()"
-                    />
-                  }
-
-                  @case ('budgets') {
-                    <nxt1-usage-budgets
-                      [budgets]="svc.budgets()"
-                      (createBudget)="onCreateBudget()"
-                      (editBudget)="onEditBudget($event)"
                     />
                   }
 
@@ -483,6 +480,7 @@ export class UsageShellComponent implements OnInit {
   private readonly haptics = inject(HapticsService);
   private readonly platform = inject(NxtPlatformService);
   private readonly modalController = inject(ModalController);
+  private readonly usageBottomSheet = inject(UsageBottomSheetService);
   protected readonly sectionNavs = USAGE_SECTION_NAVS;
 
   // ============================================
@@ -589,12 +587,15 @@ export class UsageShellComponent implements OnInit {
     // API call to get invoice URL and open
   }
 
-  protected onCreateBudget(): void {
-    // Open budget creation form/bottom sheet
+  protected async onCreateBudget(): Promise<void> {
+    await this.haptics.impact('light');
+    await this.usageBottomSheet.showBudgetLimit();
   }
 
-  protected onEditBudget(_budgetId: string): void {
-    // Open budget editing form/bottom sheet
+  protected async onEditBudget(budgetId: string): Promise<void> {
+    await this.haptics.impact('light');
+    const budget = this.svc.budgets().find((b) => b.id === budgetId);
+    await this.usageBottomSheet.showBudgetLimit(budget?.budgetLimit);
   }
 
   protected onEditBilling(): void {

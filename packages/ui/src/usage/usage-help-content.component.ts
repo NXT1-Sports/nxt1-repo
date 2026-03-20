@@ -15,7 +15,7 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Component, ChangeDetectionStrategy, signal, output } from '@angular/core';
+import { Component, ChangeDetectionStrategy, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../components/icon';
 
@@ -107,20 +107,6 @@ interface FaqItem {
             }
           </div>
         </div>
-
-        <!-- Contact CTA -->
-        <footer class="help-footer">
-          <div class="footer-content">
-            <nxt1-icon name="mail-outline" className="footer-icon" size="24" />
-            <div class="footer-text">
-              <p class="footer-title">Still have questions?</p>
-              <p class="footer-subtitle">Our support team is here to help 24/7.</p>
-            </div>
-          </div>
-          <button type="button" class="contact-btn" (click)="contactSupport.emit()">
-            Contact Support
-          </button>
-        </footer>
       </div>
     </div>
   `,
@@ -129,13 +115,13 @@ interface FaqItem {
       :host {
         display: block;
         height: 100%;
-        overflow: hidden;
       }
 
       .help-scroll-content {
         height: 100%;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
         background: var(--nxt1-color-surface-200);
       }
 
@@ -347,67 +333,6 @@ interface FaqItem {
         }
       }
 
-      /* ── FOOTER / CTA ─────────────── */
-
-      .help-footer {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: var(--nxt1-spacing-4);
-        padding: var(--nxt1-spacing-4);
-        background: var(--nxt1-color-surface-100);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        border-radius: var(--nxt1-radius-lg, 12px);
-      }
-
-      .footer-content {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-3);
-      }
-
-      .footer-icon {
-        font-size: var(--nxt1-icon-size-lg, 24px);
-        color: var(--nxt1-color-text-secondary);
-      }
-
-      .footer-text {
-        display: flex;
-        flex-direction: column;
-        gap: var(--nxt1-spacing-0-5);
-      }
-
-      .footer-title {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        color: var(--nxt1-color-text-primary);
-        margin: 0;
-      }
-
-      .footer-subtitle {
-        font-size: var(--nxt1-fontSize-xs);
-        color: var(--nxt1-color-text-tertiary);
-        margin: 0;
-      }
-
-      .contact-btn {
-        flex-shrink: 0;
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-medium);
-        color: var(--nxt1-color-text-onPrimary);
-        background: var(--nxt1-color-primary);
-        border: none;
-        border-radius: var(--nxt1-radius-md, 8px);
-        cursor: pointer;
-        transition: opacity var(--nxt1-transition-fast);
-
-        &:hover {
-          opacity: 0.9;
-        }
-      }
-
       /* ── RESPONSIVE ─────────────── */
 
       @media (max-width: 480px) {
@@ -419,28 +344,12 @@ interface FaqItem {
           flex-direction: column;
           gap: var(--nxt1-spacing-3);
         }
-
-        .help-footer {
-          flex-direction: column;
-          text-align: center;
-        }
-
-        .footer-content {
-          flex-direction: column;
-        }
-
-        .contact-btn {
-          width: 100%;
-        }
       }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsageHelpContentComponent {
-  /** Emitted when contact support is clicked */
-  readonly contactSupport = output<void>();
-
   /** Currently expanded FAQ item */
   protected readonly expandedFaq = signal<string | null>(null);
 
