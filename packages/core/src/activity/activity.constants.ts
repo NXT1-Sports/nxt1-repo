@@ -155,22 +155,6 @@ export const ACTIVITY_EMPTY_STATES: Record<
     message: 'Your recruiting stats and Agent X performance will appear here.',
     icon: 'bar-chart-outline',
   },
-  agent: {
-    title: 'No agent activity yet',
-    message: 'Updates related to your agents will appear here.',
-    icon: 'sparkles-outline',
-  },
-  inbox: {
-    title: 'Your inbox is empty',
-    message: 'Connect your email to see messages and updates here.',
-    icon: 'mail-outline',
-    ctaLabel: 'Connect Email',
-  },
-  all: {
-    title: 'No activity yet',
-    message: 'Your recent activity and notifications will appear here.',
-    icon: 'notifications-outline',
-  },
 } as const;
 
 // ============================================

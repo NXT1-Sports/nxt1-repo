@@ -10,7 +10,7 @@
  */
 
 import { Injectable, inject, signal, computed } from '@angular/core';
-import { isTeamRole } from '@nxt1/core';
+import { isTeamRole, type AgentDashboardGoal } from '@nxt1/core';
 import {
   type AgentGoal,
   type AgentConnection,
@@ -26,6 +26,7 @@ import { NxtLoggingService } from '../../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
+import { AgentXService } from '../agent-x.service';
 
 @Injectable({ providedIn: 'root' })
 export class AgentOnboardingService {
@@ -36,6 +37,7 @@ export class AgentOnboardingService {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly haptics = inject(HapticsService);
+  private readonly agentX = inject(AgentXService);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -435,6 +437,8 @@ export class AgentOnboardingService {
 
   /**
    * Complete the onboarding and submit data to backend.
+   * Saves goals via the Agent X API, then triggers initial playbook
+   * and briefing generation so the dashboard is populated on first load.
    */
   async completeOnboarding(): Promise<void> {
     this._isLoading.set(true);
@@ -443,16 +447,35 @@ export class AgentOnboardingService {
     this.breadcrumb.trackStateChange('agent-onboarding:completing');
 
     try {
+      const selectedGoals = this._goals();
       const payload: AgentOnboardingPayload = {
         program: this._programData() ?? undefined,
-        goals: this._goals(),
+        goals: selectedGoals,
         connectionIds: this._connections().map((c) => c.id),
         completedAt: new Date().toISOString(),
       };
 
-      // TODO: Wire to actual API
-      this.logger.info('Onboarding payload', { payload });
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      this.logger.info('Saving goals and generating initial plan', {
+        goalsCount: selectedGoals.length,
+      });
+
+      // 1. Save goals to backend via AgentXService
+      const dashboardGoals: AgentDashboardGoal[] = selectedGoals.map((g) => ({
+        id: g.id,
+        text: g.text,
+        category: g.category ?? 'custom',
+        createdAt: new Date().toISOString(),
+      }));
+      const goalsSaved = await this.agentX.setGoals(dashboardGoals);
+
+      if (!goalsSaved) {
+        throw new Error('Failed to save goals');
+      }
+
+      // 2. Generate initial briefing (non-blocking — if it fails, dashboard still works)
+      this.agentX
+        .generateBriefing(true)
+        .catch((err) => this.logger.warn('Initial briefing generation failed (non-critical)', err));
 
       this._isComplete.set(true);
       this._needsOnboarding.set(false);

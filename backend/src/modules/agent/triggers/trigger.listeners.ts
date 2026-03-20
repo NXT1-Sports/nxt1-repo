@@ -17,6 +17,7 @@
 
 import type { AgentTriggerEvent, SyncDeltaReport } from '@nxt1/core';
 import { AgentTriggerService } from './trigger.service.js';
+import { AgentGenerationService } from '../services/generation.service.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Lazy singleton — avoids eager Firestore access at module load time. */
@@ -24,6 +25,13 @@ let _triggerService: AgentTriggerService | null = null;
 function getTriggerService(): AgentTriggerService {
   if (!_triggerService) _triggerService = new AgentTriggerService();
   return _triggerService;
+}
+
+/** Lazy singleton for content generation. */
+let _generationService: AgentGenerationService | null = null;
+function getGenerationService(): AgentGenerationService {
+  if (!_generationService) _generationService = new AgentGenerationService();
+  return _generationService;
 }
 
 // ─── Database Event Listeners ───────────────────────────────────────────────
@@ -162,20 +170,88 @@ export async function onDailySyncComplete(delta: SyncDeltaReport): Promise<void>
   };
 
   await getTriggerService().processTrigger(event);
+
+  // ── Generate fresh playbook + briefing after sync ───────────────────────
+  // The trigger above enqueues reactive jobs (e.g. email follow-ups).
+  // Additionally, regenerate the user's daily content so the dashboard
+  // reflects the latest profile changes when they next open Agent X.
+  try {
+    await getGenerationService().generateDailyContent(delta.userId);
+    logger.info('[TriggerListener] Daily content generated after sync', {
+      userId: delta.userId,
+    });
+  } catch (genErr) {
+    // Generation failure is non-critical — the trigger job still ran
+    logger.error('[TriggerListener] Failed to generate daily content after sync', {
+      userId: delta.userId,
+      error: genErr instanceof Error ? genErr.message : String(genErr),
+    });
+  }
 }
 
 // ─── Cron / Scheduled Triggers ──────────────────────────────────────────────
 
 /**
  * Called by Cloud Scheduler every morning at 8:00 AM per timezone.
- * Fetches all premium users and enqueues daily briefings.
+ * Fetches all users with goals set and generates daily briefings + playbooks.
+ * Also fires batch triggers via the trigger service for reactive jobs.
  */
 export async function runDailyBriefings(): Promise<void> {
-  // TODO: Fetch all users with autonomousEnabled = true and subscriptionTier >= 'premium'
-  // const eligibleUserIds = await getUserIdsForCron('daily_briefing');
-  const eligibleUserIds: string[] = []; // Placeholder
+  const generation = getGenerationService();
 
+  // Fetch users who have agent goals set (they opted into Agent X)
+  let eligibleUserIds: string[] = [];
+  try {
+    const { getFirestore } = await import('firebase-admin/firestore');
+    const db = getFirestore();
+    const usersWithGoals = await db
+      .collection('users')
+      .where('agentGoals', '!=', [])
+      .select() // Only fetch doc IDs, not full documents
+      .get();
+
+    eligibleUserIds = usersWithGoals.docs.map((doc) => doc.id);
+  } catch (err) {
+    logger.error('[TriggerListener] Failed to fetch eligible users for daily briefings', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+
+  if (eligibleUserIds.length === 0) {
+    logger.info('[TriggerListener] No eligible users for daily briefings');
+    return;
+  }
+
+  logger.info('[TriggerListener] Running daily briefings', {
+    userCount: eligibleUserIds.length,
+  });
+
+  // Fire trigger events for reactive jobs (via BullMQ)
   await getTriggerService().processBatchTrigger('daily_briefing', eligibleUserIds);
+
+  // Generate content for each user (staggered to avoid LLM rate limits)
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const uid of eligibleUserIds) {
+    try {
+      await generation.generateDailyContent(uid);
+      successCount++;
+    } catch (err) {
+      failCount++;
+      logger.error('[TriggerListener] Daily content generation failed for user', {
+        userId: uid,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  logger.info('[TriggerListener] Daily briefings complete', {
+    total: eligibleUserIds.length,
+    success: successCount,
+    failed: failCount,
+  });
 }
 
 /**

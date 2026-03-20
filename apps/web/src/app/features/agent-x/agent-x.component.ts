@@ -35,7 +35,6 @@ import { ActivatedRoute } from '@angular/router';
 import { AgentXShellWebComponent } from '@nxt1/ui/agent-x/web';
 import { NxtAgentXLandingComponent, type AgentXUser } from '@nxt1/ui/agent-x';
 import { AgentXService } from '@nxt1/ui/agent-x';
-import { AgentOnboardingShellComponent, AgentOnboardingService } from '@nxt1/ui/agent-x/onboarding';
 import { NxtAgentXExecutionLayerSectionComponent } from '@nxt1/ui/components/agent-x-execution-layer-section';
 import { NxtAgentXWelcomeHeaderComponent } from '@nxt1/ui/components/agent-x-welcome-header';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
@@ -50,7 +49,6 @@ import { SeoService } from '../../core/services';
     NxtAgentXLandingComponent,
     NxtAgentXExecutionLayerSectionComponent,
     NxtAgentXWelcomeHeaderComponent,
-    AgentOnboardingShellComponent,
   ],
   template: `
     <!-- Auth-init mask: covers landing→shell flash while Firebase session resolves -->
@@ -59,13 +57,8 @@ import { SeoService } from '../../core/services';
     }
 
     @if (isAuthenticated()) {
-      @if (showOnboarding()) {
-        <!-- Authenticated users who haven't completed onboarding -->
-        <nxt1-agent-onboarding-shell (onboardingComplete)="onOnboardingComplete()" />
-      } @else {
-        <!-- Authenticated users: full Agent X shell -->
-        <nxt1-agent-x-shell-web [user]="userInfo()" [hideInput]="false" />
-      }
+      <!-- Authenticated users: full Agent X shell (goals check handled inside shell) -->
+      <nxt1-agent-x-shell-web [user]="userInfo()" [hideInput]="false" />
     } @else {
       <!-- Logged-out users: full-screen landing state only -->
       <div class="agent-landing-shell">
@@ -123,7 +116,6 @@ export class AgentXComponent implements OnInit {
   private readonly authFlow = inject(AuthFlowService);
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');
   private readonly seo = inject(SeoService);
-  private readonly onboarding = inject(AgentOnboardingService);
   private readonly route = inject(ActivatedRoute);
   private readonly agentX = inject(AgentXService);
   private readonly injector = inject(Injector);
@@ -156,9 +148,6 @@ export class AgentXComponent implements OnInit {
   /** Auth state — hard-gates shell visibility */
   protected readonly isAuthenticated = computed(() => this.authFlow.isAuthenticated());
 
-  /** Whether to show onboarding flow */
-  protected readonly showOnboarding = computed(() => this.onboarding.needsOnboarding());
-
   ngOnInit(): void {
     const isAuthenticated = this.authFlow.isAuthenticated();
 
@@ -170,15 +159,7 @@ export class AgentXComponent implements OnInit {
       noIndex: isAuthenticated, // Index for logged-out (SEO landing), noindex for logged-in
     });
 
-    // Initialize onboarding with user context
     if (isAuthenticated) {
-      const user = this.authFlow.user();
-      const role = user?.role ?? 'athlete';
-      // TODO: Check backend for onboarding completion status
-      const needsOnboarding = false; // Skip onboarding by default until backend flag is wired
-      this.onboarding.initialize(role, needsOnboarding);
-      this.logger.info('Agent X initialized', { role, needsOnboarding });
-
       // Load thread from deep link query param (?thread=<id>) — opens in bottom sheet
       const threadId = this.route.snapshot.queryParamMap.get('thread');
       if (threadId) {
@@ -186,14 +167,6 @@ export class AgentXComponent implements OnInit {
         this.agentX.queuePendingThread({ threadId, title: 'Agent X' });
       }
     }
-  }
-
-  /**
-   * Handle onboarding completion — transition to Agent X shell.
-   */
-  onOnboardingComplete(): void {
-    this.logger.info('Onboarding complete, transitioning to Agent X shell');
-    this.onboarding.markAsCompleted();
   }
 
   /**

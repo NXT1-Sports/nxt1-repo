@@ -56,6 +56,7 @@ interface AgentXBriefingPanelCloseResult {
         [title]="title()"
         closePosition="right"
         [showBorder]="true"
+        [showClose]="!required"
         (closeSheet)="dismiss()"
       />
 
@@ -566,6 +567,7 @@ export class AgentXBriefingPanelComponent implements OnInit {
 
   @Input() panel: AgentXBriefingPanelKind = 'status';
   @Input() presentation: AgentXBriefingPresentation = 'modal';
+  @Input() required = false;
 
   readonly title = computed(() => {
     switch (this.panel) {
@@ -585,7 +587,9 @@ export class AgentXBriefingPanelComponent implements OnInit {
       case 'budget':
         return 'Tune the budget ceiling, set an exact amount, and decide if Agent X should auto top-off.';
       case 'goals':
-        return 'Choose up to three priorities so Agent X knows what to optimize for first.';
+        return this.required
+          ? 'Pick at least one goal so Agent X knows what to work on for you.'
+          : 'Choose up to three priorities so Agent X knows what to optimize for first.';
     }
   });
 
@@ -675,6 +679,9 @@ export class AgentXBriefingPanelComponent implements OnInit {
   }
 
   dismiss(result: AgentXBriefingPanelCloseResult = { panel: this.panel }): void {
+    // Block dismiss without saving when required mode is active
+    if (this.required && !result.saved) return;
+
     if (this.presentation === 'sheet') {
       void this.modalController.dismiss(result, result.saved ? 'save' : 'dismiss');
       return;

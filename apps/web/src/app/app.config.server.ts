@@ -60,6 +60,7 @@ import {
 } from './features/auth/services/server-auth.service';
 import { SSR_AUTH_TOKEN, SSR_FIREBASE_CONFIG } from './features/auth/services/ssr-tokens';
 import { TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui/team-profile';
+import { AGENT_X_API_BASE_URL } from '@nxt1/ui/agent-x';
 
 // Environment for Firebase config
 import { environment } from '../environments/environment';
@@ -143,6 +144,10 @@ export const config: ApplicationConfig = {
     // Team Profile API — must use absolute URL in SSR context
     // Default factory falls back to '/api/v1' (relative) which breaks SSR
     { provide: TEAM_PROFILE_API_BASE_URL, useFactory: () => environment.apiURL },
+
+    // Agent X API — required by AgentXService (providedIn: 'root')
+    // Must use absolute URL in SSR context
+    { provide: AGENT_X_API_BASE_URL, useFactory: () => environment.apiURL },
 
     // Provide Firebase config for ServerAuthService
     // This is used to initialize FirebaseServerApp

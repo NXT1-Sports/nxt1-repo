@@ -53,6 +53,7 @@ import {
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
+import { ANALYTICS_DASHBOARD_API_ADAPTER } from './analytics-dashboard-api.service';
 
 /**
  * Analytics Dashboard state management service.
@@ -60,7 +61,7 @@ import { NxtLoggingService } from '../services/logging/logging.service';
  */
 @Injectable({ providedIn: 'root' })
 export class AnalyticsDashboardService implements OnDestroy {
-  // private readonly api = inject(AnalyticsDashboardApiService);
+  private readonly api = inject(ANALYTICS_DASHBOARD_API_ADAPTER);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('AnalyticsDashboardService');
@@ -73,6 +74,7 @@ export class AnalyticsDashboardService implements OnDestroy {
   private readonly _activeTab = signal<AnalyticsTabId>(ANALYTICS_DEFAULT_TAB);
   private readonly _selectedPeriod = signal<AnalyticsPeriod>(ANALYTICS_DEFAULT_PERIOD);
   private readonly _userRole = signal<AnalyticsUserRole>('athlete');
+  private readonly _userId = signal<string | null>(null);
   private readonly _isLoading = signal(true);
   private readonly _isRefreshing = signal(false);
   private readonly _error = signal<string | null>(null);
@@ -178,6 +180,7 @@ export class AnalyticsDashboardService implements OnDestroy {
   async initialize(role: AnalyticsUserRole, userId?: string): Promise<void> {
     this.logger.info('Initializing analytics', { role, userId });
     this._userRole.set(role);
+    if (userId) this._userId.set(userId);
     await this.loadReport(this._selectedPeriod(), false);
   }
 
@@ -211,11 +214,20 @@ export class AnalyticsDashboardService implements OnDestroy {
     this._selectedPeriod.set(period);
 
     try {
-      // TODO: Connect real API
-      // const report = await this.api.getReport({ userId, role, period });
+      const userId = this._userId();
 
-      // No data available yet
-      const report = null;
+      // Fetch from real API if we have a userId
+      let report: AnalyticsReport | null = null;
+      if (userId) {
+        const apiRole: 'athlete' | 'coach' = isTeamRole(role) ? 'coach' : 'athlete';
+        report = await this.api.getReport({
+          userId,
+          role: apiRole,
+          period,
+          includeDetails: true,
+          includeInsights: true,
+        });
+      }
 
       // Update cache
       this._cacheTimestamp = now;
@@ -227,7 +239,7 @@ export class AnalyticsDashboardService implements OnDestroy {
       this._lastRefresh.set(new Date());
       this._error.set(null);
 
-      this.logger.info('Analytics report loaded', { role, period });
+      this.logger.info('Analytics report loaded', { role, period, hasData: !!report });
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load analytics';
       this.logger.error('Failed to load analytics report', err);
@@ -300,6 +312,7 @@ export class AnalyticsDashboardService implements OnDestroy {
     this._report.set(null);
     this._activeTab.set(ANALYTICS_DEFAULT_TAB);
     this._selectedPeriod.set(ANALYTICS_DEFAULT_PERIOD);
+    this._userId.set(null);
     this._isLoading.set(true);
     this._isRefreshing.set(false);
     this._error.set(null);

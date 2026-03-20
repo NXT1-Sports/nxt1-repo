@@ -4,7 +4,8 @@
  *
  * Pure Vitest tests for createAgentXApi — no TestBed, no Angular.
  * Covers: sendMessage, getDashboard, setGoals, generatePlaybook,
- * getQuickTasks, getHistory, clearHistory.
+ * updatePlaybookItemStatus, generateBriefing, getQuickTasks,
+ * getHistory, clearHistory.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -14,6 +15,8 @@ import type {
   AgentXChatRequest,
   AgentDashboardData,
   AgentDashboardPlaybook,
+  AgentDashboardBriefing,
+  ShellWeeklyPlaybookItem,
 } from './agent-x.types';
 import { AGENT_X_ENDPOINTS } from './agent-x.constants';
 
@@ -288,6 +291,121 @@ describe('createAgentXApi', () => {
       vi.mocked(http.post).mockRejectedValue(new Error('Network failure'));
 
       const result = await api.generatePlaybook();
+
+      expect(result).toBeNull();
+    });
+  });
+
+  // ============================================
+  // updatePlaybookItemStatus
+  // ============================================
+
+  describe('updatePlaybookItemStatus', () => {
+    const mockItem: ShellWeeklyPlaybookItem = {
+      id: 'wp-1',
+      weekLabel: 'Mon',
+      title: 'Send emails',
+      summary: 'Reach out to coaches',
+      details: 'Draft and send emails to 5 coaches',
+      actionLabel: 'Send Emails',
+      status: 'complete',
+    };
+
+    it('should update item status to complete', async () => {
+      vi.mocked(http.post).mockResolvedValue({ success: true, data: mockItem });
+
+      const result = await api.updatePlaybookItemStatus('wp-1', 'complete');
+
+      expect(http.post).toHaveBeenCalledWith(
+        `${baseUrl}${AGENT_X_ENDPOINTS.PLAYBOOK_ITEM_STATUS}/wp-1/status`,
+        { status: 'complete' }
+      );
+      expect(result).toEqual(mockItem);
+    });
+
+    it('should return null on API failure', async () => {
+      vi.mocked(http.post).mockResolvedValue({ success: false, error: 'Not found' });
+
+      const result = await api.updatePlaybookItemStatus('wp-999', 'complete');
+
+      expect(result).toBeNull();
+    });
+
+    it('should return null on network error', async () => {
+      vi.mocked(http.post).mockRejectedValue(new Error('Network failure'));
+
+      const result = await api.updatePlaybookItemStatus('wp-1', 'in-progress');
+
+      expect(result).toBeNull();
+    });
+
+    it('should encode special characters in item ID', async () => {
+      vi.mocked(http.post).mockResolvedValue({
+        success: true,
+        data: { ...mockItem, id: 'id/with spaces' },
+      });
+
+      await api.updatePlaybookItemStatus('id/with spaces', 'complete');
+
+      expect(http.post).toHaveBeenCalledWith(
+        `${baseUrl}${AGENT_X_ENDPOINTS.PLAYBOOK_ITEM_STATUS}/${encodeURIComponent('id/with spaces')}/status`,
+        { status: 'complete' }
+      );
+    });
+  });
+
+  // ============================================
+  // generateBriefing
+  // ============================================
+
+  describe('generateBriefing', () => {
+    const mockBriefing: AgentDashboardBriefing = {
+      previewText: "Today's focus: recruiting outreach",
+      insights: [
+        {
+          id: 'bi-1',
+          text: 'You have 3 coaches to follow up with',
+          icon: 'mail-outline',
+          type: 'info',
+        },
+      ],
+      generatedAt: '2026-03-20T08:00:00Z',
+    };
+
+    it('should generate briefing without force flag', async () => {
+      vi.mocked(http.post).mockResolvedValue({ success: true, data: mockBriefing });
+
+      const result = await api.generateBriefing();
+
+      expect(http.post).toHaveBeenCalledWith(`${baseUrl}${AGENT_X_ENDPOINTS.BRIEFING_GENERATE}`, {
+        force: false,
+      });
+      expect(result).toEqual(mockBriefing);
+    });
+
+    it('should generate briefing with force flag', async () => {
+      vi.mocked(http.post).mockResolvedValue({ success: true, data: mockBriefing });
+
+      const result = await api.generateBriefing(true);
+
+      expect(http.post).toHaveBeenCalledWith(`${baseUrl}${AGENT_X_ENDPOINTS.BRIEFING_GENERATE}`, {
+        force: true,
+      });
+      expect(result).toEqual(mockBriefing);
+    });
+
+    it('should return null on API failure', async () => {
+      vi.mocked(http.post).mockResolvedValue({ success: false, error: 'Service unavailable' });
+
+      const result = await api.generateBriefing();
+
+      expect(result).toBeNull();
+    });
+
+    it('should return null on network error', async () => {
+      vi.mocked(http.post).mockRejectedValue(new Error('Network failure'));
+
+      const result = await api.generateBriefing();
 
       expect(result).toBeNull();
     });

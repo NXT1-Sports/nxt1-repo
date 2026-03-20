@@ -1081,7 +1081,8 @@ export class AnalyticsDashboardShellWebComponent implements OnInit {
   // ============================================
 
   ngOnInit(): void {
-    this.analytics.initialize(this.role());
+    const userId = this.user()?.uid ?? undefined;
+    this.analytics.initialize(this.role(), userId);
   }
 
   // ============================================

@@ -777,6 +777,10 @@ export const AGENT_X_ENDPOINTS = {
   GOALS: '/api/v1/agent-x/goals',
   /** Generate or regenerate the weekly playbook */
   PLAYBOOK_GENERATE: '/api/v1/agent-x/playbook/generate',
+  /** Update the status of a single playbook item */
+  PLAYBOOK_ITEM_STATUS: '/api/v1/agent-x/playbook/item',
+  /** Generate or refresh the AI daily briefing */
+  BRIEFING_GENERATE: '/api/v1/agent-x/briefing/generate',
   /** Operations activity log (paginated job history) */
   OPERATIONS_LOG: '/api/v1/agent-x/operations-log',
   /** Get messages for a specific thread */

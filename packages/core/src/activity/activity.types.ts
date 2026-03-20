@@ -17,7 +17,7 @@
  * - 'alerts' — Social and system alerts: likes, comments, follows, mentions, updates
  * - 'analytics' — Agent X performance stats and recruiting activity metrics
  */
-export type ActivityTabId = 'alerts' | 'analytics' | 'inbox' | 'agent' | 'all';
+export type ActivityTabId = 'alerts' | 'analytics';
 
 /**
  * Configuration for an activity tab.

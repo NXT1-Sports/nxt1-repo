@@ -29,6 +29,8 @@ import type {
   AgentDashboardData,
   AgentDashboardGoal,
   AgentDashboardPlaybook,
+  AgentDashboardBriefing,
+  ShellWeeklyPlaybookItem,
   AgentXStreamCallbacks,
   AgentXStreamThreadEvent,
   AgentXStreamDeltaEvent,
@@ -256,6 +258,46 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
       try {
         const response = await http.post<ApiResponse<AgentDashboardPlaybook>>(
           endpoint(AGENT_X_ENDPOINTS.PLAYBOOK_GENERATE),
+          { force }
+        );
+        return response.success ? (response.data ?? null) : null;
+      } catch {
+        return null;
+      }
+    },
+
+    /**
+     * Update the status of a single playbook item (e.g., mark as complete).
+     *
+     * @param itemId - The playbook item ID to update
+     * @param status - New status for the item
+     * @returns The updated item, or null on failure
+     */
+    async updatePlaybookItemStatus(
+      itemId: string,
+      status: ShellWeeklyPlaybookItem['status']
+    ): Promise<ShellWeeklyPlaybookItem | null> {
+      try {
+        const response = await http.post<ApiResponse<ShellWeeklyPlaybookItem>>(
+          `${endpoint(AGENT_X_ENDPOINTS.PLAYBOOK_ITEM_STATUS)}/${encodeURIComponent(itemId)}/status`,
+          { status }
+        );
+        return response.success ? (response.data ?? null) : null;
+      } catch {
+        return null;
+      }
+    },
+
+    /**
+     * Generate or refresh the AI daily briefing based on goals and recent activity.
+     *
+     * @param force - When true, regenerates even if a fresh briefing already exists
+     * @returns The generated briefing, or null on failure
+     */
+    async generateBriefing(force = false): Promise<AgentDashboardBriefing | null> {
+      try {
+        const response = await http.post<ApiResponse<AgentDashboardBriefing>>(
+          endpoint(AGENT_X_ENDPOINTS.BRIEFING_GENERATE),
           { force }
         );
         return response.success ? (response.data ?? null) : null;

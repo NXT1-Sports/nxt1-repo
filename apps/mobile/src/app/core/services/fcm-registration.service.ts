@@ -102,13 +102,13 @@ export class FcmRegistrationService {
         RegisterTokenResponse
       >(this.functions, 'registerFcmToken');
 
-      await registerFcmToken({ token, platform });
+      await registerFcmToken({ token: token!, platform });
 
       // Cache token for later unregister
       this.cachedToken = token;
       try {
         const { Preferences } = await import('@capacitor/preferences');
-        await Preferences.set({ key: this.STORAGE_KEY, value: token });
+        await Preferences.set({ key: this.STORAGE_KEY, value: token! });
       } catch (storageError) {
         this.logger.warn('Failed to cache FCM token', { error: storageError });
       }
