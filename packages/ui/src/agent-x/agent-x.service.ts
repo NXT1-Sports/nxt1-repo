@@ -42,6 +42,7 @@ import {
   type AgentDashboardData,
   type AgentDashboardGoal,
   type AgentDashboardPlaybook,
+  type AgentDashboardBriefing,
   type ShellBriefingInsight,
   type ShellWeeklyPlaybookItem,
   type ShellActiveOperation,
@@ -148,6 +149,7 @@ export class AgentXService {
   private readonly _playbookGeneratedAt = signal<string | null>(null);
   private readonly _canRegenerate = signal(false);
   private readonly _playbookGenerating = signal(false);
+  private readonly _briefingGenerating = signal(false);
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
@@ -212,6 +214,12 @@ export class AgentXService {
   readonly playbookGeneratedAt = computed(() => this._playbookGeneratedAt());
   readonly canRegenerate = computed(() => this._canRegenerate());
   readonly playbookGenerating = computed(() => this._playbookGenerating());
+  readonly briefingGenerating = computed(() => this._briefingGenerating());
+  readonly allTasksComplete = computed(
+    () =>
+      this._weeklyPlaybook().length > 0 &&
+      this._weeklyPlaybook().every((t) => t.status === 'complete')
+  );
 
   // ============================================
   // QUICK TASKS (by category)
@@ -913,6 +921,38 @@ export class AgentXService {
       this.toast.error('Failed to generate playbook');
     } finally {
       this._playbookGenerating.set(false);
+    }
+  }
+
+  /**
+   * Generate or refresh the daily briefing.
+   */
+  async generateBriefing(force = false): Promise<void> {
+    this._briefingGenerating.set(true);
+    this.logger.info('Generating briefing', { force });
+    this.breadcrumb.trackStateChange('agent-x:briefing-generating');
+
+    try {
+      const response = await firstValueFrom(
+        this.http.post<{ success: boolean; data?: AgentDashboardBriefing; error?: string }>(
+          `${this.baseUrl}/agent-x/briefing/generate`,
+          { force }
+        )
+      );
+
+      if (response.success && response.data) {
+        this._briefingInsights.set([...response.data.insights]);
+        this._briefingPreviewText.set(response.data.previewText);
+        this.logger.info('Briefing generated', { insightCount: response.data.insights.length });
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_DASHBOARD_VIEWED, {
+          hasGoals: this._goals().length > 0,
+          hasPlaybook: this._weeklyPlaybook().length > 0,
+        });
+      }
+    } catch (err) {
+      this.logger.error('Failed to generate briefing', err);
+    } finally {
+      this._briefingGenerating.set(false);
     }
   }
 

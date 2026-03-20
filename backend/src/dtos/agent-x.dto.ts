@@ -184,7 +184,7 @@ export class AgentGoalDto {
 export class SetGoalsDto {
   @IsArray()
   @IsNotEmpty()
-  @ArrayMaxSize(2, { message: 'Maximum 2 goals allowed' })
+  @ArrayMaxSize(3, { message: 'Maximum 3 goals allowed' })
   @ValidateNested({ each: true })
   @Type(() => AgentGoalDto)
   goals!: AgentGoalDto[];
@@ -254,6 +254,31 @@ export class UpdateGoalDto {
   @ArrayMaxSize(10)
   @IsString({ each: true })
   tags?: string[];
+}
+
+// ============================================
+// PLAYBOOK ITEM STATUS DTOs
+// ============================================
+
+export enum PlaybookItemStatus {
+  PENDING = 'pending',
+  IN_PROGRESS = 'in-progress',
+  COMPLETE = 'complete',
+  PROBLEM = 'problem',
+}
+
+export class UpdatePlaybookItemStatusDto {
+  @IsEnum(PlaybookItemStatus, {
+    message: 'Status must be one of: pending, in-progress, complete, problem',
+  })
+  @IsNotEmpty()
+  status!: PlaybookItemStatus;
+}
+
+export class GenerateBriefingDto {
+  @IsBoolean()
+  @IsOptional()
+  force?: boolean;
 }
 
 // ============================================

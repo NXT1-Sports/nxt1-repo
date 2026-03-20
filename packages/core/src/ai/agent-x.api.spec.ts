@@ -338,6 +338,20 @@ describe('createAgentXApi', () => {
 
       expect(result).toBeNull();
     });
+
+    it('should encode special characters in item ID', async () => {
+      vi.mocked(http.post).mockResolvedValue({
+        success: true,
+        data: { ...mockItem, id: 'id/with spaces' },
+      });
+
+      await api.updatePlaybookItemStatus('id/with spaces', 'complete');
+
+      expect(http.post).toHaveBeenCalledWith(
+        `${baseUrl}${AGENT_X_ENDPOINTS.PLAYBOOK_ITEM_STATUS}/${encodeURIComponent('id/with spaces')}/status`,
+        { status: 'complete' }
+      );
+    });
   });
 
   // ============================================
@@ -363,10 +377,9 @@ describe('createAgentXApi', () => {
 
       const result = await api.generateBriefing();
 
-      expect(http.post).toHaveBeenCalledWith(
-        `${baseUrl}${AGENT_X_ENDPOINTS.BRIEFING_GENERATE}`,
-        { force: false }
-      );
+      expect(http.post).toHaveBeenCalledWith(`${baseUrl}${AGENT_X_ENDPOINTS.BRIEFING_GENERATE}`, {
+        force: false,
+      });
       expect(result).toEqual(mockBriefing);
     });
 
@@ -375,10 +388,9 @@ describe('createAgentXApi', () => {
 
       const result = await api.generateBriefing(true);
 
-      expect(http.post).toHaveBeenCalledWith(
-        `${baseUrl}${AGENT_X_ENDPOINTS.BRIEFING_GENERATE}`,
-        { force: true }
-      );
+      expect(http.post).toHaveBeenCalledWith(`${baseUrl}${AGENT_X_ENDPOINTS.BRIEFING_GENERATE}`, {
+        force: true,
+      });
       expect(result).toEqual(mockBriefing);
     });
 
