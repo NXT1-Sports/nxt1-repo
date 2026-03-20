@@ -72,6 +72,9 @@ export class ActivityService {
   private readonly _badges = signal<Record<ActivityTabId, number>>({
     alerts: 0,
     analytics: 0,
+    agent: 0,
+    inbox: 0,
+    all: 0,
   });
   private readonly _isLoading = signal(false);
   private readonly _isLoadingMore = signal(false);

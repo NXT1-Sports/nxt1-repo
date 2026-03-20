@@ -141,6 +141,7 @@ router.get('/feed', appGuard, async (req: Request, res: Response) => {
       inbox: allActive.filter((i) => i.tab === 'inbox').length,
       agent: allActive.filter((i) => i.tab === 'agent').length,
       alerts: allActive.filter((i) => i.tab === 'alerts').length,
+      analytics: allActive.filter((i) => i.tab === 'analytics').length,
     };
 
     res.json({
@@ -180,6 +181,7 @@ router.get('/badges', appGuard, async (req: Request, res: Response) => {
       inbox: allActive.filter((i) => i.tab === 'inbox').length,
       agent: allActive.filter((i) => i.tab === 'agent').length,
       alerts: allActive.filter((i) => i.tab === 'alerts').length,
+      analytics: allActive.filter((i) => i.tab === 'analytics').length,
     };
 
     res.json({ success: true, badges });
@@ -210,6 +212,7 @@ router.get('/summary', appGuard, async (req: Request, res: Response) => {
       inbox: unread.filter((i) => i.tab === 'inbox').length,
       agent: unread.filter((i) => i.tab === 'agent').length,
       alerts: unread.filter((i) => i.tab === 'alerts').length,
+      analytics: unread.filter((i) => i.tab === 'analytics').length,
     };
 
     // Most recent timestamp
@@ -315,6 +318,7 @@ router.post(
         inbox: unread.filter((i) => i.tab === 'inbox').length,
         agent: unread.filter((i) => i.tab === 'agent').length,
         alerts: unread.filter((i) => i.tab === 'alerts').length,
+        analytics: unread.filter((i) => i.tab === 'analytics').length,
       };
 
       res.json({ success: true, count: ids.length, badges });
@@ -364,6 +368,7 @@ router.post(
           inbox: unread.filter((i) => i.tab === 'inbox').length,
           agent: unread.filter((i) => i.tab === 'agent').length,
           alerts: unread.filter((i) => i.tab === 'alerts').length,
+          analytics: unread.filter((i) => i.tab === 'analytics').length,
         };
         res.json({ success: true, count: 0, badges });
         return;
@@ -390,6 +395,7 @@ router.post(
         inbox: unread.filter((i) => i.tab === 'inbox').length,
         agent: unread.filter((i) => i.tab === 'agent').length,
         alerts: unread.filter((i) => i.tab === 'alerts').length,
+        analytics: unread.filter((i) => i.tab === 'analytics').length,
       };
 
       res.json({ success: true, count, badges });

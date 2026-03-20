@@ -49,6 +49,7 @@
     "@capacitor-community/apple-sign-in": "^7.1.0",
     "@capacitor-firebase/authentication": "^8.0.1",
     "@capacitor-firebase/crashlytics": "^8.0.1",
+    "@capacitor-firebase/messaging": "^8.1.0",
     "@capacitor-firebase/performance": "^8.0.1",
     "@capacitor/action-sheet": "^8.0.0",
     "@capacitor/android": "^8.0.1",

@@ -43,6 +43,9 @@ PODS:
   - CapacitorFirebaseCrashlytics (8.0.1):
     - Capacitor
     - FirebaseCrashlytics (~> 12.7.0)
+  - CapacitorFirebaseMessaging (8.1.0):
+    - Capacitor
+    - FirebaseMessaging (~> 12.7.0)
   - CapacitorFirebasePerformance (8.0.1):
     - Capacitor
     - FirebasePerformance (~> 12.7.0)
@@ -104,6 +107,15 @@ PODS:
     - GoogleUtilities/Environment (~> 8.1)
     - GoogleUtilities/UserDefaults (~> 8.1)
     - PromisesObjC (~> 2.4)
+  - FirebaseMessaging (12.7.0):
+    - FirebaseCore (~> 12.7.0)
+    - FirebaseInstallations (~> 12.7.0)
+    - GoogleDataTransport (~> 10.1)
+    - GoogleUtilities/AppDelegateSwizzler (~> 8.1)
+    - GoogleUtilities/Environment (~> 8.1)
+    - GoogleUtilities/Reachability (~> 8.1)
+    - GoogleUtilities/UserDefaults (~> 8.1)
+    - nanopb (~> 3.30910.0)
   - FirebasePerformance (12.7.0):
     - FirebaseCore (~> 12.7.0)
     - FirebaseInstallations (~> 12.7.0)
@@ -204,6 +216,7 @@ DEPENDENCIES:
   - "CapacitorFirebaseAuthentication (from `../../../../node_modules/@capacitor-firebase/authentication`)"
   - "CapacitorFirebaseAuthentication/Google (from `../../../../node_modules/@capacitor-firebase/authentication`)"
   - "CapacitorFirebaseCrashlytics (from `../../../../node_modules/@capacitor-firebase/crashlytics`)"
+  - "CapacitorFirebaseMessaging (from `../../../../node_modules/@capacitor-firebase/messaging`)"
   - "CapacitorFirebasePerformance (from `../../../../node_modules/@capacitor-firebase/performance`)"
   - "CapacitorGeolocation (from `../../../../node_modules/@capacitor/geolocation`)"
   - "CapacitorHaptics (from `../../../../node_modules/@capacitor/haptics`)"
@@ -231,6 +244,7 @@ SPEC REPOS:
     - FirebaseCoreInternal
     - FirebaseCrashlytics
     - FirebaseInstallations
+    - FirebaseMessaging
     - FirebasePerformance
     - FirebaseRemoteConfig
     - FirebaseRemoteConfigInterop
@@ -274,6 +288,8 @@ EXTERNAL SOURCES:
     :path: "../../../../node_modules/@capacitor-firebase/authentication"
   CapacitorFirebaseCrashlytics:
     :path: "../../../../node_modules/@capacitor-firebase/crashlytics"
+  CapacitorFirebaseMessaging:
+    :path: "../../../../node_modules/@capacitor-firebase/messaging"
   CapacitorFirebasePerformance:
     :path: "../../../../node_modules/@capacitor-firebase/performance"
   CapacitorGeolocation:
@@ -316,6 +332,7 @@ SPEC CHECKSUMS:
   CapacitorFilesystem: f2b2caa158383b3f568383b33e47296f7c48c470
   CapacitorFirebaseAuthentication: cb5ddfd40d28ae8522b9af25741ba62eaa939501
   CapacitorFirebaseCrashlytics: 9498eaa61bdcc42971392747c221a407c38ddc5e
+  CapacitorFirebaseMessaging: 000e9eb39f2cebcf89afeff5c9e056980ed0014e
   CapacitorFirebasePerformance: 859956f5d5716d57d5dc98332dc2ee460f8a0158
   CapacitorGeolocation: 7132de914f9d853ec4642dc1d36e4e2018a4e8a8
   CapacitorHaptics: 2079d9fa04c5a71e18663b4722323c304c58245c
@@ -337,6 +354,7 @@ SPEC CHECKSUMS:
   FirebaseCoreInternal: 571a2dd8c975410966199623351db3a3265c874d
   FirebaseCrashlytics: 9ce9ce4bb179e31ab91a937d0a73d302a9752d1b
   FirebaseInstallations: 6d05424a046b68ca146b4de4376f05b4e9262fc3
+  FirebaseMessaging: b5f7bdc62b91b6102015991fb7bc6fa75f643908
   FirebasePerformance: 1e9dee39624d5b7eabbea63a65594a464198a908
   FirebaseRemoteConfig: 555e7aea9d097d9eaa5b761522f607c353964988
   FirebaseRemoteConfigInterop: 0bae7d21510b3a0a79af727961c4973aac585add
@@ -356,6 +374,6 @@ SPEC CHECKSUMS:
   RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
   RecognizebvCapacitorPluginMsauth: c108ed22d9d2329bc729661356f9fce24354e2c2
 
-PODFILE CHECKSUM: 2a3cf4b04d2bd6b24061aedb37d3711ea32941f8
+PODFILE CHECKSUM: fd125cdf3e3ba1cfcdf44ef60aa782f108ad2a9f
 
 COCOAPODS: 1.16.2

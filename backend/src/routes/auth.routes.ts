@@ -2175,13 +2175,26 @@ router.post(
         validationError([
           {
             field: 'serverAuthCode',
-            message: 'Either serverAuthCode (native) or accessToken (web) is required',
+            message: 'Either serverAuthCode (native/mobile) or accessToken (web) is required',
             rule: 'required',
           },
         ])
       );
       return;
     }
+
+    // Pick Google OAuth web client credentials based on environment.
+    // For native serverAuthCode exchange, the client_id MUST be the web client
+    // that was used as the server client during Google Sign-In on the device.
+    const googleClientId = req.isStaging
+      ? (process.env['STAGING_CLIENT_ID'] ?? process.env['CLIENT_ID'] ?? '')
+      : (process.env['CLIENT_ID'] ?? '');
+    const googleClientSecret = process.env['CLIENT_SECRET'] ?? '';
+
+    logger.debug('[Google Connect Gmail] Environment config', {
+      isStaging: req.isStaging,
+      clientId: googleClientId.substring(0, 20) + '...',
+    });
 
     /**
      * Write Gmail token + connectedEmails metadata to Firestore with retry.
@@ -2273,12 +2286,13 @@ router.post(
     });
 
     // Exchange authorization code for tokens.
-    // redirect_uri MUST be empty string for native mobile code exchange.
+    // For native mobile serverAuthCode: redirect_uri MUST be empty string.
+    // Google Sign-In SDK (iOS/Android) issues server auth codes with no redirect URI.
     const tokenEndpoint = 'https://oauth2.googleapis.com/token';
     const params = new URLSearchParams({
       code: serverAuthCode!,
-      client_id: process.env['CLIENT_ID'] ?? '',
-      client_secret: process.env['CLIENT_SECRET'] ?? '',
+      client_id: googleClientId,
+      client_secret: googleClientSecret,
       grant_type: 'authorization_code',
       redirect_uri: '',
     });

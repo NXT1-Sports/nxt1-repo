@@ -4,10 +4,9 @@
  * @version 1.0.0
  *
  * Handles connecting Gmail, Microsoft, and Yahoo email accounts for inbox sync.
- * Uses native OAuth flows with proper account selection:
- * - Gmail: Uses Firebase Authentication with Google provider (shows account picker)
- * - Microsoft: Uses @recognizebv/capacitor-plugin-msauth (shows account picker)
- * - Yahoo: Uses Capacitor Browser for OAuth redirect flow
+ * - Gmail: Uses @capacitor-firebase/authentication signInWithGoogle (serverAuthCode flow)
+ * - Microsoft: Uses Browser OAuth authorization code flow (system browser)
+ * - Yahoo: Uses Capacitor Browser OAuth redirect flow
  *
  * Features:
  * - Native account selection UI
@@ -19,7 +18,6 @@
 import { Injectable, inject } from '@angular/core';
 import { getAuth } from '@angular/fire/auth';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
-import { MsAuthPlugin } from '@recognizebv/capacitor-plugin-msauth';
 import { Browser } from '@capacitor/browser';
 import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
@@ -38,7 +36,6 @@ import {
 import type { InboxEmailProvider } from '@nxt1/core';
 import { environment } from '../../../../environments/environment';
 import { ProfileService } from '../../../core/services/profile.service';
-import { getAuth as getFirebaseAuth } from '@angular/fire/auth';
 
 /**
  * Mobile Email Connection Service
@@ -92,9 +89,13 @@ export class MobileEmailConnectionService {
   // ============================================
 
   /**
-   * Connect Gmail account using Firebase Authentication.
-   * Shows native Google account picker on device.
-   * Only available on iOS/Android native platforms.
+   * Connect Gmail account using @capacitor-firebase/authentication signInWithGoogle.
+   * Obtains a serverAuthCode which the backend exchanges for a long-lived refresh token.
+   *
+   * Token capture strategy:
+   * - Capture idToken BEFORE signInWithGoogle (original user token — not affected by Google sign-in)
+   * - signInWithGoogle may update Firebase auth state on device, but the pre-captured
+   *   idToken remains cryptographically valid for the original UID for its 1-hour lifetime
    */
   private async _connectGmail(userId: string): Promise<void> {
     this.logger.info('Starting Gmail connection flow');
@@ -106,16 +107,17 @@ export class MobileEmailConnectionService {
       );
     }
 
-    // Get Firebase ID token for backend authentication
+    // Capture idToken BEFORE signInWithGoogle to preserve the original user's auth token.
+    // signInWithGoogle (skipNativeAuth:false) refreshes Firebase auth state on device;
+    // capturing beforehand ensures we send the correct user's token to the backend.
     const auth = getAuth();
-    const idToken = await auth.currentUser?.getIdToken();
-
-    if (!idToken) {
+    if (!auth.currentUser) {
       throw new Error('Failed to get authentication token. Please sign in again.');
     }
+    const idToken = await auth.currentUser.getIdToken();
 
-    // Sign in with Google to get OAuth credentials
-    // This shows native account picker on iOS/Android
+    // Sign in with Google to obtain serverAuthCode.
+    // Shows native Google account picker on iOS/Android.
     const result = await FirebaseAuthentication.signInWithGoogle({
       scopes: [
         'email',
@@ -137,7 +139,9 @@ export class MobileEmailConnectionService {
       email: result.user?.email,
     });
 
-    // Send credentials to backend
+    // Send credentials to backend using original user's idToken.
+    // redirect_uri is intentionally omitted for the native serverAuthCode exchange
+    // (Google token endpoint requires empty/absent redirect_uri for native codes).
     await this._sendToBackend('/auth/google/connect-gmail', idToken, {
       serverAuthCode: result.credential.serverAuthCode,
       accessToken: result.credential.accessToken,
@@ -157,9 +161,10 @@ export class MobileEmailConnectionService {
   // ============================================
 
   /**
-   * Connect Microsoft account using MSAL plugin.
-   * Shows native Microsoft account picker on device.
-   * Only available on iOS/Android native platforms.
+   * Connect Microsoft (Outlook) account using Browser-based OAuth authorization code flow.
+   * Opens the system browser for Microsoft sign-in, then captures the redirect back to the app.
+   * Requires `nxt1sports://microsoft/callback` to be registered in Azure AD as a redirect URI
+   * under "Mobile and desktop applications > Custom redirect URIs".
    */
   private async _connectMicrosoft(userId: string): Promise<void> {
     this.logger.info('Starting Microsoft connection flow');
@@ -186,38 +191,80 @@ export class MobileEmailConnectionService {
       throw new Error('Failed to get authentication token. Please sign in again.');
     }
 
-    // Sign in with Microsoft to get access token
-    // This shows native Microsoft account picker
-    const result = await MsAuthPlugin.login({
-      clientId: environment.msClientId,
-      tenant: 'common',
-      scopes: [
-        'User.Read',
-        'Mail.Send',
-        'Mail.Read',
-        'offline_access', // Required for refresh token
-      ],
-    });
+    // Build OAuth URL (authorization code flow, same pattern as Yahoo)
+    const redirectUri = `${environment.appScheme}://microsoft/callback`;
+    const oauthUrl = new URL('https://login.microsoftonline.com/common/oauth2/v2.0/authorize');
+    oauthUrl.searchParams.set('client_id', environment.msClientId);
+    oauthUrl.searchParams.set('redirect_uri', redirectUri);
+    oauthUrl.searchParams.set('response_type', 'code');
+    oauthUrl.searchParams.set('response_mode', 'query');
+    oauthUrl.searchParams.set('scope', 'User.Read Mail.Send Mail.Read offline_access');
+    oauthUrl.searchParams.set('state', userId);
+    oauthUrl.searchParams.set('prompt', 'select_account');
 
-    if (!result.accessToken) {
-      throw new Error(
-        'Failed to get Microsoft credentials. Please try again or check app permissions.'
+    this.logger.debug('Opening Microsoft OAuth URL', { redirectUri });
+
+    // Set up app URL listener for redirect callback
+    const authCode = await new Promise<string>((resolve, reject) => {
+      let resolved = false;
+      let listenerHandle: Awaited<ReturnType<typeof App.addListener>> | null = null;
+
+      const timeout = setTimeout(
+        () => {
+          if (!resolved) {
+            resolved = true;
+            void listenerHandle?.remove();
+            reject(new Error('Microsoft authentication timed out. Please try again.'));
+          }
+        },
+        5 * 60 * 1000 // 5 minutes
       );
-    }
 
-    this.logger.debug('Got Microsoft credentials', {
-      hasAccessToken: !!result.accessToken,
-      hasIdToken: !!result.idToken,
+      void (async () => {
+        listenerHandle = await App.addListener('appUrlOpen', (data: { url: string }) => {
+          if (!resolved && data.url.startsWith(redirectUri)) {
+            resolved = true;
+            clearTimeout(timeout);
+            void listenerHandle?.remove();
+            void Browser.close();
+
+            const url = new URL(data.url);
+            const code = url.searchParams.get('code');
+            const error = url.searchParams.get('error');
+
+            if (error) {
+              reject(
+                new Error(
+                  error === 'access_denied'
+                    ? 'Microsoft authentication was canceled'
+                    : `Microsoft authentication failed: ${error}`
+                )
+              );
+            } else if (code) {
+              resolve(code);
+            } else {
+              reject(new Error('No authorization code received from Microsoft'));
+            }
+          }
+        });
+      })();
+
+      // Open system browser for OAuth
+      void Browser.open({
+        url: oauthUrl.toString(),
+        presentationStyle: 'popover',
+      });
     });
 
-    // Send credentials to backend
+    this.logger.debug('Got Microsoft authorization code');
+
+    // Send code to backend for token exchange
     await this._sendToBackend('/auth/microsoft/connect-mail', idToken, {
-      accessToken: result.accessToken,
+      code: authCode,
+      redirectUri,
     });
 
-    this.logger.info('Microsoft connected successfully', {
-      userId,
-    });
+    this.logger.info('Microsoft connected successfully', { userId });
 
     // Reload profile to update connectedEmails in UI
     await this.profileService.load(userId);

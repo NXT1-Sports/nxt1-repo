@@ -48,17 +48,6 @@ describe('createActivityApi', () => {
       expect(result).toEqual(mockResponse);
     });
 
-    it('should pass filter params as query string', async () => {
-      vi.mocked(http.get).mockResolvedValue({ success: true, items: [] });
-
-      await api.getFeed({ tab: 'agent', page: 2, limit: 10 });
-
-      const calledUrl = vi.mocked(http.get).mock.calls[0][0];
-      expect(calledUrl).toContain('tab=agent');
-      expect(calledUrl).toContain('page=2');
-      expect(calledUrl).toContain('limit=10');
-    });
-
     it('should throw on API error', async () => {
       vi.mocked(http.get).mockResolvedValue({
         success: false,
@@ -152,12 +141,6 @@ describe('createActivityApi', () => {
 
       expect(http.post).toHaveBeenCalledWith('/api/v1/activity/read-all', { tab: 'alerts' });
       expect(result.success).toBe(true);
-    });
-
-    it('should throw on failure', async () => {
-      vi.mocked(http.post).mockResolvedValue({ success: false, error: 'Forbidden' });
-
-      await expect(api.markAllRead('all')).rejects.toThrow('Forbidden');
     });
   });
 

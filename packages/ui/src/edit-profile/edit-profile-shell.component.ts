@@ -41,15 +41,20 @@ import {
 import { EditProfileService } from './edit-profile.service';
 import { EditProfileSkeletonComponent } from './edit-profile-skeleton.component';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
-import { NxtIconComponent } from '../components/icon';
+import { NxtIconComponent, type IconName } from '../components/icon';
 import { NxtMediaGalleryComponent } from '../components/media-gallery';
 import { NxtListSectionComponent } from '../components/list-section';
 import { NxtListRowComponent } from '../components/list-row';
 import {
   ConnectedAccountsSheetComponent,
-  DEFAULT_PLATFORMS,
   type ConnectedSource,
 } from '../components/connected-sources';
+import {
+  PLATFORM_REGISTRY,
+  PLATFORM_CATEGORIES,
+  getPlatformFaviconUrl,
+  getRecommendedPlatforms,
+} from '@nxt1/core/api';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 
 import { NxtToastService } from '../services/toast/toast.service';
@@ -620,17 +625,127 @@ export class EditProfileShellComponent implements OnInit {
     const data = this.profile.formData();
     const links = data?.socialLinks?.links ?? [];
 
-    return DEFAULT_PLATFORMS.map((platform) => {
+    // Use PLATFORM_REGISTRY to show all available platforms (global scope)
+    const globalPlatforms = PLATFORM_REGISTRY.filter((p) => p.scope === 'global');
+
+    return globalPlatforms.map((platform) => {
       const match = links.find((l) => l.platform === platform.platform);
       if (match?.url) {
-        return { ...platform, connected: true, username: match.username, url: match.url };
+        return {
+          platform: platform.platform,
+          label: platform.label,
+          icon: platform.icon as IconName,
+          connected: true,
+          username: match.username,
+          url: match.url,
+          connectionType: platform.connectionType,
+          faviconUrl: getPlatformFaviconUrl(platform.platform) ?? undefined,
+        };
       }
-      return platform;
+      return {
+        platform: platform.platform,
+        label: platform.label,
+        icon: platform.icon as IconName,
+        connected: false,
+        connectionType: platform.connectionType,
+        faviconUrl: getPlatformFaviconUrl(platform.platform) ?? undefined,
+      };
     });
   });
 
+  /** Build platform groups similar to onboarding: Recommended + Categories */
+  protected readonly platformGroups = computed<
+    readonly { key: string; label: string; sources: readonly ConnectedSource[] }[]
+  >(() => {
+    const data = this.profile.formData();
+    const rawUser = this.profile.rawUserData();
+    const links = data?.socialLinks?.links ?? [];
+    const sport = data?.sportsInfo?.sport;
+    const userType = rawUser?.userType; // 'athlete' | 'coach' | 'director' | 'fan'
+
+    // Normalize sport display name → key (e.g. "Football Mens" → "football")
+    const sportKey = sport
+      ? sport
+          .toLowerCase()
+          .replace(/\s*(mens|womens)$/i, '')
+          .trim()
+          .replace(/\s*&\s*/g, '_')
+          .replace(/\s+/g, '_')
+      : null;
+
+    const groups: { key: string; label: string; sources: ConnectedSource[] }[] = [];
+
+    // ---- 1. Collect all platforms (global link + sport-scoped link) ----
+    const globalLinkPlatforms = PLATFORM_REGISTRY.filter(
+      (p) => p.scope === 'global' && p.connectionType === 'link'
+    );
+    const sportPlatforms = sportKey
+      ? PLATFORM_REGISTRY.filter((p) => {
+          if (p.scope !== 'sport' || p.connectionType !== 'link') return false;
+          if (p.sports.length === 0) return true;
+          return p.sports.some((ps) => sportKey.startsWith(ps) || ps.startsWith(sportKey));
+        })
+      : [];
+
+    const linkPlatforms = [...globalLinkPlatforms, ...sportPlatforms];
+
+    // Helper to convert platform to ConnectedSource (handles scoped link lookup)
+    const toSource = (platform: (typeof PLATFORM_REGISTRY)[0]): ConnectedSource => {
+      const match = links.find((l) => {
+        if (l.platform !== platform.platform) return false;
+        if (platform.scope === 'sport') {
+          return l.scopeType === 'sport' && l.scopeId === sportKey;
+        }
+        return !l.scopeType || l.scopeType === 'global';
+      });
+      return {
+        platform: platform.platform,
+        label: platform.label,
+        icon: platform.icon as IconName,
+        connected: !!match?.url,
+        username: match?.username,
+        url: match?.url,
+        connectionType: platform.connectionType,
+        scopeType: platform.scope,
+        scopeId: platform.scope === 'sport' ? (sportKey ?? undefined) : undefined,
+        faviconUrl: getPlatformFaviconUrl(platform.platform) ?? undefined,
+      };
+    };
+
+    // ---- 2. Recommended group (if we have userType and sport) ----
+    if (userType && sport) {
+      const allIds = new Set(linkPlatforms.map((p) => p.platform));
+      const recommended = getRecommendedPlatforms(userType, [sport], 'link');
+      const filteredRecommended = recommended.filter((p) => allIds.has(p.platform));
+
+      if (filteredRecommended.length > 0) {
+        groups.push({
+          key: 'recommended-link',
+          label: 'Recommended',
+          sources: filteredRecommended.map(toSource),
+        });
+      }
+    }
+
+    // ---- 3. Link platforms grouped by category ----
+    for (const cat of PLATFORM_CATEGORIES) {
+      const catPlatforms = linkPlatforms.filter((p) => p.category === cat.category);
+      if (catPlatforms.length > 0) {
+        groups.push({
+          key: `${cat.category}-link`,
+          label: cat.label,
+          sources: catPlatforms.map(toSource),
+        });
+      }
+    }
+
+    return groups;
+  });
+
   protected readonly connectedCount = computed(
-    () => this.connectedSources().filter((s) => s.connected).length
+    () =>
+      (this.profile.formData()?.socialLinks?.links ?? []).filter((l) => !!l.url || !!l.username)
+        .length
   );
 
   ngOnInit(): void {
@@ -696,7 +811,9 @@ export class EditProfileShellComponent implements OnInit {
     }>({
       component: ConnectedAccountsSheetComponent,
       ...SHEET_PRESETS.TALL,
-      componentProps: { initialSources: this.connectedSources() },
+      componentProps: {
+        platformGroups: this.platformGroups(),
+      },
       showHandle: true,
     });
 
@@ -932,7 +1049,11 @@ export class EditProfileShellComponent implements OnInit {
       if (file.size > MAX_IMAGE_SIZE) {
         this.toast.warning(`${file.name} is larger than 5MB.`);
         // Remove preview for failed upload
-        if (previewUrls[i]) {
+        const currentImages = this.carouselImages();
+        const indexToRemove = currentImages.indexOf(previewUrls[i]);
+        if (indexToRemove >= 0) {
+          const updatedImages = currentImages.filter((_, idx) => idx !== indexToRemove);
+          this.profile.updatePhotoGallery(updatedImages);
           URL.revokeObjectURL(previewUrls[i]);
         }
         continue;
@@ -940,35 +1061,30 @@ export class EditProfileShellComponent implements OnInit {
 
       try {
         // Upload to Firebase Storage and get permanent URL
+        // Keep the object URL in the gallery - don't replace it
         const result = await this.profile.uploadPhoto(userId, 'profile', file);
         uploadedUrls.push(result.url);
 
-        // Clean up preview URL after successful upload
-        if (previewUrls[i]) {
-          URL.revokeObjectURL(previewUrls[i]);
-        }
+        // NOTE: We intentionally keep the object URL and don't replace it with the real URL
+        // This prevents re-rendering the image after successful upload
+        // The real URL will be used only when the component is re-initialized
       } catch (error) {
         this.logger.error('Failed to upload profile image', error, { fileName: file.name });
         this.toast.error(`Could not upload ${file.name}.`);
 
-        // Clean up preview URL for failed upload
-        if (previewUrls[i]) {
+        // Remove preview for failed upload
+        const currentImages = this.carouselImages();
+        const indexToRemove = currentImages.indexOf(previewUrls[i]);
+        if (indexToRemove >= 0) {
+          const updatedImages = currentImages.filter((_, idx) => idx !== indexToRemove);
+          this.profile.updatePhotoGallery(updatedImages);
           URL.revokeObjectURL(previewUrls[i]);
         }
       }
     }
 
     if (uploadedUrls.length > 0) {
-      // Replace preview URLs with permanent Firebase Storage URLs
-      const currentImages = this.carouselImages();
-      const permanentImages = currentImages.slice(0, -previewUrls.length).concat(uploadedUrls);
-      this.profile.updatePhotoGallery(permanentImages);
       this.toast.success(`Uploaded ${uploadedUrls.length} image(s)`);
-    } else if (previewUrls.length > 0) {
-      // All uploads failed - remove preview URLs
-      const currentImages = this.carouselImages();
-      const cleanImages = currentImages.slice(0, -previewUrls.length);
-      this.profile.updatePhotoGallery(cleanImages);
     }
 
     if (files.length > availableSlots) {

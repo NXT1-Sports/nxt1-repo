@@ -17,21 +17,24 @@ import {
   OnInit,
   signal,
 } from '@angular/core';
-import { IonContent, ModalController } from '@ionic/angular/standalone';
+import { ModalController } from '@ionic/angular/standalone';
 import { NxtSheetHeaderComponent } from '../bottom-sheet/sheet-header.component';
-import { NxtIconComponent } from '../icon';
 import { NxtModalService } from '../../services/modal';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { LINK_SOURCES_TEST_IDS } from '@nxt1/core/testing';
-import type { ConnectedSource } from './connected-sources.component';
+import {
+  NxtConnectedSourcesComponent,
+  type ConnectedSource,
+  type ConnectedSourceTapEvent,
+} from './connected-sources.component';
 
 @Component({
   selector: 'nxt1-connected-accounts-sheet',
   standalone: true,
-  imports: [IonContent, NxtSheetHeaderComponent, NxtIconComponent],
+  imports: [NxtSheetHeaderComponent, NxtConnectedSourcesComponent],
   template: `
     <nxt1-sheet-header
       title="Connected Accounts"
@@ -56,35 +59,28 @@ import type { ConnectedSource } from './connected-sources.component';
       }
     </nxt1-sheet-header>
 
-    <ion-content [fullscreen]="true" class="nxt1-sheet-content">
+    <div class="nxt1-sheet-scroll">
       <div class="nxt1-sheet-body">
-        @for (source of sources(); track source.platform) {
-          <button type="button" class="nxt1-source-row" (click)="editSource(source)">
-            <div class="nxt1-source-left">
-              <div class="nxt1-source-icon" [class.nxt1-source-icon--connected]="source.connected">
-                <nxt1-icon [name]="source.icon" [size]="18" />
-              </div>
-              <span class="nxt1-source-label">{{ source.label }}</span>
-            </div>
-            <div class="nxt1-source-right">
-              @if (source.connected) {
-                <span class="nxt1-source-value">{{ source.username || 'Connected' }}</span>
-                <nxt1-icon name="checkmarkCircle" [size]="16" class="nxt1-source-check" />
-              } @else {
-                <span class="nxt1-source-placeholder">Connect</span>
-                <nxt1-icon name="chevronForward" [size]="14" class="nxt1-source-chevron" />
-              }
-            </div>
-          </button>
+        @for (group of groupedSources(); track group.key) {
+          <nxt1-connected-sources
+            [title]="group.label"
+            [sources]="group.sources"
+            [showModeToggle]="false"
+            [collapsible]="!group.key.startsWith('recommended-')"
+            [initialExpanded]="group.key.startsWith('recommended-') || group.key === 'signin'"
+            (sourceTap)="onSourceTap($event)"
+          />
         }
       </div>
-    </ion-content>
+    </div>
   `,
   styles: [
     `
       :host {
-        display: block;
+        display: flex;
+        flex-direction: column;
         height: 100%;
+        overflow: hidden;
       }
 
       .nxt1-sheet-done {
@@ -115,117 +111,17 @@ import type { ConnectedSource } from './connected-sources.component';
         -webkit-tap-highlight-color: transparent;
       }
 
-      .nxt1-sheet-content {
-        --background: transparent;
+      .nxt1-sheet-scroll {
+        flex: 1;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
       }
 
       .nxt1-sheet-body {
         display: flex;
         flex-direction: column;
+        gap: var(--nxt1-spacing-4);
         padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4) var(--nxt1-spacing-8);
-      }
-
-      /* ============================================
-         SOURCE ROW (matches edit-profile list-row)
-         ============================================ */
-      .nxt1-source-row {
-        appearance: none;
-        -webkit-appearance: none;
-        border: none;
-        background: transparent;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: var(--nxt1-spacing-3);
-        width: 100%;
-        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-1);
-        font-family: var(--nxt1-fontFamily-brand);
-        cursor: pointer;
-        -webkit-tap-highlight-color: transparent;
-        text-align: left;
-        transition: opacity var(--nxt1-duration-fast) var(--nxt1-easing-out);
-      }
-
-      .nxt1-source-row:not(:last-child) {
-        border-bottom: 1px solid var(--nxt1-color-border-subtle);
-      }
-
-      .nxt1-source-row:active {
-        opacity: 0.7;
-      }
-
-      /* ============================================
-         LEFT SIDE — Icon + Label
-         ============================================ */
-      .nxt1-source-left {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-3);
-        min-width: 0;
-      }
-
-      .nxt1-source-icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: var(--nxt1-spacing-8);
-        height: var(--nxt1-spacing-8);
-        border-radius: var(--nxt1-borderRadius-lg);
-        background: var(--nxt1-color-surface-200);
-        color: var(--nxt1-color-text-secondary);
-        flex-shrink: 0;
-        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
-      }
-
-      .nxt1-source-icon--connected {
-        background: color-mix(in srgb, var(--nxt1-color-primary) 15%, transparent);
-        color: var(--nxt1-color-primary);
-      }
-
-      .nxt1-source-label {
-        font-size: var(--nxt1-fontSize-base);
-        font-weight: var(--nxt1-fontWeight-regular);
-        color: var(--nxt1-color-text-primary);
-        white-space: nowrap;
-      }
-
-      /* ============================================
-         RIGHT SIDE — Status
-         ============================================ */
-      .nxt1-source-right {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-1-5);
-        min-width: 0;
-        justify-content: flex-end;
-        flex: 1;
-      }
-
-      .nxt1-source-value {
-        font-size: var(--nxt1-fontSize-base);
-        font-weight: var(--nxt1-fontWeight-regular);
-        color: var(--nxt1-color-text-secondary);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        max-width: 160px;
-        text-align: right;
-      }
-
-      .nxt1-source-placeholder {
-        font-size: var(--nxt1-fontSize-base);
-        font-weight: var(--nxt1-fontWeight-regular);
-        color: var(--nxt1-color-text-tertiary);
-      }
-
-      .nxt1-source-check {
-        color: var(--nxt1-color-success, #22c55e);
-        flex-shrink: 0;
-      }
-
-      .nxt1-source-chevron {
-        color: var(--nxt1-color-text-tertiary);
-        flex-shrink: 0;
       }
     `,
   ],
@@ -239,19 +135,26 @@ export class ConnectedAccountsSheetComponent implements OnInit {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   /** Injected via componentProps from the opener */
-  initialSources: readonly ConnectedSource[] = [];
+  platformGroups: readonly { key: string; label: string; sources: readonly ConnectedSource[] }[] =
+    [];
 
-  /** Single source of truth — mutable copy initialized from componentProps */
-  private readonly _sources = signal<ConnectedSource[]>([]);
+  /** Mutable groups — single source of truth for all rendering and saving */
+  private readonly _groups = signal<
+    readonly { key: string; label: string; sources: readonly ConnectedSource[] }[]
+  >([]);
   private readonly _hasChanges = signal(false);
 
   protected readonly testIds = LINK_SOURCES_TEST_IDS;
-  readonly sources = computed(() => this._sources());
   readonly hasChanges = computed(() => this._hasChanges());
+  readonly groupedSources = computed(() => this._groups());
 
   ngOnInit(): void {
-    this._sources.set([...this.initialSources]);
+    this._groups.set(this.platformGroups);
     this.breadcrumb.trackStateChange('connected-accounts-sheet:opened');
+  }
+
+  onSourceTap(event: ConnectedSourceTapEvent): void {
+    void this.editSource(event.source);
   }
 
   async editSource(source: ConnectedSource): Promise<void> {
@@ -268,17 +171,23 @@ export class ConnectedAccountsSheetComponent implements OnInit {
 
     const value = result.value.trim();
 
-    this._sources.update((sources) =>
-      sources.map((s) =>
-        s.platform === source.platform
-          ? {
-              ...s,
-              connected: !!value,
-              username: value && !value.startsWith('http') ? value : undefined,
-              url: value || undefined,
-            }
-          : s
-      )
+    const updateSource = (s: ConnectedSource): ConnectedSource =>
+      s.platform === source.platform &&
+      s.scopeType === source.scopeType &&
+      s.scopeId === source.scopeId
+        ? {
+            ...s,
+            connected: !!value,
+            username: value && !value.startsWith('http') ? value : undefined,
+            url: value || undefined,
+          }
+        : s;
+
+    this._groups.update((groups) =>
+      groups.map((group) => ({
+        ...group,
+        sources: group.sources.map(updateSource),
+      }))
     );
 
     this._hasChanges.set(true);
@@ -292,19 +201,22 @@ export class ConnectedAccountsSheetComponent implements OnInit {
 
   dismiss(): void {
     if (this._hasChanges()) {
-      const updatedLinks = this._sources()
+      const allSources = this._groups().flatMap((g) => g.sources);
+      const updatedLinks = allSources
         .filter((s) => s.connected)
         .map((s, i) => ({
           platform: s.platform,
           url: s.url ?? s.username ?? '',
           username: s.username,
+          scopeType: s.scopeType,
+          scopeId: s.scopeId,
           displayOrder: i,
         }));
 
       this.breadcrumb.trackStateChange('connected-accounts-sheet:saved', {
         count: updatedLinks.length,
       });
-      void this.modalCtrl.dismiss({ updatedLinks, sources: this._sources() }, 'save');
+      void this.modalCtrl.dismiss({ updatedLinks, sources: allSources }, 'save');
     } else {
       this.breadcrumb.trackStateChange('connected-accounts-sheet:cancelled');
       void this.modalCtrl.dismiss(null, 'cancel');
@@ -312,16 +224,12 @@ export class ConnectedAccountsSheetComponent implements OnInit {
   }
 
   requestResync(): void {
-    const sources = this._sources();
-
+    const allSources = this._groups().flatMap((g) => g.sources);
     this.logger.info('Connected accounts re-sync requested', {
-      sourceCount: sources.length,
-      connectedCount: sources.filter(
-        (source) => source.connected || !!source.url || !!source.username
-      ).length,
+      sourceCount: allSources.length,
+      connectedCount: allSources.filter((s) => s.connected || !!s.url || !!s.username).length,
     });
     this.breadcrumb.trackStateChange('connected-accounts-sheet:resync-requested');
-
-    void this.modalCtrl.dismiss({ sources }, 'resync');
+    void this.modalCtrl.dismiss({ sources: allSources }, 'resync');
   }
 }

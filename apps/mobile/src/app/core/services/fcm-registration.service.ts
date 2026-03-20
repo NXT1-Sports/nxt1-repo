@@ -3,6 +3,8 @@
  * @module @nxt1/mobile/core
  *
  * Handles FCM token registration after user login.
+ * Uses @capacitor-firebase/messaging to get a proper FCM token
+ * (not the raw APNs token from @capacitor/push-notifications).
  * Calls Cloud Function to save token to FcmTokens/{userId} collection.
  *
  * Usage:
@@ -52,10 +54,10 @@ export class FcmRegistrationService {
     }
 
     try {
-      const { PushNotifications } = await import('@capacitor/push-notifications');
+      const { FirebaseMessaging } = await import('@capacitor-firebase/messaging');
 
       // Request permission
-      const permissionResult = await PushNotifications.requestPermissions();
+      const permissionResult = await FirebaseMessaging.requestPermissions();
 
       if (permissionResult.receive !== 'granted') {
         this.logger.warn('Push notification permission denied');
@@ -65,7 +67,6 @@ export class FcmRegistrationService {
       this.logger.debug('Push notification permission granted');
 
       // ── Fast path: reuse cached token if available ────────────────────────────
-      // Avoids a full APNs round-trip (which can time out) on every login.
       let token = this.cachedToken;
       if (!token) {
         try {
@@ -82,32 +83,10 @@ export class FcmRegistrationService {
           platform: this.ionicPlatform.is('ios') ? 'ios' : 'android',
         });
       } else {
-        // ── Slow path: request a new token from APNs/FCM ──────────────────────
-        // removeAllListeners MUST be awaited before adding new ones,
-        // otherwise the native side can process removeAllListeners AFTER
-        // the new listeners are added and silently discard the registration event.
-        await PushNotifications.removeAllListeners();
-
-        token = await new Promise<string>((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error('FCM registration timeout'));
-          }, 20000); // 20 s — APNs can be slow on first install
-
-          PushNotifications.addListener('registration', (t) => {
-            clearTimeout(timeout);
-            this.logger.debug('FCM token received', { token: t.value });
-            resolve(t.value);
-          });
-
-          PushNotifications.addListener('registrationError', (error) => {
-            clearTimeout(timeout);
-            this.logger.error('FCM registration error', error);
-            reject(error);
-          });
-        });
-
-        // Trigger APNs registration AFTER listeners are set up
-        await PushNotifications.register();
+        // ── Slow path: get FCM token from Firebase Messaging ──────────────────
+        const result = await FirebaseMessaging.getToken();
+        token = result.token;
+        this.logger.debug('FCM token received', { token });
       }
 
       // Determine platform
@@ -156,7 +135,6 @@ export class FcmRegistrationService {
       let token = this.cachedToken;
 
       if (!token) {
-        // Try to get from storage
         try {
           const { Preferences } = await import('@capacitor/preferences');
           const result = await Preferences.get({ key: this.STORAGE_KEY });

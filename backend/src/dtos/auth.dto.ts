@@ -397,7 +397,7 @@ export class ConnectMicrosoftDto {
 }
 
 export class ConnectGmailDto {
-  /** Native mobile flow — exchange for refresh_token */
+  /** Native mobile / Browser OAuth flow — exchange for refresh_token */
   @IsString({ message: 'serverAuthCode must be a string' })
   @IsOptional()
   serverAuthCode?: string;
@@ -406,6 +406,15 @@ export class ConnectGmailDto {
   @IsString({ message: 'accessToken must be a string' })
   @IsOptional()
   accessToken?: string;
+
+  /**
+   * Redirect URI used in the Browser OAuth flow (mobile).
+   * When provided alongside serverAuthCode, the backend uses this URI
+   * in the token exchange instead of the empty-string native fallback.
+   */
+  @IsString({ message: 'redirectUri must be a string' })
+  @IsOptional()
+  redirectUri?: string;
 }
 
 export class ConnectYahooDto {
