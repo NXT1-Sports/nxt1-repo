@@ -81,9 +81,9 @@ export const EXPLORE_TABS: readonly ExploreTab[] = [
 
 /**
  * Default selected tab.
- * 'feed' is the default so Explore lands on Pulse first.
+ * 'for-you' is the default so Explore lands on Discover first.
  */
-export const EXPLORE_DEFAULT_TAB: ExploreTabId = 'feed';
+export const EXPLORE_DEFAULT_TAB: ExploreTabId = 'for-you';
 
 // ============================================
 // SORT OPTIONS

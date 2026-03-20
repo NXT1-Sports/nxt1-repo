@@ -56,7 +56,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
 import { ExploreService } from './explore.service';
 import { ExploreListComponent } from './explore-list.component';
 import { ExploreSkeletonComponent } from './explore-skeleton.component';
-import { ExploreForYouComponent } from './explore-for-you.component';
 import { ScoutReportsContentComponent } from '../scout-reports/scout-reports-content.component';
 import { NewsContentComponent } from '../news/news-content.component';
 import { FeedListComponent } from '../feed/feed-list.component';
@@ -87,7 +86,6 @@ export interface ExploreUser {
     NxtOptionScrollerComponent,
     ExploreListComponent,
     ExploreSkeletonComponent,
-    ExploreForYouComponent,
     ScoutReportsContentComponent,
     NewsContentComponent,
     FeedListComponent,
@@ -178,15 +176,8 @@ export interface ExploreUser {
 
         <!-- Main Content -->
         @if (!explore.isSearchFocused() || explore.hasQuery()) {
-          <!-- For You Tab: Multi-category curated landing view -->
+          <!-- Discover Tab: Personalized posts feed -->
           @if (explore.activeTab() === 'for-you' && !explore.hasQuery()) {
-            <nxt1-explore-for-you
-              [user]="user()"
-              (itemTap)="onItemClick($event)"
-              (categorySelect)="onForYouCategorySelect($event)"
-            />
-            <!-- Feed Tab: Personalized content stream -->
-          } @else if (explore.activeTab() === 'feed' && !explore.hasQuery()) {
             <nxt1-feed-list
               [posts]="feedService.posts()"
               [isLoading]="feedService.isLoading()"
@@ -437,17 +428,14 @@ export class ExploreShellComponent implements OnInit {
 
   protected readonly tabOptions = computed((): OptionScrollerItem[] => {
     const counts = this.explore.tabCounts();
-    const visibleTabIds: ExploreTabId[] = ['feed', 'for-you', 'news'];
-    if (this.hasFollowingOption()) {
-      visibleTabIds.splice(2, 0, 'following');
-    }
+    const visibleTabIds: ExploreTabId[] = ['for-you', 'news'];
 
     return visibleTabIds
       .map((tabId) => EXPLORE_TABS.find((tab) => tab.id === tabId))
       .filter((tab): tab is (typeof EXPLORE_TABS)[number] => tab !== undefined)
       .map((tab) => ({
         id: tab.id,
-        label: tab.id === 'feed' ? 'Pulse' : tab.id === 'for-you' ? 'Discover' : tab.label,
+        label: tab.id === 'news' ? 'Pulse' : tab.id === 'for-you' ? 'Discover' : tab.label,
         badge: counts[tab.id] > 0 ? counts[tab.id] : undefined,
       }));
   });
@@ -455,13 +443,9 @@ export class ExploreShellComponent implements OnInit {
   ngOnInit(): void {
     this.logger.info('Explore shell initialized');
     const activeTab = this.explore.activeTab();
-    const isAllowedTab =
-      activeTab === 'feed' ||
-      activeTab === 'for-you' ||
-      activeTab === 'news' ||
-      (activeTab === 'following' && this.hasFollowingOption());
+    const isAllowedTab = activeTab === 'for-you' || activeTab === 'news';
     if (!isAllowedTab) {
-      void this.explore.switchTab('feed');
+      void this.explore.switchTab('for-you');
     }
     void this.ensureFeedLoadedForTab(this.explore.activeTab());
   }
@@ -648,6 +632,7 @@ export class ExploreShellComponent implements OnInit {
   }
 
   private getFeedFilterType(tab: ExploreTabId): FeedFilterType | null {
+    if (tab === 'for-you') return 'for-you';
     if (tab === 'feed') return 'for-you';
     if (tab === 'following') return 'following';
     return null;
