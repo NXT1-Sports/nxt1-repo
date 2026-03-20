@@ -910,10 +910,81 @@ router.post('/playbook/generate', appGuard, async (req: Request, res: Response) 
       .map((g, i) => `${i + 1}. ${g.text} (category: ${g.category})`)
       .join('\n');
 
+    // ── Gather past task context ────────────────────────────────────────────
+    // Read the most recent playbook to surface completed / in-progress tasks
+    // so the new playbook continues momentum instead of repeating finished work.
+    let pastTaskContext = '';
+    try {
+      const prevPlaybook = await db
+        .collection('users')
+        .doc(user.uid)
+        .collection('agent_playbooks')
+        .orderBy('generatedAt', 'desc')
+        .limit(1)
+        .get();
+
+      if (!prevPlaybook.empty) {
+        const prevItems = (prevPlaybook.docs[0].data()['items'] ?? []) as ShellWeeklyPlaybookItem[];
+        const completedTitles = prevItems
+          .filter((i) => i.status === 'complete')
+          .map((i) => `"${i.title}"`)
+          .join(', ');
+        const inProgressTitles = prevItems
+          .filter((i) => i.status === 'in-progress')
+          .map((i) => `"${i.title}"`)
+          .join(', ');
+
+        if (completedTitles || inProgressTitles) {
+          pastTaskContext = '\n\nContext from last week:\n';
+          if (completedTitles) pastTaskContext += `- Already completed: ${completedTitles}\n`;
+          if (inProgressTitles) pastTaskContext += `- Still in progress: ${inProgressTitles}\n`;
+          pastTaskContext += 'Do NOT repeat completed tasks. Continue or build on in-progress tasks.';
+        }
+      }
+    } catch {
+      // Past context is non-critical — continue without it
+    }
+
+    // ── Gather delta sync context ───────────────────────────────────────────
+    // Surface any recent profile changes (new stats, recruiting activity, etc.)
+    // so the playbook can react to real-world events.
+    let deltaContext = '';
+    try {
+      const syncReport = await db
+        .collection('users')
+        .doc(user.uid)
+        .collection('agent_sync_reports')
+        .orderBy('syncedAt', 'desc')
+        .limit(1)
+        .get();
+
+      if (!syncReport.empty) {
+        const report = syncReport.docs[0].data();
+        const parts: string[] = [];
+        const statsUpdated = (report['summary'] as Record<string, number> | undefined)?.['statsUpdated'] ?? 0;
+        const newRecruiting = (report['summary'] as Record<string, number> | undefined)?.['newRecruitingActivities'] ?? 0;
+        const newAwards = (report['summary'] as Record<string, number> | undefined)?.['newAwards'] ?? 0;
+        const newSchedule = (report['summary'] as Record<string, number> | undefined)?.['newScheduleEvents'] ?? 0;
+
+        if (statsUpdated > 0) parts.push(`${statsUpdated} stat updates`);
+        if (newRecruiting > 0) parts.push(`${newRecruiting} new recruiting activities`);
+        if (newAwards > 0) parts.push(`${newAwards} new awards`);
+        if (newSchedule > 0) parts.push(`${newSchedule} upcoming schedule events`);
+
+        if (parts.length > 0) {
+          deltaContext = `\n\nRecent profile activity detected: ${parts.join(', ')}. Incorporate relevant follow-up actions into the playbook.`;
+        }
+      }
+    } catch {
+      // Delta context is non-critical — continue without it
+    }
+
     const prompt = [
       `You are Agent X, the AI assistant for NXT1 sports platform.`,
       `Generate a personalized weekly playbook for ${displayName || 'the user'}, a ${role}${sport ? ` in ${sport}` : ''}.`,
       `Their goals are:\n${goalsText}`,
+      pastTaskContext,
+      deltaContext,
       ``,
       `Return EXACTLY a JSON array of 3-5 playbook items. Each item must have:`,
       `- "id": unique string like "wp-1"`,
@@ -926,7 +997,9 @@ router.post('/playbook/generate', appGuard, async (req: Request, res: Response) 
       `- "goal": object with "id" and "label" matching one of the user's goals`,
       ``,
       `Return ONLY the JSON array, no markdown fences, no explanation.`,
-    ].join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n');
 
     let playbookItems: ShellWeeklyPlaybookItem[] = [];
 
@@ -997,13 +1070,27 @@ router.post('/playbook/generate', appGuard, async (req: Request, res: Response) 
 
     const generatedAt = new Date().toISOString();
 
-    // Persist the generated playbook
-    await db.collection('users').doc(user.uid).collection('agent_playbooks').add({
+    // Persist the generated playbook and prune old ones (keep last 10)
+    const playbooksRef = db.collection('users').doc(user.uid).collection('agent_playbooks');
+    await playbooksRef.add({
       items: playbookItems,
       goals: agentGoals,
       generatedAt,
       role,
     });
+
+    // Prune: delete documents beyond the 10 most recent
+    try {
+      const allPlaybooks = await playbooksRef.orderBy('generatedAt', 'desc').get();
+      const toDelete = allPlaybooks.docs.slice(10);
+      await Promise.all(toDelete.map((doc) => doc.ref.delete()));
+    } catch (pruneErr) {
+      // Pruning is non-critical — log and continue
+      logger.warn('Failed to prune old playbook documents', {
+        userId: user.uid,
+        error: pruneErr instanceof Error ? pruneErr.message : String(pruneErr),
+      });
+    }
 
     logger.info('Agent playbook generated', {
       userId: user.uid,
@@ -1024,6 +1111,332 @@ router.post('/playbook/generate', appGuard, async (req: Request, res: Response) 
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('Failed to generate playbook', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to generate playbook' });
+  }
+});
+
+// ─── POST /playbook/item/:id/status — Update a playbook item's status ─────
+//
+// Allows users (or Agent X) to mark a playbook item as complete, in-progress,
+// or problem. Persists the status change on the most recent playbook document.
+
+const VALID_PLAYBOOK_STATUSES = new Set(['pending', 'in-progress', 'complete', 'problem']);
+
+router.post('/playbook/item/:id/status', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const itemId = req.params['id'];
+    const { status } = req.body as { status?: string };
+
+    if (!itemId || typeof itemId !== 'string') {
+      res.status(400).json({ success: false, error: 'Item ID is required' });
+      return;
+    }
+
+    if (!status || !VALID_PLAYBOOK_STATUSES.has(status)) {
+      res
+        .status(400)
+        .json({
+          success: false,
+          error: `Status must be one of: ${[...VALID_PLAYBOOK_STATUSES].join(', ')}`,
+        });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const playbooksRef = db.collection('users').doc(user.uid).collection('agent_playbooks');
+    const latestPlaybook = await playbooksRef.orderBy('generatedAt', 'desc').limit(1).get();
+
+    if (latestPlaybook.empty) {
+      res.status(404).json({ success: false, error: 'No playbook found' });
+      return;
+    }
+
+    const playbookDoc = latestPlaybook.docs[0];
+    const items = (playbookDoc.data()['items'] ?? []) as ShellWeeklyPlaybookItem[];
+    const itemIndex = items.findIndex((i) => i.id === itemId);
+
+    if (itemIndex === -1) {
+      res.status(404).json({ success: false, error: `Playbook item "${itemId}" not found` });
+      return;
+    }
+
+    const updatedItem: ShellWeeklyPlaybookItem = {
+      ...items[itemIndex],
+      status: status as ShellWeeklyPlaybookItem['status'],
+    };
+
+    const updatedItems = items.map((item, idx) => (idx === itemIndex ? updatedItem : item));
+
+    await playbookDoc.ref.update({ items: updatedItems });
+
+    logger.info('Playbook item status updated', {
+      userId: user.uid,
+      itemId,
+      status,
+    });
+
+    res.json({ success: true, data: updatedItem });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to update playbook item status', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to update playbook item status' });
+  }
+});
+
+// ─── POST /briefing/generate — Generate or refresh daily AI briefing ───────
+//
+// Generates a personalized daily briefing from the user's goals, recent
+// operations, and delta sync data. Persists to agent_briefings subcollection
+// and prunes old entries (keep last 7 days worth).
+
+router.post('/briefing/generate', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { force = false } = req.body as { force?: boolean };
+
+    const { db } = req.firebase!;
+
+    // ── Check if a fresh briefing already exists (skip unless forced) ─────
+    if (!force) {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const existingBriefing = await db
+        .collection('users')
+        .doc(user.uid)
+        .collection('agent_briefings')
+        .where('generatedAt', '>=', todayStart.toISOString())
+        .limit(1)
+        .get();
+
+      if (!existingBriefing.empty) {
+        const bData = existingBriefing.docs[0].data();
+        res.json({
+          success: true,
+          data: {
+            previewText: (bData['previewText'] as string) ?? '',
+            insights: (bData['insights'] as ShellBriefingInsight[]) ?? [],
+            generatedAt: (bData['generatedAt'] as string) ?? new Date().toISOString(),
+          },
+        });
+        return;
+      }
+    }
+
+    // ── Fetch user profile data ─────────────────────────────────────────────
+    const userDoc = await db.collection('users').doc(user.uid).get();
+    const userData = userDoc.data() ?? {};
+    const role = (userData['role'] ?? 'athlete') as string;
+    const sport = (userData['sport'] ?? '') as string;
+    const displayName = (userData['displayName'] ?? '') as string;
+    const agentGoals: AgentDashboardGoal[] = (userData['agentGoals'] ?? []) as AgentDashboardGoal[];
+
+    const goalsText =
+      agentGoals.length > 0
+        ? agentGoals.map((g) => `• ${g.text}`).join('\n')
+        : 'No goals set yet.';
+
+    // ── Fetch recent operations (last 24h activity) ─────────────────────────
+    let recentActivityText = '';
+    if (jobRepository) {
+      try {
+        const recentJobs = await jobRepository.withDb(db).getByUser(user.uid, 20);
+        const oneDayAgo = Date.now() - 86_400_000;
+        const recentCompleted = recentJobs
+          .filter((job) => {
+            const completedAt = job['completedAt'] as Timestamp | null;
+            if (!completedAt) return false;
+            return completedAt.toMillis() >= oneDayAgo;
+          })
+          .slice(0, 5);
+
+        if (recentCompleted.length > 0) {
+          recentActivityText =
+            `\n\nYesterday's completed operations:\n` +
+            recentCompleted
+              .map((job) => `• ${(job['intent'] as string)?.slice(0, 60) ?? 'Agent task'}`)
+              .join('\n');
+        }
+      } catch {
+        // Non-critical — continue without recent activity
+      }
+    }
+
+    // ── Fetch recent delta sync context ────────────────────────────────────
+    let syncContext = '';
+    try {
+      const syncReport = await db
+        .collection('users')
+        .doc(user.uid)
+        .collection('agent_sync_reports')
+        .orderBy('syncedAt', 'desc')
+        .limit(1)
+        .get();
+
+      if (!syncReport.empty) {
+        const report = syncReport.docs[0].data();
+        const summary = report['summary'] as Record<string, number> | undefined;
+        const parts: string[] = [];
+        if ((summary?.['statsUpdated'] ?? 0) > 0)
+          parts.push(`${summary!['statsUpdated']} new stat updates`);
+        if ((summary?.['newRecruitingActivities'] ?? 0) > 0)
+          parts.push(`${summary!['newRecruitingActivities']} new recruiting activities`);
+        if ((summary?.['newAwards'] ?? 0) > 0)
+          parts.push(`${summary!['newAwards']} new awards`);
+        if ((summary?.['newScheduleEvents'] ?? 0) > 0)
+          parts.push(`${summary!['newScheduleEvents']} upcoming schedule events`);
+
+        if (parts.length > 0) {
+          syncContext = `\n\nProfile sync detected: ${parts.join(', ')}.`;
+        }
+      }
+    } catch {
+      // Non-critical — continue without sync context
+    }
+
+    // ── Build LLM prompt ────────────────────────────────────────────────────
+    const promptLines = [
+      `You are Agent X for NXT1 Sports. Generate a concise daily briefing for ${displayName || 'the user'}, a ${role}${sport ? ` in ${sport}` : ''}.`,
+      ``,
+      `Their current goals:`,
+      goalsText,
+      recentActivityText,
+      syncContext,
+      ``,
+      `Return ONLY a JSON object with:`,
+      `- "previewText": one sentence summary of today's focus (max 80 chars)`,
+      `- "insights": array of 2-4 insight objects, each with:`,
+      `    - "id": unique string like "bi-1"`,
+      `    - "text": actionable insight (max 90 chars)`,
+      `    - "icon": one of "trophy-outline", "mail-outline", "trending-up-outline", "alert-outline", "checkmark-circle-outline", "star-outline"`,
+      `    - "type": one of "info", "warning", "success"`,
+      ``,
+      `Return ONLY the JSON object, no markdown fences.`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    let briefingInsights: ShellBriefingInsight[] = [];
+    let briefingPreviewText = `Good morning, ${displayName || 'athlete'}. Here's your daily focus.`;
+
+    try {
+      const { OpenRouterService } = await import('../modules/agent/llm/openrouter.service.js');
+      const llm = new OpenRouterService();
+      const llmResult = await llm.complete(
+        [
+          {
+            role: 'system',
+            content: 'You are a JSON generator for a sports AI assistant. Return only valid JSON.',
+          },
+          { role: 'user', content: promptLines },
+        ],
+        {
+          tier: 'balanced',
+          maxTokens: 1024,
+          temperature: 0.7,
+          jsonMode: true,
+        }
+      );
+
+      try {
+        let jsonText = (llmResult.content ?? '').trim();
+        if (jsonText.startsWith('```')) {
+          jsonText = jsonText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+        }
+        const parsed = JSON.parse(jsonText) as Record<string, unknown>;
+        if (typeof parsed['previewText'] === 'string') {
+          briefingPreviewText = parsed['previewText'];
+        }
+        if (Array.isArray(parsed['insights'])) {
+          briefingInsights = (parsed['insights'] as Record<string, unknown>[]).map((ins, idx) => ({
+            id: String(ins['id'] ?? `bi-${idx + 1}`),
+            text: String(ins['text'] ?? ''),
+            icon: String(ins['icon'] ?? 'star-outline'),
+            type: (['info', 'warning', 'success'].includes(String(ins['type']))
+              ? ins['type']
+              : 'info') as ShellBriefingInsight['type'],
+          }));
+        }
+      } catch (parseErr) {
+        logger.error('Failed to parse briefing JSON from LLM', { error: String(parseErr) });
+      }
+    } catch {
+      logger.warn('OpenRouter not available for briefing generation, using fallback');
+    }
+
+    // Fallback: generate goal-based insights if LLM unavailable or parse fails
+    if (briefingInsights.length === 0) {
+      briefingInsights = agentGoals.slice(0, 3).map((goal, idx) => ({
+        id: `bi-${idx + 1}`,
+        text: `Focus today: ${goal.text.slice(0, 80)}`,
+        icon: 'star-outline' as const,
+        type: 'info' as const,
+      }));
+
+      if (briefingInsights.length === 0) {
+        briefingInsights = [
+          {
+            id: 'bi-1',
+            text: 'Set your goals to get personalized daily briefings.',
+            icon: 'star-outline',
+            type: 'info',
+          },
+        ];
+      }
+    }
+
+    const generatedAt = new Date().toISOString();
+
+    // ── Persist and prune briefings (keep last 7) ──────────────────────────
+    const briefingsRef = db.collection('users').doc(user.uid).collection('agent_briefings');
+    await briefingsRef.add({
+      previewText: briefingPreviewText,
+      insights: briefingInsights,
+      generatedAt,
+      role,
+    });
+
+    try {
+      const allBriefings = await briefingsRef.orderBy('generatedAt', 'desc').get();
+      const toDelete = allBriefings.docs.slice(7);
+      await Promise.all(toDelete.map((doc) => doc.ref.delete()));
+    } catch (pruneErr) {
+      logger.warn('Failed to prune old briefing documents', {
+        userId: user.uid,
+        error: pruneErr instanceof Error ? pruneErr.message : String(pruneErr),
+      });
+    }
+
+    logger.info('Agent briefing generated', {
+      userId: user.uid,
+      insightCount: briefingInsights.length,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        previewText: briefingPreviewText,
+        insights: briefingInsights,
+        generatedAt,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to generate briefing', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to generate briefing' });
   }
 });
 
