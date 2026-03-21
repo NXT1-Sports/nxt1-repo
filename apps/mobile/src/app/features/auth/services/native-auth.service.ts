@@ -42,6 +42,7 @@ import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { NxtPlatformService, HapticsService, NxtLoggingService } from '@nxt1/ui';
 import { type ILogger } from '@nxt1/core/logging';
 import type { NativeAuthResult, NativeAuthProvider, NativeAuthAvailability } from '@nxt1/core';
+import { environment } from 'src/environments/environment';
 
 /** Timeout for native auth operations (ms) */
 const NATIVE_AUTH_TIMEOUT = 60000;
@@ -123,6 +124,7 @@ export class NativeAuthService {
       await this.haptics.selection();
 
       // Sign in with Google using Firebase plugin
+      // serverAuthCode is automatically generated when GoogleService-Info.plist is properly configured
       const result = await FirebaseAuthentication.signInWithGoogle({
         scopes: [
           'email',

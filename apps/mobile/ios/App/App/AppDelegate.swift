@@ -1,6 +1,7 @@
 import UIKit
 import Capacitor
 import FirebaseCore
+import GoogleSignIn
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -9,8 +10,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Initialize Firebase - MUST be called before using any Firebase services
-        // This enables Crashlytics crash collection from the earliest point
         FirebaseApp.configure()
+
+        // Set GIDServerClientID from GoogleService-Info.plist so serverAuthCode is
+        // scoped to the correct Web OAuth client for backend token exchange.
+        // The build script (auto-switch-firebase-env.js) copies the right plist
+        // for each environment (staging/production) automatically.
+        if let clientID = FirebaseApp.app()?.options.clientID,
+           let plistPath = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
+           let plist = NSDictionary(contentsOfFile: plistPath),
+           let serverClientID = plist["GIDServerClientID"] as? String {
+            let config = GIDConfiguration(clientID: clientID, serverClientID: serverClientID)
+            GIDSignIn.sharedInstance.configuration = config
+        }
         
         return true
     }

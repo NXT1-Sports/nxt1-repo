@@ -112,6 +112,7 @@ describe('createAgentXApi', () => {
             details: 'Upload 3 new clips from Friday game',
             actionLabel: 'Start',
             status: 'pending',
+            why: '',
           },
         ],
         goals: [
@@ -230,6 +231,7 @@ describe('createAgentXApi', () => {
           details: 'Draft personalized emails to D2 coaches in Ohio',
           actionLabel: 'Draft Emails',
           status: 'pending',
+          why: 'Connecting with coaches increases your chances of getting recruited. Personalize your emails to stand out.',
         },
         {
           id: 'p2',
@@ -239,6 +241,7 @@ describe('createAgentXApi', () => {
           details: 'Select and upload best plays from last 3 games',
           actionLabel: 'Edit Reel',
           status: 'pending',
+          why: 'A strong highlight reel showcases your skills and attracts coach attention. Focus on your best plays.',
         },
       ],
       goals: [
@@ -309,6 +312,7 @@ describe('createAgentXApi', () => {
       details: 'Draft and send emails to 5 coaches',
       actionLabel: 'Send Emails',
       status: 'complete',
+      why: 'Connecting with coaches increases your chances of getting recruited.',
     };
 
     it('should update item status to complete', async () => {
