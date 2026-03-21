@@ -2167,7 +2167,11 @@ router.post(
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { db } = req.firebase!;
     const uid = req.user!.uid;
-    const { serverAuthCode, accessToken: webAccessToken } = req.body as ConnectGmailDto;
+    const {
+      serverAuthCode,
+      accessToken: webAccessToken,
+      redirectUri,
+    } = req.body as ConnectGmailDto;
 
     if (!serverAuthCode && !webAccessToken) {
       sendError(
@@ -2280,21 +2284,22 @@ router.post(
       return;
     }
 
-    // ── Native path: exchange serverAuthCode for refresh_token ───────────────────────────────
-    logger.debug('[Google Connect Gmail] Exchanging serverAuthCode', {
+    // ── Native/Browser path: exchange serverAuthCode/code for refresh_token ───────────────────
+    logger.debug('[Google Connect Gmail] Exchanging authorization code', {
       uid: uid.substring(0, 8) + '...',
+      hasRedirectUri: !!redirectUri,
     });
 
     // Exchange authorization code for tokens.
-    // For native mobile serverAuthCode: redirect_uri MUST be empty string.
-    // Google Sign-In SDK (iOS/Android) issues server auth codes with no redirect URI.
+    // - Native mobile serverAuthCode: redirect_uri MUST be empty string (Google Sign-In SDK default)
+    // - Browser OAuth code: redirect_uri MUST match the one used in authorization request
     const tokenEndpoint = 'https://oauth2.googleapis.com/token';
     const params = new URLSearchParams({
       code: serverAuthCode!,
       client_id: googleClientId,
       client_secret: googleClientSecret,
       grant_type: 'authorization_code',
-      redirect_uri: '',
+      redirect_uri: redirectUri ?? '', // Use provided redirectUri or empty for native
     });
 
     let tokenData: {
