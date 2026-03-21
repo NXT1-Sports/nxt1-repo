@@ -91,14 +91,10 @@ export class MobileEmailConnectionService {
   /**
    * Connect Gmail account using @capacitor-firebase/authentication signInWithGoogle.
    * Obtains a serverAuthCode which the backend exchanges for a long-lived refresh token.
-   *
-   * Token capture strategy:
-   * - Capture idToken BEFORE signInWithGoogle (original user token — not affected by Google sign-in)
-   * - signInWithGoogle may update Firebase auth state on device, but the pre-captured
-   *   idToken remains cryptographically valid for the original UID for its 1-hour lifetime
+   * Requires GIDServerClientID in GoogleService-Info.plist to generate correct serverAuthCode.
    */
   private async _connectGmail(userId: string): Promise<void> {
-    this.logger.info('Starting Gmail connection flow');
+    this.logger.info('Starting Gmail connection flow (native serverAuthCode for refresh_token)');
 
     // Check if running on native platform
     if (!Capacitor.isNativePlatform()) {
@@ -107,17 +103,17 @@ export class MobileEmailConnectionService {
       );
     }
 
-    // Capture idToken BEFORE signInWithGoogle to preserve the original user's auth token.
-    // signInWithGoogle (skipNativeAuth:false) refreshes Firebase auth state on device;
-    // capturing beforehand ensures we send the correct user's token to the backend.
+    // Get Firebase ID token for backend authentication
     const auth = getAuth();
     if (!auth.currentUser) {
       throw new Error('Failed to get authentication token. Please sign in again.');
     }
     const idToken = await auth.currentUser.getIdToken();
 
-    // Sign in with Google to obtain serverAuthCode.
-    // Shows native Google account picker on iOS/Android.
+    // Sign in with Google to obtain serverAuthCode
+    // Shows native Google account picker on iOS/Android
+    // serverAuthCode is automatically generated when GoogleService-Info.plist has GIDServerClientID
+    console.log('🚀 [DEBUG] About to call FirebaseAuthentication.signInWithGoogle');
     const result = await FirebaseAuthentication.signInWithGoogle({
       scopes: [
         'email',
@@ -126,28 +122,33 @@ export class MobileEmailConnectionService {
         'https://www.googleapis.com/auth/gmail.readonly',
       ],
     });
+    console.log('✅ [DEBUG] signInWithGoogle completed');
 
-    if (!result.credential?.serverAuthCode && !result.credential?.accessToken) {
+    if (!result.credential?.serverAuthCode) {
       throw new Error(
-        'Failed to get Google credentials. Please try again or check app permissions.'
+        'Failed to get serverAuthCode. Please check GoogleService-Info.plist has GIDServerClientID.'
       );
     }
 
-    this.logger.debug('Got Google credentials', {
+    console.log('🔍 Gmail OAuth Credentials:', {
       hasServerAuthCode: !!result.credential.serverAuthCode,
-      hasAccessToken: !!result.credential.accessToken,
+      serverAuthCodeLength: result.credential.serverAuthCode.length,
       email: result.user?.email,
     });
 
-    // Send credentials to backend using original user's idToken.
-    // redirect_uri is intentionally omitted for the native serverAuthCode exchange
-    // (Google token endpoint requires empty/absent redirect_uri for native codes).
-    await this._sendToBackend('/auth/google/connect-gmail', idToken, {
-      serverAuthCode: result.credential.serverAuthCode,
-      accessToken: result.credential.accessToken,
+    this.logger.debug('Got serverAuthCode', {
+      hasServerAuthCode: !!result.credential.serverAuthCode,
+      serverAuthCodeLength: result.credential.serverAuthCode.length,
+      email: result.user?.email,
     });
 
-    this.logger.info('Gmail connected successfully', {
+    // Send serverAuthCode to backend for exchange → refresh_token
+    console.log('📤 [DEBUG] Sending serverAuthCode to backend');
+    await this._sendToBackend('/auth/google/connect-gmail', idToken, {
+      serverAuthCode: result.credential.serverAuthCode,
+    });
+
+    this.logger.info('Gmail connected successfully (backend has refresh_token now)', {
       userId,
       email: result.user?.email,
     });
@@ -163,7 +164,7 @@ export class MobileEmailConnectionService {
   /**
    * Connect Microsoft (Outlook) account using Browser-based OAuth authorization code flow.
    * Opens the system browser for Microsoft sign-in, then captures the redirect back to the app.
-   * Requires `nxt1sports://microsoft/callback` to be registered in Azure AD as a redirect URI
+   * Requires `nxt1sports://ms/callback` to be registered in Azure AD as a redirect URI
    * under "Mobile and desktop applications > Custom redirect URIs".
    */
   private async _connectMicrosoft(userId: string): Promise<void> {
@@ -192,7 +193,7 @@ export class MobileEmailConnectionService {
     }
 
     // Build OAuth URL (authorization code flow, same pattern as Yahoo)
-    const redirectUri = `${environment.appScheme}://microsoft/callback`;
+    const redirectUri = `${environment.appScheme}://ms/callback`;
     const oauthUrl = new URL('https://login.microsoftonline.com/common/oauth2/v2.0/authorize');
     oauthUrl.searchParams.set('client_id', environment.msClientId);
     oauthUrl.searchParams.set('redirect_uri', redirectUri);
@@ -202,7 +203,11 @@ export class MobileEmailConnectionService {
     oauthUrl.searchParams.set('state', userId);
     oauthUrl.searchParams.set('prompt', 'select_account');
 
-    this.logger.debug('Opening Microsoft OAuth URL', { redirectUri });
+    this.logger.debug('Opening Microsoft OAuth URL', {
+      redirectUri,
+      clientId: environment.msClientId,
+      fullUrl: oauthUrl.toString().substring(0, 150) + '...',
+    });
 
     // Set up app URL listener for redirect callback
     const authCode = await new Promise<string>((resolve, reject) => {
@@ -222,6 +227,8 @@ export class MobileEmailConnectionService {
 
       void (async () => {
         listenerHandle = await App.addListener('appUrlOpen', (data: { url: string }) => {
+          this.logger.debug('Received app URL open event', { url: data.url });
+
           if (!resolved && data.url.startsWith(redirectUri)) {
             resolved = true;
             clearTimeout(timeout);
@@ -231,15 +238,23 @@ export class MobileEmailConnectionService {
             const url = new URL(data.url);
             const code = url.searchParams.get('code');
             const error = url.searchParams.get('error');
+            const errorDescription = url.searchParams.get('error_description');
+
+            this.logger.debug('Parsed Microsoft OAuth callback', {
+              hasCode: !!code,
+              error,
+              errorDescription,
+            });
 
             if (error) {
-              reject(
-                new Error(
-                  error === 'access_denied'
-                    ? 'Microsoft authentication was canceled'
-                    : `Microsoft authentication failed: ${error}`
-                )
-              );
+              const errorMsg = errorDescription
+                ? `${error}: ${decodeURIComponent(errorDescription)}`
+                : error === 'access_denied'
+                  ? 'Microsoft authentication was canceled'
+                  : `Microsoft authentication failed: ${error}`;
+
+              this.logger.error('Microsoft OAuth error', { error, errorDescription });
+              reject(new Error(errorMsg));
             } else if (code) {
               resolve(code);
             } else {
@@ -401,6 +416,7 @@ export class MobileEmailConnectionService {
     credentials: Record<string, unknown>
   ): Promise<void> {
     const url = `${environment.apiUrl}${endpoint}`;
+    console.log('🌐 [DEBUG] Full API URL:', url); // Log để kiểm tra staging vs prod
     let attempt = 0;
     const maxAttempts = 3;
 
@@ -410,6 +426,10 @@ export class MobileEmailConnectionService {
       try {
         this.logger.debug(`Sending credentials to backend (attempt ${attempt}/${maxAttempts})`, {
           url,
+          hasServerAuthCode: !!credentials['serverAuthCode'],
+          hasAccessToken: !!credentials['accessToken'],
+          hasCode: !!credentials['code'],
+          hasRedirectUri: !!credentials['redirectUri'],
         });
 
         const response = await fetch(url, {
@@ -428,7 +448,26 @@ export class MobileEmailConnectionService {
 
         // Parse error response
         const errorData = await response.json().catch(() => null);
+
+        // Log full error details to Xcode console with JSON stringification
+        console.error('❌ [DEBUG] Backend Error Details:');
+        console.error('  Status:', response.status, response.statusText);
+        console.error('  Error Data:', JSON.stringify(errorData, null, 2));
+        console.error('  Endpoint:', endpoint);
+
+        this.logger.error('Backend API error response', {
+          status: response.status,
+          statusText: response.statusText,
+          errorData: errorData ? JSON.stringify(errorData) : null,
+          endpoint,
+        });
+
         const apiError = parseApiError(errorData || { status: response.status });
+
+        // Auth codes are one-time use and expire quickly — never retry.
+        if (credentials['code']) {
+          throw apiError;
+        }
 
         // Check if we should retry
         if (shouldRetry(apiError) && attempt < maxAttempts) {
