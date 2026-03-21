@@ -1002,4 +1002,15 @@ export class AgentXService {
       this.toast.error('Failed to start this action');
     }
   }
+
+  /**
+   * Snooze a playbook item — marks it as complete so it slides out of the
+   * pending list. The card animates away and progress updates accordingly.
+   */
+  snoozePlaybookItem(itemId: string): void {
+    this._weeklyPlaybook.update((items) =>
+      items.map((i) => (i.id === itemId ? { ...i, status: 'complete' as const } : i))
+    );
+    this.logger.info('Playbook item snoozed', { itemId });
+  }
 }

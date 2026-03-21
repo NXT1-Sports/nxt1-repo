@@ -11,7 +11,6 @@
  */
 
 import type {
-  AgentXDraft,
   AgentXTemplateCategory,
   AgentXTemplate,
   AgentXBundle,
@@ -645,70 +644,5 @@ export const EVALUATION_TASKS: readonly AgentXTaskItem[] = [
     estimatedTime: '2 min',
     featured: true,
     accentColor: 'var(--nxt1-color-primary)',
-  },
-] as const;
-
-// ============================================
-// MOCK DRAFTS (will come from backend)
-// ============================================
-
-export const MOCK_HIGHLIGHT_DRAFTS: readonly AgentXDraft[] = [
-  {
-    id: 'draft-hl-1',
-    title: 'Junior Season Highlights',
-    mode: 'highlights',
-    templateCategoryId: 'game-highlights',
-    progress: 72,
-    status: 'in-progress',
-    updatedAt: '2026-02-11T14:30:00Z',
-    xpEarned: 108,
-    xpReward: 150,
-  },
-  {
-    id: 'draft-hl-2',
-    title: 'Quarterback Showcase',
-    mode: 'highlights',
-    templateCategoryId: 'skill-showcase',
-    progress: 100,
-    status: 'review',
-    updatedAt: '2026-02-10T09:15:00Z',
-    xpEarned: 125,
-    xpReward: 125,
-  },
-] as const;
-
-export const MOCK_GRAPHIC_DRAFTS: readonly AgentXDraft[] = [
-  {
-    id: 'draft-gr-1',
-    title: 'Season Stats Card',
-    mode: 'graphics',
-    templateCategoryId: 'stat-graphics',
-    progress: 45,
-    status: 'in-progress',
-    updatedAt: '2026-02-12T08:00:00Z',
-    xpEarned: 45,
-    xpReward: 100,
-  },
-  {
-    id: 'draft-gr-2',
-    title: 'Twitter Banner v2',
-    mode: 'graphics',
-    templateCategoryId: 'banners',
-    progress: 90,
-    status: 'in-progress',
-    updatedAt: '2026-02-11T16:45:00Z',
-    xpEarned: 90,
-    xpReward: 100,
-  },
-  {
-    id: 'draft-gr-3',
-    title: 'Personal Logo',
-    mode: 'graphics',
-    templateCategoryId: 'social-logos',
-    progress: 100,
-    status: 'ready',
-    updatedAt: '2026-02-09T11:20:00Z',
-    xpEarned: 125,
-    xpReward: 125,
   },
 ] as const;

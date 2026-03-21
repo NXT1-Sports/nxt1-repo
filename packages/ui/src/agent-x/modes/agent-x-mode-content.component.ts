@@ -33,8 +33,6 @@ import {
   AGENT_X_BUNDLES,
   RECRUITING_TASKS,
   EVALUATION_TASKS,
-  MOCK_HIGHLIGHT_DRAFTS,
-  MOCK_GRAPHIC_DRAFTS,
 } from '@nxt1/core';
 import { AgentXDraftsComponent } from './agent-x-drafts.component';
 import { AgentXTemplateGridComponent } from './agent-x-template-grid.component';
@@ -192,16 +190,12 @@ export class AgentXModeContentComponent {
   protected readonly evaluationTasks = EVALUATION_TASKS;
 
   // ============================================
-  // COMPUTED: Drafts (mock for now)
+  // INPUTS: Drafts (provided by parent from backend data)
   // ============================================
 
-  protected readonly highlightDrafts = input<readonly AgentXDraft[]>(
-    MOCK_HIGHLIGHT_DRAFTS as unknown as AgentXDraft[]
-  );
+  protected readonly highlightDrafts = input<readonly AgentXDraft[]>([]);
 
-  protected readonly graphicDrafts = input<readonly AgentXDraft[]>(
-    MOCK_GRAPHIC_DRAFTS as unknown as AgentXDraft[]
-  );
+  protected readonly graphicDrafts = input<readonly AgentXDraft[]>([]);
 
   // ============================================
   // COMPUTED: Bundles filtered by mode

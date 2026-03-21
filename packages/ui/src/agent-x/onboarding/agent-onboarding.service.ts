@@ -10,6 +10,8 @@
  */
 
 import { Injectable, inject, signal, computed } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
 import { isTeamRole, type AgentDashboardGoal } from '@nxt1/core';
 import {
   type AgentGoal,
@@ -27,6 +29,7 @@ import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.to
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import { AgentXService } from '../agent-x.service';
+import { AGENT_X_API_BASE_URL } from '../agent-x-job.service';
 
 @Injectable({ providedIn: 'root' })
 export class AgentOnboardingService {
@@ -38,6 +41,8 @@ export class AgentOnboardingService {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly haptics = inject(HapticsService);
   private readonly agentX = inject(AgentXService);
+  private readonly http = inject(HttpClient);
+  private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -253,40 +258,35 @@ export class AgentOnboardingService {
     this.analytics?.trackEvent(APP_EVENTS.AGENT_ONBOARDING_PROGRAM_SEARCHED, { query });
 
     try {
-      // TODO: Wire to actual API — currently simulated
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      const mockResults: AgentProgramResult[] = [
-        {
-          id: 'mock-1',
-          name: `${query} High School`,
-          sport: 'Football',
-          state: 'TX',
-          city: 'Dallas',
-          teamType: 'High School',
-          isClaimed: false,
-        },
-        {
-          id: 'mock-2',
-          name: `${query} Academy`,
-          sport: 'Basketball',
-          state: 'CA',
-          city: 'Los Angeles',
-          teamType: 'Club',
-          isClaimed: false,
-        },
-        {
-          id: 'mock-3',
-          name: `${query} Prep`,
-          sport: 'Soccer',
-          state: 'FL',
-          city: 'Miami',
-          teamType: 'High School',
-          isClaimed: true,
-        },
-      ];
+      const response = await firstValueFrom(
+        this.http.get<{
+          success: boolean;
+          data?: Array<{
+            id: string;
+            name: string;
+            type?: string;
+            location?: string;
+            logoUrl?: string | null;
+            primaryColor?: string;
+            isClaimed?: boolean;
+          }>;
+          error?: string;
+        }>(`${this.baseUrl}/programs/search`, {
+          params: { q: query, limit: '10' },
+        })
+      );
 
-      this._programSearchResults.set(mockResults);
-      this.logger.info('Program search results', { count: mockResults.length });
+      const results: AgentProgramResult[] = (response.data ?? []).map((org) => ({
+        id: org.id,
+        name: org.name,
+        teamType: org.type,
+        logoUrl: org.logoUrl,
+        primaryColor: org.primaryColor,
+        isClaimed: org.isClaimed,
+      }));
+
+      this._programSearchResults.set(results);
+      this.logger.info('Program search results', { count: results.length });
     } catch (err) {
       this.logger.error('Program search failed', err, { query });
       this._programSearchResults.set([]);
@@ -360,26 +360,33 @@ export class AgentOnboardingService {
     this.logger.info('Searching connections', { query });
 
     try {
-      // TODO: Wire to actual API — currently simulated
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      const mockResults: AgentConnection[] = [
-        {
-          id: 'user-1',
-          displayName: `${query} Smith`,
-          role: 'athlete',
-          sport: 'Football',
-          teamName: 'Lincoln Lions',
-        },
-        {
-          id: 'user-2',
-          displayName: `Coach ${query}`,
-          role: 'coach',
-          sport: 'Basketball',
-          teamName: 'Eagles Basketball',
-        },
-      ];
+      const response = await firstValueFrom(
+        this.http.get<{
+          success: boolean;
+          items?: Array<{
+            id: string;
+            name: string;
+            imageUrl?: string | null;
+            type?: string;
+            sport?: string;
+            team?: string;
+          }>;
+          error?: string;
+        }>(`${this.baseUrl}/explore/search`, {
+          params: { q: query, tab: 'athletes', limit: '10' },
+        })
+      );
 
-      this._connectionSearchResults.set(mockResults);
+      const results: AgentConnection[] = (response.items ?? []).map((item) => ({
+        id: item.id,
+        displayName: item.name,
+        profileImg: item.imageUrl,
+        role: 'athlete',
+        sport: item.sport,
+        teamName: item.team,
+      }));
+
+      this._connectionSearchResults.set(results);
     } catch (err) {
       this.logger.error('Connection search failed', err, { query });
       this._connectionSearchResults.set([]);
@@ -390,49 +397,11 @@ export class AgentOnboardingService {
 
   /**
    * Load suggested connections.
+   * Currently returns empty — will be wired to a recommendations API.
    */
   async loadSuggestedConnections(): Promise<void> {
     this.logger.info('Loading suggested connections');
-
-    try {
-      // TODO: Wire to actual API — currently simulated
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      const suggestions: AgentConnection[] = [
-        {
-          id: 'sug-1',
-          displayName: 'Marcus Johnson',
-          role: 'athlete',
-          sport: 'Football',
-          teamName: 'Lincoln Lions',
-        },
-        {
-          id: 'sug-2',
-          displayName: 'Sarah Williams',
-          role: 'coach',
-          sport: 'Volleyball',
-          teamName: 'Eagles VB',
-        },
-        {
-          id: 'sug-3',
-          displayName: 'James Chen',
-          role: 'athlete',
-          sport: 'Basketball',
-          teamName: 'Hawks',
-        },
-        {
-          id: 'sug-4',
-          displayName: 'Coach Davis',
-          role: 'coach',
-          sport: 'Soccer',
-          teamName: 'United FC',
-        },
-      ];
-
-      this._suggestedConnections.set(suggestions);
-      this.logger.info('Suggested connections loaded', { count: suggestions.length });
-    } catch (err) {
-      this.logger.error('Failed to load suggested connections', err);
-    }
+    this._suggestedConnections.set([]);
   }
 
   /**

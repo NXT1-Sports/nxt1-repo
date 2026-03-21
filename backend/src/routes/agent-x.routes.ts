@@ -570,12 +570,9 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       .limit(1)
       .get();
 
-    let briefingInsights: ShellBriefingInsight[] = [...shellContent.briefingInsights];
-    let briefingPreviewText = shellContent.briefingPreviewText.replace(
-      '{count}',
-      String(briefingInsights.length)
-    );
-    let briefingGeneratedAt = new Date().toISOString();
+    let briefingInsights: ShellBriefingInsight[] = [];
+    let briefingPreviewText = '';
+    let briefingGeneratedAt: string | null = null;
 
     if (!briefingDoc.empty) {
       const bData = briefingDoc.docs[0].data();
@@ -645,11 +642,22 @@ router.post('/goals', appGuard, validateBody(SetGoalsDto), async (req: Request, 
 
     const { db } = req.firebase!;
 
+    // Convert class instances to plain objects for Firestore
+    const plainGoals = goals.map((g) => ({
+      id: g.id,
+      text: g.text,
+      category: g.category,
+      ...(g.createdAt ? { createdAt: g.createdAt } : {}),
+    }));
+
     // Store goals on user document
     await db
       .collection('users')
       .doc(user.uid)
-      .set({ agentGoals: goals, agentGoalsUpdatedAt: new Date().toISOString() }, { merge: true });
+      .set(
+        { agentGoals: plainGoals, agentGoalsUpdatedAt: new Date().toISOString() },
+        { merge: true }
+      );
 
     logger.info('Agent goals updated', { userId: user.uid, goalCount: goals.length });
 
@@ -907,7 +915,7 @@ router.post('/playbook/generate', appGuard, async (req: Request, res: Response) 
       return;
     }
 
-    const result = await getGenerationService().generatePlaybook(user.uid);
+    const result = await getGenerationService().generatePlaybook(user.uid, req.firebase?.db);
     res.json({ success: true, data: result });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
@@ -1013,7 +1021,11 @@ router.post(
       }
 
       const { force = false } = req.body as { force?: boolean };
-      const result = await getGenerationService().generateBriefing(user.uid, force);
+      const result = await getGenerationService().generateBriefing(
+        user.uid,
+        force,
+        req.firebase?.db
+      );
       res.json({ success: true, data: result });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));

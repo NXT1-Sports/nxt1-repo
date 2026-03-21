@@ -98,11 +98,7 @@ export class AgentXBriefingBadgeStateService {
   private readonly _monthlyBudget = signal(150);
   private readonly _autoTopOffEnabled = signal(true);
   private readonly _autoTopOffAmount = signal(50);
-  private readonly _goals = signal<string[]>([
-    'coach-outreach',
-    'highlight-graphics',
-    'lead-tracking',
-  ]);
+  private readonly _goals = signal<string[]>([]);
 
   readonly status = computed(() => this._status());
   readonly monthlyBudget = computed(() => this._monthlyBudget());
@@ -161,8 +157,11 @@ export class AgentXBriefingBadgeStateService {
   }
 
   saveGoals(goalIds: readonly string[]): void {
+    const validPredefined = new Set(this.goalOptions.map((g) => g.id));
     const normalized = Array.from(
-      new Set(goalIds.filter((goalId) => this.goalOptions.some((goal) => goal.id === goalId)))
+      new Set(
+        goalIds.filter((goalId) => validPredefined.has(goalId) || goalId.startsWith('custom:'))
+      )
     ).slice(0, 3);
 
     this._goals.set(normalized);

@@ -12,6 +12,7 @@
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import type { AgentDashboardGoal, ShellWeeklyPlaybookItem, ShellBriefingInsight } from '@nxt1/core';
+import { getShellContentForRole } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
 
 // ─── Shared Helpers ─────────────────────────────────────────────────────────
@@ -77,13 +78,19 @@ export class AgentGenerationService {
     return getFirestore();
   }
 
+  /** Return a Firestore reference, preferring an explicit override. */
+  private resolveDb(dbOverride?: Firestore): Firestore {
+    return dbOverride ?? this.db;
+  }
+
   /**
    * Generate a personalized weekly playbook for a user.
    * Reads user profile + goals from Firestore, calls OpenRouter LLM,
    * persists result, and prunes old playbooks (keep 10).
    */
-  async generatePlaybook(uid: string): Promise<PlaybookGenerationResult> {
-    const userDoc = await this.db.collection('users').doc(uid).get();
+  async generatePlaybook(uid: string, dbOverride?: Firestore): Promise<PlaybookGenerationResult> {
+    const db = this.resolveDb(dbOverride);
+    const userDoc = await db.collection('users').doc(uid).get();
     const userData = userDoc.data() ?? {};
     const role = (userData['role'] ?? 'athlete') as string;
     const sport = (userData['sport'] ?? '') as string;
@@ -101,7 +108,7 @@ export class AgentGenerationService {
     // ── Gather past task context ──────────────────────────────────────────
     let pastTaskContext = '';
     try {
-      const prevPlaybook = await this.db
+      const prevPlaybook = await db
         .collection('users')
         .doc(uid)
         .collection('agent_playbooks')
@@ -135,7 +142,7 @@ export class AgentGenerationService {
     // ── Gather delta sync context ─────────────────────────────────────────
     let deltaContext = '';
     try {
-      const syncReport = await this.db
+      const syncReport = await db
         .collection('users')
         .doc(uid)
         .collection('agent_sync_reports')
@@ -153,6 +160,11 @@ export class AgentGenerationService {
       // Delta context is non-critical — continue without it
     }
 
+    const shellContent = getShellContentForRole(role);
+    const coordinatorsList = shellContent.coordinators
+      .map((c) => `- id: "${c.id}", label: "${c.label}", icon: "${c.icon}"`)
+      .join('\n');
+
     const prompt = [
       `You are Agent X, the AI assistant for NXT1 sports platform.`,
       `Generate a personalized weekly playbook for ${displayName || 'the user'}, a ${role}${sport ? ` in ${sport}` : ''}.`,
@@ -160,15 +172,21 @@ export class AgentGenerationService {
       pastTaskContext,
       deltaContext,
       ``,
-      `Return EXACTLY a JSON array of 3-5 playbook items. Each item must have:`,
+      `Available coordinators (assign the most relevant one to each task):\n${coordinatorsList}`,
+      ``,
+      `Return EXACTLY a JSON array of 5 playbook items, ordered by priority (highest-impact task first). Each item must have:`,
       `- "id": unique string like "wp-1"`,
-      `- "weekLabel": day abbreviation ("Mon", "Tue", "Wed", "Thu", "Fri")`,
+      `- "weekLabel": day abbreviation ("Mon", "Tue", "Wed", "Thu", "Fri") — spread across the week`,
       `- "title": short action title (max 50 chars)`,
-      `- "summary": one-sentence description`,
+      `- "summary": one-sentence description of the task`,
+      `- "why": a compelling one-sentence reason WHY this matters for their career/goals — make the user feel the urgency or excitement (e.g. "Coaches check profiles most on Mondays — this gets you seen first.")`,
       `- "details": detailed explanation of what Agent X prepared`,
       `- "actionLabel": button text (e.g., "Review Draft", "Send Emails")`,
       `- "status": always "pending"`,
       `- "goal": object with "id" and "label" matching one of the user's goals`,
+      `- "coordinator": object with "id", "label", and "icon" from the available coordinators list above`,
+      ``,
+      `IMPORTANT: Generate exactly 5 tasks. Order them so the most time-sensitive and highest-impact task is first. The "why" field is critical — it should hook the user emotionally and make them WANT to act immediately. Use data-driven language, urgency, or competitive advantage framing.`,
       ``,
       `Return ONLY the JSON array, no markdown fences, no explanation.`,
     ]
@@ -202,6 +220,7 @@ export class AgentGenerationService {
             weekLabel: String(item['weekLabel'] ?? ''),
             title: String(item['title'] ?? ''),
             summary: String(item['summary'] ?? ''),
+            why: String(item['why'] ?? ''),
             details: String(item['details'] ?? ''),
             actionLabel: String(item['actionLabel'] ?? 'Take Action'),
             status: 'pending' as const,
@@ -210,6 +229,16 @@ export class AgentGenerationService {
                 ? {
                     id: String((item['goal'] as Record<string, unknown>)['id'] ?? ''),
                     label: String((item['goal'] as Record<string, unknown>)['label'] ?? ''),
+                  }
+                : undefined,
+            coordinator:
+              item['coordinator'] && typeof item['coordinator'] === 'object'
+                ? {
+                    id: String((item['coordinator'] as Record<string, unknown>)['id'] ?? ''),
+                    label: String((item['coordinator'] as Record<string, unknown>)['label'] ?? ''),
+                    icon: String(
+                      (item['coordinator'] as Record<string, unknown>)['icon'] ?? 'sparkles'
+                    ),
                   }
                 : undefined,
           }));
@@ -223,16 +252,25 @@ export class AgentGenerationService {
 
     // Fallback: generate template-based playbook if LLM unavailable or parse fails
     if (playbookItems.length === 0) {
+      const defaultCoordinator = shellContent.coordinators[0];
       playbookItems = agentGoals.flatMap((goal, gi) => [
         {
           id: `wp-${gi * 2 + 1}`,
-          weekLabel: gi === 0 ? 'Mon' : 'Wed',
+          weekLabel: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'][gi % 5],
           title: `Work on: ${goal.text.slice(0, 40)}`,
           summary: `Agent X has prepared action steps for your "${goal.text}" goal.`,
+          why: `Getting ahead on this goal now gives you an edge before the week gets busy.`,
           details: `Review the plan and take the first step toward achieving your goal.`,
           actionLabel: 'Review Plan',
           status: 'pending' as const,
           goal: { id: goal.id, label: goal.text.slice(0, 30) },
+          coordinator: defaultCoordinator
+            ? {
+                id: defaultCoordinator.id,
+                label: defaultCoordinator.label,
+                icon: defaultCoordinator.icon,
+              }
+            : undefined,
         },
       ]);
     }
@@ -240,7 +278,7 @@ export class AgentGenerationService {
     const generatedAt = new Date().toISOString();
 
     // Persist and prune old playbooks (keep last 10)
-    const playbooksRef = this.db.collection('users').doc(uid).collection('agent_playbooks');
+    const playbooksRef = db.collection('users').doc(uid).collection('agent_playbooks');
     await playbooksRef.add({
       items: playbookItems,
       goals: agentGoals,
@@ -281,13 +319,18 @@ export class AgentGenerationService {
    * @param uid  - The user's Firestore UID
    * @param force - If false, returns an existing today's briefing instead of generating new
    */
-  async generateBriefing(uid: string, force = false): Promise<BriefingGenerationResult> {
+  async generateBriefing(
+    uid: string,
+    force = false,
+    dbOverride?: Firestore
+  ): Promise<BriefingGenerationResult> {
+    const db = this.resolveDb(dbOverride);
     // ── Check if a fresh briefing already exists (skip unless forced) ────
     if (!force) {
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
 
-      const existingBriefing = await this.db
+      const existingBriefing = await db
         .collection('users')
         .doc(uid)
         .collection('agent_briefings')
@@ -306,7 +349,7 @@ export class AgentGenerationService {
     }
 
     // ── Fetch user profile data ─────────────────────────────────────────
-    const userDoc = await this.db.collection('users').doc(uid).get();
+    const userDoc = await db.collection('users').doc(uid).get();
     const userData = userDoc.data() ?? {};
     const role = (userData['role'] ?? 'athlete') as string;
     const sport = (userData['sport'] ?? '') as string;
@@ -319,7 +362,7 @@ export class AgentGenerationService {
     // ── Fetch recent operations (last 24h activity) ─────────────────────
     let recentActivityText = '';
     try {
-      const recentBriefings = await this.db
+      const recentBriefings = await db
         .collection('users')
         .doc(uid)
         .collection('agent_playbooks')
@@ -342,7 +385,7 @@ export class AgentGenerationService {
     // ── Fetch recent delta sync context ─────────────────────────────────
     let syncContext = '';
     try {
-      const syncReport = await this.db
+      const syncReport = await db
         .collection('users')
         .doc(uid)
         .collection('agent_sync_reports')
@@ -451,7 +494,7 @@ export class AgentGenerationService {
     const generatedAt = new Date().toISOString();
 
     // ── Persist and prune briefings (keep last 7) ───────────────────────
-    const briefingsRef = this.db.collection('users').doc(uid).collection('agent_briefings');
+    const briefingsRef = db.collection('users').doc(uid).collection('agent_briefings');
     await briefingsRef.add({
       previewText: briefingPreviewText,
       insights: briefingInsights,
