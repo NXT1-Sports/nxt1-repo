@@ -2433,13 +2433,21 @@ router.post(
       logger.debug('[Microsoft Connect Mail] Exchanging authorization code');
 
       const tokenUrl = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
-      const params = new URLSearchParams({
+      // Mobile redirect URIs (custom scheme like nxt1sports://ms/callback) are registered
+      // as "Mobile and desktop applications" in Azure = public client.
+      // Public clients must NOT send client_secret — omit it for custom scheme URIs.
+      const isMobileRedirect =
+        redirectUri.startsWith('nxt1sports://') || redirectUri.startsWith('nxt1app://');
+      const tokenParams: Record<string, string> = {
         client_id: process.env['MICROSOFT_CLIENT_ID'] || '',
-        client_secret: process.env['MICROSOFT_CLIENT_SECRET'] || '',
         code,
         redirect_uri: redirectUri,
         grant_type: 'authorization_code',
-      });
+      };
+      if (!isMobileRedirect) {
+        tokenParams['client_secret'] = process.env['MICROSOFT_CLIENT_SECRET'] || '';
+      }
+      const params = new URLSearchParams(tokenParams);
 
       try {
         const tokenResponse = await fetch(tokenUrl, {
