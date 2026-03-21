@@ -2329,16 +2329,20 @@ router.post(
     if (tokenData.error || !tokenData.refresh_token) {
       logger.warn('[Google Connect Gmail] Token exchange failed', {
         uid,
-        error: tokenData.error,
-        description: tokenData.error_description,
+        googleError: tokenData.error,
+        googleErrorDescription: tokenData.error_description,
         hasRefreshToken: !!tokenData.refresh_token,
+        clientIdUsed: googleClientId.substring(0, 30) + '...',
+        isStaging: req.isStaging,
       });
+      // Include Google error code in message for easier mobile debugging
+      const googleErrMsg = tokenData.error
+        ? `[${tokenData.error}] ${tokenData.error_description ?? 'Token exchange failed'}`
+        : 'No refresh_token returned — check GIDServerClientID matches STAGING_CLIENT_ID';
       const error = validationError([
         {
           field: 'serverAuthCode',
-          message:
-            tokenData.error_description ??
-            'Failed to exchange code — code may be expired or already used',
+          message: googleErrMsg,
           rule: 'invalid',
         },
       ]);
