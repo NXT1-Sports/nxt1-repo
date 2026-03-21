@@ -56,7 +56,7 @@ interface AgentXBriefingPanelCloseResult {
         [title]="title()"
         closePosition="right"
         [showBorder]="true"
-        [showClose]="!required"
+        [showClose]="true"
         (closeSheet)="dismiss()"
       />
 
@@ -192,7 +192,7 @@ interface AgentXBriefingPanelCloseResult {
               </div>
 
               <div class="selected-goals">
-                @for (goal of selectedGoalOptions(); track goal.id) {
+                @for (goal of selectedGoalLabels(); track goal.id) {
                   <div class="selected-goal-pill">
                     <span>{{ goal.label }}</span>
                     <button type="button" (click)="toggleGoal(goal.id)" aria-label="Remove goal">
@@ -203,6 +203,28 @@ interface AgentXBriefingPanelCloseResult {
                 @if (draftGoals().length === 0) {
                   <div class="selected-goals-empty">Choose up to three focus areas below.</div>
                 }
+              </div>
+
+              <div class="custom-goal-row">
+                <ion-input
+                  class="panel-input custom-goal-input"
+                  type="text"
+                  fill="outline"
+                  placeholder="Type a custom goal…"
+                  [maxlength]="100"
+                  [value]="customGoalText()"
+                  [disabled]="draftGoals().length >= 3"
+                  (ionInput)="onCustomGoalInput($event)"
+                  (keyup.enter)="addCustomGoal()"
+                ></ion-input>
+                <button
+                  type="button"
+                  class="custom-goal-add-btn"
+                  [disabled]="!customGoalText().trim() || draftGoals().length >= 3"
+                  (click)="addCustomGoal()"
+                >
+                  <nxt1-icon name="send" [size]="18" />
+                </button>
               </div>
 
               <div class="goal-grid">
@@ -544,6 +566,42 @@ interface AgentXBriefingPanelCloseResult {
         cursor: not-allowed;
       }
 
+      .custom-goal-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .custom-goal-input {
+        flex: 1;
+        --border-radius: 14px;
+        font-size: 15px;
+      }
+
+      .custom-goal-add-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        border: none;
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-on-surface, #000);
+        cursor: pointer;
+        flex-shrink: 0;
+        transition:
+          background 0.18s ease,
+          color 0.18s ease;
+      }
+
+      .custom-goal-add-btn:disabled {
+        background: var(--ion-color-step-150, #e0e0e0);
+        color: var(--ion-color-step-400, #999);
+        cursor: not-allowed;
+      }
+
       @media (max-width: 640px) {
         .budget-value {
           font-size: 36px;
@@ -597,11 +655,17 @@ export class AgentXBriefingPanelComponent implements OnInit {
   readonly draftAutoTopOffEnabled = signal(true);
   readonly draftAutoTopOffAmount = signal(50);
   readonly draftGoals = signal<string[]>([]);
+  readonly customGoalText = signal('');
   readonly currentStatus = this.state.statusDefinition;
   readonly statusTone = this.state.statusTone;
-  readonly selectedGoalOptions = computed(() => {
-    const selected = new Set(this.draftGoals());
-    return AGENT_X_GOAL_OPTIONS.filter((goal) => selected.has(goal.id));
+  readonly selectedGoalLabels = computed(() => {
+    return this.draftGoals().map((id) => {
+      if (id.startsWith('custom:')) {
+        return { id, label: id.slice(7) };
+      }
+      const option = AGENT_X_GOAL_OPTIONS.find((g) => g.id === id);
+      return { id, label: option?.label ?? id };
+    });
   });
 
   readonly statusDefinitions = AGENT_X_STATUS_DEFINITIONS;
@@ -659,6 +723,27 @@ export class AgentXBriefingPanelComponent implements OnInit {
     return this.draftGoals().includes(goalId);
   }
 
+  onCustomGoalInput(event: Event | CustomEvent<{ value: string | number | null }>): void {
+    if ('detail' in event && typeof event.detail === 'object' && event.detail !== null) {
+      const val = 'value' in event.detail ? event.detail.value : null;
+      this.customGoalText.set(String(val ?? ''));
+      return;
+    }
+    const target = event.target;
+    if (target instanceof HTMLInputElement) {
+      this.customGoalText.set(target.value);
+    }
+  }
+
+  addCustomGoal(): void {
+    const text = this.customGoalText().trim();
+    if (!text || this.draftGoals().length >= 3) return;
+    const id = `custom:${text}`;
+    if (this.draftGoals().includes(id)) return;
+    this.draftGoals.update((current) => [...current, id]);
+    this.customGoalText.set('');
+  }
+
   savePanel(): void {
     if (this.panel === 'budget') {
       this.state.saveBudget({
@@ -679,8 +764,15 @@ export class AgentXBriefingPanelComponent implements OnInit {
   }
 
   dismiss(result: AgentXBriefingPanelCloseResult = { panel: this.panel }): void {
-    // Block dismiss without saving when required mode is active
-    if (this.required && !result.saved) return;
+    // In required mode without saving, dismiss with 'back' role so the shell can navigate back
+    if (this.required && !result.saved) {
+      if (this.presentation === 'sheet') {
+        void this.modalController.dismiss(result, 'back');
+      } else {
+        this.close.emit(result);
+      }
+      return;
+    }
 
     if (this.presentation === 'sheet') {
       void this.modalController.dismiss(result, result.saved ? 'save' : 'dismiss');

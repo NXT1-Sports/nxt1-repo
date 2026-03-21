@@ -26,6 +26,7 @@ export type {
   ShellCommandCategory,
   ShellBriefingInsight,
   ShellGoalTag,
+  ShellPlaybookCoordinator,
   ShellWeeklyPlaybookItem,
   ShellActiveOperation,
   ShellContentForRole,
@@ -81,14 +82,6 @@ export {
   ATHLETE_COORDINATORS,
   TEAM_COORDINATORS,
   RECRUITER_COORDINATORS,
-  ATHLETE_BRIEFING_INSIGHTS,
-  TEAM_BRIEFING_INSIGHTS,
-  RECRUITER_BRIEFING_INSIGHTS,
-  BRIEFING_PREVIEW_TEXT,
-  ATHLETE_WEEKLY_PLAYBOOK,
-  TEAM_WEEKLY_PLAYBOOK,
-  ATHLETE_ACTIVE_OPERATIONS,
-  TEAM_ACTIVE_OPERATIONS,
   getShellContentForRole,
 } from './agent-x.constants';
 
@@ -101,8 +94,6 @@ export {
   AGENT_X_BUNDLES,
   RECRUITING_TASKS,
   EVALUATION_TASKS,
-  MOCK_HIGHLIGHT_DRAFTS,
-  MOCK_GRAPHIC_DRAFTS,
 } from './agent-x-content.constants';
 
 // API

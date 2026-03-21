@@ -42,6 +42,7 @@ import {
 import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtOverlayService } from '../../components/overlay';
+import { Location } from '@angular/common';
 import { AgentXService } from '../agent-x.service';
 import { AgentXDashboardSkeletonComponent } from '../agent-x-dashboard-skeleton.component';
 import { AgentXBriefingPanelComponent } from '../agent-x-briefing-panel.component';
@@ -269,13 +270,41 @@ export interface AgentXUser {
               </div>
 
               @if (agentX.playbookGenerating()) {
-                <div class="action-plan-generating">
-                  <div class="generating-pulse" aria-hidden="true"></div>
-                  <p class="generating-text">Agent X is building your action plan…</p>
+                <div class="action-plan-generating" aria-label="Loading action plan" role="status">
+                  <div class="generating-hero">
+                    <div class="generating-logo-ring">
+                      <svg viewBox="0 0 612 792" class="generating-x-mark" aria-hidden="true">
+                        <path
+                          d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
+                        />
+                      </svg>
+                    </div>
+                    <p class="generating-status">
+                      Agent X is building your playbook<span class="typing-dots"
+                        ><span>.</span><span>.</span><span>.</span></span
+                      >
+                    </p>
+                    <p class="generating-sub">
+                      Analyzing your goals, scanning opportunities, and prioritizing tasks
+                    </p>
+                  </div>
+                  <div class="generating-steps">
+                    @for (step of generatingSteps; track step.label; let i = $index) {
+                      <div class="generating-step" [style.animation-delay]="i * 600 + 'ms'">
+                        <div class="step-indicator">
+                          <div class="step-dot"></div>
+                        </div>
+                        <span class="step-label">{{ step.label }}</span>
+                      </div>
+                    }
+                  </div>
                 </div>
               } @else if (weeklyPlaybook().length > 0 && !allTasksComplete()) {
-                @for (task of pendingPlaybookItems(); track task.id) {
-                  <div class="action-card">
+                @for (task of pendingPlaybookItems(); track task.id; let i = $index) {
+                  <div
+                    class="action-card action-card--enter"
+                    [style.animation-delay]="i * 80 + 'ms'"
+                  >
                     <div class="card-coordinator">
                       <div class="coordinator-avatar" aria-hidden="true">
                         <svg viewBox="0 0 612 792" class="coordinator-mark">
@@ -286,14 +315,20 @@ export interface AgentXUser {
                       </div>
                       <div class="coordinator-copy">
                         <span class="coordinator-brand">Agent X</span>
-                        @if (task.goal) {
-                          <span class="coordinator-role">{{ task.goal }}</span>
+                        @if (task.coordinator) {
+                          <span class="coordinator-role">{{ task.coordinator.label }}</span>
                         }
                       </div>
                     </div>
                     <div class="card-content">
                       <div class="card-title">{{ task.title }}</div>
                       <p class="card-description">{{ task.summary }}</p>
+                      @if (task.why) {
+                        <p class="card-why">
+                          <nxt1-icon name="sparkles" [size]="12" />
+                          {{ task.why }}
+                        </p>
+                      }
                     </div>
                     <div class="card-actions">
                       <button
@@ -302,6 +337,13 @@ export interface AgentXUser {
                         (click)="onPlaybookAction(task)"
                       >
                         {{ task.actionLabel }}
+                      </button>
+                      <button
+                        type="button"
+                        class="action-btn snooze-btn"
+                        (click)="onSnoozeTask(task)"
+                      >
+                        Snooze for now
                       </button>
                     </div>
                   </div>
@@ -837,11 +879,10 @@ export interface AgentXUser {
       }
 
       .coordinator-brand {
-        font-size: 11px;
+        font-size: 14px;
         font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--agent-primary);
+        letter-spacing: 0.01em;
+        color: var(--agent-text-primary, #fff);
       }
 
       .coordinator-role {
@@ -867,6 +908,26 @@ export interface AgentXUser {
         font-size: 13px;
         line-height: 1.5;
         color: var(--agent-text-secondary);
+      }
+
+      .card-why {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        margin: 6px 0 0;
+        padding: 8px 10px;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1.45;
+        color: var(--agent-primary);
+        background: var(--agent-primary-glow);
+        border-radius: var(--nxt1-radius-md, 8px);
+        border-left: 2px solid var(--agent-primary);
+      }
+
+      .card-why nxt1-icon {
+        flex-shrink: 0;
+        margin-top: 1px;
       }
 
       @keyframes agent-pulse {
@@ -973,41 +1034,191 @@ export interface AgentXUser {
         max-width: 38ch;
       }
 
-      /* Generating Skeleton State */
+      /* Generating State */
       .action-plan-generating {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--nxt1-spacing-6, 24px);
+        padding: var(--nxt1-spacing-6, 24px) var(--nxt1-spacing-4, 16px);
+        background: var(--agent-surface);
+        border: 1px solid var(--agent-border);
+        border-radius: var(--nxt1-radius-lg, 12px);
+        animation: gen-fade-in 0.4s ease forwards;
+      }
+
+      @keyframes gen-fade-in {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .generating-hero {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--nxt1-spacing-3, 12px);
+        text-align: center;
+      }
+
+      .generating-logo-ring {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        background: var(--agent-primary-glow);
+        animation: gen-pulse 2s ease-in-out infinite;
+      }
+
+      @keyframes gen-pulse {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(var(--agent-primary-rgb, 198, 255, 0), 0.3);
+        }
+        50% {
+          box-shadow: 0 0 0 12px rgba(var(--agent-primary-rgb, 198, 255, 0), 0);
+        }
+      }
+
+      .generating-x-mark {
+        width: 32px;
+        height: 32px;
+        fill: var(--agent-primary);
+        animation: gen-spin 3s linear infinite;
+      }
+
+      @keyframes gen-spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .generating-status {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--agent-text-primary, #fff);
+        margin: 0;
+      }
+
+      .typing-dots span {
+        animation: typing-blink 1.4s steps(1) infinite;
+        opacity: 0;
+      }
+      .typing-dots span:nth-child(1) {
+        animation-delay: 0s;
+      }
+      .typing-dots span:nth-child(2) {
+        animation-delay: 0.3s;
+      }
+      .typing-dots span:nth-child(3) {
+        animation-delay: 0.6s;
+      }
+
+      @keyframes typing-blink {
+        0% {
+          opacity: 0;
+        }
+        25% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 1;
+        }
+      }
+
+      .generating-sub {
+        font-size: 13px;
+        color: var(--agent-text-secondary);
+        margin: 0;
+        max-width: 280px;
+      }
+
+      .generating-steps {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-3, 12px);
+        width: 100%;
+        max-width: 280px;
+      }
+
+      .generating-step {
         display: flex;
         align-items: center;
         gap: var(--nxt1-spacing-3, 12px);
-        padding: var(--nxt1-spacing-4, 16px);
-        background: var(--agent-surface);
-        border-radius: var(--nxt1-radius-lg, 12px);
-        border: 1px solid var(--agent-border);
+        opacity: 0;
+        animation: step-appear 0.4s ease forwards;
       }
 
-      .generating-pulse {
-        width: 10px;
-        height: 10px;
+      @keyframes step-appear {
+        from {
+          opacity: 0;
+          transform: translateX(-8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+
+      .step-indicator {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        flex-shrink: 0;
+      }
+
+      .step-dot {
+        width: 8px;
+        height: 8px;
         border-radius: 50%;
         background: var(--agent-primary);
-        animation: generating-dot-pulse 1.4s ease-in-out infinite;
+        animation: dot-pulse 1.6s ease-in-out infinite;
       }
 
-      .generating-text {
-        margin: 0;
-        font-size: var(--nxt1-font-size-sm, 14px);
-        color: var(--agent-text-secondary);
-        font-style: italic;
-      }
-
-      @keyframes generating-dot-pulse {
+      @keyframes dot-pulse {
         0%,
         100% {
-          opacity: 0.3;
+          opacity: 0.4;
           transform: scale(0.8);
         }
         50% {
           opacity: 1;
           transform: scale(1.2);
+        }
+      }
+
+      .step-label {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--agent-text-secondary);
+      }
+
+      /* Card entry animation */
+      .action-card--enter {
+        opacity: 0;
+        animation: card-slide-in 0.38s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      }
+
+      @keyframes card-slide-in {
+        from {
+          opacity: 0;
+          transform: translateY(16px) scale(0.97);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
         }
       }
 
@@ -1255,6 +1466,13 @@ export class AgentXShellWebComponent {
     this.weeklyPlaybook().filter((t) => t.status !== 'complete')
   );
 
+  protected readonly generatingSteps = [
+    { label: 'Reviewing your goals' },
+    { label: 'Scanning recruiting opportunities' },
+    { label: 'Prioritizing high-impact actions' },
+    { label: 'Building your personalized plan' },
+  ];
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -1421,6 +1639,9 @@ export class AgentXShellWebComponent {
     if (panel === 'goals' && result?.data?.saved) {
       const goalIds = this.briefingBadges.goals();
       const dashboardGoals: AgentDashboardGoal[] = goalIds.map((id) => {
+        if (id.startsWith('custom:')) {
+          return { id, text: id.slice(7), category: 'custom', createdAt: new Date().toISOString() };
+        }
         const option = AGENT_X_GOAL_OPTIONS.find((o) => o.id === id);
         return {
           id,
@@ -1491,6 +1712,15 @@ export class AgentXShellWebComponent {
    */
   protected async onRegeneratePlaybook(): Promise<void> {
     await this.agentX.generatePlaybook(true);
+  }
+
+  /**
+   * Snooze an action card — dismisses it from the list with haptic feedback.
+   */
+  protected async onSnoozeTask(task: ShellWeeklyPlaybookItem): Promise<void> {
+    await this.haptics.impact('light');
+    this.agentX.snoozePlaybookItem(task.id);
+    this.toast.success('Task snoozed');
   }
 
   protected async onSendMessage(): Promise<void> {

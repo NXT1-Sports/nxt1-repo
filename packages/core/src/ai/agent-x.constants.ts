@@ -12,9 +12,6 @@ import type {
   AgentXModeConfig,
   AgentXQuickTask,
   ShellCommandCategory,
-  ShellBriefingInsight,
-  ShellWeeklyPlaybookItem,
-  ShellActiveOperation,
   ShellContentForRole,
 } from './agent-x.types';
 import { isTeamRole, USER_ROLES } from '../constants/user.constants';
@@ -533,202 +530,9 @@ export const RECRUITER_COORDINATORS: readonly ShellCommandCategory[] = [
 ];
 
 /**
- * Daily briefing insights for ATHLETE-based roles.
- */
-export const ATHLETE_BRIEFING_INSIGHTS: readonly ShellBriefingInsight[] = [
-  {
-    id: 'bi-1',
-    text: 'Your Scout Report was updated with new metrics from your last synced game film.',
-    icon: 'clipboard',
-    type: 'success',
-  },
-  {
-    id: 'bi-2',
-    text: '3 college programs viewed your profile this week. Two are D-I schools.',
-    icon: 'eye',
-    type: 'info',
-  },
-  {
-    id: 'bi-3',
-    text: 'Your GPA data is 30 days old. Sync your academic portal to stay current.',
-    icon: 'alertCircle',
-    type: 'warning',
-  },
-];
-
-/**
- * Daily briefing insights for TEAM-based roles (coach, director).
- */
-export const TEAM_BRIEFING_INSIGHTS: readonly ShellBriefingInsight[] = [
-  {
-    id: 'bi-1',
-    text: 'Your team roster has 3 athletes with incomplete profiles. Nudge them to update.',
-    icon: 'people',
-    type: 'warning',
-  },
-  {
-    id: 'bi-2',
-    text: '5 new prospect recommendations match your recruiting criteria this week.',
-    icon: 'search',
-    type: 'info',
-  },
-  {
-    id: 'bi-3',
-    text: 'Team performance analytics updated — season averages across 12 tracked athletes.',
-    icon: 'trendingUp',
-    type: 'success',
-  },
-];
-
-/**
- * Daily briefing insights for RECRUITER role.
- */
-export const RECRUITER_BRIEFING_INSIGHTS: readonly ShellBriefingInsight[] = [
-  {
-    id: 'bi-1',
-    text: '7 new athletes match your program criteria. Review the prospect board.',
-    icon: 'search',
-    type: 'info',
-  },
-  {
-    id: 'bi-2',
-    text: '2 prospects you contacted responded. Check your messages.',
-    icon: 'mail',
-    type: 'success',
-  },
-  {
-    id: 'bi-3',
-    text: 'NCAA dead period starts next week. Plan your outreach accordingly.',
-    icon: 'alertCircle',
-    type: 'warning',
-  },
-];
-
-/**
- * Briefing preview text by role category.
- */
-export const BRIEFING_PREVIEW_TEXT = {
-  athlete:
-    "I've reviewed your latest data, including {count} new updates to your profile and Scout Report.",
-  team: "I've reviewed your team's latest data, including {count} updates to your roster and scouting pipeline.",
-  recruiter:
-    "I've reviewed your pipeline, including {count} new prospect updates and program matches.",
-} as const;
-
-/**
- * Weekly playbook items for ATHLETE-based roles.
- */
-export const ATHLETE_WEEKLY_PLAYBOOK: readonly ShellWeeklyPlaybookItem[] = [
-  {
-    id: 'wp-1',
-    weekLabel: 'Mon',
-    title: 'Finalize Recruiting Storyline',
-    summary: 'Align your profile, headline metrics, and highlight context for recruiters.',
-    details:
-      'Agent X prepared a recruiting narrative from your latest film, stats, and profile views.',
-    actionLabel: 'Review Draft',
-    status: 'in-progress',
-    goal: { id: 'goal-1', label: 'D1 Recruitment' },
-  },
-  {
-    id: 'wp-2',
-    weekLabel: 'Wed',
-    title: 'Publish Midweek Performance Post',
-    summary: 'Share your latest clip + stat proof point to keep momentum.',
-    details: 'Agent X generated copy and media options optimized for engagement windows.',
-    actionLabel: 'Publish Post',
-    status: 'pending',
-    goal: { id: 'goal-2', label: 'Grow Brand' },
-  },
-  {
-    id: 'goal-setup',
-    weekLabel: '',
-    title: 'Set Up Goals',
-    summary: 'Tell Agent X your season goals so your weekly playbook stays on target.',
-    details: 'Agent X will personalize your weekly priorities based on your goals.',
-    actionLabel: 'Set Up Goals',
-    status: 'pending',
-  },
-];
-
-/**
- * Weekly playbook items for TEAM-based roles (coach, director).
- */
-export const TEAM_WEEKLY_PLAYBOOK: readonly ShellWeeklyPlaybookItem[] = [
-  {
-    id: 'wp-1',
-    weekLabel: 'Mon',
-    title: 'Review Roster Updates',
-    summary: 'Check athlete profiles for new film, stats, and academic changes.',
-    details: 'Agent X flagged 3 athletes with profile updates that need your review.',
-    actionLabel: 'Review Roster',
-    status: 'in-progress',
-    goal: { id: 'goal-1', label: 'Team Management' },
-  },
-  {
-    id: 'wp-2',
-    weekLabel: 'Wed',
-    title: 'Scouting Pipeline Check',
-    summary: 'Review new prospect matches and update your recruiting board.',
-    details: 'Agent X identified 5 new prospects that match your open roster needs.',
-    actionLabel: 'View Prospects',
-    status: 'pending',
-    goal: { id: 'goal-2', label: 'Recruiting' },
-  },
-  {
-    id: 'wp-3',
-    weekLabel: 'Fri',
-    title: 'Publish Team Update',
-    summary: 'Share team highlights and achievements from the week.',
-    details: 'Agent X compiled your team performance highlights into a shareable post.',
-    actionLabel: 'Publish Update',
-    status: 'pending',
-    goal: { id: 'goal-3', label: 'Team Brand' },
-  },
-  {
-    id: 'goal-setup',
-    weekLabel: '',
-    title: 'Set Season Goals',
-    summary: 'Tell Agent X your team goals so your weekly playbook stays on target.',
-    details:
-      'Agent X will personalize your weekly priorities based on recruiting targets and season objectives.',
-    actionLabel: 'Set Up Goals',
-    status: 'pending',
-  },
-];
-
-/**
- * Active operations mock data for ATHLETE-based roles.
- */
-export const ATHLETE_ACTIVE_OPERATIONS: readonly ShellActiveOperation[] = [
-  { id: 'op-1', label: 'Analyzing game film...', progress: 45, icon: 'play', status: 'processing' },
-  { id: 'op-2', label: 'Recruiter emails sent', progress: 100, icon: 'mail', status: 'complete' },
-  { id: 'op-3', label: 'Highlight reel export', progress: 62, icon: 'videocam', status: 'error' },
-];
-
-/**
- * Active operations mock data for TEAM-based roles (coach, director).
- */
-export const TEAM_ACTIVE_OPERATIONS: readonly ShellActiveOperation[] = [
-  {
-    id: 'op-1',
-    label: 'Syncing roster profiles...',
-    progress: 65,
-    icon: 'people',
-    status: 'processing',
-  },
-  {
-    id: 'op-2',
-    label: 'Prospect report generated',
-    progress: 100,
-    icon: 'clipboard',
-    status: 'complete',
-  },
-];
-
-/**
- * Resolve the correct coordinators, briefing, playbook, and operations for a given user role.
- * Central dispatcher — components call this once instead of duplicating role logic.
+ * Resolve the correct coordinators for a given user role.
+ * Briefing insights, playbooks, and operations are fetched from the backend
+ * (AI-generated, stored in Firestore) — not hardcoded.
  */
 export function getShellContentForRole(role: string | null | undefined): ShellContentForRole {
   const isTeam = isTeamRole(role);
@@ -740,18 +544,6 @@ export function getShellContentForRole(role: string | null | undefined): ShellCo
       : isRecruiterRole
         ? RECRUITER_COORDINATORS
         : ATHLETE_COORDINATORS,
-    briefingInsights: isTeam
-      ? TEAM_BRIEFING_INSIGHTS
-      : isRecruiterRole
-        ? RECRUITER_BRIEFING_INSIGHTS
-        : ATHLETE_BRIEFING_INSIGHTS,
-    briefingPreviewText: isTeam
-      ? BRIEFING_PREVIEW_TEXT.team
-      : isRecruiterRole
-        ? BRIEFING_PREVIEW_TEXT.recruiter
-        : BRIEFING_PREVIEW_TEXT.athlete,
-    weeklyPlaybook: isTeam ? TEAM_WEEKLY_PLAYBOOK : ATHLETE_WEEKLY_PLAYBOOK,
-    activeOperations: isTeam ? TEAM_ACTIVE_OPERATIONS : ATHLETE_ACTIVE_OPERATIONS,
   };
 }
 

@@ -31,12 +31,12 @@ import {
   inject,
   input,
   output,
-  signal,
   computed,
   afterNextRender,
   effect,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Location } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { IonContent } from '@ionic/angular/standalone';
 import { NxtPageHeaderComponent } from '../components/page-header';
@@ -45,6 +45,7 @@ import { NxtIconComponent } from '../components/icon';
 import { AgentXService } from './agent-x.service';
 import { AgentXBriefingPanelComponent } from './agent-x-briefing-panel.component';
 import {
+  AGENT_X_GOAL_OPTIONS,
   AgentXBriefingBadgeStateService,
   type AgentXBriefingPanelKind,
 } from './agent-x-briefing-badge-state.service';
@@ -59,7 +60,11 @@ import { AgentXOperationsLogComponent } from './agent-x-operations-log.component
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
-import { type ShellActiveOperation } from '@nxt1/core/ai';
+import {
+  type ShellActiveOperation,
+  type ShellWeeklyPlaybookItem,
+  type AgentDashboardGoal,
+} from '@nxt1/core/ai';
 
 // ============================================
 // INTERFACES
@@ -298,34 +303,66 @@ export interface WeeklyPlaybookItem {
               </section>
             }
 
-            <!-- ═══ 3. ACTION CARDS ═══ -->
-            <section class="action-cards-section" aria-label="Action Cards">
+            <!-- ═══ 3. TODAY'S ACTION PLAN (AI-Generated Playbook) ═══ -->
+            <section class="action-cards-section" aria-label="Today's Action Plan">
               <div class="action-plan-header">
                 <h3 class="section-title action-plan-title">Today's Action Plan</h3>
-                <div class="action-plan-status">
-                  <span class="action-plan-percent">{{ actionPlanProgressPercent() }}%</span>
-                  <div
-                    class="action-plan-progress"
-                    aria-label="Action plan progress"
-                    [attr.aria-valuenow]="actionPlanProgressPercent()"
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                    role="progressbar"
-                  >
+                @if (playbookTotalCount() > 0) {
+                  <div class="action-plan-status">
+                    <span class="action-plan-percent">{{ actionPlanProgressPercent() }}%</span>
                     <div
-                      class="action-plan-progress-bar"
-                      [style.width.%]="actionPlanProgressPercent()"
-                    ></div>
+                      class="action-plan-progress"
+                      aria-label="Action plan progress"
+                      [attr.aria-valuenow]="actionPlanProgressPercent()"
+                      aria-valuemin="0"
+                      aria-valuemax="100"
+                      role="progressbar"
+                    >
+                      <div
+                        class="action-plan-progress-bar"
+                        [style.width.%]="actionPlanProgressPercent()"
+                      ></div>
+                    </div>
+                    <p class="action-plan-meta">{{ actionPlanCompletionLabel() }}</p>
                   </div>
-                  <p class="action-plan-meta">{{ actionPlanCompletionLabel() }}</p>
-                </div>
+                }
               </div>
 
-              @if (hasPendingActionCards()) {
-                @if (shouldRenderActionCard('post-game-package')) {
+              @if (agentX.playbookGenerating()) {
+                <div class="action-plan-generating" aria-label="Loading action plan" role="status">
+                  <div class="generating-hero">
+                    <div class="generating-logo-ring">
+                      <svg viewBox="0 0 612 792" class="generating-x-mark" aria-hidden="true">
+                        <path
+                          d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
+                        />
+                      </svg>
+                    </div>
+                    <p class="generating-status">
+                      Agent X is building your playbook<span class="typing-dots"
+                        ><span>.</span><span>.</span><span>.</span></span
+                      >
+                    </p>
+                    <p class="generating-sub">
+                      Analyzing your goals, scanning opportunities, and prioritizing tasks
+                    </p>
+                  </div>
+                  <div class="generating-steps">
+                    @for (step of generatingSteps; track step.label; let i = $index) {
+                      <div class="generating-step" [style.animation-delay]="i * 600 + 'ms'">
+                        <div class="step-indicator">
+                          <div class="step-dot"></div>
+                        </div>
+                        <span class="step-label">{{ step.label }}</span>
+                      </div>
+                    }
+                  </div>
+                </div>
+              } @else if (weeklyPlaybook().length > 0 && !allTasksComplete()) {
+                @for (task of pendingPlaybookItems(); track task.id; let i = $index) {
                   <div
-                    class="action-card"
-                    [class.action-card--exiting]="isActionCardExiting('post-game-package')"
+                    class="action-card action-card--enter"
+                    [style.animation-delay]="i * 80 + 'ms'"
                   >
                     <div class="card-coordinator">
                       <div class="coordinator-avatar" aria-hidden="true">
@@ -337,254 +374,40 @@ export interface WeeklyPlaybookItem {
                       </div>
                       <div class="coordinator-copy">
                         <span class="coordinator-brand">Agent X</span>
-                        <span class="coordinator-role">Media Coordinator</span>
+                        @if (task.coordinator) {
+                          <span class="coordinator-role">{{ task.coordinator.label }}</span>
+                        }
                       </div>
                     </div>
                     <div class="card-content">
-                      <div class="card-title">
-                        You scored 22 points last night. Want me to turn that into a post-game
-                        graphic package?
-                      </div>
-                      <p class="card-description">
-                        I can build the creative, write the caption, and queue it for approval.
-                      </p>
+                      <div class="card-title">{{ task.title }}</div>
+                      <p class="card-description">{{ task.summary }}</p>
+                      @if (task.why) {
+                        <p class="card-why">
+                          <nxt1-icon name="sparkles" [size]="12" />
+                          {{ task.why }}
+                        </p>
+                      }
                     </div>
                     <div class="card-actions">
                       <button
                         type="button"
                         class="action-btn primary-btn"
-                        (click)="
-                          onActionCardExecute(
-                            'post-game-package',
-                            'post-game-package',
-                            'Post-Game Package',
-                            'image',
-                            'Create a post-game graphic package from my 22-point performance last night.'
-                          )
-                        "
+                        (click)="onPlaybookAction(task)"
                       >
-                        Build post-game package
+                        {{ task.actionLabel }}
                       </button>
                       <button
                         type="button"
                         class="action-btn snooze-btn"
-                        (click)="onSnoozeActionCard('post-game-package')"
+                        (click)="onSnoozeTask(task)"
                       >
                         Snooze for now
                       </button>
                     </div>
                   </div>
                 }
-
-                @if (shouldRenderActionCard('warm-lead-follow-up')) {
-                  <div
-                    class="action-card"
-                    [class.action-card--exiting]="isActionCardExiting('warm-lead-follow-up')"
-                  >
-                    <div class="card-coordinator">
-                      <div class="coordinator-avatar" aria-hidden="true">
-                        <svg viewBox="0 0 612 792" class="coordinator-mark">
-                          <path
-                            d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                          />
-                        </svg>
-                      </div>
-                      <div class="coordinator-copy">
-                        <span class="coordinator-brand">Agent X</span>
-                        <span class="coordinator-role">Recruiting Coordinator</span>
-                      </div>
-                    </div>
-                    <div class="card-content">
-                      <div class="card-title">
-                        Three coaches viewed your profile this week. Want me to draft the follow-up
-                        outreach?
-                      </div>
-                      <p class="card-description">
-                        I can prioritize the warmest leads and prep messages for approval.
-                      </p>
-                    </div>
-                    <div class="card-actions">
-                      <button
-                        type="button"
-                        class="action-btn secondary-btn"
-                        (click)="
-                          onActionCardExecute(
-                            'warm-lead-follow-up',
-                            'warm-lead-follow-up',
-                            'Warm Lead Follow-Up',
-                            'mail',
-                            'Draft follow-up outreach for the three coaches who viewed my profile this week.'
-                          )
-                        "
-                      >
-                        Draft follow-up outreach
-                      </button>
-                      <button
-                        type="button"
-                        class="action-btn snooze-btn"
-                        (click)="onSnoozeActionCard('warm-lead-follow-up')"
-                      >
-                        Snooze for now
-                      </button>
-                    </div>
-                  </div>
-                }
-
-                @if (shouldRenderActionCard('bundle-big-game-plan')) {
-                  <div
-                    class="action-card action-card--featured"
-                    [class.action-card--exiting]="isActionCardExiting('bundle-big-game-plan')"
-                  >
-                    <div class="card-coordinator">
-                      <div class="coordinator-avatar" aria-hidden="true">
-                        <svg viewBox="0 0 612 792" class="coordinator-mark">
-                          <path
-                            d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                          />
-                        </svg>
-                      </div>
-                      <div class="coordinator-copy">
-                        <span class="coordinator-brand">Agent X</span>
-                        <span class="coordinator-role">Game Plan Coordinator</span>
-                      </div>
-                    </div>
-                    <div class="card-content">
-                      <div class="card-title">
-                        Big game detected. Want me to package the best next moves into one approval
-                        flow?
-                      </div>
-                      <p class="card-description">
-                        I can group the most important recruiting, media, and profile updates into
-                        one run.
-                      </p>
-                    </div>
-                    <div class="card-actions">
-                      <button
-                        type="button"
-                        class="action-btn secondary-btn"
-                        (click)="onBundleCardExecute()"
-                      >
-                        Execute Game Plan
-                      </button>
-                      <button
-                        type="button"
-                        class="action-btn snooze-btn"
-                        (click)="onSnoozeActionCard('bundle-big-game-plan')"
-                      >
-                        Snooze for now
-                      </button>
-                    </div>
-                  </div>
-                }
-
-                @if (shouldRenderActionCard('momentum-outreach')) {
-                  <div
-                    class="action-card"
-                    [class.action-card--exiting]="isActionCardExiting('momentum-outreach')"
-                  >
-                    <div class="card-coordinator">
-                      <div class="coordinator-avatar" aria-hidden="true">
-                        <svg viewBox="0 0 612 792" class="coordinator-mark">
-                          <path
-                            d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                          />
-                        </svg>
-                      </div>
-                      <div class="coordinator-copy">
-                        <span class="coordinator-brand">Agent X</span>
-                        <span class="coordinator-role">Growth Coordinator</span>
-                      </div>
-                    </div>
-                    <div class="card-content">
-                      <div class="card-title">
-                        Your exposure is up 32% this week. Want me to turn that momentum into
-                        targeted outreach?
-                      </div>
-                      <p class="card-description">
-                        I can choose the strongest angle and prepare the next set of messages.
-                      </p>
-                    </div>
-                    <div class="card-actions">
-                      <button
-                        type="button"
-                        class="action-btn secondary-btn"
-                        (click)="
-                          onActionCardExecute(
-                            'momentum-outreach',
-                            'momentum-outreach',
-                            'Momentum Outreach',
-                            'trendingUp',
-                            'Use my 32 percent exposure increase to build the next best outreach wave.'
-                          )
-                        "
-                      >
-                        Turn momentum into outreach
-                      </button>
-                      <button
-                        type="button"
-                        class="action-btn snooze-btn"
-                        (click)="onSnoozeActionCard('momentum-outreach')"
-                      >
-                        Snooze for now
-                      </button>
-                    </div>
-                  </div>
-                }
-
-                @if (shouldRenderActionCard('coach-shortlist')) {
-                  <div
-                    class="action-card"
-                    [class.action-card--exiting]="isActionCardExiting('coach-shortlist')"
-                  >
-                    <div class="card-coordinator">
-                      <div class="coordinator-avatar" aria-hidden="true">
-                        <svg viewBox="0 0 612 792" class="coordinator-mark">
-                          <path
-                            d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                          />
-                        </svg>
-                      </div>
-                      <div class="coordinator-copy">
-                        <span class="coordinator-brand">Agent X</span>
-                        <span class="coordinator-role">Prospecting Coordinator</span>
-                      </div>
-                    </div>
-                    <div class="card-content">
-                      <div class="card-title">
-                        I found 18 matching coaches. Want me to shortlist the five best fits and
-                        prep intros?
-                      </div>
-                      <p class="card-description">
-                        I can rank them by fit, urgency, and likelihood to respond.
-                      </p>
-                    </div>
-                    <div class="card-actions">
-                      <button
-                        type="button"
-                        class="action-btn secondary-btn"
-                        (click)="
-                          onActionCardExecute(
-                            'coach-shortlist',
-                            'coach-shortlist',
-                            'Coach Shortlist',
-                            'search',
-                            'Shortlist the five best coach matches and prepare intro outreach for me.'
-                          )
-                        "
-                      >
-                        Shortlist best-fit coaches
-                      </button>
-                      <button
-                        type="button"
-                        class="action-btn snooze-btn"
-                        (click)="onSnoozeActionCard('coach-shortlist')"
-                      >
-                        Snooze for now
-                      </button>
-                    </div>
-                  </div>
-                }
-              } @else {
+              } @else if (allTasksComplete()) {
                 <div
                   class="action-empty-state action-empty-state--visible"
                   role="status"
@@ -595,12 +418,26 @@ export interface WeeklyPlaybookItem {
                   </div>
                   <h4 class="action-empty-title">Today's Action Plan Complete</h4>
                   <p class="action-empty-copy">
-                    You are all caught up. Agent X is still monitoring for new opportunities you can
-                    execute right now.
+                    You crushed it. Agent X is still monitoring for new opportunities.
                   </p>
-                  <button type="button" class="action-empty-btn" (click)="onReloadActionPlan()">
-                    Load More Actions
+                  <button type="button" class="action-empty-btn" (click)="onRegeneratePlaybook()">
+                    Give Me More
                   </button>
+                </div>
+              } @else {
+                <div
+                  class="action-empty-state action-empty-state--visible"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div class="action-empty-icon" aria-hidden="true">
+                    <nxt1-icon name="sparkles" [size]="30"></nxt1-icon>
+                  </div>
+                  <h4 class="action-empty-title">No Actions Yet</h4>
+                  <p class="action-empty-copy">
+                    Agent X will generate your personalized action plan based on your goals and
+                    profile data.
+                  </p>
                 </div>
               }
             </section>
@@ -1081,300 +918,8 @@ export interface WeeklyPlaybookItem {
         font-size: 13px;
         font-weight: 600;
         letter-spacing: 0.02em;
-        text-transform: uppercase;
         color: var(--agent-text-muted);
         margin: 0 0 var(--nxt1-spacing-4, 16px);
-      }
-
-      .action-plan-title {
-        text-transform: none;
-        margin-bottom: 0;
-      }
-
-      /* ──────────────────────────────────
-         3. ACTION CARDS
-         ────────────────────────────────── */
-      .action-cards-section {
-        width: 100%;
-        border-top: 1px solid var(--agent-border);
-        padding-top: var(--nxt1-spacing-5, 20px);
-        margin-bottom: var(--nxt1-spacing-6, 24px);
-      }
-
-      .action-plan-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: var(--nxt1-spacing-3, 12px);
-        margin-bottom: var(--nxt1-spacing-4, 16px);
-      }
-
-      .action-plan-status {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 6px;
-        flex: 0 0 auto;
-        min-width: 0;
-        white-space: nowrap;
-      }
-
-      .action-plan-meta {
-        margin: 0;
-        font-size: 10px;
-        line-height: 1;
-        color: var(--agent-text-secondary);
-      }
-
-      .action-plan-percent {
-        font-size: 14px;
-        font-weight: 700;
-        line-height: 1;
-        color: var(--agent-text-primary);
-      }
-
-      .action-plan-progress {
-        position: relative;
-        width: 52px;
-        flex: 0 0 52px;
-        height: 4px;
-        border-radius: 999px;
-        overflow: hidden;
-        background: var(--agent-surface-hover);
-      }
-
-      .action-plan-progress-bar {
-        height: 100%;
-        border-radius: inherit;
-        background: linear-gradient(
-          90deg,
-          var(--agent-primary),
-          color-mix(in srgb, var(--agent-primary) 65%, white)
-        );
-        transition: width 0.28s ease;
-      }
-
-      .action-card {
-        display: flex;
-        flex-direction: column;
-        gap: var(--nxt1-spacing-3, 12px);
-        padding: var(--nxt1-spacing-4, 16px);
-        background: var(--agent-surface);
-        border: 1px solid var(--agent-border);
-        border-radius: var(--nxt1-radius-lg, 12px);
-        margin-bottom: var(--nxt1-spacing-3, 12px);
-        transition:
-          background 0.2s ease,
-          border-color 0.2s ease,
-          opacity 0.22s ease,
-          transform 0.22s ease,
-          filter 0.22s ease;
-      }
-
-      .action-card--exiting {
-        opacity: 0;
-        transform: translateY(-10px) scale(0.98);
-        filter: blur(2px);
-        pointer-events: none;
-      }
-
-      .action-card--featured {
-        border-color: var(--agent-primary-glow);
-        background: linear-gradient(180deg, var(--agent-surface), var(--agent-surface-hover));
-      }
-
-      .action-card:active {
-        background: var(--agent-surface-hover);
-      }
-
-      .card-coordinator {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-3, 12px);
-      }
-
-      .coordinator-avatar {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 56px;
-        height: 56px;
-        border-radius: 50%;
-        background: var(--agent-primary-glow);
-        color: var(--agent-primary);
-        flex-shrink: 0;
-      }
-
-      .coordinator-mark {
-        width: 34px;
-        height: 34px;
-        fill: currentColor;
-      }
-
-      .coordinator-copy {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        min-width: 0;
-      }
-
-      .coordinator-brand {
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--agent-primary);
-      }
-
-      .coordinator-role {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--agent-text-secondary);
-      }
-
-      .card-content {
-        flex: 1;
-        min-width: 0;
-      }
-
-      .card-title {
-        font-size: 15px;
-        font-weight: 600;
-        color: var(--agent-text-primary);
-        line-height: 1.4;
-      }
-
-      .card-description {
-        margin: 8px 0 0;
-        font-size: 13px;
-        line-height: 1.5;
-        color: var(--agent-text-secondary);
-      }
-
-      /* Buttons */
-      @keyframes agent-pulse {
-        0%,
-        100% {
-          box-shadow: 0 0 0 0 var(--agent-primary-glow);
-        }
-        50% {
-          box-shadow: 0 0 10px 4px var(--agent-primary-glow);
-        }
-      }
-
-      .action-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 6px 14px;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        font-size: 13px;
-        font-weight: 600;
-        cursor: pointer;
-        transition:
-          opacity 0.15s ease,
-          transform 0.1s ease;
-        border: none;
-        align-self: flex-start;
-      }
-      .action-btn:active {
-        opacity: 0.9;
-        transform: scale(0.96);
-      }
-      .action-btn.primary-btn {
-        background: var(--agent-primary);
-        color: #000;
-        animation: agent-pulse 2.8s ease-in-out infinite;
-      }
-      .action-btn.secondary-btn {
-        background: var(--agent-surface-hover);
-        border: 1px solid var(--agent-border);
-        color: var(--agent-text-primary);
-      }
-
-      .action-btn.snooze-btn {
-        background: transparent;
-        border: 1px solid var(--agent-border);
-        color: var(--agent-text-secondary);
-      }
-
-      .card-actions {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
-      }
-
-      .action-empty-state {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
-        gap: var(--nxt1-spacing-3, 12px);
-        padding: var(--nxt1-spacing-5, 20px);
-        border-radius: var(--nxt1-radius-lg, 12px);
-        border: 1px dashed var(--agent-border);
-        background: var(--agent-surface);
-        opacity: 0;
-        transform: translateY(10px);
-      }
-
-      .action-empty-state--visible {
-        opacity: 1;
-        transform: translateY(0);
-        transition:
-          opacity 0.28s ease,
-          transform 0.28s ease;
-      }
-
-      .action-empty-icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 56px;
-        height: 56px;
-        border-radius: 50%;
-        color: var(--agent-primary);
-        background: var(--agent-primary-glow);
-      }
-
-      .action-empty-title {
-        margin: 0;
-        font-size: var(--nxt1-font-size-lg, 18px);
-        font-weight: var(--nxt1-font-weight-semibold, 600);
-        color: var(--agent-text-primary);
-      }
-
-      .action-empty-copy {
-        margin: 0;
-        font-size: var(--nxt1-font-size-sm, 14px);
-        line-height: 1.5;
-        color: var(--agent-text-secondary);
-        max-width: 38ch;
-      }
-
-      .action-empty-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 8px 16px;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        border: 1px solid transparent;
-        background: var(--agent-primary);
-        color: #000;
-        font-size: 13px;
-        font-weight: 700;
-        letter-spacing: 0.01em;
-        cursor: pointer;
-        transition:
-          opacity 0.15s ease,
-          transform 0.1s ease;
-        animation: agent-pulse 2.8s ease-in-out infinite;
-      }
-
-      .action-empty-btn:active {
-        opacity: 0.9;
-        transform: scale(0.96);
       }
 
       /* ──────────────────────────────────
@@ -1446,6 +991,484 @@ export interface WeeklyPlaybookItem {
         background: var(--agent-primary-glow);
         transform: scale(0.98);
       }
+
+      /* ──────────────────────────────────
+         3. TODAY'S ACTION PLAN
+         ────────────────────────────────── */
+      .action-cards-section {
+        width: 100%;
+        border-top: 1px solid var(--agent-border);
+        padding-top: var(--nxt1-spacing-5, 20px);
+        margin-bottom: var(--nxt1-spacing-6, 24px);
+      }
+
+      .action-plan-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--nxt1-spacing-3, 12px);
+        margin-bottom: var(--nxt1-spacing-4, 16px);
+      }
+
+      .action-plan-status {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+        flex: 0 0 auto;
+        min-width: 0;
+        white-space: nowrap;
+      }
+
+      .action-plan-meta {
+        margin: 0;
+        font-size: 11px;
+        line-height: 1;
+        color: var(--agent-text-secondary);
+      }
+
+      .action-plan-percent {
+        font-size: 14px;
+        font-weight: 700;
+        line-height: 1;
+        color: var(--agent-text-primary);
+      }
+
+      .action-plan-progress {
+        position: relative;
+        width: 56px;
+        flex: 0 0 56px;
+        height: 4px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: var(--agent-surface-hover);
+      }
+
+      .action-plan-progress-bar {
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(
+          90deg,
+          var(--agent-primary),
+          color-mix(in srgb, var(--agent-primary) 65%, white)
+        );
+        transition: width 0.28s ease;
+      }
+
+      .action-card {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-3, 12px);
+        padding: var(--nxt1-spacing-4, 16px);
+        background: var(--agent-surface);
+        border: 1px solid var(--agent-border);
+        border-radius: var(--nxt1-radius-lg, 12px);
+        margin-bottom: var(--nxt1-spacing-3, 12px);
+        transition:
+          background 0.2s ease,
+          border-color 0.2s ease;
+      }
+
+      .action-card:active {
+        background: var(--agent-surface-hover);
+      }
+
+      .card-coordinator {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-3, 12px);
+      }
+
+      .coordinator-avatar {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: var(--agent-primary-glow);
+        color: var(--agent-primary);
+        flex-shrink: 0;
+      }
+
+      .coordinator-mark {
+        width: 26px;
+        height: 26px;
+        fill: currentColor;
+      }
+
+      .coordinator-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .coordinator-brand {
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        color: var(--agent-text-primary, #fff);
+      }
+
+      .coordinator-role {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--agent-text-secondary);
+      }
+
+      .card-content {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .card-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--agent-text-primary);
+        line-height: 1.4;
+      }
+
+      .card-description {
+        margin: 8px 0 0;
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--agent-text-secondary);
+      }
+
+      .card-why {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        margin: 6px 0 0;
+        padding: 8px 10px;
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1.45;
+        color: var(--agent-primary);
+        background: var(--agent-primary-glow);
+        border-radius: var(--nxt1-radius-md, 8px);
+        border-left: 2px solid var(--agent-primary);
+      }
+
+      .card-why nxt1-icon {
+        flex-shrink: 0;
+        margin-top: 1px;
+      }
+
+      .card-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      @keyframes agent-pulse {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 var(--agent-primary-glow);
+        }
+        50% {
+          box-shadow: 0 0 10px 4px var(--agent-primary-glow);
+        }
+      }
+
+      .action-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 6px 14px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition:
+          opacity 0.15s ease,
+          transform 0.1s ease;
+        border: none;
+        align-self: flex-start;
+        font-family: inherit;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .action-btn:active {
+        opacity: 0.9;
+        transform: scale(0.96);
+      }
+
+      .action-btn.primary-btn {
+        background: var(--agent-primary);
+        color: #000;
+        animation: agent-pulse 2.8s ease-in-out infinite;
+      }
+
+      .action-btn.snooze-btn {
+        background: transparent;
+        border: 1px solid var(--agent-border);
+        color: var(--agent-text-secondary);
+      }
+
+      .action-empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: var(--nxt1-spacing-3, 12px);
+        padding: var(--nxt1-spacing-5, 20px);
+        border-radius: var(--nxt1-radius-lg, 12px);
+        border: 1px dashed var(--agent-border);
+        background: var(--agent-surface);
+        opacity: 0;
+        transform: translateY(10px);
+      }
+
+      .action-empty-state--visible {
+        opacity: 1;
+        transform: translateY(0);
+        transition:
+          opacity 0.28s ease,
+          transform 0.28s ease;
+      }
+
+      .action-empty-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        color: var(--agent-primary);
+        background: var(--agent-primary-glow);
+      }
+
+      .action-empty-title {
+        margin: 0;
+        font-size: var(--nxt1-font-size-lg, 18px);
+        font-weight: var(--nxt1-font-weight-semibold, 600);
+        color: var(--agent-text-primary);
+      }
+
+      .action-empty-copy {
+        margin: 0;
+        font-size: var(--nxt1-font-size-sm, 14px);
+        line-height: 1.5;
+        color: var(--agent-text-secondary);
+        max-width: 38ch;
+      }
+
+      .action-empty-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 8px 16px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        border: 1px solid transparent;
+        background: var(--agent-primary);
+        color: #000;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        cursor: pointer;
+        font-family: inherit;
+        -webkit-tap-highlight-color: transparent;
+        transition:
+          opacity 0.15s ease,
+          transform 0.1s ease;
+        animation: agent-pulse 2.8s ease-in-out infinite;
+      }
+
+      .action-empty-btn:active {
+        opacity: 0.9;
+        transform: scale(0.96);
+      }
+
+      /* Generating State */
+      .action-plan-generating {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--nxt1-spacing-6, 24px);
+        padding: var(--nxt1-spacing-6, 24px) var(--nxt1-spacing-4, 16px);
+        background: var(--agent-surface);
+        border: 1px solid var(--agent-border);
+        border-radius: var(--nxt1-radius-lg, 12px);
+        animation: gen-fade-in 0.4s ease forwards;
+      }
+
+      @keyframes gen-fade-in {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .generating-hero {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--nxt1-spacing-3, 12px);
+        text-align: center;
+      }
+
+      .generating-logo-ring {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        background: var(--agent-primary-glow);
+        animation: gen-pulse 2s ease-in-out infinite;
+      }
+
+      @keyframes gen-pulse {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(var(--agent-primary-rgb, 198, 255, 0), 0.3);
+        }
+        50% {
+          box-shadow: 0 0 0 12px rgba(var(--agent-primary-rgb, 198, 255, 0), 0);
+        }
+      }
+
+      .generating-x-mark {
+        width: 32px;
+        height: 32px;
+        fill: var(--agent-primary);
+        animation: gen-spin 3s linear infinite;
+      }
+
+      @keyframes gen-spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .generating-status {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--agent-text-primary, #fff);
+        margin: 0;
+      }
+
+      .typing-dots span {
+        animation: typing-blink 1.4s steps(1) infinite;
+        opacity: 0;
+      }
+      .typing-dots span:nth-child(1) {
+        animation-delay: 0s;
+      }
+      .typing-dots span:nth-child(2) {
+        animation-delay: 0.3s;
+      }
+      .typing-dots span:nth-child(3) {
+        animation-delay: 0.6s;
+      }
+
+      @keyframes typing-blink {
+        0% {
+          opacity: 0;
+        }
+        25% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 1;
+        }
+      }
+
+      .generating-sub {
+        font-size: 13px;
+        color: var(--agent-text-secondary);
+        margin: 0;
+        max-width: 280px;
+      }
+
+      .generating-steps {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-3, 12px);
+        width: 100%;
+        max-width: 280px;
+      }
+
+      .generating-step {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-3, 12px);
+        opacity: 0;
+        animation: step-appear 0.4s ease forwards;
+      }
+
+      @keyframes step-appear {
+        from {
+          opacity: 0;
+          transform: translateX(-8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+
+      .step-indicator {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        flex-shrink: 0;
+      }
+
+      .step-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--agent-primary);
+        animation: dot-pulse 1.6s ease-in-out infinite;
+      }
+
+      @keyframes dot-pulse {
+        0%,
+        100% {
+          opacity: 0.4;
+          transform: scale(0.8);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.2);
+        }
+      }
+
+      .step-label {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--agent-text-secondary);
+      }
+
+      /* Card entry animation */
+      .action-card--enter {
+        opacity: 0;
+        animation: card-slide-in 0.38s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      }
+
+      @keyframes card-slide-in {
+        from {
+          opacity: 0;
+          transform: translateY(16px) scale(0.97);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -1456,14 +1479,7 @@ export class AgentXShellComponent {
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
-  private static readonly ACTION_CARD_EXIT_MS = 220;
-  private readonly actionCardIds = [
-    'post-game-package',
-    'warm-lead-follow-up',
-    'bundle-big-game-plan',
-    'momentum-outreach',
-    'coach-shortlist',
-  ] as const;
+  private readonly location = inject(Location);
 
   // ============================================
   // INPUTS
@@ -1479,25 +1495,12 @@ export class AgentXShellComponent {
   // LOCAL STATE
   // ============================================
 
-  private readonly completedActionCardIds = signal<Set<string>>(new Set());
-  private readonly snoozedActionCardIds = signal<Set<string>>(new Set());
-  private readonly exitingActionCardIds = signal<Set<string>>(new Set());
-  protected readonly actionPlanClearedCount = computed(
-    () => this.completedActionCardIds().size + this.snoozedActionCardIds().size
-  );
-  protected readonly actionPlanCompletionLabel = computed(() => {
-    const cleared = this.actionPlanClearedCount();
-    const total = Number(this.actionCardIds.length);
-    return `${cleared} of ${total} cleared today`;
-  });
-  protected readonly actionPlanProgressPercent = computed(() => {
-    const total = Number(this.actionCardIds.length);
-    if (total === 0) return 0;
-    return Math.round((this.actionPlanClearedCount() / total) * 100);
-  });
-  protected readonly hasPendingActionCards = computed(
-    () => this.actionPlanClearedCount() < this.actionCardIds.length
-  );
+  protected readonly generatingSteps = [
+    { label: 'Reviewing your goals' },
+    { label: 'Scanning recruiting opportunities' },
+    { label: 'Prioritizing high-impact actions' },
+    { label: 'Building your personalized plan' },
+  ];
 
   // ============================================
   // OUTPUTS
@@ -1547,6 +1550,45 @@ export class AgentXShellComponent {
   // COORDINATORS — Role-Aware Virtual Staff
   // ============================================
 
+  /** AI-generated weekly playbook timeline items — live from service only. */
+  protected readonly weeklyPlaybook = computed<ShellWeeklyPlaybookItem[]>(() =>
+    this.agentX.weeklyPlaybook()
+  );
+
+  /** Number of completed playbook tasks. */
+  protected readonly playbookCompletedCount = computed(
+    () => this.weeklyPlaybook().filter((t) => t.status === 'complete').length
+  );
+
+  /** Total number of playbook tasks. */
+  protected readonly playbookTotalCount = computed(() => this.weeklyPlaybook().length);
+
+  /** Whether all playbook tasks are complete (show "Give Me More" state). */
+  protected readonly allTasksComplete = computed(
+    () =>
+      this.weeklyPlaybook().length > 0 &&
+      this.weeklyPlaybook().every((t) => t.status === 'complete')
+  );
+
+  /** Pending (non-complete) playbook items to render as action cards. */
+  protected readonly pendingPlaybookItems = computed(() =>
+    this.weeklyPlaybook().filter((t) => t.status !== 'complete')
+  );
+
+  /** Playbook-derived progress label. */
+  protected readonly actionPlanCompletionLabel = computed(() => {
+    const completed = this.playbookCompletedCount();
+    const total = this.playbookTotalCount();
+    return `${completed} of ${total} cleared today`;
+  });
+
+  /** Playbook-derived progress percentage. */
+  protected readonly actionPlanProgressPercent = computed(() => {
+    const total = this.playbookTotalCount();
+    if (total === 0) return 0;
+    return Math.round((this.playbookCompletedCount() / total) * 100);
+  });
+
   /** Coordinator cards — live from service only. */
   protected readonly commandCategories = computed(() => this.agentX.coordinators());
 
@@ -1554,10 +1596,22 @@ export class AgentXShellComponent {
   // HEADER CONFIG
   // ============================================
 
+  private goalsSheetShown = false;
+
   constructor() {
     afterNextRender(() => {
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
+    });
+
+    // Auto-open goal selection when dashboard loads with zero goals
+    effect(() => {
+      const loaded = this.agentX.dashboardLoaded();
+      const hasGoals = this.agentX.hasGoals();
+      if (!loaded || hasGoals || this.goalsSheetShown) return;
+
+      this.goalsSheetShown = true;
+      void this.openBriefingPanel('goals', true);
     });
 
     effect(() => {
@@ -1604,152 +1658,58 @@ export class AgentXShellComponent {
     await this.openBriefingPanel('goals');
   }
 
-  protected async openBriefingPanel(panel: AgentXBriefingPanelKind): Promise<void> {
+  protected async openBriefingPanel(
+    panel: AgentXBriefingPanelKind,
+    required = false
+  ): Promise<void> {
     await this.haptics.impact('light');
     this.briefingBadges.notePanelOpened(panel, 'sheet');
 
-    await this.bottomSheet.openSheet({
+    const result = await this.bottomSheet.openSheet<{
+      panel: AgentXBriefingPanelKind;
+      saved?: boolean;
+    }>({
       component: AgentXBriefingPanelComponent,
       componentProps: {
         panel,
         presentation: 'sheet',
+        required,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,
       handleBehavior: 'cycle',
-      backdropDismiss: true,
+      backdropDismiss: !required,
+      canDismiss: required
+        ? async (_data?: unknown, role?: string) => role === 'save' || role === 'back'
+        : true,
       cssClass: 'agent-x-briefing-badge-sheet',
     });
-  }
 
-  /**
-   * Handle bundle card CTA by opening one focused execution sheet
-   * with the 3 high-value options.
-   */
-  protected async onBundleCardAction(): Promise<void> {
-    await this.haptics.impact('medium');
-    const quickActions: OperationQuickAction[] = [
-      { id: 'bundle-post-highlight', label: 'Post highlight', icon: 'playCircle' },
-      { id: 'bundle-send-emails', label: 'Send emails', icon: 'mail' },
-      { id: 'bundle-update-profile', label: 'Update profile', icon: 'person' },
-    ];
-
-    await this.openOperationChat(
-      'bundle-big-game-plan',
-      'Big Game Plan',
-      'cube',
-      'command',
-      quickActions,
-      'Choose what Agent X should execute for this big-game moment.',
-      'Bundle my best post-game actions into one approval flow.'
-    );
-  }
-
-  protected async onBundleCardExecute(): Promise<void> {
-    void this.resolveActionCard('bundle-big-game-plan', 'completed');
-    await this.onBundleCardAction();
-  }
-
-  protected async onActionCardExecute(
-    cardId: string,
-    contextId: string,
-    contextTitle: string,
-    contextIcon: string,
-    initialMessage: string
-  ): Promise<void> {
-    void this.resolveActionCard(cardId, 'completed');
-    await this.onActionCardTap(contextId, contextTitle, contextIcon, initialMessage);
-  }
-
-  protected shouldRenderActionCard(cardId: string): boolean {
-    return !this.completedActionCardIds().has(cardId) && !this.snoozedActionCardIds().has(cardId);
-  }
-
-  protected isActionCardExiting(cardId: string): boolean {
-    return this.exitingActionCardIds().has(cardId);
-  }
-
-  protected async onSnoozeActionCard(cardId: string): Promise<void> {
-    await this.haptics.impact('light');
-    await this.resolveActionCard(cardId, 'snoozed');
-    this.toast.success('Task snoozed for now.');
-  }
-
-  protected async onReloadActionPlan(): Promise<void> {
-    this.completedActionCardIds.set(new Set());
-    this.snoozedActionCardIds.set(new Set());
-    this.exitingActionCardIds.set(new Set());
-    await this.haptics.impact('light');
-    this.toast.success('Loaded more tasks for today.');
-  }
-
-  private markActionCardDone(cardId: string): void {
-    this.completedActionCardIds.update((current) => {
-      if (current.has(cardId)) return current;
-      const next = new Set(current);
-      next.add(cardId);
-      return next;
-    });
-  }
-
-  private markActionCardSnoozed(cardId: string): void {
-    this.snoozedActionCardIds.update((current) => {
-      if (current.has(cardId)) return current;
-      const next = new Set(current);
-      next.add(cardId);
-      return next;
-    });
-  }
-
-  private async resolveActionCard(
-    cardId: string,
-    resolution: 'completed' | 'snoozed'
-  ): Promise<void> {
-    if (!this.shouldRenderActionCard(cardId) || this.exitingActionCardIds().has(cardId)) {
+    // User tapped close without saving in required mode — navigate back
+    if (result?.role === 'back') {
+      this.location.back();
       return;
     }
 
-    this.exitingActionCardIds.update((current) => {
-      const next = new Set(current);
-      next.add(cardId);
-      return next;
-    });
+    // After saving goals, sync to backend and trigger generation
+    if (panel === 'goals' && result?.role === 'save') {
+      const goalIds = this.briefingBadges.goals();
+      const dashboardGoals: AgentDashboardGoal[] = goalIds.map((id) => {
+        if (id.startsWith('custom:')) {
+          return { id, text: id.slice(7), category: 'custom', createdAt: new Date().toISOString() };
+        }
+        const option = AGENT_X_GOAL_OPTIONS.find((o) => o.id === id);
+        return {
+          id,
+          text: option?.label ?? id,
+          category: 'custom',
+          createdAt: new Date().toISOString(),
+        };
+      });
 
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, AgentXShellComponent.ACTION_CARD_EXIT_MS);
-    });
-
-    this.exitingActionCardIds.update((current) => {
-      const next = new Set(current);
-      next.delete(cardId);
-      return next;
-    });
-
-    if (resolution === 'completed') {
-      this.markActionCardDone(cardId);
-      return;
+      await this.agentX.setGoals(dashboardGoals);
+      this.agentX.generateBriefing(true).catch(() => undefined);
     }
-
-    this.markActionCardSnoozed(cardId);
-  }
-
-  protected async onActionCardTap(
-    contextId: string,
-    contextTitle: string,
-    contextIcon: string,
-    initialMessage: string
-  ): Promise<void> {
-    await this.haptics.impact('light');
-    await this.openOperationChat(
-      contextId,
-      contextTitle,
-      contextIcon,
-      'command',
-      [],
-      '',
-      '',
-      initialMessage
-    );
   }
 
   /**
@@ -1822,6 +1782,38 @@ export class AgentXShellComponent {
       backdropDismiss: true,
       cssClass: 'agent-x-operation-sheet',
     });
+  }
+
+  /**
+   * Handle playbook action card tap — execute the task via Agent X.
+   */
+  protected async onPlaybookAction(task: WeeklyPlaybookItem): Promise<void> {
+    if (task.id === 'goal-setup') {
+      await this.onSetupGoals();
+      return;
+    }
+
+    if (this.agentX.dashboardLoaded()) {
+      await this.agentX.executePlaybookAction(task as ShellWeeklyPlaybookItem);
+    } else {
+      this.agentX.setUserMessage(`${task.actionLabel}: ${task.title}`);
+      await this.onSendMessage();
+    }
+  }
+
+  /**
+   * Handle "Regenerate" playbook button.
+   */
+  protected async onRegeneratePlaybook(): Promise<void> {
+    await this.agentX.generatePlaybook(true);
+  }
+
+  /**
+   * Snooze an action card — dismisses it from the list with haptic feedback.
+   */
+  protected async onSnoozeTask(task: ShellWeeklyPlaybookItem): Promise<void> {
+    await this.haptics.impact('light');
+    this.agentX.snoozePlaybookItem(task.id);
   }
 
   /**

@@ -179,6 +179,10 @@ export class AgentGoalDto {
   @IsString()
   @IsNotEmpty()
   category!: string;
+
+  @IsString()
+  @IsOptional()
+  createdAt?: string;
 }
 
 export class SetGoalsDto {
