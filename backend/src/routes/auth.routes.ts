@@ -2438,6 +2438,11 @@ router.post(
       // Public clients must NOT send client_secret — omit it for custom scheme URIs.
       const isMobileRedirect =
         redirectUri.startsWith('nxt1sports://') || redirectUri.startsWith('nxt1app://');
+      logger.debug('[Microsoft Connect Mail] Token exchange config', {
+        redirectUri,
+        isMobileRedirect,
+        sendingClientSecret: !isMobileRedirect,
+      });
       const tokenParams: Record<string, string> = {
         client_id: process.env['MICROSOFT_CLIENT_ID'] || '',
         code,
