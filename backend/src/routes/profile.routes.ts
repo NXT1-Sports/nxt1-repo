@@ -235,7 +235,7 @@ function docToUser(docId: string, data: UserFirestoreDoc): User {
  * Convert Firestore document data + doc ID into a lightweight UserSummary.
  */
 function docToUserSummary(docId: string, data: UserFirestoreDoc): UserSummary {
-  const sports = data['sports'] as SportProfile[] | undefined;
+  const sports = Array.isArray(data['sports']) ? (data['sports'] as SportProfile[]) : undefined;
   const primarySport = sports?.find((s) => s.order === 0) ?? sports?.[0];
 
   // Use profileImgs array only

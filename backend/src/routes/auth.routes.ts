@@ -1586,6 +1586,9 @@ router.post(
 
       case 'sport': {
         const sports: SportProfile[] = [];
+        const currentSports: SportProfile[] = Array.isArray(currentUser?.sports)
+          ? currentUser!.sports
+          : [];
         if (Array.isArray(stepData['sports']) && stepData['sports'].length > 0) {
           const sportsData = stepData['sports'] as Array<{
             sport: string;
@@ -1600,7 +1603,7 @@ router.post(
           }>;
 
           sportsData.forEach((sportData, index) => {
-            const existingSport = currentUser?.sports?.find((s) => s.order === index);
+            const existingSport = currentSports.find((s) => s.order === index);
             sports.push(
               createSportProfile(sportData.sport, index, {
                 positions: sportData.positions ?? existingSport?.positions,
@@ -1623,7 +1626,7 @@ router.post(
 
           if (primarySportName) {
             // Preserve existing positions and team data if available
-            const existingPrimary = currentUser?.sports?.find((s) => s.order === 0);
+            const existingPrimary = currentSports.find((s) => s.order === 0);
             sports.push(
               createSportProfile(primarySportName, 0, {
                 positions: existingPrimary?.positions,
@@ -1636,7 +1639,7 @@ router.post(
           }
 
           if (secondarySportName) {
-            const existingSecondary = currentUser?.sports?.find((s) => s.order === 1);
+            const existingSecondary = currentSports.find((s) => s.order === 1);
             sports.push(
               createSportProfile(secondarySportName, 1, {
                 positions: existingSecondary?.positions,
