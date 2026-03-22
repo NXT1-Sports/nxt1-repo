@@ -33,13 +33,11 @@ export const ANALYTICS_API_BASE_URL = new InjectionToken<string>('ANALYTICS_API_
 /**
  * Platform adapter token for the Analytics Dashboard API.
  */
-export const ANALYTICS_DASHBOARD_API_ADAPTER = new InjectionToken<AnalyticsDashboardApi>(
-  'ANALYTICS_DASHBOARD_API_ADAPTER',
-  {
+export const ANALYTICS_DASHBOARD_API_ADAPTER: InjectionToken<AnalyticsDashboardApi> =
+  new InjectionToken<AnalyticsDashboardApi>('ANALYTICS_DASHBOARD_API_ADAPTER', {
     providedIn: 'root',
     factory: () => inject(AnalyticsDashboardApiService),
-  }
-);
+  });
 
 // ============================================
 // SERVICE

@@ -31,7 +31,6 @@ import {
   input,
   output,
   computed,
-  OnInit,
   effect,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -62,6 +61,7 @@ import { ActivityAnalyticsPanelComponent } from './activity-analytics-panel.comp
  * User info for header display.
  */
 export interface ActivityUser {
+  readonly uid?: string | null;
   readonly profileImg?: string | null;
   readonly displayName?: string | null;
   readonly connectedEmails?: readonly ConnectedEmail[];
@@ -214,7 +214,7 @@ export interface ActivityUser {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ActivityShellComponent implements OnInit {
+export class ActivityShellComponent {
   protected readonly activity = inject(ActivityService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ActivityShell');
@@ -271,18 +271,14 @@ export class ActivityShellComponent implements OnInit {
     return (this.user()?.role as AnalyticsUserRole | null | undefined) ?? 'athlete';
   });
 
-  /** User UID for the analytics panel — currently not on ActivityUser; use null */
-  protected readonly userUid = computed((): string | null => null);
+  /** User UID for the analytics panel */
+  protected readonly userUid = computed((): string | null => {
+    return this.user()?.uid ?? null;
+  });
 
   /** Connected email accounts from user data */
   protected readonly connectedEmails = computed(() => {
-    const emails = this.user()?.connectedEmails ?? [];
-    console.log('🔍 [ActivityShell] Connected emails computed:', {
-      user: this.user()?.email,
-      connectedEmails: emails,
-      count: emails.length,
-    });
-    return emails;
+    return this.user()?.connectedEmails ?? [];
   });
 
   /** Header actions */
@@ -313,12 +309,6 @@ export class ActivityShellComponent implements OnInit {
 
   /** Total unread count */
   protected readonly totalUnread = computed(() => this.activity.totalUnread());
-
-  // ============================================
-  // LIFECYCLE
-  // ============================================
-
-  ngOnInit(): void {}
 
   // ============================================
   // EVENT HANDLERS

@@ -354,6 +354,10 @@ export const TRACE_NAMES = {
   USAGE_PAYMENT_METHOD_DEFAULT: 'usage_payment_method_default',
   USAGE_BUDGET_UPDATE: 'usage_budget_update',
   USAGE_COUPON_REDEEM: 'usage_coupon_redeem',
+
+  // Analytics panel traces
+  ANALYTICS_REPORT_LOAD: 'analytics_report_load',
+  ANALYTICS_REPORT_REFRESH: 'analytics_report_refresh',
 } as const;
 
 export type TraceName = (typeof TRACE_NAMES)[keyof typeof TRACE_NAMES];

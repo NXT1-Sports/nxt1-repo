@@ -557,6 +557,28 @@ export const ACTIVITY_TEST_IDS = {
 
   // Badge
   BADGE_COUNT: 'activity-badge-count',
+
+  // Analytics Panel
+  ANALYTICS_PANEL: 'activity-analytics-panel',
+  ANALYTICS_PERIOD_ROW: 'activity-analytics-period-row',
+  ANALYTICS_PERIOD_BTN: 'activity-analytics-period-btn',
+  ANALYTICS_LOADING: 'activity-analytics-loading',
+  ANALYTICS_ERROR: 'activity-analytics-error',
+  ANALYTICS_RETRY_BTN: 'activity-analytics-retry-btn',
+  ANALYTICS_KPI_GRID: 'activity-analytics-kpi-grid',
+  ANALYTICS_KPI_CARD: 'activity-analytics-kpi-card',
+  ANALYTICS_FUNNEL: 'activity-analytics-funnel',
+  ANALYTICS_FUNNEL_ROW: 'activity-analytics-funnel-row',
+  ANALYTICS_CHART_PROFILE_VIEWS: 'activity-analytics-chart-profile-views',
+  ANALYTICS_CHART_TEAM_VIEWS: 'activity-analytics-chart-team-views',
+  ANALYTICS_NIL_GRID: 'activity-analytics-nil-grid',
+  ANALYTICS_COLLEGE_LIST: 'activity-analytics-college-list',
+  ANALYTICS_COLLEGE_ROW: 'activity-analytics-college-row',
+  ANALYTICS_SPOTLIGHT: 'activity-analytics-spotlight',
+  ANALYTICS_ROSTER_LIST: 'activity-analytics-roster-list',
+  ANALYTICS_ROSTER_ROW: 'activity-analytics-roster-row',
+  ANALYTICS_INSIGHTS: 'activity-analytics-insights',
+  ANALYTICS_INSIGHT_CARD: 'activity-analytics-insight-card',
 } as const;
 
 // ============================================

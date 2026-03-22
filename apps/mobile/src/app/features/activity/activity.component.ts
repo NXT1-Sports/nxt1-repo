@@ -116,6 +116,7 @@ export class ActivityComponent {
       email: user.email,
       connectedEmails,
       role: analyticsRole,
+      uid: user.uid,
     };
   });
 

@@ -50,7 +50,7 @@ interface ApiResponse<T> {
 /**
  * Overview response type.
  */
-interface OverviewResponse {
+export interface OverviewResponse {
   metrics: MetricCard[];
   lastUpdated: string;
 }
@@ -58,7 +58,7 @@ interface OverviewResponse {
 /**
  * Engagement response type.
  */
-interface EngagementResponse {
+export interface EngagementResponse {
   viewsBySource: Array<{ source: string; label: string; views: number; percentage: number }>;
   viewsByTime: Array<{ period: number; label: string; count: number; intensity: number }>;
   geoDistribution: Array<{ location: string; code: string; views: number; percentage: number }>;
@@ -68,7 +68,7 @@ interface EngagementResponse {
 /**
  * Content response type.
  */
-interface ContentResponse {
+export interface ContentResponse {
   videos: VideoAnalytics[];
   topContent: MetricCard[];
   totalViews: number;
@@ -78,7 +78,7 @@ interface ContentResponse {
 /**
  * Roster response type (coach only).
  */
-interface RosterResponse {
+export interface RosterResponse {
   athletes: AthleteRosterAnalytics[];
   totalAthletes: number;
   activeAthletes: number;
@@ -87,7 +87,7 @@ interface RosterResponse {
 /**
  * Insights response type.
  */
-interface InsightsResponse {
+export interface InsightsResponse {
   insights: AnalyticsInsight[];
   recommendations: AnalyticsRecommendation[];
   aiSummary?: string;

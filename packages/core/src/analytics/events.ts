@@ -728,6 +728,20 @@ export const APP_EVENTS = {
   USAGE_RECEIPT_DOWNLOADED: 'usage_receipt_downloaded',
   /** User downloaded an invoice */
   USAGE_INVOICE_DOWNLOADED: 'usage_invoice_downloaded',
+
+  // ============================================
+  // ANALYTICS PANEL EVENTS
+  // ============================================
+  /** User viewed the analytics panel on the Activity page */
+  ANALYTICS_PANEL_VIEWED: 'analytics_panel_viewed',
+  /** User changed the analytics time period */
+  ANALYTICS_PERIOD_CHANGED: 'analytics_period_changed',
+  /** User retried after an analytics load error */
+  ANALYTICS_RETRY: 'analytics_retry',
+  /** Analytics report loaded successfully */
+  ANALYTICS_REPORT_LOADED: 'analytics_report_loaded',
+  /** Analytics report load failed */
+  ANALYTICS_REPORT_FAILED: 'analytics_report_failed',
 } as const;
 
 export type AppEventName = (typeof APP_EVENTS)[keyof typeof APP_EVENTS];

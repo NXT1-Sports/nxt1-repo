@@ -38,7 +38,6 @@ import {
   computed,
   inject,
   signal,
-  OnInit,
   effect,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -68,11 +67,17 @@ import {
   businessOutline,
   removeOutline,
   analyticsOutline,
+  personOutline,
 } from 'ionicons/icons';
 import type { AnalyticsUserRole, AnalyticsPeriod } from '@nxt1/core';
 import { isTeamRole } from '@nxt1/core';
-import { NxtIconComponent } from '../components/icon';
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import { ACTIVITY_TEST_IDS } from '@nxt1/core/testing';
 import { AnalyticsDashboardService } from '../analytics-dashboard/analytics-dashboard.service';
+import { NxtLoggingService } from '../services/logging/logging.service';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
+import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
+import { NxtTrackClickDirective } from '../services/breadcrumb/breadcrumb.service';
 
 const PERIOD_OPTS: { id: AnalyticsPeriod; label: string }[] = [
   { id: 'week', label: '7D' },
@@ -116,11 +121,16 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
 @Component({
   selector: 'nxt1-activity-analytics-panel',
   standalone: true,
-  imports: [CommonModule, IonIcon, IonSpinner, NxtIconComponent],
+  imports: [CommonModule, IonIcon, IonSpinner, NxtTrackClickDirective],
   template: `
-    <div class="analytics-panel">
+    <div class="analytics-panel" [attr.data-testid]="testIds.ANALYTICS_PANEL">
       <!-- ── Period Selector ─────────────────── -->
-      <div class="period-row" role="group" aria-label="Select time period">
+      <div
+        class="period-row"
+        role="group"
+        aria-label="Select time period"
+        [attr.data-testid]="testIds.ANALYTICS_PERIOD_ROW"
+      >
         @for (p of periodOpts; track p.id) {
           <button
             type="button"
@@ -128,6 +138,9 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
             [class.period-btn--active]="selectedPeriod() === p.id"
             (click)="onPeriod(p.id)"
             [attr.aria-pressed]="selectedPeriod() === p.id"
+            [attr.data-testid]="testIds.ANALYTICS_PERIOD_BTN"
+            nxtTrackClick="analytics-period-select"
+            [trackData]="{ period: p.id }"
           >
             {{ p.label }}
           </button>
@@ -136,7 +149,7 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
 
       <!-- ── Loading ──────────────────────────── -->
       @if (analytics.isLoading()) {
-        <div class="panel-loading">
+        <div class="panel-loading" [attr.data-testid]="testIds.ANALYTICS_LOADING">
           <ion-spinner name="crescent" color="primary" />
           <p class="panel-loading__text">Loading analytics…</p>
         </div>
@@ -144,12 +157,18 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
 
       <!-- ── Error ──────────────────────────── -->
       @else if (analytics.error()) {
-        <div class="panel-error">
+        <div class="panel-error" [attr.data-testid]="testIds.ANALYTICS_ERROR">
           <div class="panel-error__icon">
             <ion-icon name="alert-circle-outline" />
           </div>
           <p class="panel-error__msg">{{ analytics.error() }}</p>
-          <button type="button" class="panel-error__retry" (click)="onRetry()">
+          <button
+            type="button"
+            class="panel-error__retry"
+            (click)="onRetry()"
+            [attr.data-testid]="testIds.ANALYTICS_RETRY_BTN"
+            nxtTrackClick="analytics-retry"
+          >
             <ion-icon name="refresh-outline" />
             Try Again
           </button>
@@ -159,9 +178,13 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
       <!-- ── Athlete / Parent View ──────────── -->
       @else if (!isCoachView()) {
         <!-- Overview KPI cards -->
-        <div class="kpi-grid">
+        <div class="kpi-grid" [attr.data-testid]="testIds.ANALYTICS_KPI_GRID">
           @for (kpi of athleteKpis(); track kpi.id) {
-            <div class="kpi-card" [class]="'kpi-card--' + kpi.color">
+            <div
+              class="kpi-card"
+              [class]="'kpi-card--' + kpi.color"
+              [attr.data-testid]="testIds.ANALYTICS_KPI_CARD"
+            >
               <div class="kpi-icon">
                 <ion-icon [name]="kpi.icon" />
               </div>
@@ -192,14 +215,14 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
         </div>
 
         <!-- Recruiting Funnel Chart -->
-        <div class="chart-card">
+        <div class="chart-card" [attr.data-testid]="testIds.ANALYTICS_FUNNEL">
           <div class="chart-card__header">
             <span class="chart-card__title">Recruiting Funnel</span>
             <span class="chart-card__subtitle">{{ periodLabel() }}</span>
           </div>
           <div class="funnel-bars">
             @for (bar of recruitingFunnelBars(); track bar.id) {
-              <div class="funnel-row">
+              <div class="funnel-row" [attr.data-testid]="testIds.ANALYTICS_FUNNEL_ROW">
                 <span class="funnel-label">{{ bar.label }}</span>
                 <div class="funnel-track">
                   <div
@@ -215,7 +238,7 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
         </div>
 
         <!-- Profile Views Trend (SVG area chart) -->
-        <div class="chart-card">
+        <div class="chart-card" [attr.data-testid]="testIds.ANALYTICS_CHART_PROFILE_VIEWS">
           <div class="chart-card__header">
             <span class="chart-card__title">Profile Views</span>
             <span class="chart-card__subtitle">{{ periodLabel() }}</span>
@@ -270,7 +293,7 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
           <ion-icon name="pricetag-outline" class="section-header__icon" />
           <span class="section-header__title">NIL Activity</span>
         </div>
-        <div class="kpi-grid kpi-grid--nil">
+        <div class="kpi-grid kpi-grid--nil" [attr.data-testid]="testIds.ANALYTICS_NIL_GRID">
           @for (n of nilKpis(); track n.id) {
             <div class="kpi-card kpi-card--accent">
               <div class="kpi-icon">
@@ -289,9 +312,13 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
           <ion-icon name="school-outline" class="section-header__icon" />
           <span class="section-header__title">College Interest</span>
         </div>
-        <div class="college-list">
+        <div class="college-list" [attr.data-testid]="testIds.ANALYTICS_COLLEGE_LIST">
           @for (c of collegeInterests(); track c.collegeId; let last = $last) {
-            <div class="college-row" [class.college-row--last]="last">
+            <div
+              class="college-row"
+              [class.college-row--last]="last"
+              [attr.data-testid]="testIds.ANALYTICS_COLLEGE_ROW"
+            >
               <div class="college-avatar">
                 <ion-icon name="school-outline" />
               </div>
@@ -316,9 +343,13 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
       <!-- ── Coach / Director View ──────────── -->
       @else {
         <!-- Team KPI cards -->
-        <div class="kpi-grid">
+        <div class="kpi-grid" [attr.data-testid]="testIds.ANALYTICS_KPI_GRID">
           @for (kpi of coachKpis(); track kpi.id) {
-            <div class="kpi-card" [class]="'kpi-card--' + kpi.color">
+            <div
+              class="kpi-card"
+              [class]="'kpi-card--' + kpi.color"
+              [attr.data-testid]="testIds.ANALYTICS_KPI_CARD"
+            >
               <div class="kpi-icon">
                 <ion-icon [name]="kpi.icon" />
               </div>
@@ -349,7 +380,7 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
         </div>
 
         <!-- Team Views Trend (SVG area chart) -->
-        <div class="chart-card">
+        <div class="chart-card" [attr.data-testid]="testIds.ANALYTICS_CHART_TEAM_VIEWS">
           <div class="chart-card__header">
             <span class="chart-card__title">Team Profile Views</span>
             <span class="chart-card__subtitle">{{ periodLabel() }}</span>
@@ -400,7 +431,7 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
             <ion-icon name="star-outline" class="section-header__icon" />
             <span class="section-header__title">Top Performer</span>
           </div>
-          <div class="spotlight-card">
+          <div class="spotlight-card" [attr.data-testid]="testIds.ANALYTICS_SPOTLIGHT">
             <div class="spotlight-avatar">
               @if (analytics.coachReport()?.topPerformer?.athlete?.profileImg) {
                 <img
@@ -439,9 +470,13 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
           <ion-icon name="people-outline" class="section-header__icon" />
           <span class="section-header__title">Athlete Activity</span>
         </div>
-        <div class="roster-list">
+        <div class="roster-list" [attr.data-testid]="testIds.ANALYTICS_ROSTER_LIST">
           @for (a of rosterTop(); track a.athleteId; let i = $index; let last = $last) {
-            <div class="roster-row" [class.roster-row--last]="last">
+            <div
+              class="roster-row"
+              [class.roster-row--last]="last"
+              [attr.data-testid]="testIds.ANALYTICS_ROSTER_ROW"
+            >
               <span class="roster-rank">#{{ i + 1 }}</span>
               <div class="roster-info">
                 <span class="roster-name">{{ a.name }}</span>
@@ -471,9 +506,9 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
           <ion-icon name="bulb-outline" class="section-header__icon" />
           <span class="section-header__title">AI Insights</span>
         </div>
-        <div class="insights-list">
+        <div class="insights-list" [attr.data-testid]="testIds.ANALYTICS_INSIGHTS">
           @for (ins of analytics.insights().slice(0, 3); track ins.id) {
-            <div class="insight-card">
+            <div class="insight-card" [attr.data-testid]="testIds.ANALYTICS_INSIGHT_CARD">
               <div class="insight-icon">
                 <ion-icon [name]="ins.icon" />
               </div>
@@ -487,701 +522,16 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
       }
     </div>
   `,
-  styles: [
-    `
-      /* ============================================
-         ANALYTICS PANEL
-         ============================================ */
-
-      :host {
-        display: block;
-      }
-
-      .analytics-panel {
-        padding: 0 16px 40px;
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-      }
-
-      /* ── Period Row ────────────────────────── */
-
-      .period-row {
-        display: flex;
-        gap: 8px;
-        padding: 4px 0 2px;
-      }
-
-      .period-btn {
-        flex: 1;
-        padding: 7px 0;
-        border-radius: 10px;
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.05));
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.6));
-        font-size: 13px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.15s ease;
-        font-family: inherit;
-      }
-
-      .period-btn--active {
-        background: var(--nxt1-color-primary, #ccff00);
-        border-color: var(--nxt1-color-primary, #ccff00);
-        color: #000;
-        font-weight: 700;
-      }
-
-      /* ── Loading / Error ───────────────────── */
-
-      .panel-loading {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 12px;
-        padding: 40px 0;
-      }
-
-      .panel-loading__text {
-        font-size: 14px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
-        margin: 0;
-      }
-
-      .panel-error {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 12px;
-        padding: 40px 16px;
-        text-align: center;
-      }
-
-      .panel-error__icon {
-        font-size: 40px;
-        color: var(--nxt1-color-error, #ef4444);
-      }
-
-      .panel-error__msg {
-        font-size: 14px;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        margin: 0;
-      }
-
-      .panel-error__retry {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 10px 24px;
-        border-radius: 20px;
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
-        border: 1px solid var(--nxt1-color-border-primary, rgba(204, 255, 0, 0.3));
-        color: var(--nxt1-color-text-primary, #fff);
-        font-size: 14px;
-        cursor: pointer;
-        font-family: inherit;
-      }
-
-      /* ── KPI Cards ─────────────────────────── */
-
-      .kpi-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 10px;
-      }
-
-      .kpi-grid--nil {
-        grid-template-columns: repeat(2, 1fr);
-      }
-
-      .kpi-card {
-        border-radius: 14px;
-        padding: 14px 14px 12px;
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        position: relative;
-      }
-
-      .kpi-card--primary {
-        border-color: rgba(204, 255, 0, 0.2);
-        background: rgba(204, 255, 0, 0.04);
-      }
-
-      .kpi-card--info {
-        border-color: rgba(59, 130, 246, 0.2);
-        background: rgba(59, 130, 246, 0.04);
-      }
-
-      .kpi-card--success {
-        border-color: rgba(34, 197, 94, 0.2);
-        background: rgba(34, 197, 94, 0.04);
-      }
-
-      .kpi-card--warning {
-        border-color: rgba(245, 158, 11, 0.2);
-        background: rgba(245, 158, 11, 0.04);
-      }
-
-      .kpi-card--accent {
-        border-color: rgba(168, 85, 247, 0.2);
-        background: rgba(168, 85, 247, 0.04);
-      }
-
-      .kpi-card--default {
-        /* uses base styles */
-      }
-
-      .kpi-icon {
-        font-size: 20px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
-        line-height: 1;
-      }
-
-      .kpi-card--primary .kpi-icon {
-        color: var(--nxt1-color-primary, #ccff00);
-      }
-      .kpi-card--info .kpi-icon {
-        color: var(--nxt1-color-info, #3b82f6);
-      }
-      .kpi-card--success .kpi-icon {
-        color: var(--nxt1-color-success, #22c55e);
-      }
-      .kpi-card--warning .kpi-icon {
-        color: var(--nxt1-color-warning, #f59e0b);
-      }
-      .kpi-card--accent .kpi-icon {
-        color: #a855f7;
-      }
-
-      .kpi-body {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      }
-
-      .kpi-value {
-        font-size: 22px;
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary, #fff);
-        line-height: 1.1;
-      }
-
-      .kpi-label {
-        font-size: 11px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.45));
-        font-weight: 500;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-      }
-
-      .kpi-trend {
-        display: flex;
-        align-items: center;
-        gap: 3px;
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
-      }
-
-      .kpi-trend--up {
-        color: var(--nxt1-color-success, #22c55e);
-      }
-      .kpi-trend--down {
-        color: var(--nxt1-color-error, #ef4444);
-      }
-
-      /* ── Chart Card ────────────────────────── */
-
-      .chart-card {
-        border-radius: 16px;
-        padding: 16px;
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-      }
-
-      .chart-card__header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 14px;
-      }
-
-      .chart-card__title {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--nxt1-color-text-primary, #fff);
-      }
-
-      .chart-card__subtitle {
-        font-size: 12px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
-      }
-
-      .chart-area-wrap {
-        height: 90px;
-        position: relative;
-      }
-
-      .area-chart {
-        width: 100%;
-        height: 100%;
-        display: block;
-        overflow: visible;
-      }
-
-      .chart-grid {
-        stroke: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
-        stroke-width: 0.5;
-        stroke-dasharray: 4 4;
-      }
-
-      .grad-start {
-        stop-color: #ccff00;
-        stop-opacity: 0.35;
-      }
-      .grad-end {
-        stop-color: #ccff00;
-        stop-opacity: 0;
-      }
-      .grad-start-team {
-        stop-color: #3b82f6;
-        stop-opacity: 0.35;
-      }
-      .grad-end-team {
-        stop-color: #3b82f6;
-        stop-opacity: 0;
-      }
-
-      .chart-line {
-        stroke: var(--nxt1-color-primary, #ccff00);
-        stroke-width: 1.8;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-      }
-
-      .chart-line-team {
-        stroke: var(--nxt1-color-info, #3b82f6);
-        stroke-width: 1.8;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-      }
-
-      .chart-dot {
-        fill: var(--nxt1-color-primary, #ccff00);
-        stroke: var(--nxt1-color-bg-primary, #0a0a0a);
-        stroke-width: 1.5;
-      }
-
-      .chart-dot-team {
-        fill: var(--nxt1-color-info, #3b82f6);
-        stroke: var(--nxt1-color-bg-primary, #0a0a0a);
-        stroke-width: 1.5;
-      }
-
-      .chart-x-label {
-        font-size: 7px;
-        fill: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.35));
-        font-family: inherit;
-      }
-
-      /* ── Funnel Bars ───────────────────────── */
-
-      .funnel-bars {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-
-      .funnel-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-
-      .funnel-label {
-        width: 72px;
-        flex-shrink: 0;
-        font-size: 11px;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.65));
-        text-align: right;
-      }
-
-      .funnel-track {
-        flex: 1;
-        height: 8px;
-        border-radius: 4px;
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
-        overflow: hidden;
-      }
-
-      .funnel-fill {
-        height: 100%;
-        border-radius: 4px;
-        transition: width 0.4s ease;
-      }
-
-      .funnel-fill--primary {
-        background: var(--nxt1-color-primary, #ccff00);
-      }
-      .funnel-fill--info {
-        background: var(--nxt1-color-info, #3b82f6);
-      }
-      .funnel-fill--success {
-        background: var(--nxt1-color-success, #22c55e);
-      }
-      .funnel-fill--warning {
-        background: var(--nxt1-color-warning, #f59e0b);
-      }
-      .funnel-fill--accent {
-        background: #a855f7;
-      }
-
-      .funnel-count {
-        width: 44px;
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--nxt1-color-text-primary, #fff);
-        text-align: right;
-      }
-
-      /* ── Section Header ────────────────────── */
-
-      .section-header {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-top: 4px;
-        margin-bottom: -6px;
-      }
-
-      .section-header__icon {
-        font-size: 16px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
-      }
-
-      .section-header__title {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-      }
-
-      /* ── College List ──────────────────────── */
-
-      .college-list {
-        border-radius: 16px;
-        overflow: hidden;
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-      }
-
-      .college-row {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 12px 14px;
-        border-bottom: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
-      }
-
-      .college-row--last {
-        border-bottom: none;
-      }
-
-      .college-avatar {
-        width: 36px;
-        height: 36px;
-        border-radius: 50%;
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-        font-size: 18px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
-      }
-
-      .college-info {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        min-width: 0;
-      }
-
-      .college-name {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--nxt1-color-text-primary, #fff);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .college-div {
-        font-size: 11px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
-      }
-
-      .college-meta {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 4px;
-        flex-shrink: 0;
-      }
-
-      .college-views {
-        font-size: 12px;
-        font-weight: 500;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.65));
-      }
-
-      .college-badge {
-        font-size: 10px;
-        font-weight: 600;
-        padding: 2px 7px;
-        border-radius: 20px;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-      }
-
-      .college-badge--contacted {
-        background: rgba(34, 197, 94, 0.15);
-        color: var(--nxt1-color-success, #22c55e);
-      }
-
-      /* ── Roster List ───────────────────────── */
-
-      .roster-list {
-        border-radius: 16px;
-        overflow: hidden;
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-      }
-
-      .roster-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 11px 14px;
-        border-bottom: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
-      }
-
-      .roster-row--last {
-        border-bottom: none;
-      }
-
-      .roster-rank {
-        width: 22px;
-        font-size: 11px;
-        font-weight: 700;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.35));
-        flex-shrink: 0;
-        text-align: center;
-      }
-
-      .roster-info {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        min-width: 0;
-      }
-
-      .roster-name {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--nxt1-color-text-primary, #fff);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .roster-pos {
-        font-size: 11px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
-      }
-
-      .roster-stats {
-        display: flex;
-        gap: 12px;
-        flex-shrink: 0;
-      }
-
-      .roster-stat {
-        display: flex;
-        align-items: center;
-        gap: 3px;
-        font-size: 12px;
-        font-weight: 500;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.65));
-      }
-
-      .roster-stat__icon {
-        font-size: 13px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.35));
-      }
-
-      /* ── Spotlight Card ────────────────────── */
-
-      .spotlight-card {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        padding: 16px;
-        border-radius: 16px;
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-      }
-
-      .spotlight-avatar {
-        width: 48px;
-        height: 48px;
-        border-radius: 50%;
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-        flex-shrink: 0;
-      }
-
-      .spotlight-img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        border-radius: 50%;
-      }
-
-      .spotlight-avatar__icon {
-        font-size: 24px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
-      }
-
-      .spotlight-info {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        gap: 3px;
-        min-width: 0;
-      }
-
-      .spotlight-name {
-        font-size: 14px;
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary, #fff);
-      }
-
-      .spotlight-pos {
-        font-size: 11px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
-      }
-
-      .spotlight-highlights {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
-        margin-top: 4px;
-      }
-
-      .highlight-chip {
-        font-size: 10px;
-        font-weight: 500;
-        padding: 2px 8px;
-        border-radius: 20px;
-        background: rgba(204, 255, 0, 0.1);
-        color: var(--nxt1-color-primary, #ccff00);
-        border: 1px solid rgba(204, 255, 0, 0.2);
-      }
-
-      .spotlight-stat {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        flex-shrink: 0;
-      }
-
-      .spotlight-multiplier {
-        font-size: 20px;
-        font-weight: 800;
-        color: var(--nxt1-color-primary, #ccff00);
-        line-height: 1.1;
-      }
-
-      .spotlight-multiplier-label {
-        font-size: 10px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
-      }
-
-      /* ── AI Insights ───────────────────────── */
-
-      .insights-list {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-      }
-
-      .insight-card {
-        display: flex;
-        align-items: flex-start;
-        gap: 12px;
-        padding: 14px;
-        border-radius: 14px;
-        background: rgba(204, 255, 0, 0.04);
-        border: 1px solid rgba(204, 255, 0, 0.12);
-      }
-
-      .insight-icon {
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        background: rgba(204, 255, 0, 0.12);
-        color: var(--nxt1-color-primary, #ccff00);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 16px;
-        flex-shrink: 0;
-      }
-
-      .insight-body {
-        display: flex;
-        flex-direction: column;
-        gap: 3px;
-        flex: 1;
-      }
-
-      .insight-title {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--nxt1-color-text-primary, #fff);
-      }
-
-      .insight-desc {
-        font-size: 12px;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.65));
-        line-height: 1.45;
-      }
-
-      /* ── Empty sub-message ─────────────────── */
-
-      .empty-sub {
-        font-size: 13px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
-        margin: 16px;
-        text-align: center;
-      }
-    `,
-  ],
+  styleUrl: './activity-analytics-panel.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ActivityAnalyticsPanelComponent implements OnInit {
+export class ActivityAnalyticsPanelComponent {
   protected readonly analytics = inject(AnalyticsDashboardService);
+  private readonly logger = inject(NxtLoggingService).child('ActivityAnalyticsPanel');
+  private readonly analyticsTracker = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
+
+  protected readonly testIds = ACTIVITY_TEST_IDS;
 
   // ============================================
   // INPUTS
@@ -1482,17 +832,17 @@ export class ActivityAnalyticsPanelComponent implements OnInit {
       businessOutline,
       removeOutline,
       analyticsOutline,
+      personOutline,
     });
     // Reinitialise when role input changes
     effect(() => {
       const role = this.role();
       const uid = this.userId() ?? undefined;
+      this.logger.info('Initializing analytics panel', { role, uid });
+      this.breadcrumb.trackStateChange('analytics-panel:initializing', { role });
+      this.analyticsTracker?.trackEvent(APP_EVENTS.ANALYTICS_PANEL_VIEWED, { role });
       void this.analytics.initialize(role, uid);
     });
-  }
-
-  ngOnInit(): void {
-    // Handled in constructor effect
   }
 
   // ============================================
@@ -1505,6 +855,8 @@ export class ActivityAnalyticsPanelComponent implements OnInit {
   }
 
   protected onRetry(): void {
+    this.logger.info('Retrying analytics load');
+    this.analyticsTracker?.trackEvent(APP_EVENTS.ANALYTICS_RETRY);
     void this.analytics.loadReport(this.selectedPeriod(), true);
   }
 }

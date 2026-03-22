@@ -50,9 +50,12 @@ import {
   isCoachReport,
   isTeamRole,
 } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
+import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { ANALYTICS_DASHBOARD_API_ADAPTER } from './analytics-dashboard-api.service';
 
 /**
@@ -65,6 +68,8 @@ export class AnalyticsDashboardService implements OnDestroy {
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('AnalyticsDashboardService');
+  private readonly analyticsTracker = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -179,6 +184,7 @@ export class AnalyticsDashboardService implements OnDestroy {
    */
   async initialize(role: AnalyticsUserRole, userId?: string): Promise<void> {
     this.logger.info('Initializing analytics', { role, userId });
+    this.breadcrumb.trackStateChange('analytics:initializing', { role, userId });
     this._userRole.set(role);
     if (userId) this._userId.set(userId);
     await this.loadReport(this._selectedPeriod(), false);
@@ -240,9 +246,13 @@ export class AnalyticsDashboardService implements OnDestroy {
       this._error.set(null);
 
       this.logger.info('Analytics report loaded', { role, period, hasData: !!report });
+      this.breadcrumb.trackStateChange('analytics:loaded', { role, period, hasData: !!report });
+      this.analyticsTracker?.trackEvent(APP_EVENTS.ANALYTICS_REPORT_LOADED, { role, period });
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load analytics';
-      this.logger.error('Failed to load analytics report', err);
+      this.logger.error('Failed to load analytics report', err, { role, period });
+      this.breadcrumb.trackStateChange('analytics:error', { role, period });
+      this.analyticsTracker?.trackEvent(APP_EVENTS.ANALYTICS_REPORT_FAILED, { role, period });
       this._error.set(errorMessage);
       this.toast.error('Failed to load analytics. Please try again.');
     } finally {
@@ -291,6 +301,7 @@ export class AnalyticsDashboardService implements OnDestroy {
   async setPeriod(period: AnalyticsPeriod): Promise<void> {
     if (this._selectedPeriod() !== period) {
       await this.haptics.selection();
+      this.analyticsTracker?.trackEvent(APP_EVENTS.ANALYTICS_PERIOD_CHANGED, { period });
       await this.loadReport(period, false);
     }
   }
