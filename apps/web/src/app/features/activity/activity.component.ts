@@ -28,7 +28,9 @@ import type {
   ActivityItem,
   InboxEmailProvider,
   AgentTaskActivityMetadata,
+  AnalyticsUserRole,
 } from '@nxt1/core';
+import { USER_ROLES } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 import { WebEmailConnectionService } from './services/email-connection.service';
@@ -80,11 +82,19 @@ export class ActivityComponent implements OnInit {
     const user = this.authService.user();
     if (!user) return null;
 
+    const rawRole = this.authService.userRole();
+    let analyticsRole: AnalyticsUserRole = 'athlete';
+    if (rawRole === USER_ROLES.COACH || rawRole === USER_ROLES.DIRECTOR) {
+      analyticsRole = 'coach';
+    }
+
     return {
       profileImg: user.profileImg ?? null,
       displayName: user.displayName,
       email: user.email,
       connectedEmails: this.emailTokens.connectedEmails(),
+      role: analyticsRole,
+      uid: user.uid,
     };
   });
 

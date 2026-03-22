@@ -11,6 +11,7 @@ export { ActivityShellComponent, type ActivityUser } from './activity-shell.comp
 export { ActivityListComponent } from './activity-list.component';
 export { ActivityItemComponent } from './activity-item.component';
 export { ActivitySkeletonComponent } from './activity-skeleton.component';
+export { ActivityAnalyticsPanelComponent } from './activity-analytics-panel.component';
 
 // Services
 export { ActivityService } from './activity.service';

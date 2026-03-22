@@ -31,7 +31,6 @@ import {
   input,
   output,
   computed,
-  OnInit,
   effect,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -42,6 +41,7 @@ import {
   type ActivityItem,
   type ConnectedEmail,
   type InboxEmailProvider,
+  type AnalyticsUserRole,
   ACTIVITY_TABS,
 } from '@nxt1/core';
 import { NxtPageHeaderComponent, type PageHeaderAction } from '../components/page-header';
@@ -56,15 +56,19 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBrowserService } from '../services/browser';
 import { ActivityService } from './activity.service';
 import { ActivityListComponent } from './activity-list.component';
+import { ActivityAnalyticsPanelComponent } from './activity-analytics-panel.component';
 
 /**
  * User info for header display.
  */
 export interface ActivityUser {
+  readonly uid?: string | null;
   readonly profileImg?: string | null;
   readonly displayName?: string | null;
   readonly connectedEmails?: readonly ConnectedEmail[];
   readonly email?: string | null;
+  /** User role — determines which analytics view to render on the Analytics tab */
+  readonly role?: AnalyticsUserRole | null;
 }
 
 @Component({
@@ -77,6 +81,7 @@ export interface ActivityUser {
     NxtRefresherComponent,
     NxtOptionScrollerComponent,
     ActivityListComponent,
+    ActivityAnalyticsPanelComponent,
   ],
   template: `
     <!-- Professional Page Header (Twitter/X style) -->
@@ -123,25 +128,30 @@ export interface ActivityUser {
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
       <div class="activity-container">
-        <!-- Unified Activity List — all tabs render through the same component -->
-        <nxt1-activity-list
-          [items]="activity.unifiedItems()"
-          [isLoading]="activity.isLoading()"
-          [isLoadingMore]="activity.isLoadingMore()"
-          [isEmpty]="activity.isEmpty()"
-          [error]="activity.error()"
-          [hasMore]="activity.hasMore()"
-          [activeTab]="activity.activeTab()"
-          [connectedEmails]="connectedEmails()"
-          (loadMore)="onLoadMore()"
-          (retry)="onRetry()"
-          (emptyCta)="onEmptyCta()"
-          (itemClick)="onItemClick($event)"
-          (actionClick)="onActionClick($event)"
-          (markRead)="onMarkRead($event)"
-          (archive)="onArchive($event)"
-          (connectProvider)="onConnectProvider($event)"
-        />
+        <!-- Analytics tab: render the embedded analytics dashboard panel -->
+        @if (activity.activeTab() === 'analytics') {
+          <nxt1-activity-analytics-panel [role]="userRole()" [userId]="userUid()" />
+        } @else {
+          <!-- Unified Activity List — all other tabs render through this component -->
+          <nxt1-activity-list
+            [items]="activity.unifiedItems()"
+            [isLoading]="activity.isLoading()"
+            [isLoadingMore]="activity.isLoadingMore()"
+            [isEmpty]="activity.isEmpty()"
+            [error]="activity.error()"
+            [hasMore]="activity.hasMore()"
+            [activeTab]="activity.activeTab()"
+            [connectedEmails]="connectedEmails()"
+            (loadMore)="onLoadMore()"
+            (retry)="onRetry()"
+            (emptyCta)="onEmptyCta()"
+            (itemClick)="onItemClick($event)"
+            (actionClick)="onActionClick($event)"
+            (markRead)="onMarkRead($event)"
+            (archive)="onArchive($event)"
+            (connectProvider)="onConnectProvider($event)"
+          />
+        }
       </div>
     </ion-content>
   `,
@@ -207,7 +217,7 @@ export interface ActivityUser {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ActivityShellComponent implements OnInit {
+export class ActivityShellComponent {
   protected readonly activity = inject(ActivityService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ActivityShell');
@@ -262,15 +272,19 @@ export class ActivityShellComponent implements OnInit {
     return user?.displayName ?? 'User';
   });
 
+  /** User role for the analytics panel */
+  protected readonly userRole = computed((): AnalyticsUserRole => {
+    return (this.user()?.role as AnalyticsUserRole | null | undefined) ?? 'athlete';
+  });
+
+  /** User UID for the analytics panel */
+  protected readonly userUid = computed((): string | null => {
+    return this.user()?.uid ?? null;
+  });
+
   /** Connected email accounts from user data */
   protected readonly connectedEmails = computed(() => {
-    const emails = this.user()?.connectedEmails ?? [];
-    console.log('🔍 [ActivityShell] Connected emails computed:', {
-      user: this.user()?.email,
-      connectedEmails: emails,
-      count: emails.length,
-    });
-    return emails;
+    return this.user()?.connectedEmails ?? [];
   });
 
   /** Header actions */
@@ -304,12 +318,6 @@ export class ActivityShellComponent implements OnInit {
 
   /** Total unread count */
   protected readonly totalUnread = computed(() => this.activity.totalUnread());
-
-  // ============================================
-  // LIFECYCLE
-  // ============================================
-
-  ngOnInit(): void {}
 
   // ============================================
   // EVENT HANDLERS

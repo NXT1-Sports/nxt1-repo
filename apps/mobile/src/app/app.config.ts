@@ -40,6 +40,7 @@ import {
   AGENT_X_API_BASE_URL,
   ACTIVITY_API_BASE_URL,
   ACTIVITY_API_ADAPTER,
+  ANALYTICS_API_BASE_URL,
   INVITE_API_BASE_URL,
   MESSAGES_API_BASE_URL,
   USAGE_API_BASE_URL,
@@ -188,6 +189,9 @@ export const appConfig: ApplicationConfig = {
 
     // Activity API adapter — use the mobile Capacitor adapter (auth headers, native SSL)
     { provide: ACTIVITY_API_ADAPTER, useExisting: MobileActivityApiService },
+
+    // Analytics Dashboard API base URL
+    { provide: ANALYTICS_API_BASE_URL, useFactory: () => environment.apiUrl },
 
     // Invite API base URL
     { provide: INVITE_API_BASE_URL, useFactory: () => environment.apiUrl },

@@ -1085,6 +1085,8 @@ export {
 export {
   // Service
   AnalyticsDashboardService,
+  // API Token (used by apps to configure base URL)
+  ANALYTICS_API_BASE_URL,
   // Components (Ionic — Mobile)
   AnalyticsDashboardShellComponent,
   // Components (Web — Zero Ionic)

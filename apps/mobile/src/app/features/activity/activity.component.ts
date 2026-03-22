@@ -31,7 +31,9 @@ import type {
   ActivityItem,
   InboxEmailProvider,
   AgentTaskActivityMetadata,
+  AnalyticsUserRole,
 } from '@nxt1/core';
+import { USER_ROLES } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 import { MobileEmailConnectionService } from './services/email-connection.service';
 import { ProfileService } from '../../core/services/profile.service';
@@ -101,11 +103,20 @@ export class ActivityComponent {
     if (!user) return null;
     const connectedEmails = this.profileService.user()?.connectedEmails ?? [];
 
+    // Map platform UserRole to AnalyticsUserRole for the analytics panel
+    const rawRole = this.authFlow.userRole();
+    let analyticsRole: AnalyticsUserRole = 'athlete';
+    if (rawRole === USER_ROLES.COACH || rawRole === USER_ROLES.DIRECTOR) {
+      analyticsRole = 'coach';
+    }
+
     return {
       profileImg: user.profileImg ?? null,
       displayName: user.displayName,
       email: user.email,
       connectedEmails,
+      role: analyticsRole,
+      uid: user.uid,
     };
   });
 
