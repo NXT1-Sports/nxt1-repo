@@ -221,6 +221,14 @@ export class AgentXService {
       this._weeklyPlaybook().every((t) => t.status === 'complete')
   );
 
+  /** Operations currently awaiting user input/approval. */
+  readonly awaitingInputOperations = computed(() =>
+    this._activeOperations().filter((op) => op.status === 'awaiting_input')
+  );
+
+  /** Whether any operation needs user attention (drives banner visibility). */
+  readonly hasAwaitingInput = computed(() => this.awaitingInputOperations().length > 0);
+
   // ============================================
   // QUICK TASKS (by category)
   // ============================================
@@ -723,7 +731,9 @@ export class AgentXService {
    * Polls dashboard every 10s when operations are in-progress, stops when all done.
    */
   private manageOperationsPolling(operations: readonly ShellActiveOperation[]): void {
-    const hasProcessing = operations.some((op) => op.status === 'processing');
+    const hasProcessing = operations.some(
+      (op) => op.status === 'processing' || op.status === 'awaiting_input'
+    );
 
     if (hasProcessing && !this.operationsPollingInterval) {
       this.logger.debug('Starting operations polling', { count: operations.length });
@@ -984,7 +994,7 @@ export class AgentXService {
           id: result.operationId,
           label: `${item.actionLabel}...`,
           progress: 0,
-          icon: 'sparkles',
+          icon: 'bolt',
           status: 'processing' as const,
         },
         ...ops,

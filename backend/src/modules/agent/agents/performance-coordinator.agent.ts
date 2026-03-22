@@ -78,6 +78,7 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
       'read_distilled_section',
       'write_season_stats',
       'write_combine_metrics',
+      'ask_user',
     ];
   }
 

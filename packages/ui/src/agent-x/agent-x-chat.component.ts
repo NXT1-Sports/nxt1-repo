@@ -10,6 +10,7 @@ import {
   Component,
   ChangeDetectionStrategy,
   input,
+  output,
   viewChild,
   ElementRef,
   effect,
@@ -18,34 +19,55 @@ import { CommonModule } from '@angular/common';
 import type { AgentXMessage } from '@nxt1/core';
 import { NxtIconComponent } from '../components/icon/icon.component';
 import { NxtChatBubbleComponent } from '../components/chat-bubble';
+import {
+  AgentXActionCardComponent,
+  type ActionCardApprovalEvent,
+  type ActionCardReplyEvent,
+} from './agent-x-action-card.component';
 
 @Component({
   selector: 'nxt1-agent-x-chat',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent, NxtChatBubbleComponent],
+  imports: [CommonModule, NxtIconComponent, NxtChatBubbleComponent, AgentXActionCardComponent],
   template: `
     <div class="messages-container" #messagesContainer>
       @for (message of messages(); track message.id) {
-        <div
-          class="message-row"
-          [class.user]="message.role === 'user'"
-          [class.assistant]="message.role === 'assistant'"
-          [class.error]="message.error"
-        >
-          @if (message.role === 'assistant') {
+        @if (message.yieldState && message.operationId) {
+          <!-- ═══ ACTION CARD (HITL yield) ═══ -->
+          <div class="message-row assistant">
             <div class="message-avatar">
               <nxt1-icon name="bolt" [size]="20" />
             </div>
-          }
-          <nxt1-chat-bubble
-            variant="agent-chat"
-            [isOwn]="message.role === 'user'"
-            [content]="message.content"
-            [imageUrl]="message.imageUrl"
-            [isTyping]="!!message.isTyping"
-            [isError]="!!message.error"
-          />
-        </div>
+            <nxt1-agent-action-card
+              [yield]="message.yieldState"
+              [operationId]="message.operationId"
+              (approve)="onApprove($event)"
+              (reply)="onReply($event)"
+            />
+          </div>
+        } @else {
+          <!-- ═══ STANDARD CHAT BUBBLE ═══ -->
+          <div
+            class="message-row"
+            [class.user]="message.role === 'user'"
+            [class.assistant]="message.role === 'assistant'"
+            [class.error]="message.error"
+          >
+            @if (message.role === 'assistant') {
+              <div class="message-avatar">
+                <nxt1-icon name="bolt" [size]="20" />
+              </div>
+            }
+            <nxt1-chat-bubble
+              variant="agent-chat"
+              [isOwn]="message.role === 'user'"
+              [content]="message.content"
+              [imageUrl]="message.imageUrl"
+              [isTyping]="!!message.isTyping"
+              [isError]="!!message.error"
+            />
+          </div>
+        }
       }
     </div>
   `,
@@ -99,6 +121,16 @@ export class AgentXChatComponent {
   readonly messages = input.required<readonly AgentXMessage[]>();
 
   // ============================================
+  // OUTPUTS
+  // ============================================
+
+  /** Bubbles approval events up to the parent shell/service. */
+  readonly approveAction = output<ActionCardApprovalEvent>();
+
+  /** Bubbles reply events up to the parent shell/service. */
+  readonly replyAction = output<ActionCardReplyEvent>();
+
+  // ============================================
   // VIEW CHILD
   // ============================================
 
@@ -112,6 +144,18 @@ export class AgentXChatComponent {
         this.scrollToBottom();
       }
     });
+  }
+
+  // ============================================
+  // ACTION CARD HANDLERS
+  // ============================================
+
+  protected onApprove(event: ActionCardApprovalEvent): void {
+    this.approveAction.emit(event);
+  }
+
+  protected onReply(event: ActionCardReplyEvent): void {
+    this.replyAction.emit(event);
   }
 
   // ============================================

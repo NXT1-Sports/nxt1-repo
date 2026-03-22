@@ -64,7 +64,9 @@ import {
   type ShellActiveOperation,
   type ShellWeeklyPlaybookItem,
   type AgentDashboardGoal,
+  type AgentYieldState,
 } from '@nxt1/core/ai';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './fab/agent-x-logo.constants';
 
 // ============================================
 // INTERFACES
@@ -83,9 +85,13 @@ export interface ActiveOperation {
   readonly label: string;
   readonly progress: number; // 0–100
   readonly icon: string;
-  readonly status: 'processing' | 'complete' | 'error';
+  readonly status: 'processing' | 'complete' | 'error' | 'awaiting_input';
   /** MongoDB thread ID — when set, opening this card loads the persisted worker conversation. */
   readonly threadId?: string;
+  /** When status is `awaiting_input`, contains the yield state for the action card. */
+  readonly yieldState?: AgentYieldState;
+  /** When status is `error`, contains the human-readable failure reason. */
+  readonly errorMessage?: string;
 }
 
 /** A contextual action chip for quick workflows. */
@@ -231,6 +237,23 @@ export interface WeeklyPlaybookItem {
               </button>
             </div>
 
+            <!-- ═══ ACTION REQUIRED BANNER (HITL) ═══ -->
+            @if (awaitingInputOps().length > 0) {
+              <div class="action-required-banner" (click)="onActionRequiredTap()">
+                <div class="action-required-icon">
+                  <nxt1-icon name="hand-left" [size]="18" />
+                </div>
+                <div class="action-required-content">
+                  <span class="action-required-title">Action Required</span>
+                  <span class="action-required-subtitle">
+                    Agent needs your approval on {{ awaitingInputOps().length }}
+                    {{ awaitingInputOps().length === 1 ? 'operation' : 'operations' }}
+                  </span>
+                </div>
+                <nxt1-icon name="chevronForward" [size]="16" className="action-required-chevron" />
+              </div>
+            }
+
             <!-- ═══ 2. DAILY OPERATIONS (Conditional) ═══ -->
             @if (activeOperations().length > 0) {
               <section class="operations-section" aria-label="Daily operations">
@@ -243,12 +266,23 @@ export interface WeeklyPlaybookItem {
                       [class.operation-card--processing]="op.status === 'processing'"
                       [class.operation-card--complete]="op.status === 'complete'"
                       [class.operation-card--error]="op.status === 'error'"
+                      [class.operation-card--awaiting-input]="op.status === 'awaiting_input'"
                       (click)="onOperationTap(op)"
                     >
                       <!-- Top row: task icon + label -->
                       <div class="operation-top">
                         <div class="operation-icon">
-                          <nxt1-icon [name]="op.icon" [size]="14" />
+                          <svg
+                            class="agent-x-mark"
+                            width="20"
+                            height="20"
+                            viewBox="0 0 612 792"
+                            fill="currentColor"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <path [attr.d]="agentXLogoPath" />
+                            <polygon [attr.points]="agentXLogoPolygon" />
+                          </svg>
                         </div>
                         <span class="operation-label">{{ op.label }}</span>
                       </div>
@@ -293,6 +327,14 @@ export interface WeeklyPlaybookItem {
                             </span>
                             <span class="operation-status-icon operation-status-icon--error">
                               <nxt1-icon name="alertCircle" [size]="12" />
+                            </span>
+                          }
+                          @case ('awaiting_input') {
+                            <span class="operation-status-badge operation-status-badge--awaiting">
+                              Needs Input
+                            </span>
+                            <span class="operation-status-icon operation-status-icon--awaiting">
+                              <nxt1-icon name="hand-left" [size]="12" />
                             </span>
                           }
                         }
@@ -384,7 +426,17 @@ export interface WeeklyPlaybookItem {
                       <p class="card-description">{{ task.summary }}</p>
                       @if (task.why) {
                         <p class="card-why">
-                          <nxt1-icon name="sparkles" [size]="12" />
+                          <svg
+                            class="agent-x-mark"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 612 792"
+                            fill="currentColor"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <path [attr.d]="agentXLogoPath" />
+                            <polygon [attr.points]="agentXLogoPolygon" />
+                          </svg>
                           {{ task.why }}
                         </p>
                       }
@@ -431,7 +483,17 @@ export interface WeeklyPlaybookItem {
                   aria-live="polite"
                 >
                   <div class="action-empty-icon" aria-hidden="true">
-                    <nxt1-icon name="sparkles" [size]="30"></nxt1-icon>
+                    <svg
+                      class="agent-x-mark"
+                      width="40"
+                      height="40"
+                      viewBox="0 0 612 792"
+                      fill="currentColor"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path [attr.d]="agentXLogoPath" />
+                      <polygon [attr.points]="agentXLogoPolygon" />
+                    </svg>
                   </div>
                   <h4 class="action-empty-title">No Actions Yet</h4>
                   <p class="action-empty-copy">
@@ -675,6 +737,107 @@ export interface WeeklyPlaybookItem {
         background: var(--nxt1-color-error-surface, rgba(244, 67, 54, 0.05));
       }
 
+      /* Awaiting Input — orange pulse */
+      .operation-card--awaiting-input {
+        border-color: var(--nxt1-color-warning-border, rgba(255, 152, 0, 0.35));
+        background: var(--nxt1-color-warning-surface, rgba(255, 152, 0, 0.06));
+        animation: op-pulse-awaiting 2s ease-in-out infinite;
+      }
+
+      .operation-card--awaiting-input .operation-icon {
+        background: var(--nxt1-color-warning-surface, rgba(255, 152, 0, 0.15));
+        color: var(--nxt1-color-warning, #ff9800);
+      }
+
+      @keyframes op-pulse-awaiting {
+        0%,
+        100% {
+          border-color: var(--nxt1-color-warning-border, rgba(255, 152, 0, 0.35));
+        }
+        50% {
+          border-color: var(--nxt1-color-warning, rgba(255, 152, 0, 0.6));
+        }
+      }
+
+      /* ════ ACTION REQUIRED BANNER ════ */
+      .action-required-banner {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-3, 12px);
+        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
+        margin: 0 0 var(--nxt1-spacing-4, 16px);
+        background: var(--nxt1-color-warning-surface, rgba(255, 152, 0, 0.08));
+        border: 1px solid var(--nxt1-color-warning-border, rgba(255, 152, 0, 0.25));
+        border-radius: var(--nxt1-radius-lg, 14px);
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        animation: banner-entrance 0.4s ease-out;
+      }
+
+      .action-required-banner:active {
+        background: var(--nxt1-color-warning-surface, rgba(255, 152, 0, 0.14));
+      }
+
+      .action-required-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        background: var(--nxt1-color-warning-surface, rgba(255, 152, 0, 0.15));
+        color: var(--nxt1-color-warning, #ff9800);
+        flex-shrink: 0;
+        animation: banner-icon-pulse 2s ease-in-out infinite;
+      }
+
+      .action-required-content {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .action-required-title {
+        font-size: var(--nxt1-font-size-sm, 13px);
+        font-weight: var(--nxt1-font-weight-semibold, 600);
+        color: var(--nxt1-color-warning, #ff9800);
+        line-height: 1.2;
+      }
+
+      .action-required-subtitle {
+        font-size: 12px;
+        color: var(--agent-text-secondary, rgba(255, 255, 255, 0.55));
+        line-height: 1.3;
+      }
+
+      .action-required-chevron {
+        color: var(--agent-text-secondary, rgba(255, 255, 255, 0.35));
+        flex-shrink: 0;
+      }
+
+      @keyframes banner-entrance {
+        from {
+          opacity: 0;
+          transform: translateY(-8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes banner-icon-pulse {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.08);
+        }
+      }
+
       /* ── Top row (icon + label) ── */
       .operation-top {
         display: flex;
@@ -769,6 +932,10 @@ export interface WeeklyPlaybookItem {
         color: var(--nxt1-color-error, #f44336);
       }
 
+      .operation-status-badge--awaiting {
+        color: var(--nxt1-color-warning, #ff9800);
+      }
+
       /* Spinning refresh icon */
       .operation-spinner {
         display: inline-flex;
@@ -791,6 +958,10 @@ export interface WeeklyPlaybookItem {
 
       .operation-status-icon--error {
         color: var(--nxt1-color-error, #f44336);
+      }
+
+      .operation-status-icon--awaiting {
+        color: var(--nxt1-color-warning, #ff9800);
       }
 
       /* ──────────────────────────────────
@@ -1481,6 +1652,10 @@ export class AgentXShellComponent {
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly location = inject(Location);
 
+  /** Agent X SVG logo path data for inline icon rendering. */
+  protected readonly agentXLogoPath: string = AGENT_X_LOGO_PATH;
+  protected readonly agentXLogoPolygon: string = AGENT_X_LOGO_POLYGON;
+
   // ============================================
   // INPUTS
   // ============================================
@@ -1539,6 +1714,9 @@ export class AgentXShellComponent {
   protected readonly activeOperations = computed<ShellActiveOperation[]>(() =>
     this.agentX.activeOperations()
   );
+
+  /** Operations currently awaiting user action (HITL). */
+  protected readonly awaitingInputOps = computed(() => this.agentX.awaitingInputOperations());
 
   /** Briefing preview text — live from service only. */
   protected readonly briefingPreview = computed(() => this.agentX.briefingPreviewText());
@@ -1625,7 +1803,7 @@ export class AgentXShellComponent {
       void this.openOperationChat(
         pending.operationId ?? pending.threadId,
         pending.title,
-        pending.icon ?? 'sparkles',
+        pending.icon ?? 'bolt',
         'operation',
         [],
         '',
@@ -1748,7 +1926,41 @@ export class AgentXShellComponent {
     await this.haptics.impact('light');
     // Pass the persisted thread ID so the sheet loads the worker's actual output logs
     // rather than opening a blank new chat session.
-    await this.openOperationChat(op.id, op.label, op.icon, 'operation', [], '', op.threadId ?? '');
+    await this.openOperationChat(
+      op.id,
+      op.label,
+      op.icon,
+      'operation',
+      [],
+      '',
+      op.threadId ?? '',
+      '',
+      op.yieldState ?? null,
+      op.status,
+      op.errorMessage ?? null
+    );
+  }
+
+  /**
+   * Handle "Action Required" banner tap — opens the first awaiting operation.
+   */
+  protected async onActionRequiredTap(): Promise<void> {
+    await this.haptics.impact('medium');
+    const ops = this.awaitingInputOps();
+    if (ops.length > 0) {
+      const op = ops[0];
+      await this.openOperationChat(
+        op.id,
+        op.label,
+        op.icon,
+        'operation',
+        [],
+        '',
+        op.threadId ?? '',
+        '',
+        op.yieldState ?? null
+      );
+    }
   }
 
   /**
@@ -1762,7 +1974,10 @@ export class AgentXShellComponent {
     quickActions: OperationQuickAction[] = [],
     contextDescription = '',
     threadId = '',
-    initialMessage = ''
+    initialMessage = '',
+    yieldState: AgentYieldState | null = null,
+    operationStatus: 'processing' | 'complete' | 'error' | 'awaiting_input' = 'processing',
+    errorMessage: string | null = null
   ): Promise<void> {
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
@@ -1775,6 +1990,9 @@ export class AgentXShellComponent {
         contextDescription,
         threadId,
         initialMessage,
+        yieldState,
+        operationStatus,
+        errorMessage,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

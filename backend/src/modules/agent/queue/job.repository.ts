@@ -24,7 +24,12 @@
  */
 
 import { getFirestore, FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
-import type { AgentJobPayload, AgentOperationStatus, AgentOperationResult } from '@nxt1/core';
+import type {
+  AgentJobPayload,
+  AgentOperationStatus,
+  AgentOperationResult,
+  AgentYieldState,
+} from '@nxt1/core';
 import type { AgentJobProgress } from './queue.types.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -51,6 +56,8 @@ export interface AgentJobDocument {
   readonly error: string | null;
   /** MongoDB thread ID linking this job to its Agent X conversation thread. */
   readonly threadId: string | null;
+  /** Serialized yield state when the job is awaiting user input/approval. */
+  readonly yieldState?: AgentYieldState | null;
   readonly createdAt: FirebaseFirestore.Timestamp;
   readonly updatedAt: FirebaseFirestore.Timestamp;
   readonly completedAt: FirebaseFirestore.Timestamp | null;
@@ -141,6 +148,25 @@ export class AgentJobRepository {
         updatedAt: FieldValue.serverTimestamp(),
         completedAt: FieldValue.serverTimestamp(),
         expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
+      });
+  }
+
+  /**
+   * Mark the job as yielded (awaiting user input or approval).
+   * Stores the serialized yield state so the resume route can reconstruct the agent.
+   */
+  async markYielded(operationId: string, yieldState: AgentYieldState): Promise<void> {
+    await this.db
+      .collection(COLLECTION)
+      .doc(operationId)
+      .update({
+        status:
+          yieldState.reason === 'needs_approval'
+            ? ('awaiting_approval' satisfies AgentOperationStatus)
+            : ('awaiting_input' satisfies AgentOperationStatus),
+        yieldState,
+        updatedAt: FieldValue.serverTimestamp(),
+        expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
       });
   }
 

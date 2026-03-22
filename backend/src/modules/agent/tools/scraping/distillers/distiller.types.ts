@@ -55,6 +55,9 @@ export interface DistilledTeam {
   readonly logoUrl?: string;
   readonly primaryColor?: string;
   readonly secondaryColor?: string;
+  readonly city?: string;
+  readonly state?: string;
+  readonly country?: string;
   readonly seasonRecord?: string;
 }
 

@@ -104,6 +104,7 @@ export class WebSearchTool extends BaseTool {
     'recruiting_coordinator',
     'compliance_coordinator',
     'performance_coordinator',
+    'data_coordinator',
     'general',
   ] as const;
 

@@ -89,7 +89,7 @@ export class ComplianceCoordinatorAgent extends BaseAgent {
   }
 
   getAvailableTools(): readonly string[] {
-    return ['search_knowledge_base', 'search_web', 'scrape_webpage'];
+    return ['search_knowledge_base', 'search_web', 'scrape_webpage', 'ask_user'];
   }
 
   getModelRouting(): ModelRoutingConfig {

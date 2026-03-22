@@ -51,6 +51,7 @@ import { AGENT_X_API_BASE_URL } from './agent-x-job.service';
 import { AgentXOperationChatComponent } from './agent-x-operation-chat.component';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { OperationLogEntry, OperationLogStatus, OperationsLogResponse } from '@nxt1/core';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './fab/agent-x-logo.constants';
 
 // ============================================
 // INTERFACES (local, non-exported)
@@ -77,6 +78,7 @@ const STATUS_FILTERS: readonly StatusFilter[] = [
   { id: 'all', label: 'All' },
   { id: 'complete', label: 'Completed' },
   { id: 'in-progress', label: 'Active' },
+  { id: 'awaiting_input', label: 'Needs Input' },
   { id: 'error', label: 'Failed' },
   { id: 'cancelled', label: 'Cancelled' },
   { id: 'scheduled', label: 'Scheduled' },
@@ -133,6 +135,13 @@ export const OPERATIONS_LOG_TEST_IDS = {
         <span class="log-summary-value log-summary-value--active">{{ activeCount() }}</span>
         <span class="log-summary-label">Active</span>
       </div>
+      @if (awaitingCount() > 0) {
+        <div class="log-summary-divider"></div>
+        <div class="log-summary-stat">
+          <span class="log-summary-value log-summary-value--awaiting">{{ awaitingCount() }}</span>
+          <span class="log-summary-label">Needs Input</span>
+        </div>
+      }
       <div class="log-summary-divider"></div>
       <div class="log-summary-stat">
         <span class="log-summary-value log-summary-value--error">{{ failedCount() }}</span>
@@ -208,6 +217,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
                 [class.log-entry--error]="entry.status === 'error'"
                 [class.log-entry--cancelled]="entry.status === 'cancelled'"
                 [class.log-entry--active]="entry.status === 'in-progress'"
+                [class.log-entry--awaiting]="entry.status === 'awaiting_input'"
                 (click)="onEntryTap(entry)"
               >
                 <!-- Status + Icon -->
@@ -217,8 +227,19 @@ export const OPERATIONS_LOG_TEST_IDS = {
                   [class.log-entry-icon--error]="entry.status === 'error'"
                   [class.log-entry-icon--cancelled]="entry.status === 'cancelled'"
                   [class.log-entry-icon--active]="entry.status === 'in-progress'"
+                  [class.log-entry-icon--awaiting]="entry.status === 'awaiting_input'"
                 >
-                  <nxt1-icon [name]="entry.icon" [size]="16" />
+                  <svg
+                    class="agent-x-mark"
+                    width="22"
+                    height="22"
+                    viewBox="0 0 612 792"
+                    fill="currentColor"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path [attr.d]="agentXLogoPath" />
+                    <polygon [attr.points]="agentXLogoPolygon" />
+                  </svg>
                 </div>
 
                 <!-- Content -->
@@ -231,6 +252,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
                       [class.log-entry-status--error]="entry.status === 'error'"
                       [class.log-entry-status--cancelled]="entry.status === 'cancelled'"
                       [class.log-entry-status--active]="entry.status === 'in-progress'"
+                      [class.log-entry-status--awaiting]="entry.status === 'awaiting_input'"
                     >
                       @switch (entry.status) {
                         @case ('complete') {
@@ -246,6 +268,9 @@ export const OPERATIONS_LOG_TEST_IDS = {
                           <span class="log-entry-spinner">
                             <nxt1-icon name="refresh" [size]="12" />
                           </span>
+                        }
+                        @case ('awaiting_input') {
+                          <nxt1-icon name="hand-left" [size]="12" />
                         }
                       }
                     </span>
@@ -323,6 +348,17 @@ export const OPERATIONS_LOG_TEST_IDS = {
         }
       }
 
+      /* ── Awaiting input pulse ── */
+      @keyframes log-pulse-awaiting {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+      }
+
       /* ── Skeleton shimmer ── */
       @keyframes log-shimmer {
         0% {
@@ -370,6 +406,10 @@ export const OPERATIONS_LOG_TEST_IDS = {
 
       .log-summary-value--error {
         color: var(--log-error);
+      }
+
+      .log-summary-value--awaiting {
+        color: var(--log-warning);
       }
 
       .log-summary-label {
@@ -529,6 +569,12 @@ export const OPERATIONS_LOG_TEST_IDS = {
         color: var(--log-primary);
       }
 
+      .log-entry-icon--awaiting {
+        background: color-mix(in srgb, var(--log-warning) 12%, transparent);
+        color: var(--log-warning);
+        animation: log-pulse-awaiting 2s ease-in-out infinite;
+      }
+
       /* ── Entry Content ── */
       .log-entry-content {
         flex: 1;
@@ -576,6 +622,10 @@ export const OPERATIONS_LOG_TEST_IDS = {
 
       .log-entry-status--active {
         color: var(--log-primary);
+      }
+
+      .log-entry-status--awaiting {
+        color: var(--log-warning);
       }
 
       .log-entry-spinner {
@@ -781,6 +831,10 @@ export class AgentXOperationsLogComponent {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly haptics = inject(HapticsService);
 
+  /** Agent X SVG logo path data for inline icon rendering. */
+  protected readonly agentXLogoPath: string = AGENT_X_LOGO_PATH;
+  protected readonly agentXLogoPolygon: string = AGENT_X_LOGO_POLYGON;
+
   /** HttpClient for API calls. */
   private readonly http = inject(HttpClient);
 
@@ -834,6 +888,11 @@ export class AgentXOperationsLogComponent {
   /** Count of failed operations. */
   protected readonly failedCount = computed(
     () => this._operations().filter((o) => o.status === 'error').length
+  );
+
+  /** Count of awaiting-input operations. */
+  protected readonly awaitingCount = computed(
+    () => this._operations().filter((o) => o.status === 'awaiting_input').length
   );
 
   /**

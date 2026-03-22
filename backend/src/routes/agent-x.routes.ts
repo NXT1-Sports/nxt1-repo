@@ -12,6 +12,8 @@
  *   GET  /api/v1/agent-x/status/:id  → Poll job progress/result
  *   POST /api/v1/agent-x/cancel/:id  → Cancel an active job
  *   GET  /api/v1/agent-x/history     → Get user's job history
+ *   POST /api/v1/agent-x/resume-job/:operationId → Resume a yielded agent job
+ *   POST /api/v1/agent-x/approvals/:id/resolve   → Resolve an approval request
  *   POST /api/v1/agent-x/playbook/item/:id/status → Update playbook item status
  *   POST /api/v1/agent-x/briefing/generate         → Generate daily AI briefing
  *   POST /api/v1/agent-x/pause       → Pause the entire queue (admin)
@@ -38,6 +40,7 @@ import type {
   ShellBriefingInsight,
   OperationLogEntry,
   AgentThreadCategory,
+  AgentYieldState,
 } from '@nxt1/core';
 import { getShellContentForRole } from '@nxt1/core';
 import type { AgentChatService } from '../modules/agent/services/agent-chat.service.js';
@@ -318,6 +321,341 @@ router.post('/cancel/:id', appGuard, async (req: Request, res: Response) => {
   }
 });
 
+// ─── POST /resume-job/:operationId — Resume a yielded agent job ───────────
+//
+// Called when the user answers a question from Agent X (via chat or push
+// notification deep link). Reads the serialized yield state from Firestore,
+// injects the user's answer into the saved message array, and re-enqueues
+// a new BullMQ job that continues the ReAct loop from where it left off.
+
+router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Response) => {
+  try {
+    if (!queueService || !jobRepository) {
+      res.status(503).json({ success: false, error: 'Agent queue not initialized' });
+      return;
+    }
+
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { operationId } = req.params;
+    if (!operationId || typeof operationId !== 'string') {
+      res.status(400).json({ success: false, error: 'Operation ID is required' });
+      return;
+    }
+
+    const { response: userResponse } = req.body as { response?: string };
+    if (!userResponse || typeof userResponse !== 'string' || userResponse.trim().length === 0) {
+      res.status(400).json({ success: false, error: 'A non-empty response is required' });
+      return;
+    }
+
+    if (userResponse.length > 5000) {
+      res.status(400).json({ success: false, error: 'Response must be 5000 characters or less' });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const jobDoc = await jobRepository.withDb(db).getById(operationId);
+    if (!jobDoc) {
+      res.status(404).json({ success: false, error: 'Job not found' });
+      return;
+    }
+
+    // Ownership check
+    if (jobDoc.userId !== user.uid) {
+      res.status(404).json({ success: false, error: 'Job not found' });
+      return;
+    }
+
+    // Must be in a yielded state
+    const status = jobDoc.status;
+    if (status !== 'awaiting_input' && status !== 'awaiting_approval') {
+      res.status(409).json({
+        success: false,
+        error: `Job is in "${status}" state — only yielded jobs can be resumed`,
+      });
+      return;
+    }
+
+    const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
+    if (!yieldState) {
+      res.status(409).json({ success: false, error: 'No yield state found on this job' });
+      return;
+    }
+
+    // Check expiry
+    if (new Date(yieldState.expiresAt).getTime() < Date.now()) {
+      await jobRepository.withDb(db).markFailed(operationId, 'Yield expired before user responded');
+      res.status(410).json({ success: false, error: 'This request has expired' });
+      return;
+    }
+
+    // Persist the user's reply to the MongoDB thread
+    const threadId = jobDoc.threadId;
+    if (threadId && chatService) {
+      try {
+        await chatService.addMessage({
+          threadId,
+          userId: user.uid,
+          role: 'user',
+          content: userResponse.trim(),
+          origin: 'user',
+          operationId,
+        });
+      } catch (chatErr) {
+        logger.warn('Failed to persist resume message to MongoDB', {
+          error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+          userId: user.uid,
+        });
+      }
+    }
+
+    // Build the resumed job payload
+    const resumedPayload: AgentJobPayload = {
+      operationId: crypto.randomUUID(), // New operation ID for the resumed job
+      userId: user.uid,
+      intent: jobDoc.intent,
+      sessionId: crypto.randomUUID(),
+      origin: 'user' as AgentJobOrigin,
+      context: {
+        threadId,
+        resumedFrom: operationId,
+        yieldState: {
+          ...yieldState,
+          // Inject the user's answer as a new tool result message in the saved array
+          messages: [
+            ...yieldState.messages,
+            {
+              role: 'tool',
+              content: JSON.stringify({
+                success: true,
+                data: { userResponse: userResponse.trim() },
+              }),
+              tool_call_id: yieldState.pendingToolCall?.toolCallId ?? 'ask_user_response',
+            },
+          ],
+        } satisfies AgentYieldState,
+      },
+    };
+
+    // Write the new job to Firestore
+    await jobRepository.withDb(db).create(resumedPayload);
+
+    // Mark the original job as completed (it's been superseded)
+    await jobRepository.withDb(db).markCompleted(operationId, {
+      summary: `Resumed by user — continuing as ${resumedPayload.operationId}`,
+      data: { resumedAs: resumedPayload.operationId },
+    });
+
+    // Enqueue in BullMQ
+    const jobId = await queueService.enqueue(
+      resumedPayload,
+      req.isStaging ? 'staging' : 'production'
+    );
+
+    logger.info('Agent job resumed', {
+      originalOperationId: operationId,
+      newOperationId: resumedPayload.operationId,
+      userId: user.uid,
+    });
+
+    res.status(202).json({
+      success: true,
+      data: {
+        jobId,
+        operationId: resumedPayload.operationId,
+        threadId,
+        resumedFrom: operationId,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to resume agent job', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to resume job' });
+  }
+});
+
+// ─── POST /approvals/:id/resolve — Resolve an approval request ────────────
+//
+// Called when the user approves or rejects a pending approval (e.g. "Send
+// Gmail to 24 coaches"). Resolves the approval in Firestore and, if approved,
+// re-enqueues the job so the agent can continue with the approved tool call.
+
+router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Response) => {
+  try {
+    if (!queueService || !jobRepository) {
+      res.status(503).json({ success: false, error: 'Agent queue not initialized' });
+      return;
+    }
+
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const approvalId = req.params['id'];
+    if (!approvalId || typeof approvalId !== 'string') {
+      res.status(400).json({ success: false, error: 'Approval ID is required' });
+      return;
+    }
+
+    const { decision } = req.body as { decision?: string };
+    if (decision !== 'approved' && decision !== 'rejected') {
+      res.status(400).json({
+        success: false,
+        error: 'Decision must be "approved" or "rejected"',
+      });
+      return;
+    }
+
+    const { db } = req.firebase!;
+
+    // Atomically resolve the approval inside a Firestore transaction to
+    // prevent TOCTOU races (two concurrent taps both seeing "pending").
+    const approvalRef = db.collection('agentApprovalRequests').doc(approvalId);
+
+    const transactionResult = await db.runTransaction(async (txn) => {
+      const approvalSnap = await txn.get(approvalRef);
+      if (!approvalSnap.exists) return { code: 404, error: 'Approval request not found' } as const;
+
+      const approvalData = approvalSnap.data()!;
+
+      // Ownership check
+      if (approvalData['userId'] !== user.uid) {
+        return { code: 404, error: 'Approval request not found' } as const;
+      }
+
+      if (approvalData['status'] !== 'pending') {
+        return {
+          code: 409,
+          error: `Approval is already "${approvalData['status']}"`,
+        } as const;
+      }
+
+      // Atomically update within the transaction
+      txn.update(approvalRef, {
+        status: decision,
+        resolvedAt: new Date().toISOString(),
+        resolvedBy: user.uid,
+      });
+
+      return {
+        code: 200,
+        operationId: approvalData['operationId'] as string | undefined,
+      } as const;
+    });
+
+    // Handle transaction rejection (auth/ownership/conflict)
+    if ('error' in transactionResult) {
+      res.status(transactionResult.code).json({ success: false, error: transactionResult.error });
+      return;
+    }
+
+    const operationId = transactionResult.operationId;
+    if (!operationId) {
+      // Edge case: orphaned approval — resolve it but don't try to resume
+      res.json({ success: true, data: { decision, resumed: false } });
+      return;
+    }
+
+    // Load the original job's yield state
+    const jobDoc = await jobRepository.withDb(db).getById(operationId);
+    if (!jobDoc) {
+      res.json({ success: true, data: { decision, resumed: false } });
+      return;
+    }
+
+    const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
+
+    if (decision === 'rejected') {
+      // Mark the original job as cancelled
+      await jobRepository.withDb(db).markCancelled(operationId);
+      res.json({ success: true, data: { decision, resumed: false } });
+      return;
+    }
+
+    // Approved — re-enqueue with the pending tool call result injected
+    if (!yieldState?.pendingToolCall) {
+      // No tool call to resume — just mark completed
+      await jobRepository.withDb(db).markCompleted(operationId, {
+        summary: 'Approval granted but no pending action to resume.',
+      });
+      res.json({ success: true, data: { decision, resumed: false } });
+      return;
+    }
+
+    const threadId = jobDoc.threadId;
+
+    const resumedPayload: AgentJobPayload = {
+      operationId: crypto.randomUUID(),
+      userId: user.uid,
+      intent: jobDoc.intent,
+      sessionId: crypto.randomUUID(),
+      origin: 'user' as AgentJobOrigin,
+      context: {
+        threadId,
+        resumedFrom: operationId,
+        approvalId,
+        yieldState: {
+          ...yieldState,
+          // For approvals, the tool call was already serialized — the worker
+          // re-runs it now that the user has approved.
+          messages: [
+            ...yieldState.messages,
+            {
+              role: 'tool',
+              content: JSON.stringify({
+                success: true,
+                data: { approved: true, approvalId },
+              }),
+              tool_call_id: yieldState.pendingToolCall.toolCallId,
+            },
+          ],
+        } satisfies AgentYieldState,
+      },
+    };
+
+    await jobRepository.withDb(db).create(resumedPayload);
+    await jobRepository.withDb(db).markCompleted(operationId, {
+      summary: `Approved — continuing as ${resumedPayload.operationId}`,
+      data: { resumedAs: resumedPayload.operationId, approvalId },
+    });
+
+    const jobId = await queueService.enqueue(
+      resumedPayload,
+      req.isStaging ? 'staging' : 'production'
+    );
+
+    logger.info('Approval resolved and job resumed', {
+      approvalId,
+      decision,
+      originalOperationId: operationId,
+      newOperationId: resumedPayload.operationId,
+      userId: user.uid,
+    });
+
+    res.status(202).json({
+      success: true,
+      data: {
+        decision,
+        resumed: true,
+        jobId,
+        operationId: resumedPayload.operationId,
+        threadId,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to resolve approval', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to resolve approval' });
+  }
+});
+
 // ─── GET /history — Get user's job history ────────────────────────────────
 
 router.get('/history', appGuard, async (req: Request, res: Response) => {
@@ -550,6 +888,14 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
                     : ('processing' as const),
               // Pass the Mongo thread ID so the frontend can open the real worker logs.
               threadId: (job['threadId'] as string) || undefined,
+              // Pass error message for failed operations so the chat can display it.
+              ...(mappedStatus === 'error' || mappedStatus === 'cancelled'
+                ? {
+                    errorMessage:
+                      (job['error'] as string) ??
+                      'This operation failed unexpectedly. You can retry it.',
+                  }
+                : {}),
             };
           });
       } catch (opsErr) {

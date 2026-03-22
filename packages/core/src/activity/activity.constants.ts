@@ -32,6 +32,14 @@ export const ACTIVITY_TABS: readonly ActivityTab[] = [
 ] as const;
 
 /**
+ * Alerts-only tabs for desktop web.
+ * On desktop, analytics has its own dedicated sidebar route.
+ */
+export const ACTIVITY_TABS_ALERTS_ONLY: readonly ActivityTab[] = [
+  ACTIVITY_TABS[0], // alerts
+] as const;
+
+/**
  * Default selected tab.
  * 'all' provides the best overview experience on first load.
  */

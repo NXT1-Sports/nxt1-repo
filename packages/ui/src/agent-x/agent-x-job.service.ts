@@ -164,4 +164,112 @@ export class AgentXJobService {
       return null;
     }
   }
+
+  // ============================================
+  // HUMAN-IN-THE-LOOP (HITL) METHODS
+  // ============================================
+
+  /**
+   * Approve or reject an operation that is awaiting user decision.
+   *
+   * @param operationId - The Firestore operation ID
+   * @param decision - 'approve' or 'reject'
+   * @returns Whether the decision was accepted by the backend
+   */
+  async approveOperation(operationId: string, decision: 'approve' | 'reject'): Promise<boolean> {
+    this.logger.info('Sending approval decision', { operationId, decision });
+    void this.breadcrumb.trackStateChange('agent-x-job:approve', { operationId, decision });
+
+    try {
+      const response = await firstValueFrom(
+        this.http.post<{ success: boolean; error?: string }>(
+          `${this.baseUrl}/operations/${encodeURIComponent(operationId)}/approve`,
+          { decision }
+        )
+      );
+
+      if (!response.success) {
+        this.logger.warn('Approval decision rejected by backend', {
+          operationId,
+          error: response.error,
+        });
+        return false;
+      }
+
+      this.logger.info('Approval decision accepted', { operationId, decision });
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATION_APPROVED, {
+        operationId,
+        decision,
+      });
+      return true;
+    } catch (err) {
+      this.logger.error('Failed to send approval decision', err, { operationId });
+      return false;
+    }
+  }
+
+  /**
+   * Reply to an operation that is awaiting user text input.
+   *
+   * @param operationId - The Firestore operation ID
+   * @param userResponse - The user's text response
+   * @returns Whether the reply was accepted by the backend
+   */
+  async replyOperation(operationId: string, userResponse: string): Promise<boolean> {
+    this.logger.info('Sending user reply to operation', {
+      operationId,
+      responseLength: userResponse.length,
+    });
+    void this.breadcrumb.trackStateChange('agent-x-job:reply', { operationId });
+
+    try {
+      const response = await firstValueFrom(
+        this.http.post<{ success: boolean; error?: string }>(
+          `${this.baseUrl}/operations/${encodeURIComponent(operationId)}/reply`,
+          { userResponse }
+        )
+      );
+
+      if (!response.success) {
+        this.logger.warn('Reply rejected by backend', {
+          operationId,
+          error: response.error,
+        });
+        return false;
+      }
+
+      this.logger.info('Reply accepted', { operationId });
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATION_REPLIED, { operationId });
+      return true;
+    } catch (err) {
+      this.logger.error('Failed to send reply', err, { operationId });
+      return false;
+    }
+  }
+
+  /**
+   * Retry a failed operation by re-enqueuing the same intent.
+   *
+   * @param operationId - The failed operation's ID (for tracking only)
+   * @param intent - The original natural language intent to re-submit
+   * @returns New job identifiers or null on failure
+   */
+  async retryOperation(
+    operationId: string,
+    intent: string
+  ): Promise<{ jobId: string; operationId: string } | null> {
+    this.logger.info('Retrying failed operation', { operationId, intent: intent.slice(0, 80) });
+    void this.breadcrumb.trackStateChange('agent-x-job:retry', { operationId });
+
+    const result = await this.enqueue(intent, { retryOf: operationId });
+
+    if (result) {
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATION_RETRIED, {
+        originalOperationId: operationId,
+        newOperationId: result.operationId,
+      });
+    }
+
+    return result;
+  }
 }

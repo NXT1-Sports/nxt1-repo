@@ -18,6 +18,7 @@
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { ActivityShellComponent, type ActivityUser } from '@nxt1/ui/activity';
+import { ACTIVITY_TABS_ALERTS_ONLY } from '@nxt1/core';
 import { AgentXOperationChatComponent } from '@nxt1/ui/agent-x';
 import { NxtBottomSheetService, SHEET_PRESETS } from '@nxt1/ui/components/bottom-sheet';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
@@ -40,6 +41,7 @@ import { EmailTokensService } from './services/email-tokens.service';
   template: `
     <nxt1-activity-shell
       [user]="userInfo()"
+      [tabs]="alertsOnlyTabs"
       (avatarClick)="onAvatarClick()"
       (tabChange)="onTabChange($event)"
       (itemNavigate)="onItemNavigate($event)"
@@ -57,6 +59,9 @@ export class ActivityComponent implements OnInit {
   private readonly seo = inject(SeoService);
   private readonly emailConnection = inject(WebEmailConnectionService);
   private readonly emailTokens = inject(EmailTokensService);
+
+  /** Desktop web shows alerts only — analytics has its own sidebar route */
+  protected readonly alertsOnlyTabs = ACTIVITY_TABS_ALERTS_ONLY;
 
   ngOnInit(): void {
     this.seo.updatePage({

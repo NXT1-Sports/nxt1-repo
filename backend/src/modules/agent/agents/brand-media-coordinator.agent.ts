@@ -30,7 +30,7 @@ export class BrandMediaCoordinatorAgent extends BaseAgent {
   }
 
   getAvailableTools(): readonly string[] {
-    return ['generate_image', 'scrape_webpage'];
+    return ['generate_image', 'scrape_webpage', 'ask_user'];
   }
 
   getModelRouting(): ModelRoutingConfig {

@@ -4,6 +4,9 @@
  *
  * Tools for sending messages and managing outreach.
  *
+ * Implemented:
+ * - AskUserTool             — Suspend execution and ask the user a question
+ *
  * Planned tools:
  * - DraftEmailTool          — Write a personalized recruiting email
  * - QueueEmailBatchTool     — Queue multiple emails for sending
@@ -12,4 +15,4 @@
  * - ScheduleFollowUpTool   — Schedule a reminder/follow-up action
  */
 
-// Tools will be implemented and exported here
+export { AskUserTool, ASK_USER_CONTEXT_KEY, type AskUserToolContext } from './ask-user.tool.js';

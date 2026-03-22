@@ -26,6 +26,8 @@ import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { GuardrailRunner } from '../guardrails/guardrail-runner.js';
 import type { LLMMessage, LLMToolSchema, LLMToolCall } from '../llm/llm.types.js';
+import { isAgentYield } from '../errors/agent-yield.error.js';
+import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/comms/ask-user.tool.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
@@ -170,11 +172,16 @@ export abstract class BaseAgent {
           tool: toolCall.function.name,
           args: toolCall.function.arguments,
         });
+
         let observation = await this.executeTool(
           toolCall,
           toolRegistry,
           context.userId,
-          guardrailRunner
+          guardrailRunner,
+          // Pass yield context so AskUserTool can serialize the ReAct state.
+          // Passed per-invocation (not stored on the singleton) to avoid race
+          // conditions with WORKER_CONCURRENCY > 1.
+          { agentId: this.id, messages }
         );
         // Truncate large observations (e.g. scrape results) to prevent context overflow.
         // ONLY truncate markdownContent — never truncate the raw observation string, as that
@@ -282,7 +289,8 @@ export abstract class BaseAgent {
     toolCall: LLMToolCall,
     registry: ToolRegistry,
     userId: string,
-    guardrailRunner?: GuardrailRunner
+    guardrailRunner?: GuardrailRunner,
+    yieldContext?: AskUserToolContext
   ): Promise<string> {
     const toolName = toolCall.function.name;
 
@@ -303,6 +311,12 @@ export abstract class BaseAgent {
       });
     }
 
+    // Inject yield context into the input so AskUserTool can read it
+    // without relying on mutable singleton state (safe with concurrent workers).
+    if (yieldContext && toolName === 'ask_user') {
+      input[ASK_USER_CONTEXT_KEY] = yieldContext;
+    }
+
     // Run pre-tool guardrails (if any are registered)
     if (guardrailRunner) {
       const verdicts = await guardrailRunner.runPreTool({
@@ -319,12 +333,21 @@ export abstract class BaseAgent {
       }
     }
 
-    const result = await registry.execute(toolName, input);
-
-    return JSON.stringify(
-      result.success
-        ? { success: true, data: result.data }
-        : { success: false, error: result.error }
-    );
+    // AgentYieldException from AskUserTool must propagate out of the ReAct loop
+    // so the worker can catch it and suspend the job. Do NOT catch it here.
+    try {
+      const result = await registry.execute(toolName, input);
+      return JSON.stringify(
+        result.success
+          ? { success: true, data: result.data }
+          : { success: false, error: result.error }
+      );
+    } catch (err) {
+      if (isAgentYield(err)) throw err; // Let yields propagate
+      return JSON.stringify({
+        success: false,
+        error: err instanceof Error ? err.message : 'Tool execution failed',
+      });
+    }
   }
 }

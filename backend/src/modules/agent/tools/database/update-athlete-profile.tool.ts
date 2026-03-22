@@ -99,6 +99,9 @@ interface TeamInfoInput {
   readonly colors?: string[];
   readonly conference?: string;
   readonly division?: string;
+  readonly city?: string;
+  readonly state?: string;
+  readonly country?: string;
 }
 
 interface CoachInput {
@@ -1377,6 +1380,14 @@ export class UpdateAthleteProfileTool extends BaseTool {
     if (team.logoUrl) branding['logoUrl'] = team.logoUrl.trim();
     if (team.primaryColor) branding['primaryColor'] = team.primaryColor.trim();
     if (team.secondaryColor) branding['secondaryColor'] = team.secondaryColor.trim();
+
+    // Build location object from team city/state/country
+    const location: Record<string, string> = {};
+    if (team.city) location['city'] = team.city.trim();
+    if (team.state) location['state'] = team.state.trim();
+    if (team.country) location['country'] = team.country.trim();
+    if (Object.keys(location).length > 0) branding['location'] = location;
+
     return Object.keys(branding).length > 0 ? branding : null;
   }
 

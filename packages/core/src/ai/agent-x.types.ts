@@ -7,7 +7,7 @@
  * 100% portable - works on web, mobile, and backend.
  */
 
-import type { AgentJobOrigin } from './agent.types';
+import type { AgentJobOrigin, AgentYieldState } from './agent.types';
 
 // ============================================
 // CHAT TYPES
@@ -38,6 +38,13 @@ export interface AgentXMessage {
   readonly imageUrl?: string;
   /** Optional metadata */
   readonly metadata?: AgentXMessageMetadata;
+  /**
+   * When present, this message should render as an Action Card instead of a text bubble.
+   * Populated when the agent yields control back to the user (approval or input needed).
+   */
+  readonly yieldState?: AgentYieldState;
+  /** The operation ID associated with this yield (needed to approve/reply). */
+  readonly operationId?: string;
 }
 
 /**
@@ -336,9 +343,13 @@ export interface ShellActiveOperation {
   readonly label: string;
   readonly progress: number;
   readonly icon: string;
-  readonly status: 'processing' | 'complete' | 'error';
+  readonly status: 'processing' | 'complete' | 'error' | 'awaiting_input';
   /** MongoDB thread ID — when set, opening this operation displays the persisted worker conversation. */
   readonly threadId?: string;
+  /** Present when `status === 'awaiting_input'` — describes what the agent needs from the user. */
+  readonly yieldState?: AgentYieldState;
+  /** Present when `status === 'error'` — human-readable reason the operation failed. */
+  readonly errorMessage?: string;
 }
 
 /** Resolved shell content for a given user role. */
@@ -411,7 +422,12 @@ export interface AgentPlaybookResponse {
 // ============================================
 
 /** Display status for an operation log entry (mapped from AgentOperationStatus). */
-export type OperationLogStatus = 'complete' | 'error' | 'cancelled' | 'in-progress';
+export type OperationLogStatus =
+  | 'complete'
+  | 'error'
+  | 'cancelled'
+  | 'in-progress'
+  | 'awaiting_input';
 
 /** Category of an operation for icon/color grouping. */
 export type OperationLogCategory =

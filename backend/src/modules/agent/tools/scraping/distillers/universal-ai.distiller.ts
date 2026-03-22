@@ -93,6 +93,9 @@ Return a JSON object with this exact structure (include only sections that have 
     "logoUrl": "url string",
     "primaryColor": "hex string",
     "secondaryColor": "hex string",
+    "city": "string (team/school city)",
+    "state": "string (team/school state, full name preferred e.g. Texas not TX)",
+    "country": "string (default USA if US-based)",
     "seasonRecord": "string (e.g. 8-2)"
   },
   "coach": {
@@ -174,6 +177,13 @@ Return a JSON object with this exact structure (include only sections that have 
     }
   ]
 }
+
+CRITICAL RULES FOR TEAM/ORG EXTRACTION:
+1. ALWAYS extract team colors (primaryColor, secondaryColor) as hex codes (e.g. "#CC0000", "#002244"). Look for them in CSS styles, color swatches, team branding sections, or header/banner styling.
+2. ALWAYS extract the team mascot — look for it in the team name (e.g. "Katy Tigers" → mascot: "Tigers"), page title, logos, or headers.
+3. ALWAYS extract team location (city, state, country). Look in the school name, page header, address, "About" section, or breadcrumbs. If the state is abbreviated (e.g. "TX"), convert to full name (e.g. "Texas"). Default country to "USA" for US-based schools.
+4. Extract the team logoUrl if visible — look for team/school logo images in headers, sidebars, or profile sections. Use the highest-resolution version available.
+5. If team data appears in both the "identity" section (school name, city, state) and a dedicated "team" section, include location in BOTH places.
 
 CRITICAL RULES FOR seasonStats EXTRACTION:
 1. "columns" is REQUIRED — extract EVERY column header from stat tables (e.g. GP, C, Att, Yds, TD, Int, Lng, QB Rate). Use the EXACT abbreviation shown in the table header as the "key" (e.g. "C", "Att", "Yds" — NOT "passing_yards" or "completions").

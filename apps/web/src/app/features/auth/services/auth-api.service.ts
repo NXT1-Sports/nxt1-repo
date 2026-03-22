@@ -182,6 +182,27 @@ export class AuthApiService {
   }
 
   // ============================================
+  // PRELOAD SCRAPE
+  // ============================================
+
+  /**
+   * Preload scrape — fires the scraping pipeline early during onboarding Step 5.
+   */
+  preloadScrape(
+    ...args: Parameters<AuthApi['preloadScrape']>
+  ): ReturnType<AuthApi['preloadScrape']> {
+    return this.performance.trace(
+      TRACE_NAMES.ONBOARDING_PRELOAD_SCRAPE,
+      () => this.api.preloadScrape(...args),
+      {
+        attributes: {
+          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'onboarding',
+        },
+      }
+    );
+  }
+
+  // ============================================
   // PROFILE UPDATES
   // ============================================
 

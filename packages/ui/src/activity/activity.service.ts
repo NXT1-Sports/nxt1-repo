@@ -36,6 +36,7 @@ import {
   type ActivityItem,
   type ActivityTabId,
   type ActivityPagination,
+  type ActivityFeedResponse,
   ACTIVITY_DEFAULT_TAB,
   ACTIVITY_TABS,
   ACTIVITY_PAGINATION_DEFAULTS,
@@ -48,6 +49,104 @@ import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token
 import { NxtBreadcrumbService } from '../services/breadcrumb';
 import { MessagesService } from '../messages/messages.service';
 import { ACTIVITY_API_ADAPTER } from './activity-api.service';
+
+// ============================================
+// MOCK ANALYTICS ACTIVITY ITEMS
+// TODO: Remove when backend analytics activity endpoints are live
+// ============================================
+
+const now = Date.now();
+function hoursAgo(hours: number): string {
+  return new Date(now - hours * 60 * 60 * 1000).toISOString();
+}
+
+const MOCK_ANALYTICS_ITEMS: readonly ActivityItem[] = [
+  {
+    id: 'mock-analytics-1',
+    type: 'update',
+    tab: 'analytics',
+    priority: 'high',
+    title: 'Profile Views Up 34%',
+    body: 'Your profile was viewed 127 times this week — 34% more than last week. Most views came from college coaches in Texas and Florida.',
+    timestamp: hoursAgo(2),
+    isRead: false,
+    source: { userName: 'NXT1 Analytics' },
+    deepLink: '/analytics',
+    action: {
+      id: 'view-analytics',
+      label: 'View Details',
+      variant: 'primary',
+      route: '/analytics',
+    },
+  },
+  {
+    id: 'mock-analytics-2',
+    type: 'milestone',
+    tab: 'analytics',
+    priority: 'normal',
+    title: '500 Video Views Milestone',
+    body: 'Your highlight reel "2025 Season Highlights" just passed 500 views! Top viewers: D1 programs in the SEC and Big 12.',
+    timestamp: hoursAgo(6),
+    isRead: false,
+    source: { userName: 'NXT1 Analytics' },
+    deepLink: '/analytics',
+  },
+  {
+    id: 'mock-analytics-3',
+    type: 'update',
+    tab: 'analytics',
+    priority: 'normal',
+    title: '3 New College Coach Views',
+    body: 'Coaches from University of Texas, Florida State, and Ohio State viewed your profile in the last 24 hours.',
+    timestamp: hoursAgo(12),
+    isRead: false,
+    source: { userName: 'NXT1 Analytics' },
+    deepLink: '/analytics',
+    action: {
+      id: 'view-coaches',
+      label: 'See Who Viewed',
+      variant: 'primary',
+      route: '/analytics',
+    },
+  },
+  {
+    id: 'mock-analytics-4',
+    type: 'update',
+    tab: 'analytics',
+    priority: 'normal',
+    title: 'Engagement Rate Rising',
+    body: 'Your engagement rate increased to 8.2% — above the platform average of 5.1%. Keep posting highlight content to maintain momentum.',
+    timestamp: hoursAgo(24),
+    isRead: true,
+    source: { userName: 'NXT1 Analytics' },
+    deepLink: '/analytics',
+  },
+  {
+    id: 'mock-analytics-5',
+    type: 'reminder',
+    tab: 'analytics',
+    priority: 'normal',
+    title: 'Weekly Analytics Summary',
+    body: '127 profile views • 43 video views • 3 new followers • 2 college coach interactions. Your profile score is 78/100.',
+    timestamp: hoursAgo(48),
+    isRead: true,
+    source: { userName: 'NXT1 Analytics' },
+    deepLink: '/analytics',
+    action: { id: 'full-report', label: 'Full Report', variant: 'secondary', route: '/analytics' },
+  },
+  {
+    id: 'mock-analytics-6',
+    type: 'update',
+    tab: 'analytics',
+    priority: 'low',
+    title: 'Top Search Keywords',
+    body: 'You appeared in search results 89 times this week. Top keywords: "football WR class of 2026", "wide receiver highlights".',
+    timestamp: hoursAgo(72),
+    isRead: true,
+    source: { userName: 'NXT1 Analytics' },
+    deepLink: '/analytics',
+  },
+] as const;
 
 /**
  * Activity state management service.
@@ -192,13 +291,28 @@ export class ActivityService {
     this.logger.debug('Loading activity feed', { tab, cached: !!cached });
 
     try {
-      const response = await this.api.getFeed({
-        tab,
-        page: 1,
-        limit: ACTIVITY_PAGINATION_DEFAULTS.pageSize,
-      });
+      let response: ActivityFeedResponse;
+      try {
+        response = await this.api.getFeed({
+          tab,
+          page: 1,
+          limit: ACTIVITY_PAGINATION_DEFAULTS.pageSize,
+        });
+      } catch {
+        // API unavailable — use empty response so mock fallback can kick in
+        this.logger.warn('Activity API unavailable, using fallback', { tab });
+        response = { success: true, items: [] };
+      }
 
-      const items = response.items ? [...response.items] : [];
+      let items = response.items ? [...response.items] : [];
+
+      // Fallback to mock data when API returns empty for analytics tab
+      // TODO: Remove mock fallback when backend analytics activity endpoints are live
+      if (items.length === 0 && tab === 'analytics') {
+        items = [...MOCK_ANALYTICS_ITEMS];
+        this.logger.info('Using mock analytics activity items', { count: items.length });
+      }
+
       this._items.set(items);
       this._pagination.set(response.pagination ?? null);
 
@@ -207,6 +321,10 @@ export class ActivityService {
 
       if (response.badges) {
         this._badges.set(response.badges);
+      } else if (tab === 'analytics' && items.length > 0 && !response.badges) {
+        // Set mock badge count for analytics when using mock items
+        const unread = items.filter((i) => !i.isRead).length;
+        this._badges.update((b) => ({ ...b, analytics: unread }));
       }
 
       this.analytics?.trackEvent(APP_EVENTS.TAB_CHANGED, {

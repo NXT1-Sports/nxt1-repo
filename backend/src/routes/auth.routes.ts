@@ -1402,27 +1402,39 @@ router.post(
       logger.error('[Auth] Failed to enqueue welcome graphic', { userId, error: err })
     );
 
-    // Enqueue linked account scrape (awaited to return jobId to frontend)
+    // Enqueue linked account scrape (skip if pre-fetched from Step 5)
     let scrapeJobId: string | undefined;
-    const connectedSources = userData?.connectedSources as ConnectedSourceRecord[] | undefined;
-    if (connectedSources && connectedSources.length > 0) {
-      try {
-        const scrapeResult = await enqueueLinkedAccountScrape(
-          db,
-          {
-            userId,
-            role: (userData?.role as UserRole) ?? 'athlete',
-            sport: primarySportName,
-            linkedAccounts: connectedSources.map((cs) => ({
-              platform: cs.platform,
-              profileUrl: cs.profileUrl,
-            })),
-          },
-          agentEnv
-        );
-        scrapeJobId = scrapeResult?.operationId;
-      } catch (err) {
-        logger.error('[Auth] Failed to enqueue linked account scrape', { userId, error: err });
+    const existingPreloadScrapeId =
+      typeof profileData['scrapeJobId'] === 'string' ? profileData['scrapeJobId'] : undefined;
+
+    if (existingPreloadScrapeId) {
+      // Pre-fetch already fired from /profile/preload-scrape — reuse the job ID
+      scrapeJobId = existingPreloadScrapeId;
+      logger.info('[Auth] Reusing pre-fetched scrape job from Step 5', {
+        userId,
+        scrapeJobId,
+      });
+    } else {
+      const connectedSources = userData?.connectedSources as ConnectedSourceRecord[] | undefined;
+      if (connectedSources && connectedSources.length > 0) {
+        try {
+          const scrapeResult = await enqueueLinkedAccountScrape(
+            db,
+            {
+              userId,
+              role: (userData?.role as UserRole) ?? 'athlete',
+              sport: primarySportName,
+              linkedAccounts: connectedSources.map((cs) => ({
+                platform: cs.platform,
+                profileUrl: cs.profileUrl,
+              })),
+            },
+            agentEnv
+          );
+          scrapeJobId = scrapeResult?.operationId;
+        } catch (err) {
+          logger.error('[Auth] Failed to enqueue linked account scrape', { userId, error: err });
+        }
       }
     }
 
@@ -2773,6 +2785,101 @@ router.post(
     );
 
     res.json({ success: true, email: connectedEmail });
+  })
+);
+
+// ============================================
+// PRE-FETCH SCRAPE (Optimistic — fires during onboarding Step 5)
+// ============================================
+
+/**
+ * POST /auth/profile/preload-scrape
+ *
+ * Called from the frontend at Step 5 (Link Data Sources) of onboarding.
+ * Enqueues the scraping job early so data extraction begins while the user
+ * finishes Step 6 ("Before We Begin"). The final onboarding completion
+ * endpoint skips scrape enqueue if a job already exists.
+ */
+router.post(
+  '/profile/preload-scrape',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { db } = req.firebase!;
+    const { userId, linkedAccounts, sport, role } = req.body;
+
+    if (!userId || !Array.isArray(linkedAccounts) || linkedAccounts.length === 0) {
+      const error = validationError([
+        ...(!userId
+          ? [{ field: 'userId', message: 'User ID is required', rule: 'required' as const }]
+          : []),
+        ...(!linkedAccounts || linkedAccounts.length === 0
+          ? [
+              {
+                field: 'linkedAccounts',
+                message: 'At least one linked account is required',
+                rule: 'required' as const,
+              },
+            ]
+          : []),
+      ]);
+      sendError(res, error);
+      return;
+    }
+
+    // Validate that the user exists
+    const userDoc = await db.collection('Users').doc(userId).get();
+    if (!userDoc.exists) {
+      const error = notFoundError('user', userId);
+      sendError(res, error);
+      return;
+    }
+
+    // Sanitize linked accounts — only accept platform + profileUrl strings
+    const sanitized = (linkedAccounts as Array<{ platform?: string; profileUrl?: string }>)
+      .filter(
+        (a): a is { platform: string; profileUrl: string } =>
+          typeof a.platform === 'string' &&
+          a.platform.length > 0 &&
+          typeof a.profileUrl === 'string' &&
+          a.profileUrl.startsWith('http')
+      )
+      .map((a) => ({ platform: a.platform.toLowerCase(), profileUrl: a.profileUrl }));
+
+    if (sanitized.length === 0) {
+      res.json({ success: true, skipped: true, reason: 'No valid linked accounts' });
+      return;
+    }
+
+    const agentEnv = req.isStaging ? 'staging' : 'production';
+    try {
+      const result = await enqueueLinkedAccountScrape(
+        db,
+        {
+          userId,
+          role: (role as UserRole) ?? 'athlete',
+          sport: typeof sport === 'string' ? sport : undefined,
+          linkedAccounts: sanitized,
+        },
+        agentEnv
+      );
+
+      logger.info('[Auth] Pre-fetch scrape enqueued from Step 5', {
+        userId,
+        operationId: result?.operationId,
+        platforms: sanitized.map((a) => a.platform).join(', '),
+      });
+
+      res.json({
+        success: true,
+        ...(result?.operationId && { scrapeJobId: result.operationId }),
+      });
+    } catch (err) {
+      logger.error('[Auth] Failed to enqueue pre-fetch scrape', {
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      // Non-fatal — return success so onboarding can continue
+      res.json({ success: true, skipped: true, reason: 'Scrape enqueue failed' });
+    }
   })
 );
 

@@ -37,6 +37,11 @@ export { AgentXDashboardSkeletonComponent } from './agent-x-dashboard-skeleton.c
 export { AgentXBriefingPanelComponent } from './agent-x-briefing-panel.component';
 export { AgentXWelcomeComponent } from './agent-x-welcome.component';
 export { AgentXChatComponent } from './agent-x-chat.component';
+export {
+  AgentXActionCardComponent,
+  type ActionCardApprovalEvent,
+  type ActionCardReplyEvent,
+} from './agent-x-action-card.component';
 export { AgentXInputComponent } from './agent-x-input.component';
 export {
   AgentXBriefingBadgeStateService,

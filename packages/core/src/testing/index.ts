@@ -622,6 +622,34 @@ export const USAGE_TEST_IDS = {
 } as const;
 
 /**
+ * Agent X Action Card test IDs (HITL approval / input cards).
+ */
+export const AGENT_X_ACTION_CARD_TEST_IDS = {
+  CARD: 'agent-action-card',
+  HEADER: 'agent-action-card-header',
+  PROMPT: 'agent-action-card-prompt',
+  DETAILS_TOGGLE: 'agent-action-card-details',
+  TOOL_ARGS: 'agent-action-card-tool-args',
+  BTN_APPROVE: 'agent-action-card-btn-approve',
+  BTN_REJECT: 'agent-action-card-btn-reject',
+  TEXTAREA: 'agent-action-card-textarea',
+  BTN_REPLY: 'agent-action-card-btn-reply',
+  LOADING: 'agent-action-card-loading',
+  RESOLVED: 'agent-action-card-resolved',
+} as const;
+
+/**
+ * Agent X Operation Chat failure banner test IDs.
+ */
+export const AGENT_X_OPERATION_CHAT_TEST_IDS = {
+  FAILURE_BANNER: 'agent-op-chat-failure-banner',
+  FAILURE_TITLE: 'agent-op-chat-failure-title',
+  FAILURE_MESSAGE: 'agent-op-chat-failure-message',
+  BTN_RETRY: 'agent-op-chat-btn-retry',
+  BTN_DISMISS: 'agent-op-chat-btn-dismiss',
+} as const;
+
+/**
  * All test IDs combined for easy import
  */
 export const TEST_IDS = {
@@ -637,6 +665,8 @@ export const TEST_IDS = {
   PROFILE_GENERATION: PROFILE_GENERATION_TEST_IDS,
   ACTIVITY: ACTIVITY_TEST_IDS,
   USAGE: USAGE_TEST_IDS,
+  AGENT_X_ACTION_CARD: AGENT_X_ACTION_CARD_TEST_IDS,
+  AGENT_X_OPERATION_CHAT: AGENT_X_OPERATION_CHAT_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript

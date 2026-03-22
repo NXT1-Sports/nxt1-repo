@@ -35,6 +35,7 @@ import type { ContextBuilder } from './memory/context-builder.js';
 import type { BaseAgent } from './agents/base.agent.js';
 import type { GuardrailRunner } from './guardrails/guardrail-runner.js';
 import { PlannerAgent } from './agents/planner.agent.js';
+import { isAgentYield, AgentYieldException } from './errors/agent-yield.error.js';
 
 // ─── Router ─────────────────────────────────────────────────────────────────
 
@@ -93,6 +94,17 @@ export class AgentRouter {
   ): Promise<AgentOperationResult> {
     const { operationId, userId, intent } = payload;
 
+    // ── Resume detection: check if this is a resumed job ──────────────────
+    const contextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const yieldState = (contextObj as Record<string, unknown>)['yieldState'] as
+      | import('@nxt1/core').AgentYieldState
+      | undefined;
+
+    if (yieldState) {
+      return this.runResumed(payload, yieldState, onUpdate, firestore);
+    }
+
     // ── Step 1: Build context ─────────────────────────────────────────────
     this.emitUpdate(onUpdate, operationId, 'thinking', 'Building user context...');
 
@@ -111,8 +123,7 @@ export class AgentRouter {
     const context = this.buildSessionContext(userId, payload.sessionId);
 
     // Inject thread history for conversation continuity
-    const contextObj =
-      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    // (contextObj already extracted above for resume detection)
     const threadId =
       typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
         ? ((contextObj as Record<string, unknown>)['threadId'] as string)
@@ -165,6 +176,8 @@ export class AgentRouter {
         this.emitUpdate(onUpdate, operationId, 'completed', result.summary);
         return result;
       } catch (err) {
+        // Let AgentYieldException propagate to the worker for suspend-and-resume
+        if (isAgentYield(err)) throw err;
         const message = err instanceof Error ? err.message : 'Agent execution failed';
         this.emitUpdate(onUpdate, operationId, 'failed', message);
         return {
@@ -267,6 +280,22 @@ export class AgentRouter {
             `Task ${task.id} completed: ${result.summary}`
           );
         } catch (err) {
+          // Attach DAG plan context to yield exceptions so the resume route
+          // can reconstruct the partial plan state and continue from here.
+          if (isAgentYield(err)) {
+            const yieldErr = err as AgentYieldException;
+            throw new AgentYieldException({
+              ...yieldErr.payload,
+              planContext: {
+                currentTaskId: task.id,
+                completedTaskResults: Object.fromEntries(
+                  [...taskResults.entries()].map(([k, v]) => [k, v])
+                ),
+                enrichedIntent,
+              },
+            });
+          }
+
           task.status = 'failed' as AgentTaskStatus;
           const message = err instanceof Error ? err.message : 'Unknown error';
           this.emitUpdate(onUpdate, operationId, 'acting', `Task ${task.id} failed: ${message}`);
@@ -294,6 +323,83 @@ export class AgentRouter {
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────
+
+  /**
+   * Resume a previously yielded job by re-running the agent with the
+   * saved message array (which now includes the user's response).
+   */
+  private async runResumed(
+    payload: AgentJobPayload,
+    yieldState: import('@nxt1/core').AgentYieldState,
+    onUpdate?: (update: AgentJobUpdate) => void,
+    firestore?: FirebaseFirestore.Firestore
+  ): Promise<AgentOperationResult> {
+    const { operationId, userId, intent } = payload;
+    this.emitUpdate(onUpdate, operationId, 'acting', 'Resuming from your response...');
+
+    // Resolve the agent that was executing when the yield happened
+    const agent = this.agents.get(yieldState.agentId);
+    if (!agent) {
+      this.emitUpdate(
+        onUpdate,
+        operationId,
+        'failed',
+        `Cannot resume: no agent registered for "${yieldState.agentId}".`
+      );
+      return {
+        summary: `Cannot resume: agent "${yieldState.agentId}" is not registered.`,
+        suggestions: ['Contact support or try submitting the request again.'],
+      };
+    }
+
+    // Build user context for the resumed execution
+    let userContext: AgentUserContext;
+    try {
+      userContext = await this.contextBuilder.buildContext(userId, firestore);
+    } catch {
+      // Non-critical — resume with whatever context we have
+      userContext = { userId } as AgentUserContext;
+    }
+
+    const context = this.buildSessionContext(userId, payload.sessionId);
+    const enrichedIntent = this.enrichIntentWithContext(intent, userContext, payload.context);
+
+    try {
+      const toolDefs = this.toolRegistry.getDefinitions(agent.id);
+
+      // Design note (V1): We intentionally restart the agent's ReAct loop
+      // from scratch rather than injecting the saved message array directly.
+      // The user's answer is persisted to the MongoDB thread by the resume
+      // route, and the ContextBuilder injects recent thread messages into
+      // the system prompt — so the agent sees the full conversation history
+      // including its original question and the user's response.
+      //
+      // Tradeoff: this is less token-efficient than resuming mid-loop
+      // (prior tool results are re-discovered, not replayed), but it's
+      // simpler and avoids deserializing LLM message arrays across module
+      // boundaries. A future optimization could add a `resumeFromMessages`
+      // method to BaseAgent that pre-populates the message array.
+      const result = await agent.execute(
+        enrichedIntent,
+        context,
+        toolDefs,
+        this.llm,
+        this.toolRegistry,
+        this.guardrailRunner
+      );
+
+      this.emitUpdate(onUpdate, operationId, 'completed', result.summary);
+      return result;
+    } catch (err) {
+      if (isAgentYield(err)) throw err;
+      const message = err instanceof Error ? err.message : 'Resume execution failed';
+      this.emitUpdate(onUpdate, operationId, 'failed', message);
+      return {
+        summary: `Resumed agent "${yieldState.agentId}" failed: ${message}`,
+        suggestions: ['Try again later or contact support.'],
+      };
+    }
+  }
 
   /**
    * Enrich the raw user intent with compressed profile context

@@ -55,7 +55,7 @@ export class WriteCoreIdentityTool extends BaseTool {
     '- identity (optional): { firstName, lastName, displayName, aboutMe, height, weight, classOf, city, state, country, school }.\n' +
     '- academics (optional): { gpa, weightedGpa, satScore, actScore, classRank, classSize, intendedMajor }.\n' +
     '- sportInfo (optional): { positions, jerseyNumber, side }.\n' +
-    '- team (optional): { name, type, mascot, conference, division, logoUrl, primaryColor, secondaryColor }.\n' +
+    '- team (optional): { name, type, mascot, conference, division, logoUrl, primaryColor, secondaryColor, city, state, country }.\n' +
     '- clubTeam (optional): Same shape as team.\n' +
     '- coach (optional): { firstName, lastName, email, phone, title }.\n' +
     '- awards (optional): Array of { title, category, sport, season, issuer, date }.\n' +
@@ -116,6 +116,9 @@ export class WriteCoreIdentityTool extends BaseTool {
           logoUrl: { type: 'string' },
           primaryColor: { type: 'string' },
           secondaryColor: { type: 'string' },
+          city: { type: 'string' },
+          state: { type: 'string' },
+          country: { type: 'string' },
         },
       },
       clubTeam: {
@@ -129,6 +132,9 @@ export class WriteCoreIdentityTool extends BaseTool {
           logoUrl: { type: 'string' },
           primaryColor: { type: 'string' },
           secondaryColor: { type: 'string' },
+          city: { type: 'string' },
+          state: { type: 'string' },
+          country: { type: 'string' },
         },
       },
       coach: {
@@ -758,7 +764,17 @@ export class WriteCoreIdentityTool extends BaseTool {
       if (val) branding[key] = val;
     }
 
+    // Build location object from team city/state/country
+    const city = this.str(teamInput, 'city');
+    const state = this.str(teamInput, 'state');
+    const country = this.str(teamInput, 'country');
+    const location: Record<string, string> = {};
+    if (city) location['city'] = city;
+    if (state) location['state'] = state;
+    if (country) location['country'] = country;
+
     const updateData: Record<string, unknown> = { type: programType, ...branding };
+    if (Object.keys(location).length > 0) updateData['location'] = location;
     if (Object.keys(updateData).length === 0) return;
 
     const organizationService = createOrganizationService(this.db);

@@ -29,7 +29,7 @@
  */
 
 import { Worker, Job } from 'bullmq';
-import type { AgentJobUpdate } from '@nxt1/core';
+import type { AgentJobUpdate, AgentYieldState } from '@nxt1/core';
 import type { AgentRouter } from '../agent.router.js';
 import type { AgentQueueJobData, AgentQueueJobResult, AgentJobProgress } from './queue.types.js';
 import {
@@ -44,6 +44,8 @@ import {
 import { AgentQueueService } from './queue.service.js';
 import { AgentJobRepository } from './job.repository.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
+import { isAgentYield } from '../errors/agent-yield.error.js';
+import { notifyYield } from '../services/yield-notifier.service.js';
 import {
   logAgentTaskCompletion,
   logAgentTaskFailure,
@@ -167,6 +169,100 @@ export class AgentWorker {
       });
       result = await Promise.race([routerPromise, timeoutPromise]);
     } catch (err) {
+      // ── Yield handling: agent needs user input or approval ─────────────
+      if (isAgentYield(err)) {
+        const yieldPayload = err.payload;
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours
+
+        const yieldState: AgentYieldState = {
+          reason: yieldPayload.reason,
+          promptToUser: yieldPayload.promptToUser,
+          agentId: yieldPayload.agentId,
+          // @nxt1/core defines messages as Record<string, unknown>[] because
+          // it can't import backend-only LLMMessage types. The actual data IS
+          // LLMMessage[] — this widening cast is safe at the serialization boundary.
+          messages: yieldPayload.messages as unknown as readonly Record<string, unknown>[],
+          pendingToolCall: yieldPayload.pendingToolCall,
+          approvalId: yieldPayload.approvalId,
+          planContext: yieldPayload.planContext,
+          yieldedAt: now.toISOString(),
+          expiresAt: expiresAt.toISOString(),
+        };
+
+        // Persist yield state to Firestore
+        await repo.markYielded(payload.operationId, yieldState).catch((fsErr: unknown) => {
+          logger.warn('Failed to write yield state to Firestore', {
+            operationId: payload.operationId,
+            error: fsErr instanceof Error ? fsErr.message : String(fsErr),
+          });
+        });
+
+        // Persist the agent's question as a system message in MongoDB thread
+        const contextObj =
+          typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+        const threadId =
+          typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
+            ? ((contextObj as Record<string, unknown>)['threadId'] as string)
+            : undefined;
+
+        if (threadId && this.chatService) {
+          try {
+            await this.chatService.addMessage({
+              threadId,
+              userId: payload.userId,
+              role: 'assistant',
+              content: yieldPayload.promptToUser,
+              origin: 'agent_chain',
+              agentId: yieldPayload.agentId,
+              operationId: payload.operationId,
+            });
+          } catch (chatErr) {
+            logger.warn('Failed to persist yield message to MongoDB', {
+              threadId,
+              operationId: payload.operationId,
+              error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+            });
+          }
+        }
+
+        // Multi-channel notification (push + SMS)
+        try {
+          const activityDb = await this.getActivityFirestore(job);
+          await notifyYield(activityDb, {
+            userId: payload.userId,
+            reason: yieldPayload.reason,
+            promptToUser: yieldPayload.promptToUser,
+            operationId: payload.operationId,
+            threadId,
+            approvalId: yieldPayload.approvalId,
+          });
+        } catch (notifyErr) {
+          logger.warn('Failed to dispatch yield notification', {
+            operationId: payload.operationId,
+            error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+          });
+        }
+
+        logger.info('Agent job yielded — awaiting user response', {
+          operationId: payload.operationId,
+          userId: payload.userId,
+          reason: yieldPayload.reason,
+          agentId: yieldPayload.agentId,
+        });
+
+        // Return a clean result so BullMQ marks the job as "completed" (not failed).
+        // The actual continuation happens when the user responds via the resume route.
+        return {
+          result: {
+            summary: yieldPayload.promptToUser,
+            data: { yielded: true, reason: yieldPayload.reason, agentId: yieldPayload.agentId },
+          },
+          durationMs: Date.now() - startMs,
+          completedAt: new Date().toISOString(),
+        };
+      }
+
       const message = err instanceof Error ? err.message : 'Agent pipeline error';
       // Write failure to Firestore before re-throwing so BullMQ records the error
       await repo.markFailed(payload.operationId, message).catch((fsErr: unknown) => {

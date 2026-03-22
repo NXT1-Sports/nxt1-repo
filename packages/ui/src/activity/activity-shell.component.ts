@@ -37,6 +37,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { IonContent } from '@ionic/angular/standalone';
 import {
+  type ActivityTab,
   type ActivityTabId,
   type ActivityItem,
   type ConnectedEmail,
@@ -107,13 +108,15 @@ export interface ActivityUser {
       </div>
     </nxt1-page-header>
 
-    <!-- Twitter/TikTok Style Tab Selector (Options Scroller) -->
-    <nxt1-option-scroller
-      [options]="tabOptions()"
-      [selectedId]="activity.activeTab()"
-      [config]="{ scrollable: false, stretchToFill: true, centered: true, showDivider: true }"
-      (selectionChange)="onTabChange($event)"
-    />
+    <!-- Twitter/TikTok Style Tab Selector (Options Scroller) — hidden when single tab -->
+    @if (showTabs()) {
+      <nxt1-option-scroller
+        [options]="tabOptions()"
+        [selectedId]="activity.activeTab()"
+        [config]="{ scrollable: false, stretchToFill: true, centered: true, showDivider: true }"
+        (selectionChange)="onTabChange($event)"
+      />
+    }
 
     <ion-content [fullscreen]="true" class="activity-content">
       <!-- Pull-to-Refresh -->
@@ -230,6 +233,9 @@ export class ActivityShellComponent implements OnInit {
   /** User info for header avatar */
   readonly user = input<ActivityUser | null>(null);
 
+  /** Configurable tabs — defaults to all tabs. Pass a subset to limit (e.g. alerts-only on desktop). */
+  readonly tabs = input<readonly ActivityTab[]>(ACTIVITY_TABS);
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -282,11 +288,14 @@ export class ActivityShellComponent implements OnInit {
       : [];
   });
 
+  /** Whether to show the tab bar (hidden when only 1 tab) */
+  protected readonly showTabs = computed(() => this.tabs().length > 1);
+
   /** Tab options for options scroller */
   protected readonly tabOptions = computed((): OptionScrollerItem[] => {
     const badges = this.activity.badges();
 
-    return ACTIVITY_TABS.map((tab) => ({
+    return this.tabs().map((tab) => ({
       id: tab.id,
       label: tab.label,
       badge: badges[tab.id] ?? 0,

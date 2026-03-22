@@ -655,6 +655,7 @@ export {
   type AgentTaskActivityMetadata,
   // Constants
   ACTIVITY_TABS,
+  ACTIVITY_TABS_ALERTS_ONLY,
   ACTIVITY_DEFAULT_TAB,
   ACTIVITY_TYPE_ICONS,
   ACTIVITY_TYPE_COLORS,

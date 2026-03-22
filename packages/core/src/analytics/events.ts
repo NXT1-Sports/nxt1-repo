@@ -699,6 +699,12 @@ export const APP_EVENTS = {
   AGENT_X_OPERATIONS_LOG_VIEWED: 'agent_x_operations_log_viewed',
   /** User tapped an entry in the operations log */
   AGENT_X_OPERATIONS_LOG_ENTRY_TAPPED: 'agent_x_operations_log_entry_tapped',
+  /** User approved or rejected a yielded operation (HITL) */
+  AGENT_X_OPERATION_APPROVED: 'agent_x_operation_approved',
+  /** User replied with text to a yielded operation (HITL) */
+  AGENT_X_OPERATION_REPLIED: 'agent_x_operation_replied',
+  /** User retried a failed operation */
+  AGENT_X_OPERATION_RETRIED: 'agent_x_operation_retried',
 
   // USAGE / BILLING DASHBOARD EVENTS
   // ============================================

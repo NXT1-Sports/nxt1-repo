@@ -47,6 +47,7 @@ import {
 } from '../tools/database/index.js';
 import { GenerateImageTool } from '../tools/media/index.js';
 import { WebSearchTool } from '../tools/integrations/web-search.tool.js';
+import { AskUserTool } from '../tools/comms/ask-user.tool.js';
 import { ContextBuilder } from '../memory/context-builder.js';
 import { VectorMemoryService } from '../memory/vector.service.js';
 import { AgentChatService } from '../services/agent-chat.service.js';
@@ -111,6 +112,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   const vectorMemory = new VectorMemoryService(llm);
   toolRegistry.register(new WebSearchTool());
   toolRegistry.register(new SearchKnowledgeBaseTool(vectorMemory));
+  toolRegistry.register(new AskUserTool());
 
   const contextBuilder = new ContextBuilder();
 

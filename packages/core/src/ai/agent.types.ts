@@ -23,6 +23,7 @@ export type AgentOperationStatus =
   | 'thinking'
   | 'acting'
   | 'awaiting_approval'
+  | 'awaiting_input'
   | 'streaming_result'
   | 'completed'
   | 'failed'
@@ -482,6 +483,45 @@ export interface AgentApprovalRequest {
 
 /** Status of an approval request. */
 export type AgentApprovalStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'auto_approved';
+
+// ─── Suspend & Resume (Yield State) ─────────────────────────────────────────
+
+/** Why the agent yielded control back to the user. */
+export type AgentYieldReason = 'needs_input' | 'needs_approval';
+
+/**
+ * Serialized state of a yielded agent execution.
+ * Stored in Firestore + MongoDB so the worker can resume exactly
+ * where it left off when the user responds.
+ */
+export interface AgentYieldState {
+  /** The reason the agent suspended itself. */
+  readonly reason: AgentYieldReason;
+  /** The question or prompt shown to the user. */
+  readonly promptToUser: string;
+  /** Which sub-agent was executing when the yield happened. */
+  readonly agentId: AgentIdentifier;
+  /** The full LLM message array at the point of suspension (serialized). */
+  readonly messages: readonly Record<string, unknown>[];
+  /** The tool call that triggered the yield (if approval-based). */
+  readonly pendingToolCall?: {
+    readonly toolName: string;
+    readonly toolInput: Record<string, unknown>;
+    readonly toolCallId: string;
+  };
+  /** ID of the approval request (if reason is 'needs_approval'). */
+  readonly approvalId?: string;
+  /** The execution plan context for multi-task DAGs. */
+  readonly planContext?: {
+    readonly currentTaskId: string;
+    readonly completedTaskResults: Record<string, unknown>;
+    readonly enrichedIntent: string;
+  };
+  /** ISO timestamp of when the yield was created. */
+  readonly yieldedAt: string;
+  /** ISO timestamp after which this yield expires and the job fails. */
+  readonly expiresAt: string;
+}
 
 /** Defines which tool actions require user approval. */
 export interface AgentApprovalPolicy {

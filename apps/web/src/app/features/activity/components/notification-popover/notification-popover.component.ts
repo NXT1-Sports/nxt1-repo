@@ -48,7 +48,7 @@ import {
   type ActivityItem,
   type ActivityTabId,
   type InboxEmailProvider,
-  ACTIVITY_TABS,
+  ACTIVITY_TABS_ALERTS_ONLY,
 } from '@nxt1/core';
 import { ActivityService, ActivityListComponent } from '@nxt1/ui/activity';
 import {
@@ -113,21 +113,23 @@ import { EmailTokensService } from '../../services/email-tokens.service';
         </div>
       </div>
 
-      <!-- Tab Selector -->
-      <div class="nxt1-notif-popover__tabs">
-        <nxt1-option-scroller
-          [options]="tabOptions()"
-          [selectedId]="activity.activeTab()"
-          [config]="{
-            scrollable: false,
-            stretchToFill: true,
-            centered: true,
-            showDivider: true,
-            size: 'sm',
-          }"
-          (selectionChange)="onTabChange($event)"
-        />
-      </div>
+      <!-- Tab Selector — hidden when single tab (desktop shows alerts only) -->
+      @if (showTabs()) {
+        <div class="nxt1-notif-popover__tabs">
+          <nxt1-option-scroller
+            [options]="tabOptions()"
+            [selectedId]="activity.activeTab()"
+            [config]="{
+              scrollable: false,
+              stretchToFill: true,
+              centered: true,
+              showDivider: true,
+              size: 'sm',
+            }"
+            (selectionChange)="onTabChange($event)"
+          />
+        </div>
+      }
 
       <!-- Content (scrollable) -->
       <div class="nxt1-notif-popover__content">
@@ -436,10 +438,13 @@ export class NotificationPopoverComponent {
   // COMPUTED
   // ============================================
 
+  /** Whether to show tab bar (hidden when only 1 tab) */
+  protected readonly showTabs = computed(() => ACTIVITY_TABS_ALERTS_ONLY.length > 1);
+
   /** Tab options for options scroller */
   protected readonly tabOptions = computed((): OptionScrollerItem[] => {
     const badges = this.activity.badges();
-    return ACTIVITY_TABS.map((tab) => ({
+    return ACTIVITY_TABS_ALERTS_ONLY.map((tab) => ({
       id: tab.id,
       label: tab.label,
       badge: badges[tab.id] ?? 0,

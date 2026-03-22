@@ -32,10 +32,19 @@
  * over all high-stakes actions.
  */
 
+import type { Firestore } from 'firebase-admin/firestore';
+import { FieldValue } from 'firebase-admin/firestore';
 import type { AgentApprovalRequest, AgentApprovalStatus, AgentApprovalPolicy } from '@nxt1/core';
-import { AGENT_APPROVAL_POLICIES } from '@nxt1/core';
+import { AGENT_APPROVAL_POLICIES, NOTIFICATION_TYPES } from '@nxt1/core';
+import { dispatch } from '../../../services/notification.service.js';
+import { logger } from '../../../utils/logger.js';
+
+/** Firestore collection for approval request documents. */
+const APPROVALS_COLLECTION = 'agentApprovalRequests' as const;
 
 export class ApprovalGateService {
+  constructor(private readonly db: Firestore) {}
+
   /**
    * Check whether a tool call requires user approval.
    * Called by the Worker/Agent right before executing a tool.
@@ -80,21 +89,45 @@ export class ApprovalGateService {
       expiresInMs: policy?.expiryMs ?? 86_400_000,
     };
 
-    // TODO: Store in Firestore: approvalRequests/{request.id}
-    // await firestore.collection('approvalRequests').doc(request.id).set(request);
+    // Store in Firestore so the frontend can render and the resume route can read it
+    await this.db
+      .collection(APPROVALS_COLLECTION)
+      .doc(request.id)
+      .set({
+        ...request,
+        firestoreCreatedAt: FieldValue.serverTimestamp(),
+      });
 
-    // Push notification via unified NotificationService
-    // Uncomment when Firestore storage above is implemented and a `db` instance is available:
-    // await dispatch(db, {
-    //   userId: params.userId,
-    //   type: NOTIFICATION_TYPES.AI_TASK_COMPLETE,
-    //   title: 'Agent X needs your approval',
-    //   body: params.actionSummary,
-    //   deepLink: `/agent-x/approvals/${request.id}`,
-    //   data: { approvalId: request.id, operationId: params.operationId },
-    //   source: { userName: 'Agent X' },
-    //   priority: 'high',
-    // });
+    logger.info('Approval request created', {
+      approvalId: request.id,
+      operationId: params.operationId,
+      toolName: params.toolName,
+      userId: params.userId,
+    });
+
+    // Send push notification via unified NotificationService
+    try {
+      await dispatch(this.db, {
+        userId: params.userId,
+        type: NOTIFICATION_TYPES.AI_NEEDS_APPROVAL,
+        title: 'Agent X needs your approval',
+        body: params.actionSummary,
+        deepLink: `/agent-x/approvals/${request.id}`,
+        data: {
+          approvalId: request.id,
+          operationId: params.operationId,
+          toolName: params.toolName,
+        },
+        source: { userName: 'Agent X' },
+        priority: 'high',
+      });
+    } catch (notifyErr) {
+      // Push is best-effort — don't fail the approval creation
+      logger.warn('Failed to send approval push notification', {
+        approvalId: request.id,
+        error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+      });
+    }
 
     return request;
   }
@@ -102,51 +135,87 @@ export class ApprovalGateService {
   /**
    * Resolve an approval request (called when user taps Approve/Reject).
    *
-   * @returns The updated approval request with resolved status.
+   * @returns The updated approval request with resolved status, or null if not found.
    */
   async resolveApproval(
     approvalId: string,
     decision: 'approved' | 'rejected',
     resolvedBy: string
-  ): Promise<AgentApprovalRequest> {
-    // TODO: Fetch from Firestore
-    // const doc = await firestore.collection('approvalRequests').doc(approvalId).get();
-    // const request = doc.data() as AgentApprovalRequest;
+  ): Promise<AgentApprovalRequest | null> {
+    const docRef = this.db.collection(APPROVALS_COLLECTION).doc(approvalId);
 
-    const updatedRequest: AgentApprovalRequest = {
-      // ...request,
-      id: approvalId,
-      operationId: '',
-      taskId: '',
-      userId: resolvedBy,
-      actionSummary: '',
-      toolName: '',
-      toolInput: {},
-      createdAt: new Date().toISOString(),
-      expiresInMs: 86_400_000,
-      status: decision as AgentApprovalStatus,
-      resolvedBy,
-      resolvedAt: new Date().toISOString(),
-    };
+    // Use a Firestore transaction to prevent TOCTOU races where two
+    // concurrent resolution requests both read status === 'pending'.
+    return this.db.runTransaction(async (txn) => {
+      const doc = await txn.get(docRef);
 
-    // TODO: Update Firestore document
-    // await firestore.collection('approvalRequests').doc(approvalId).update({
-    //   status: decision,
-    //   resolvedBy,
-    //   resolvedAt: new Date().toISOString(),
-    // });
+      if (!doc.exists) {
+        logger.warn('Approval request not found', { approvalId });
+        return null;
+      }
 
-    // TODO: If approved, resume the Worker Queue for this operation
-    // if (decision === 'approved') {
-    //   await agentQueue.resume(updatedRequest.operationId);
-    // }
+      const request = doc.data() as AgentApprovalRequest;
 
-    // TODO: If rejected, mark the operation task as skipped/failed
-    // if (decision === 'rejected') {
-    //   await agentQueue.failTask(updatedRequest.operationId, updatedRequest.taskId);
-    // }
+      // Ownership check: only the target user can resolve
+      if (request.userId !== resolvedBy) {
+        logger.warn('Approval ownership check failed', {
+          approvalId,
+          requestUserId: request.userId,
+          resolvedBy,
+        });
+        return null;
+      }
 
-    return updatedRequest;
+      // Prevent double-resolution (atomic within the transaction)
+      if (request.status !== 'pending') {
+        logger.warn('Approval already resolved', { approvalId, status: request.status });
+        return request;
+      }
+
+      const now = new Date().toISOString();
+      txn.update(docRef, {
+        status: decision as AgentApprovalStatus,
+        resolvedBy,
+        resolvedAt: now,
+      });
+
+      logger.info('Approval resolved', {
+        approvalId,
+        decision,
+        resolvedBy,
+        operationId: request.operationId,
+      });
+
+      return {
+        ...request,
+        status: decision as AgentApprovalStatus,
+        resolvedBy,
+        resolvedAt: now,
+      };
+    });
+  }
+
+  /**
+   * Get a pending approval request by ID.
+   */
+  async getApproval(approvalId: string): Promise<AgentApprovalRequest | null> {
+    const doc = await this.db.collection(APPROVALS_COLLECTION).doc(approvalId).get();
+    return doc.exists ? (doc.data() as AgentApprovalRequest) : null;
+  }
+
+  /**
+   * Get all pending approvals for a user (for the approvals UI).
+   */
+  async getPendingApprovals(userId: string): Promise<AgentApprovalRequest[]> {
+    const snapshot = await this.db
+      .collection(APPROVALS_COLLECTION)
+      .where('userId', '==', userId)
+      .where('status', '==', 'pending')
+      .orderBy('createdAt', 'desc')
+      .limit(50)
+      .get();
+
+    return snapshot.docs.map((doc) => doc.data() as AgentApprovalRequest);
   }
 
   /**
@@ -154,32 +223,47 @@ export class ApprovalGateService {
    * Called by a periodic cron job (e.g., every hour).
    */
   async processExpiredApprovals(): Promise<{ expired: number; autoApproved: number }> {
-    // TODO: Query Firestore for pending approvals past their expiry time
-    // const expired = await firestore.collection('approvalRequests')
-    //   .where('status', '==', 'pending')
-    //   .where('createdAt', '<', cutoffTimestamp)
-    //   .get();
+    const now = Date.now();
+    const snapshot = await this.db
+      .collection(APPROVALS_COLLECTION)
+      .where('status', '==', 'pending')
+      .get();
 
-    const expiredCount = 0;
-    const autoApprovedCount = 0;
+    let expiredCount = 0;
+    let autoApprovedCount = 0;
 
-    // For each expired request:
-    // 1. Check if the policy allows auto-approve on expiry
-    // 2. If yes → mark as 'auto_approved' and resume worker
-    // 3. If no → mark as 'expired' and fail the task
+    for (const doc of snapshot.docs) {
+      const request = doc.data() as AgentApprovalRequest;
+      const createdAtMs = new Date(request.createdAt).getTime();
+      const expiresAtMs = createdAtMs + request.expiresInMs;
 
-    // for (const doc of expired.docs) {
-    //   const request = doc.data() as AgentApprovalRequest;
-    //   const policy = this.getApprovalPolicy(request.toolName);
-    //
-    //   if (policy?.autoApproveOnExpiry) {
-    //     await this.resolveApproval(request.id, 'approved', 'auto');
-    //     autoApprovedCount++;
-    //   } else {
-    //     await doc.ref.update({ status: 'expired' });
-    //     expiredCount++;
-    //   }
-    // }
+      if (now < expiresAtMs) continue; // Not yet expired
+
+      const policy = this.getApprovalPolicy(request.toolName);
+
+      if (policy?.autoApproveOnExpiry) {
+        await doc.ref.update({
+          status: 'auto_approved' satisfies AgentApprovalStatus,
+          resolvedBy: 'auto',
+          resolvedAt: new Date().toISOString(),
+        });
+        autoApprovedCount++;
+        logger.info('Approval auto-approved on expiry', {
+          approvalId: request.id,
+          toolName: request.toolName,
+        });
+      } else {
+        await doc.ref.update({
+          status: 'expired' satisfies AgentApprovalStatus,
+          resolvedAt: new Date().toISOString(),
+        });
+        expiredCount++;
+        logger.info('Approval expired', {
+          approvalId: request.id,
+          toolName: request.toolName,
+        });
+      }
+    }
 
     return { expired: expiredCount, autoApproved: autoApprovedCount };
   }

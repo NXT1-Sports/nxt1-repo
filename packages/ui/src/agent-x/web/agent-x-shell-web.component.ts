@@ -63,6 +63,7 @@ import {
   type ShellActiveOperation,
   type AgentDashboardGoal,
 } from '@nxt1/core/ai';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../fab/agent-x-logo.constants';
 
 /**
  * User info for header display.
@@ -189,7 +190,17 @@ export interface AgentXUser {
                       <!-- Top row: task icon + label -->
                       <div class="operation-top">
                         <div class="operation-icon">
-                          <nxt1-icon [name]="op.icon" [size]="14" />
+                          <svg
+                            class="agent-x-mark"
+                            width="20"
+                            height="20"
+                            viewBox="0 0 612 792"
+                            fill="currentColor"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <path [attr.d]="agentXLogoPath" />
+                            <polygon [attr.points]="agentXLogoPolygon" />
+                          </svg>
                         </div>
                         <span class="operation-label">{{ op.label }}</span>
                       </div>
@@ -325,7 +336,17 @@ export interface AgentXUser {
                       <p class="card-description">{{ task.summary }}</p>
                       @if (task.why) {
                         <p class="card-why">
-                          <nxt1-icon name="sparkles" [size]="12" />
+                          <svg
+                            class="agent-x-mark"
+                            width="16"
+                            height="16"
+                            viewBox="0 0 612 792"
+                            fill="currentColor"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <path [attr.d]="agentXLogoPath" />
+                            <polygon [attr.points]="agentXLogoPolygon" />
+                          </svg>
                           {{ task.why }}
                         </p>
                       }
@@ -372,7 +393,17 @@ export interface AgentXUser {
                   aria-live="polite"
                 >
                   <div class="action-empty-icon" aria-hidden="true">
-                    <nxt1-icon name="sparkles" [size]="30"></nxt1-icon>
+                    <svg
+                      class="agent-x-mark"
+                      width="40"
+                      height="40"
+                      viewBox="0 0 612 792"
+                      fill="currentColor"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path [attr.d]="agentXLogoPath" />
+                      <polygon [attr.points]="agentXLogoPolygon" />
+                    </svg>
                   </div>
                   <h4 class="action-empty-title">No Actions Yet</h4>
                   <p class="action-empty-copy">
@@ -1426,6 +1457,10 @@ export class AgentXShellWebComponent {
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly haptics = inject(HapticsService);
 
+  /** Agent X SVG logo path data for inline icon rendering. */
+  protected readonly agentXLogoPath: string = AGENT_X_LOGO_PATH;
+  protected readonly agentXLogoPolygon: string = AGENT_X_LOGO_POLYGON;
+
   // ============================================
   // INPUTS
   // ============================================
@@ -1567,7 +1602,7 @@ export class AgentXShellWebComponent {
         componentProps: {
           contextId: pending.operationId ?? pending.threadId,
           contextTitle: pending.title,
-          contextIcon: pending.icon ?? 'sparkles',
+          contextIcon: pending.icon ?? 'bolt',
           contextType: 'operation',
           threadId: pending.threadId,
         },

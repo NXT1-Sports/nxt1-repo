@@ -161,6 +161,8 @@ export interface OnboardingProfileData {
   };
   teamSelection?: TeamSelectionFormData;
   createTeamProfile?: CreateTeamProfileFormData;
+  /** Pre-fetched scrape job ID from Step 5 — backend skips re-enqueue if set */
+  scrapeJobId?: string;
 }
 
 /**
@@ -805,6 +807,29 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
       data: OnboardingProfileData
     ): Promise<OnboardingCompleteResponse> {
       return http.post(`${base}/auth/profile/onboarding`, { userId, ...data });
+    },
+
+    /**
+     * Preload scrape — fire the scraping pipeline early during onboarding Step 5.
+     * Returns a scrapeJobId that the frontend passes to the final onboarding
+     * completion call so the backend skips re-enqueuing.
+     */
+    async preloadScrape(
+      userId: string,
+      linkedAccounts: readonly { platform: string; profileUrl: string }[],
+      sport?: string,
+      role?: string
+    ): Promise<{ success: boolean; scrapeJobId?: string; skipped?: boolean }> {
+      try {
+        return await http.post(`${base}/auth/profile/preload-scrape`, {
+          userId,
+          linkedAccounts,
+          sport,
+          role,
+        });
+      } catch {
+        return { success: false };
+      }
     },
 
     /**

@@ -197,6 +197,34 @@ export class DataCoordinatorAgent extends BaseAgent {
       '- Read ALL available sections from the index — do not skip any section with fieldCount > 0.',
       '- Call the write tool for each section type — do not batch unrelated sections into a single call.',
       '- Return a structured summary of what was extracted and written so the Chief of Staff can route follow-up tasks.',
+      '',
+      '═══════════════════════════════════════════════════════════════════',
+      '## STEP 4 — Verification & Enrichment Loop (after all writes)',
+      '═══════════════════════════════════════════════════════════════════',
+      '',
+      'After completing all write tool calls, review what was extracted.',
+      'Check whether the following CRITICAL organization fields were captured:',
+      '',
+      '1. **primaryColor** and **secondaryColor** (hex codes like #CC0000)',
+      '2. **mascot** (e.g. "Tigers", "Eagles")',
+      '3. **city** and **state** (team/school location)',
+      '4. **logoUrl** (team/school logo)',
+      '',
+      'If ANY of these fields are MISSING from what was written:',
+      '',
+      '### Stage 1: Re-read the raw page',
+      'Call `scrape_webpage` with the SAME URL to get the raw markdown.',
+      'Search the raw text for the missing fields — they may appear in CSS,',
+      'meta tags, headers, footers, or sidebars that the AI distiller missed.',
+      'If you find missing data, call the appropriate write tool again with ONLY the newly found fields.',
+      '',
+      '### Stage 2: Web search fallback (only if Stage 1 failed)',
+      'If Stage 1 did not yield the missing fields, call `web_search` with a query like:',
+      '"[Team Name] [School Name] team colors mascot location"',
+      'Extract the missing fields from search results and call the write tool again.',
+      '',
+      '**LIMITS**: Perform Stage 1 at most ONCE, and Stage 2 at most ONCE.',
+      'Do NOT loop beyond these two stages. Accept partial data if both stages fail.',
     ].join('\n');
   }
 
@@ -211,19 +239,25 @@ export class DataCoordinatorAgent extends BaseAgent {
       'write_recruiting_activity',
       'write_calendar_events',
 
+      // ── Verification & enrichment ──
+      'web_search',
+
       // ── Legacy / fallback ──
       'scrape_webpage',
       'update_athlete_profile',
       'update_team_profile',
       'ingest_team_roster',
       'resolve_roster_identity',
+
+      // ── Communication ──
+      'ask_user',
     ];
   }
 
   getModelRouting(): ModelRoutingConfig {
-    // With the new pipeline, the LLM mostly relays pre-parsed data to write tools.
-    // Still using 'balanced' tier with generous maxTokens because season stats
+    // The LLM mostly relays pre-parsed data to write tools — speed over creativity.
+    // Using 'fast' tier (Haiku) with generous maxTokens because season stats
     // and game logs can be large JSON payloads in tool call arguments.
-    return { tier: 'balanced', maxTokens: 4096, temperature: 0 };
+    return { tier: 'fast', maxTokens: 4096, temperature: 0 };
   }
 }

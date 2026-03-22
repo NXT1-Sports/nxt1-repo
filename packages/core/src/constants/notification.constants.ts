@@ -83,6 +83,8 @@ export const NOTIFICATION_TYPES = {
   VIDEO_FAILED: 'video_failed',
   CARD_READY: 'card_ready',
   AI_TASK_COMPLETE: 'ai_task_complete',
+  AI_NEEDS_INPUT: 'ai_needs_input',
+  AI_NEEDS_APPROVAL: 'ai_needs_approval',
   AGENT_WELCOME: 'agent_welcome',
 
   // System
@@ -176,6 +178,8 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   video_failed: 'content',
   card_ready: 'content',
   ai_task_complete: 'content',
+  ai_needs_input: 'content',
+  ai_needs_approval: 'content',
   agent_welcome: 'content',
 
   // System
@@ -284,6 +288,8 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   video_failed: 'alerts',
   card_ready: 'alerts',
   ai_task_complete: 'alerts',
+  ai_needs_input: 'alerts',
+  ai_needs_approval: 'alerts',
   agent_welcome: 'alerts',
 
   // System → alerts
@@ -352,6 +358,8 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   video_failed: '/agent-x/chat/{sessionId}',
   card_ready: '/agent-x/chat/{sessionId}',
   ai_task_complete: '/agent-x/chat/{sessionId}',
+  ai_needs_input: '/agent-x/chat/{sessionId}',
+  ai_needs_approval: '/agent-x/approvals/{entityId}',
   agent_welcome: '/agent-x',
 
   // System

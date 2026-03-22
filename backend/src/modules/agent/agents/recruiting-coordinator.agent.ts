@@ -69,7 +69,7 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
   }
 
   getAvailableTools(): readonly string[] {
-    return ['search_knowledge_base', 'search_web', 'scrape_webpage', 'send_gmail'];
+    return ['search_knowledge_base', 'search_web', 'scrape_webpage', 'send_gmail', 'ask_user'];
   }
 
   getModelRouting(): ModelRoutingConfig {

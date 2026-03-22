@@ -175,6 +175,8 @@ export const OPERATION_STATUS_LABELS: Record<string, string> = {
   queued: 'Queued',
   thinking: 'Thinking...',
   acting: 'Taking action...',
+  awaiting_approval: 'Waiting for your approval...',
+  awaiting_input: 'Waiting for your response...',
   streaming_result: 'Wrapping up...',
   completed: 'Completed',
   failed: 'Failed',
@@ -427,8 +429,7 @@ export const AGENT_MODEL_PRICING: Record<string, { input: number; output: number
   'meta-llama/llama-3.1-70b': { input: 0.5, output: 0.7 },
 } as const;
 
-/** Operation status label update for the new HITL status. */
+/** @deprecated Use OPERATION_STATUS_LABELS directly — all statuses are now included. */
 export const OPERATION_STATUS_LABELS_EXTENDED: Record<string, string> = {
   ...OPERATION_STATUS_LABELS,
-  awaiting_approval: 'Waiting for your approval...',
 } as const;

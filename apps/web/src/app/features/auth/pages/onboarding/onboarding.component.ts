@@ -532,6 +532,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   /** Whether current step passes validation (synced from state machine) */
   private readonly _isCurrentStepValid = signal(true);
 
+  /** Pre-fetched scrape job ID from Step 5 (avoids re-enqueue at completion) */
+  private preloadScrapeJobId: string | undefined;
+
   // ============================================
   // COMPUTED SIGNALS (Derived from state)
   // ============================================
@@ -759,6 +762,13 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
       case 'STEP_COMPLETED':
         this.trackStepCompleted();
+        // Fire optimistic pre-fetch when link-sources step completes
+        if (
+          (event.stepId === 'link-sources' || event.stepId === 'team-link-sources') &&
+          !this.preloadScrapeJobId
+        ) {
+          void this.firePreloadScrape();
+        }
         break;
 
       case 'STEP_SKIPPED':
@@ -1162,6 +1172,53 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   }
 
   // ============================================
+  // PRE-FETCH SCRAPE (Optimistic — fires at Step 5)
+  // ============================================
+
+  /**
+   * Fire the scraping pipeline early while the user finishes remaining steps.
+   * The returned scrapeJobId is passed to the final onboarding save so the
+   * backend skips re-enqueuing.
+   */
+  private async firePreloadScrape(): Promise<void> {
+    const user = this.authFlow.user();
+    if (!user) return;
+
+    const formData = this._formData();
+    const links = formData.linkSources?.links?.filter((l) => l.connected && l.url);
+    if (!links || links.length === 0) return;
+
+    const linkedAccounts = links
+      .filter(
+        (l): l is typeof l & { platform: string; url: string } =>
+          !!l.platform && !!l.url && l.url.startsWith('http')
+      )
+      .map((l) => ({ platform: l.platform.toLowerCase(), profileUrl: l.url }));
+
+    if (linkedAccounts.length === 0) return;
+
+    const sport = formData.sport?.sports?.[0]?.sport;
+    const role = formData.userType ?? undefined;
+
+    try {
+      const result = await this.authApi.preloadScrape(user.uid, linkedAccounts, sport, role);
+      if (result.scrapeJobId) {
+        this.preloadScrapeJobId = result.scrapeJobId;
+        this.logger.info('Pre-fetch scrape enqueued from Step 5', {
+          scrapeJobId: result.scrapeJobId,
+          platforms: linkedAccounts.map((a) => a.platform).join(', '),
+        });
+      }
+    } catch (err) {
+      // Non-fatal — the completion endpoint will enqueue if this failed
+      this.logger.warn('Pre-fetch scrape failed, will retry at completion', {
+        error: err instanceof Error ? err.message : String(err),
+        platforms: linkedAccounts.map((a) => a.platform).join(', '),
+      });
+    }
+  }
+
+  // ============================================
   // COMPLETION HANDLER (Platform-specific backend logic)
   // ============================================
 
@@ -1233,6 +1290,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         linkSources: formData.linkSources,
         teamSelection: formData.teamSelection,
         createTeamProfile: formData.createTeamProfile,
+        // Pass pre-fetched scrape job ID so backend skips re-enqueuing
+        ...(this.preloadScrapeJobId && { scrapeJobId: this.preloadScrapeJobId }),
       };
 
       const result = await this.authApi.saveOnboardingProfile(user.uid, profileData);

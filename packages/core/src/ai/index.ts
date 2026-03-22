@@ -185,6 +185,8 @@ export type {
   AgentApprovalRequest,
   AgentApprovalStatus,
   AgentApprovalPolicy,
+  AgentYieldReason,
+  AgentYieldState,
   AgentUserContext,
   AgentConnectedAccount,
   AgentLLMCallRecord,
