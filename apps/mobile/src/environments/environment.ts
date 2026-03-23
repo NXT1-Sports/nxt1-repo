@@ -16,7 +16,7 @@
  */
 
 // AUTO-GENERATED: Do not edit this line - updated by detect-local-ip.js
-const DETECTED_LOCAL_IP = '172.20.10.3';
+const DETECTED_LOCAL_IP = '10.2.98.40';
 
 export const environment = {
   production: false,

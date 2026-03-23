@@ -162,13 +162,43 @@ function validateUnicodeFormat(unicode: string): void {
 }
 
 /**
- * Build team URL slug
- * Format: TeamName_with_underscores-sportName-unicode
- * Example: Rockvale_High_School-Basketball_mens-86664157
+ * Build a URL-friendly team slug from the team name only.
  */
-export function buildTeamSlug(teamName: string, sportName: string, unicode: string): string {
-  const namePart = teamName.replace(/\s+/g, '_');
-  return `${namePart}-${sportName}-${unicode}`;
+export function buildTeamSlug(teamName: string): string {
+  return teamName
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // strip accent marks
+    .replace(/[^a-z0-9\s-]/g, '') // strip everything except letters, digits, spaces, hyphens
+    .trim()
+    .replace(/\s+/g, '-') // spaces → hyphens
+    .replace(/-+/g, '-') // collapse consecutive hyphens
+    .replace(/^-|-$/g, ''); // trim leading/trailing hyphens
+}
+
+/**
+ * Generate a slug that is unique within the Teams collection.
+ * If the base slug is already taken, appends -2, -3, … up to -99.
+ */
+async function generateUniqueTeamSlug(db: Firestore, teamName: string): Promise<string> {
+  const base = buildTeamSlug(teamName);
+  if (!base) {
+    throw validationError([
+      { field: 'teamName', message: 'Team name produces an empty slug', rule: 'invalid' },
+    ]);
+  }
+
+  const existing = await db.collection('Teams').where('slug', '==', base).limit(1).get();
+  if (existing.empty) return base;
+
+  for (let i = 2; i <= 99; i++) {
+    const candidate = `${base}-${i}`;
+    const snap = await db.collection('Teams').where('slug', '==', candidate).limit(1).get();
+    if (snap.empty) return candidate;
+  }
+
+  // Ultimate fallback — timestamp suffix keeps it unique
+  return `${base}-${Date.now().toString(36).slice(-5)}`;
 }
 
 /**
@@ -372,6 +402,18 @@ export function generateMemberUnicode(teamUnicode: string, role: ROLE): string {
  * Create a new TeamCode
  */
 export async function createTeamCode(db: Firestore, input: CreateTeamCodeInput): Promise<TeamCode> {
+  // Validate team name
+  if (!input.teamName?.trim()) {
+    throw validationError([
+      { field: 'teamName', message: 'Team name is required', rule: 'required' },
+    ]);
+  }
+  if (input.teamName.trim().length < 2) {
+    throw validationError([
+      { field: 'teamName', message: 'Team name must be at least 2 characters', rule: 'minLength' },
+    ]);
+  }
+
   validateTeamCodeFormat(input.teamCode);
 
   // Check if team code already exists
@@ -425,12 +467,17 @@ export async function createTeamCode(db: Firestore, input: CreateTeamCodeInput):
     phoneNumber: input.creatorPhoneNumber?.trim() ?? '',
   };
 
+  // Generate a unique URL slug derived from the team name
+  const slug = await generateUniqueTeamSlug(db, input.teamName);
+
   const teamData = {
     teamCode: input.teamCode.toUpperCase(),
     teamName: input.teamName,
     teamType: input.teamType,
     // Canonical field is `sport`.
     sport: input.sport,
+    // Slug is derived from team name only — clean, lowercase, hyphenated
+    slug,
     athleteMember: 0,
     panelMember: 0,
     isActive: true,

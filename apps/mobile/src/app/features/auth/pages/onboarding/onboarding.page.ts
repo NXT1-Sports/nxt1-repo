@@ -989,6 +989,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
               'Location request timed out. Move to an area with better signal and try again.';
             break;
           case 'NOT_SUPPORTED':
+          case 'SERVICES_DISABLED':
             errorMessage = 'Location services are disabled. Please enable in Settings.';
             break;
         }

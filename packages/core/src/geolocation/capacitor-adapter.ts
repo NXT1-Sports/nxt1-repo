@@ -275,9 +275,15 @@ export function createCapacitorGeolocationAdapter(
 
         return 'prompt';
       } catch (error) {
-        // checkPermissions throws if location services are disabled
-        const errorStr = String(error).toLowerCase();
-        if (errorStr.includes('disabled') || errorStr.includes('services')) {
+        // checkPermissions throws if location services are disabled.
+        // Check the Capacitor error code first — on iOS the thrown error can be just
+        // "OS-PLUG-GLOC-0007" without descriptive words, so word matching alone misses it.
+        const message = error instanceof Error ? error.message : String(error);
+        if (
+          message.includes(CAPACITOR_ERROR_CODES.SERVICES_DISABLED) ||
+          message.toLowerCase().includes('disabled') ||
+          message.toLowerCase().includes('services')
+        ) {
           return 'denied'; // Treat disabled services as denied
         }
         return 'unknown';
@@ -298,15 +304,22 @@ export function createCapacitorGeolocationAdapter(
           return 'granted';
         }
 
-        if (status.location === 'denied' || status.coarseLocation === 'denied') {
+        // Only report denied when BOTH are denied — if one is still 'prompt' the
+        // user hasn't been asked yet (Android can have mixed coarse/fine states)
+        if (status.location === 'denied' && status.coarseLocation === 'denied') {
           return 'denied';
         }
 
         return 'prompt';
       } catch (error) {
-        // requestPermissions throws if location services are disabled
-        const errorStr = String(error).toLowerCase();
-        if (errorStr.includes('disabled') || errorStr.includes('services')) {
+        // requestPermissions throws if location services are disabled.
+        // Check the Capacitor error code first (iOS can throw just "OS-PLUG-GLOC-0007").
+        const message = error instanceof Error ? error.message : String(error);
+        if (
+          message.includes(CAPACITOR_ERROR_CODES.SERVICES_DISABLED) ||
+          message.toLowerCase().includes('disabled') ||
+          message.toLowerCase().includes('services')
+        ) {
           return 'denied';
         }
         return 'denied';

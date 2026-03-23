@@ -42,6 +42,7 @@ import { generateUnicodeForUser, getUserUnicode } from '../utils/unicode-generat
 import { enqueueWelcomeGraphic } from '../services/agent-welcome.service.js';
 import { enqueueLinkedAccountScrape } from '../services/agent-scrape.service.js';
 import * as teamCodeService from '../services/team-code.service.js';
+import { buildTeamSlug } from '../services/team-code.service.js';
 import { validateBody } from '../middleware/validation.middleware.js';
 import {
   CreateUserDto,
@@ -105,6 +106,8 @@ interface UserV2Document {
   coach?: {
     title?: string;
     organization?: string;
+    /** Unicode slugs of teams this coach/director manages */
+    managedTeamCodes?: string[];
   };
 
   // Onboarding
@@ -925,6 +928,9 @@ router.post(
     // PROGRAM + TEAM + ROSTER CREATION (Ghost flow)
     // ============================================
     const createdTeamIds: string[] = [];
+    // Unicodes of all teams resolved/created for this coach/director.
+    // Written to coach.managedTeamCodes so the profile page can load the team.
+    const coachTeamUnicodes: string[] = [];
     const organizationService = createOrganizationService(db);
     const rosterEntryService = createRosterEntryService(db);
 
@@ -1119,6 +1125,16 @@ router.post(
             teamId = existingDoc.id;
 
             const existingData = existingDoc.data() as Record<string, unknown>;
+
+            // Track slug for coach.managedTeamCodes backfill.
+            // Prefer the stored slug field; fall back to computing from the team name
+            // (for older docs written before the slug field existed).
+            const existingSlugField = existingData['slug'] as string | undefined;
+            const existingSlugKey = existingSlugField ?? buildTeamSlug(program.name);
+            if (existingSlugKey && !coachTeamUnicodes.includes(existingSlugKey)) {
+              coachTeamUnicodes.push(existingSlugKey);
+            }
+
             const needsSportMigration =
               existingData['sport'] !== sportName ||
               Object.prototype.hasOwnProperty.call(existingData, 'sportName');
@@ -1173,8 +1189,14 @@ router.post(
 
             teamId = team.id;
             createdTeamIds.push(team.id);
+            // slug is now written by createTeamCode at creation time; use it directly
+            const teamSlug = team.slug ?? team.unicode ?? team.id ?? '';
+            if (teamSlug && !coachTeamUnicodes.includes(teamSlug)) {
+              coachTeamUnicodes.push(teamSlug);
+            }
             logger.info('[POST /profile/onboarding] Created ghost sport team', {
               teamId,
+              slug: teamSlug,
               organizationId: program.organizationId,
               sportName,
             });
@@ -1227,6 +1249,22 @@ router.post(
           });
         }
       }
+    }
+
+    // Backfill User.coach.managedTeamCodes for coaches/directors.
+    // The mobile profile page reads this field to resolve the team slug and load
+    // the team profile view. Without it, coaches see "No team associated" after
+    // completing onboarding.
+    if (coachTeamUnicodes.length > 0 && (role === 'coach' || role === 'director')) {
+      const existingCodes: string[] = updateData.coach?.managedTeamCodes ?? [];
+      const merged = [...new Set([...existingCodes, ...coachTeamUnicodes])];
+      updateData.coach = {
+        ...updateData.coach,
+        managedTeamCodes: merged,
+      };
+      logger.info('[POST /profile/onboarding] Backfilled coach.managedTeamCodes', {
+        unicodes: merged,
+      });
     }
 
     // Backfill User.sports[].team with relational IDs from resolved teams.

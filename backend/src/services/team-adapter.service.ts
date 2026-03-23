@@ -239,22 +239,40 @@ export class TeamServiceAdapter {
    * Queries by slug field directly
    */
   async getTeamBySlug(slug: string): Promise<TeamCode | null> {
-    logger.debug('[TeamAdapter] Getting team by slug', { slug });
+    // Normalize: trim and lowercase so URL slugs always match the lowercase
+    // values stored by buildTeamSlug/generateUniqueTeamSlug.
+    const normalized = slug.trim().toLowerCase();
+    logger.debug('[TeamAdapter] Getting team by slug', { slug, normalized });
 
-    // Query by slug field directly
+    // Primary: exact match on the `slug` field (stored lowercase)
     const teamsSnapshot = await this.db
       .collection('Teams')
-      .where('slug', '==', slug)
+      .where('slug', '==', normalized)
       .limit(1)
       .get();
 
-    if (teamsSnapshot.empty) {
-      logger.debug('[TeamAdapter] Team not found', { slug });
-      return null;
+    if (!teamsSnapshot.empty) {
+      const teamDoc = teamsSnapshot.docs[0];
+      return await this.getTeamWithMembers(teamDoc.id);
     }
 
-    const teamDoc = teamsSnapshot.docs[0];
-    return await this.getTeamWithMembers(teamDoc.id);
+    // Legacy fallback: match on `unicode` field.
+    // Older team docs have no `slug` — coach.managedTeamCodes may still hold the
+    // raw unicode string (e.g. "299266") for those teams.
+    const unicodeSnapshot = await this.db
+      .collection('Teams')
+      .where('unicode', '==', slug.trim()) // unicode is digits, preserve original value
+      .limit(1)
+      .get();
+
+    if (!unicodeSnapshot.empty) {
+      logger.debug('[TeamAdapter] Team found via unicode fallback', { slug });
+      const teamDoc = unicodeSnapshot.docs[0];
+      return await this.getTeamWithMembers(teamDoc.id);
+    }
+
+    logger.debug('[TeamAdapter] Team not found', { slug });
+    return null;
   }
 }
 
