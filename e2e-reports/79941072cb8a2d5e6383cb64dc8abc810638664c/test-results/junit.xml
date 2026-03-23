@@ -1,0 +1,1278 @@
+<testsuites id="" name="" tests="228" failures="10" skipped="218" errors="0" time="67.277197">
+<testsuite name="activity/activity.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-chrome" tests="7" failures="7" skipped="0" time="0.201" errors="0">
+<testcase name="Activity Page › Unauthenticated Access › should redirect unauthenticated users away from /activity" classname="activity/activity.spec.ts" time="0.025">
+<failure message="activity.spec.ts:33:5 should redirect unauthenticated users away from /activity" type="FAILURE">
+<![CDATA[  [mobile-chrome] › activity/activity.spec.ts:33:5 › Activity Page › Unauthenticated Access › should redirect unauthenticated users away from /activity 
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../test-results/activity-activity-Activity-4289f-ed-users-away-from-activity-mobile-chrome-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace ../test-results/activity-activity-Activity-4289f-ed-users-away-from-activity-mobile-chrome-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #2 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|activity-activity-Activity-4289f-ed-users-away-from-activity-mobile-chrome-retry1/trace.zip]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Activity Page › Authenticated Access › should display activity shell container" classname="activity/activity.spec.ts" time="0.028">
+<failure message="activity.spec.ts:66:5 should display activity shell container" type="FAILURE">
+<![CDATA[  [mobile-chrome] › activity/activity.spec.ts:66:5 › Activity Page › Authenticated Access › should display activity shell container 
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../test-results/activity-activity-Activity-789cb-ay-activity-shell-container-mobile-chrome-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace ../test-results/activity-activity-Activity-789cb-ay-activity-shell-container-mobile-chrome-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #2 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|activity-activity-Activity-789cb-ay-activity-shell-container-mobile-chrome-retry1/trace.zip]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Activity Page › Authenticated Access › should display activity tabs" classname="activity/activity.spec.ts" time="0.033">
+<failure message="activity.spec.ts:72:5 should display activity tabs" type="FAILURE">
+<![CDATA[  [mobile-chrome] › activity/activity.spec.ts:72:5 › Activity Page › Authenticated Access › should display activity tabs 
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../test-results/activity-activity-Activity-10989-hould-display-activity-tabs-mobile-chrome-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace ../test-results/activity-activity-Activity-10989-hould-display-activity-tabs-mobile-chrome-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #2 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|activity-activity-Activity-10989-hould-display-activity-tabs-mobile-chrome-retry1/trace.zip]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Activity Page › Authenticated Access › should display feed content or empty state" classname="activity/activity.spec.ts" time="0.032">
+<failure message="activity.spec.ts:78:5 should display feed content or empty state" type="FAILURE">
+<![CDATA[  [mobile-chrome] › activity/activity.spec.ts:78:5 › Activity Page › Authenticated Access › should display feed content or empty state 
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../test-results/activity-activity-Activity-89ce9-feed-content-or-empty-state-mobile-chrome-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace ../test-results/activity-activity-Activity-89ce9-feed-content-or-empty-state-mobile-chrome-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #2 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|activity-activity-Activity-89ce9-feed-content-or-empty-state-mobile-chrome-retry1/trace.zip]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Activity Page › Authenticated Access › should switch tabs when tab is clicked" classname="activity/activity.spec.ts" time="0.028">
+<failure message="activity.spec.ts:91:5 should switch tabs when tab is clicked" type="FAILURE">
+<![CDATA[  [mobile-chrome] › activity/activity.spec.ts:91:5 › Activity Page › Authenticated Access › should switch tabs when tab is clicked 
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../test-results/activity-activity-Activity-5b915-ch-tabs-when-tab-is-clicked-mobile-chrome-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace ../test-results/activity-activity-Activity-5b915-ch-tabs-when-tab-is-clicked-mobile-chrome-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #2 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|activity-activity-Activity-5b915-ch-tabs-when-tab-is-clicked-mobile-chrome-retry1/trace.zip]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Activity Page › API Mocked States › should show empty state when API returns no items" classname="activity/activity.spec.ts" time="0.023">
+<failure message="activity.spec.ts:116:5 should show empty state when API returns no items" type="FAILURE">
+<![CDATA[  [mobile-chrome] › activity/activity.spec.ts:116:5 › Activity Page › API Mocked States › should show empty state when API returns no items 
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../test-results/activity-activity-Activity-4115c-e-when-API-returns-no-items-mobile-chrome-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace ../test-results/activity-activity-Activity-4115c-e-when-API-returns-no-items-mobile-chrome-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #2 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|activity-activity-Activity-4115c-e-when-API-returns-no-items-mobile-chrome-retry1/trace.zip]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Activity Page › API Mocked States › should show error state when API returns server error" classname="activity/activity.spec.ts" time="0.032">
+<failure message="activity.spec.ts:145:5 should show error state when API returns server error" type="FAILURE">
+<![CDATA[  [mobile-chrome] › activity/activity.spec.ts:145:5 › Activity Page › API Mocked States › should show error state when API returns server error 
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../test-results/activity-activity-Activity-9e6fb-en-API-returns-server-error-mobile-chrome-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace ../test-results/activity-activity-Activity-9e6fb-en-API-returns-server-error-mobile-chrome-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #2 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|activity-activity-Activity-9e6fb-en-API-returns-server-error-mobile-chrome-retry1/trace.zip]]
+]]>
+</system-out>
+</testcase>
+</testsuite>
+<testsuite name="api/api-mocking.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-chrome" tests="13" failures="0" skipped="13" time="0" errors="0">
+<testcase name="API Mocking with MSW › Basic API Mocking › should use default mock data" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Basic API Mocking › should mock profile API response" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Custom Handlers › should override default handlers for specific scenarios" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Custom Handlers › should mock specific endpoints" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Error Scenarios › should handle server errors gracefully" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Error Scenarios › should handle unauthorized errors" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Error Scenarios › should handle rate limiting" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Error Scenarios › should reset to default handlers" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Conditional Responses › should mock based on request parameters" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Conditional Responses › should mock based on request body" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Network Timing › should handle slow network responses" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Mock Data Integration › should verify mock user data in assertions" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Mock Data Integration › should use mock data for UI verification" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="auth/forgot-password.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-chrome" tests="10" failures="3" skipped="7" time="0.069" errors="0">
+<testcase name="Forgot Password Page › Page Load › should display forgot password page correctly" classname="auth/forgot-password.spec.ts" time="0.022">
+<failure message="forgot-password.spec.ts:21:5 should display forgot password page correctly" type="FAILURE">
+<![CDATA[  [mobile-chrome] › auth/forgot-password.spec.ts:21:5 › Forgot Password Page › Page Load › should display forgot password page correctly 
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../test-results/auth-forgot-password-Forgo-bdb3a-got-password-page-correctly-mobile-chrome-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace ../test-results/auth-forgot-password-Forgo-bdb3a-got-password-page-correctly-mobile-chrome-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #2 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|auth-forgot-password-Forgo-bdb3a-got-password-page-correctly-mobile-chrome-retry1/trace.zip]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Forgot Password Page › Page Load › should have back to login link" classname="auth/forgot-password.spec.ts" time="0.026">
+<failure message="forgot-password.spec.ts:27:5 should have back to login link" type="FAILURE">
+<![CDATA[  [mobile-chrome] › auth/forgot-password.spec.ts:27:5 › Forgot Password Page › Page Load › should have back to login link 
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../test-results/auth-forgot-password-Forgo-6bb31-uld-have-back-to-login-link-mobile-chrome-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace ../test-results/auth-forgot-password-Forgo-6bb31-uld-have-back-to-login-link-mobile-chrome-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #2 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|auth-forgot-password-Forgo-6bb31-uld-have-back-to-login-link-mobile-chrome-retry1/trace.zip]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Forgot Password Page › Reset Request › should accept valid email for reset" classname="auth/forgot-password.spec.ts" time="0">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Forgot Password Page › Reset Request › should show success message for existing email" classname="auth/forgot-password.spec.ts" time="0.021">
+<failure message="forgot-password.spec.ts:53:5 should show success message for existing email" type="FAILURE">
+<![CDATA[  [mobile-chrome] › auth/forgot-password.spec.ts:53:5 › Forgot Password Page › Reset Request › should show success message for existing email 
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+
+    attachment #1: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../test-results/auth-forgot-password-Forgo-3ca22--message-for-existing-email-mobile-chrome-retry1/trace.zip
+    Usage:
+
+        npx playwright show-trace ../test-results/auth-forgot-password-Forgo-3ca22--message-for-existing-email-mobile-chrome-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #2 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: Error reading storage state from /home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json:
+    ENOENT: no such file or directory, open '/home/runner/work/nxt1-repo/nxt1-repo/apps/web/e2e/.auth/user.json'
+]]>
+</failure>
+<system-out>
+<![CDATA[
+[[ATTACHMENT|auth-forgot-password-Forgo-3ca22--message-for-existing-email-mobile-chrome-retry1/trace.zip]]
+]]>
+</system-out>
+</testcase>
+<testcase name="Forgot Password Page › Reset Request › should not accept empty email" classname="auth/forgot-password.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Forgot Password Page › Reset Request › should not accept invalid email format" classname="auth/forgot-password.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Forgot Password Page › Navigation › should navigate back to login" classname="auth/forgot-password.spec.ts" time="0">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Forgot Password Page › Navigation › should be accessible from login page" classname="auth/forgot-password.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Forgot Password Page › Edge Cases › should handle rapid submissions gracefully" classname="auth/forgot-password.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Forgot Password Page › Edge Cases › should trim whitespace from email" classname="auth/forgot-password.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="auth/login-debug.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-chrome" tests="1" failures="0" skipped="1" time="0" errors="0">
+<testcase name="Login Debug › debug Firebase Auth login" classname="auth/login-debug.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="auth/login.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-chrome" tests="19" failures="0" skipped="19" time="0" errors="0">
+<testcase name="Login Page › Page Load › should display login page with correct elements" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Page Load › should have correct page title" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Email Form › should show email form when clicking continue with email" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Email Form › should allow going back to social buttons" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Email Form › should have forgot password link in email form" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Successful Login › should login successfully with valid credentials" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Successful Login › should clear error message on successful retry" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Login Failures › should show error for invalid credentials" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Login Failures › should show error for empty email" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Login Failures › should show error for empty password" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Login Failures › Invalid Email Formats › should reject invalid email: invalid" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Login Failures › Invalid Email Formats › should reject invalid email: invalid@" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Login Failures › Invalid Email Formats › should reject invalid email: @example.com" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Navigation › should navigate to forgot password page" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Loading States › should show loading state during login" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Loading States › should disable form during submission" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Social Login › should have Google sign in button" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Social Login › should have Apple sign in button" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Social Login › should open Google OAuth popup" classname="auth/login.spec.ts" time="0">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="auth/onboarding.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-chrome" tests="12" failures="0" skipped="12" time="0" errors="0">
+<testcase name="Onboarding Flow › Page Load › should display onboarding page after login" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Page Load › should show continue button" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Profile Step › should display profile form elements" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Profile Step › should allow continuing with valid profile" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Profile Step › should advance to sport step after profile" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Sport Step › should advance to sport step after profile" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Gender Step › should allow continuing through steps" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Navigation › should allow navigating through onboarding" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Complete Flow › should navigate through onboarding steps" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Complete Flow › should persist progress if page is refreshed" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Mobile › should display correctly on mobile" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Mobile › should have touch-friendly button sizes" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="auth/signup.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-chrome" tests="22" failures="0" skipped="22" time="0" errors="0">
+<testcase name="Signup Page › Page Load › should display signup page with correct elements" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Page Load › should have correct page title" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Page Load › should show mode switcher after email form opened" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › should not submit with empty form" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › should not submit with only email" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › should not submit with only password" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › Invalid Emails › should reject: invalid" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › Invalid Emails › should reject: invalid@" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › Weak Passwords › should warn about weak password: 12345" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › Weak Passwords › should warn about weak password: password" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › Weak Passwords › should warn about weak password: abc" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › Weak Passwords › should warn about weak password: 123456" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › Weak Passwords › should warn about weak password: qwerty" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › Weak Passwords › should warn about weak password: letmein" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Successful Registration › should register new user with valid credentials" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Successful Registration › should clear form errors on valid input" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Registration Failures › should show error for existing email" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Navigation › should have terms link after opening email form" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Social Signup › should have Google signup button" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Social Signup › should have Apple signup button" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Accessibility › should be keyboard navigable" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Accessibility › should have proper form labels" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="settings/settings.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-chrome" tests="12" failures="0" skipped="12" time="0" errors="0">
+<testcase name="Settings Page › Unauthenticated Access › should redirect unauthenticated users away from /settings" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Settings Page › Authenticated Access › should display settings page container" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Settings Page › Authenticated Access › should have correct page title" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Unauthenticated Access › should not render account-info page without auth" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Authenticated Access › should display the account information page container" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Authenticated Access › should display email item" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Authenticated Access › should display change password item" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Authenticated Access › should display sign out item" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Authenticated Access › should display delete account item" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Authenticated Access › should show toast when change password is clicked with valid email" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Authenticated Access › should show confirmation sheet when sign out is clicked" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Authenticated Access › should show destructive confirmation sheet when delete account is clicked" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="visual/auth-visual.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-chrome" tests="18" failures="0" skipped="18" time="0" errors="0">
+<testcase name="Auth Pages Visual Regression › Login Page › login page - initial state" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Login Page › login page - email form visible" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Login Page › login page - email validation error" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Login Page › login page - form filled" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Signup Page › signup page - initial state" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Signup Page › signup page - form partially filled" classname="visual/auth-visual.spec.ts" time="0">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Signup Page › signup page - password mismatch" classname="visual/auth-visual.spec.ts" time="0">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Signup Page › signup page - footer links" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Forgot Password Page › forgot password - initial state" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Forgot Password Page › forgot password - email entered" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Forgot Password Page › forgot password - form elements" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Responsive Screenshots › login page - mobile viewport" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Responsive Screenshots › signup page - mobile viewport" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Responsive Screenshots › login page - tablet viewport" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Theme Screenshots › login page - dark mode (default)" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Theme Screenshots › login page - light mode" classname="visual/auth-visual.spec.ts" time="0">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Component Screenshots › social buttons component" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Component Screenshots › auth form component" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="activity/activity.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-safari" tests="7" failures="0" skipped="7" time="0" errors="0">
+<testcase name="Activity Page › Unauthenticated Access › should redirect unauthenticated users away from /activity" classname="activity/activity.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Activity Page › Authenticated Access › should display activity shell container" classname="activity/activity.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Activity Page › Authenticated Access › should display activity tabs" classname="activity/activity.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Activity Page › Authenticated Access › should display feed content or empty state" classname="activity/activity.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Activity Page › Authenticated Access › should switch tabs when tab is clicked" classname="activity/activity.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Activity Page › API Mocked States › should show empty state when API returns no items" classname="activity/activity.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Activity Page › API Mocked States › should show error state when API returns server error" classname="activity/activity.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="api/api-mocking.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-safari" tests="13" failures="0" skipped="13" time="0" errors="0">
+<testcase name="API Mocking with MSW › Basic API Mocking › should use default mock data" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Basic API Mocking › should mock profile API response" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Custom Handlers › should override default handlers for specific scenarios" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Custom Handlers › should mock specific endpoints" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Error Scenarios › should handle server errors gracefully" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Error Scenarios › should handle unauthorized errors" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Error Scenarios › should handle rate limiting" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Error Scenarios › should reset to default handlers" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Conditional Responses › should mock based on request parameters" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Conditional Responses › should mock based on request body" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Network Timing › should handle slow network responses" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Mock Data Integration › should verify mock user data in assertions" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="API Mocking with MSW › Mock Data Integration › should use mock data for UI verification" classname="api/api-mocking.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="auth/forgot-password.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-safari" tests="10" failures="0" skipped="10" time="0" errors="0">
+<testcase name="Forgot Password Page › Page Load › should display forgot password page correctly" classname="auth/forgot-password.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Forgot Password Page › Page Load › should have back to login link" classname="auth/forgot-password.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Forgot Password Page › Reset Request › should accept valid email for reset" classname="auth/forgot-password.spec.ts" time="0">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Forgot Password Page › Reset Request › should show success message for existing email" classname="auth/forgot-password.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Forgot Password Page › Reset Request › should not accept empty email" classname="auth/forgot-password.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Forgot Password Page › Reset Request › should not accept invalid email format" classname="auth/forgot-password.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Forgot Password Page › Navigation › should navigate back to login" classname="auth/forgot-password.spec.ts" time="0">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Forgot Password Page › Navigation › should be accessible from login page" classname="auth/forgot-password.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Forgot Password Page › Edge Cases › should handle rapid submissions gracefully" classname="auth/forgot-password.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Forgot Password Page › Edge Cases › should trim whitespace from email" classname="auth/forgot-password.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="auth/login-debug.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-safari" tests="1" failures="0" skipped="1" time="0" errors="0">
+<testcase name="Login Debug › debug Firebase Auth login" classname="auth/login-debug.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="auth/login.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-safari" tests="19" failures="0" skipped="19" time="0" errors="0">
+<testcase name="Login Page › Page Load › should display login page with correct elements" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Page Load › should have correct page title" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Email Form › should show email form when clicking continue with email" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Email Form › should allow going back to social buttons" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Email Form › should have forgot password link in email form" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Successful Login › should login successfully with valid credentials" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Successful Login › should clear error message on successful retry" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Login Failures › should show error for invalid credentials" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Login Failures › should show error for empty email" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Login Failures › should show error for empty password" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Login Failures › Invalid Email Formats › should reject invalid email: invalid" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Login Failures › Invalid Email Formats › should reject invalid email: invalid@" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Login Failures › Invalid Email Formats › should reject invalid email: @example.com" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Navigation › should navigate to forgot password page" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Loading States › should show loading state during login" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Login Page › Loading States › should disable form during submission" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Social Login › should have Google sign in button" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Social Login › should have Apple sign in button" classname="auth/login.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Social Login › should open Google OAuth popup" classname="auth/login.spec.ts" time="0">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="auth/onboarding.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-safari" tests="12" failures="0" skipped="12" time="0" errors="0">
+<testcase name="Onboarding Flow › Page Load › should display onboarding page after login" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Page Load › should show continue button" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Profile Step › should display profile form elements" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Profile Step › should allow continuing with valid profile" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Profile Step › should advance to sport step after profile" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Sport Step › should advance to sport step after profile" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Gender Step › should allow continuing through steps" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Navigation › should allow navigating through onboarding" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Complete Flow › should navigate through onboarding steps" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Flow › Complete Flow › should persist progress if page is refreshed" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Mobile › should display correctly on mobile" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Onboarding Mobile › should have touch-friendly button sizes" classname="auth/onboarding.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="auth/signup.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-safari" tests="22" failures="0" skipped="22" time="0" errors="0">
+<testcase name="Signup Page › Page Load › should display signup page with correct elements" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Page Load › should have correct page title" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Page Load › should show mode switcher after email form opened" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › should not submit with empty form" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › should not submit with only email" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › should not submit with only password" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › Invalid Emails › should reject: invalid" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › Invalid Emails › should reject: invalid@" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › Weak Passwords › should warn about weak password: 12345" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › Weak Passwords › should warn about weak password: password" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › Weak Passwords › should warn about weak password: abc" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › Weak Passwords › should warn about weak password: 123456" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › Weak Passwords › should warn about weak password: qwerty" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Form Validation › Weak Passwords › should warn about weak password: letmein" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Successful Registration › should register new user with valid credentials" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Successful Registration › should clear form errors on valid input" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Registration Failures › should show error for existing email" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Navigation › should have terms link after opening email form" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Social Signup › should have Google signup button" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Page › Social Signup › should have Apple signup button" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Accessibility › should be keyboard navigable" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Signup Accessibility › should have proper form labels" classname="auth/signup.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="settings/settings.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-safari" tests="12" failures="0" skipped="12" time="0" errors="0">
+<testcase name="Settings Page › Unauthenticated Access › should redirect unauthenticated users away from /settings" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Settings Page › Authenticated Access › should display settings page container" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Settings Page › Authenticated Access › should have correct page title" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Unauthenticated Access › should not render account-info page without auth" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Authenticated Access › should display the account information page container" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Authenticated Access › should display email item" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Authenticated Access › should display change password item" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Authenticated Access › should display sign out item" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Authenticated Access › should display delete account item" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Authenticated Access › should show toast when change password is clicked with valid email" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Authenticated Access › should show confirmation sheet when sign out is clicked" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Account Information Page › Authenticated Access › should show destructive confirmation sheet when delete account is clicked" classname="settings/settings.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="visual/auth-visual.spec.ts" timestamp="2026-03-23T20:55:36.072Z" hostname="mobile-safari" tests="18" failures="0" skipped="18" time="0" errors="0">
+<testcase name="Auth Pages Visual Regression › Login Page › login page - initial state" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Login Page › login page - email form visible" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Login Page › login page - email validation error" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Login Page › login page - form filled" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Signup Page › signup page - initial state" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Signup Page › signup page - form partially filled" classname="visual/auth-visual.spec.ts" time="0">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Signup Page › signup page - password mismatch" classname="visual/auth-visual.spec.ts" time="0">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Signup Page › signup page - footer links" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Forgot Password Page › forgot password - initial state" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Forgot Password Page › forgot password - email entered" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Forgot Password Page › forgot password - form elements" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Responsive Screenshots › login page - mobile viewport" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Responsive Screenshots › signup page - mobile viewport" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Responsive Screenshots › login page - tablet viewport" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Theme Screenshots › login page - dark mode (default)" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Auth Pages Visual Regression › Theme Screenshots › login page - light mode" classname="visual/auth-visual.spec.ts" time="0">
+<properties>
+<property name="skip" value="">
+</property>
+</properties>
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Component Screenshots › social buttons component" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Component Screenshots › auth form component" classname="visual/auth-visual.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+</testsuites>
