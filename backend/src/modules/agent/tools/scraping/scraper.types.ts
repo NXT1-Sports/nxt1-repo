@@ -36,13 +36,13 @@ export interface ScrapeResult {
   readonly scrapedInMs: number;
   /**
    * Structured data extracted from the page (NextData, LD+JSON, OG, images, videos, colors).
-   * Always populated when HTML was fetched directly, null when only Jina markdown is available.
+   * Always populated when HTML was fetched directly, null when only Firecrawl markdown is available.
    */
   readonly pageData: PageStructuredData | null;
 }
 
 /** Available scraping providers (ordered by preference). */
-export type ScrapeProvider = 'jina' | 'fetch-fallback';
+export type ScrapeProvider = 'firecrawl' | 'fetch-fallback';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 

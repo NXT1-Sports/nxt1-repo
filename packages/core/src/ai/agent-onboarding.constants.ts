@@ -32,7 +32,7 @@ export const AGENT_ONBOARDING_STEPS: readonly AgentOnboardingStep[] = [
   {
     id: 'program-search',
     title: 'Find Your Program',
-    subtitle: 'Search for your team or create a new one.',
+    subtitle: "Search for your program. If it's missing, you can add it.",
     order: 1,
     skippable: false,
   },

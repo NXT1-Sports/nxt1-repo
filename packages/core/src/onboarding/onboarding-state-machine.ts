@@ -488,12 +488,14 @@ export function createOnboardingStateMachine(
     // ============================================
 
     continue(): void {
-      if (!isStepValid()) {
-        log('Cannot continue - step invalid');
+      const step = getCurrentStep();
+
+      // For optional steps, allow continuing even if the step is not filled in
+      // (acts like skip — data just won't be saved for this step)
+      if (!isStepValid() && step.required) {
+        log('Cannot continue - required step is invalid');
         return;
       }
-
-      const step = getCurrentStep();
 
       // Mark step as completed
       completedStepIds.add(step.id);

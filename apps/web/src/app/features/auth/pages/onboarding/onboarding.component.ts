@@ -303,6 +303,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                 [sportData]="sportFormData()"
                 [disabled]="isLoading()"
                 [searchTeams]="searchTeamsFn"
+                [userType]="selectedRole()"
                 (teamSelectionChange)="onTeamSelectionChange($event)"
               />
             }
@@ -378,7 +379,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             [showBack]="canGoBack()"
             [isLastStep]="isLastStep()"
             [loading]="isLoading()"
-            [disabled]="!isCurrentStepValid()"
+            [disabled]="!isCurrentStepValid() && !isCurrentStepOptional()"
             (skipClick)="onSkip()"
             (backClick)="onBack()"
             (continueClick)="onContinue()"
@@ -402,7 +403,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
         [showSkip]="isCurrentStepOptional()"
         [isLastStep]="isLastStep()"
         [loading]="isLoading()"
-        [disabled]="!isCurrentStepValid()"
+        [disabled]="!isCurrentStepValid() && !isCurrentStepOptional()"
         (skipClick)="onSkip()"
         (continueClick)="onContinue()"
       />

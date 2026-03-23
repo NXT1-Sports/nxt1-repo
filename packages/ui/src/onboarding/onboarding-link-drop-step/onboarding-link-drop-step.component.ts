@@ -388,8 +388,13 @@ function normalizePlatformConnectionValue(
       }
 
       <p class="nxt1-link-step-intro">
-        Add the real sites that power your profile across social, videos, recruiting, metrics,
-        academics, schedule, and stats.
+        @if (isTeamScope()) {
+          Add the real sites that power your team profile across social, videos, recruiting,
+          metrics, academics, schedule, and stats.
+        } @else {
+          Add the real sites that power your profile across social, videos, recruiting, metrics,
+          academics, schedule, and stats.
+        }
       </p>
 
       <!-- Team scope hint for coaches/directors -->

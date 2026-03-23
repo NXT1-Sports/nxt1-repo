@@ -44,6 +44,8 @@ import {
 import { CommonModule } from '@angular/common';
 import type { TeamSelectionEntry, TeamSelectionFormData, SportFormData } from '@nxt1/core/api';
 import type { ILogger } from '@nxt1/core/logging';
+import { titleCase, USER_ROLES } from '@nxt1/core';
+import type { OnboardingUserType } from '@nxt1/core/onboarding';
 import { NxtSearchBarComponent } from '../../components/search-bar';
 import { NxtValidationSummaryComponent } from '../../components/validation-summary';
 import { NxtListSectionComponent } from '../../components/list-section';
@@ -222,32 +224,22 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
             <p class="nxt1-no-results-text">No programs found</p>
             @if (searchQuery().trim().length >= 2) {
               <div class="nxt1-draft-controls">
-                <label class="nxt1-draft-type-label" for="draft-program-type-mobile"
-                  >Program type</label
-                >
-                <select
-                  id="draft-program-type-mobile"
-                  class="nxt1-draft-type-select"
-                  data-testid="team-draft-program-type"
-                  [value]="draftProgramType()"
-                  (change)="onDraftProgramTypeChange($event)"
-                >
-                  <option value="">Select type</option>
+                <p class="nxt1-draft-type-label">
+                  Select program type to add "{{ searchQuery().trim() }}":
+                </p>
+                <div class="nxt1-draft-chip-group">
                   @for (option of draftProgramTypeOptions; track option.value) {
-                    <option [value]="option.value">{{ option.label }}</option>
+                    <button
+                      type="button"
+                      class="nxt1-draft-chip"
+                      nxtHaptic="light"
+                      (click)="addDraftProgram(searchQuery().trim(), option.value)"
+                    >
+                      {{ option.label }}
+                    </button>
                   }
-                </select>
+                </div>
               </div>
-              <button
-                type="button"
-                class="nxt1-add-draft-btn"
-                nxtHaptic="light"
-                data-testid="team-add-draft-program"
-                [disabled]="!canAddDraftProgram()"
-                (click)="addDraftProgram(searchQuery().trim(), draftProgramType())"
-              >
-                Don't see your program? Add "{{ searchQuery().trim() }}"
-              </button>
             }
           </div>
         }
@@ -276,6 +268,11 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
                 <div class="nxt1-selected-team-info">
                   <span class="nxt1-selected-team-name">{{ team.name }}</span>
                   <div class="nxt1-selected-team-meta">
+                    @if (team.teamType && team.teamType !== 'organization') {
+                      <span class="nxt1-team-type-badge nxt1-team-type-badge--mobile">{{
+                        formatTeamType(team.teamType)
+                      }}</span>
+                    }
                     @if (team.sport) {
                       <span class="nxt1-selected-team-sport">{{ team.sport }}</span>
                     }
@@ -399,32 +396,22 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
             <p class="nxt1-no-results-hint">Try a different search or add your program below.</p>
             @if (searchQuery().trim().length >= 2) {
               <div class="nxt1-draft-controls">
-                <label class="nxt1-draft-type-label" for="draft-program-type-desktop"
-                  >Program type</label
-                >
-                <select
-                  id="draft-program-type-desktop"
-                  class="nxt1-draft-type-select"
-                  data-testid="team-draft-program-type"
-                  [value]="draftProgramType()"
-                  (change)="onDraftProgramTypeChange($event)"
-                >
-                  <option value="">Select type</option>
+                <p class="nxt1-draft-type-label">
+                  Select program type to add "{{ searchQuery().trim() }}":
+                </p>
+                <div class="nxt1-draft-chip-group">
                   @for (option of draftProgramTypeOptions; track option.value) {
-                    <option [value]="option.value">{{ option.label }}</option>
+                    <button
+                      type="button"
+                      class="nxt1-draft-chip"
+                      nxtHaptic="light"
+                      (click)="addDraftProgram(searchQuery().trim(), option.value)"
+                    >
+                      {{ option.label }}
+                    </button>
                   }
-                </select>
+                </div>
               </div>
-              <button
-                type="button"
-                class="nxt1-add-draft-btn"
-                nxtHaptic="light"
-                data-testid="team-add-draft-program"
-                [disabled]="!canAddDraftProgram()"
-                (click)="addDraftProgram(searchQuery().trim(), draftProgramType())"
-              >
-                Don't see your program? Add "{{ searchQuery().trim() }}"
-              </button>
             }
           </div>
         }
@@ -445,6 +432,9 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
                 <div class="nxt1-chip-copy">
                   <span class="nxt1-chip-name">{{ team.name }}</span>
                   <span class="nxt1-chip-meta">
+                    @if (team.teamType && team.teamType !== 'organization') {
+                      <span class="nxt1-team-type-badge">{{ formatTeamType(team.teamType) }}</span>
+                    }
                     @if (team.sport) {
                       <span>{{ team.sport }}</span>
                     }
@@ -973,65 +963,57 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
       .nxt1-draft-controls {
         display: flex;
         flex-direction: column;
-        align-items: flex-start;
+        align-items: center;
         gap: var(--nxt1-spacing-2, 8px);
-        margin-top: var(--nxt1-spacing-3, 12px);
+        margin-top: var(--nxt1-spacing-4, 16px);
       }
 
       .nxt1-draft-type-label {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-xs, 0.75rem);
-        font-weight: 600;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-      }
-
-      .nxt1-draft-type-select {
-        width: 100%;
-        min-height: 40px;
-        border-radius: var(--nxt1-borderRadius-md, 8px);
-        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
-        background: var(--nxt1-color-surface-100);
-        color: var(--nxt1-color-text-primary, #ffffff);
-        padding: 0 var(--nxt1-spacing-3, 12px);
-        font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: 500;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        margin: 0;
+        text-align: center;
+        width: 100%;
       }
 
-      /* ============================================
-         ADD DRAFT PROGRAM BUTTON
-         ============================================ */
-      .nxt1-add-draft-btn {
+      .nxt1-draft-chip-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--nxt1-spacing-2, 8px);
+        justify-content: center;
+        margin-top: var(--nxt1-spacing-2, 8px);
+        width: 100%;
+      }
+
+      .nxt1-draft-chip {
         display: inline-flex;
         align-items: center;
-        justify-content: center;
-        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
-        margin-top: var(--nxt1-spacing-3, 12px);
+        gap: var(--nxt1-spacing-1, 4px);
+        padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-3, 12px);
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        border-radius: var(--nxt1-borderRadius-full, 9999px);
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm, 0.875rem);
-        font-weight: 600;
-        color: var(--nxt1-color-primary, #ccff00);
-        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
-        border: 1px dashed var(--nxt1-color-primary, #ccff00);
-        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        color: var(--nxt1-color-text-primary, #ffffff);
         cursor: pointer;
         transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
         -webkit-tap-highlight-color: transparent;
       }
 
-      .nxt1-add-draft-btn:hover {
-        background: rgba(204, 255, 0, 0.18);
-        border-style: solid;
+      .nxt1-draft-chip nxt1-icon {
+        color: var(--nxt1-color-primary, #ccff00);
       }
 
-      .nxt1-add-draft-btn:disabled {
-        opacity: 0.45;
-        cursor: not-allowed;
-        border-style: dashed;
+      .nxt1-draft-chip:hover {
+        background: var(--nxt1-color-surface-200);
+        border-color: var(--nxt1-color-primary, #ccff00);
       }
 
-      .nxt1-add-draft-btn:focus-visible {
-        outline: 2px solid var(--nxt1-color-primary, #ccff00);
-        outline-offset: 2px;
+      .nxt1-draft-chip:active {
+        transform: scale(0.97);
       }
 
       /* Draft badge for new programs */
@@ -1076,6 +1058,9 @@ export class OnboardingTeamSelectionStepComponent {
   /** Team search callback — provided by parent (platform-specific) */
   readonly searchTeams = input<SearchTeamsFn | null>(null);
 
+  /** Current user role — used to customize placeholder text */
+  readonly userType = input<OnboardingUserType | null>(null);
+
   /** Maximum teams allowed */
   readonly maxTeams = MAX_TEAMS;
 
@@ -1101,9 +1086,6 @@ export class OnboardingTeamSelectionStepComponent {
 
   /** Search query text */
   readonly searchQuery = signal('');
-
-  /** Program type for a new draft program */
-  readonly draftProgramType = signal<DraftProgramType | ''>('');
 
   /** Search results from callback */
   readonly searchResults = signal<readonly TeamSearchResult[]>([]);
@@ -1133,17 +1115,13 @@ export class OnboardingTeamSelectionStepComponent {
 
   /** Dynamic search placeholder */
   readonly searchPlaceholder = computed((): string => {
+    if (this.userType() === USER_ROLES.DIRECTOR) {
+      return 'Search organizations...';
+    }
     const names = this.sportNames();
     if (names.length === 1) return `Search ${names[0]} programs...`;
     if (names.length > 1) return 'Search programs...';
     return 'Search for a program...';
-  });
-
-  /** Whether a draft program can be added */
-  readonly canAddDraftProgram = computed(() => {
-    return (
-      this.searchQuery().trim().length >= MIN_QUERY_LENGTH && this.draftProgramType().length > 0
-    );
   });
 
   /** Program types for draft creation */
@@ -1194,7 +1172,6 @@ export class OnboardingTeamSelectionStepComponent {
   /** Clear search */
   onSearchClear(): void {
     this.searchQuery.set('');
-    this.draftProgramType.set('');
     this.searchResults.set([]);
     this.isSearching.set(false);
     this.hasSearched.set(false);
@@ -1202,13 +1179,6 @@ export class OnboardingTeamSelectionStepComponent {
       clearTimeout(this.searchTimer);
       this.searchTimer = null;
     }
-  }
-
-  /** Handle draft program type change */
-  onDraftProgramTypeChange(event: Event): void {
-    const target = event.target as HTMLSelectElement | null;
-    const value = target?.value as DraftProgramType | '';
-    this.draftProgramType.set(value);
   }
 
   /** Execute the team search via callback */
@@ -1459,6 +1429,9 @@ export class OnboardingTeamSelectionStepComponent {
       normalized = normalized.replace(pattern, '').trim();
     }
 
-    return normalized || name.trim();
+    // Apply proper title casing (shared @nxt1/core utility)
+    normalized = titleCase(normalized || name.trim());
+
+    return normalized;
   }
 }

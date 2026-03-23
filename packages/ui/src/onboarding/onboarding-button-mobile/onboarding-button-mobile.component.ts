@@ -75,12 +75,12 @@ import { OnboardingProgressPillsComponent } from '../onboarding-progress-pills';
 
         <!-- Button Row -->
         <div class="flex w-full gap-3">
-          <!-- Skip Button (optional steps only) -->
+          <!-- Skip Button (optional steps only) - never disabled by validity, only by loading -->
           @if (showSkip && !isLastStep) {
             <button
               type="button"
               class="nxt1-skip-btn min-w-[80px] flex-none px-5 py-4"
-              [disabled]="disabled || loading"
+              [disabled]="loading"
               (click)="skipClick.emit()"
               data-testid="onboarding-skip"
               nxtHaptic="light"

@@ -10,8 +10,8 @@
  * - The tool class is a thin shell that delegates to ScraperService.
  * - ScraperService runs a 3-tier pipeline:
  *     Tier 1: Direct fetch → structured data extraction (NextData, LD+JSON, OG, images, videos, colors)
- *     Tier 2: Jina AI Reader → clean prose markdown (parallel with Tier 1)
- *     Tier 3: HTML→Markdown fallback (if Jina fails, uses Tier 1 HTML)
+ *     Tier 2: Firecrawl Cloud → clean prose markdown (parallel with Tier 1, residential proxies)
+ *     Tier 3: HTML→Markdown fallback (if Firecrawl fails, uses Tier 1 HTML)
  * - The tool formats the combined result for the LLM's observation loop:
  *     structured JSON (stats, social links, school info) + prose markdown.
  *

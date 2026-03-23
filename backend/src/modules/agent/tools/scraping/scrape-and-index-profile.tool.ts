@@ -20,9 +20,99 @@
 import { BaseTool, type ToolResult } from '../base.tool.js';
 import { ScraperService } from './scraper.service.js';
 import { buildProfileIndex, distillWithAI } from './distillers/index.js';
-import type { DistilledProfile } from './distillers/index.js';
+import type { DistilledProfile, DistilledTeam } from './distillers/index.js';
+import type { PageStructuredData } from './page-data.types.js';
 import { OpenRouterService } from '../../llm/openrouter.service.js';
 import { logger } from '../../../../utils/logger.js';
+
+// ─── Structured Data Enrichment ─────────────────────────────────────────────
+
+/**
+ * Merge structured HTML extraction data (colors, school address) into the
+ * AI-distilled profile. The Firecrawl markdown the AI sees does not include
+ * CSS hex values or embedded JSON blobs — pageData captures these reliably.
+ *
+ * Rules:
+ * - Only fills MISSING fields; never overwrites values the AI already found.
+ * - Colors come from pageData.colors[0/1] (extracted from __NEXT_DATA__ blobs).
+ * - City/state/country fall back to identity fields, then to nextData fields.
+ */
+function enrichFromStructuredData(
+  profile: DistilledProfile,
+  pageData: PageStructuredData | null | undefined
+): DistilledProfile {
+  const colors = pageData?.colors ?? [];
+
+  // Extract city/state from __NEXT_DATA__ for platforms like MaxPreps that
+  // embed school address in their Next.js props tree.
+  const ndCity = pageData?.nextData ? findStringInJson(pageData.nextData, ['city']) : undefined;
+  const ndState = pageData?.nextData
+    ? (findStringInJson(pageData.nextData, ['stateName']) ??
+      findStringInJson(pageData.nextData, ['state']))
+    : undefined;
+  // Normalise abbreviated state e.g. "AL" → keep as-is (AI prompt asks for full names,
+  // but 2-char abbreviations from nextData are still better than nothing).
+  // identity.state is preferred if the AI already extracted a full name.
+  const identityCity = profile.identity?.city;
+  const identityState = profile.identity?.state;
+  const identityCountry = profile.identity?.country;
+
+  // Determine if we even need to touch the team object
+  const teamNeedsEnrichment =
+    !profile.team?.primaryColor ||
+    !profile.team?.secondaryColor ||
+    !profile.team?.city ||
+    !profile.team?.state;
+
+  if (!teamNeedsEnrichment) return profile;
+
+  const enrichedTeam: DistilledTeam = {
+    ...profile.team,
+    // Colors: fill from pageData if the AI didn't extract them
+    primaryColor: profile.team?.primaryColor ?? (colors[0] ? `#${colors[0]}` : undefined),
+    secondaryColor: profile.team?.secondaryColor ?? (colors[1] ? `#${colors[1]}` : undefined),
+    // Location: prefer AI identity extraction, then fall back to __NEXT_DATA__
+    city: profile.team?.city ?? identityCity ?? ndCity,
+    state: profile.team?.state ?? identityState ?? ndState,
+    country:
+      profile.team?.country ?? identityCountry ?? ((identityCity ?? ndCity) ? 'USA' : undefined),
+  };
+
+  // Strip undefined keys so we don't inject explicit undefined into Firestore
+  const cleanTeam = Object.fromEntries(
+    Object.entries(enrichedTeam).filter(([, v]) => v !== undefined)
+  ) as DistilledTeam;
+
+  return { ...profile, team: cleanTeam };
+}
+
+/**
+ * Walk an unknown JSON value looking for the FIRST occurrence of any of the
+ * given keys (case-sensitive) whose value is a non-empty string.
+ * Max recursion depth: 6. Max array items scanned: 20.
+ */
+function findStringInJson(obj: unknown, keys: readonly string[], depth = 0): string | undefined {
+  if (depth > 6 || obj === null || obj === undefined) return undefined;
+
+  if (typeof obj === 'object' && !Array.isArray(obj)) {
+    const record = obj as Record<string, unknown>;
+    for (const key of keys) {
+      if (typeof record[key] === 'string' && (record[key] as string).length > 0) {
+        return record[key] as string;
+      }
+    }
+    for (const value of Object.values(record)) {
+      const found = findStringInJson(value, keys, depth + 1);
+      if (found !== undefined) return found;
+    }
+  } else if (Array.isArray(obj)) {
+    for (const item of obj.slice(0, 20)) {
+      const found = findStringInJson(item, keys, depth + 1);
+      if (found !== undefined) return found;
+    }
+  }
+  return undefined;
+}
 
 // ─── Stats Sub-Page Detection ───────────────────────────────────────────────
 
@@ -196,14 +286,19 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
         );
 
         if (distilled) {
+          // Merge colors and location from structured HTML extraction into the
+          // AI-distilled result. The markdown the AI sees doesn't include
+          // CSS-based colors or JSON data blobs — pageData has these reliably.
+          const enriched = enrichFromStructuredData(distilled, result.pageData);
+
           cache.set(cleanUrl, {
-            profile: distilled,
+            profile: enriched,
             markdownContent: combinedMarkdown,
             rawStructuredData: null,
             expiry: Date.now() + CACHE_TTL_MS,
           });
 
-          const index = buildProfileIndex(distilled);
+          const index = buildProfileIndex(enriched);
 
           return {
             success: true,

@@ -33,6 +33,10 @@ import {
   ScrapeWebpageTool,
   ScrapeAndIndexProfileTool,
   ReadDistilledSectionTool,
+  ReadWebpageTool,
+  InteractWithWebpageTool,
+  ScraperService,
+  FirecrawlService,
 } from '../tools/scraping/index.js';
 import {
   UpdateAthleteProfileTool,
@@ -95,9 +99,27 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     },
   });
   const toolRegistry = new ToolRegistry();
-  toolRegistry.register(new ScrapeWebpageTool());
+  // Firecrawl-powered tools (shared service instance for connection pooling)
+  let firecrawl: FirecrawlService | undefined;
+  try {
+    firecrawl = new FirecrawlService();
+    logger.info('Firecrawl service initialized');
+  } catch {
+    logger.warn(
+      'FIRECRAWL_API_KEY not configured — read_webpage and interact_with_webpage tools disabled'
+    );
+  }
+
+  // All scraping tools share the same Firecrawl instance (single SDK client)
+  const scraperService = new ScraperService(firecrawl ?? null);
+  toolRegistry.register(new ScrapeWebpageTool(scraperService));
   toolRegistry.register(new ScrapeAndIndexProfileTool(undefined, llm));
   toolRegistry.register(new ReadDistilledSectionTool());
+  if (firecrawl) {
+    toolRegistry.register(new ReadWebpageTool(firecrawl));
+    toolRegistry.register(new InteractWithWebpageTool(firecrawl));
+  }
+
   toolRegistry.register(new UpdateAthleteProfileTool(stagingDb));
   toolRegistry.register(new UpdateTeamProfileTool());
   toolRegistry.register(new WriteCoreIdentityTool(stagingDb));
