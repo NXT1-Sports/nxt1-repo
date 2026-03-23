@@ -140,6 +140,7 @@ export const appConfig: ApplicationConfig = {
       navAnimation: iosTransitionAnimation, // Eagerly provide transition to avoid Vite dynamic import failure
       innerHTMLTemplatesEnabled: true,
       swipeBackEnabled: false, // Disable iOS back gesture - we use sidenav instead (Twitter/X pattern)
+      useSetInputAPI: true, // Required for Angular signal-based inputs (input()) to work with componentProps in modals
     }),
 
     { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },

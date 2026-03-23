@@ -154,6 +154,13 @@ export class DeepLinkService {
       route: '/explore',
     },
 
+    // Team invite links — /join/<NXT-code>?type=team&teamCode=...&teamName=...
+    {
+      pattern: /^\/join\/([a-zA-Z0-9_-]+)\/?$/,
+      route: '/join/:code',
+      extractParams: (m) => ({ code: m[1] }),
+    },
+
     // Home (default)
     {
       pattern: /^\/home\/?$/,
@@ -203,6 +210,14 @@ export class DeepLinkService {
 
       // Listen for app opened via URL (Universal Links / App Links)
       App.addListener('appUrlOpen', ({ url }) => {
+        if (url.includes('firebaseauth/link') || url.includes('firebaseauth')) {
+          this.logger.debug(
+            'Skipping Firebase auth redirect callback - handled by Firebase iOS SDK',
+            { url: url.substring(0, 80) }
+          );
+          return;
+        }
+
         this.ngZone.run(() => {
           this.logger.info('Deep link received', { url });
           void this.breadcrumbs.trackUserAction('Deep link received', { url });
@@ -213,8 +228,10 @@ export class DeepLinkService {
       // Check if app was launched with a URL
       const launchUrl = await App.getLaunchUrl();
       if (launchUrl?.url) {
-        this.logger.info('App launched with URL', { url: launchUrl.url });
-        this.handleDeepLink(launchUrl.url);
+        if (!launchUrl.url.includes('firebaseauth')) {
+          this.logger.info('App launched with URL', { url: launchUrl.url });
+          this.handleDeepLink(launchUrl.url);
+        }
       }
 
       this.logger.debug('Native deep link listeners configured');

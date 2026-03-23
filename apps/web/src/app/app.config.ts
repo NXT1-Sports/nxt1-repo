@@ -226,6 +226,7 @@ export const appConfig: ApplicationConfig = {
       mode: 'md',
       animated: true,
       rippleEffect: true,
+      useSetInputAPI: true, // Required for Angular signal input() fields in Ionic modals/sheets
     }),
 
     // ============================================

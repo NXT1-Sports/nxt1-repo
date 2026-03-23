@@ -100,8 +100,25 @@ const VALID_CHANNELS: InviteChannel[] = [
 ];
 
 /** App base URL for invite links (resolved per environment) */
-function getAppBaseUrl(isStaging: boolean): string {
-  return isStaging ? 'https://staging.nxt1sports.com' : 'https://nxt1sports.com';
+function getAppBaseUrl(isStaging: boolean, origin?: string): string {
+  // APP_URL always wins — lets developers override via .env (e.g. ngrok tunnel)
+  if (process.env['APP_URL']) return process.env['APP_URL'];
+
+  const env = process.env['NODE_ENV'] ?? 'development';
+  const isDev = env === 'development' || env === 'test';
+
+  // Local dev takes priority over isStaging — the local API route is
+  // /api/v1/staging/... which sets isStaging=true on the middleware, but the
+  // invite link should still point at the local app.
+  // Detect mobile (port 4300) vs web (port 4200) from the request Origin header.
+  if (isDev) {
+    if (origin?.includes(':4300')) return 'http://localhost:4300';
+    return 'http://localhost:4200';
+  }
+
+  return isStaging
+    ? (process.env['STAGING_APP_URL'] ?? 'https://staging.nxt1sports.com')
+    : 'https://nxt1sports.com';
 }
 
 // ============================================
@@ -194,16 +211,35 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
 
     // Get or create persistent referral code
     const referralCode = await getOrCreateReferralCode(db, userId);
-    const baseUrl = getAppBaseUrl(isStaging);
+    const origin = req.headers['origin'] as string | undefined;
+    const baseUrl = getAppBaseUrl(isStaging, origin);
 
-    // When it's a team invite, look up teamCode + teamName to embed in the URL
+    // When it's a team invite, look up teamCode + teamName to embed in the URL.
+    // If the caller didn't provide an explicit teamId, auto-resolve the user's
+    // own managed/created team so the link always carries the correct teamCode.
     let teamCode: string | undefined;
     let teamName: string | undefined;
-    if (teamId) {
-      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
-      const teamData = teamDoc.data() as TeamDoc | undefined;
-      teamCode = teamData?.teamCode ?? undefined;
-      teamName = teamData?.name ?? teamData?.teamName ?? undefined;
+    if (type === 'team') {
+      let resolvedTeamId = teamId;
+
+      if (!resolvedTeamId) {
+        // Caller didn't supply a teamId — find the team this user created/manages
+        const ownedSnap = await db
+          .collection(TEAMS_COLLECTION)
+          .where('createdBy', '==', userId)
+          .limit(1)
+          .get();
+        if (!ownedSnap.empty) {
+          resolvedTeamId = ownedSnap.docs[0].id;
+        }
+      }
+
+      if (resolvedTeamId) {
+        const teamDoc = await db.collection(TEAMS_COLLECTION).doc(resolvedTeamId).get();
+        const teamData = teamDoc.data() as TeamDoc | undefined;
+        teamCode = teamData?.teamCode ?? undefined;
+        teamName = teamData?.name ?? teamData?.teamName ?? undefined;
+      }
     }
 
     // Build the invite URL.

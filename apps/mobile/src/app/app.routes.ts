@@ -26,6 +26,15 @@ export const routes: Routes = [
   },
 
   // ============================================
+  // INVITE / JOIN ROUTES (no auth required — user may be logged out)
+  // ============================================
+  {
+    path: 'join/:code',
+    loadComponent: () =>
+      import('./features/join/join.component').then((m) => m.JoinMobileComponent),
+  },
+
+  // ============================================
   // AUTHENTICATED ROUTES (With Mobile Shell)
   // ============================================
 

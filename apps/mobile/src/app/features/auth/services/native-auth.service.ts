@@ -39,6 +39,7 @@ import {
   SignInWithAppleResponse,
 } from '@capacitor-community/apple-sign-in';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
+import { MsAuthPlugin } from '@recognizebv/capacitor-plugin-msauth';
 import { NxtPlatformService, HapticsService, NxtLoggingService } from '@nxt1/ui';
 import { type ILogger } from '@nxt1/core/logging';
 import type { NativeAuthResult, NativeAuthProvider, NativeAuthAvailability } from '@nxt1/core';
@@ -338,41 +339,48 @@ export class NativeAuthService {
     }
 
     try {
-      this.logger.info('Starting Microsoft Sign-In via @capacitor-firebase/authentication');
+      this.logger.info('Starting Microsoft Sign-In via native MSAL SDK');
       await this.haptics.selection();
-      const result = await FirebaseAuthentication.signInWithMicrosoft({
-        scopes: ['User.Read', 'Mail.Send', 'Mail.Read', 'email', 'profile', 'openid'],
+
+      const result = await MsAuthPlugin.login({
+        clientId: environment.msClientId,
+        scopes: ['User.Read', 'Mail.Send', 'Mail.Read'],
+        prompt: 'select_account',
       });
 
-      this.logger.info('Microsoft Sign-In successful', {
-        hasIdToken: !!result.credential?.idToken,
-        hasAccessToken: !!result.credential?.accessToken,
-        providerId: result.credential?.providerId,
+      this.logger.info('Microsoft MSAL Sign-In successful', {
+        hasIdToken: !!result.idToken,
+        hasAccessToken: !!result.accessToken,
+        scopes: result.scopes,
       });
 
       await this.haptics.notification('success');
 
-      // Validate we have required tokens
-      if (!result.credential?.idToken) {
+      if (!result.idToken) {
         throw new Error('Microsoft Sign-In did not return ID token');
       }
 
-      // Return standardized result for Firebase
+      // Return standardized result — Firebase credential creation is done in
+      // FirebaseAuthService.signInWithMicrosoft() via signInWithCredential().
       return {
         provider: 'microsoft',
-        idToken: result.credential.idToken,
-        accessToken: result.credential.accessToken,
+        idToken: result.idToken,
+        accessToken: result.accessToken,
         user: {
-          id: result.user?.uid || '',
-          email: result.user?.email || null,
-          displayName: result.user?.displayName || null,
-          photoUrl: result.user?.photoUrl || null,
+          id: '', // populated after Firebase signInWithCredential
+          email: null,
+          displayName: null,
+          photoUrl: null,
         },
       };
     } catch (error: unknown) {
       if (error && typeof error === 'object' && 'message' in error) {
         const err = error as { message: string };
-        if (err.message.includes('cancel') || err.message.includes('abort')) {
+        if (
+          err.message.includes('cancel') ||
+          err.message.includes('abort') ||
+          err.message.includes('user_cancelled')
+        ) {
           this.logger.debug('Microsoft Sign-In canceled by user');
           return null;
         }

@@ -1,7 +1,9 @@
 import UIKit
 import Capacitor
 import FirebaseCore
+import FirebaseAuth
 import GoogleSignIn
+import MSAL
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -43,6 +45,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+        // Firebase Auth must handle its own OAuth redirect callbacks
+        // (e.g. legacy OAuthProvider – comes back as REVERSED_CLIENT_ID://firebaseauth/link).
+        // FirebaseAppDelegateProxyEnabled=false disables auto-swizzling, so we forward manually.
+        if Auth.auth().canHandle(url) {
+            return true
+        }
+        // MSAL broker flows (e.g. Microsoft Authenticator app) use the msauth. scheme.
+        // MSALPublicClientApplication.handleMSALResponse forwards the URL to the
+        // active MSAL acquire-token request so it can complete the broker handshake.
+        let sourceApp = options[UIApplication.OpenURLOptionsKey.sourceApplication] as? String
+        if MSALPublicClientApplication.handleMSALResponse(url, sourceApplication: sourceApp) {
+            return true
+        }
         return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
     }
 

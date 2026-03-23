@@ -118,6 +118,7 @@ export const config: ApplicationConfig = {
       // Use 'md' on server to match client config and avoid
       // platform detection mismatches during hydration.
       mode: 'md',
+      useSetInputAPI: true, // Required for Angular signal input() fields in Ionic modals/sheets
     }),
 
     // ============================================

@@ -49,6 +49,7 @@ import { SeoService } from '../../core/services';
         [showHeader]="true"
         [title]="pageTitle()"
         (close)="onClose($event)"
+        (sectionAction)="onSectionAction($event)"
       />
     }
 
@@ -142,5 +143,14 @@ export class ManageTeamComponent implements OnInit {
 
     // Navigate back (SSR-safe)
     this.location.back();
+  }
+
+  /**
+   * Handle section actions bubbled up from the shell.
+   * Note: 'roster/invite' is handled inside the shell itself via InviteBottomSheetService.
+   * This method handles any remaining actions that need page-level navigation.
+   */
+  protected onSectionAction(event: { section: string; action: string; data?: unknown }): void {
+    this.logger.debug('Section action', { section: event.section, action: event.action });
   }
 }

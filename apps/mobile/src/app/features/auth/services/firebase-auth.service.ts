@@ -467,8 +467,11 @@ export class FirebaseAuthService implements OnDestroy {
     this.logger.debug('Starting Microsoft Sign-In');
 
     if (this.nativeAuth.isNativeAvailable) {
-      this.logger.debug('Using native Microsoft OAuth via @capacitor-firebase/authentication');
+      this.logger.debug(
+        'Using native Microsoft OAuth via MSAL (@recognizebv/capacitor-plugin-msauth)'
+      );
       try {
+        // NativeAuthService now uses MSAL directly — returns raw Microsoft tokens.
         const result = await this.nativeAuth.signInWithMicrosoft();
 
         // User cancelled
@@ -477,65 +480,30 @@ export class FirebaseAuthService implements OnDestroy {
           return null;
         }
 
-        // @capacitor-firebase/authentication should have signed in to Firebase automatically
-        // But sometimes auth state hasn't synced yet. Wait longer and also listen to auth state.
-        let currentUser = this.auth.currentUser;
+        // Build a Firebase OAuthCredential using ONLY the OAuth access_token.
+        // Do NOT pass idToken: the MSAL id_token has audience = MSAL clientId,
+        // which Firebase rejects with auth/invalid-credential-or-provider-id because
+        // Firebase's Microsoft provider validates id_token audience against its own
+        // Azure AD client registration. The access_token, however, is a Microsoft
+        // Graph token — Firebase calls /v1.0/me with it to verify identity, so
+        // audience matching is not required.
+        const microsoftProvider = new OAuthProvider('microsoft.com');
+        const oauthCredential = microsoftProvider.credential({
+          accessToken: result.accessToken,
+        });
 
-        if (!currentUser) {
-          // Try waiting with polling AND listening to auth state changes
-          const authStatePromise = new Promise<void>((resolve) => {
-            const unsubscribe = this.authState$.subscribe((user) => {
-              if (user) {
-                this.logger.debug('Auth state changed, user detected');
-                unsubscribe.unsubscribe();
-                resolve();
-              }
-            });
-
-            // Also unsubscribe after timeout
-            setTimeout(() => {
-              unsubscribe.unsubscribe();
-              resolve();
-            }, 5000);
-          });
-
-          // Wait up to 5 seconds with both polling and subscription
-          const startTime = Date.now();
-          while (Date.now() - startTime < 5000) {
-            await new Promise((resolve) => setTimeout(resolve, 200));
-            currentUser = this.auth.currentUser;
-            if (currentUser) {
-              break;
-            }
-          }
-
-          // Final check after waiting
-          if (!currentUser) {
-            await authStatePromise;
-            currentUser = this.auth.currentUser;
-          }
-        }
-
-        if (!currentUser) {
-          throw new Error(
-            'Microsoft Sign-In is not fully supported on iOS. Please use Google or Apple sign-in for a better experience.'
-          );
-        }
+        this.logger.debug('Signing into Firebase with Microsoft OAuthCredential');
+        const userCredential = await signInWithCredential(this.auth, oauthCredential);
 
         // Capture accessToken for Microsoft Mail so backend can send emails on
         // behalf of this user (fire-and-forget — sign-in succeeds regardless).
         if (result.accessToken) {
-          void this.storeMicrosoftAccessToken(currentUser, result.accessToken);
+          void this.storeMicrosoftAccessToken(userCredential.user, result.accessToken);
         } else {
           this.logger.debug('No Microsoft accessToken returned — Mail not connected');
         }
 
-        // Return as UserCredential for consistency
-        return {
-          user: currentUser,
-          providerId: 'microsoft.com',
-          operationType: 'signIn',
-        } as UserCredential;
+        return userCredential;
       } catch (error) {
         this.logger.error('Native Microsoft sign-in failed:', error);
         throw error;

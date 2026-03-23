@@ -6,14 +6,13 @@
  * Wrapper component for the QR Code content inside a modal or bottom sheet.
  * Handles dismiss via ModalController for proper Ionic integration.
  *
- * NOTE: Uses regular class properties (not signal inputs) because Ionic's
- * componentProps sets values directly on the component instance. Signal
- * inputs only work with Angular's template binding system.
+ * NOTE: Uses @Input() decorated properties so Angular's setInput() API
+ * (called by Ionic when useSetInputAPI:true) can properly bind componentProps.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, Input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtQrCodeContentComponent } from './qr-code-content.component';
@@ -52,25 +51,25 @@ export class NxtQrCodeModalComponent {
    * Full URL to encode in the QR code.
    * Set via Ionic componentProps (regular property, not signal input).
    */
-  url = '';
+  @Input() url = '';
 
   /**
    * Display name shown above the QR code.
    * Set via Ionic componentProps.
    */
-  displayName = '';
+  @Input() displayName = '';
 
   /**
    * Profile image URL.
    * Set via Ionic componentProps.
    */
-  profileImg = '';
+  @Input() profileImg = '';
 
   /**
    * Primary sport name.
    * Set via Ionic componentProps.
    */
-  sport = '';
+  @Input() sport = '';
 
   /**
    * Handle close request — dismisses the modal.

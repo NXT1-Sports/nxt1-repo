@@ -57,6 +57,7 @@ import type {
 import { MANAGE_TEAM_TABS, getAllManageTeamSections } from '@nxt1/core';
 import { ManageTeamService } from './manage-team.service';
 import { ManageTeamSkeletonComponent } from './manage-team-skeleton.component';
+import { InviteBottomSheetService } from '../invite/invite-bottom-sheet.service';
 import {
   ManageTeamInfoSectionComponent,
   ManageTeamRosterSectionComponent,
@@ -670,6 +671,7 @@ export class ManageTeamShellComponent implements OnInit {
   }
 
   readonly service = inject(ManageTeamService);
+  private readonly inviteSheet = inject(InviteBottomSheetService);
 
   /** Team ID to manage (null for new team) */
   readonly teamId = input<string | null>(null);
@@ -805,6 +807,22 @@ export class ManageTeamShellComponent implements OnInit {
   }
 
   onRosterAction(event: { action: string; playerId?: string; player?: RosterPlayer }): void {
+    if (event.action === 'invite') {
+      // Handle invite internally — open invite sheet with the team's context
+      const formData = this.service.formData();
+      void this.inviteSheet.open({
+        inviteType: 'team',
+        team: formData?.basicInfo
+          ? {
+              id: this.service.teamId() ?? '',
+              name: formData.basicInfo.name ?? '',
+              sport: formData.basicInfo.sport ?? '',
+              memberCount: formData.roster?.length ?? 0,
+            }
+          : undefined,
+      });
+      return;
+    }
     this.sectionAction.emit({ section: 'roster', action: event.action, data: event });
   }
 

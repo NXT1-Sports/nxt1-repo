@@ -20,7 +20,7 @@
  * Following same pattern as EditProfileBottomSheetService.
  */
 
-import { Injectable, inject, Component, ChangeDetectionStrategy } from '@angular/core';
+import { Injectable, inject, Component, ChangeDetectionStrategy, Input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
@@ -43,9 +43,8 @@ export interface InviteBottomSheetConfig {
  * Wrapper component for Invite in a sheet modal context.
  * Handles close with proper dismissal.
  *
- * NOTE: Uses regular class properties (not signal inputs) because Ionic's
- * componentProps sets values directly on the component instance. Signal
- * inputs only work with Angular's template binding system.
+ * NOTE: Uses @Input() decorated properties so Angular's setInput() API
+ * (called by Ionic when useSetInputAPI:true) can properly bind componentProps.
  */
 @Component({
   selector: 'nxt1-invite-modal',
@@ -79,19 +78,19 @@ export class InviteModalComponent {
    * Type of invite: 'team', 'profile', or 'general'
    * Set via Ionic componentProps (regular property, not signal input)
    */
-  inviteType: InviteType = 'team';
+  @Input() inviteType: InviteType = 'team';
 
   /**
    * Team data when inviteType is 'team'
    * Set via Ionic componentProps (regular property, not signal input)
    */
-  team: InviteTeam | null = null;
+  @Input() team: InviteTeam | null = null;
 
   /**
    * User info for personalization
    * Set via Ionic componentProps (regular property, not signal input)
    */
-  user: InviteUser | null = null;
+  @Input() user: InviteUser | null = null;
 
   /**
    * Handle close request - dismisses the modal.
