@@ -6,7 +6,11 @@
 export { ScrapeWebpageTool } from './scrape-webpage.tool.js';
 export { ScrapeAndIndexProfileTool } from './scrape-and-index-profile.tool.js';
 export { ReadDistilledSectionTool } from './read-distilled-section.tool.js';
+export { ReadWebpageTool } from './read-webpage.tool.js';
+export { InteractWithWebpageTool } from './interact-with-webpage.tool.js';
 export { ScraperService } from './scraper.service.js';
+export { FirecrawlService } from './firecrawl.service.js';
+export { validateUrl } from './url-validator.js';
 export { extractPageData } from './page-data-extractor.js';
 export type { ScrapeRequest, ScrapeResult, ScrapeProvider } from './scraper.types.js';
 export type {

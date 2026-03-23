@@ -2,19 +2,21 @@
  * @fileoverview Unit Tests — ScraperService
  * @module @nxt1/backend/modules/agent/tools/scraping
  *
- * Tests the 3-tier scraping engine in isolation by mocking `fetch`.
+ * Tests the 3-tier scraping engine in isolation by mocking `fetch` (for Tier 1
+ * direct HTML fetch) and injecting a mock FirecrawlService (for Tier 2).
  * Covers URL validation (SSRF prevention), parallel fetching (Tier 1 direct
- * HTML + Tier 2 Jina), Tier 3 HTML→Markdown fallback, structured data
+ * HTML + Tier 2 Firecrawl), Tier 3 HTML→Markdown fallback, structured data
  * extraction integration, content truncation, and error handling.
  *
- * Because the service runs Tier 1 (direct fetch) and Tier 2 (Jina) in
- * parallel via Promise.all, `mockFetch` receives two calls simultaneously:
- *   Call 0 → direct HTML fetch (the target URL)
- *   Call 1 → Jina reader (`https://r.jina.ai/{url}`)
+ * Because the service runs Tier 1 (direct fetch) and Tier 2 (Firecrawl) in
+ * parallel via Promise.all, the test controls each tier independently:
+ *   - `mockFetch` controls the direct HTML fetch (Tier 1)
+ *   - `mockFirecrawl` controls the Firecrawl scrape (Tier 2)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ScraperService } from '../scraper.service.js';
+import type { FirecrawlService, FirecrawlScrapeResult } from '../firecrawl.service.js';
 import { MAX_SCRAPE_CONTENT_LENGTH } from '../scraper.types.js';
 
 // ─── Global fetch mock ──────────────────────────────────────────────────────
@@ -107,15 +109,22 @@ function mockDirectFetchOk(html: string = SAMPLE_HTML) {
   };
 }
 
-/** Mock a successful Jina response (call index 1). */
-function mockJinaOk(markdown: string = SAMPLE_MARKDOWN) {
-  return {
-    ok: true,
-    text: async () => markdown,
-  };
+/** Create a mock FirecrawlService that resolves with the given markdown. */
+function createMockFirecrawl(markdown?: string | null): FirecrawlService {
+  const scrapeText =
+    markdown != null
+      ? vi.fn().mockResolvedValue({
+          url: 'https://example.com',
+          markdown,
+          title: 'Firecrawl Title',
+          scrapedInMs: 100,
+        } satisfies FirecrawlScrapeResult)
+      : vi.fn().mockRejectedValue(new Error('Firecrawl unavailable'));
+
+  return { scrapeText, scrapeWithActions: vi.fn(), search: vi.fn() } as unknown as FirecrawlService;
 }
 
-/** Mock a failed response for either tier. */
+/** Mock a failed response for the direct HTML fetch tier. */
 function mockFailed() {
   return { ok: false };
 }
@@ -125,8 +134,9 @@ function mockFailed() {
 describe('ScraperService', () => {
   let service: ScraperService;
 
+  // Default: Firecrawl available with sample markdown
   beforeEach(() => {
-    service = new ScraperService();
+    service = new ScraperService(createMockFirecrawl(SAMPLE_MARKDOWN));
   });
 
   // ── URL Validation (SSRF Prevention) ──────────────────────────────────
@@ -207,17 +217,15 @@ describe('ScraperService', () => {
     });
   });
 
-  // ── Jina Strategy (Tier 2, preferred markdown source) ─────────────────
+  // ── Firecrawl Strategy (Tier 2, preferred markdown source) ────────────
 
-  describe('scrape — Jina strategy', () => {
-    it('should return markdown from Jina on success', async () => {
-      // Call 0: direct fetch (also succeeds for structured data)
-      // Call 1: Jina (succeeds — preferred markdown source)
-      mockFetch.mockResolvedValueOnce(mockDirectFetchOk()).mockResolvedValueOnce(mockJinaOk());
+  describe('scrape — Firecrawl strategy', () => {
+    it('should return markdown from Firecrawl on success', async () => {
+      mockFetch.mockResolvedValueOnce(mockDirectFetchOk());
 
       const result = await service.scrape({ url: 'https://www.maxpreps.com/athlete/123' });
 
-      expect(result.provider).toBe('jina');
+      expect(result.provider).toBe('firecrawl');
       expect(result.markdownContent).toContain('Jalen Smith');
       // Title comes from pageData (HTML <title>) when direct fetch succeeds
       expect(result.title).toBe('MaxPreps - Jalen Smith');
@@ -225,28 +233,24 @@ describe('ScraperService', () => {
       expect(result.scrapedInMs).toBeGreaterThanOrEqual(0);
     });
 
-    it('should include pageData from direct HTML fetch alongside Jina markdown', async () => {
-      mockFetch
-        .mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_NEXT_DATA))
-        .mockResolvedValueOnce(mockJinaOk());
+    it('should include pageData from direct HTML fetch alongside Firecrawl markdown', async () => {
+      mockFetch.mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_NEXT_DATA));
 
       const result = await service.scrape({ url: 'https://www.maxpreps.com/athlete/456' });
 
-      expect(result.provider).toBe('jina');
+      expect(result.provider).toBe('firecrawl');
       expect(result.pageData).not.toBeNull();
       expect(result.pageData?.nextData).toBeDefined();
       expect(result.pageData?.openGraph?.title).toBe('Deshon Yancey - RB');
       expect(result.pageData?.openGraph?.image).toBe('https://images.maxpreps.com/photo.jpg');
     });
 
-    it('should use Jina markdown even if direct fetch fails', async () => {
-      mockFetch
-        .mockResolvedValueOnce(mockFailed()) // direct fetch fails
-        .mockResolvedValueOnce(mockJinaOk()); // Jina succeeds
+    it('should use Firecrawl markdown even if direct fetch fails', async () => {
+      mockFetch.mockResolvedValueOnce(mockFailed()); // direct fetch fails
 
       const result = await service.scrape({ url: 'https://hudl.com/profile/123' });
 
-      expect(result.provider).toBe('jina');
+      expect(result.provider).toBe('firecrawl');
       expect(result.pageData).toBeNull(); // no HTML → no structured data
     });
   });
@@ -254,12 +258,17 @@ describe('ScraperService', () => {
   // ── Fallback Strategy (Tier 3) ────────────────────────────────────────
 
   describe('scrape — fetch fallback (Tier 3)', () => {
-    it('should fall back to HTML→Markdown when Jina fails', async () => {
-      mockFetch
-        .mockResolvedValueOnce(mockDirectFetchOk()) // direct fetch OK
-        .mockResolvedValueOnce(mockFailed()); // Jina fails
+    // For fallback tests, Firecrawl is unavailable
+    let fallbackService: ScraperService;
 
-      const result = await service.scrape({ url: 'https://www.maxpreps.com/athlete/123' });
+    beforeEach(() => {
+      fallbackService = new ScraperService(createMockFirecrawl(null));
+    });
+
+    it('should fall back to HTML→Markdown when Firecrawl fails', async () => {
+      mockFetch.mockResolvedValueOnce(mockDirectFetchOk()); // direct fetch OK
+
+      const result = await fallbackService.scrape({ url: 'https://www.maxpreps.com/athlete/123' });
 
       expect(result.provider).toBe('fetch-fallback');
       expect(result.markdownContent).toContain('Jalen Smith');
@@ -267,9 +276,9 @@ describe('ScraperService', () => {
     });
 
     it('should strip script, style, nav, and footer tags from HTML markdown', async () => {
-      mockFetch.mockResolvedValueOnce(mockDirectFetchOk()).mockResolvedValueOnce(mockFailed());
+      mockFetch.mockResolvedValueOnce(mockDirectFetchOk());
 
-      const result = await service.scrape({ url: 'https://example.com' });
+      const result = await fallbackService.scrape({ url: 'https://example.com' });
 
       expect(result.markdownContent).not.toContain('var x = 1');
       expect(result.markdownContent).not.toContain('Navigation here');
@@ -278,11 +287,9 @@ describe('ScraperService', () => {
     });
 
     it('should include structured pageData on fallback path', async () => {
-      mockFetch
-        .mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_NEXT_DATA))
-        .mockResolvedValueOnce(mockFailed());
+      mockFetch.mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_NEXT_DATA));
 
-      const result = await service.scrape({ url: 'https://maxpreps.com/athlete/789' });
+      const result = await fallbackService.scrape({ url: 'https://maxpreps.com/athlete/789' });
 
       expect(result.provider).toBe('fetch-fallback');
       expect(result.pageData).not.toBeNull();
@@ -290,11 +297,9 @@ describe('ScraperService', () => {
     });
 
     it('should extract embeddedData from generic window.__* blobs', async () => {
-      mockFetch
-        .mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_EMBEDDED_DATA))
-        .mockResolvedValueOnce(mockFailed());
+      mockFetch.mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_EMBEDDED_DATA));
 
-      const result = await service.scrape({ url: 'https://www.hudl.com/profile/19341470' });
+      const result = await fallbackService.scrape({ url: 'https://www.hudl.com/profile/19341470' });
 
       expect(result.pageData).not.toBeNull();
       expect(result.pageData?.embeddedData).toBeDefined();
@@ -308,32 +313,26 @@ describe('ScraperService', () => {
     });
 
     it('should mark hasRichData true when embeddedData is found', async () => {
-      mockFetch
-        .mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_EMBEDDED_DATA))
-        .mockResolvedValueOnce(mockFailed());
+      mockFetch.mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_EMBEDDED_DATA));
 
-      const result = await service.scrape({ url: 'https://www.hudl.com/profile/19341470' });
+      const result = await fallbackService.scrape({ url: 'https://www.hudl.com/profile/19341470' });
 
       expect(result.pageData?.hasRichData).toBe(true);
     });
 
     it('should extract colors from embeddedData blobs', async () => {
-      mockFetch
-        .mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_EMBEDDED_DATA))
-        .mockResolvedValueOnce(mockFailed());
+      mockFetch.mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_EMBEDDED_DATA));
 
-      const result = await service.scrape({ url: 'https://www.hudl.com/profile/19341470' });
+      const result = await fallbackService.scrape({ url: 'https://www.hudl.com/profile/19341470' });
 
       expect(result.pageData?.colors).toBeDefined();
       expect(result.pageData?.colors.length).toBeGreaterThan(0);
     });
 
     it('should extract Hudl CDN video URLs and pick highest quality per highlight', async () => {
-      mockFetch
-        .mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_HUDL_CDN_VIDEOS))
-        .mockResolvedValueOnce(mockFailed());
+      mockFetch.mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_HUDL_CDN_VIDEOS));
 
-      const result = await service.scrape({ url: 'https://www.hudl.com/profile/16389887' });
+      const result = await fallbackService.scrape({ url: 'https://www.hudl.com/profile/16389887' });
 
       const videos = result.pageData?.videos ?? [];
       // Should have exactly 2 videos (one per highlight), not 5 (all quality variants)
@@ -344,11 +343,9 @@ describe('ScraperService', () => {
     });
 
     it('should extract videoId (highlight ID) from Hudl CDN URLs', async () => {
-      mockFetch
-        .mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_HUDL_CDN_VIDEOS))
-        .mockResolvedValueOnce(mockFailed());
+      mockFetch.mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_HUDL_CDN_VIDEOS));
 
-      const result = await service.scrape({ url: 'https://www.hudl.com/profile/16389887' });
+      const result = await fallbackService.scrape({ url: 'https://www.hudl.com/profile/16389887' });
 
       const videos = result.pageData?.videos ?? [];
       const videoIds = videos.map((v) => v.videoId).sort();
@@ -356,11 +353,9 @@ describe('ScraperService', () => {
     });
 
     it('should extract Hudl CDN videos from both vi.hudl.com and vc.hudl.com domains', async () => {
-      mockFetch
-        .mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_HUDL_CDN_VIDEOS))
-        .mockResolvedValueOnce(mockFailed());
+      mockFetch.mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_HUDL_CDN_VIDEOS));
 
-      const result = await service.scrape({ url: 'https://www.hudl.com/profile/16389887' });
+      const result = await fallbackService.scrape({ url: 'https://www.hudl.com/profile/16389887' });
 
       const videos = result.pageData?.videos ?? [];
       // First highlight is on vi.hudl.com, second on vc.hudl.com
@@ -371,15 +366,13 @@ describe('ScraperService', () => {
     });
 
     it('should reject non-HTML content types in direct fetch', async () => {
-      mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          headers: new Headers({ 'content-type': 'application/json' }),
-          text: async () => '{"data": "not html"}',
-        })
-        .mockResolvedValueOnce(mockFailed());
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => '{"data": "not html"}',
+      });
 
-      await expect(service.scrape({ url: 'https://api.example.com/data' })).rejects.toThrow(
+      await expect(fallbackService.scrape({ url: 'https://api.example.com/data' })).rejects.toThrow(
         'Failed to scrape URL'
       );
     });
@@ -390,18 +383,17 @@ describe('ScraperService', () => {
   describe('content truncation', () => {
     it('should truncate content exceeding maxLength', async () => {
       const longContent = '# Title\n\n' + 'A'.repeat(30_000);
-      mockFetch
-        .mockResolvedValueOnce(mockDirectFetchOk())
-        .mockResolvedValueOnce(mockJinaOk(longContent));
+      const truncService = new ScraperService(createMockFirecrawl(longContent));
+      mockFetch.mockResolvedValueOnce(mockDirectFetchOk());
 
-      const result = await service.scrape({ url: 'https://example.com', maxLength: 500 });
+      const result = await truncService.scrape({ url: 'https://example.com', maxLength: 500 });
 
       expect(result.contentLength).toBeLessThanOrEqual(540); // 500 + "\n\n[Content truncated]"
       expect(result.markdownContent).toContain('[Content truncated]');
     });
 
     it('should not truncate content within maxLength', async () => {
-      mockFetch.mockResolvedValueOnce(mockDirectFetchOk()).mockResolvedValueOnce(mockJinaOk());
+      mockFetch.mockResolvedValueOnce(mockDirectFetchOk());
 
       const result = await service.scrape({
         url: 'https://example.com',
@@ -426,21 +418,19 @@ describe('ScraperService', () => {
     });
 
     it('should throw when both tiers fail', async () => {
-      mockFetch
-        .mockResolvedValueOnce(mockFailed()) // direct fetch fails
-        .mockResolvedValueOnce(mockFailed()); // Jina fails
+      const failService = new ScraperService(createMockFirecrawl(null));
+      mockFetch.mockResolvedValueOnce(mockFailed()); // direct fetch fails
 
-      await expect(service.scrape({ url: 'https://example.com' })).rejects.toThrow(
+      await expect(failService.scrape({ url: 'https://example.com' })).rejects.toThrow(
         'Failed to scrape URL'
       );
     });
 
-    it('should throw when Jina returns too little content and direct fetch also fails', async () => {
-      mockFetch
-        .mockResolvedValueOnce(mockFailed()) // direct fetch fails
-        .mockResolvedValueOnce({ ok: true, text: async () => 'Hi' }); // Jina too short
+    it('should throw when Firecrawl returns too little content and direct fetch also fails', async () => {
+      const shortService = new ScraperService(createMockFirecrawl('Hi'));
+      mockFetch.mockResolvedValueOnce(mockFailed()); // direct fetch fails
 
-      await expect(service.scrape({ url: 'https://example.com' })).rejects.toThrow(
+      await expect(shortService.scrape({ url: 'https://example.com' })).rejects.toThrow(
         'Failed to scrape URL'
       );
     });

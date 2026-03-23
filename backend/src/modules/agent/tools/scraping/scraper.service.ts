@@ -13,16 +13,17 @@
  *     This is where the richest data lives (stats, school info, social links)
  *     and it works even when the page blocks bots.
  *
- *   **Tier 2 — Jina AI Reader** (runs in parallel with Tier 1)
- *     Returns clean prose markdown from the rendered page.
- *     Handles JS-rendered content, bot protection bypass.
+ *   **Tier 2 — Firecrawl Cloud** (runs in parallel with Tier 1)
+ *     Headless browser with residential proxy rotation.
+ *     Returns clean prose markdown from JS-rendered pages.
+ *     Bypasses Cloudflare, DataDome, and PerimeterX bot protections.
  *
- *   **Tier 3 — HTML→Markdown fallback** (only if Jina fails)
+ *   **Tier 3 — HTML→Markdown fallback** (only if Firecrawl fails)
  *     Converts the Tier 1 HTML to markdown via node-html-markdown.
  *     Strips nav/footer/scripts before conversion.
  *
- * Tiers 1 + 2 run in parallel. If Jina works, we use its markdown.
- * If Jina fails, we fall back to Tier 3 using HTML already fetched in Tier 1.
+ * Tiers 1 + 2 run in parallel. If Firecrawl works, we use its markdown.
+ * If Firecrawl fails (or API key not configured), we fall back to Tier 3.
  *
  * Security:
  *   - SSRF protection: blocks private IPs, cloud metadata endpoints,
@@ -47,20 +48,46 @@
 
 import { NodeHtmlMarkdown } from 'node-html-markdown';
 import type { ScrapeRequest, ScrapeResult, ScrapeProvider } from './scraper.types.js';
-import { MAX_SCRAPE_CONTENT_LENGTH, SCRAPE_TIMEOUT_MS, BLOCKED_DOMAINS } from './scraper.types.js';
+import { MAX_SCRAPE_CONTENT_LENGTH, SCRAPE_TIMEOUT_MS } from './scraper.types.js';
 import { extractPageData, mergeLinks } from './page-data-extractor.js';
 import type { PageStructuredData } from './page-data.types.js';
+import { FirecrawlService } from './firecrawl.service.js';
+import { validateUrl } from './url-validator.js';
+import { logger } from '../../../../utils/logger.js';
 
 // ─── Service ────────────────────────────────────────────────────────────────
 
 export class ScraperService {
   private readonly nhm = new NodeHtmlMarkdown();
+  private firecrawl: FirecrawlService | null = null;
+
+  /**
+   * @param injectedFirecrawl Optional pre-configured FirecrawlService instance.
+   *   When provided, skips lazy init. Useful for testing and shared-instance usage.
+   */
+  constructor(injectedFirecrawl?: FirecrawlService | null) {
+    if (injectedFirecrawl !== undefined) {
+      this.firecrawl = injectedFirecrawl;
+    }
+  }
+
+  /** Lazy-init Firecrawl service (only when API key is available). */
+  private getFirecrawl(): FirecrawlService | null {
+    if (this.firecrawl) return this.firecrawl;
+    try {
+      this.firecrawl = new FirecrawlService();
+      return this.firecrawl;
+    } catch {
+      // API key not configured — Firecrawl unavailable, fall back to HTML fetch
+      return null;
+    }
+  }
 
   /**
    * Scrape a URL and return structured data + clean markdown.
    *
-   * Runs direct fetch (for structured data) and Jina (for prose) in parallel.
-   * Falls back to HTML→Markdown conversion if Jina is unavailable.
+   * Runs direct fetch (for structured data) and Firecrawl (for prose) in parallel.
+   * Falls back to HTML→Markdown conversion if Firecrawl is unavailable.
    *
    * @throws {Error} If URL is invalid, blocked, or all strategies fail.
    */
@@ -71,10 +98,10 @@ export class ScraperService {
     const sanitizedUrl = this.validateUrl(url);
     const start = Date.now();
 
-    // ── Parallel: Tier 1 (direct fetch for structured data) + Tier 2 (Jina for prose) ──
-    const [htmlResult, jinaResult] = await Promise.all([
+    // ── Parallel: Tier 1 (direct fetch for structured data) + Tier 2 (Firecrawl for prose) ──
+    const [htmlResult, firecrawlResult] = await Promise.all([
       this.fetchHtml(sanitizedUrl),
-      this.tryJina(sanitizedUrl, maxLength),
+      this.tryFirecrawl(sanitizedUrl, maxLength),
     ]);
 
     // ── Extract structured data from HTML (Tier 1) ─────────────────────
@@ -84,21 +111,22 @@ export class ScraperService {
     }
 
     // ── Determine best markdown source ─────────────────────────────────
-    // Prefer Jina markdown (rendered, clean). Fall back to HTML conversion.
-    if (jinaResult) {
-      const title = pageData?.title ?? jinaResult.title;
+    // Prefer Firecrawl markdown (rendered, clean, bypasses bot protection).
+    // Fall back to HTML→Markdown conversion.
+    if (firecrawlResult) {
+      const title = pageData?.title ?? firecrawlResult.title;
       // For JS-heavy SPAs (bio.site, linktree, etc.) Tier 1 HTML is nearly empty
-      // so pageData.links will be empty. Parse Jina's rendered markdown to get
+      // so pageData.links will be empty. Parse Firecrawl's rendered markdown to get
       // the full link list and merge it in (deduplicated).
       const enrichedPageData = pageData
-        ? mergeLinks(pageData, this.parseMarkdownLinks(jinaResult.markdownContent))
+        ? mergeLinks(pageData, this.parseMarkdownLinks(firecrawlResult.markdownContent))
         : pageData;
       return {
         url: sanitizedUrl,
         title,
-        markdownContent: jinaResult.markdownContent,
-        contentLength: jinaResult.markdownContent.length,
-        provider: 'jina' as ScrapeProvider,
+        markdownContent: firecrawlResult.markdownContent,
+        contentLength: firecrawlResult.markdownContent.length,
+        provider: 'firecrawl' as ScrapeProvider,
         scrapedInMs: Date.now() - start,
         pageData: enrichedPageData,
       };
@@ -122,7 +150,9 @@ export class ScraperService {
       };
     }
 
-    throw new Error(`Failed to scrape URL: ${sanitizedUrl}. Both Jina and native fetch failed.`);
+    throw new Error(
+      `Failed to scrape URL: ${sanitizedUrl}. Both Firecrawl and native fetch failed.`
+    );
   }
 
   // ─── Tier 1: Direct HTML Fetch ────────────────────────────────────────────
@@ -162,38 +192,34 @@ export class ScraperService {
     }
   }
 
-  // ─── Tier 2: Jina AI Reader ───────────────────────────────────────────────
+  // ─── Tier 2: Firecrawl (Headless Browser + Residential Proxies) ────────────
 
   /**
-   * Uses Jina AI's free reader API to get clean markdown from any URL.
-   * Jina handles JS rendering, bot protection bypass, and content extraction.
+   * Uses Firecrawl Cloud to get clean markdown from any URL.
+   * Handles JS rendering, Cloudflare/DataDome bypass via residential proxy rotation.
+   * Falls back gracefully to null if Firecrawl API key is not configured.
    */
-  private async tryJina(
+  private async tryFirecrawl(
     url: string,
     maxLength: number
   ): Promise<{ title: string; markdownContent: string } | null> {
+    const fc = this.getFirecrawl();
+    if (!fc) return null;
+
     try {
-      const jinaUrl = `https://r.jina.ai/${url}`;
-      const response = await fetch(jinaUrl, {
-        method: 'GET',
-        headers: {
-          Accept: 'text/markdown',
-          'X-Return-Format': 'markdown',
-          'X-No-Cache': 'true',
-        },
-        signal: AbortSignal.timeout(SCRAPE_TIMEOUT_MS),
-      });
+      const result = await fc.scrapeText(url);
 
-      if (!response.ok) return null;
+      if (!result.markdown || result.markdown.trim().length < 50) return null;
 
-      const rawMarkdown = await response.text();
-      if (!rawMarkdown || rawMarkdown.trim().length < 50) return null;
-
-      const title = this.extractTitleFromMarkdown(rawMarkdown);
-      const markdownContent = this.truncate(rawMarkdown, maxLength);
+      const title = result.title || this.extractTitleFromMarkdown(result.markdown);
+      const markdownContent = this.truncate(result.markdown, maxLength);
 
       return { title, markdownContent };
-    } catch {
+    } catch (err) {
+      logger.warn('[ScraperService] Firecrawl failed, falling back to HTML→Markdown', {
+        url,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      });
       return null;
     }
   }
@@ -202,83 +228,19 @@ export class ScraperService {
 
   /**
    * Validates and sanitizes a URL for SSRF safety.
+   * Delegates to the standalone `validateUrl` function in `url-validator.ts`.
    *
    * @throws {Error} If URL is invalid, uses a blocked protocol, or targets
    *                 a blocked host (private IPs, cloud metadata endpoints).
    */
   validateUrl(raw: string): string {
-    const trimmed = raw.trim();
-
-    // Must be a valid URL
-    let parsed: URL;
-    try {
-      parsed = new URL(trimmed);
-    } catch {
-      throw new Error(`Invalid URL: "${trimmed}"`);
-    }
-
-    // Protocol must be HTTP or HTTPS
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new Error(`Blocked protocol: "${parsed.protocol}". Only HTTP(S) is allowed.`);
-    }
-
-    // Block private/internal hosts (SSRF prevention)
-    const hostname = parsed.hostname.toLowerCase();
-    for (const blocked of BLOCKED_DOMAINS) {
-      if (hostname === blocked || hostname.endsWith(`.${blocked}`)) {
-        throw new Error(
-          hostname.includes('instagram') ||
-            hostname.includes('twitter') ||
-            hostname.includes('tiktok') ||
-            hostname.includes('facebook') ||
-            hostname.includes('threads') ||
-            hostname.includes('snapchat')
-            ? `Cannot scrape "${hostname}" — social media platforms require authentication. Use only the user context already provided.`
-            : `Blocked host: "${hostname}". Internal/private addresses are not allowed.`
-        );
-      }
-    }
-
-    // Block private IP ranges (IPv4: 10.x, 172.16-31.x, 192.168.x; IPv6: link-local, unique-local)
-    if (this.isPrivateIp(hostname)) {
-      throw new Error(`Blocked host: "${hostname}". Private IP addresses are not allowed.`);
-    }
-
-    return parsed.href;
+    return validateUrl(raw);
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────
 
-  /** Check if a hostname is a private/reserved IPv4 or IPv6 address. */
-  private isPrivateIp(hostname: string): boolean {
-    const clean = hostname.replace(/^\[|\]$/g, '');
-
-    if (clean === '::1' || clean === '0:0:0:0:0:0:0:1') return true;
-    if (/^fe[89ab]/i.test(clean)) return true;
-    if (/^f[cd]/i.test(clean)) return true;
-    const v4Mapped = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(clean);
-    if (v4Mapped) return this.isPrivateIpv4(v4Mapped[1]);
-
-    return this.isPrivateIpv4(clean);
-  }
-
-  /** Check if a dotted-decimal string is a private/reserved IPv4 address. */
-  private isPrivateIpv4(hostname: string): boolean {
-    const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
-    if (!ipv4) return false;
-
-    const [, a, b] = ipv4.map(Number);
-    return (
-      a === 10 || // 10.0.0.0/8
-      (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
-      (a === 192 && b === 168) || // 192.168.0.0/16
-      a === 127 || // loopback
-      a === 0 // 0.0.0.0/8
-    );
-  }
-
   /**
-   * Parse all hyperlinks from Jina's rendered markdown output.
+   * Parse all hyperlinks from Firecrawl's rendered markdown output.
    * Handles both labelled links `[text](url)` and bare icon links `[](url)`.
    * Returns only absolute http(s) URLs, deduplicated.
    */

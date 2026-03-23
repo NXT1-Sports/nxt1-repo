@@ -43,8 +43,8 @@ import {
   ViewChild,
   viewChild,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { Router, RouterModule } from '@angular/router';
+import { CommonModule, Location } from '@angular/common';
+import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { NavController } from '@ionic/angular/standalone';
 
 // Shared UI Components
@@ -183,26 +183,27 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
       (backClick)="onBack()"
     >
       <div authContent class="nxt1-onboarding-flow">
-        <!-- NXT1 logo, left-aligned under back button -->
-        <div class="nxt1-onboarding-logo">
-          <nxt1-logo size="sm" variant="auth" />
-        </div>
+        <!-- Full-page transition wrapper — slides entire content like native Ionic pages -->
+        <nxt1-onboarding-step-card
+          variant="seamless"
+          [error]="error()"
+          [animationDirection]="animationDirection()"
+          [animationKey]="currentStep().id"
+        >
+          <!-- NXT1 logo, left-aligned under back button -->
+          <div class="nxt1-onboarding-logo">
+            <nxt1-logo size="sm" variant="auth" />
+          </div>
 
-        <!-- Agent X typewriter — left-aligned with logo icon -->
-        <nxt1-onboarding-agent-x-typewriter
-          [message]="agentXMessage()"
-          alignment="left"
-          [showLogo]="true"
-        />
+          <!-- Agent X typewriter — left-aligned with logo icon -->
+          <nxt1-onboarding-agent-x-typewriter
+            [message]="agentXMessage()"
+            alignment="left"
+            [showLogo]="true"
+          />
 
-        <!-- Step content appears after Agent X finishes typing -->
-        @if (contentReady()) {
-          <nxt1-onboarding-step-card
-            variant="seamless"
-            [error]="error()"
-            [animationDirection]="animationDirection()"
-            [animationKey]="currentStep().id"
-          >
+          <!-- Step content appears after Agent X finishes typing -->
+          @if (contentReady()) {
             <!-- Step 1: Role Selection -->
             @if (currentStep().id === 'role') {
               <nxt1-onboarding-role-selection
@@ -319,8 +320,8 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                 </p>
               </div>
             }
-          </nxt1-onboarding-step-card>
-        }
+          }
+        </nxt1-onboarding-step-card>
       </div>
     </nxt1-auth-shell>
 
@@ -382,6 +383,16 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
         flex-direction: column;
         align-items: flex-start;
         width: 100%;
+        overflow-x: clip;
+      }
+
+      /* Full-page slide transitions — override step card defaults */
+      nxt1-onboarding-step-card {
+        --step-translate: 30%;
+        --step-scale-out: 1;
+        --step-opacity-from: 0.3;
+        --step-duration: 300ms;
+        --step-easing: cubic-bezier(0.36, 0.66, 0.04, 1);
       }
 
       .nxt1-onboarding-logo {
@@ -464,6 +475,8 @@ export class OnboardingPage implements OnInit, OnDestroy {
 
   private readonly router = inject(Router);
   private readonly navController = inject(NavController);
+  private readonly location = inject(Location);
+  private readonly route = inject(ActivatedRoute);
   private readonly authFlow = inject(AuthFlowService);
   private readonly profileGenerationState = inject(ProfileGenerationStateService);
   private readonly authApi = inject(AuthApiService);
@@ -971,6 +984,8 @@ export class OnboardingPage implements OnInit, OnDestroy {
       case 'STATE_CHANGE':
         // Sync all Angular signals from the state snapshot
         this.syncSignalsFromSnapshot(event.state);
+        // Sync URL to reflect the current step (e.g. /auth/onboarding/profile)
+        this.syncUrlToStep(event.state.steps[event.state.currentStepIndex]?.id);
         // Save session after any state change
         void this.saveSession();
         break;
@@ -1013,6 +1028,24 @@ export class OnboardingPage implements OnInit, OnDestroy {
         this.toast.info('Welcome back! Resuming where you left off.');
         break;
       }
+    }
+  }
+
+  // ============================================
+  // URL SYNC (Reflects state machine step in browser URL)
+  // ============================================
+
+  /**
+   * Silently update the URL to reflect the current onboarding step.
+   * Uses Location.replaceState to avoid Ionic NavController page transitions
+   * (which would destroy the Agent X typewriter and sticky footer).
+   */
+  private syncUrlToStep(stepId: OnboardingStepId | undefined): void {
+    if (!stepId) return;
+    const targetPath = `/auth/onboarding/${stepId}`;
+    const currentPath = this.location.path();
+    if (currentPath !== targetPath) {
+      this.location.replaceState(targetPath);
     }
   }
 

@@ -32,3 +32,6 @@ export {
 
 // Onboarding Analytics
 export { OnboardingAnalyticsService } from './onboarding-analytics.service';
+
+// Onboarding State Management
+export { OnboardingService } from './onboarding.service';

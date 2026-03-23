@@ -127,16 +127,18 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
     @if (variant() === 'list-row') {
       <div class="nxt1-profile-form" data-testid="onboarding-profile-step">
         <!-- Profile Photos Gallery (list-row variant) -->
-        <div class="nxt1-photo-gallery-section">
-          <p class="nxt1-gallery-label">Profile Photos</p>
-          <nxt1-media-gallery
-            [images]="profileImgs()"
-            [maxImages]="8"
-            [addLabel]="'Add Photo'"
-            (add)="openImagePicker()"
-            (remove)="removeImage($event)"
-          />
-        </div>
+        @if (showPhotos()) {
+          <div class="nxt1-photo-gallery-section">
+            <p class="nxt1-gallery-label">Profile Photos</p>
+            <nxt1-media-gallery
+              [images]="profileImgs()"
+              [maxImages]="8"
+              [addLabel]="'Add Photo'"
+              (add)="openImagePicker()"
+              (remove)="removeImage($event)"
+            />
+          </div>
+        }
 
         <nxt1-list-section>
           <nxt1-list-row label="First Name" (tap)="openFirstNamePrompt()">
@@ -267,15 +269,17 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
         </div>
 
         <!-- Profile Photos Gallery -->
-        <nxt1-form-field label="Profile Photos" testId="onboarding-photos-field">
-          <nxt1-media-gallery
-            [images]="profileImgs()"
-            [maxImages]="8"
-            [addLabel]="'Add Photo'"
-            (add)="openImagePicker()"
-            (remove)="removeImage($event)"
-          />
-        </nxt1-form-field>
+        @if (showPhotos()) {
+          <nxt1-form-field label="Profile Photos" testId="onboarding-photos-field">
+            <nxt1-media-gallery
+              [images]="profileImgs()"
+              [maxImages]="8"
+              [addLabel]="'Add Photo'"
+              (add)="openImagePicker()"
+              (remove)="removeImage($event)"
+            />
+          </nxt1-form-field>
+        }
 
         <!-- Coach Title Selection (only shown for coach role) -->
         @if (showCoachTitle()) {
@@ -893,6 +897,14 @@ export class OnboardingProfileStepComponent {
   /** Whether to show class year selection for athletes */
   readonly showAthleteClassYear = computed(
     () => this.showClassYear() && this.userType() === USER_ROLES.ATHLETE
+  );
+
+  /** Whether to show profile photo gallery (hidden for coaches, directors, and recruiters) */
+  readonly showPhotos = computed(
+    () =>
+      this.userType() !== USER_ROLES.COACH &&
+      this.userType() !== USER_ROLES.DIRECTOR &&
+      this.userType() !== USER_ROLES.RECRUITER
   );
 
   /** Display label for coach title in list-row variant */

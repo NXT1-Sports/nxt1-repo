@@ -1578,26 +1578,8 @@ const SELECT_TEAMS_STEP: OnboardingStep = {
   id: 'select-teams',
   title: 'Select Teams',
   subtitle: 'Find your team or create a program',
-  required: true,
-  order: 4,
-};
-
-/** Shared create team profile step config (DRY) */
-const CREATE_TEAM_PROFILE_STEP: OnboardingStep = {
-  id: 'create-team-profile',
-  title: 'Create Team Profile',
-  subtitle: 'Build your program on NXT1',
   required: false,
   order: 4,
-};
-
-/** Shared team link sources step config (DRY) */
-const TEAM_LINK_SOURCES_STEP: OnboardingStep = {
-  id: 'team-link-sources',
-  title: 'Team Links',
-  subtitle: 'Add the sites that power your team profile',
-  required: false,
-  order: 5,
 };
 
 /** Step configuration per user type */
@@ -1618,7 +1600,7 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       required: true,
       order: 3,
     },
-    SELECT_TEAMS_STEP,
+    { ...SELECT_TEAMS_STEP, required: false },
     LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
@@ -1638,8 +1620,8 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       required: true,
       order: 3,
     },
-    CREATE_TEAM_PROFILE_STEP,
-    TEAM_LINK_SOURCES_STEP,
+    { ...SELECT_TEAMS_STEP, required: false },
+    LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
   parent: [
@@ -1658,7 +1640,7 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       required: true,
       order: 3,
     },
-    SELECT_TEAMS_STEP,
+    { ...SELECT_TEAMS_STEP, required: false },
     LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
@@ -1678,7 +1660,7 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       required: true,
       order: 3,
     },
-    SELECT_TEAMS_STEP,
+    { ...SELECT_TEAMS_STEP, required: true },
     LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
@@ -1698,8 +1680,8 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       required: true,
       order: 3,
     },
-    CREATE_TEAM_PROFILE_STEP,
-    TEAM_LINK_SOURCES_STEP,
+    { ...SELECT_TEAMS_STEP, required: false },
+    LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
 };
@@ -1722,7 +1704,7 @@ export const AGENT_X_ONBOARDING_MESSAGES: Readonly<Record<string, string>> = Obj
   'link-sources':
     'These links are how I work for you — syncing your data, updating your profile, and executing tasks automatically.',
   sport: 'Pick your sports.',
-  'select-teams': 'Find your team or create a new program.',
+  'select-teams': "Search for your program. If it's missing, you can add it.",
   'referral-source': 'Last one — how did you find us?',
   school: 'Tell me about your school.',
   organization: 'Tell me about your organization.',
@@ -1743,25 +1725,25 @@ const ROLE_MESSAGES: Readonly<
     'link-sources':
       'These links are how I work for you — pulling in your stats and film, updating your profile, and executing tasks automatically.',
     sport: 'Choose one sport for now. You can add more later.',
-    'select-teams': 'Search for your team or create a new one.',
+    'select-teams': "Search for your program. If it's missing, you can add it.",
     'referral-source': 'Last one — how did you hear about NXT1?',
     complete: "You're set. Time to get recruited.",
   }),
   coach: Object.freeze({
     profile: "Let's get to know you — just the basics.",
     'link-sources':
-      'Connect your accounts so I can manage your profile, sync your data, and execute tasks across every program you coach.',
-    sport: 'Choose one sport for now. You can add more later.',
-    'select-teams': 'Find your program.',
+      'Link your program accounts so I can keep your team profile current, sync your data, and execute tasks across every program you coach.',
+    sport: 'Choose the sport you coach, then select your title.',
+    'select-teams': 'Search for your program or create a new one.',
     'referral-source': 'Last one — how did you discover NXT1?',
     complete: "You're in. Let's find your next prospect.",
   }),
   director: Object.freeze({
     profile: "Let's get to know you — just the basics.",
     'link-sources':
-      'Link your accounts so I can keep your profile current, sync your data, and handle tasks automatically.',
+      'Link your organization accounts so I can keep your team profile current, sync your data, and handle tasks automatically.',
     sport: 'Choose one sport for now. You can add more later.',
-    'select-teams': 'Find your organization.',
+    'select-teams': 'Search for your organization or create a new one.',
     'referral-source': 'Last one — how did you find NXT1?',
     complete: "All set. Let's manage your program.",
   }),
@@ -1770,7 +1752,7 @@ const ROLE_MESSAGES: Readonly<
     'link-sources':
       'Connect your accounts so I can pull data, run tasks, and act on opportunities — no manual work required.',
     sport: 'Choose one sport for now. You can add more later.',
-    'select-teams': "Find a program you're scouting for.",
+    'select-teams': "Search for a program you're scouting for.",
     'referral-source': 'Last one — how did you hear about us?',
     complete: "You're ready. Let's scout some talent.",
   }),
@@ -1779,7 +1761,7 @@ const ROLE_MESSAGES: Readonly<
     'link-sources':
       'These links let me work for your athlete automatically — keeping their profile current, tracking progress, and acting on what matters.',
     sport: 'Choose one sport for now. You can add more later.',
-    'select-teams': "Find your athlete's team.",
+    'select-teams': "Search for your athlete's program. If it's missing, you can add it.",
     'referral-source': 'Last one — how did you find NXT1?',
     complete: "You're all set. Let's support your athlete.",
   }),

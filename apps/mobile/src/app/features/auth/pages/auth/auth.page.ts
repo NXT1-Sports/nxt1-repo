@@ -89,13 +89,6 @@ import {
         (click)="onDevTap()"
         style="position: absolute; top: 0; left: 0; width: 100px; height: 50px; z-index: 9999;"
       ></div>
-      <!-- DEV: Reset biometric button -->
-      <button
-        (click)="onResetBiometric()"
-        style="position: absolute; top: 60px; right: 10px; z-index: 9999; padding: 6px 12px; background: #ff6b6b; color: white; border: none; border-radius: 8px; font-size: 11px; font-weight: 600;"
-      >
-        Reset Bio
-      </button>
     }
 
     <nxt1-auth-shell

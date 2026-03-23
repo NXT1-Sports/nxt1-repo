@@ -66,8 +66,8 @@ export interface RoleOption {
  * Maps to OnboardingUserType from @nxt1/core/api.
  * Icons reference @nxt1/design-tokens.
  *
- * 5 core roles displayed during onboarding:
- * - Athlete, Coach, Director, Recruiter, Parent
+ * Roles displayed during onboarding.
+ * Note: Parent / Guardian is hidden for now — no dedicated parent UI yet.
  */
 export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
   {
@@ -88,12 +88,8 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
     description: 'High school, club, or college athlete',
     icon: 'athlete',
   },
-  {
-    type: 'parent',
-    label: 'Parent / Guardian',
-    description: 'Supporting an athlete',
-    icon: 'parent',
-  },
+  // Parent / Guardian is hidden until a dedicated parent UI/experience is built
+  // { type: 'parent', label: 'Parent / Guardian', description: 'Supporting an athlete', icon: 'parent' },
 ] as const;
 
 // ============================================

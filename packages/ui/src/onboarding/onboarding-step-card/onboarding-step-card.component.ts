@@ -43,6 +43,7 @@ import {
   Input,
   ChangeDetectionStrategy,
   signal,
+  input,
   effect,
   ElementRef,
   inject,
@@ -82,11 +83,13 @@ const ANIMATION_CONFIG = {
       class="nxt1-step-wrapper"
       [class.nxt1-step-wrapper--card]="variant === 'card'"
       [class.nxt1-step-wrapper--seamless]="variant === 'seamless'"
-      [class.nxt1-step-wrapper--animate-forward]="isAnimating() && animationDirection === 'forward'"
-      [class.nxt1-step-wrapper--animate-backward]="
-        isAnimating() && animationDirection === 'backward'
+      [class.nxt1-step-wrapper--animate-forward]="
+        isAnimating() && animationDirection() === 'forward'
       "
-      [attr.data-animation-key]="animationKey"
+      [class.nxt1-step-wrapper--animate-backward]="
+        isAnimating() && animationDirection() === 'backward'
+      "
+      [attr.data-animation-key]="animationKey()"
     >
       <!-- Step Content (projected) -->
       <div class="nxt1-step-content">
@@ -113,6 +116,7 @@ const ANIMATION_CONFIG = {
         --step-scale-out: ${ANIMATION_CONFIG.scaleOut};
         --step-translate: ${ANIMATION_CONFIG.translatePercent}%;
         --step-stagger: ${ANIMATION_CONFIG.staggerDelay}ms;
+        --step-opacity-from: 0;
 
         display: block;
         width: 100%;
@@ -129,7 +133,7 @@ const ANIMATION_CONFIG = {
       /* Forward: Slide in from right with scale */
       @keyframes stepSlideInForward {
         0% {
-          opacity: 0;
+          opacity: var(--step-opacity-from);
           transform: translate3d(var(--step-translate), 0, 0) scale(var(--step-scale-out));
         }
         100% {
@@ -141,7 +145,7 @@ const ANIMATION_CONFIG = {
       /* Backward: Slide in from left with scale */
       @keyframes stepSlideInBackward {
         0% {
-          opacity: 0;
+          opacity: var(--step-opacity-from);
           transform: translate3d(calc(var(--step-translate) * -1), 0, 0)
             scale(var(--step-scale-out));
         }
@@ -321,14 +325,13 @@ export class OnboardingStepCardComponent implements AfterViewInit, OnDestroy {
    * - 'backward': Slide in from left (navigating to previous step)
    * - 'none': No animation (initial render or instant navigation)
    */
-  @Input() animationDirection: AnimationDirection = 'none';
+  readonly animationDirection = input<AnimationDirection>('none');
 
   /**
    * Unique key for the current step to trigger animation on change.
-   * When this value changes, Angular re-renders the component and
-   * the animation plays again.
+   * When this value changes, the effect triggers and animations play.
    */
-  @Input() animationKey: string = '';
+  readonly animationKey = input<string>('');
 
   /** Track if animation is currently playing */
   readonly isAnimating = signal(false);
@@ -342,8 +345,9 @@ export class OnboardingStepCardComponent implements AfterViewInit, OnDestroy {
   constructor() {
     // Watch for animation key changes to trigger animation state
     effect(() => {
-      const currentKey = this.animationKey;
-      if (currentKey && currentKey !== this.previousKey && this.animationDirection !== 'none') {
+      const currentKey = this.animationKey();
+      const direction = this.animationDirection();
+      if (currentKey && currentKey !== this.previousKey && direction !== 'none') {
         this.isAnimating.set(true);
         this.previousKey = currentKey;
       }

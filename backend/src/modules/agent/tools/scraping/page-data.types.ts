@@ -125,7 +125,7 @@ export interface PageStructuredData {
   /**
    * All hyperlinks found on the page, deduplicated by URL.
    * Sourced from: <a href> tags in HTML (source: 'html') and
-   * [text](url) patterns in Jina markdown (source: 'markdown').
+   * [text](url) patterns in Firecrawl markdown (source: 'markdown').
    * Useful for link-hub pages (bio.site, linktree, etc.) where
    * the athlete links out to all their social/sport profiles.
    */

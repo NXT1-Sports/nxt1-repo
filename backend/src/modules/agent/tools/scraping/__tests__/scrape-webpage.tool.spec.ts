@@ -51,7 +51,7 @@ const MOCK_RESULT: ScrapeResult = {
   title: 'Jalen Smith - MaxPreps',
   markdownContent: '# Jalen Smith\n\nPPG: 18.5 | APG: 6.2',
   contentLength: 42,
-  provider: 'jina',
+  provider: 'firecrawl',
   scrapedInMs: 350,
   pageData: MOCK_PAGE_DATA,
 };
@@ -61,7 +61,7 @@ const MOCK_RESULT_NO_STRUCTURED: ScrapeResult = {
   title: 'Some Article',
   markdownContent: '# Some Article\n\nContent here.',
   contentLength: 30,
-  provider: 'jina',
+  provider: 'firecrawl',
   scrapedInMs: 200,
   pageData: null,
 };
@@ -149,7 +149,7 @@ describe('ScrapeWebpageTool', () => {
       expect(data['title']).toBe(MOCK_RESULT.title);
       expect(data['markdownContent']).toContain('Jalen Smith');
       expect(data['contentLength']).toBe(42);
-      expect(data['provider']).toBe('jina');
+      expect(data['provider']).toBe('firecrawl');
       expect(data['scrapedInMs']).toBe(350);
     });
 
@@ -259,7 +259,9 @@ describe('ScrapeWebpageTool', () => {
 
     it('should handle network timeout errors', async () => {
       vi.mocked(mockScraper.scrape).mockRejectedValue(
-        new Error('Failed to scrape URL: https://slow-site.com. Both Jina and native fetch failed.')
+        new Error(
+          'Failed to scrape URL: https://slow-site.com. Both Firecrawl and native fetch failed.'
+        )
       );
 
       const result = await tool.execute({ url: 'https://slow-site.com' });

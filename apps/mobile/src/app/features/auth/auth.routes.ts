@@ -39,15 +39,7 @@ export const AUTH_ROUTES: Routes = [
     title: 'Reset Password | NXT1 Sports',
   },
 
-  // Onboarding flow - requires auth but must NOT have completed onboarding
-  {
-    path: 'onboarding',
-    loadComponent: () => import('./pages/onboarding/onboarding.page').then((m) => m.OnboardingPage),
-    canActivate: [onboardingInProgressGuard],
-    title: 'Complete Profile | NXT1 Sports',
-  },
-
-  // Onboarding congratulations - shared welcome slides (2026 best practice)
+  // Onboarding congratulations — MUST come before the shell route
   // Uses thin wrapper page with shared OnboardingWelcomeComponent from @nxt1/ui
   {
     path: 'onboarding/congratulations',
@@ -57,5 +49,84 @@ export const AUTH_ROUTES: Routes = [
       ),
     canActivate: [authGuard],
     title: 'Welcome to NXT1!',
+  },
+
+  // Onboarding flow — each step is a separate Ionic page for native slide transitions.
+  // OnboardingShellComponent provides IonRouterOutlet + persistent footer.
+  // The state machine in OnboardingService controls step ordering.
+  {
+    path: 'onboarding',
+    loadComponent: () =>
+      import('./pages/onboarding/onboarding-shell.component').then(
+        (m) => m.OnboardingShellComponent
+      ),
+    canActivate: [onboardingInProgressGuard],
+    children: [
+      { path: '', redirectTo: 'role', pathMatch: 'full' },
+      {
+        path: 'role',
+        loadComponent: () =>
+          import('./pages/onboarding/steps/role.page').then((m) => m.OnboardingRoleStepPage),
+        title: 'Choose Your Role | NXT1 Sports',
+      },
+      {
+        path: 'profile',
+        loadComponent: () =>
+          import('./pages/onboarding/steps/profile.page').then((m) => m.OnboardingProfileStepPage),
+        title: 'Your Profile | NXT1 Sports',
+      },
+      {
+        path: 'sport',
+        loadComponent: () =>
+          import('./pages/onboarding/steps/sport.page').then((m) => m.OnboardingSportStepPage),
+        title: 'Select Sport | NXT1 Sports',
+      },
+      {
+        path: 'school',
+        loadComponent: () =>
+          import('./pages/onboarding/steps/school.page').then((m) => m.OnboardingSchoolStepPage),
+        title: 'Your School | NXT1 Sports',
+      },
+      {
+        path: 'link-sources',
+        loadComponent: () =>
+          import('./pages/onboarding/steps/link-sources.page').then(
+            (m) => m.OnboardingLinkSourcesStepPage
+          ),
+        title: 'Connect Accounts | NXT1 Sports',
+      },
+      {
+        path: 'team-link-sources',
+        loadComponent: () =>
+          import('./pages/onboarding/steps/link-sources.page').then(
+            (m) => m.OnboardingLinkSourcesStepPage
+          ),
+        title: 'Connect Team Accounts | NXT1 Sports',
+      },
+      {
+        path: 'create-team-profile',
+        loadComponent: () =>
+          import('./pages/onboarding/steps/create-team.page').then(
+            (m) => m.OnboardingCreateTeamStepPage
+          ),
+        title: 'Create Team | NXT1 Sports',
+      },
+      {
+        path: 'select-teams',
+        loadComponent: () =>
+          import('./pages/onboarding/steps/team-selection.page').then(
+            (m) => m.OnboardingTeamSelectionStepPage
+          ),
+        title: 'Select Teams | NXT1 Sports',
+      },
+      {
+        path: 'referral-source',
+        loadComponent: () =>
+          import('./pages/onboarding/steps/referral.page').then(
+            (m) => m.OnboardingReferralStepPage
+          ),
+        title: 'How Did You Hear About Us? | NXT1 Sports',
+      },
+    ],
   },
 ];
