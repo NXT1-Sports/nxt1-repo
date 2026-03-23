@@ -43,12 +43,13 @@ import {
   type TeamCodeValidationState,
 } from '@nxt1/ui/auth/auth-team-code';
 import { AuthFlowService, AuthApiService } from '../../services';
-import { AuthNavigationService } from '@nxt1/ui/services';
+import { AuthNavigationService, NxtLoggingService } from '@nxt1/ui/services';
 import { SeoService } from '../../../../core/services';
 import { NxtToastService } from '@nxt1/ui/services';
 import { isValidTeamCode } from '@nxt1/core';
 import type { ValidatedTeamInfo } from '@nxt1/core';
 import { PENDING_REFERRAL_KEY, type PendingReferral } from '../../../join/join.component';
+import { ILogger } from '@nxt1/core/logging';
 
 @Component({
   selector: 'app-auth',
@@ -193,6 +194,7 @@ export class AuthComponent implements OnInit {
   private readonly seo = inject(SeoService);
   private readonly toast = inject(NxtToastService);
   private readonly platformId = inject(PLATFORM_ID);
+  private readonly logger: ILogger = inject(NxtLoggingService).child('AuthComponent');
 
   /** Pending referral from an invite link (/join/:code) */
   private pendingReferral: PendingReferral | null = null;
@@ -279,6 +281,9 @@ export class AuthComponent implements OnInit {
         'athlete profile',
       ],
     });
+    if (isPlatformBrowser(this.platformId)) {
+      this.restoreInviteDataFromUrl();
+    }
 
     // Check for mode query param (e.g., ?mode=signup)
     const queryMode = this.route.snapshot.queryParamMap.get('mode');
@@ -312,6 +317,80 @@ export class AuthComponent implements OnInit {
       } catch {
         // Ignore parse errors
       }
+    }
+  }
+
+  private restoreInviteDataFromUrl(): void {
+    const params = this.route.snapshot.queryParamMap;
+    const ref = params.get('ref');
+    const teamCode = params.get('teamCode');
+    const urlSport = params.get('sport');
+    const role = params.get('role');
+    const inviteType = params.get('inviteType');
+    if (!ref || !teamCode) return;
+
+    try {
+      const existing = sessionStorage.getItem(PENDING_REFERRAL_KEY);
+      if (existing) {
+        this.logger.debug('Invite data already in sessionStorage, skipping URL restore');
+        return;
+      }
+
+      this.authApi
+        .validateTeamCode(teamCode)
+        .then((result) => {
+          let teamData: ValidatedTeamInfo | undefined;
+
+          if (result.valid && result.teamCode) {
+            teamData = result.teamCode;
+            this.logger.info('Fetched team data from teamCode', {
+              teamId: teamData.id,
+              teamName: teamData.teamName,
+              sport: teamData.sport,
+            });
+          }
+          const pendingReferral: PendingReferral = {
+            code: ref,
+            inviterUid: '',
+            type: inviteType || 'team',
+            teamId: teamData?.id,
+            teamCode,
+            teamName: teamData?.teamName,
+            sport: teamData?.sport || urlSport || undefined,
+            teamType: teamData?.teamType,
+            role: role || undefined,
+            timestamp: Date.now(),
+          };
+
+          sessionStorage.setItem(PENDING_REFERRAL_KEY, JSON.stringify(pendingReferral));
+          const sport = teamData?.sport || urlSport;
+          if (sport) {
+            sessionStorage.setItem('nxt1:invite_sport', sport);
+          }
+
+          this.logger.info('Restored invite data with full team info', {
+            ref,
+            teamCode,
+            teamName: teamData?.teamName,
+            sport,
+            role,
+          });
+        })
+        .catch((err) => {
+          this.logger.warn('Failed to fetch team data, using URL params only', { error: err });
+          const pendingReferral: PendingReferral = {
+            code: ref,
+            inviterUid: '',
+            type: inviteType || 'team',
+            teamCode,
+            sport: urlSport || undefined,
+            role: role || undefined,
+            timestamp: Date.now(),
+          };
+          sessionStorage.setItem(PENDING_REFERRAL_KEY, JSON.stringify(pendingReferral));
+        });
+    } catch (err) {
+      this.logger.warn('Failed to restore invite data from URL', { error: err });
     }
   }
 

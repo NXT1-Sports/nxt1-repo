@@ -784,9 +784,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         // Sync the newly created user to local state
         await this.syncUserProfile(result.user);
 
-        // Accept pending invite (non-blocking)
-        await this.acceptPendingInvite();
-
         // Navigate to onboarding for new users
         this.logger.info('🚀 Navigating to onboarding (new user) (Microsoft)');
         await this.navigateForward(AUTH_ROUTES.ONBOARDING);
@@ -828,13 +825,14 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   }
 
   /**
-   * Accept a pending invite after successful signup.
+   * Accept a pending invite at the end of onboarding with the selected role.
    *
    * Reads the referral code stored in sessionStorage by the /join/:code route,
    * calls POST /invite/accept, and clears storage regardless of outcome.
-   * Failures are logged but do not block the signup flow.
+   * Failures are logged but do not block the onboarding completion flow.
+   * @param roleOverride - Role selected by user during onboarding (overrides stored role)
    */
-  private async acceptPendingInvite(): Promise<void> {
+  async acceptPendingInvite(roleOverride?: string): Promise<void> {
     if (!this.platform.isBrowser) return;
 
     try {
@@ -848,8 +846,15 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         code: referral.code,
         teamCode: referral.teamCode,
         role: referral.role,
+        inviterUid: referral.inviterUid,
       });
-      await this.inviteApi.acceptInvite(referral.code, referral.teamCode, referral.role);
+      // Pass inviterUid so backend can track referral even for team invites
+      await this.inviteApi.acceptInvite(
+        referral.code,
+        referral.teamCode,
+        roleOverride ?? referral.role,
+        referral.inviterUid
+      );
       this.logger.info('Invite accepted successfully', { code: referral.code });
 
       // Signal onboarding to skip the team-selection step
@@ -967,9 +972,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
           // Sync the newly created user to local state
           await this.syncUserProfile(result.user);
-
-          // Accept pending invite (non-blocking)
-          await this.acceptPendingInvite();
 
           // Navigate to onboarding for new users
           this.logger.info('🚀 Navigating to onboarding (new user)');
@@ -1182,9 +1184,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           // Sync the newly created user to local state
           await this.syncUserProfile(result.user);
 
-          // Accept pending invite (non-blocking)
-          await this.acceptPendingInvite();
-
           // Navigate to onboarding for new users
           this.logger.info('🚀 Navigating to onboarding (new user) (Apple)');
           await this.navigateForward(AUTH_ROUTES.ONBOARDING);
@@ -1285,9 +1284,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
         // Sync user state BEFORE navigating (required for onboarding page)
         await this.syncUserProfile(result.user);
-
-        // Accept pending invite (non-blocking)
-        await this.acceptPendingInvite();
 
         // Send verification email for email/password signups
         // OAuth users (Google/Apple/Microsoft) are pre-verified

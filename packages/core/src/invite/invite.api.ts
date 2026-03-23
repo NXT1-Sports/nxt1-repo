@@ -80,12 +80,13 @@ export function createInviteApi(http: HttpAdapter, baseUrl: string) {
      *
      * @param type - Type of invite
      * @param teamId - Optional team ID for team invites
+     * @param teamCode - Optional team code (preferred over teamId for team invites)
      * @returns Generated invite link data
      * @throws NxtApiError on failure
      */
-    async generateLink(type: InviteType, teamId?: string): Promise<InviteLink> {
+    async generateLink(type: InviteType, teamId?: string, teamCode?: string): Promise<InviteLink> {
       try {
-        const url = buildUrl(INVITE_API_ENDPOINTS.GENERATE_LINK, { type, teamId });
+        const url = buildUrl(INVITE_API_ENDPOINTS.GENERATE_LINK, { type, teamId, teamCode });
         const response = await http.post<{ success: boolean; data: InviteLink; error?: string }>(
           url,
           {}
@@ -262,44 +263,6 @@ export function createInviteApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Validate a referral code.
-     *
-     * @param code - Referral code to validate
-     * @returns Validation result with inviter info
-     * @throws NxtApiError on failure
-     */
-    async validateReferralCode(code: string): Promise<{
-      valid: boolean;
-      inviterUid?: string;
-      inviterName?: string;
-      inviterAvatar?: string;
-      bonusXp?: number;
-    }> {
-      try {
-        const url = buildUrl(INVITE_API_ENDPOINTS.VALIDATE_CODE, { code });
-        const response = await http.get<{
-          success: boolean;
-          data: {
-            valid: boolean;
-            inviterUid?: string;
-            inviterName?: string;
-            inviterAvatar?: string;
-            bonusXp?: number;
-          };
-          error?: string;
-        }>(url);
-
-        if (!response.success || !response.data) {
-          return { valid: false };
-        }
-
-        return response.data;
-      } catch {
-        return { valid: false };
-      }
-    },
-
-    /**
      * Accept an invite (for recipient).
      *
      * @param code - Referral/invite code
@@ -311,20 +274,29 @@ export function createInviteApi(http: HttpAdapter, baseUrl: string) {
     async acceptInvite(
       code: string,
       teamCode?: string,
-      role?: string
+      role?: string,
+      inviterUid?: string
     ): Promise<{
       success: boolean;
       teamJoined?: string;
       joinedAsPending?: boolean;
     }> {
       try {
+        const roleMap: Record<string, string> = {
+          athlete: 'Athlete',
+          coach: 'Coach',
+          director: 'Administrative',
+          recruiter: 'Coach',
+          parent: 'Parent',
+        };
+        const normalizedRole = role ? (roleMap[role.toLowerCase()] ?? 'Athlete') : undefined;
         const url = buildUrl(INVITE_API_ENDPOINTS.ACCEPT);
         const response = await http.post<{
           success: boolean;
           teamJoined?: string;
           joinedAsPending?: boolean;
           error?: string;
-        }>(url, { code, teamCode, role });
+        }>(url, { code, teamCode, role: normalizedRole, inviterUid });
 
         if (!response.success) {
           throw createApiError('SRV_INTERNAL_ERROR', {

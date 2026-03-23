@@ -18,7 +18,8 @@ import {
   AcceptInviteDto,
 } from '../dtos/teams.dto.js';
 import * as teamCodeService from '../services/team-code.service.js';
-import { ROLE } from '@nxt1/core/models';
+import { ROLE, RosterRole, RosterEntryStatus } from '@nxt1/core/models';
+import { RosterEntryService } from '../services/roster-entry.service.js';
 import { TeamMemberRole } from '../dtos/teams.dto.js';
 import { logger } from '../utils/logger.js';
 import { INVITE_UI_CONFIG } from '@nxt1/core';
@@ -53,16 +54,35 @@ interface UserDoc {
   email?: string;
   profileImgs?: string[];
   role?: string;
+  sports?: Array<{
+    sport: string;
+    team?: {
+      teamId: string;
+      name?: string;
+      organizationId?: string;
+    };
+    positions?: string[];
+  }>;
+  activeSportIndex?: number;
+  team?: {
+    teamId: string;
+    name: string;
+    organizationId?: string;
+    type?: string;
+  };
 }
 
 interface TeamDoc {
   name?: string;
   teamCode?: string;
   teamName?: string;
+  sport?: string;
   createdBy?: string;
   admins?: string[];
   coaches?: string[];
   members?: string[];
+  memberIds?: string[];
+  organizationId?: string;
 }
 
 interface InviteDoc {
@@ -104,16 +124,11 @@ function getAppBaseUrl(isStaging: boolean, origin?: string): string {
   // APP_URL always wins — lets developers override via .env (e.g. ngrok tunnel)
   if (process.env['APP_URL']) return process.env['APP_URL'];
 
-  const env = process.env['NODE_ENV'] ?? 'development';
-  const isDev = env === 'development' || env === 'test';
-
-  // Local dev takes priority over isStaging — the local API route is
-  // /api/v1/staging/... which sets isStaging=true on the middleware, but the
-  // invite link should still point at the local app.
-  // Detect mobile (port 4300) vs web (port 4200) from the request Origin header.
-  if (isDev) {
-    if (origin?.includes(':4300')) return 'http://localhost:4300';
-    return 'http://localhost:4200';
+  // If the request came from localhost, mirror that origin back so the invite
+  // link points at the local dev app (works regardless of NODE_ENV / staging flag).
+  // This handles both web (localhost:4200) and mobile (localhost:4300).
+  if (origin && /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+    return origin;
   }
 
   return isStaging
@@ -191,7 +206,7 @@ async function getOrCreateStats(
  * POST /api/v1/invite/link
  * Generate a personalized invite link for the authenticated user.
  *
- * Query or Body: { type?: InviteType, teamId?: string }
+ * Query or Body: { type?: InviteType, teamId?: string, teamCode?: string }
  * Returns: { success: true, data: InviteLink }
  */
 router.post('/link', appGuard, async (req: Request, res: Response) => {
@@ -204,6 +219,8 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
       ((req.query['type'] ?? req.body?.type) as InviteType | undefined) ?? 'general';
     const teamId: string | undefined =
       (req.query['teamId'] as string | undefined) ?? req.body?.teamId;
+    const reqTeamCode: string | undefined =
+      (req.query['teamCode'] as string | undefined) ?? req.body?.teamCode;
 
     if (type && !VALID_INVITE_TYPES.includes(type)) {
       return res.status(400).json({ success: false, error: 'Invalid invite type' });
@@ -215,22 +232,79 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
     const baseUrl = getAppBaseUrl(isStaging, origin);
 
     // When it's a team invite, look up teamCode + teamName to embed in the URL.
-    // If the caller didn't provide an explicit teamId, auto-resolve the user's
-    // own managed/created team so the link always carries the correct teamCode.
+    // Priority order:
+    // 1. Find by teamCode parameter (if provided from frontend)
+    // 2. Find by teamId parameter (if provided from frontend)
+    // 3. Find by user's sports[activeSportIndex].team.teamId (current user structure)
+    // 4. Find first team in collection (last resort for dev/testing)
     let teamCode: string | undefined;
     let teamName: string | undefined;
+    let teamSport: string | undefined;
     if (type === 'team') {
       let resolvedTeamId = teamId;
 
-      if (!resolvedTeamId) {
-        // Caller didn't supply a teamId — find the team this user created/manages
-        const ownedSnap = await db
+      // Priority 1: Find by teamCode parameter
+      if (!resolvedTeamId && reqTeamCode) {
+        const teamCodeSnap = await db
           .collection(TEAMS_COLLECTION)
-          .where('createdBy', '==', userId)
+          .where('teamCode', '==', reqTeamCode)
           .limit(1)
           .get();
-        if (!ownedSnap.empty) {
-          resolvedTeamId = ownedSnap.docs[0].id;
+        if (!teamCodeSnap.empty) {
+          resolvedTeamId = teamCodeSnap.docs[0].id;
+        }
+      }
+
+      // Priority 3: Get team from user's active sport
+      if (!resolvedTeamId) {
+        const userDoc = await db.collection(USERS_COLLECTION).doc(userId).get();
+        const userData = userDoc.data();
+
+        // Try sports[activeSportIndex].team.teamId first (current structure)
+        const activeSportIndex = userData?.['activeSportIndex'];
+        const sports = userData?.['sports'];
+
+        if (
+          typeof activeSportIndex === 'number' &&
+          Array.isArray(sports) &&
+          sports[activeSportIndex]
+        ) {
+          const activeSport = sports[activeSportIndex];
+          const sportTeamId = activeSport?.['team']?.['teamId'];
+          if (sportTeamId) {
+            logger.debug(
+              '[POST /invite/link] Found team via sports[activeSportIndex].team.teamId',
+              {
+                activeSportIndex,
+                sportTeamId,
+                sport: activeSport?.['sport'],
+              }
+            );
+            resolvedTeamId = sportTeamId;
+          }
+        }
+
+        // Fallback: Try legacy team.teamId field
+        if (!resolvedTeamId) {
+          const legacyTeamId = userData?.['team']?.['teamId'];
+          if (legacyTeamId) {
+            logger.debug('[POST /invite/link] Found team via legacy team.teamId', { legacyTeamId });
+            resolvedTeamId = legacyTeamId;
+          } else {
+            logger.debug('[POST /invite/link] No team found in user profile', {
+              hasSports: !!sports,
+              activeSportIndex,
+              hasLegacyTeam: !!userData?.['team'],
+            });
+          }
+        }
+      }
+
+      // Priority 4: Fallback to any team (for dev/testing)
+      if (!resolvedTeamId) {
+        const anyTeamSnap = await db.collection(TEAMS_COLLECTION).limit(1).get();
+        if (!anyTeamSnap.empty) {
+          resolvedTeamId = anyTeamSnap.docs[0].id;
         }
       }
 
@@ -238,19 +312,38 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
         const teamDoc = await db.collection(TEAMS_COLLECTION).doc(resolvedTeamId).get();
         const teamData = teamDoc.data() as TeamDoc | undefined;
         teamCode = teamData?.teamCode ?? undefined;
-        teamName = teamData?.name ?? teamData?.teamName ?? undefined;
+        teamName = teamData?.teamName ?? teamData?.name ?? undefined;
+        const teamSport = teamData?.sport ?? undefined;
+
+        logger.info('[POST /invite/link] Resolved team', {
+          resolvedTeamId,
+          teamCode,
+          teamName,
+          sport: teamSport,
+          organizationId: teamData?.organizationId,
+        });
+      } else {
+        logger.warn('[POST /invite/link] No team found for user', { userId, type });
       }
     }
 
     // Build the invite URL.
-    // The inviter UID can be resolved later from the referral code itself,
-    // so we keep share links clean and only include team-specific context.
+    // For team invites, use teamCode in path; for others, use user's referralCode.
     const params = new URLSearchParams();
-    if (type !== 'general') params.set('type', type);
-    if (teamCode) params.set('teamCode', teamCode);
-    if (teamName) params.set('teamName', teamName);
+    let pathCode: string;
 
-    const path = `/join/${referralCode}`;
+    if (type === 'team' && teamCode) {
+      // Team invite: /join/{teamCode}?type=team&sport={sport}
+      pathCode = teamCode;
+      params.set('type', 'team');
+      if (teamSport) params.set('sport', teamSport);
+    } else {
+      // General/profile invite: /join/{referralCode}?type=...
+      pathCode = referralCode;
+      if (type !== 'general') params.set('type', type);
+    }
+
+    const path = `/join/${pathCode}`;
     const query = params.toString();
     const url = `${baseUrl}${path}${query ? `?${query}` : ''}`;
     const shortUrl = url;
@@ -675,70 +768,88 @@ router.post(
     try {
       const userId = req.user!.uid;
       const db = req.firebase.db;
-      const { code, teamCode, role } = req.body as {
+      const {
+        code,
+        teamCode,
+        role,
+        inviterUid: passedInviterUid,
+      } = req.body as {
         code: string;
         teamCode?: string;
         role?: TeamMemberRole;
+        inviterUid?: string;
       };
 
-      // Find inviter by referral code
-      const usersSnapshot = await db
-        .collection(USERS_COLLECTION)
-        .where('referralCode', '==', code.toUpperCase())
-        .limit(1)
-        .get();
-
-      if (usersSnapshot.empty) {
-        return res.status(404).json({ success: false, error: 'Invalid referral code' });
-      }
-
-      const inviterId = usersSnapshot.docs[0].id;
-
-      // Prevent self-referral
-      if (inviterId === userId) {
-        return res.status(400).json({ success: false, error: 'Cannot accept your own invite' });
-      }
-
-      // Check if already accepted
-      const existingAccept = await db
-        .collection(INVITES_COLLECTION)
-        .where('referralCode', '==', code.toUpperCase())
-        .where('recipient.id', '==', userId)
-        .where('status', '==', 'accepted')
-        .limit(1)
-        .get();
-
-      if (!existingAccept.empty) {
-        return res.status(409).json({ success: false, error: 'Invite already accepted' });
-      }
-
-      const batch = db.batch();
+      const normalizedCode = code.toUpperCase();
       const now = new Date().toISOString();
-
-      // Update any pending invite for this recipient to accepted
-      const pendingInvites = await db
-        .collection(INVITES_COLLECTION)
-        .where('referralCode', '==', code.toUpperCase())
-        .where('status', '==', 'pending')
-        .limit(1)
-        .get();
-
+      let inviterId: string | undefined;
       let teamJoined: string | undefined;
       let joinedAsPending = false;
 
-      if (!pendingInvites.empty) {
-        const inviteRef = pendingInvites.docs[0].ref;
-        const inviteData = pendingInvites.docs[0].data() as InviteDoc;
-        batch.update(inviteRef, { status: 'accepted', updatedAt: now });
-        teamJoined = inviteData.teamName ?? undefined;
+      // ── Resolve inviter ──
+      // Case A: code is a user referral code (NXT-XXXXXX) — look up from Users collection
+      // Case B: code is teamCode (team invite) — inviterUid passed from join page
+      const usersSnapshot = await db
+        .collection(USERS_COLLECTION)
+        .where('referralCode', '==', normalizedCode)
+        .limit(1)
+        .get();
+
+      if (!usersSnapshot.empty) {
+        inviterId = usersSnapshot.docs[0].id;
+        // Prevent self-referral
+        if (inviterId === userId) {
+          return res.status(400).json({ success: false, error: 'Cannot accept your own invite' });
+        }
+      } else if (passedInviterUid && passedInviterUid !== 'unknown') {
+        // Team invite: inviterUid was resolved on the join page
+        inviterId = passedInviterUid;
+      } else if (!teamCode) {
+        // No teamCode and no valid referral code — nothing to do
+        return res.status(404).json({ success: false, error: 'Invalid referral code' });
+      }
+      // If teamCode is provided but no inviter found, proceed (join team without tracking)
+
+      // ── Check if already accepted (only when we have an inviter) ──
+      if (inviterId) {
+        const existingAccept = await db
+          .collection(INVITES_COLLECTION)
+          .where('referralCode', '==', normalizedCode)
+          .where('recipient.id', '==', userId)
+          .where('status', '==', 'accepted')
+          .limit(1)
+          .get();
+
+        if (!existingAccept.empty) {
+          return res.status(409).json({ success: false, error: 'Invite already accepted' });
+        }
       }
 
-      // Record the referral on the new user
-      batch.set(
-        db.collection(USERS_COLLECTION).doc(userId),
-        { referralId: inviterId, referralSource: 'invite_link', referralDetails: code },
-        { merge: true }
-      );
+      const batch = db.batch();
+
+      // ── Update invite doc & track referral on the new user ──
+      if (inviterId) {
+        const pendingInvites = await db
+          .collection(INVITES_COLLECTION)
+          .where('referralCode', '==', normalizedCode)
+          .where('status', '==', 'pending')
+          .limit(1)
+          .get();
+
+        if (!pendingInvites.empty) {
+          const inviteRef = pendingInvites.docs[0].ref;
+          const inviteData = pendingInvites.docs[0].data() as InviteDoc;
+          batch.update(inviteRef, { status: 'accepted', updatedAt: now });
+          teamJoined = inviteData.teamName ?? undefined;
+        }
+
+        // Record the referral on the new user
+        batch.set(
+          db.collection(USERS_COLLECTION).doc(userId),
+          { referralId: inviterId, referralSource: 'invite_link', referralDetails: code },
+          { merge: true }
+        );
+      }
 
       await batch.commit();
 
@@ -749,7 +860,6 @@ router.post(
           const userData = userDoc.data() as UserDoc | undefined;
 
           // Staff roles (Coach / Administrative) are added as pending for admin approval.
-          // All other roles (Athlete, Parent, Media) join immediately.
           const isStaffRole =
             role === TeamMemberRole.COACH || role === TeamMemberRole.ADMINISTRATIVE;
 
@@ -776,6 +886,48 @@ router.post(
           teamJoined = team.teamName ?? teamJoined;
           joinedAsPending = isStaffRole;
 
+          // Write RosterEntry (junction table) with inviterUid tracked
+          if (team.id) {
+            const rosterRoleMap: Partial<Record<ROLE, RosterRole>> = {
+              [ROLE.athlete]: RosterRole.ATHLETE,
+              [ROLE.coach]: RosterRole.HEAD_COACH,
+              [ROLE.admin]: RosterRole.STAFF,
+              [ROLE.media]: RosterRole.MEDIA,
+            };
+            const rosterRole = rosterRoleMap[mappedRole] ?? RosterRole.ATHLETE;
+            const rosterStatus = isStaffRole ? RosterEntryStatus.PENDING : RosterEntryStatus.ACTIVE;
+
+            // Read organizationId directly from the Teams document to ensure it's never empty
+            const teamDocSnap = await db.collection('Teams').doc(team.id).get();
+            const organizationId: string =
+              teamDocSnap.data()?.['organizationId'] ?? team.organizationId ?? '';
+
+            const rosterService = new RosterEntryService(db);
+            try {
+              await rosterService.createRosterEntry({
+                userId,
+                teamId: team.id,
+                organizationId,
+                role: rosterRole,
+                status: rosterStatus,
+                invitedBy: inviterId ?? undefined,
+                firstName: userData?.firstName ?? '',
+                lastName: userData?.lastName ?? '',
+                email: userData?.email ?? '',
+              });
+            } catch (rosterErr: unknown) {
+              // Conflict means already in RosterEntries — not a fatal error
+              const msg = rosterErr instanceof Error ? rosterErr.message : String(rosterErr);
+              if (!msg.includes('already')) {
+                logger.warn('[POST /invite/accept] RosterEntry creation failed (non-blocking)', {
+                  userId,
+                  teamId: team.id,
+                  error: msg,
+                });
+              }
+            }
+          }
+
           logger.info('[POST /invite/accept] User joined team via invite', {
             userId,
             teamCode,
@@ -792,7 +944,12 @@ router.post(
         }
       }
 
-      logger.info('[POST /invite/accept] Invite accepted', { userId, inviterId, code, teamCode });
+      logger.info('[POST /invite/accept] Invite accepted', {
+        userId,
+        inviterId,
+        code,
+        teamCode,
+      });
 
       return res.json({
         success: true,

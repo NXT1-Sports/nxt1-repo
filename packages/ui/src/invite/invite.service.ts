@@ -233,7 +233,8 @@ export class InviteService {
     try {
       const type = this._inviteType();
       const teamId = this._selectedTeam()?.id;
-      const link = await this.api.generateLink(type, teamId);
+      const teamCode = this._selectedTeam()?.teamCode;
+      const link = await this.api.generateLink(type, teamId, teamCode);
       this._inviteLink.set(link);
     } catch (err) {
       this.logger.error('Failed to load invite link', err);

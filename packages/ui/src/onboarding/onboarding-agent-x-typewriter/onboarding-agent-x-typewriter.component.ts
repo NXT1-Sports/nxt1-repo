@@ -174,6 +174,7 @@ const SEEN_TYPED_MESSAGES = new Set<string>();
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { ngSkipHydration: 'true' },
 })
 export class OnboardingAgentXTypewriterComponent implements OnDestroy {
   private readonly platformId = inject(PLATFORM_ID);

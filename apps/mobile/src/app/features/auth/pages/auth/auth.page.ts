@@ -59,6 +59,11 @@ import type { ValidatedTeamInfo } from '@nxt1/core';
 import { AUTH_PAGE_TEST_IDS } from '@nxt1/core/testing';
 import { Preferences } from '@capacitor/preferences';
 import { environment } from '../../../../../environments/environment';
+import {
+  PENDING_REFERRAL_KEY,
+  INVITE_SPORT_KEY,
+  type PendingReferral,
+} from '../../../join/join.component';
 
 @Component({
   selector: 'app-auth',
@@ -293,6 +298,9 @@ export class AuthPage implements OnInit {
     // Initialize biometric and auto-trigger if enrolled (professional UX like Instagram/banking)
     await this.initializeBiometricAndAutoTrigger();
 
+    // Restore invite data from URL params to sessionStorage (for cross-device/session persistence)
+    await this.restoreInviteDataFromUrl();
+
     // Check for mode query param (e.g., ?mode=signup)
     const queryMode = this.route.snapshot.queryParamMap.get('mode');
     if (queryMode === 'signup') {
@@ -306,6 +314,81 @@ export class AuthPage implements OnInit {
       this.teamCodeInput = codeParam.toUpperCase();
       // Auto-validate the team code from URL
       this.onValidateTeamCode();
+    }
+  }
+
+  /**
+   * @remarks Supports both deep links (minimal URL) and full URLs with params
+   */
+  private async restoreInviteDataFromUrl(): Promise<void> {
+    const params = this.route.snapshot.queryParamMap;
+
+    try {
+      const storedData = await Preferences.get({ key: PENDING_REFERRAL_KEY });
+      if (storedData.value) {
+        const referral = JSON.parse(storedData.value) as PendingReferral;
+        const maxAge = 24 * 60 * 60 * 1000;
+        if (Date.now() - referral.timestamp < maxAge) {
+          sessionStorage.setItem(PENDING_REFERRAL_KEY, storedData.value);
+
+          this.logger.info('Restored invite data from native storage', {
+            code: referral.code,
+            teamName: referral.teamName,
+            sport: referral.sport,
+          });
+          return;
+        } else {
+          await Preferences.remove({ key: PENDING_REFERRAL_KEY });
+        }
+      }
+
+      const inviteCode = params.get('invite') || params.get('ref'); // Support both
+      if (!inviteCode) return;
+      this.logger.info('Processing invite from URL param', { inviteCode });
+      let teamData: ValidatedTeamInfo | undefined;
+      try {
+        const result = await this.authApi.validateTeamCode(inviteCode);
+        if (result.valid && result.teamCode) {
+          teamData = result.teamCode;
+          this.logger.info('Fetched team data from invite code', {
+            teamId: teamData.id,
+            teamName: teamData.teamName,
+            sport: teamData.sport,
+          });
+        }
+      } catch (err) {
+        this.logger.warn('Failed to fetch team data from invite code', { error: err });
+        return;
+      }
+
+      if (!teamData) return;
+      const pendingReferral: PendingReferral = {
+        code: inviteCode,
+        inviterUid: '',
+        type: 'team',
+        teamId: teamData.id,
+        teamCode: inviteCode,
+        teamName: teamData.teamName,
+        sport: teamData.sport,
+        teamType: teamData.teamType,
+        role: params.get('role') || undefined,
+        timestamp: Date.now(),
+      };
+      const jsonData = JSON.stringify(pendingReferral);
+      await Preferences.set({ key: PENDING_REFERRAL_KEY, value: jsonData });
+      sessionStorage.setItem(PENDING_REFERRAL_KEY, jsonData);
+      if (teamData.sport) {
+        await Preferences.set({ key: INVITE_SPORT_KEY, value: teamData.sport });
+        sessionStorage.setItem(INVITE_SPORT_KEY, teamData.sport);
+      }
+
+      this.logger.info('Restored and stored invite data from URL', {
+        code: inviteCode,
+        teamName: teamData.teamName,
+        sport: teamData.sport,
+      });
+    } catch (err) {
+      this.logger.error('Failed to restore invite data', { error: err });
     }
   }
 

@@ -33,6 +33,10 @@
       "style": "LIGHT",
       "backgroundColor": "#0a0a0a",
       "overlaysWebView": true
+    },
+    "AppLauncher": {
+      "iosScheme": "nxt1sports",
+      "androidScheme": "nxt1sports"
     }
   },
   "ios": {

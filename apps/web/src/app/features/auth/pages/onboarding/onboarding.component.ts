@@ -112,6 +112,8 @@ import {
   // Invite team-skip
   getSkipStepIdsForInviteUser,
   INVITE_TEAM_JOINED_KEY,
+  // Sport helpers
+  createEmptySportEntry,
 } from '@nxt1/core/api';
 import { AUTH_ROUTES, AUTH_REDIRECTS as _AUTH_REDIRECTS, USER_ROLES } from '@nxt1/core/constants';
 import { createBrowserStorageAdapter, STORAGE_KEYS as _STORAGE_KEYS } from '@nxt1/core/storage';
@@ -229,6 +231,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               <nxt1-onboarding-role-selection
                 [selectedRole]="selectedRole()"
                 [disabled]="isLoading()"
+                [excludeRoles]="isTeamInvite() ? ['director', 'parent'] : []"
                 [variant]="isMobile() ? 'list-row' : 'cards'"
                 (roleSelected)="onRoleSelect($event)"
               />
@@ -445,6 +448,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { ngSkipHydration: 'true' },
 })
 export class OnboardingComponent implements OnInit, OnDestroy {
   protected readonly USER_ROLES = USER_ROLES;
@@ -510,6 +514,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
   /** Selected role (optional last step) */
   readonly selectedRole = signal<OnboardingUserType | null>(null);
+
+  /** Whether the user is joining via a team invite (filters role options) */
+  readonly isTeamInvite = signal(false);
 
   /** Configured steps based on selected role */
   private readonly _steps = signal<OnboardingStep[]>(ONBOARDING_STEPS.athlete);
@@ -701,16 +708,50 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   private initializeStateMachine(userId: string): void {
     this.logger.info('Initializing shared state machine', { userId });
 
-    // Check if user already joined a team via invite link — skip team step
-    const joinedViaInvite =
-      isPlatformBrowser(this.platformId) &&
-      sessionStorage.getItem(INVITE_TEAM_JOINED_KEY) === 'true';
-    const skipStepIds = joinedViaInvite ? getSkipStepIdsForInviteUser() : [];
+    // Check if user has pending invite data (either from flag or pending referral)
+    let skipStepIds: OnboardingStepId[] = [];
+    let hasSportData = false;
+    let hasInviteData = false;
 
-    if (joinedViaInvite) {
-      this.logger.info('User joined team via invite — skipping team steps', { skipStepIds });
-      // Clear the flag so it doesn't persist across page refreshes
-      sessionStorage.removeItem(INVITE_TEAM_JOINED_KEY);
+    if (isPlatformBrowser(this.platformId)) {
+      const joinedViaInvite = sessionStorage.getItem(INVITE_TEAM_JOINED_KEY) === 'true';
+      try {
+        const raw = sessionStorage.getItem('nxt1:pending_referral');
+        if (raw) {
+          const teamData = JSON.parse(raw) as {
+            sport?: string;
+            teamName?: string;
+            teamCode?: string;
+            teamType?: string;
+          };
+          hasSportData = !!(teamData.sport && teamData.teamName);
+          hasInviteData = !!teamData.teamCode;
+
+          this.logger.debug('Found pending referral data in storage', {
+            hasFlag: joinedViaInvite,
+            hasSportData,
+            hasInviteData,
+            teamName: teamData.teamName,
+            sport: teamData.sport,
+          });
+        }
+      } catch (err) {
+        this.logger.warn('Failed to parse pending referral data', { error: err });
+      }
+      if (joinedViaInvite || hasInviteData) {
+        skipStepIds = getSkipStepIdsForInviteUser(undefined, hasSportData);
+
+        this.logger.info('User has invite data — skipping steps', {
+          skipStepIds,
+          hasSportData,
+          hasInviteData,
+          hadJoinedFlag: joinedViaInvite,
+        });
+
+        if (joinedViaInvite) {
+          sessionStorage.removeItem(INVITE_TEAM_JOINED_KEY);
+        }
+      }
     }
 
     // Create the portable state machine
@@ -737,10 +778,74 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     if (!restored) {
       // No valid session - start fresh
       this.machine.start();
+      this.applyInviteSportPreselection();
       // Track onboarding started event
       this.trackStarted();
     } else {
       // Session restored - toast shown in tryRestoreSession
+    }
+  }
+
+  /**
+   * Pre-select sport and team from invite link if available.
+   * Reads full team data from PENDING_REFERRAL_KEY and applies it to the state machine.
+   */
+  private applyInviteSportPreselection(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    try {
+      // Try to get full team data first
+      const raw = sessionStorage.getItem('nxt1:pending_referral');
+      if (raw) {
+        const teamData = JSON.parse(raw) as {
+          sport?: string;
+          teamName?: string;
+          teamType?: string;
+          teamId?: string;
+          teamCode?: string;
+          type?: string;
+        };
+
+        if (teamData.teamCode && teamData.type === 'team') {
+          this.isTeamInvite.set(true);
+          this.logger.debug('Team invite detected - will filter role options', {
+            teamName: teamData.teamName,
+            teamCode: teamData.teamCode,
+          });
+        }
+
+        if (teamData.sport && teamData.teamName) {
+          // We have full team data - create complete sport entry
+          const sportEntry = createEmptySportEntry(teamData.sport, true);
+          sportEntry.team.name = teamData.teamName;
+          sportEntry.team.type = teamData.teamType as any;
+
+          const sportData: SportFormData = {
+            sports: [sportEntry],
+          };
+
+          this.machine.updateSport(sportData);
+          this.logger.info('Applied full team data from invite', {
+            sport: teamData.sport,
+            teamName: teamData.teamName,
+            teamType: teamData.teamType,
+          });
+          return;
+        }
+      }
+
+      const sport = sessionStorage.getItem('nxt1:invite_sport');
+      if (sport) {
+        sessionStorage.removeItem('nxt1:invite_sport');
+        const sportData: SportFormData = {
+          sports: [createEmptySportEntry(sport, true)],
+        };
+
+        this.machine.updateSport(sportData);
+        this.logger.info('Applied sport pre-selection from invite', { sport });
+      }
+    } catch (err) {
+      this.logger.warn('Failed to apply sport pre-selection', { error: err });
     }
   }
 
@@ -1238,7 +1343,40 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     // Save all onboarding data to backend
     try {
       // Map sports array from form data
-      const sportEntries = formData.sport?.sports || [];
+      let sportEntries = formData.sport?.sports || [];
+
+      if (isPlatformBrowser(this.platformId)) {
+        try {
+          const pendingRaw = sessionStorage.getItem('nxt1:pending_referral');
+          if (pendingRaw) {
+            const pending = JSON.parse(pendingRaw) as {
+              sport?: string;
+              teamName?: string;
+              teamType?: string;
+            };
+            if (pending.teamName) {
+              sportEntries = sportEntries.map((entry) =>
+                !entry.team?.name && entry.sport === pending.sport
+                  ? {
+                      ...entry,
+                      team: {
+                        ...entry.team,
+                        name: pending.teamName!,
+                        type: (entry.team?.type || pending.teamType) as typeof entry.team.type,
+                      },
+                    }
+                  : entry
+              );
+              this.logger.info('Enriched sport entries with invite team data', {
+                teamName: pending.teamName,
+                sport: pending.sport,
+              });
+            }
+          }
+        } catch (enrichErr) {
+          this.logger.warn('Failed to enrich sport entries from invite data', { error: enrichErr });
+        }
+      }
 
       // Map 'recruiter' to 'recruiting-service' for backend API compatibility
       const userType: OnboardingProfileData['userType'] =
@@ -1336,6 +1474,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
     // Mark onboarding complete
     this.logger.info('Calling completeOnboarding API', { userId: user.uid });
+    await this.authFlow.acceptPendingInvite(formData.userType ?? undefined);
     const result = await this.authApi.completeOnboarding(user.uid);
     this.logger.info('completeOnboarding API responded', { result });
 

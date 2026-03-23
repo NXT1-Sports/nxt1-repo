@@ -310,17 +310,23 @@ export class OnboardingRoleSelectionComponent {
 
   /** Display variant: 'cards' (desktop) or 'list-row' (mobile, edit-profile style) */
   @Input() variant: 'cards' | 'list-row' = 'cards';
+  @Input() excludeRoles: readonly OnboardingUserType[] = [];
 
   /** Emits when a role is selected */
   @Output() roleSelected = new EventEmitter<OnboardingUserType>();
 
-  /** Available role options */
-  protected readonly roles = ONBOARDING_ROLE_OPTIONS;
+  /** Available role options (filtered based on excludeRoles) */
+  protected get roles(): readonly RoleOption[] {
+    if (this.excludeRoles.length === 0) {
+      return ONBOARDING_ROLE_OPTIONS;
+    }
+    return ONBOARDING_ROLE_OPTIONS.filter((r) => !this.excludeRoles.includes(r.type));
+  }
 
   /** Display label for the currently selected role */
   protected get selectedRoleLabel(): string {
     if (!this.selectedRole) return '';
-    const found = ONBOARDING_ROLE_OPTIONS.find((r) => r.type === this.selectedRole);
+    const found = this.roles.find((r) => r.type === this.selectedRole);
     return found?.label ?? '';
   }
 
@@ -342,7 +348,7 @@ export class OnboardingRoleSelectionComponent {
     const result = await this.nxtModal.actionSheet({
       title: 'Select Role',
       actions: [
-        ...ONBOARDING_ROLE_OPTIONS.map((r) => ({ text: r.label, data: r.type })),
+        ...this.roles.map((r) => ({ text: r.label, data: r.type })),
         { text: 'Cancel', cancel: true },
       ],
       preferNative: 'native',

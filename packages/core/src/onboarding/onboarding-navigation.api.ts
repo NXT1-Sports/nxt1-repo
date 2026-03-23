@@ -2175,27 +2175,42 @@ export function configureStepsForUserType(
  *
  * - Athletes & Parents see `select-teams` → skip it
  * - Coaches & Directors see `create-team-profile` + `team-link-sources` → skip both
+ * - If `includeSport` is true, also skips `sport` step (when full team data is available)
  *
  * ⭐ PURE FUNCTION - No dependencies
  */
-export function getSkipStepIdsForInviteUser(role?: OnboardingUserType | null): OnboardingStepId[] {
+export function getSkipStepIdsForInviteUser(
+  role?: OnboardingUserType | null,
+  includeSport = false
+): OnboardingStepId[] {
+  let skipIds: OnboardingStepId[] = [];
+
   if (!role) {
     // When role is unknown, skip both athlete and coach team steps.
     // The state machine will re-apply the filter when selectRole() is called.
-    return ['select-teams', 'create-team-profile', 'team-link-sources'];
+    skipIds = ['select-teams', 'create-team-profile', 'team-link-sources'];
+  } else {
+    switch (role) {
+      case 'athlete':
+      case 'parent':
+      case 'recruiter':
+        skipIds = ['select-teams'];
+        break;
+      case 'coach':
+      case 'director':
+        skipIds = ['create-team-profile', 'team-link-sources'];
+        break;
+      default:
+        skipIds = ['select-teams'];
+    }
   }
 
-  switch (role) {
-    case 'athlete':
-    case 'parent':
-    case 'recruiter':
-      return ['select-teams'];
-    case 'coach':
-    case 'director':
-      return ['create-team-profile', 'team-link-sources'];
-    default:
-      return ['select-teams'];
+  // If we have full team data with sport, also skip sport selection
+  if (includeSport) {
+    skipIds = [...skipIds, 'sport'];
   }
+
+  return skipIds;
 }
 
 /** SessionStorage / Capacitor Preferences key for the invite-team-joined flag */

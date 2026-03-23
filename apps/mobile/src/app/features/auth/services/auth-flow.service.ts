@@ -55,6 +55,8 @@ import {
 import { createNativeStorageAdapter } from '../../../core/infrastructure/native-storage.adapter';
 import { AUTH_ROUTES, AUTH_REDIRECTS, AUTH_METHODS } from '@nxt1/core/constants';
 import { INVITE_TEAM_JOINED_KEY } from '@nxt1/core/api';
+import { PENDING_REFERRAL_KEY, type PendingReferral } from '../../join/join.component';
+import { InviteApiService } from '@nxt1/ui/invite';
 import {
   type AnalyticsAdapter,
   createMobileAnalyticsAdapterSync,
@@ -106,6 +108,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   private readonly authApi = inject(AuthApiService);
   private readonly firebaseAuth = inject(FirebaseAuthService);
   private readonly fcmRegistration = inject(FcmRegistrationService);
+  private readonly inviteApi = inject(InviteApiService);
 
   /**
    * ⭐ ProfileService - Manages User data (Single Source of Truth) ⭐
@@ -822,6 +825,83 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       return false;
     } finally {
       this.authManager.setLoading(false);
+    }
+  }
+
+  /**
+   * @param roleOverride - Role selected by user during onboarding (overrides stored role)
+   */
+  async acceptPendingInvite(roleOverride?: string): Promise<void> {
+    try {
+      let raw: string | null = null;
+      try {
+        const nativeRaw = await createNativeStorageAdapter().get(PENDING_REFERRAL_KEY);
+        if (nativeRaw) raw = nativeRaw;
+      } catch {
+        // fallback below
+      }
+
+      if (!raw && this.platform.isBrowser()) {
+        raw = sessionStorage.getItem(PENDING_REFERRAL_KEY);
+      }
+
+      if (!raw) {
+        this.logger.debug('No pending invite to accept');
+        return;
+      }
+
+      const referral = JSON.parse(raw) as PendingReferral;
+      if (!referral.code) {
+        this.logger.warn('Pending referral missing code');
+        return;
+      }
+
+      this.logger.info('Accepting pending invite', {
+        code: referral.code,
+        type: referral.type,
+        teamCode: referral.teamCode,
+        role: referral.role,
+        inviterUid: referral.inviterUid,
+      });
+
+      await this.inviteApi.acceptInvite(
+        referral.code,
+        referral.teamCode,
+        roleOverride ?? referral.role,
+        referral.inviterUid
+      );
+
+      this.logger.info('Invite accepted successfully', {
+        code: referral.code,
+        teamCode: referral.teamCode,
+      });
+      try {
+        await createNativeStorageAdapter().set(INVITE_TEAM_JOINED_KEY, 'true');
+        if (this.platform.isBrowser()) {
+          sessionStorage.setItem(INVITE_TEAM_JOINED_KEY, 'true');
+        }
+      } catch (storageErr) {
+        this.logger.warn('Failed to set invite team joined flag', { error: storageErr });
+      }
+
+      this.logger.debug('Marked invite team joined flag');
+    } catch (err) {
+      this.logger.warn('Failed to accept pending invite', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      try {
+        await createNativeStorageAdapter().remove(PENDING_REFERRAL_KEY);
+      } catch {
+        /* ignore */
+      }
+      try {
+        if (this.platform.isBrowser()) {
+          sessionStorage.removeItem(PENDING_REFERRAL_KEY);
+        }
+      } catch {
+        /* ignore */
+      }
     }
   }
 

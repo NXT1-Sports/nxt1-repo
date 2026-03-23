@@ -386,6 +386,14 @@ export class AcceptInviteDto {
   teamCode?: string;
 
   /**
+   * UID of the user who sent the invite (pre-resolved on the join page).
+   * Used for team invites where `code` is the teamCode, not a user referral code.
+   */
+  @IsString()
+  @IsOptional()
+  inviterUid?: string;
+
+  /**
    * Role the invitee chose on the /join landing page.
    * Athlete/Parent/Media join automatically; Coach/Administrative are added as pending.
    */

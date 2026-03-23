@@ -53,6 +53,5 @@ export class InviteApiService {
   readonly sendBulkInvites = this.api.sendBulkInvites;
   readonly getHistory = this.api.getHistory;
   readonly getStats = this.api.getStats;
-  readonly validateReferralCode = this.api.validateReferralCode;
   readonly acceptInvite = this.api.acceptInvite;
 }
