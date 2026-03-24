@@ -49,6 +49,14 @@ export class MemoryCacheService implements CacheService {
     this.cache.delete(key);
   }
 
+  async delByPrefix(prefix: string): Promise<void> {
+    for (const key of this.cache.keys()) {
+      if (key.startsWith(prefix)) {
+        this.cache.delete(key);
+      }
+    }
+  }
+
   async clear(): Promise<void> {
     this.cache.clear();
   }

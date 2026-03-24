@@ -33,7 +33,7 @@ export const validateEmail = onCall(async (request) => {
   }
 
   const existing = await db
-    .collection('users')
+    .collection('Users')
     .where('email', '==', normalizedEmail)
     .limit(1)
     .get();

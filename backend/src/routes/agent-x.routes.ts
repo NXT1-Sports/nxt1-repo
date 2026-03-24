@@ -842,7 +842,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     }
 
     const { db } = req.firebase!;
-    const userDoc = await db.collection('users').doc(user.uid).get();
+    const userDoc = await db.collection('Users').doc(user.uid).get();
     const userData = userDoc.data() ?? {};
     const role: string = userData['role'] ?? 'athlete';
     const agentGoals: AgentDashboardGoal[] = userData['agentGoals'] ?? [];
@@ -909,7 +909,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
 
     // Fetch generated briefing (or fall back to static defaults)
     const briefingDoc = await db
-      .collection('users')
+      .collection('Users')
       .doc(user.uid)
       .collection('agent_briefings')
       .orderBy('generatedAt', 'desc')
@@ -933,7 +933,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
 
     // Fetch generated playbook (or return empty with goals)
     const playbookDoc = await db
-      .collection('users')
+      .collection('Users')
       .doc(user.uid)
       .collection('agent_playbooks')
       .orderBy('generatedAt', 'desc')
@@ -998,7 +998,7 @@ router.post('/goals', appGuard, validateBody(SetGoalsDto), async (req: Request, 
 
     // Store goals on user document
     await db
-      .collection('users')
+      .collection('Users')
       .doc(user.uid)
       .set(
         { agentGoals: plainGoals, agentGoalsUpdatedAt: new Date().toISOString() },
@@ -1090,7 +1090,7 @@ router.post(
 
       // Fall back to Firestore read when ContextBuilder is unavailable
       if (!profileContext) {
-        const userDoc = await db.collection('users').doc(user.uid).get();
+        const userDoc = await db.collection('Users').doc(user.uid).get();
         const userData = userDoc.data() ?? {};
         const role = (userData['role'] ?? 'athlete') as string;
         const displayName = (userData['displayName'] ?? '') as string;
@@ -1099,7 +1099,7 @@ router.post(
       }
 
       // Fetch agent goals from Firestore (lightweight — not part of ContextBuilder)
-      const goalsDoc = await db.collection('users').doc(user.uid).get();
+      const goalsDoc = await db.collection('Users').doc(user.uid).get();
       const goalsData = goalsDoc.data() ?? {};
       const agentGoals: AgentDashboardGoal[] = (goalsData['agentGoals'] ??
         []) as AgentDashboardGoal[];
@@ -1299,7 +1299,7 @@ router.post(
 
       const { status } = req.body as { status: ShellWeeklyPlaybookItem['status'] };
       const { db } = req.firebase!;
-      const playbooksRef = db.collection('users').doc(user.uid).collection('agent_playbooks');
+      const playbooksRef = db.collection('Users').doc(user.uid).collection('agent_playbooks');
 
       // Find the latest playbook doc ref outside the transaction (immutable query)
       const latestPlaybook = await playbooksRef.orderBy('generatedAt', 'desc').limit(1).get();

@@ -119,7 +119,7 @@ export const onNotificationCreatedV2 = onDocumentCreated(
       let unreadCount = 1; // Fallback if query fails
       try {
         const activitySnapshot = await db
-          .collection('users')
+          .collection('Users')
           .doc(userId)
           .collection('activity')
           .where('isRead', '==', false)

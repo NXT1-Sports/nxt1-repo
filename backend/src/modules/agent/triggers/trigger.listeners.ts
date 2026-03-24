@@ -205,7 +205,7 @@ export async function runDailyBriefings(): Promise<void> {
     const { getFirestore } = await import('firebase-admin/firestore');
     const db = getFirestore();
     const usersWithGoals = await db
-      .collection('users')
+      .collection('Users')
       .where('agentGoals', '!=', [])
       .select() // Only fetch doc IDs, not full documents
       .get();

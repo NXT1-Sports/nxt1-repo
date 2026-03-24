@@ -5,6 +5,7 @@
  * Follow/unfollow with atomic Firestore transactions and push notifications.
  * - POST /                    → follow a user (dispatches new_follower notification)
  * - DELETE /                  → unfollow a user
+ * - GET /check               → check if current user follows a given user
  * - GET /followers/:userId    → paginated follower list
  * - GET /following/:userId    → paginated following list
  *
@@ -14,16 +15,15 @@
 import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { appGuard } from '../middleware/auth.middleware.js';
-import { validateBody } from '../middleware/validation.middleware.js';
+import { validateBody, validateQuery } from '../middleware/validation.middleware.js';
 import { FollowUserDto, UnfollowUserDto } from '../dtos/social.dto.js';
-import { dispatch } from '../services/notification.service.js';
+import { sendFollowNotification } from '../services/notification.service.js';
 import { getUserById } from '../services/users.service.js';
-import { NOTIFICATION_TYPES } from '@nxt1/core';
 import { logger } from '../utils/logger.js';
 
 const router: ExpressRouter = Router();
 
-const FOLLOWS_COLLECTION = 'follows';
+const FOLLOWS_COLLECTION = 'Follows';
 const USERS_COLLECTION = 'Users';
 
 /**
@@ -101,16 +101,12 @@ router.post(
       void (async () => {
         const follower = await getUserById(followerId, db);
         const displayName = getDisplayName(follower);
-        await dispatch(db, {
-          userId: targetUserId,
-          type: NOTIFICATION_TYPES.NEW_FOLLOWER,
-          title: `${displayName} started following you`,
-          body: 'Tap to view their profile',
-          source: {
-            userId: followerId,
-            userName: displayName,
-            avatarUrl: (follower?.['profilePictureUrl'] as string | undefined) ?? undefined,
-          },
+        await sendFollowNotification(db, {
+          targetType: 'user',
+          followerUserId: followerId,
+          followerName: displayName,
+          followerAvatarUrl: (follower?.['profilePictureUrl'] as string | undefined) ?? undefined,
+          targetUserId,
         });
       })().catch((err) =>
         logger.error('[Follow] Failed to dispatch new_follower notification', { error: err })
@@ -121,8 +117,10 @@ router.post(
 
 /**
  * Unfollow a user
- * DELETE /api/v1/follow
- * Body: { targetUserId: string }
+ * DELETE /api/v1/follow?targetUserId=...
+ *
+ * targetUserId is sent as a query param (not body) so that native HTTP clients
+ * that cannot send DELETE with a body (e.g. Capacitor) can interop correctly.
  *
  * Atomic transaction: deletes follow doc, decrements both counters.
  * No notification dispatched on unfollow (standard platform behavior).
@@ -130,10 +128,10 @@ router.post(
 router.delete(
   '/',
   appGuard,
-  validateBody(UnfollowUserDto),
+  validateQuery(UnfollowUserDto),
   async (req: Request, res: Response): Promise<void> => {
     const followerId = req.user!.uid;
-    const { targetUserId } = req.body as { targetUserId?: string };
+    const targetUserId = req.query['targetUserId'] as string | undefined;
     const db = req.firebase!.db;
 
     if (!targetUserId || typeof targetUserId !== 'string') {
@@ -206,6 +204,26 @@ router.get('/following/:userId', appGuard, async (req: Request, res: Response): 
   const followingIds = snapshot.docs.map((doc) => doc.data()['followingId'] as string);
 
   res.json({ success: true, data: { followingIds, total: snapshot.size } });
+});
+
+/**
+ * Check if current user follows a given user or entity
+ * GET /api/v1/follow/check?targetUserId=X
+ */
+router.get('/check', appGuard, async (req: Request, res: Response): Promise<void> => {
+  const followerId = req.user!.uid;
+  const targetUserId = req.query['targetUserId'] as string | undefined;
+  const db = req.firebase!.db;
+
+  if (!targetUserId || typeof targetUserId !== 'string') {
+    res.status(400).json({ success: false, error: 'targetUserId is required' });
+    return;
+  }
+
+  const followRef = db.collection(FOLLOWS_COLLECTION).doc(`${followerId}_${targetUserId}`);
+  const followDoc = await followRef.get();
+
+  res.json({ success: true, data: { isFollowing: followDoc.exists } });
 });
 
 export default router;

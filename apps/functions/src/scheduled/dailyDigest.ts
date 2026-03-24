@@ -55,14 +55,14 @@ export const dailyDigest = onSchedule(
 
       // Aggregate daily stats
       const newUsers = await db
-        .collection('users')
+        .collection('Users')
         .where('createdAt', '>=', yesterday)
         .where('createdAt', '<', today)
         .count()
         .get();
 
       const activeUsers = await db
-        .collection('users')
+        .collection('Users')
         .where('lastActive', '>=', yesterday)
         .count()
         .get();

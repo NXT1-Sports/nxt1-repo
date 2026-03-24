@@ -59,11 +59,17 @@ import { getVerification, normalizeWeightDisplay, isFemaleGender } from '@nxt1/c
           <button
             type="button"
             class="madden-mobile-hero__follow-btn"
-            aria-label="Follow athlete"
+            [class.madden-mobile-hero__follow-btn--following]="profile.followStats()?.isFollowing"
+            [attr.aria-label]="
+              profile.followStats()?.isFollowing ? 'Unfollow athlete' : 'Follow athlete'
+            "
             (click)="followClick.emit()"
           >
-            <nxt1-icon name="plus" [size]="13" />
-            Follow
+            <nxt1-icon
+              [name]="profile.followStats()?.isFollowing ? 'checkmark' : 'plus'"
+              [size]="13"
+            />
+            {{ profile.followStats()?.isFollowing ? 'Following' : 'Follow' }}
           </button>
         }
         <!-- Mobile hero stats (Class, Height, Weight, Location) -->

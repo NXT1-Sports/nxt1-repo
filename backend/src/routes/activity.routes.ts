@@ -38,7 +38,7 @@ const VALID_SORT_ORDERS = ['asc', 'desc'] as const;
 // ============================================
 
 function getUserActivityCollection(db: FirebaseFirestore.Firestore, uid: string) {
-  return db.collection('users').doc(uid).collection(ACTIVITY_COLLECTION);
+  return db.collection('Users').doc(uid).collection(ACTIVITY_COLLECTION);
 }
 
 function clampPageSize(value: unknown): number {

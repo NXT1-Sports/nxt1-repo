@@ -427,7 +427,7 @@ export const crashlyticsWebhook = onRequest(
   {
     cors: ['https://firebase.google.com', 'https://console.firebase.google.com'],
     invoker: 'public',
-    secrets: ['SLACK_BOT_TOKEN', 'N8N_WEBHOOK_URL'],
+    secrets: ['SLACK_BOT_TOKEN', 'N8N_WEBHOOK_URL'], // TODO: Add SLACK_WEBHOOK_URL if using webhook fallback or comment out to deploy
   },
   async (req, res) => {
     // Verify HTTP method

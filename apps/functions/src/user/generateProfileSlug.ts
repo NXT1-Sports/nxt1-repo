@@ -35,7 +35,7 @@ export const generateProfileSlug = onCall(async (request) => {
   let isUnique = false;
 
   while (!isUnique) {
-    const existing = await db.collection('users').where('profileSlug', '==', slug).limit(1).get();
+    const existing = await db.collection('Users').where('profileSlug', '==', slug).limit(1).get();
 
     if (existing.empty) {
       isUnique = true;

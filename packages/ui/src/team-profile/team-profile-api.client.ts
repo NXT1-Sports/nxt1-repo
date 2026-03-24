@@ -104,6 +104,48 @@ export class TeamProfileApiClient {
   }
 
   /**
+   * Get team profile by Firestore document ID
+   * GET /api/v1/teams/by-id/:id
+   * Prefer this over getTeamBySlug when you have the exact team ID —
+   * avoids ambiguity when multiple teams share the same name/slug.
+   */
+  async getTeamById(teamId: string): Promise<TeamProfilePageData> {
+    if (!teamId) {
+      throw new Error('Team ID is required');
+    }
+
+    this.logger.debug('Fetching team profile by ID', { teamId });
+
+    try {
+      const url = `${this.baseUrl}/teams/by-id/${encodeURIComponent(teamId)}`;
+
+      const response = await firstValueFrom(this.http.get<ApiResponse<TeamProfilePageData>>(url));
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to fetch team profile');
+      }
+
+      const cached = response.meta?.cached || false;
+
+      this.logger.info('Team profile fetched by ID', {
+        teamId,
+        cached,
+        rosterCount: response.data.roster.length,
+      });
+
+      return response.data;
+    } catch (error) {
+      const apiError = this.handleError(error);
+      this.logger.error('Failed to fetch team profile by ID', error, {
+        teamId,
+        status: apiError.status,
+        code: apiError.code,
+      });
+      throw apiError;
+    }
+  }
+
+  /**
    * Increment team page view
    * POST /api/v1/teams/:id/view
    */
@@ -119,6 +161,44 @@ export class TeamProfileApiClient {
     } catch (error) {
       // Don't throw - view tracking is non-critical
       this.logger.warn('Failed to increment team view', { teamId, error });
+    }
+  }
+
+  /**
+   * Follow a team
+   * POST /api/v1/teams/:id/follow
+   */
+  async followTeam(teamId: string): Promise<ApiResponse<{ isFollowing: boolean }>> {
+    const url = `${this.baseUrl}/teams/${encodeURIComponent(teamId)}/follow`;
+    try {
+      const response = await firstValueFrom(
+        this.http.post<ApiResponse<{ isFollowing: boolean }>>(url, {})
+      );
+      this.logger.debug('Team followed', { teamId });
+      return response;
+    } catch (error) {
+      const apiError = this.handleError(error);
+      this.logger.error('Failed to follow team', error, { teamId, status: apiError.status });
+      throw apiError;
+    }
+  }
+
+  /**
+   * Unfollow a team
+   * DELETE /api/v1/teams/:id/follow
+   */
+  async unfollowTeam(teamId: string): Promise<ApiResponse<{ isFollowing: boolean }>> {
+    const url = `${this.baseUrl}/teams/${encodeURIComponent(teamId)}/follow`;
+    try {
+      const response = await firstValueFrom(
+        this.http.delete<ApiResponse<{ isFollowing: boolean }>>(url)
+      );
+      this.logger.debug('Team unfollowed', { teamId });
+      return response;
+    } catch (error) {
+      const apiError = this.handleError(error);
+      this.logger.error('Failed to unfollow team', error, { teamId, status: apiError.status });
+      throw apiError;
     }
   }
 

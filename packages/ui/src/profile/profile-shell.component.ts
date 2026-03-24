@@ -726,6 +726,7 @@ export class ProfileShellComponent implements OnInit {
   readonly aiSummaryClick = output<void>();
   readonly agentXClick = output<void>();
   readonly createPostClick = output<void>();
+  readonly followClick = output<void>();
   readonly retryClick = output<void>();
   readonly refreshRequest = output<void>();
 
@@ -1099,7 +1100,7 @@ export class ProfileShellComponent implements OnInit {
   }
 
   protected onFollowToggle(): void {
-    this.profile.toggleFollow();
+    this.followClick.emit();
   }
 
   // Post actions

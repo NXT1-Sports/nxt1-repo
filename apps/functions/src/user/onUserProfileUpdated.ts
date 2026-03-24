@@ -33,7 +33,7 @@ export const onUserProfileUpdatedV2 = onDocumentUpdated('users/{userId}', async 
   const prevCompleteness = beforeData['profileCompleteness'] as number | undefined;
 
   if (completeness !== prevCompleteness) {
-    await db.collection('users').doc(userId).update({
+    await db.collection('Users').doc(userId).update({
       profileCompleteness: completeness,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });

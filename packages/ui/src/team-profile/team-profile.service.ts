@@ -285,6 +285,54 @@ export class TeamProfileService {
   // ============================================
 
   /**
+   * Load team profile by Firestore document ID.
+   * Prefer over loadTeam(slug) when you have the exact team ID —
+   * avoids slug ambiguity when multiple teams share the same name.
+   */
+  async loadTeamById(teamId: string, isAdmin = false): Promise<void> {
+    if (!teamId) {
+      this.setError('Team ID is required');
+      return;
+    }
+
+    this._isLoading.set(true);
+    this._error.set(null);
+    this._teamData.set(null);
+
+    this.logger.info('Loading team profile by ID', { teamId, isAdmin });
+
+    try {
+      const data = await this.apiClient.getTeamById(teamId);
+
+      this._teamData.set(data);
+      this._isLoading.set(false);
+
+      if (data.team.id) {
+        this.apiClient.incrementTeamView(data.team.id).catch(() => {
+          // Ignore errors
+        });
+      }
+
+      this.logger.info('Team profile loaded by ID', {
+        teamId: data.team.id,
+        teamName: data.team.teamName,
+        rosterCount: data.roster.length,
+      });
+    } catch (error) {
+      const { message, code, status } = error as TeamProfileApiError;
+
+      this._error.set(message);
+      this._isLoading.set(false);
+
+      this.logger.error('Failed to load team profile by ID', error as unknown, {
+        teamId,
+        code,
+        status,
+      });
+    }
+  }
+
+  /**
    * Load team profile by slug (using real API)
    */
   async loadTeam(slug: string, isAdmin = false): Promise<void> {
@@ -332,12 +380,17 @@ export class TeamProfileService {
 
   /**
    * Refresh team data.
+   * Re-fetches using ID if available, otherwise falls back to slug.
    */
   async refresh(): Promise<void> {
     const team = this.team();
     if (!team) return;
 
-    await this.loadTeam(team.slug, this.isTeamAdmin());
+    if (team.id) {
+      await this.loadTeamById(team.id, this.isTeamAdmin());
+    } else {
+      await this.loadTeam(team.slug, this.isTeamAdmin());
+    }
   }
 
   /**
@@ -379,8 +432,11 @@ export class TeamProfileService {
     });
 
     try {
-      // TODO: Replace with actual API call
-      await this.simulateDelay(300);
+      if (newIsFollowing) {
+        await this.apiClient.followTeam(teamId);
+      } else {
+        await this.apiClient.unfollowTeam(teamId);
+      }
       this.logger.info(newIsFollowing ? 'Team followed' : 'Team unfollowed', { teamId });
     } catch (err) {
       // Rollback on error
@@ -388,6 +444,17 @@ export class TeamProfileService {
       this.logger.error('Failed to toggle team follow', {
         error: (err as TeamProfileApiError).message,
       });
+    }
+  }
+
+  /**
+   * Track team page view (fire-and-forget).
+   */
+  async trackPageView(teamId: string): Promise<void> {
+    try {
+      await this.apiClient.incrementTeamView(teamId);
+    } catch {
+      // Non-critical — swallow errors
     }
   }
 

@@ -90,7 +90,7 @@ export class AgentGenerationService {
    */
   async generatePlaybook(uid: string, dbOverride?: Firestore): Promise<PlaybookGenerationResult> {
     const db = this.resolveDb(dbOverride);
-    const userDoc = await db.collection('users').doc(uid).get();
+    const userDoc = await db.collection('Users').doc(uid).get();
     const userData = userDoc.data() ?? {};
     const role = (userData['role'] ?? 'athlete') as string;
     const sport = (userData['sport'] ?? '') as string;
@@ -109,7 +109,7 @@ export class AgentGenerationService {
     let pastTaskContext = '';
     try {
       const prevPlaybook = await db
-        .collection('users')
+        .collection('Users')
         .doc(uid)
         .collection('agent_playbooks')
         .orderBy('generatedAt', 'desc')
@@ -143,7 +143,7 @@ export class AgentGenerationService {
     let deltaContext = '';
     try {
       const syncReport = await db
-        .collection('users')
+        .collection('Users')
         .doc(uid)
         .collection('agent_sync_reports')
         .orderBy('syncedAt', 'desc')
@@ -278,7 +278,7 @@ export class AgentGenerationService {
     const generatedAt = new Date().toISOString();
 
     // Persist and prune old playbooks (keep last 10)
-    const playbooksRef = db.collection('users').doc(uid).collection('agent_playbooks');
+    const playbooksRef = db.collection('Users').doc(uid).collection('agent_playbooks');
     await playbooksRef.add({
       items: playbookItems,
       goals: agentGoals,
@@ -331,7 +331,7 @@ export class AgentGenerationService {
       todayStart.setHours(0, 0, 0, 0);
 
       const existingBriefing = await db
-        .collection('users')
+        .collection('Users')
         .doc(uid)
         .collection('agent_briefings')
         .where('generatedAt', '>=', todayStart.toISOString())
@@ -349,7 +349,7 @@ export class AgentGenerationService {
     }
 
     // ── Fetch user profile data ─────────────────────────────────────────
-    const userDoc = await db.collection('users').doc(uid).get();
+    const userDoc = await db.collection('Users').doc(uid).get();
     const userData = userDoc.data() ?? {};
     const role = (userData['role'] ?? 'athlete') as string;
     const sport = (userData['sport'] ?? '') as string;
@@ -363,7 +363,7 @@ export class AgentGenerationService {
     let recentActivityText = '';
     try {
       const recentBriefings = await db
-        .collection('users')
+        .collection('Users')
         .doc(uid)
         .collection('agent_playbooks')
         .orderBy('generatedAt', 'desc')
@@ -386,7 +386,7 @@ export class AgentGenerationService {
     let syncContext = '';
     try {
       const syncReport = await db
-        .collection('users')
+        .collection('Users')
         .doc(uid)
         .collection('agent_sync_reports')
         .orderBy('syncedAt', 'desc')
@@ -494,7 +494,7 @@ export class AgentGenerationService {
     const generatedAt = new Date().toISOString();
 
     // ── Persist and prune briefings (keep last 7) ───────────────────────
-    const briefingsRef = db.collection('users').doc(uid).collection('agent_briefings');
+    const briefingsRef = db.collection('Users').doc(uid).collection('agent_briefings');
     await briefingsRef.add({
       previewText: briefingPreviewText,
       insights: briefingInsights,
@@ -532,7 +532,7 @@ export class AgentGenerationService {
    */
   async generateDailyContent(uid: string): Promise<void> {
     // Check if user has goals before generating
-    const userDoc = await this.db.collection('users').doc(uid).get();
+    const userDoc = await this.db.collection('Users').doc(uid).get();
     const agentGoals = (userDoc.data()?.['agentGoals'] ?? []) as AgentDashboardGoal[];
 
     if (agentGoals.length === 0) {

@@ -40,7 +40,7 @@ export const checkUsernameAvailability = onCall(async (request) => {
   }
 
   const existing = await db
-    .collection('users')
+    .collection('Users')
     .where('username', '==', normalizedUsername)
     .limit(1)
     .get();

@@ -178,10 +178,19 @@ export class TeamComponent implements OnInit {
     this.teamProfile.startLoading();
 
     // Load team data from API
-    this.teamProfile.loadTeam(slug, this.isTeamAdmin()).catch((error) => {
-      this.logger.error('Failed to load team on init', { slug, error });
-      this.toast.error('Failed to load team profile');
-    });
+    this.teamProfile
+      .loadTeam(slug, this.isTeamAdmin())
+      .then(() => {
+        // Track page view after data loads — skip if user is an admin of this team
+        if (!this.isTeamAdmin()) {
+          const teamId = this.teamProfile.team()?.id;
+          if (teamId) void this.teamProfile.trackPageView(teamId);
+        }
+      })
+      .catch((error) => {
+        this.logger.error('Failed to load team on init', { slug, error });
+        this.toast.error('Failed to load team profile');
+      });
   }
 
   // ============================================

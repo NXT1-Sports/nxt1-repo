@@ -159,6 +159,22 @@ export class RedisCacheService implements CacheService {
     }
   }
 
+  async delByPrefix(prefix: string): Promise<void> {
+    if (!this.client || !this.connected) return;
+
+    try {
+      const keysToDelete: string[] = [];
+      for await (const keys of this.client.scanIterator({ MATCH: `${prefix}*`, COUNT: 100 })) {
+        keysToDelete.push(...keys);
+      }
+      if (keysToDelete.length > 0) {
+        await this.client.del(keysToDelete);
+      }
+    } catch (error) {
+      console.error(`[Redis] DelByPrefix error for prefix ${prefix}:`, error);
+    }
+  }
+
   isConnected(): boolean {
     return this.connected;
   }

@@ -327,7 +327,7 @@ router.post(
     for (const follow of follows) {
       // users/{uid}/followers/{followerId} — who follows this user
       if (follow.followingId === userId) {
-        const followerRef = userRef.collection('followers').doc(follow.followerId);
+        const followerRef = userRef.collection('Followers').doc(follow.followerId);
         ops.push((b) =>
           b.set(followerRef, {
             userId: follow.followerId,
@@ -508,7 +508,7 @@ router.delete(
       }
     }
     await Promise.all([
-      deleteAllDocs(userRef.collection('followers')),
+      deleteAllDocs(userRef.collection('Followers')),
       deleteAllDocs(userRef.collection('following')),
     ]);
     */

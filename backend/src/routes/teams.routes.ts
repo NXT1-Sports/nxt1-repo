@@ -11,7 +11,8 @@
  */
 
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
-import { appGuard } from '../middleware/auth.middleware.js';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { appGuard, optionalAuth } from '../middleware/auth.middleware.js';
 import { validateBody, validateQuery } from '../middleware/validation.middleware.js';
 import {
   CreateTeamDto,
@@ -30,11 +31,15 @@ import {
   type MapTeamProfileOptions,
 } from '../services/team-profile-mapper.service.js';
 import { logger } from '../utils/logger.js';
-import { dispatch } from '../services/notification.service.js';
+import { dispatch, sendFollowNotification } from '../services/notification.service.js';
 import { getUserById } from '../services/users.service.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
 import { performanceMiddleware, testPerformance } from '../middleware/performance.middleware.js';
-import { getCacheService, CACHE_TTL } from '../services/cache.service.js';
+import {
+  getCacheService,
+  CACHE_TTL,
+  invalidateTeamProfileCache,
+} from '../services/cache.service.js';
 import { markCacheHit } from '../middleware/cache-status.middleware.js';
 import type { TeamProfilePageData } from '@nxt1/core/team-profile';
 
@@ -252,6 +257,65 @@ router.get(
 );
 
 /**
+ * Get team profile by Firestore document ID
+ * GET /api/v1/teams/by-id/:id
+ * Returns full TeamProfilePageData — same shape as /by-slug but guaranteed to
+ * resolve the exact team even when multiple teams share the same name/slug.
+ */
+router.get(
+  '/by-id/:id',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { id } = req.params;
+    const db = req.firebase!.db;
+    const userId = req.user?.uid;
+
+    validateRequired(id, 'Team ID');
+
+    logger.debug('[Teams API] Fetching team profile by ID', { id, userId });
+
+    const cache = getCacheService();
+    const profileCacheKey = `team:profile:id:${id}:${userId ?? 'public'}`;
+    const cachedProfile = await cache.get<TeamProfilePageData>(profileCacheKey);
+    if (cachedProfile) {
+      logger.debug('[Teams API] Team profile by ID served from cache', { id, userId });
+      markCacheHit(req, 'redis', profileCacheKey);
+      sendSuccess(res, cachedProfile, { cached: true });
+      return;
+    }
+
+    const teamAdapter = createTeamAdapter(db);
+    let teamCode;
+    try {
+      teamCode = await teamAdapter.getTeamWithMembers(String(id));
+    } catch {
+      res.status(404).json({ success: false, error: 'Team not found' });
+      return;
+    }
+
+    const options: MapTeamProfileOptions = {
+      userId,
+      includeRoster: true,
+      includeSchedule: true,
+      includePosts: true,
+    };
+
+    const profileData = await mapTeamCodeToProfile(teamCode, options, db);
+
+    await cache.set(profileCacheKey, profileData, { ttl: CACHE_TTL.PROFILES });
+
+    logger.info('[Teams API] Team profile fetched by ID', {
+      teamId: teamCode.id,
+      userId,
+      rosterCount: profileData.roster.length,
+      staffCount: profileData.staff.length,
+    });
+
+    sendSuccess(res, profileData, { cached: false });
+  })
+);
+
+/**
  * Get team profile by slug (for team profile pages)
  * GET /api/v1/teams/by-slug/:slug
  * Returns full TeamProfilePageData with roster, stats, etc.
@@ -259,6 +323,7 @@ router.get(
  */
 router.get(
   '/by-slug/:slug',
+  optionalAuth,
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { slug } = req.params;
     const db = req.firebase!.db;
@@ -301,8 +366,7 @@ router.get(
 
     const profileData = await mapTeamCodeToProfile(teamCode, options, db);
 
-    // Store in Redis cache (3-minute TTL — balances freshness vs DB load)
-    await cache.set(profileCacheKey, profileData, { ttl: CACHE_TTL.POSTS });
+    await cache.set(profileCacheKey, profileData, { ttl: CACHE_TTL.PROFILES });
 
     logger.info('[Teams API] Team profile fetched by slug', {
       teamId: teamCode.id,
@@ -355,6 +419,8 @@ router.patch(
     });
 
     logger.info('[Teams API] TeamCode updated', { teamId: id, userId });
+
+    void invalidateTeamProfileCache(String(id), team.slug ?? undefined);
 
     sendSuccess(res, team);
   })
@@ -422,6 +488,8 @@ router.post(
     });
 
     logger.info('[Teams API] User joined team', { teamCode, userId });
+
+    void invalidateTeamProfileCache(team.id ?? '', team.slug ?? undefined);
 
     // Fire-and-forget: notify team owner that a new member joined
     // createdBy is in Firestore but not on the TeamCode type — read it directly
@@ -535,6 +603,8 @@ router.delete(
 
     logger.info('[Teams API] Member removed', { teamId: id, targetUserId });
 
+    void invalidateTeamProfileCache(String(id));
+
     sendSuccess(res, { message: 'Member removed successfully' });
   })
 );
@@ -566,6 +636,8 @@ router.patch(
     });
 
     logger.info('[Teams API] Member role updated', { teamId: id, targetUserId, role });
+
+    void invalidateTeamProfileCache(String(id), team.slug ?? undefined);
 
     sendSuccess(res, team);
   })
@@ -607,6 +679,8 @@ router.patch(
       successCount: result.successCount,
       failedCount: result.failedCount,
     });
+
+    void invalidateTeamProfileCache(String(id));
 
     sendSuccess(res, result);
   })
@@ -721,6 +795,129 @@ router.post(
     logger.debug('[Teams API] Page view recorded', { teamId: id, viewerId });
 
     sendSuccess(res, { message: 'Page view recorded' });
+  })
+);
+
+// ============================================
+// TEAM FOLLOW / UNFOLLOW
+// ============================================
+
+const FOLLOWS_COLLECTION = 'follows';
+const TEAMS_COLLECTION = 'Teams';
+
+/**
+ * Follow a team
+ * POST /api/v1/teams/:id/follow
+ *
+ * Atomic: creates follows/{userId}_{teamId} doc + increments Teams/{teamId}.followersCount
+ * Idempotent (no-op if already following).
+ * Notifies team admins via FCM push after response is sent.
+ */
+router.post(
+  '/:id/follow',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id: teamId } = req.params as { id: string };
+    const userId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    validateRequired(teamId, 'Team ID');
+
+    const followRef = db.collection(FOLLOWS_COLLECTION).doc(`${userId}_${teamId}`);
+    const teamRef = db.collection(TEAMS_COLLECTION).doc(teamId);
+
+    let isNewFollow = false;
+
+    await db.runTransaction(async (transaction) => {
+      const followDoc = await transaction.get(followRef);
+      if (followDoc.exists) return; // idempotent — already following
+
+      transaction.set(followRef, {
+        followerId: userId,
+        followingId: teamId,
+        targetType: 'team',
+        createdAt: Timestamp.now(),
+      });
+      transaction.update(teamRef, { followersCount: FieldValue.increment(1) });
+      isNewFollow = true;
+    });
+
+    logger.info('[Teams API] Team followed', { userId, teamId, isNewFollow });
+
+    sendSuccess(res, { isFollowing: true });
+
+    // Fire-and-forget: notify team admins after response is sent
+    if (isNewFollow) {
+      void (async () => {
+        const [follower, teamDoc] = await Promise.all([
+          getUserById(userId, db),
+          db.collection(TEAMS_COLLECTION).doc(teamId).get(),
+        ]);
+
+        const followerName =
+          ((follower?.['firstName'] as string | undefined) ?? '').trim() ||
+          (follower?.['displayName'] as string | undefined) ||
+          'Someone';
+        const teamData = teamDoc.data();
+        const teamName = (teamData?.['teamName'] as string | undefined) ?? 'your team';
+        const adminIds: string[] = Array.isArray(teamData?.['adminIds'])
+          ? (teamData!['adminIds'] as string[])
+          : teamData?.['createdBy']
+            ? [teamData['createdBy'] as string]
+            : [];
+
+        // Exclude the follower from admin notifications (edge case: admin follows own team)
+        const recipientAdminIds = adminIds.filter((id) => id !== userId);
+
+        await sendFollowNotification(db, {
+          targetType: 'team',
+          followerUserId: userId,
+          followerName,
+          followerAvatarUrl: (follower?.['profilePictureUrl'] as string | undefined) ?? undefined,
+          teamId,
+          teamName,
+          adminIds: recipientAdminIds,
+        });
+      })().catch((err) =>
+        logger.error('[Teams API] Failed to dispatch team_new_follower notification', {
+          error: err,
+          teamId,
+        })
+      );
+    }
+  })
+);
+
+/**
+ * Unfollow a team
+ * DELETE /api/v1/teams/:id/follow
+ *
+ * Idempotent (no-op if not following). No notification dispatched.
+ */
+router.delete(
+  '/:id/follow',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id: teamId } = req.params as { id: string };
+    const userId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    validateRequired(teamId, 'Team ID');
+
+    const followRef = db.collection(FOLLOWS_COLLECTION).doc(`${userId}_${teamId}`);
+    const teamRef = db.collection(TEAMS_COLLECTION).doc(teamId);
+
+    await db.runTransaction(async (transaction) => {
+      const followDoc = await transaction.get(followRef);
+      if (!followDoc.exists) return; // idempotent — not following
+
+      transaction.delete(followRef);
+      transaction.update(teamRef, { followersCount: FieldValue.increment(-1) });
+    });
+
+    logger.info('[Teams API] Team unfollowed', { userId, teamId });
+
+    sendSuccess(res, { isFollowing: false });
   })
 );
 

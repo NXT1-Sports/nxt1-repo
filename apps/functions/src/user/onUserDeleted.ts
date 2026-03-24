@@ -124,8 +124,8 @@ async function deleteQueryCollections(userId: string): Promise<Record<string, nu
           FirebaseFirestore.Query,
         ]
     ),
-    ['follows:followerId', db.collection('follows').where('followerId', '==', userId)],
-    ['follows:followingId', db.collection('follows').where('followingId', '==', userId)],
+    ['follows:followerId', db.collection('Follows').where('followerId', '==', userId)],
+    ['follows:followingId', db.collection('Follows').where('followingId', '==', userId)],
     [
       'UserReadingProgress:docPrefix',
       db

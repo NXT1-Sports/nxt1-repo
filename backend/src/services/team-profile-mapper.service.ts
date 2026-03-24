@@ -6,8 +6,8 @@
  * Handles data transformation and enrichment for team profile pages
  */
 
-import type { TeamCode } from '@nxt1/core/models';
-import { ROLE } from '@nxt1/core/models';
+import type { TeamCode, RosterEntry } from '@nxt1/core/models';
+import { ROLE, RosterEntryStatus, RosterRole } from '@nxt1/core/models';
 import type { TeamEvent } from '@nxt1/core/models';
 import type {
   TeamProfilePageData,
@@ -105,6 +105,104 @@ async function fetchUsersByIds(
     logger.error('[team-profile-mapper] Failed to fetch users:', { error });
     return [];
   }
+}
+
+/**
+ * Fetch all active/pending RosterEntries for a team from the RosterEntries collection.
+ * This is the NEW architecture — users join teams via RosterEntries, not memberIds.
+ */
+async function fetchRosterEntriesForTeam(
+  teamId: string,
+  firestore: FirebaseFirestore.Firestore
+): Promise<RosterEntry[]> {
+  if (!teamId) return [];
+
+  logger.debug('[team-profile-mapper] Fetching roster entries for team', { teamId });
+
+  try {
+    const snapshot = await firestore
+      .collection('RosterEntries')
+      .where('teamId', '==', teamId)
+      .where('status', 'in', [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING])
+      .get();
+
+    if (snapshot.empty) {
+      logger.info('[team-profile-mapper] No roster entries found for team', { teamId });
+      return [];
+    }
+
+    const entries: RosterEntry[] = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        userId: data['userId'] ?? '',
+        teamId: data['teamId'] ?? '',
+        organizationId: data['organizationId'] ?? '',
+        role: data['role'] ?? RosterRole.ATHLETE,
+        status: data['status'] ?? RosterEntryStatus.PENDING,
+        jerseyNumber: data['jerseyNumber'],
+        positions: data['positions'] ?? [],
+        primaryPosition: data['primaryPosition'],
+        season: data['season'],
+        classOfWhenJoined: data['classOfWhenJoined'],
+        stats: data['stats'],
+        rating: data['rating'],
+        coachNotes: data['coachNotes'],
+        joinedAt: data['joinedAt']?.toDate?.() ?? data['joinedAt'] ?? new Date().toISOString(),
+        updatedAt: data['updatedAt']?.toDate?.() ?? data['updatedAt'],
+        leftAt: data['leftAt']?.toDate?.() ?? data['leftAt'],
+        invitedBy: data['invitedBy'],
+        approvedBy: data['approvedBy'],
+        approvedAt: data['approvedAt']?.toDate?.() ?? data['approvedAt'],
+        // Cached user data for display (denormalized)
+        firstName: data['firstName'],
+        lastName: data['lastName'],
+        profileImg: data['profileImg'],
+        email: data['email'],
+        phoneNumber: data['phoneNumber'],
+        classOf: data['classOf'],
+        gpa: data['gpa'],
+        height: data['height'],
+        weight: data['weight'],
+      } satisfies RosterEntry;
+    });
+
+    logger.info('[team-profile-mapper] Fetched roster entries for team', {
+      teamId,
+      count: entries.length,
+    });
+
+    return entries;
+  } catch (error) {
+    logger.error('[team-profile-mapper] Failed to fetch roster entries for team', {
+      teamId,
+      error,
+    });
+    return [];
+  }
+}
+
+/**
+ * Batch-fetch full User documents for a list of user IDs.
+ * Re-uses fetchUsersByIds (which has Redis caching) — no extra Firestore reads on cache hit.
+ * Returns a Map<userId, UserDataRecord> so mappers can read up-to-date profile fields
+ * (firstName, lastName, profileImg, unicode, height, weight, etc.) directly from
+ * the User document instead of the stale denormalized cache on RosterEntry.
+ */
+async function fetchUserDataMap(
+  userIds: string[],
+  firestore?: FirebaseFirestore.Firestore
+): Promise<Map<string, UserDataRecord>> {
+  if (userIds.length === 0) return new Map();
+
+  const users = await fetchUsersByIds(userIds, firestore);
+  const map = new Map<string, UserDataRecord>();
+  for (const user of users) {
+    if (user.id) {
+      map.set(user.id, user as UserDataRecord);
+    }
+  }
+  return map;
 }
 
 // ============================================
@@ -362,6 +460,135 @@ function mapUserToStaff(user: UserData): TeamProfileStaffMember {
 }
 
 /**
+ * Returns true if a RosterRole corresponds to an athlete (player) position.
+ * Athletes: ATHLETE, STARTER (varsity), JV, BENCH
+ * Staff:    OWNER, HEAD_COACH, ASSISTANT_COACH, STAFF, MEDIA, PARENT
+ */
+function isAthleteRosterRole(role: RosterRole): boolean {
+  return (
+    role === RosterRole.ATHLETE ||
+    role === RosterRole.STARTER ||
+    role === RosterRole.JV ||
+    role === RosterRole.BENCH
+  );
+}
+
+/**
+ * Map a RosterEntry (new architecture) to TeamProfileRosterMember.
+ * Display fields (name, profileImg, height, weight, unicode) are read from the
+ * live User document (via userDataMap) so profile updates are always reflected.
+ * Team-specific fields (jerseyNumber, positions, role, joinedAt) come from
+ * RosterEntry, which is their authoritative source.
+ */
+function mapRosterEntryToRosterMember(
+  entry: RosterEntry,
+  index: number,
+  userDataMap: Map<string, UserDataRecord>
+): TeamProfileRosterMember {
+  const user = userDataMap.get(entry.userId);
+
+  // Team-specific fields always come from RosterEntry
+  const jerseyNumber = entry.jerseyNumber != null ? String(entry.jerseyNumber) : String(index);
+  const position = entry.primaryPosition ?? entry.positions?.[0];
+  const classYear =
+    (entry.classOf ?? user?.classOf) != null ? String(entry.classOf ?? user?.classOf) : undefined;
+  const joinedAt =
+    entry.joinedAt instanceof Date
+      ? entry.joinedAt.toISOString()
+      : typeof entry.joinedAt === 'string'
+        ? entry.joinedAt
+        : undefined;
+
+  // Display fields come from User document (live, Redis-cached)
+  const firstName = user?.firstName ?? entry.firstName ?? '';
+  const lastName = user?.lastName ?? entry.lastName ?? '';
+  const profileImg = user?.profileImgs?.[0] ?? entry.profileImg ?? undefined;
+  const height = user?.height ?? entry.height;
+  const weight = user?.weight ?? entry.weight;
+  const unicode = user?.unicode ?? undefined;
+  const displayName =
+    user?.displayName ??
+    user?.name ??
+    (firstName || lastName ? `${firstName} ${lastName}`.trim() : entry.userId);
+
+  return {
+    id: entry.userId,
+    firstName,
+    lastName,
+    displayName,
+    role: 'athlete',
+    position,
+    jerseyNumber,
+    classYear,
+    height,
+    weight,
+    profileImg,
+    profileCode: unicode ?? entry.userId, // prefer unicode for /profile/:unicode navigation
+    isVerified: user?.isVerify ?? false,
+    joinedAt,
+    views: undefined,
+  } satisfies TeamProfileRosterMember;
+}
+
+/**
+ * Map RosterRole enum to TeamProfileStaffMember['role'].
+ */
+function toStaffRole(role: RosterRole): TeamProfileStaffMember['role'] {
+  switch (role) {
+    case RosterRole.HEAD_COACH:
+    case RosterRole.OWNER:
+      return 'head-coach';
+    case RosterRole.ASSISTANT_COACH:
+      return 'assistant-coach';
+    default:
+      return 'other';
+  }
+}
+
+/**
+ * Map a RosterEntry (new architecture) to TeamProfileStaffMember.
+ * Display fields come from the live User document (via userDataMap).
+ * Team-specific fields (role) come from RosterEntry.
+ */
+function mapRosterEntryToStaffMember(
+  entry: RosterEntry,
+  userDataMap: Map<string, UserDataRecord>
+): TeamProfileStaffMember {
+  const user = userDataMap.get(entry.userId);
+  const staffRole = toStaffRole(entry.role);
+
+  const titleMap: Partial<Record<RosterRole, string>> = {
+    [RosterRole.OWNER]: 'Team Owner',
+    [RosterRole.HEAD_COACH]: 'Head Coach',
+    [RosterRole.ASSISTANT_COACH]: 'Assistant Coach',
+    [RosterRole.STAFF]: 'Staff',
+    [RosterRole.MEDIA]: 'Media',
+    [RosterRole.PARENT]: 'Parent / Guardian',
+  };
+  const title = titleMap[entry.role] ?? 'Staff';
+
+  // Display fields from live User doc
+  const firstName = user?.firstName ?? entry.firstName ?? '';
+  const lastName = user?.lastName ?? entry.lastName ?? '';
+  const profileImg = user?.profileImgs?.[0] ?? entry.profileImg ?? undefined;
+  const unicode = user?.unicode ?? undefined;
+
+  return {
+    id: entry.userId,
+    firstName,
+    lastName,
+    title,
+    role: staffRole,
+    profileImg,
+    profileCode: unicode ?? entry.userId, // prefer unicode for /profile/:unicode navigation
+    email: user?.email ?? entry.email,
+    phone: user?.phone ?? user?.phoneNumber ?? entry.phoneNumber,
+    bio: user?.bio ?? undefined,
+    yearsWithTeam: undefined,
+  } satisfies TeamProfileStaffMember;
+}
+
+/**
  * Build team slug from team name only (no unicode)
  * Format: lowercase-team-name-with-dashes
  * Example: riverside-phoenix
@@ -405,14 +632,40 @@ function extractHandle(url: string): string | undefined {
 }
 
 /**
- * Generate follow stats (for now, mock data - TODO: implement real analytics)
+ * Generate follow stats by reading real Firestore data.
+ * - followersCount: read from Teams/{teamId}.followersCount
+ * - isFollowing: check follows/{userId}_{teamId} doc existence
  */
-function generateFollowStats(): TeamProfileFollowStats {
-  return {
+async function generateFollowStats(
+  teamId: string | undefined,
+  userId: string | undefined,
+  firestore?: FirebaseFirestore.Firestore
+): Promise<TeamProfileFollowStats> {
+  const defaultStats: TeamProfileFollowStats = {
     followersCount: 0,
     followingCount: 0,
     isFollowing: false,
   };
+
+  if (!teamId || !firestore) return defaultStats;
+
+  try {
+    const [teamDoc, followDoc] = await Promise.all([
+      firestore.collection('Teams').doc(teamId).get(),
+      userId
+        ? firestore.collection('Follows').doc(`${userId}_${teamId}`).get()
+        : Promise.resolve(null),
+    ]);
+
+    return {
+      followersCount: (teamDoc.data()?.['followersCount'] as number | undefined) ?? 0,
+      followingCount: 0,
+      isFollowing: followDoc?.exists ?? false,
+    };
+  } catch (err) {
+    logger.warn('[team-profile-mapper] Failed to fetch follow stats', { teamId, userId, err });
+    return defaultStats;
+  }
 }
 
 /**
@@ -694,16 +947,37 @@ export async function mapTeamCodeToProfile(
   }
   const team = mapTeamCodeToTeam(teamCode, orgOverlay);
 
-  // Fetch all members from Users collection
-  logger.info('[mapTeamCodeToProfile] 📥 Fetching users...', {
-    memberIds: teamCode.memberIds,
-  });
-  const members = teamCode.memberIds ? await fetchUsersByIds(teamCode.memberIds, firestore) : [];
+  // ─── NEW ARCHITECTURE: Query RosterEntries collection ─────────────────────
+  // Members who joined via the invite/join flow are stored here, not in memberIds.
+  const rosterEntries = firestore
+    ? await fetchRosterEntriesForTeam(teamCode.id || '', firestore)
+    : [];
 
-  // Helper to check if user is athlete/roster member.
-  // Priority: role in TeamCode.members array (if present) → fallback to User doc role.
-  // Athletes: 'Athlete' | 'athlete' | 'player'
-  // Staff: 'Coach' | 'Administrative' | 'Media' | 'admin' | 'coach' | 'media'
+  // Batch-fetch live User documents for all roster entry members (Redis-cached, 15 min TTL)
+  // This ensures display fields (profileImg, firstName, lastName, etc.) are always
+  // up to date — we do NOT rely on the denormalized cache stored on RosterEntry.
+  const rosterUserIds = rosterEntries.map((e) => e.userId);
+  const userDataMap =
+    rosterUserIds.length > 0
+      ? await fetchUserDataMap(rosterUserIds, firestore)
+      : new Map<string, UserDataRecord>();
+
+  // ─── LEGACY ARCHITECTURE: memberIds on Team document ────────────────────────
+  // Backward-compat for teams that pre-date RosterEntries.
+  // Exclude any userId already present in rosterEntries to avoid duplicates.
+  const rosterEntryUserIds = new Set(rosterEntries.map((e) => e.userId));
+  const legacyMemberIds = (teamCode.memberIds ?? []).filter((id) => !rosterEntryUserIds.has(id));
+
+  logger.info('[mapTeamCodeToProfile] 📥 Fetching members...', {
+    teamId: teamCode.id,
+    rosterEntryCount: rosterEntries.length,
+    legacyMemberIdCount: legacyMemberIds.length,
+  });
+
+  const legacyMembers =
+    legacyMemberIds.length > 0 ? await fetchUsersByIds(legacyMemberIds, firestore) : [];
+
+  // Helper to classify legacy Users as athlete vs staff
   const memberRoleMap = new Map<string, string>();
   for (const m of teamCode.members ?? []) {
     if (m.id) memberRoleMap.set(m.id, (m.role || '').toLowerCase());
@@ -719,25 +993,44 @@ export async function mapTeamCodeToProfile(
     return role === 'athlete' || role === 'player';
   };
 
-  logger.info('Team members fetched', {
-    teamId: teamCode.id,
-    membersCount: members.length,
-    athletes: members.filter(isAthlete).length,
-    staff: members.filter((m) => !isAthlete(m)).length,
-  });
-
-  // Roster (athletes only)
-  const roster: TeamProfileRosterMember[] = includeRoster
-    ? members.filter(isAthlete).map((m, i) => mapUserToRoster(m, i + 1))
+  // Build roster from RosterEntries (new architecture)
+  const rosterFromEntries: TeamProfileRosterMember[] = includeRoster
+    ? rosterEntries
+        .filter((e) => isAthleteRosterRole(e.role))
+        .map((e, i) => mapRosterEntryToRosterMember(e, i + 1, userDataMap))
     : [];
 
-  // Staff (coaches, admin, media)
-  const staff: TeamProfileStaffMember[] = members
+  // Build staff from RosterEntries (new architecture)
+  const staffFromEntries: TeamProfileStaffMember[] = rosterEntries
+    .filter((e) => !isAthleteRosterRole(e.role))
+    .map((e) => mapRosterEntryToStaffMember(e, userDataMap));
+
+  // Build roster from legacy memberIds (backward compat)
+  const rosterFromLegacy: TeamProfileRosterMember[] = includeRoster
+    ? legacyMembers
+        .filter(isAthlete)
+        .map((m, i) => mapUserToRoster(m, rosterFromEntries.length + i + 1))
+    : [];
+
+  // Build staff from legacy memberIds (backward compat)
+  const staffFromLegacy: TeamProfileStaffMember[] = legacyMembers
     .filter((m) => !isAthlete(m))
     .map((m) => mapUserToStaff(m));
 
+  // Merge both sources — RosterEntries takes precedence (comes first)
+  const roster: TeamProfileRosterMember[] = [...rosterFromEntries, ...rosterFromLegacy];
+  const staff: TeamProfileStaffMember[] = [...staffFromEntries, ...staffFromLegacy];
+
+  logger.info('[mapTeamCodeToProfile] 👥 Roster resolved', {
+    teamId: teamCode.id,
+    fromRosterEntries: rosterEntries.length,
+    fromLegacyMemberIds: legacyMembers.length,
+    athletes: roster.length,
+    staff: staff.length,
+  });
+
   // Stats
-  const followStats = generateFollowStats();
+  const followStats = await generateFollowStats(teamCode.id, userId, firestore);
   const quickStats = generateQuickStats(teamCode);
 
   // Permissions
@@ -754,9 +1047,10 @@ export async function mapTeamCodeToProfile(
   // Schedule — fetch from Events collection
   const schedule = firestore ? await fetchTeamSchedule(teamCode.id || '', firestore) : [];
 
-  // Update quick stats with real post count
+  // Update quick stats with real counts
   const finalQuickStats: TeamProfileQuickStats = {
     ...quickStats,
+    rosterCount: roster.length + staff.length, // real count from RosterEntries + legacy
     totalPosts: recentPosts.length,
     eventCount: schedule.length,
   };

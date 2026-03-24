@@ -88,7 +88,7 @@ async function batchGetUsersInfo(
   }
 
   for (const chunk of chunks) {
-    const usersSnapshot = await db.collection('users').where('__name__', 'in', chunk).get();
+    const usersSnapshot = await db.collection('Users').where('__name__', 'in', chunk).get();
     usersSnapshot.docs.forEach((doc) => {
       const data = doc.data();
       usersMap.set(doc.id, {
@@ -115,7 +115,7 @@ async function getUserInfo(
   position?: string;
   schoolName?: string;
 } | null> {
-  const userDoc = await db.collection('users').doc(userId).get();
+  const userDoc = await db.collection('Users').doc(userId).get();
   if (!userDoc.exists) return null;
 
   const data = userDoc.data();

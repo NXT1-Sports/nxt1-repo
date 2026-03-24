@@ -1080,6 +1080,13 @@ export class TeamProfileShellWebComponent implements OnInit {
   /** Team slug to load */
   readonly teamSlug = input<string>('');
 
+  /**
+   * Firestore document ID of the team.
+   * When provided, takes priority over teamSlug to avoid ambiguity
+   * when multiple teams share the same name/slug.
+   */
+  readonly teamId = input<string>('');
+
   /** Whether the current user is an admin of this team */
   readonly isTeamAdmin = input(false);
 
@@ -1431,10 +1438,15 @@ export class TeamProfileShellWebComponent implements OnInit {
 
     if (!this.isBrowser) return;
 
+    const teamId = this.teamId();
     const slug = this.teamSlug();
     const isAdmin = this.isTeamAdmin();
 
-    if (slug) {
+    if (teamId) {
+      // Prefer ID lookup — exact match, avoids slug ambiguity across same-name teams
+      this.teamProfile.startLoading();
+      this.teamProfile.loadTeamById(teamId, isAdmin);
+    } else if (slug) {
       this.teamProfile.startLoading();
       this.teamProfile.loadTeam(slug, isAdmin);
     }
@@ -1468,8 +1480,11 @@ export class TeamProfileShellWebComponent implements OnInit {
   }
 
   protected onRetry(): void {
+    const teamId = this.teamId();
     const slug = this.teamSlug();
-    if (slug) {
+    if (teamId) {
+      this.teamProfile.loadTeamById(teamId, this.isTeamAdmin());
+    } else if (slug) {
       this.teamProfile.loadTeam(slug, this.isTeamAdmin());
     }
   }

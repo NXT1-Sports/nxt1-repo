@@ -236,15 +236,32 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
     /**
      * Follow a user
      */
-    async follow(userId: string, targetUserId: string): Promise<FollowResponse> {
-      return http.post<FollowResponse>(`${baseUrl}/follow`, { userId, targetUserId });
+    async follow(_userId: string, targetUserId: string): Promise<FollowResponse> {
+      // Backend reads followerId from JWT (req.user.uid) — only targetUserId needed in body.
+      return http.post<FollowResponse>(`${baseUrl}/follow`, { targetUserId });
     },
 
     /**
      * Unfollow a user
      */
-    async unfollow(userId: string, targetUserId: string): Promise<FollowResponse> {
-      return http.delete<FollowResponse>(`${baseUrl}/follow`, { params: { userId, targetUserId } });
+    async unfollow(_userId: string, targetUserId: string): Promise<FollowResponse> {
+      // Embed targetUserId directly in URL — guarantees it arrives in req.query regardless
+      // of how the HTTP adapter serialises the params config option.
+      return http.delete<FollowResponse>(
+        `${baseUrl}/follow?targetUserId=${encodeURIComponent(targetUserId)}`
+      );
+    },
+
+    /**
+     * Check if the current authenticated user is following a target user
+     */
+    async checkFollow(
+      targetUserId: string
+    ): Promise<{ success: boolean; data: { isFollowing: boolean } }> {
+      return http.get<{ success: boolean; data: { isFollowing: boolean } }>(
+        `${baseUrl}/follow/check`,
+        { params: { targetUserId } }
+      );
     },
 
     /**

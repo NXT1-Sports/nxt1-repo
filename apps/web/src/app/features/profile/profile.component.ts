@@ -59,6 +59,7 @@ import {
   ProfileGenerationOverlayComponent,
   ProfileGenerationStateService,
 } from '@nxt1/ui/profile';
+import { TeamProfileShellWebComponent, TeamProfileService } from '@nxt1/ui/team-profile';
 import { EditProfileModalService } from '@nxt1/ui/edit-profile';
 
 import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/cta-banner';
@@ -68,14 +69,21 @@ import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { AuthModalService } from '@nxt1/ui/auth';
 import { QrCodeService } from '@nxt1/ui/qr-code';
-import { parseApiError, requiresAuth } from '@nxt1/core';
-import type { ProfileTabId, ProfileShareSource, User, UserSummary } from '@nxt1/core';
+import { parseApiError, requiresAuth, isTeamRole } from '@nxt1/core';
+import type {
+  ProfileTabId,
+  ProfileShareSource,
+  User,
+  UserSummary,
+  TeamProfileTabId,
+} from '@nxt1/core';
 import type { ApiResponse } from '@nxt1/core/profile';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { AuthFlowService } from '../auth/services';
 import { SeoService, AnalyticsService, ShareService } from '../../core/services';
 import { EditProfileApiService } from '../../core/services/edit-profile-api.service';
 import { ProfileService as ApiProfileService } from './services/profile.service';
+import { TeamProfileApiService } from '../team/services/team-profile.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import { environment } from '../../../environments/environment';
@@ -95,54 +103,70 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
   standalone: true,
   imports: [
     ProfileShellWebComponent,
+    TeamProfileShellWebComponent,
     NxtCtaBannerComponent,
     RelatedAthletesComponent,
     ProfileGenerationOverlayComponent,
   ],
   template: `
-    <nxt1-profile-shell-web
-      [currentUser]="userInfo()"
-      [profileUnicode]="profileUnicode()"
-      [isOwnProfile]="isOwnProfile()"
-      [skipInternalLoad]="true"
-      (avatarClick)="onAvatarClick()"
-      (backClick)="onBackClick()"
-      (tabChange)="onTabChange($event)"
-      (editProfileClick)="onEditProfile()"
-      (editTeamClick)="onEditTeam()"
-      (shareClick)="onShare()"
-      (followClick)="onFollow()"
-      (qrCodeClick)="onQrCode()"
-      (aiSummaryClick)="onAiSummary()"
-      (createPostClick)="onCreatePost()"
-      (retryClick)="onRetry()"
-    >
-      <!-- ═══ PROJECTED BELOW-FOLD CONTENT (inside shell scroll container) ═══ -->
-      @defer (on viewport) {
-        <nxt1-related-athletes
-          [athletes]="relatedAthletes()"
-          [sport]="relatedSport()"
-          [state]="relatedState()"
-          (athleteClick)="onRelatedAthleteClick($event)"
-          (seeAllClick)="onSeeAllRelated()"
-        />
-      } @placeholder {
-        <div style="height: 200px;"></div>
-      }
+    @if (showTeamProfile()) {
+      <!-- Coach/Director own profile → Team Profile Shell (same pattern as mobile) -->
+      <nxt1-team-profile-shell-web
+        [teamSlug]="teamSlug()"
+        [isTeamAdmin]="true"
+        [skipInternalLoad]="true"
+        (backClick)="onBackClick()"
+        (tabChange)="onTeamTabChange($event)"
+        (shareClick)="onShare()"
+        (followClick)="onFollow()"
+        (qrCodeClick)="onQrCode()"
+      >
+      </nxt1-team-profile-shell-web>
+    } @else {
+      <nxt1-profile-shell-web
+        [currentUser]="userInfo()"
+        [profileUnicode]="profileUnicode()"
+        [isOwnProfile]="isOwnProfile()"
+        [skipInternalLoad]="true"
+        (avatarClick)="onAvatarClick()"
+        (backClick)="onBackClick()"
+        (tabChange)="onTabChange($event)"
+        (editProfileClick)="onEditProfile()"
+        (editTeamClick)="onEditTeam()"
+        (shareClick)="onShare()"
+        (followClick)="onFollow()"
+        (qrCodeClick)="onQrCode()"
+        (aiSummaryClick)="onAiSummary()"
+        (createPostClick)="onCreatePost()"
+        (retryClick)="onRetry()"
+      >
+        <!-- ═══ PROJECTED BELOW-FOLD CONTENT (inside shell scroll container) ═══ -->
+        @defer (on viewport) {
+          <nxt1-related-athletes
+            [athletes]="relatedAthletes()"
+            [sport]="relatedSport()"
+            [state]="relatedState()"
+            (athleteClick)="onRelatedAthleteClick($event)"
+            (seeAllClick)="onSeeAllRelated()"
+          />
+        } @placeholder {
+          <div style="height: 200px;"></div>
+        }
 
-      @if (!isLoggedIn()) {
-        <nxt1-cta-banner
-          variant="conversion"
-          badgeLabel="Agentic Profile"
-          title="This Profile Runs Itself."
-          subtitle="NXT1 profiles update stats, sync highlights, and surface recruiting signals automatically — so coaches always see the latest without athletes lifting a finger."
-          ctaLabel="Build Your Agentic Profile"
-          ctaRoute="/auth"
-          titleId="profile-cta-banner-title"
-          [avatarImages]="ctaAvatars"
-        />
-      }
-    </nxt1-profile-shell-web>
+        @if (!isLoggedIn()) {
+          <nxt1-cta-banner
+            variant="conversion"
+            badgeLabel="Agentic Profile"
+            title="This Profile Runs Itself."
+            subtitle="NXT1 profiles update stats, sync highlights, and surface recruiting signals automatically — so coaches always see the latest without athletes lifting a finger."
+            ctaLabel="Build Your Agentic Profile"
+            ctaRoute="/auth"
+            titleId="profile-cta-banner-title"
+            [avatarImages]="ctaAvatars"
+          />
+        }
+      </nxt1-profile-shell-web>
+    }
 
     @if (generation.isGenerating()) {
       <nxt1-profile-generation-overlay (dismissed)="onGenerationDismissed($event)" />
@@ -202,6 +226,8 @@ export class ProfileComponent implements OnInit, OnDestroy {
    * @see packages/ui/src/profile/profile.service.ts
    */
   private readonly profileService: ProfileService = inject(ProfileService);
+  private readonly teamProfileService = inject(TeamProfileService);
+  private readonly teamApi = inject(TeamProfileApiService);
 
   private readonly platformId = inject(PLATFORM_ID);
   protected readonly generation = inject(ProfileGenerationStateService);
@@ -218,6 +244,28 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
   /** Whether current user is logged in — used to hide CTA for authenticated users */
   protected readonly isLoggedIn = computed(() => this.authFlow.isAuthenticated());
+
+  /**
+   * Whether to show TeamProfileShell instead of the athlete ProfileShell.
+   * True when viewing own profile and the user has a coach/director role.
+   */
+  protected readonly showTeamProfile = computed(() => {
+    const profile = this.fetchedProfile();
+    return this.isOwnProfile() && !!profile && isTeamRole(profile.role);
+  });
+
+  /**
+   * Team slug extracted from the user's teamCode — passed to TeamProfileShellWebComponent.
+   */
+  protected readonly teamSlug = computed(() => {
+    const profile = this.fetchedProfile();
+    return (
+      profile?.teamCode?.slug ??
+      profile?.teamCode?.unicode ??
+      profile?.coach?.managedTeamCodes?.[0] ??
+      ''
+    );
+  });
 
   /**
    * Resolved profile metadata for SEO, sharing, and QR code.
@@ -554,11 +602,25 @@ export class ProfileComponent implements OnInit, OnDestroy {
     //   (authService.user() is guaranteed populated by the time a network response arrives)
     const isOwn = this.routeMode() === 'me' ? true : profile.id === this.authService.user()?.uid;
 
+    // Track profile view — fire-and-forget, skip own profile
+    if (!isOwn) {
+      this.http
+        .post(`${environment.apiURL}/analytics/profile-view`, { viewedUserId: profile.id })
+        .pipe(first())
+        .subscribe();
+    }
+
     // Push real data into the shared UI service so the shell displays
     // actual profile data instead of mock data.
     // Pass the raw User so ProfileService can re-map tab content on sport switch.
     const profilePageData = userToProfilePageData(profile, isOwn);
     this.profileService.loadFromExternalData(profilePageData, profile, isOwn);
+
+    // Role-aware: coach/director own profile → load team data into TeamProfileService
+    if (isOwn && isTeamRole(profile.role)) {
+      void this.loadTeamProfile(profile);
+    }
+
     this.fetchRelatedAthletes(profile);
 
     // profileMeta computed updates automatically via fetchedProfile signal
@@ -663,6 +725,27 @@ export class ProfileComponent implements OnInit, OnDestroy {
           }
         }
       );
+
+    // Fire follow-check separately so it resolves quickly and is NOT blocked by
+    // slower secondary API calls (stats, videos, etc). This prevents a race
+    // condition where a late-arriving followCheck response would override the
+    // user's optimistic follow toggle.
+    if (!isOwn && this.authFlow.isAuthenticated()) {
+      this.http
+        .get<{ success: boolean; data: { isFollowing: boolean } }>(
+          `${environment.apiURL}/follow/check?targetUserId=${profile.id}`
+        )
+        .pipe(
+          first(),
+          catchError(() => of({ success: false as const, data: { isFollowing: false } })),
+          takeUntilDestroyed(this.destroyRef)
+        )
+        .subscribe((followCheck) => {
+          if (followCheck.success) {
+            this.profileService.setFollowState(followCheck.data?.isFollowing ?? false);
+          }
+        });
+    }
     this.seo.updateForProfile(meta);
 
     this.logger.info('Profile SEO updated', {
@@ -690,6 +773,46 @@ export class ProfileComponent implements OnInit, OnDestroy {
    * Sport is read from profile.sports[] array (activeSportIndex or first entry).
    * UserSummary.primarySport is mapped server-side from the user's sports[] via docToUserSummary.
    */
+
+  /**
+   * Load team profile data for coach/director own-profile view.
+   * Extracts team slug from user document → fetches via TeamProfileApiService
+   * → pushes into TeamProfileService for the team shell to render.
+   */
+  private async loadTeamProfile(profile: User): Promise<void> {
+    const slug =
+      profile.teamCode?.slug ?? profile.teamCode?.unicode ?? profile.coach?.managedTeamCodes?.[0];
+
+    if (!slug) {
+      this.logger.warn('Coach/director has no team slug', { userId: profile.id });
+      this.teamProfileService.setError('No team associated with this account');
+      return;
+    }
+
+    this.teamProfileService.startLoading();
+
+    try {
+      const response = await this.teamApi.getTeamBySlug(slug).toPromise();
+      if (response?.success && response.data) {
+        this.teamProfileService.loadFromExternalData(response.data);
+        this.logger.info('Team profile loaded for own-profile view', {
+          slug,
+          teamName: response.data.team?.teamName,
+        });
+      } else {
+        this.teamProfileService.setError(response?.error ?? 'Failed to load team profile');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load team profile';
+      this.teamProfileService.setError(message);
+    }
+  }
+
+  /** Handle tab change for the team profile shell */
+  protected onTeamTabChange(tab: TeamProfileTabId): void {
+    this.logger.debug('Team tab change', { tab });
+  }
+
   private fetchRelatedAthletes(profile: User): void {
     // Read sport from sports[] — same source of truth as the rest of the app
     const activeSport = profile.sports?.[profile.activeSportIndex ?? 0] ?? profile.sports?.[0];
@@ -909,7 +1032,34 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
     // Authenticated — proceed with follow
     this.logger.info('Follow clicked', { unicode: this.profileUnicode() });
-    this.toast.success('Following!');
+
+    const wasFollowing = this.profileService.followStats()?.isFollowing ?? false;
+    const profileUserId = this.fetchedProfile()?.id;
+    if (!profileUserId) return;
+
+    // Optimistic update
+    void this.profileService.toggleFollow();
+
+    try {
+      if (!wasFollowing) {
+        await this.http
+          .post(`${environment.apiURL}/follow`, { targetUserId: profileUserId })
+          .pipe(first())
+          .toPromise();
+      } else {
+        await this.http
+          .delete(`${environment.apiURL}/follow`, {
+            params: { targetUserId: profileUserId },
+          })
+          .pipe(first())
+          .toPromise();
+      }
+      this.toast.success(!wasFollowing ? 'Following!' : 'Unfollowed');
+    } catch {
+      // Rollback optimistic update
+      void this.profileService.toggleFollow();
+      this.toast.error('Could not update follow status. Please try again.');
+    }
   }
 
   /**

@@ -45,4 +45,9 @@ export interface CacheService {
    * Set multiple values
    */
   mset(entries: Record<string, unknown>, options?: CacheOptions): Promise<void>;
+
+  /**
+   * Delete all keys that start with the given prefix
+   */
+  delByPrefix(prefix: string): Promise<void>;
 }

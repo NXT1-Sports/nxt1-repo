@@ -21,7 +21,7 @@ export const buildSearchIndex = onCall(async (request) => {
 
   const userId = request.auth.uid;
 
-  const userDoc = await db.collection('users').doc(userId).get();
+  const userDoc = await db.collection('Users').doc(userId).get();
   if (!userDoc.exists) {
     throw new HttpsError('not-found', 'User not found');
   }
@@ -66,7 +66,7 @@ export const buildSearchIndex = onCall(async (request) => {
   // Dedupe and store
   const uniqueTokens = [...new Set(searchTokens)];
 
-  await db.collection('users').doc(userId).update({
+  await db.collection('Users').doc(userId).update({
     searchTokens: uniqueTokens,
     searchUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });

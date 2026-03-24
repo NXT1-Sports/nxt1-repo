@@ -177,7 +177,7 @@ async function fetchActivityItems(
 ): Promise<Array<Record<string, unknown>>> {
   try {
     const snapshot = await db
-      .collection('users')
+      .collection('Users')
       .doc(uid)
       .collection(ACTIVITY_COLLECTION)
       .limit(500)
@@ -962,7 +962,7 @@ export async function recordProfileView(
   viewerRole?: string
 ): Promise<void> {
   try {
-    const analyticsRef = db.collection('users').doc(viewedUserId).collection('profileViews').doc();
+    const analyticsRef = db.collection('Users').doc(viewedUserId).collection('profileViews').doc();
 
     await analyticsRef.set({
       viewedAt: Timestamp.now(),

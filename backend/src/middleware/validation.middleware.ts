@@ -137,9 +137,12 @@ export function validateRequest<T extends object>(
         throw validationError(validationErrors);
       }
 
-      // Replace request data with validated and transformed DTO
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (req as any)[source] = dto;
+      // Replace request body with validated/transformed DTO.
+      // Only body is writable — query and params are read-only getters in Express 5.
+      if (source === 'body') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (req as any)[source] = dto;
+      }
 
       logger.debug('[Validation] Request validated successfully', {
         method: req.method,

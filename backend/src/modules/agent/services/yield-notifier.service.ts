@@ -136,7 +136,7 @@ async function sendYieldSms(db: Firestore, notification: YieldNotification): Pro
   }
 
   // Look up user's phone number and SMS preference
-  const userDoc = await db.collection('users').doc(userId).get();
+  const userDoc = await db.collection('Users').doc(userId).get();
   if (!userDoc.exists) return;
 
   const userData = userDoc.data();

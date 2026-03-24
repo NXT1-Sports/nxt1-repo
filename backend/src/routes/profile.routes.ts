@@ -841,7 +841,7 @@ router.get(
     const snap = await db
       .collection(USERS_COLLECTION)
       .doc(userId)
-      .collection('followers')
+      .collection('Followers')
       .orderBy('followedAt', 'desc')
       .limit(limit)
       .get();

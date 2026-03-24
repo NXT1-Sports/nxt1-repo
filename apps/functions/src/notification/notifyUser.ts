@@ -65,7 +65,7 @@ export async function notifyUser(
 
   const notificationRef = db.collection('notifications').doc(dedupId);
   const activityRef = db
-    .collection('users')
+    .collection('Users')
     .doc(input.userId)
     .collection('activity')
     .doc(activityDedupId);

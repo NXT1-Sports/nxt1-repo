@@ -209,9 +209,28 @@ export class WebPushService {
         scope: '/firebase-cloud-messaging-push-scope',
       });
 
+      // Wait for the service worker to become active before sending FCM config.
+      // On first install the SW goes through installing → waiting → active states;
+      // swRegistration.active is null until activation completes.
+      await new Promise<void>((resolve) => {
+        const sw = swRegistration.installing ?? swRegistration.waiting ?? swRegistration.active;
+        if (!sw || sw.state === 'activated') {
+          resolve();
+          return;
+        }
+        const onStateChange = () => {
+          if (sw.state === 'activated') {
+            sw.removeEventListener('statechange', onStateChange);
+            resolve();
+          }
+        };
+        sw.addEventListener('statechange', onStateChange);
+      });
+
       // Send Firebase config to the service worker (message type shared with firebase-messaging-sw.js)
-      if (swRegistration.active) {
-        swRegistration.active.postMessage({
+      const activeSw = swRegistration.active;
+      if (activeSw) {
+        activeSw.postMessage({
           type: 'FIREBASE_CONFIG',
           config: environment.firebase,
         });

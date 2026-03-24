@@ -28,9 +28,7 @@ import {
   computed,
   signal,
   OnInit,
-  PLATFORM_ID,
 } from '@angular/core';
-import { isPlatformBrowser } from '@angular/common';
 import {
   type ProfileTabId,
   type ProfileTab,
@@ -1452,9 +1450,6 @@ export class ProfileShellWebComponent implements OnInit {
   protected readonly profile = inject(ProfileService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileShellWeb');
-  private readonly platformId = inject(PLATFORM_ID);
-  private readonly isBrowser = isPlatformBrowser(this.platformId);
-
   protected readonly formatSportDisplayName = formatSportDisplayName;
 
   // ============================================

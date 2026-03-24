@@ -24,6 +24,7 @@ import { TeamMemberRole } from '../dtos/teams.dto.js';
 import { logger } from '../utils/logger.js';
 import { INVITE_UI_CONFIG } from '@nxt1/core';
 import type { InviteType, InviteChannel, InviteStatus } from '@nxt1/core';
+import { invalidateTeamProfileCache } from '../services/cache.service.js';
 
 const router = Router();
 
@@ -961,6 +962,8 @@ router.post(
             role: mappedRole,
             pending: joinedAsPending,
           });
+
+          void invalidateTeamProfileCache(team.id ?? '', team.slug ?? undefined);
         } catch (teamErr) {
           // Non-blocking — if team join fails (e.g. team full), invite is still accepted
           logger.warn('[POST /invite/accept] Team join failed (non-blocking)', {

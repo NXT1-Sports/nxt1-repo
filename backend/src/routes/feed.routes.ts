@@ -72,7 +72,7 @@ async function batchGetUsersInfo(
   const map = new Map();
   for (let i = 0; i < userIds.length; i += 10) {
     const chunk = userIds.slice(i, i + 10);
-    const snap = await db.collection('users').where('__name__', 'in', chunk).get();
+    const snap = await db.collection('Users').where('__name__', 'in', chunk).get();
     snap.docs.forEach((doc) => {
       const d = doc.data();
       map.set(doc.id, {

@@ -63,7 +63,7 @@ async function processUsageEvent(message: UsageEventMessage): Promise<void> {
     });
 
     // Get user email from Firestore
-    const userDoc = await firestore.collection('users').doc(event.userId).get();
+    const userDoc = await firestore.collection('Users').doc(event.userId).get();
     const userData = userDoc.data();
     const userEmail = (userData?.['email'] as string) || `${event.userId}@nxt1.app`;
 

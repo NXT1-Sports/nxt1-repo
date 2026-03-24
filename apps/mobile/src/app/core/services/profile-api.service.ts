@@ -360,6 +360,14 @@ export class ProfileApiService {
   }
 
   /**
+   * Check if the current authenticated user is following a target user
+   * @param targetUserId - User to check follow status for
+   */
+  async checkFollow(targetUserId: string) {
+    return this.api.checkFollow(targetUserId);
+  }
+
+  /**
    * Get followers list
    */
   async getFollowers(userId: string, page?: number, limit?: number) {

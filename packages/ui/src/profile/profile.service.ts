@@ -920,6 +920,19 @@ export class ProfileService {
   }
 
   /**
+   * Set the isFollowing state from an external check (e.g. GET /follow/check).
+   * Does not affect followersCount — only updates the follow relationship status.
+   */
+  setFollowState(isFollowing: boolean): void {
+    const data = this._profileData();
+    if (!data) return;
+    this._profileData.set({
+      ...data,
+      followStats: { ...data.followStats, isFollowing },
+    });
+  }
+
+  /**
    * Switch to a different sport profile by index.
    * Automatically updates sport filter so all tabs show content for the selected sport.
    * Persists the selection to the database if API service is configured.

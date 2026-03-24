@@ -130,7 +130,7 @@ export async function dispatch(
 
   if (!skipActivity) {
     activityRef = db
-      .collection('users')
+      .collection('Users')
       .doc(userId)
       .collection(NOTIFICATION_COLLECTIONS.USER_ACTIVITY)
       .doc(`${dedupId}_a`);
@@ -232,6 +232,79 @@ export async function dispatchToMany(
 }
 
 // ============================================
+// FOLLOW NOTIFICATION HELPERS
+// ============================================
+
+export type SendFollowNotificationParams =
+  | {
+      followerUserId: string;
+      followerName: string;
+      followerAvatarUrl?: string;
+      targetType: 'user';
+      targetUserId: string;
+    }
+  | {
+      followerUserId: string;
+      followerName: string;
+      followerAvatarUrl?: string;
+      targetType: 'team';
+      teamId: string;
+      teamName: string;
+      adminIds: string[];
+    };
+
+/**
+ * Send an FCM push notification when a user follows another user or a team.
+ *
+ * Reusable helper — covers both user-to-user and user-to-team follow events.
+ * Uses the same `dispatch()` / `dispatchToMany()` pipeline, so notifications
+ * reach both **mobile** (iOS/Android FCM tokens) and **web** (FCM web-push
+ * subscriptions) via the `onNotificationCreatedV2` Cloud Function.
+ *
+ * Fire-and-forget: errors are logged but never thrown so the HTTP response
+ * is never blocked.
+ */
+export async function sendFollowNotification(
+  db: Firestore,
+  params: SendFollowNotificationParams
+): Promise<void> {
+  try {
+    if (params.targetType === 'user') {
+      await dispatch(db, {
+        userId: params.targetUserId,
+        type: 'new_follower',
+        title: `${params.followerName} started following you`,
+        body: 'Tap to view their profile',
+        source: {
+          userId: params.followerUserId,
+          userName: params.followerName,
+          avatarUrl: params.followerAvatarUrl,
+        },
+      });
+    } else {
+      if (params.adminIds.length === 0) return;
+      await dispatchToMany(db, params.adminIds, {
+        type: 'team_new_follower',
+        title: `${params.followerName} is now following ${params.teamName}`,
+        body: 'Tap to view their profile',
+        source: {
+          userId: params.followerUserId,
+          userName: params.followerName,
+          avatarUrl: params.followerAvatarUrl,
+          teamName: params.teamName,
+        },
+        data: { teamId: params.teamId },
+      });
+    }
+  } catch (err) {
+    logger.error('[sendFollowNotification] Failed to send follow notification', {
+      error: err,
+      targetType: params.targetType,
+    });
+  }
+}
+
+// ============================================
 // HELPERS
 // ============================================
 
@@ -242,6 +315,7 @@ export async function dispatchToMany(
 function mapNotificationTypeToActivityType(type: NotificationType): string {
   const map: Partial<Record<NotificationType, string>> = {
     new_follower: 'follow',
+    team_new_follower: 'follow',
     post_like: 'like',
     post_mention: 'mention',
     message_from_coach: 'message',

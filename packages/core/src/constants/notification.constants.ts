@@ -77,6 +77,7 @@ export const NOTIFICATION_TYPES = {
   TEAM_MEMBER_LEFT: 'team_member_left',
   TEAM_ANNOUNCEMENT: 'team_announcement',
   TEAM_EVENT: 'team_event',
+  TEAM_NEW_FOLLOWER: 'team_new_follower',
 
   // Content
   VIDEO_PROCESSED: 'video_processed',
@@ -172,6 +173,7 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   team_member_left: 'team',
   team_announcement: 'team',
   team_event: 'team',
+  team_new_follower: 'team',
 
   // Content
   video_processed: 'content',
@@ -282,6 +284,7 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   team_member_left: 'alerts',
   team_announcement: 'alerts',
   team_event: 'alerts',
+  team_new_follower: 'alerts',
 
   // Content → alerts
   video_processed: 'alerts',
@@ -352,6 +355,7 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   team_member_left: '/manage-team',
   team_announcement: '/team/{teamId}',
   team_event: '/team/{teamId}',
+  team_new_follower: '/team/{teamId}',
 
   // Content / Agent
   video_processed: '/agent-x/chat/{sessionId}',
