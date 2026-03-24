@@ -116,20 +116,45 @@ export class JoinComponent implements OnInit {
         teamCode = code;
       }
 
+      this.logger.info('Validating team code via API...', { teamCode });
+
       try {
         const result = await this.authApi.validateTeamCode(teamCode);
+        this.logger.debug('Team validation API response', {
+          teamCode,
+          valid: result.valid,
+          hasTeamCodeData: !!result.teamCode,
+          error: result.error,
+          sport: result.teamCode?.sport,
+          teamName: result.teamCode?.teamName,
+        });
+
         if (result.valid && result.teamCode) {
           teamData = result.teamCode;
           teamName = teamData.teamName;
           sport = teamData.sport;
-          this.logger.info('Fetched full team data', {
+          this.logger.info('Fetched full team data successfully', {
             teamId: teamData.id,
             teamName: teamData.teamName,
             sport: teamData.sport,
+            teamType: teamData.teamType,
           });
+        } else {
+          this.logger.error(
+            'Team validation FAILED - sport will NOT be auto-selected, role filter may not work correctly',
+            {
+              teamCode,
+              valid: result.valid,
+              apiError: result.error,
+              hint: 'Ensure team exists in Firestore with isActive=true and sport field populated',
+            }
+          );
         }
       } catch (err) {
-        this.logger.warn('Failed to fetch team data, continuing with URL params', { error: err });
+        this.logger.error('Team validation API call failed - sport step will NOT be skipped', {
+          error: err,
+          teamCode,
+        });
       }
     }
 
@@ -162,24 +187,22 @@ export class JoinComponent implements OnInit {
 
       this.logger.info('Referral data stored', {
         code: pending.code,
+        teamCode: pending.teamCode,
         type: pending.type,
         role: pending.role,
         sport: pending.sport,
+        teamName: pending.teamName,
       });
     } catch {
       this.logger.warn('Failed to write sessionStorage');
     }
 
-    // Pass all invite data through URL params for cross-device/session persistence
+    // Minimal URL params - invite code is enough to re-fetch team data on reload
     const queryParams: Record<string, string> = {
       mode: 'signup',
-      ref: pending.code,
+      invite: pending.code,
       inviteType: pending.type,
     };
-
-    if (pending.teamCode) queryParams['teamCode'] = pending.teamCode;
-    if (pending.sport) queryParams['sport'] = pending.sport;
-    if (pending.role) queryParams['role'] = pending.role;
 
     this.router.navigate(['/auth'], {
       queryParams,

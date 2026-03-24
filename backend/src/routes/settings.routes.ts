@@ -413,6 +413,43 @@ router.delete(
 
       await getCacheService().del(buildPrefsCacheKey(userId));
 
+      // Delete all RosterEntry records for this user
+      const rosterEntriesSnap = await db
+        .collection('RosterEntries')
+        .where('userId', '==', userId)
+        .get();
+      if (!rosterEntriesSnap.empty) {
+        const rosterBatch = db.batch();
+        for (const doc of rosterEntriesSnap.docs) {
+          rosterBatch.delete(doc.ref);
+        }
+        await rosterBatch.commit();
+        logger.debug('[Settings] Deleted roster entries', {
+          userId,
+          count: rosterEntriesSnap.size,
+        });
+      }
+
+      // Remove user from all Teams they are a member of
+      const teamsSnap = await db
+        .collection('Teams')
+        .where('memberIds', 'array-contains', userId)
+        .get();
+      if (!teamsSnap.empty) {
+        for (const teamDoc of teamsSnap.docs) {
+          const teamData = teamDoc.data();
+          const updatedMembers = ((teamData['members'] as Record<string, unknown>[]) ?? []).filter(
+            (m) => m['id'] !== userId
+          );
+          await teamDoc.ref.update({
+            memberIds: FieldValue.arrayRemove(userId),
+            members: updatedMembers,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+        logger.debug('[Settings] Removed from teams', { userId, count: teamsSnap.size });
+      }
+
       await userRef.delete();
       logger.debug('[Settings] Primary user document deleted', {
         userId,

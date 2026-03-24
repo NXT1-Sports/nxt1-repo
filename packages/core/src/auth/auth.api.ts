@@ -130,6 +130,7 @@ export interface OnboardingProfileData {
       state?: string;
       logo?: string;
       colors?: string[];
+      teamId?: string;
     };
   }>;
   highSchool?: string;

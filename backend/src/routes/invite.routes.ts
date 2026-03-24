@@ -916,9 +916,36 @@ router.post(
                 email: userData?.email ?? '',
               });
             } catch (rosterErr: unknown) {
-              // Conflict means already in RosterEntries — not a fatal error
               const msg = rosterErr instanceof Error ? rosterErr.message : String(rosterErr);
-              if (!msg.includes('already')) {
+              if (msg.includes('already') && rosterStatus === RosterEntryStatus.ACTIVE) {
+                // An earlier flow (e.g. saveOnboardingProfile) may have created a PENDING
+                // entry before the invite was accepted — upgrade it to ACTIVE now.
+                try {
+                  const existingSnap = await db
+                    .collection('RosterEntries')
+                    .where('userId', '==', userId)
+                    .where('teamId', '==', team.id)
+                    .where('status', '==', RosterEntryStatus.PENDING)
+                    .limit(1)
+                    .get();
+                  if (!existingSnap.empty) {
+                    await existingSnap.docs[0].ref.update({
+                      status: RosterEntryStatus.ACTIVE,
+                      updatedAt: new Date().toISOString(),
+                    });
+                    logger.info(
+                      '[POST /invite/accept] Upgraded existing PENDING RosterEntry to ACTIVE',
+                      { userId, teamId: team.id }
+                    );
+                  }
+                } catch (upgradeErr) {
+                  logger.warn('[POST /invite/accept] Failed to upgrade RosterEntry status', {
+                    userId,
+                    teamId: team.id,
+                    error: upgradeErr instanceof Error ? upgradeErr.message : String(upgradeErr),
+                  });
+                }
+              } else if (!msg.includes('already')) {
                 logger.warn('[POST /invite/accept] RosterEntry creation failed (non-blocking)', {
                   userId,
                   teamId: team.id,

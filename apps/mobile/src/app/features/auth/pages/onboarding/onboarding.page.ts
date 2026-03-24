@@ -818,19 +818,33 @@ export class OnboardingPage implements OnInit, OnDestroy {
   }
 
   /**
-   * Read and check for pending invite data from storage.
+   * Read and check for pending invite data from storage or URL params.
    * Returns step IDs to skip if the user has invite data with full team info.
+   *
+   * Priority: Native Storage > sessionStorage > URL params (for reload resilience)
    */
   private async resolveSkipStepIds(): Promise<OnboardingStepId[]> {
     try {
       const joinedFlag = await this.storage.get(INVITE_TEAM_JOINED_KEY);
       let hasSportData = false;
       let teamData: PendingReferral | null = null;
+
+      this.logger.info('resolveSkipStepIds: Starting to check for invite data...');
+
+      // 1. Try native storage first
       try {
         const nativeData = await this.storage.get(PENDING_REFERRAL_KEY);
+        this.logger.info('resolveSkipStepIds: Native storage read', {
+          hasData: !!nativeData,
+          dataPreview: nativeData ? nativeData.substring(0, 200) : null,
+        });
+
         if (nativeData) {
           teamData = JSON.parse(nativeData) as PendingReferral;
-          this.logger.debug('Found pending referral in native storage', {
+          this.logger.info('resolveSkipStepIds: Parsed pending referral from native storage', {
+            code: teamData.code,
+            teamCode: teamData.teamCode,
+            type: teamData.type,
             teamName: teamData.teamName,
             sport: teamData.sport,
           });
@@ -838,12 +852,17 @@ export class OnboardingPage implements OnInit, OnDestroy {
       } catch (err) {
         this.logger.warn('Failed to read native storage', { error: err });
       }
+
+      // 2. Try sessionStorage as fallback
       if (!teamData && this.platform.isBrowser()) {
         try {
           const raw = sessionStorage.getItem(PENDING_REFERRAL_KEY);
           if (raw) {
             teamData = JSON.parse(raw) as PendingReferral;
-            this.logger.debug('Found pending referral in sessionStorage', {
+            this.logger.info('resolveSkipStepIds: Parsed pending referral from sessionStorage', {
+              code: teamData.code,
+              teamCode: teamData.teamCode,
+              type: teamData.type,
               teamName: teamData.teamName,
               sport: teamData.sport,
             });
@@ -852,23 +871,89 @@ export class OnboardingPage implements OnInit, OnDestroy {
           this.logger.warn('Failed to parse sessionStorage data', { error: err });
         }
       }
+
+      // 3. Try URL params as final fallback - fetch team data from API
+      if (!teamData) {
+        const params = this.route.snapshot.queryParamMap;
+        const inviteType = params.get('inviteType');
+        const invite = params.get('invite');
+
+        if (inviteType === 'team' && invite) {
+          this.logger.info('resolveSkipStepIds: Found invite code in URL, fetching from API...', {
+            invite,
+          });
+
+          try {
+            const result = await this.authApi.validateTeamCode(invite);
+            if (result.valid && result.teamCode) {
+              teamData = {
+                code: invite,
+                inviterUid: 'unknown',
+                type: inviteType,
+                teamCode: invite,
+                teamName: result.teamCode.teamName,
+                sport: result.teamCode.sport,
+                teamType: result.teamCode.teamType,
+                role: 'Athlete',
+                timestamp: Date.now(),
+              };
+
+              this.logger.info('resolveSkipStepIds: Fetched team data from API', {
+                teamCode: teamData.teamCode,
+                teamName: teamData.teamName,
+                sport: teamData.sport,
+              });
+
+              // Save to storage for future use
+              await this.storage.set(PENDING_REFERRAL_KEY, JSON.stringify(teamData));
+              if (this.platform.isBrowser()) {
+                sessionStorage.setItem(PENDING_REFERRAL_KEY, JSON.stringify(teamData));
+              }
+            } else {
+              this.logger.warn('resolveSkipStepIds: Team validation failed', {
+                invite,
+                valid: result.valid,
+              });
+            }
+          } catch (err) {
+            this.logger.error('resolveSkipStepIds: Failed to fetch team data from API', {
+              error: err,
+              invite,
+            });
+          }
+        }
+      }
+
       if (teamData) {
         hasSportData = !!(teamData.sport && teamData.teamName);
-        if (teamData.teamCode && teamData.type === 'team') {
+        const isTeamType = teamData.teamCode && teamData.type === 'team';
+
+        this.logger.info('resolveSkipStepIds: Evaluating team invite conditions', {
+          teamCode: teamData.teamCode,
+          type: teamData.type,
+          isTeamType,
+          hasSportData,
+        });
+
+        if (isTeamType) {
           this.isTeamInvite.set(true);
-          this.logger.debug('Team invite detected - will filter role options', {
+          this.logger.info('resolveSkipStepIds: Team invite detected - will filter role options', {
             teamName: teamData.teamName,
             teamCode: teamData.teamCode,
           });
         }
 
-        this.logger.debug('Pending referral data found', {
+        this.logger.info('Pending referral data found', {
           hasFlag: joinedFlag === 'true',
           hasSportData,
           hasTeamCode: !!teamData.teamCode,
           teamName: teamData.teamName,
           sport: teamData.sport,
         });
+      } else {
+        this.logger.warn(
+          'resolveSkipStepIds: No pending referral data found in any storage or URL'
+        );
       }
       if (joinedFlag === 'true' || (teamData && teamData.teamCode)) {
         if (joinedFlag === 'true') {
@@ -882,7 +967,16 @@ export class OnboardingPage implements OnInit, OnDestroy {
           teamName: teamData?.teamName,
           sport: teamData?.sport,
           hadJoinedFlag: joinedFlag === 'true',
+          sportStepSkipped: ids.includes('sport'),
         });
+
+        // Warn if sport step will still show (missing sport data from API)
+        if (!hasSportData && teamData?.type === 'team') {
+          this.logger.warn(
+            'Team invite detected but sport data missing - sport step will NOT be skipped. ' +
+              'Ensure team exists in Firestore with sport field populated.'
+          );
+        }
 
         return ids;
       }

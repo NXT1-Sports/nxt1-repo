@@ -232,6 +232,7 @@ function createSportProfile(
     readonly teamType?: string;
     readonly city?: string;
     readonly state?: string;
+    readonly teamId?: string;
   }
 ): SportProfile {
   const VALID_TEAM_TYPES = [
@@ -264,7 +265,10 @@ function createSportProfile(
     profile.team = {
       type: teamType,
       name: options?.teamName || '',
+      ...(options?.teamId ? { teamId: options.teamId } : {}),
     };
+  } else if (options?.teamId) {
+    profile.team = { ...profile.team!, teamId: options.teamId };
   }
   return profile;
 }
@@ -840,6 +844,7 @@ router.post(
           type?: string;
           city?: string;
           state?: string;
+          teamId?: string;
         };
       }>;
 
@@ -850,6 +855,7 @@ router.post(
           teamType: sportData.team?.type,
           city: sportData.team?.city,
           state: sportData.team?.state,
+          teamId: sportData.team?.teamId,
         });
         sports.push(sportProfile);
       });
@@ -1287,6 +1293,38 @@ router.post(
         sportCount: sportTeamMap.size,
         sports: [...sportTeamMap.keys()],
       });
+    }
+
+    // For invite users: sports[].team.teamId was passed from client but organizationId
+    // was not available. Look it up from the Teams collection now.
+    if (Array.isArray(updateData.sports)) {
+      for (const sport of updateData.sports) {
+        if (sport.team?.teamId && !sport.team?.organizationId) {
+          try {
+            const teamDoc = await db.collection('Teams').doc(sport.team.teamId).get();
+            if (teamDoc.exists) {
+              const orgId = teamDoc.data()?.['organizationId'] as string | undefined;
+              const orgName = teamDoc.data()?.['teamName'] as string | undefined;
+              if (orgId) {
+                sport.team.organizationId = orgId;
+                logger.info(
+                  '[POST /profile/onboarding] Backfilled organizationId from teamId (invite flow)',
+                  { teamId: sport.team.teamId, organizationId: orgId }
+                );
+              }
+              // Also correct team name if backend has canonical name
+              if (orgName && !sport.team.name) {
+                sport.team.name = orgName;
+              }
+            }
+          } catch (err) {
+            logger.warn('[POST /profile/onboarding] Failed to resolve organizationId from teamId', {
+              teamId: sport.team.teamId,
+              error: err,
+            });
+          }
+        }
+      }
     }
 
     // V2: Build social[] and connectedSources[] from link sources

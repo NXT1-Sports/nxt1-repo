@@ -23,6 +23,7 @@
  * ```
  */
 
+import { Redis } from 'ioredis';
 import { AgentQueueService } from './queue.service.js';
 import { AgentWorker } from './agent.worker.js';
 import { AgentJobRepository } from './job.repository.js';
@@ -77,11 +78,61 @@ import { stagingDb } from '../../../utils/firebase-staging.js';
 import { logger } from '../../../utils/logger.js';
 
 /**
+ * Quick probe: attempt a single TCP connect + PING to Redis.
+ * Returns true if Redis responds, false if refused/timeout.
+ * Uses a 2-second timeout so the dev server doesn't hang on startup.
+ */
+async function isRedisAvailable(url: string): Promise<boolean> {
+  const parsed = new URL(url);
+  const db = parsed.pathname.replace('/', '');
+  const client = new Redis({
+    host: parsed.hostname,
+    port: parseInt(parsed.port || '6379', 10),
+    password: parsed.password ? decodeURIComponent(parsed.password) : undefined,
+    username: parsed.username ? decodeURIComponent(parsed.username) : undefined,
+    db: db && /^\d+$/.test(db) ? parseInt(db, 10) : 0,
+    lazyConnect: true,
+    retryStrategy: () => null, // fail immediately, no retries
+    enableOfflineQueue: false,
+    connectTimeout: 2000,
+  });
+  try {
+    await client.connect();
+    await client.quit();
+    return true;
+  } catch {
+    client.disconnect();
+    return false;
+  }
+}
+
+/**
  * Initialize the entire Agent X background processing engine.
  *
  * @returns A shutdown function that gracefully closes all connections.
  */
 export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
+  // ── 0. Kill-switch: set AGENT_ENGINE_DISABLED=true in .env to skip entirely ──
+  if (process.env['AGENT_ENGINE_DISABLED'] === 'true') {
+    logger.warn('⚠️  AGENT_ENGINE_DISABLED=true — Agent Engine skipped.');
+    return async () => {};
+  }
+
+  // ── 0b. Redis availability check ─────────────────────────────────────
+  const redisUrl = process.env['REDIS_URL'] ?? 'redis://localhost:6379';
+  const redisOk = await isRedisAvailable(redisUrl);
+  if (!redisOk) {
+    if (process.env['NODE_ENV'] === 'production') {
+      throw new Error(
+        `Redis is unreachable at ${redisUrl} — cannot start Agent Engine in production.`
+      );
+    }
+    logger.warn(
+      '⚠️  Redis unavailable — Agent Engine skipped. ' +
+        'Start Redis (e.g. via WSL2/Docker) or set AGENT_ENGINE_DISABLED=true to suppress this warning.'
+    );
+    return async () => {};
+  }
   // ── 1. Core services ─────────────────────────────────────────────────
   const telemetry = new TelemetryService();
   const llm = new OpenRouterService({

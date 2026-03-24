@@ -129,10 +129,17 @@ export class JoinMobileComponent implements OnInit {
             sport: teamData.sport,
           });
         } else {
-          this.logger.warn('Team validation failed, continuing with code only', { teamCode });
+          this.logger.warn('Team validation returned invalid or no teamCode', {
+            teamCode,
+            valid: result.valid,
+            hasTeamCodeData: !!result.teamCode,
+          });
         }
       } catch (err) {
-        this.logger.warn('Failed to fetch team data, continuing with URL params', { error: err });
+        this.logger.error('Failed to fetch team data - sport step will NOT be skipped', {
+          error: err,
+          teamCode,
+        });
       }
     }
 
@@ -174,6 +181,7 @@ export class JoinMobileComponent implements OnInit {
 
       this.logger.info('Referral data stored in native storage', {
         code: pending.code,
+        teamCode: pending.teamCode,
         type: pending.type,
         role: pending.role,
         sport: pending.sport,
@@ -183,9 +191,11 @@ export class JoinMobileComponent implements OnInit {
       this.logger.error('Failed to write to native storage', { error: err });
     }
 
+    // Minimal URL params - invite code is enough to re-fetch team data on reload
     const queryParams: Record<string, string> = {
       mode: 'signup',
       invite: pending.code,
+      inviteType: pending.type,
     };
 
     void this.navController.navigateRoot('/auth', { queryParams });

@@ -58,6 +58,7 @@ import {
   deserializeSession,
   getSkipStepIdsForInviteUser,
   INVITE_TEAM_JOINED_KEY,
+  createEmptySportEntry,
 } from '@nxt1/core/api';
 import { AUTH_ROUTES, USER_ROLES } from '@nxt1/core/constants';
 import { STORAGE_KEYS } from '@nxt1/core/storage';
@@ -164,6 +165,21 @@ export class OnboardingService {
   private readonly _isCurrentStepValid = signal(true);
   private readonly _contentReady = signal(false);
   private readonly _footerVisible = signal(false);
+  // Pre-detect invite status synchronously from localStorage to avoid flash on reload.
+  // resolveSkipStepIds() will confirm/update this via native storage async.
+  readonly isTeamInvite = signal(
+    (() => {
+      if (typeof localStorage === 'undefined') return false;
+      try {
+        const raw = localStorage.getItem('nxt1:pending_referral');
+        if (!raw) return false;
+        const data = JSON.parse(raw) as { type?: string; teamCode?: string };
+        return data.type === 'team' && !!data.teamCode;
+      } catch {
+        return false;
+      }
+    })()
+  );
 
   // ============================================
   // QUICK-ADD LINK STATE
@@ -581,22 +597,109 @@ export class OnboardingService {
         this.handleMachineEvent(event);
       });
 
-      this.tryRestoreSession(userId).then((restored) => {
+      this.tryRestoreSession(userId).then(async (restored) => {
         if (!restored) {
           this.machine.start();
+          await this.applyInviteSportPreselection();
           this.trackStarted();
+        } else {
+          await this.applyInviteSportPreselection();
         }
       });
     });
   }
 
-  private async resolveSkipStepIds(): Promise<OnboardingStepId[]> {
+  private async applyInviteSportPreselection(): Promise<void> {
+    const PENDING_REFERRAL_KEY = 'nxt1:pending_referral';
     try {
-      const value = await this.storage.get(INVITE_TEAM_JOINED_KEY);
-      if (value === 'true') {
-        await this.storage.remove(INVITE_TEAM_JOINED_KEY);
-        const ids = getSkipStepIdsForInviteUser();
-        this.logger.info('User joined team via invite — skipping team steps', { skipStepIds: ids });
+      const nativeData = await this.storage.get(PENDING_REFERRAL_KEY);
+      if (nativeData) {
+        const teamData = JSON.parse(nativeData) as {
+          sport?: string;
+          teamName?: string;
+          teamType?: string;
+          teamId?: string;
+          teamCode?: string;
+          type?: string;
+        };
+        if (teamData.sport && teamData.teamName) {
+          const sportEntry = createEmptySportEntry(teamData.sport, true);
+          sportEntry.team.name = teamData.teamName;
+          // Keep raw TeamTypeApi value — backend createSportProfile validates against VALID_TEAM_TYPES
+          sportEntry.team.type = teamData.teamType as any;
+          // Pass teamId so backend can look up organizationId from the Teams collection
+          if (teamData.teamId) {
+            sportEntry.team.teamId = teamData.teamId;
+          }
+          const sportData: SportFormData = {
+            sports: [sportEntry],
+          };
+          this.machine.updateSport(sportData);
+          this.logger.info('applyInviteSportPreselection: Applied full team data from invite', {
+            sport: teamData.sport,
+            teamName: teamData.teamName,
+            teamType: teamData.teamType,
+            teamId: teamData.teamId,
+          });
+        }
+      }
+    } catch (err) {
+      this.logger.warn('applyInviteSportPreselection: Failed to apply sport preselection', {
+        error: err,
+      });
+    }
+  }
+
+  private async resolveSkipStepIds(): Promise<OnboardingStepId[]> {
+    const PENDING_REFERRAL_KEY = 'nxt1:pending_referral';
+    try {
+      // Check flag first (quick path - user joined team then navigated)
+      const joinedFlag = await this.storage.get(INVITE_TEAM_JOINED_KEY);
+
+      // Check pending referral data from native storage (set by JoinComponent)
+      let hasSportData = false;
+      let isTeamInvite = false;
+
+      try {
+        const nativeData = await this.storage.get(PENDING_REFERRAL_KEY);
+        if (nativeData) {
+          const teamData = JSON.parse(nativeData) as {
+            sport?: string;
+            teamName?: string;
+            teamCode?: string;
+            type?: string;
+          };
+          hasSportData = !!(teamData.sport && teamData.teamName);
+          isTeamInvite = teamData.type === 'team' && !!teamData.teamCode;
+
+          this.logger.info('resolveSkipStepIds: Found pending referral in native storage', {
+            teamCode: teamData.teamCode,
+            teamName: teamData.teamName,
+            sport: teamData.sport,
+            type: teamData.type,
+            hasSportData,
+            isTeamInvite,
+          });
+
+          if (isTeamInvite) {
+            this.isTeamInvite.set(true);
+          }
+        }
+      } catch (err) {
+        this.logger.warn('resolveSkipStepIds: Failed to read pending referral', { error: err });
+      }
+
+      if (joinedFlag === 'true' || isTeamInvite) {
+        if (joinedFlag === 'true') {
+          await this.storage.remove(INVITE_TEAM_JOINED_KEY);
+        }
+        const ids = getSkipStepIdsForInviteUser(undefined, hasSportData);
+        this.logger.info('resolveSkipStepIds: Invite detected — skipping steps', {
+          skipStepIds: ids,
+          hasSportData,
+          hadJoinedFlag: joinedFlag === 'true',
+          sportStepSkipped: ids.includes('sport'),
+        });
         return ids;
       }
     } catch (err) {
@@ -753,6 +856,7 @@ export class OnboardingService {
                 secondaryColor: entry.team.secondaryColor ?? entry.team.colors?.[1] ?? undefined,
                 logo: entry.team.logoUrl ?? entry.team.logo ?? undefined,
                 colors: entry.team.colors,
+                teamId: entry.team.teamId ?? undefined,
               }
             : undefined,
         })),
@@ -813,6 +917,9 @@ export class OnboardingService {
         this.logger.warn('Failed to save referral source, continuing', { error: referralError });
       }
     }
+
+    // Accept pending team invite before completing onboarding (creates RosterEntry + links sport)
+    await this.authFlow.acceptPendingInvite(formData.userType ?? undefined);
 
     this.logger.debug('Calling completeOnboarding API', { userId: user.uid });
     try {

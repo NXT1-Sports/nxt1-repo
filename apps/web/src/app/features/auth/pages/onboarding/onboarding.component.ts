@@ -44,7 +44,7 @@ import {
   ViewChild,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
-import { Router, RouterModule } from '@angular/router';
+import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 
@@ -457,6 +457,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
   private readonly platformId = inject(PLATFORM_ID);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly authFlow = inject(AuthFlowService);
   private readonly authApi = inject(AuthApiService);
   private readonly errorHandler = inject(AuthErrorHandler);
@@ -671,8 +672,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       // Mark as initialized to prevent re-running
       this.hasInitialized = true;
 
-      // Initialize the shared state machine
-      this.initializeStateMachine(user.uid);
+      // Initialize the shared state machine (async to allow API fallback)
+      void this.initializeStateMachine(user.uid);
     });
   }
 
@@ -707,39 +708,137 @@ export class OnboardingComponent implements OnInit, OnDestroy {
    * Initialize the shared state machine from @nxt1/core
    * This is the SINGLE SOURCE OF TRUTH for all onboarding logic
    */
-  private initializeStateMachine(userId: string): void {
+  private async initializeStateMachine(userId: string): Promise<void> {
     this.logger.info('Initializing shared state machine', { userId });
 
     // Check if user has pending invite data (either from flag or pending referral)
     let skipStepIds: OnboardingStepId[] = [];
     let hasSportData = false;
     let hasInviteData = false;
+    let isTeamTypeInvite = false;
+    let teamData: {
+      sport?: string;
+      teamName?: string;
+      teamCode?: string;
+      teamType?: string;
+      type?: string;
+    } | null = null;
 
     if (isPlatformBrowser(this.platformId)) {
+      // Debug: dump all relevant sessionStorage keys
+      this.logger.info('DEBUG: Checking sessionStorage for invite data', {
+        hasPendingReferral: !!sessionStorage.getItem('nxt1:pending_referral'),
+        hasInviteSport: !!sessionStorage.getItem('nxt1:invite_sport'),
+        inviteSport: sessionStorage.getItem('nxt1:invite_sport'),
+        pendingReferralPreview: sessionStorage.getItem('nxt1:pending_referral')?.substring(0, 300),
+      });
+
       const joinedViaInvite = sessionStorage.getItem(INVITE_TEAM_JOINED_KEY) === 'true';
+
+      // 1. Try sessionStorage first
       try {
         const raw = sessionStorage.getItem('nxt1:pending_referral');
-        if (raw) {
-          const teamData = JSON.parse(raw) as {
-            sport?: string;
-            teamName?: string;
-            teamCode?: string;
-            teamType?: string;
-          };
-          hasSportData = !!(teamData.sport && teamData.teamName);
-          hasInviteData = !!teamData.teamCode;
+        this.logger.info('Reading pending referral from sessionStorage', {
+          hasRawData: !!raw,
+          rawPreview: raw ? raw.substring(0, 200) : null,
+        });
 
-          this.logger.debug('Found pending referral data in storage', {
-            hasFlag: joinedViaInvite,
-            hasSportData,
-            hasInviteData,
-            teamName: teamData.teamName,
-            sport: teamData.sport,
-          });
+        if (raw) {
+          teamData = JSON.parse(raw);
         }
       } catch (err) {
         this.logger.warn('Failed to parse pending referral data', { error: err });
       }
+
+      // 2. If no sessionStorage data, try URL params with API fetch
+      if (!teamData) {
+        const params = this.route.snapshot.queryParamMap;
+        const inviteType = params.get('inviteType');
+        const invite = params.get('invite');
+
+        this.logger.info('DEBUG: No sessionStorage data, checking URL params', {
+          inviteType,
+          invite,
+          allParams: params.keys,
+          currentUrl: window.location.href,
+        });
+
+        if (inviteType === 'team' && invite) {
+          this.logger.info('No sessionStorage data, fetching from API...', { invite });
+
+          try {
+            const result = await this.authApi.validateTeamCode(invite);
+            if (result.valid && result.teamCode) {
+              teamData = {
+                sport: result.teamCode.sport,
+                teamName: result.teamCode.teamName,
+                teamCode: invite,
+                teamType: result.teamCode.teamType,
+                type: inviteType,
+              };
+
+              this.logger.info('Fetched team data from API', {
+                teamCode: teamData.teamCode,
+                teamName: teamData.teamName,
+                sport: teamData.sport,
+              });
+
+              // Save to sessionStorage for future use
+              sessionStorage.setItem(
+                'nxt1:pending_referral',
+                JSON.stringify({
+                  code: invite,
+                  inviterUid: 'unknown',
+                  type: inviteType,
+                  teamCode: invite,
+                  teamName: teamData.teamName,
+                  sport: teamData.sport,
+                  teamType: teamData.teamType,
+                  role: 'Athlete',
+                  timestamp: Date.now(),
+                })
+              );
+            } else {
+              this.logger.warn('Team validation failed', { invite, valid: result.valid });
+            }
+          } catch (err) {
+            this.logger.error('Failed to fetch team data from API', { error: err, invite });
+          }
+        }
+      }
+
+      // Process team data if found
+      if (teamData) {
+        hasSportData = !!(teamData.sport && teamData.teamName);
+        hasInviteData = !!teamData.teamCode;
+        isTeamTypeInvite = teamData.type === 'team' && hasInviteData;
+
+        this.logger.info('Parsed pending referral data', {
+          hasFlag: joinedViaInvite,
+          hasSportData,
+          hasInviteData,
+          isTeamTypeInvite,
+          type: teamData.type,
+          teamCode: teamData.teamCode,
+          teamName: teamData.teamName,
+          sport: teamData.sport,
+        });
+      } else {
+        this.logger.warn(
+          'No pending referral found in sessionStorage or URL - role filter will NOT be applied'
+        );
+      }
+
+      // Set isTeamInvite signal early so role selection filters are applied
+      // This must happen BEFORE the machine starts and renders the role step
+      if (isTeamTypeInvite) {
+        this.isTeamInvite.set(true);
+        this.logger.info('Team invite detected - filtering role options', {
+          hasInviteData,
+          hasSportData,
+        });
+      }
+
       if (joinedViaInvite || hasInviteData) {
         skipStepIds = getSkipStepIdsForInviteUser(undefined, hasSportData);
 
@@ -748,7 +847,16 @@ export class OnboardingComponent implements OnInit, OnDestroy {
           hasSportData,
           hasInviteData,
           hadJoinedFlag: joinedViaInvite,
+          sportStepSkipped: skipStepIds.includes('sport'),
         });
+
+        // Warn if sport step will still show (missing sport data from API)
+        if (!hasSportData && isTeamTypeInvite) {
+          this.logger.warn(
+            'Team invite detected but sport data missing - sport step will NOT be skipped. ' +
+              'Ensure team exists in Firestore with sport field populated.'
+          );
+        }
 
         if (joinedViaInvite) {
           sessionStorage.removeItem(INVITE_TEAM_JOINED_KEY);
@@ -775,7 +883,16 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     });
 
     // Try to restore session from localStorage
-    const restored = this.tryRestoreSession(userId);
+    // BUT: If we have a fresh team invite, don't restore old session (it may have wrong role/steps)
+    let restored = false;
+    if (isTeamTypeInvite) {
+      this.logger.info(
+        'Team invite detected - clearing any existing session to ensure fresh start'
+      );
+      this.clearSession();
+    } else {
+      restored = this.tryRestoreSession(userId);
+    }
 
     if (!restored) {
       // No valid session - start fresh
@@ -784,13 +901,16 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       // Track onboarding started event
       this.trackStarted();
     } else {
-      // Session restored - toast shown in tryRestoreSession
+      // Session restored - but still apply invite sport preselection if available
+      this.applyInviteSportPreselection();
+      this.logger.info('Session restored, also applied invite sport preselection');
     }
   }
 
   /**
    * Pre-select sport and team from invite link if available.
    * Reads full team data from PENDING_REFERRAL_KEY and applies it to the state machine.
+   * Note: isTeamInvite signal is set in initializeStateMachine() earlier.
    */
   private applyInviteSportPreselection(): void {
     if (!isPlatformBrowser(this.platformId)) return;
@@ -807,14 +927,6 @@ export class OnboardingComponent implements OnInit, OnDestroy {
           teamCode?: string;
           type?: string;
         };
-
-        if (teamData.teamCode && teamData.type === 'team') {
-          this.isTeamInvite.set(true);
-          this.logger.debug('Team invite detected - will filter role options', {
-            teamName: teamData.teamName,
-            teamCode: teamData.teamCode,
-          });
-        }
 
         if (teamData.sport && teamData.teamName) {
           // We have full team data - create complete sport entry

@@ -212,6 +212,8 @@ export interface SportTeamInfo {
   secondaryColor?: string;
   /** @deprecated Use primaryColor + secondaryColor */
   colors?: string[];
+  /** Team document ID — used by backend to backfill organizationId */
+  teamId?: string;
 }
 
 /**
