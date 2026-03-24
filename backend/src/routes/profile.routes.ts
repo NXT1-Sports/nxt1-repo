@@ -388,6 +388,92 @@ router.get(
 );
 
 /**
+ * Get related athletes for a given profile.
+ * Returns up to 12 athletes matched by sport, then ranked by state + position affinity.
+ *
+ * Strategy: Query Firestore for same-sport athletes (broad pool of 50),
+ * then score in-memory by state (+2) and position (+1) match, return top 12.
+ * This guarantees results even when an exact state+position combo has few users.
+ *
+ * GET /api/v1/auth/profile/related?sport=Football&state=SC&position=QB&exclude=uid123
+ */
+router.get(
+  '/related',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const db = req.firebase!.db;
+    const q = req.query as Record<string, string | undefined>;
+
+    const sport = q['sport'];
+    const state = q['state'];
+    const position = q['position'];
+    const excludeId = q['exclude'];
+
+    if (!sport) {
+      sendError(
+        res,
+        validationError([
+          { field: 'sport', message: 'sport query parameter is required', rule: 'required' },
+        ])
+      );
+      return;
+    }
+
+    // --- Cache ---
+    const cacheKey = `${PROFILE_CACHE_KEYS.SEARCH}related:sport:${sport.toLowerCase()}:state:${(state ?? '').toLowerCase()}:pos:${(position ?? '').toLowerCase()}`;
+    const cache = getCacheService();
+
+    const cached = await cache.get<UserSummary[]>(cacheKey);
+    if (cached) {
+      logger.debug('[Profile] Related cache hit', { cacheKey });
+      markCacheHit(req, 'redis', cacheKey);
+      const filtered = excludeId ? cached.filter((u) => u.id !== excludeId) : cached;
+      res.json({ success: true, data: filtered.slice(0, 12) });
+      return;
+    }
+
+    // --- Query Firestore: broad same-sport pool ---
+    const POOL_SIZE = 50;
+    const snapshot = await db
+      .collection(USERS_COLLECTION)
+      .where('primarySport', '==', sport)
+      .limit(POOL_SIZE)
+      .get();
+
+    const pool: UserSummary[] = snapshot.docs.map((doc) =>
+      docToUserSummary(doc.id, doc.data() as UserFirestoreDoc)
+    );
+
+    // --- Score by state + position affinity (exclude filtering is NOT done here — applied at response time) ---
+    const scored = pool
+      .filter((u) => !!u.firstName && !!u.unicode)
+      .map((u) => {
+        let score = 0;
+        if (state && u.location?.state === state) score += 2;
+        if (position && u.primaryPosition?.toLowerCase() === position.toLowerCase()) score += 1;
+        return { u, score };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 13)
+      .map(({ u }) => u);
+
+    // Cache the scored results WITHOUT exclude filtering — excludeId varies per viewer
+    await cache.set(cacheKey, scored, { ttl: CACHE_TTL.SEARCH });
+
+    logger.debug('[Profile] Related athletes computed', {
+      sport,
+      state,
+      position,
+      poolSize: pool.length,
+      resultSize: scored.length,
+    });
+
+    const result = excludeId ? scored.filter((u) => u.id !== excludeId) : scored;
+    res.json({ success: true, data: result.slice(0, 12) });
+  })
+);
+
+/**
  * Search profiles by sport / state / classOf / position / free-text.
  * GET /api/v1/auth/profile/search
  */

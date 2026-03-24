@@ -161,7 +161,7 @@ export class FeedEmptyStateComponent {
 
   protected readonly title = computed(() => {
     if (this.customTitle()) return this.customTitle()!;
-    return FEED_EMPTY_STATES[this.filterType()]?.title ?? 'No posts yet';
+    return FEED_EMPTY_STATES[this.filterType()]?.title ?? 'No updates yet';
   });
 
   protected readonly message = computed(() => {

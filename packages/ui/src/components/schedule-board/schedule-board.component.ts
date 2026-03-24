@@ -34,7 +34,9 @@ import { NxtImageComponent } from '../image';
           <h3>No schedule yet</h3>
           <p>{{ emptyMessage() }}</p>
           @if (showAddButton()) {
-            <button type="button" class="madden-cta-btn" (click)="addEvent.emit()">Add Game</button>
+            <button type="button" class="madden-cta-btn" (click)="addEvent.emit()">
+              Add Schedule
+            </button>
           }
         </div>
       } @else {
@@ -112,53 +114,57 @@ import { NxtImageComponent } from '../image';
         display: block;
       }
 
-      /* ─── EMPTY STATE ─── */
+      /* ─── EMPTY STATE (matches timeline component exactly) ─── */
       .madden-empty {
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        text-align: center;
         padding: 48px 24px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
+        text-align: center;
       }
       .madden-empty h3 {
         font-size: 16px;
         font-weight: 700;
-        color: var(--m-text);
+        color: var(--nxt1-color-text-primary);
         margin: 16px 0 8px;
       }
       .madden-empty__icon {
         width: 80px;
         height: 80px;
         border-radius: 50%;
-        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
-        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-default);
         display: flex;
         align-items: center;
         justify-content: center;
         margin-bottom: 4px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.4));
+        color: var(--nxt1-color-text-tertiary);
       }
       .madden-empty p {
         font-size: 14px;
-        color: var(--m-text-2);
-        margin: 0 0 20px;
+        line-height: 1.5;
+        color: var(--nxt1-color-text-secondary);
+        margin: 0;
         max-width: 280px;
       }
       .madden-cta-btn {
-        background: var(--m-accent);
-        color: #000;
-        border: none;
-        border-radius: 999px;
+        margin-top: 12px;
         padding: 10px 24px;
+        background: var(--nxt1-color-primary);
+        border: none;
+        border-radius: 9999px;
+        color: #000;
         font-size: 14px;
         font-weight: 700;
         cursor: pointer;
-        transition: filter 0.15s;
+        transition: all 0.2s ease;
       }
       .madden-cta-btn:hover {
         filter: brightness(1.1);
+      }
+      .madden-cta-btn:active {
+        filter: brightness(0.95);
       }
 
       /* ─── SCHEDULE BOARD ─── */
@@ -397,7 +403,7 @@ export class ScheduleBoardComponent {
   readonly emptyMessage = input('No schedule items have been added yet.');
 
   /** Whether to show the "Add Game" CTA in the empty state. */
-  readonly showAddButton = input(false);
+  readonly showAddButton = input<boolean>(false);
 
   // ── Outputs ──
 

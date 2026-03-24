@@ -24,8 +24,7 @@ export type ManageTeamSectionId =
   | 'schedule'
   | 'stats'
   | 'staff'
-  | 'sponsors'
-  | 'integrations';
+  | 'sponsors';
 
 /**
  * Tab identifiers for manage team navigation.
@@ -81,8 +80,7 @@ export type ManageTeamFieldType =
   | 'roster-list'
   | 'schedule-list'
   | 'staff-list'
-  | 'sponsor-list'
-  | 'integration-link';
+  | 'sponsor-list';
 
 /**
  * Configuration for a single team field.
@@ -157,11 +155,9 @@ export interface TeamBasicInfo {
  */
 export interface TeamBranding {
   readonly logo?: string;
-  readonly mascotImage?: string;
   readonly primaryColor: string;
   readonly secondaryColor: string;
   readonly accentColor?: string;
-  readonly bannerImage?: string;
 }
 
 /**
@@ -186,7 +182,6 @@ export interface TeamRecord {
   readonly ties?: number;
   readonly conferenceWins?: number;
   readonly conferenceLosses?: number;
-  readonly streak?: string;
   readonly ranking?: number;
   readonly conferenceRank?: number;
 }
@@ -228,7 +223,7 @@ export interface RosterPlayer {
   readonly classYear?: string;
   readonly height?: string;
   readonly weight?: string;
-  readonly photoUrl?: string;
+  readonly profileImgs?: readonly string[];
   readonly profileId?: string;
   readonly email?: string;
   readonly isVerified?: boolean;
@@ -321,7 +316,7 @@ export interface StaffMember {
   readonly title?: string;
   readonly email?: string;
   readonly phone?: string;
-  readonly photoUrl?: string;
+  readonly profileImgs?: readonly string[];
   readonly profileId?: string;
   readonly bio?: string;
   readonly isHead?: boolean;
@@ -385,54 +380,6 @@ export type SponsorTier = 'platinum' | 'gold' | 'silver' | 'bronze' | 'supporter
 export type SponsorStatus = 'active' | 'pending' | 'expired' | 'cancelled';
 
 // ============================================
-// INTEGRATION TYPES
-// ============================================
-
-/**
- * External data integration.
- */
-export interface TeamIntegration {
-  readonly id: string;
-  readonly provider: IntegrationProvider;
-  readonly type: IntegrationType;
-  readonly url: string;
-  readonly status: IntegrationStatus;
-  readonly lastSync?: string;
-  readonly syncFrequency?: SyncFrequency;
-  readonly autoSync?: boolean;
-  readonly errorMessage?: string;
-}
-
-/**
- * Supported integration providers.
- */
-export type IntegrationProvider =
-  | 'maxpreps'
-  | 'hudl'
-  | 'gamechanger'
-  | 'scorebook-live'
-  | 'sidearm'
-  | 'ncsa'
-  | 'perfect-game'
-  | 'prepbaseballreport'
-  | 'custom';
-
-/**
- * Integration data types.
- */
-export type IntegrationType = 'schedule' | 'stats' | 'roster' | 'rankings' | 'video' | 'all';
-
-/**
- * Integration status.
- */
-export type IntegrationStatus = 'connected' | 'syncing' | 'error' | 'pending' | 'disconnected';
-
-/**
- * Sync frequency options.
- */
-export type SyncFrequency = 'realtime' | 'hourly' | 'daily' | 'weekly' | 'manual';
-
-// ============================================
 // FORM DATA TYPES
 // ============================================
 
@@ -448,7 +395,6 @@ export interface ManageTeamFormData {
   readonly schedule: readonly TeamScheduleEvent[];
   readonly staff: readonly StaffMember[];
   readonly sponsors: readonly TeamSponsor[];
-  readonly integrations: readonly TeamIntegration[];
 }
 
 // ============================================
@@ -539,13 +485,4 @@ export interface SponsorActionEvent {
   readonly action: 'add' | 'edit' | 'remove' | 'view-details';
   readonly sponsorId?: string;
   readonly sponsor?: TeamSponsor;
-}
-
-/**
- * Integration action event.
- */
-export interface IntegrationActionEvent {
-  readonly action: 'connect' | 'disconnect' | 'sync' | 'configure';
-  readonly provider?: IntegrationProvider;
-  readonly integration?: TeamIntegration;
 }

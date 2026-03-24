@@ -232,7 +232,7 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
            --nxt1-footer-bottom, --nxt1-footer-left, --nxt1-footer-right
            ============================================ */
         position: fixed;
-        bottom: var(--nxt1-footer-bottom, 20px);
+        bottom: var(--nxt1-footer-bottom, 28px);
         left: var(--nxt1-footer-left, 16px);
         right: var(--nxt1-footer-right, 16px);
         z-index: var(--nxt1-z-index-footer, 1000);

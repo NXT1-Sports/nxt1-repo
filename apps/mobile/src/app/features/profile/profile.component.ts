@@ -45,7 +45,7 @@ import {
   ProfileShellComponent,
   RelatedAthletesComponent,
   EditProfileBottomSheetService,
-  ManageTeamBottomSheetService,
+  ManageTeamModalService,
   NxtSidenavService,
   ProfileService as UiProfileService,
   userToProfilePageData,
@@ -65,7 +65,7 @@ import {
 } from '@nxt1/ui';
 import { parseApiError, requiresAuth, isTeamRole } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import type { User, UserSummary, ProfileTabId } from '@nxt1/core';
+import type { User, UserSummary, ProfileTabId, ProfileTeamAffiliation } from '@nxt1/core';
 import type { ProfileEvent } from '@nxt1/core/profile';
 import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from '@nxt1/core';
 
@@ -126,7 +126,7 @@ import { environment } from '../../../environments/environment';
           (shareClick)="onTeamShare()"
           (followClick)="onFollow()"
           (qrCodeClick)="onTeamQrCode()"
-          (manageTeamClick)="onEditTeam()"
+          (manageTeamClick)="onManageTeam()"
           (rosterMemberClick)="onRosterMemberClick($event)"
           (postClick)="onTeamPostClick($event)"
         />
@@ -142,7 +142,7 @@ import { environment } from '../../../environments/environment';
           (backClick)="onBackClick()"
           (tabChange)="onTabChange($event)"
           (editProfileClick)="onEditProfile()"
-          (editTeamClick)="onEditTeam()"
+          (teamClick)="onTeamClick($event)"
           (shareClick)="onShare()"
           (copyLinkClick)="onCopyLink()"
           (followClick)="onFollow()"
@@ -204,7 +204,7 @@ export class ProfileComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly authService = inject(MobileAuthService);
   private readonly editProfileSheet = inject(EditProfileBottomSheetService);
-  private readonly manageTeamSheet = inject(ManageTeamBottomSheetService);
+  private readonly manageTeamModal = inject(ManageTeamModalService);
   private readonly navController = inject(NavController);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly uiProfileService = inject(UiProfileService);
@@ -766,11 +766,32 @@ export class ProfileComponent {
     if (result?.saved) {
       const param = this.routeParam();
       if (!param && userId) {
-        const response = await this.profileApiService.getProfile(userId);
+        // Clear service cache so the re-fetch hits the backend
+        this.profileApiService.invalidateCache(userId);
+
+        // Reset UI state — forces full teardown of carousel/images so they
+        // re-render from scratch with fresh data (prevents stale component state)
+        this.uiProfileService.startLoading();
+
+        // Use getMe() for own profile — same endpoint as the initial load
+        const response = await this.profileApiService.getMe();
         if (response.success && response.data) {
-          this.fetchedProfile.set(response.data);
-          const profilePageData = userToProfilePageData(response.data, true);
-          this.uiProfileService.loadFromExternalData(profilePageData, response.data, true);
+          const profile = response.data;
+          this.fetchedProfile.set(profile);
+          const profilePageData = userToProfilePageData(profile, true);
+          this.uiProfileService.loadFromExternalData(profilePageData, profile, true);
+
+          // Refresh sub-collections (same as initial load)
+          const activeSport =
+            profile.sports?.[profile.activeSportIndex ?? 0] ?? profile.sports?.[0];
+          const sportId = activeSport?.sport?.toLowerCase();
+          this.fetchSubCollections(profile.id, sportId).catch((err) => {
+            this.logger.error('Failed to refresh sub-collections after edit', err, {
+              userId: profile.id,
+            });
+          });
+        } else {
+          this.uiProfileService.setError(response.error ?? 'Failed to reload profile');
         }
       }
     }
@@ -824,11 +845,26 @@ export class ProfileComponent {
   };
 
   /**
-   * Opens the manage team bottom sheet (full-screen on mobile).
-   * Called when user taps 'Edit Team' button.
+   * Handle team card click — navigate to team profile page.
    */
-  protected async onEditTeam(): Promise<void> {
-    const result = await this.manageTeamSheet.open({
+  protected onTeamClick(team: ProfileTeamAffiliation): void {
+    if (team.teamCode) {
+      this.logger.info('Navigating to team profile', {
+        teamCode: team.teamCode,
+        teamName: team.name,
+      });
+      void this.navController.navigateForward(`/team/${team.teamCode}`);
+    } else {
+      this.logger.warn('Team has no teamCode, cannot navigate', { teamName: team.name });
+    }
+  }
+
+  /**
+   * Opens the manage team modal (bottom sheet on mobile, overlay on desktop).
+   * Called when team admin taps 'Manage Team' on the team profile shell.
+   */
+  protected async onManageTeam(): Promise<void> {
+    const result = await this.manageTeamModal.open({
       teamId: this.teamProfile.team()?.id,
     });
 

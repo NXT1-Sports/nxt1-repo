@@ -500,10 +500,10 @@ export const PROFILE_EMPTY_STATES: Record<
     icon: 'pie-chart-outline',
   },
   timeline: {
-    title: 'No posts yet',
-    message: 'Start sharing your journey and connect with coaches and scouts.',
+    title: 'No updates yet',
+    message: 'Updates from your journey will appear here.',
     icon: 'newspaper-outline',
-    ctaLabel: 'Create First Post',
+    ctaLabel: 'Add Update',
   },
   news: {
     title: 'No news yet',

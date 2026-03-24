@@ -651,6 +651,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
         flex: 1;
         overflow-y: auto;
         overflow-x: hidden;
+        scrollbar-gutter: stable;
         background: var(--shell-content-bg);
         min-height: 0; /* Critical for flex overflow scrolling */
         padding-top: calc(var(--nxt1-spacing-4, 1rem) + 7px);
@@ -682,9 +683,9 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
          MOBILE FOOTER
          ============================================ */
       nxt1-mobile-footer {
-        --nxt1-footer-bottom: 0;
-        --nxt1-footer-left: 0;
-        --nxt1-footer-right: 0;
+        --nxt1-footer-bottom: 28px;
+        --nxt1-footer-left: 16px;
+        --nxt1-footer-right: 16px;
         --nxt1-z-index-footer: 1000;
       }
 
@@ -1005,6 +1006,7 @@ export class WebShellComponent {
       notificationCount: this.badgeCount.totalUnread(),
       showSignIn, // Hidden until auth resolves, then show only if not logged in
       showMore: false,
+      showAvatar: false,
       sticky: true,
       hideOnScroll: false,
       bordered: true,

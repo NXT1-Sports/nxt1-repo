@@ -9,12 +9,14 @@
  */
 import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
 import { NxtIconComponent } from '../../components/icon';
+import { NxtPlatformIconComponent } from '../../components/platform-icon';
+import { getPlatformFaviconUrl } from '@nxt1/core/onboarding';
 import { TeamProfileService } from '../team-profile.service';
 
 @Component({
   selector: 'nxt1-team-contact-web',
   standalone: true,
-  imports: [NxtIconComponent],
+  imports: [NxtIconComponent, NxtPlatformIconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="madden-tab-section" aria-labelledby="team-contact-heading">
@@ -77,7 +79,12 @@ import { TeamProfileService } from '../team-profile.service';
                     rel="noopener noreferrer"
                   >
                     <span class="contact-social-chip-icon" [style.color]="acct.color">
-                      <nxt1-icon [name]="acct.icon" [size]="16" />
+                      <nxt1-platform-icon
+                        [icon]="acct.icon"
+                        [faviconUrl]="acct.faviconUrl"
+                        [size]="16"
+                        [alt]="acct.label + ' icon'"
+                      />
                     </span>
                     <span class="contact-social-chip-handle">{{ acct.handle || acct.label }}</span>
                     @if (acct.verified) {
@@ -408,6 +415,7 @@ export class TeamContactWebComponent {
       readonly color: string;
       readonly url: string;
       readonly verified: boolean;
+      readonly faviconUrl: string | null;
     }> => {
       const social = this.teamProfile.team()?.social;
       if (!social?.length) return [];
@@ -432,6 +440,7 @@ export class TeamContactWebComponent {
             color: meta.color,
             url: link.url,
             verified: !!link.verified,
+            faviconUrl: getPlatformFaviconUrl(link.platform.toLowerCase()),
           };
         });
     }

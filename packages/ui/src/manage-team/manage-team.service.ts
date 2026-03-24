@@ -33,21 +33,12 @@ import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 
-// ⚠️ TEMPORARY: Mock data for development (remove when backend is ready)
-import {
-  MOCK_MANAGE_TEAM_FORM_DATA,
-  MOCK_TEAM_COMPLETION,
-  MOCK_MANAGE_TEAM_SECTIONS,
-} from './manage-team.mock-data';
-
 /**
  * Manage Team state management service.
  * Provides reactive state for the team management interface.
  */
 @Injectable({ providedIn: 'root' })
 export class ManageTeamService {
-  // ⚠️ TEMPORARY: API service commented out - using mock data
-  // private readonly api = inject(ManageTeamApiService);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ManageTeamService');
@@ -209,18 +200,6 @@ export class ManageTeamService {
   });
 
   // ============================================
-  // DERIVED COMPUTEDS - INTEGRATIONS
-  // ============================================
-
-  /** Integrations */
-  readonly integrations = computed(() => this._formData()?.integrations ?? []);
-
-  /** Connected integrations */
-  readonly connectedIntegrations = computed(() =>
-    this.integrations().filter((i) => i.status === 'connected')
-  );
-
-  // ============================================
   // DERIVED COMPUTEDS - COMPLETION
   // ============================================
 
@@ -246,11 +225,11 @@ export class ManageTeamService {
     this._teamId.set(teamId);
 
     try {
-      // ⚠️ TEMPORARY: Using mock data (replace with API call)
-      await this.simulateNetworkDelay(800);
-      this._formData.set(MOCK_MANAGE_TEAM_FORM_DATA);
-      this._completion.set(MOCK_TEAM_COMPLETION);
-      this._sections.set([...MOCK_MANAGE_TEAM_SECTIONS] as ManageTeamSection[]);
+      // TODO: Replace with actual API call when backend is ready
+      // const result = await this.api.getTeam(teamId);
+      // this._formData.set(result.formData);
+      // this._completion.set(result.completion);
+      // this._sections.set(result.sections);
       this._dirtyFields.set(new Set());
 
       this.logger.info('Team loaded successfully', { teamId });
@@ -268,9 +247,9 @@ export class ManageTeamService {
    */
   async loadCurrentUserTeam(): Promise<void> {
     this.logger.info('Loading current user team');
-    // ⚠️ TEMPORARY: For now, load mock data with a default team ID
-    // In production, this would fetch the user's default team from the API
-    await this.loadTeam('current-user-team');
+    // TODO: Fetch user's default team ID from API, then load it
+    // const { teamId } = await this.api.getCurrentUserTeam();
+    // await this.loadTeam(teamId);
   }
 
   /**
@@ -362,8 +341,8 @@ export class ManageTeamService {
     this._error.set(null);
 
     try {
-      // ⚠️ TEMPORARY: Simulate save (replace with API call)
-      await this.simulateNetworkDelay(1000);
+      // TODO: Replace with actual API call when backend is ready
+      // await this.api.updateTeam(this._teamId()!, this._formData()!);
 
       // Clear dirty state
       this._dirtyFields.set(new Set());
@@ -531,53 +510,6 @@ export class ManageTeamService {
   }
 
   // ============================================
-  // ACTIONS - INTEGRATIONS
-  // ============================================
-
-  /**
-   * Connect integration (UI action).
-   */
-  requestConnectIntegration(): void {
-    this.logger.debug('Request connect integration');
-  }
-
-  /**
-   * Disconnect integration.
-   */
-  async disconnectIntegration(integrationId: string): Promise<void> {
-    this.logger.info('Disconnecting integration', { integrationId });
-    this._dirtyFields.update((fields) => {
-      const newFields = new Set(fields);
-      newFields.add('integrations.list');
-      return newFields;
-    });
-
-    this._formData.update((data) => {
-      if (!data) return data;
-      return {
-        ...data,
-        integrations: data.integrations.map((i) =>
-          i.id === integrationId ? { ...i, status: 'disconnected' as const } : i
-        ),
-      };
-    });
-
-    this.haptics.impact('medium');
-  }
-
-  /**
-   * Sync integration data.
-   */
-  async syncIntegration(integrationId: string): Promise<void> {
-    this.logger.info('Syncing integration', { integrationId });
-    // Would call API to trigger sync
-    this.toast.info('Syncing data...');
-    await this.simulateNetworkDelay(2000);
-    this.toast.success('Data synced successfully');
-    this.haptics.notification('success');
-  }
-
-  // ============================================
   // UTILITIES
   // ============================================
 
@@ -596,13 +528,5 @@ export class ManageTeamService {
     this._dirtyFields.set(new Set());
     this._validationErrors.set({});
     this._teamId.set(null);
-  }
-
-  /**
-   * Simulate network delay for mock data.
-   * @internal
-   */
-  private simulateNetworkDelay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

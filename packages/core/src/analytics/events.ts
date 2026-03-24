@@ -481,6 +481,8 @@ export const APP_EVENTS = {
   TEAM_CODE_LEFT: 'team_code_left',
   /** Team page viewed */
   TEAM_PAGE_VIEWED: 'team_page_viewed',
+  /** Team management opened (modal/sheet) */
+  TEAM_MANAGED: 'team_managed',
 
   // ============================================
   // SUBSCRIPTION EVENTS (Extended - beyond purchase)

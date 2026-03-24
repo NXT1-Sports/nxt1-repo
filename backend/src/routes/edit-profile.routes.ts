@@ -188,7 +188,12 @@ function userToEditProfileFormData(user: User, sportIndex?: number): EditProfile
     },
     academics: {
       school: activeSport?.team?.name,
-      gpa: user.athlete?.academics?.gpa ? String(user.athlete.academics.gpa) : undefined,
+      gpa:
+        user.athlete?.academics?.gpa != null
+          ? Number.isInteger(user.athlete.academics.gpa)
+            ? user.athlete.academics.gpa.toFixed(1)
+            : String(user.athlete.academics.gpa)
+          : undefined,
       sat: user.athlete?.academics?.satScore ? String(user.athlete.academics.satScore) : undefined,
       act: user.athlete?.academics?.actScore ? String(user.athlete.academics.actScore) : undefined,
       intendedMajor: user.athlete?.academics?.intendedMajor,
@@ -405,16 +410,27 @@ function sectionToFirestoreUpdate(
 
       // Academic info
       if (data.gpa !== undefined) {
-        updates['athlete.academics.gpa'] = data.gpa ? parseFloat(data.gpa) : null;
+        const gpaVal = data.gpa ? parseFloat(data.gpa) : null;
+        const safeGpa = gpaVal != null && !isNaN(gpaVal) ? gpaVal : null;
+        updates['athlete.academics.gpa'] = safeGpa;
+        updates['academics.gpa'] = safeGpa;
       }
       if (data.sat !== undefined) {
-        updates['athlete.academics.satScore'] = data.sat ? parseInt(data.sat, 10) : null;
+        const satVal = data.sat ? parseInt(data.sat, 10) : null;
+        const safeSat = satVal != null && !isNaN(satVal) ? satVal : null;
+        updates['athlete.academics.satScore'] = safeSat;
+        updates['academics.satScore'] = safeSat;
       }
       if (data.act !== undefined) {
-        updates['athlete.academics.actScore'] = data.act ? parseInt(data.act, 10) : null;
+        const actVal = data.act ? parseInt(data.act, 10) : null;
+        const safeAct = actVal != null && !isNaN(actVal) ? actVal : null;
+        updates['athlete.academics.actScore'] = safeAct;
+        updates['academics.actScore'] = safeAct;
       }
       if (data.intendedMajor !== undefined) {
-        updates['athlete.academics.intendedMajor'] = data.intendedMajor || null;
+        const majorVal = data.intendedMajor || null;
+        updates['athlete.academics.intendedMajor'] = majorVal;
+        updates['academics.intendedMajor'] = majorVal;
       }
 
       // Graduation date goes to classOf
@@ -431,6 +447,29 @@ function sectionToFirestoreUpdate(
       if (data.height !== undefined) updates['height'] = data.height || null;
       if (data.weight !== undefined) updates['weight'] = data.weight || null;
 
+      // Invalidate measurables verification when height or weight is manually changed.
+      // The verification was set by Agent X after scraping an external source;
+      // a manual edit means the data no longer matches the verified value.
+      if (data.height !== undefined || data.weight !== undefined) {
+        const physIdx = sportIndex ?? user.activeSportIndex ?? 0;
+        if (user.sports && user.sports[physIdx]) {
+          const cloned = JSON.parse(JSON.stringify(user.sports)) as SportProfile[];
+          const target = cloned[physIdx];
+          if (Array.isArray(target.verifications)) {
+            target.verifications = target.verifications.filter(
+              (v: { scope?: string }) => v.scope !== 'measurables'
+            );
+          }
+          // Only set sports once — may be overwritten below by metrics branch
+          if (!updates['sports']) {
+            updates['sports'] = cloned;
+          } else {
+            // Metrics branch already cloned; apply invalidation on that copy
+            (updates['sports'] as SportProfile[])[physIdx].verifications = target.verifications;
+          }
+        }
+      }
+
       // Sport-specific physical metrics go to the sport being edited
       const targetIndex = sportIndex ?? user.activeSportIndex ?? 0;
       const hasMetricsToUpdate =
@@ -439,7 +478,10 @@ function sectionToFirestoreUpdate(
         data.verticalJump !== undefined;
 
       if (hasMetricsToUpdate && user.sports && user.sports[targetIndex]) {
-        const updatedSports = JSON.parse(JSON.stringify(user.sports)) as SportProfile[];
+        // Re-use the clone from the invalidation branch if it exists; otherwise deep-clone.
+        const updatedSports =
+          (updates['sports'] as SportProfile[] | undefined) ??
+          (JSON.parse(JSON.stringify(user.sports)) as SportProfile[]);
         if (!updatedSports[targetIndex].metrics) {
           updatedSports[targetIndex].metrics = {};
         }

@@ -41,6 +41,7 @@ import { takeUntilDestroyed, toSignal, toObservable } from '@angular/core/rxjs-i
 import {
   distinctUntilChanged,
   first,
+  firstValueFrom,
   forkJoin,
   switchMap,
   tap,
@@ -61,6 +62,7 @@ import {
 } from '@nxt1/ui/profile';
 import { TeamProfileShellWebComponent, TeamProfileService } from '@nxt1/ui/team-profile';
 import { EditProfileModalService } from '@nxt1/ui/edit-profile';
+import type { TeamSearchResult } from '@nxt1/ui/onboarding';
 
 import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/cta-banner';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
@@ -73,6 +75,7 @@ import { parseApiError, requiresAuth, isTeamRole } from '@nxt1/core';
 import type {
   ProfileTabId,
   ProfileShareSource,
+  ProfileTeamAffiliation,
   User,
   UserSummary,
   TeamProfileTabId,
@@ -81,6 +84,7 @@ import type { ApiResponse } from '@nxt1/core/profile';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { AuthFlowService } from '../auth/services';
 import { SeoService, AnalyticsService, ShareService } from '../../core/services';
+import { clearHttpCache } from '../../core/infrastructure';
 import { EditProfileApiService } from '../../core/services/edit-profile-api.service';
 import { ProfileService as ApiProfileService } from './services/profile.service';
 import { TeamProfileApiService } from '../team/services/team-profile.service';
@@ -133,6 +137,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
         (tabChange)="onTabChange($event)"
         (editProfileClick)="onEditProfile()"
         (editTeamClick)="onEditTeam()"
+        (teamClick)="onTeamClick($event)"
         (shareClick)="onShare()"
         (followClick)="onFollow()"
         (qrCodeClick)="onQrCode()"
@@ -764,14 +769,9 @@ export class ProfileComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Fetch related athletes dynamically based on the current profile's sport + state.
-   * Fetches all athletes from the search API, then sorts/filters client-side:
-   *   1. Exclude current user
-   *   2. Require firstName
-   *   3. Score by relevance: same sport (+2), same state (+1)
-   *
-   * Sport is read from profile.sports[] array (activeSportIndex or first entry).
-   * UserSummary.primarySport is mapped server-side from the user's sports[] via docToUserSummary.
+   * Fetch related athletes from the dedicated backend endpoint.
+   * The backend handles all scoring (sport, state, position affinity)
+   * and returns exactly 12 pre-ranked athletes.
    */
 
   /**
@@ -814,16 +814,26 @@ export class ProfileComponent implements OnInit, OnDestroy {
   }
 
   private fetchRelatedAthletes(profile: User): void {
-    // Read sport from sports[] — same source of truth as the rest of the app
     const activeSport = profile.sports?.[profile.activeSportIndex ?? 0] ?? profile.sports?.[0];
-    const sport = activeSport?.sport?.toLowerCase();
+    const sport = activeSport?.sport;
     const state = profile.location?.state;
+    const position = activeSport?.positions?.[0];
+
+    if (!sport) {
+      this.relatedAthletes.set([]);
+      return;
+    }
 
     this.relatedAthletes.set([]);
 
+    const params = new URLSearchParams({ sport });
+    if (state) params.set('state', state);
+    if (position) params.set('position', position);
+    if (profile.id) params.set('exclude', profile.id);
+
     this.http
       .get<{ success: boolean; data: UserSummary[] }>(
-        `${environment.apiURL}/auth/profile/search?limit=50`
+        `${environment.apiURL}/auth/profile/related?${params.toString()}`
       )
       .pipe(
         catchError(() => of({ success: false as const, data: [] as UserSummary[] })),
@@ -835,38 +845,32 @@ export class ProfileComponent implements OnInit, OnDestroy {
           return;
         }
 
-        const scored = response.data
-          .filter((u) => u.id !== profile.id && !!u.firstName && !!u.unicode)
-          .map((u) => {
-            // u.primarySport is derived server-side from u's sports[] via docToUserSummary
-            const uSport = u.primarySport?.toLowerCase();
-            const uState = u.location?.state;
-            const score = (sport && uSport === sport ? 2 : 0) + (state && uState === state ? 1 : 0);
-            return { u, score };
-          })
-          .sort((a, b) => b.score - a.score)
-          .slice(0, 8);
+        const athletes: RelatedAthlete[] = response.data.map((u) => {
+          const sameState = state && u.location?.state === state;
+          const samePosition =
+            position && u.primaryPosition?.toLowerCase() === position.toLowerCase();
 
-        const athletes: RelatedAthlete[] = scored.map(({ u }) => ({
-          id: u.id,
-          // Use unicode for clean URLs (/profile/180798 or /profile/jayden-williams-2026)
-          unicode: u.unicode!,
-          firstName: u.firstName,
-          lastName: u.lastName,
-          profileImg: u.profileImgs?.[0] ?? null,
-          sport: u.primarySport ?? '',
-          position: u.primaryPosition ?? '',
-          classYear: u.classOf ? String(u.classOf) : '',
-          school: '',
-          state: u.location?.state ?? '',
-          isVerified: u.verificationStatus === 'verified',
-          matchReason:
-            sport && u.primarySport?.toLowerCase() === sport
-              ? `Same sport · ${u.primarySport}`
-              : state && u.location?.state === state
-                ? `Same state · ${state}`
-                : 'Similar profile',
-        }));
+          let matchReason: string;
+          if (sameState && samePosition) matchReason = `Same position · ${u.primaryPosition}`;
+          else if (sameState) matchReason = `Same state · ${state}`;
+          else if (samePosition) matchReason = `Same position · ${u.primaryPosition}`;
+          else matchReason = `Same sport · ${sport}`;
+
+          return {
+            id: u.id,
+            unicode: u.unicode!,
+            firstName: u.firstName,
+            lastName: u.lastName,
+            profileImg: u.profileImgs?.[0] ?? null,
+            sport: u.primarySport ?? '',
+            position: u.primaryPosition ?? '',
+            classYear: u.classOf ? String(u.classOf) : '',
+            school: '',
+            state: u.location?.state ?? '',
+            isVerified: u.verificationStatus === 'verified',
+            matchReason,
+          };
+        });
 
         this.relatedAthletes.set(athletes);
       });
@@ -979,6 +983,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
     const result = await this.editProfileModal.open({
       userId,
       sportIndex: fetchedProfile?.activeSportIndex ?? 0,
+      searchTeams: this.searchTeamsFn,
       apiService: {
         getProfile: (uid: string, sportIndex?: number) =>
           this.editProfileApiService.getProfile(uid, sportIndex),
@@ -1000,17 +1005,92 @@ export class ProfileComponent implements OnInit, OnDestroy {
     }
 
     this.logger.info('Edit profile saved, refreshing profile data', { userId });
+
+    // Clear BOTH cache layers so the re-fetch gets fresh data
     this.apiProfileService.invalidateCache(userId);
-    this.reloadProfile();
+    await clearHttpCache('*profile*');
+
+    // Directly re-fetch instead of router navigation (which distinctUntilChanged blocks)
+    this.profileService.startLoading();
+    const mode = this.routeMode();
+    const param = this.routeParam();
+    let fetch$;
+    if (mode === 'me') {
+      fetch$ = this.apiProfileService.getMe();
+    } else if (mode === 'unicode') {
+      fetch$ = this.apiProfileService.getProfileByUnicode(param);
+    } else if (mode === 'userid') {
+      fetch$ = this.apiProfileService.getProfile(param);
+    } else {
+      fetch$ = this.apiProfileService.getProfileByUsername(param);
+    }
+    fetch$.pipe(first()).subscribe({
+      next: (response) => this.handleProfileResponse(response),
+      error: (err) => this.handleProfileError(err),
+    });
   }
 
   /**
-   * Handle edit team navigation.
+   * Searches programs/teams via the backend API.
+   * Passed to the edit-profile modal for inline program search.
    */
-  protected onEditTeam(): void {
-    this.logger.info('Edit team clicked');
-    // Navigate to manage team page (or open bottom sheet on mobile)
-    this.router.navigate(['/manage-team']);
+  private readonly searchTeamsFn = async (query: string): Promise<readonly TeamSearchResult[]> => {
+    this.logger.debug('Program search requested', { query });
+    try {
+      const response = await firstValueFrom(
+        this.http.get<{
+          success: boolean;
+          data: Array<{
+            id: string;
+            name: string;
+            type: string;
+            location?: { state?: string; city?: string };
+            logoUrl?: string;
+            primaryColor?: string;
+            secondaryColor?: string;
+            mascot?: string;
+            teamCount?: number;
+            isClaimed?: boolean;
+          }>;
+        }>(`${environment.apiURL}/programs/search`, { params: { q: query, limit: '20' } })
+      );
+
+      if (!response.success || !response.data) return [];
+
+      return response.data.map((org) => ({
+        id: org.id,
+        name: org.name,
+        sport: '',
+        teamType: org.type,
+        location:
+          org.location?.city && org.location?.state
+            ? `${org.location.city}, ${org.location.state}`
+            : (org.location?.state ?? ''),
+        logoUrl: org.logoUrl ?? undefined,
+        colors: [org.primaryColor, org.secondaryColor].filter(Boolean) as string[],
+        memberCount: org.teamCount ?? 0,
+        isSchool: org.type === 'high-school' || org.type === 'middle-school',
+        organizationId: org.id,
+      }));
+    } catch (err) {
+      this.logger.error('Program search failed', err, { query });
+      return [];
+    }
+  };
+
+  /**
+   * Handle team card click — navigate to team profile page.
+   */
+  protected onTeamClick(team: ProfileTeamAffiliation): void {
+    if (team.teamCode) {
+      this.logger.info('Navigating to team profile', {
+        teamCode: team.teamCode,
+        teamName: team.name,
+      });
+      this.router.navigate(['/team', team.teamCode]);
+    } else {
+      this.logger.warn('Team has no teamCode, cannot navigate', { teamName: team.name });
+    }
   }
 
   /**

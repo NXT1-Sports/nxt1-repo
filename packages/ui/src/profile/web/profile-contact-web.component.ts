@@ -7,12 +7,14 @@
  */
 import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
 import { NxtIconComponent } from '../../components/icon';
+import { NxtPlatformIconComponent } from '../../components/platform-icon';
+import { getPlatformFaviconUrl } from '@nxt1/core/onboarding';
 import { ProfileService } from '../profile.service';
 
 @Component({
   selector: 'nxt1-profile-contact-web',
   standalone: true,
-  imports: [NxtIconComponent],
+  imports: [NxtIconComponent, NxtPlatformIconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="madden-tab-section" aria-labelledby="contact-heading">
@@ -84,7 +86,12 @@ import { ProfileService } from '../profile.service';
                     rel="noopener noreferrer"
                   >
                     <span class="contact-social-chip-icon" [style.color]="acct.color">
-                      <nxt1-icon [name]="acct.icon" [size]="16" />
+                      <nxt1-platform-icon
+                        [icon]="acct.icon"
+                        [faviconUrl]="acct.faviconUrl"
+                        [size]="16"
+                        [alt]="acct.label + ' icon'"
+                      />
                     </span>
                     <span class="contact-social-chip-handle">{{ acct.handle || acct.label }}</span>
                   </a>
@@ -417,6 +424,7 @@ export class ProfileContactWebComponent {
       readonly icon: string;
       readonly color: string;
       readonly url: string;
+      readonly faviconUrl: string | null;
     }> => {
       const connectedSources = this.profile.user()?.connectedSources ?? [];
 
@@ -443,6 +451,7 @@ export class ProfileContactWebComponent {
             icon: meta.icon,
             color: meta.color,
             url: cs.profileUrl,
+            faviconUrl: getPlatformFaviconUrl(cs.platform.toLowerCase()),
           };
         });
     }

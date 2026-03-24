@@ -264,10 +264,10 @@ export const TEAM_PROFILE_EMPTY_STATES: Record<
     icon: 'grid',
   },
   timeline: {
-    title: 'No posts yet',
+    title: 'No updates yet',
     message: 'Team updates, announcements, and highlights will appear here.',
     icon: 'newspaper',
-    ctaLabel: 'Create Post',
+    ctaLabel: 'Add Update',
   },
   videos: {
     title: 'No videos yet',

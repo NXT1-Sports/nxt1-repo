@@ -59,6 +59,7 @@ export {
   capitalize,
   titleCase,
   slugify,
+  buildTeamSlug,
   camelToTitle,
   kebabToTitle,
   // Name formatting

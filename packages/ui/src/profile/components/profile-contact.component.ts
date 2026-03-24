@@ -7,12 +7,13 @@
  */
 import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
 import { NxtIconComponent } from '../../components/icon';
+import { NxtPlatformIconComponent } from '../../components/platform-icon';
 import { ProfileService } from '../profile.service';
 
 @Component({
   selector: 'nxt1-profile-contact',
   standalone: true,
-  imports: [NxtIconComponent],
+  imports: [NxtIconComponent, NxtPlatformIconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="madden-tab-section" aria-labelledby="contact-heading">
@@ -84,20 +85,12 @@ import { ProfileService } from '../profile.service';
                     rel="noopener noreferrer"
                   >
                     <span class="contact-social-chip-icon" [style.color]="acct.color">
-                      @if (acct.faviconUrl && acct.icon === 'link') {
-                        <img
-                          [src]="acct.faviconUrl"
-                          [alt]="acct.label + ' icon'"
-                          class="contact-social-chip-favicon"
-                          width="16"
-                          height="16"
-                          loading="lazy"
-                          referrerpolicy="no-referrer"
-                          (error)="onFaviconError($event)"
-                        />
-                      } @else {
-                        <nxt1-icon [name]="acct.icon" [size]="16" />
-                      }
+                      <nxt1-platform-icon
+                        [icon]="acct.icon"
+                        [faviconUrl]="acct.faviconUrl"
+                        [size]="16"
+                        [alt]="acct.label + ' icon'"
+                      />
                     </span>
                     <span class="contact-social-chip-handle">{{ acct.handle || acct.label }}</span>
                   </a>
@@ -471,13 +464,5 @@ export class ProfileContactComponent {
 
   protected onEditContact(): void {
     // No-op — parent handles
-  }
-
-  /** Hide broken favicon images gracefully. */
-  protected onFaviconError(event: Event): void {
-    const img = event.target;
-    if (img instanceof HTMLImageElement) {
-      img.style.display = 'none';
-    }
   }
 }

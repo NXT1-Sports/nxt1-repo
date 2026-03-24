@@ -49,6 +49,7 @@ import { IonContent } from '@ionic/angular/standalone';
 import {
   type ProfileTabId,
   type ProfileTab,
+  type ProfileTeamAffiliation,
   PROFILE_EMPTY_STATES,
   getProfileTabsForUser,
   getOverviewSectionLabels,
@@ -254,7 +255,8 @@ export interface ProfileShellUser {
                 <nxt1-profile-overview
                   [activeSideTab]="activeSideTab()"
                   (editProfileClick)="editProfileClick.emit()"
-                  (editTeamClick)="editTeamClick.emit()"
+                  (teamClick)="teamClick.emit($event)"
+                  (addAwardClick)="editProfileClick.emit()"
                 />
               }
 
@@ -291,7 +293,7 @@ export interface ProfileShellUser {
                   [isLoading]="profile.isLoading()"
                   [activeSection]="activeSideTab()"
                   [entityName]="profile.user()?.firstName ?? 'Athlete'"
-                  [emptyCta]="profile.isOwnProfile() ? 'Share News' : null"
+                  [emptyCta]="profile.isOwnProfile() ? 'Add Articles' : null"
                   (itemClick)="onNewsBoardItemClick($event)"
                   (emptyCtaClick)="onAddNews()"
                 />
@@ -718,7 +720,7 @@ export class ProfileShellComponent implements OnInit {
   readonly backClick = output<void>();
   readonly tabChange = output<ProfileTabId>();
   readonly editProfileClick = output<void>();
-  readonly editTeamClick = output<void>();
+  readonly teamClick = output<ProfileTeamAffiliation>();
   readonly shareClick = output<void>();
   readonly copyLinkClick = output<void>();
   readonly menuClick = output<void>();

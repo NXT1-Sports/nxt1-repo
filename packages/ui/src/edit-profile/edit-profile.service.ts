@@ -603,13 +603,8 @@ export class EditProfileService {
         throw new Error(response.error ?? 'Failed to remove photo');
       }
 
-      // Clear photos dirty flags — already persisted
-      this._dirtyFields.update((fields) => {
-        const next = new Set(fields);
-        next.delete('photos.profileImgs');
-        next.delete('photos.profileImg');
-        return next;
-      });
+      // Keep dirty flags so the button still shows "Save" (consistent with add).
+      // saveChanges() will clear them when the user taps Save.
 
       this.logger.info('Photo removed and saved', { remaining: nextImages.length });
       this.analytics?.trackEvent(APP_EVENTS.PROFILE_PHOTO_REMOVED, {

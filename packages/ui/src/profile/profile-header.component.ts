@@ -1170,7 +1170,6 @@ export class ProfileHeaderComponent {
   readonly followersClick = output<void>();
   readonly followingClick = output<void>();
   readonly editProfile = output<void>();
-  readonly editTeam = output<void>();
   readonly editBanner = output<void>();
   readonly editAvatar = output<void>();
   readonly messageClick = output<void>();

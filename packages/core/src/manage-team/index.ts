@@ -54,12 +54,6 @@ export type {
   TeamSponsor,
   SponsorTier,
   SponsorStatus,
-  // Integration types
-  TeamIntegration,
-  IntegrationProvider,
-  IntegrationType,
-  IntegrationStatus,
-  SyncFrequency,
   // Form/State types
   ManageTeamFormData,
   ManageTeamState,
@@ -71,7 +65,6 @@ export type {
   ScheduleActionEvent,
   StaffActionEvent,
   SponsorActionEvent,
-  IntegrationActionEvent,
 } from './manage-team.types';
 
 // ============================================
@@ -81,13 +74,11 @@ export type {
 export {
   MANAGE_TEAM_SECTIONS,
   MANAGE_TEAM_TABS,
-  INTEGRATION_PROVIDERS,
   SPONSOR_TIER_CONFIG,
   STAFF_ROLE_CONFIG,
   TEAM_LEVEL_CONFIG,
   getManageTeamSection,
   getAllManageTeamSections,
-  getIntegrationProvider,
   getSponsorTierConfig,
   getStaffRoleConfig,
   getTeamLevelConfig,
