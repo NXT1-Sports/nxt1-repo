@@ -966,6 +966,14 @@ export class ProfileComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Handle edit team navigation — navigates to the manage-team page.
+   */
+  protected onEditTeam(): void {
+    this.logger.info('Edit team clicked');
+    this.router.navigate(['/manage-team']);
+  }
+
+  /**
    * Handle edit profile navigation.
    */
   protected async onEditProfile(): Promise<void> {
