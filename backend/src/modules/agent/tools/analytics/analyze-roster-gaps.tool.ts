@@ -183,7 +183,7 @@ export class AnalyzeRosterGapsTool extends BaseTool {
         ) as Record<string, unknown> | undefined;
 
         const positions: string[] = Array.isArray(sportEntry?.['positions'])
-          ? (sportEntry!['positions'] as string[])
+          ? (sportEntry['positions'] as string[])
           : ['Unspecified'];
 
         const athleteInfo = {

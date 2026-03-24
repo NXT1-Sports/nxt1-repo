@@ -170,6 +170,8 @@ export class GenerateScoutReportTool extends BaseTool {
           seasonStats,
           awards,
           teamHistory,
+          // connectedSources uses fallback keys: older docs use 'source'/'profileUrl',
+          // newer docs use 'platform'/'url' after the migration in write-core-identity.
           connectedSources: connectedSources.map((s: Record<string, unknown>) => ({
             platform: s['platform'] ?? s['source'] ?? 'unknown',
             url: s['url'] ?? s['profileUrl'] ?? null,

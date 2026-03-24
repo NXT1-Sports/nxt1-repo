@@ -425,11 +425,14 @@ export class BuildRecruitingBoardTool extends BaseTool {
         statusSummary,
         prospects: prospects.sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99)),
         message:
-          `Board "${data['name']}" has ${prospects.length} prospect(s). ` +
-          Object.entries(statusSummary)
-            .map(([status, count]) => `${status}: ${count}`)
-            .join(', ') +
-          '.',
+          `Board "${data['name']}" has ${prospects.length} prospect(s).` +
+          (Object.keys(statusSummary).length > 0
+            ? ' ' +
+              Object.entries(statusSummary)
+                .map(([status, count]) => `${status}: ${count}`)
+                .join(', ') +
+              '.'
+            : ''),
       },
     };
   }
