@@ -137,6 +137,7 @@ import { ProfileService } from '../../../core/services/profile.service';
       (itemSelect)="onSidenavItemSelect($event)"
       (socialClick)="onSocialLinkClick($event)"
       (profileClick)="onSidenavUserClick()"
+      (addSportClick)="onAddSportClick()"
     />
 
     <!-- Main Content Container - ID matches contentId for ion-menu -->
@@ -836,6 +837,16 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     this.haptics.impact('light');
     this.sidenavService.close();
     void this.navController.navigateForward('/profile');
+  }
+
+  /**
+   * Handle "Add Sport" tap from sidenav switcher.
+   * Navigates to the add-sport wizard so athletes can add a new sport and
+   * coaches/directors can add a new sport team.
+   */
+  onAddSportClick(): void {
+    this.haptics.impact('light');
+    void this.navController.navigateForward('/add-sport');
   }
 
   /**
