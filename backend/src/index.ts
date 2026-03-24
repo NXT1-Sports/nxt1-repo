@@ -109,6 +109,8 @@ app.use(
           'https://www.nxt1.com',
           'https://nxt1sports.com',
           'https://www.nxt1sports.com',
+          // Firebase App Hosting (staging)
+          'https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app',
         ],
     credentials: true,
   })
