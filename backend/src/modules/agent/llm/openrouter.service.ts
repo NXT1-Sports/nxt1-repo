@@ -24,7 +24,6 @@
  *   maxTokens: 2048,
  *   temperature: 0.7,
  * });
- * console.log(result.content);
  * ```
  */
 
