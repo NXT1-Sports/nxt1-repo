@@ -106,9 +106,14 @@ export { NewsBoardComponent } from './components/news-board';
 export {
   NxtConnectedSourcesComponent,
   ConnectedAccountsSheetComponent,
+  ConnectedAccountsWebModalComponent,
+  ConnectedAccountsModalService,
   DEFAULT_PLATFORMS,
   type ConnectedSource,
   type ConnectedSourceTapEvent,
+  type ConnectedAccountsModalOptions,
+  type ConnectedAccountsModalResult,
+  type ConnectedAccountsModalCloseData,
 } from './components/connected-sources';
 export { NxtVerifiedPillComponent } from './components/verified-pill';
 export { NxtListRowComponent } from './components/list-row';
@@ -605,19 +610,6 @@ export {
 } from './explore';
 
 // ============================================
-// BRAND (Brand Vault)
-// ============================================
-export {
-  // Service
-  BrandService,
-  // Mobile (Ionic)
-  BrandShellComponent,
-  // Web (Zero Ionic)
-  BrandShellWebComponent,
-  // Shared
-  BrandCategoryCardComponent,
-} from './brand';
-
 // ============================================
 // PROFILE (User Profile)
 // ============================================
@@ -1257,13 +1249,6 @@ export {
   // Services
   EditProfileService,
   EditProfileBottomSheetService,
-  // Mock Data (Development Only)
-  MOCK_EDIT_PROFILE_FORM_DATA,
-  MOCK_PROFILE_COMPLETION,
-  MOCK_EDIT_PROFILE_SECTIONS,
-  MOCK_PROFILE_ACHIEVEMENTS,
-  MOCK_EMPTY_PROFILE_FORM_DATA,
-  MOCK_EMPTY_COMPLETION,
 } from './edit-profile';
 
 // ============================================

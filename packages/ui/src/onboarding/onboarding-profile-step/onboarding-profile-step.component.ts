@@ -55,7 +55,7 @@ import {
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { IonInput, IonSelect, IonSelectOption, IonSpinner } from '@ionic/angular/standalone';
-import { isValidName } from '@nxt1/core/helpers';
+import { isValidName, isValidPhone } from '@nxt1/core/helpers';
 import { USER_ROLES } from '@nxt1/core';
 import type {
   ProfileFormData,
@@ -183,10 +183,29 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
               </span>
             </nxt1-list-row>
           }
+          <nxt1-list-row label="Phone" (tap)="openPhonePrompt()">
+            <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!phoneNumber()">
+              {{ phoneNumber() || 'Add phone number' }}
+            </span>
+          </nxt1-list-row>
         </nxt1-list-section>
       </div>
     } @else {
       <div class="nxt1-profile-form" data-testid="onboarding-profile-step">
+        <!-- Profile Photos Gallery -->
+        @if (showPhotos()) {
+          <div class="nxt1-photo-gallery-section nxt1-photo-gallery-section--form">
+            <p class="nxt1-gallery-label nxt1-gallery-label--form">Profile Photos</p>
+            <nxt1-media-gallery
+              [images]="profileImgs()"
+              [maxImages]="8"
+              [addLabel]="'Add Photo'"
+              (add)="openImagePicker()"
+              (remove)="removeImage($event)"
+            />
+          </div>
+        }
+
         <!-- Name Fields -->
         <div class="nxt1-name-fields">
           <!-- First Name -->
@@ -267,19 +286,6 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
             </nxt1-form-field>
           }
         </div>
-
-        <!-- Profile Photos Gallery -->
-        @if (showPhotos()) {
-          <nxt1-form-field label="Profile Photos" testId="onboarding-photos-field">
-            <nxt1-media-gallery
-              [images]="profileImgs()"
-              [maxImages]="8"
-              [addLabel]="'Add Photo'"
-              (add)="openImagePicker()"
-              (remove)="removeImage($event)"
-            />
-          </nxt1-form-field>
-        }
 
         <!-- Coach Title Selection (only shown for coach role) -->
         @if (showCoachTitle()) {
@@ -380,6 +386,32 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
             </div>
           </nxt1-form-field>
         }
+
+        <!-- Phone Number (Optional) -->
+        <nxt1-form-field
+          label="Phone Number"
+          inputId="phoneNumber"
+          [optional]="true"
+          [error]="phoneError()"
+          hint="Optional — for direct contact from coaches"
+          testId="onboarding-phone-field"
+        >
+          <ion-input
+            id="phoneNumber"
+            type="tel"
+            class="nxt1-input"
+            [class.nxt1-input-error]="phoneError()"
+            fill="outline"
+            placeholder="(555) 123-4567"
+            [value]="phoneNumber()"
+            (ionInput)="onPhoneInput($event)"
+            (ionBlur)="phoneTouched.set(true)"
+            [disabled]="disabled()"
+            autocomplete="tel"
+            inputmode="tel"
+            data-testid="onboarding-input-phone-number"
+          />
+        </nxt1-form-field>
       </div>
     }
 
@@ -713,6 +745,10 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
         gap: var(--nxt1-spacing-2, 8px);
       }
 
+      .nxt1-photo-gallery-section--form {
+        gap: var(--nxt1-spacing-3, 12px);
+      }
+
       .nxt1-gallery-label {
         margin: 0;
         padding: 0 var(--nxt1-spacing-2, 8px);
@@ -720,6 +756,21 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
         font-size: var(--nxt1-fontSize-xs, 0.75rem);
         font-weight: 600;
         color: var(--nxt1-color-text-tertiary);
+      }
+
+      .nxt1-gallery-label--form {
+        padding: 0;
+        font-size: var(--nxt1-fontSize-2xs, 0.75rem);
+        font-weight: 500;
+        color: var(--nxt1-color-text-secondary);
+        text-transform: none;
+        letter-spacing: normal;
+      }
+
+      :host ::ng-deep .nxt1-profile-form nxt1-form-field .nxt1-form-label {
+        text-transform: none;
+        letter-spacing: normal;
+        color: var(--nxt1-color-text-secondary);
       }
     `,
   ],
@@ -850,6 +901,12 @@ export class OnboardingProfileStepComponent {
   /** Class year field touched */
   readonly classYearTouched = signal(false);
 
+  /** Phone number value */
+  readonly phoneNumber = signal('');
+
+  /** Phone field touched */
+  readonly phoneTouched = signal(false);
+
   // ============================================
   // COMPUTED SIGNALS
   // ============================================
@@ -888,6 +945,20 @@ export class OnboardingProfileStepComponent {
 
   /** Check if last name is valid using shared helper */
   readonly isLastNameValid = computed(() => isValidName(this.lastName()));
+
+  /** Check if phone is valid (optional - only validate if provided) */
+  readonly isPhoneValid = computed(() => {
+    const phone = this.phoneNumber();
+    if (!phone || phone.trim() === '') return true;
+    return isValidPhone(phone);
+  });
+
+  /** Phone validation error message */
+  readonly phoneError = computed(() => {
+    if (!this.phoneTouched() || !this.phoneNumber()) return null;
+    if (!this.isPhoneValid()) return 'Please enter a valid phone number';
+    return null;
+  });
 
   /** Whether to show coach title selection */
   readonly showCoachTitle = computed(
@@ -942,6 +1013,7 @@ export class OnboardingProfileStepComponent {
         this.location.set(data.location ?? null);
         this.coachTitle.set((data.coachTitle as CoachTitleOption) ?? null);
         this.classYear.set(data.classYear ?? null);
+        this.phoneNumber.set(data.phoneNumber || '');
       }
     });
   }
@@ -965,6 +1037,15 @@ export class OnboardingProfileStepComponent {
   onLastNameInput(event: CustomEvent): void {
     const input = event.target as HTMLInputElement;
     this.lastName.set(input.value || '');
+    this.emitProfileChange();
+  }
+
+  /**
+   * Handle phone number input
+   */
+  onPhoneInput(event: CustomEvent): void {
+    const input = event.target as HTMLInputElement;
+    this.phoneNumber.set(input.value || '');
     this.emitProfileChange();
   }
 
@@ -1175,6 +1256,7 @@ export class OnboardingProfileStepComponent {
       location: this.location(),
       coachTitle: this.showCoachTitle() ? this.coachTitle() : null,
       classYear: this.showAthleteClassYear() ? this.classYear() : null,
+      phoneNumber: this.phoneNumber() || undefined,
     });
   }
 
@@ -1283,6 +1365,28 @@ export class OnboardingProfileStepComponent {
     if (result?.selected && result.data) {
       this.coachTitle.set(result.data as CoachTitleOption);
       this.logger.debug('Coach title selected via picker', { coachTitle: result.data });
+      this.emitProfileChange();
+    }
+  }
+
+  /**
+   * Open prompt dialog for phone number input (list-row variant)
+   */
+  async openPhonePrompt(): Promise<void> {
+    const result = await this.modal.prompt({
+      title: 'Phone Number',
+      placeholder: '(555) 123-4567',
+      defaultValue: this.phoneNumber(),
+      submitText: 'Done',
+      cancelText: 'Cancel',
+      inputType: 'tel',
+      required: false,
+      preferNative: 'native',
+    });
+
+    if (result.confirmed) {
+      this.phoneNumber.set(result.value.trim());
+      this.phoneTouched.set(true);
       this.emitProfileChange();
     }
   }

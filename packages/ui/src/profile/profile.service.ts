@@ -18,6 +18,7 @@ import {
   type ProfileEvent,
   type ProfileStatItem,
   type ProfileSport,
+  type ProfileSeasonGameLog,
   type AthleticStatsCategory,
   type AthleticStat,
   type VerifiedStat,
@@ -103,6 +104,13 @@ export class ProfileService {
   private readonly _athleticStatsOverride = signal<readonly AthleticStatsCategory[] | null>(null);
   private readonly _metricsOverride = signal<readonly AthleticStatsCategory[] | null>(null);
 
+  /**
+   * Game logs fetched from the PlayerStats collection.
+   * `null` = not yet fetched (fall back to embedded profile data).
+   * Non-null (even []) = authoritative API result; overrides embedded data.
+   */
+  private readonly _gameLogOverride = signal<readonly ProfileSeasonGameLog[] | null>(null);
+
   /** Active season filter ('season' field value, or null = all) */
   private readonly _activeSeason = signal<string | null>(null);
   /** Active sportId filter (sport name/id, or null = all) */
@@ -142,7 +150,7 @@ export class ProfileService {
   );
 
   /** Game log data — all seasons (MaxPreps-style game-by-game rows) */
-  readonly gameLog = computed(() => this._profileData()?.gameLog ?? []);
+  readonly gameLog = computed(() => this._gameLogOverride() ?? this._profileData()?.gameLog ?? []);
 
   /** Metrics (Combine/Measurables) by category */
   readonly metrics = computed(() => this._metricsOverride() ?? this._profileData()?.metrics ?? []);
@@ -642,6 +650,7 @@ export class ProfileService {
     this._recruitingActivities.set(null);
     this._athleticStatsOverride.set(null);
     this._metricsOverride.set(null);
+    this._gameLogOverride.set(null);
     this._newsArticles.set([]);
     this._activeSeason.set(null);
     this._activeSportFilter.set(null);
@@ -790,6 +799,10 @@ export class ProfileService {
 
   setAthleticStatsFromRaw(stats: readonly VerifiedStat[]): void {
     this._athleticStatsOverride.set(this.mapVerifiedStatsToCategories(stats));
+  }
+
+  setGameLogs(gameLogs: readonly ProfileSeasonGameLog[]): void {
+    this._gameLogOverride.set(gameLogs);
   }
 
   setMetricsFromRaw(metrics: readonly VerifiedMetric[]): void {
@@ -996,6 +1009,7 @@ export class ProfileService {
     this._videoPosts.set([]);
     this._athleticStatsOverride.set(null);
     this._metricsOverride.set(null);
+    this._gameLogOverride.set(null);
     this._activeSeason.set(null);
     this._activeSportFilter.set(null);
     this._scheduleEvents.set(null);

@@ -97,11 +97,25 @@ export function getInitialsColor(str: string | null | undefined): string {
  *
  * Uses relative luminance to determine if text should be
  * white or dark for optimal readability.
+ * Handles both raw hex values and CSS variable strings.
  *
- * @param hexColor - Background color in hex format
+ * @param color - Background color in hex format or CSS var() string
  * @returns 'white' or 'rgba(0,0,0,0.87)' for text color
  */
-export function getContrastingTextColor(hexColor: string): string {
+export function getContrastingTextColor(color: string): string {
+  let hexColor = color;
+
+  // Handle CSS custom property strings — extract fallback hex for contrast calc
+  if (color.startsWith('var(')) {
+    const match = color.match(/#[0-9a-fA-F]{6}/);
+    if (match) {
+      hexColor = match[0];
+    } else {
+      // No fallback hex found — default to dark text (safe for light/primary backgrounds)
+      return 'rgba(0, 0, 0, 0.87)';
+    }
+  }
+
   // Remove # if present
   const hex = hexColor.replace('#', '');
 

@@ -288,9 +288,12 @@ export interface ProfileShellUser {
               @case ('news') {
                 <nxt1-news-board
                   [items]="newsBoardItems()"
+                  [isLoading]="profile.isLoading()"
                   [activeSection]="activeSideTab()"
                   [entityName]="profile.user()?.firstName ?? 'Athlete'"
+                  [emptyCta]="profile.isOwnProfile() ? 'Share News' : null"
                   (itemClick)="onNewsBoardItemClick($event)"
+                  (emptyCtaClick)="onAddNews()"
                 />
               }
 
@@ -317,7 +320,12 @@ export interface ProfileShellUser {
                 @if (activeSideTab() === 'rankings') {
                   <nxt1-profile-rankings />
                 } @else if (activeSideTab() === 'scouting') {
-                  <nxt1-profile-scouting (reportClick)="onScoutReportClick($event)" />
+                  <nxt1-profile-scouting
+                    [isLoading]="profile.isLoading()"
+                    [emptyCta]="profile.isOwnProfile() ? 'Add Scout Report' : null"
+                    (reportClick)="onScoutReportClick($event)"
+                    (emptyCtaClick)="onAddScoutReport()"
+                  />
                 } @else {
                   <nxt1-profile-offers
                     [offers]="profile.offers()"
@@ -368,9 +376,11 @@ export interface ProfileShellUser {
                   [isLoading]="profile.isLoading()"
                   [isOwnProfile]="profile.isOwnProfile()"
                   [activeSection]="activeSideTab()"
+                  [emptyCta]="profile.isOwnProfile() ? 'Add Event' : null"
                   cardLayout="horizontal"
                   (eventClick)="onEventClick($event)"
                   (addEventClick)="onAddEvent()"
+                  (emptyCtaClick)="onAddEvent()"
                 />
               }
 
@@ -600,7 +610,7 @@ export interface ProfileShellUser {
       .top-tabs {
         position: relative;
         z-index: 1;
-        padding: 8px 8px 0;
+        padding: 8px 8px 12px;
         background: transparent;
       }
 
@@ -627,7 +637,8 @@ export interface ProfileShellUser {
         z-index: 1;
         width: calc(100% - 24px);
         margin-inline: 12px;
-        margin-top: 18px;
+        margin-top: 24px;
+        margin-bottom: 8px;
         margin-bottom: 8px;
       }
 
@@ -668,7 +679,7 @@ export interface ProfileShellUser {
         position: relative;
         z-index: 1;
         min-height: 300px;
-        padding: 12px 12px 48px;
+        padding: 24px 12px 48px;
       }
     `,
   ],
@@ -828,10 +839,16 @@ export class ProfileShellComponent implements OnInit {
           badge: this.profile.scoutReports().length || undefined,
         },
       ],
-      metrics: [
-        { id: 'combine', label: 'Combine Results' },
-        { id: 'measurables', label: 'Measurables' },
-      ],
+      metrics:
+        this.profile.metrics().length > 0
+          ? this.profile.metrics().map((cat) => ({
+              id: cat.name.toLowerCase().replace(/\s+/g, '-'),
+              label: cat.name,
+            }))
+          : [
+              { id: 'combine', label: 'Combine Results' },
+              { id: 'measurables', label: 'Measurables' },
+            ],
       stats: [
         ...(this.hasSchoolGameLogs()
           ? [
@@ -1143,12 +1160,20 @@ export class ProfileShellComponent implements OnInit {
     });
   }
 
+  protected onAddScoutReport(): void {
+    this.logger.debug('Add scout report');
+  }
+
   protected onEventClick(event: ProfileEvent): void {
     this.logger.debug('Event click', { eventId: event.id, type: event.type });
   }
 
   protected onAddEvent(): void {
     this.logger.debug('Add event');
+  }
+
+  protected onAddNews(): void {
+    this.logger.debug('Add news');
   }
 
   /**

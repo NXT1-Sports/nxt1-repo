@@ -20,19 +20,7 @@
  * ⭐ WEB + MOBILE — SSR-optimised, zero Ionic ⭐
  */
 
-import {
-  Component,
-  ChangeDetectionStrategy,
-  DestroyRef,
-  inject,
-  input,
-  signal,
-  computed,
-  OnInit,
-  output,
-  PLATFORM_ID,
-} from '@angular/core';
-import { isPlatformBrowser } from '@angular/common';
+import { Component, ChangeDetectionStrategy, input, computed, output } from '@angular/core';
 import { NxtIconComponent } from '../icon';
 import { NewsArticleCardComponent } from '../../news/news-article-card.component';
 import type { NewsArticle } from '@nxt1/core';
@@ -68,13 +56,6 @@ function timeAgo(isoDate: string): string {
 
 // Keep timeAgo available for potential future use in skeleton or empty states
 void timeAgo;
-
-/**
- * Module-level flag — browser-only.
- * Ensures the shimmer skeleton only shows on the very first mount.
- */
-let _hasLoadedOnce = false;
-
 // ============================================
 // COMPONENT
 // ============================================
@@ -117,6 +98,11 @@ let _hasLoadedOnce = false;
           </div>
           <h3 class="news-board__empty-title">{{ emptyTitle() }}</h3>
           <p class="news-board__empty-msg">{{ emptyMsg() }}</p>
+          @if (emptyCta()) {
+            <button class="news-board__empty-cta" (click)="emptyCtaClick.emit()">
+              {{ emptyCta() }}
+            </button>
+          }
         </div>
       }
 
@@ -188,18 +174,39 @@ let _hasLoadedOnce = false;
       }
 
       .news-board__empty-title {
-        font-size: var(--nxt1-font-size-lg, 18px);
+        font-size: 16px;
         font-weight: 700;
         color: var(--nxt1-color-text-primary, #fff);
-        margin: 0;
+        margin: 16px 0 8px;
       }
 
       .news-board__empty-msg {
         font-size: var(--nxt1-font-size-sm, 14px);
         color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.6));
-        max-width: 360px;
+        max-width: 280px;
         margin: 0;
         line-height: 1.5;
+      }
+
+      .news-board__empty-cta {
+        margin-top: 12px;
+        padding: 10px 24px;
+        background: var(--timeline-primary, var(--nxt1-color-primary));
+        border: none;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        color: #000;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s ease;
+
+        &:hover {
+          filter: brightness(1.1);
+        }
+
+        &:active {
+          filter: brightness(0.95);
+        }
       }
 
       /* ═══════════════════════════════════════════════════════════
@@ -313,14 +320,7 @@ let _hasLoadedOnce = false;
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class NewsBoardComponent implements OnInit {
-  // ============================================
-  // DEPENDENCIES
-  // ============================================
-
-  private readonly platformId = inject(PLATFORM_ID);
-  private readonly destroyRef = inject(DestroyRef);
-
+export class NewsBoardComponent {
   // ============================================
   // INPUTS
   // ============================================
@@ -337,6 +337,12 @@ export class NewsBoardComponent implements OnInit {
    */
   readonly entityName = input<string>('');
 
+  /** Whether the parent is currently fetching data for this board. */
+  readonly isLoading = input<boolean>(false);
+
+  /** CTA button label to show in empty state (when items are empty && isOwnProfile). */
+  readonly emptyCta = input<string | null>(null);
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -344,15 +350,12 @@ export class NewsBoardComponent implements OnInit {
   /** Emitted when a news card is clicked / activated via keyboard. */
   readonly itemClick = output<NewsArticle>();
 
+  /** Emitted when the CTA button in empty state is clicked. */
+  readonly emptyCtaClick = output<void>();
+
   // ============================================
   // STATE
   // ============================================
-
-  /**
-   * Loading flag — `false` on server (SSR renders content for crawlers).
-   * In the browser it is `true` only on the very first mount.
-   */
-  readonly isLoading = signal(!_hasLoadedOnce && isPlatformBrowser(this.platformId));
 
   /** Skeleton placeholder slot count. */
   readonly skeletonSlots = SKELETON_SLOTS;
@@ -406,21 +409,6 @@ export class NewsBoardComponent implements OnInit {
       ? `News updates, announcements, and media mentions for ${entity} will appear here.`
       : 'News updates, announcements, and media mentions will appear here.';
   });
-
-  // ============================================
-  // LIFECYCLE
-  // ============================================
-
-  ngOnInit(): void {
-    if (_hasLoadedOnce || !isPlatformBrowser(this.platformId)) return;
-
-    const timer = setTimeout(() => {
-      _hasLoadedOnce = true;
-      this.isLoading.set(false);
-    }, 400);
-
-    this.destroyRef.onDestroy(() => clearTimeout(timer));
-  }
 
   // ============================================
   // EVENT HANDLERS

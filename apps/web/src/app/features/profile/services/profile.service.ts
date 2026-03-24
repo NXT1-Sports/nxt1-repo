@@ -7,6 +7,7 @@ import { createProfileApi, type ProfileApi, type ApiResponse } from '@nxt1/core/
 import {
   User,
   type ProfilePost,
+  type ProfileSeasonGameLog,
   type NewsArticle,
   type ScoutReport,
   type VerifiedStat,
@@ -508,6 +509,15 @@ export class ProfileService {
   ): Observable<{ success: boolean; data: VerifiedStat[] }> {
     return this.http.get<{ success: boolean; data: VerifiedStat[] }>(
       `${environment.apiURL}/auth/profile/${userId}/sports/${encodeURIComponent(sportId)}/stats`
+    );
+  }
+
+  getProfileGameLogs(
+    userId: string,
+    sportId: string
+  ): Observable<{ success: boolean; data: ProfileSeasonGameLog[] }> {
+    return this.http.get<{ success: boolean; data: ProfileSeasonGameLog[] }>(
+      `${environment.apiURL}/auth/profile/${userId}/sports/${encodeURIComponent(sportId)}/game-logs`
     );
   }
 

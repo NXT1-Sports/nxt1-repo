@@ -179,6 +179,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                   [showFollowAction]="!isOwnProfile()"
                   (back)="backClick.emit()"
                   (follow)="followClick.emit()"
+                  (editProfile)="editProfileClick.emit()"
                 />
               </div>
 
@@ -303,9 +304,12 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                     @case ('news') {
                       <nxt1-news-board
                         [items]="newsBoardItems()"
+                        [isLoading]="profile.isLoading()"
                         [activeSection]="activeSideTab()"
                         [entityName]="profile.user()?.firstName ?? 'Athlete'"
+                        [emptyCta]="profile.isOwnProfile() ? 'Share News' : null"
                         (itemClick)="onNewsBoardItemClick($event)"
+                        (emptyCtaClick)="onAddNews()"
                       />
                     }
 
@@ -332,7 +336,12 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                       @if (activeSideTab() === 'rankings') {
                         <nxt1-profile-rankings />
                       } @else if (activeSideTab() === 'scouting') {
-                        <nxt1-profile-scouting (reportClick)="onScoutReportClick($event)" />
+                        <nxt1-profile-scouting
+                          [isLoading]="profile.isLoading()"
+                          [emptyCta]="profile.isOwnProfile() ? 'Add Scout Report' : null"
+                          (reportClick)="onScoutReportClick($event)"
+                          (emptyCtaClick)="onAddScoutReport()"
+                        />
                       } @else {
                         <nxt1-profile-offers
                           [offers]="profile.offers()"
@@ -384,9 +393,11 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                           [isLoading]="profile.isLoading()"
                           [isOwnProfile]="profile.isOwnProfile()"
                           [activeSection]="activeSideTab()"
+                          [emptyCta]="profile.isOwnProfile() ? 'Add Event' : null"
                           cardLayout="horizontal"
                           (eventClick)="onEventClick($event)"
                           (addEventClick)="onAddEvent()"
+                          (emptyCtaClick)="onAddEvent()"
                         />
                       </section>
                     }
@@ -1017,6 +1028,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         padding: 0 8px;
         padding-left: calc(var(--shell-content-padding-x, 32px) - 4px);
         margin-top: 12px;
+        margin-bottom: 12px;
         border-bottom: none;
         background: transparent;
         flex-shrink: 0;
@@ -1047,7 +1059,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         flex: 1;
         min-height: 0;
         overflow: hidden;
-        padding-top: var(--nxt1-spacing-2, 8px);
+        padding-top: var(--nxt1-spacing-6, 24px);
         /* Re-introduce shell content padding so section-nav aligns
            with /explore, /help-center, /usage — the profile wrapper
            cancels shell padding for full-bleed hero, this puts the
@@ -1343,7 +1355,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
           grid-template-columns: minmax(0, 1fr);
           grid-template-rows: auto;
           gap: var(--nxt1-spacing-4, 16px);
-          padding-top: 12px;
+          padding-top: 24px;
           padding-left: 0;
           min-height: auto;
           overflow-x: hidden;
@@ -1578,7 +1590,6 @@ export class ProfileShellWebComponent implements OnInit {
     const sections: Record<string, SectionNavItem[]> = {
       overview: [
         { id: 'player-profile', label: labels.profile },
-        { id: 'player-bio', label: labels.bio },
         { id: 'player-history', label: labels.history },
         { id: 'awards', label: 'Awards', badge: this.profile.awards().length || undefined },
         { id: 'academic', label: 'Academic' },
@@ -1656,10 +1667,16 @@ export class ProfileShellWebComponent implements OnInit {
           badge: this.profile.scoutReports().length || undefined,
         },
       ],
-      metrics: [
-        { id: 'combine', label: 'Combine Results' },
-        { id: 'measurables', label: 'Measurables' },
-      ],
+      metrics:
+        this.profile.metrics().length > 0
+          ? this.profile.metrics().map((cat) => ({
+              id: cat.name.toLowerCase().replace(/\s+/g, '-'),
+              label: cat.name,
+            }))
+          : [
+              { id: 'combine', label: 'Combine Results' },
+              { id: 'measurables', label: 'Measurables' },
+            ],
       stats: [
         ...(this.hasSchoolGameLogs()
           ? [
@@ -1942,6 +1959,10 @@ export class ProfileShellWebComponent implements OnInit {
     this.logger.debug('Scout report click', { reportId: report.id, athlete: report.athlete.name });
   }
 
+  protected onAddScoutReport(): void {
+    this.logger.debug('Add scout report');
+  }
+
   // Stats
   protected onAddStats(): void {
     this.logger.debug('Add stats');
@@ -1954,6 +1975,10 @@ export class ProfileShellWebComponent implements OnInit {
 
   protected onAddEvent(): void {
     this.logger.debug('Add event');
+  }
+
+  protected onAddNews(): void {
+    this.logger.debug('Add news');
   }
 
   /**

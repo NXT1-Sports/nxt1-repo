@@ -85,8 +85,6 @@ const SEEN_TYPED_MESSAGES = new Set<string>();
         padding: var(--nxt1-spacing-2, 8px) 0;
         text-align: center;
         min-height: 4.75rem;
-        max-height: 4.75rem;
-        overflow: hidden;
       }
 
       .nxt1-agent-x-typewriter--left {
@@ -135,10 +133,8 @@ const SEEN_TYPED_MESSAGES = new Set<string>();
         color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         max-width: 340px;
         min-height: 3.1rem;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
+        white-space: normal;
+        overflow-wrap: anywhere;
       }
 
       .nxt1-agent-x-typewriter--left .nxt1-agent-x-text {

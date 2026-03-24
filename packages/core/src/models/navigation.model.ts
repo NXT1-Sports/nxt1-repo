@@ -810,13 +810,6 @@ export const DEFAULT_USER_MENU_ITEMS: TopNavUserMenuItem[] = [
     route: '/help-center',
     divider: true,
   },
-  {
-    id: 'logout',
-    label: 'Sign Out',
-    icon: 'logout',
-    action: 'logout',
-    variant: 'danger',
-  },
 ];
 
 /**

@@ -245,7 +245,9 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
               }
             </div>
 
-            <h4 class="ov-section-title ov-section-title--subsection">Player Bio</h4>
+            <h4 class="ov-section-title ov-section-title--subsection ov-section-title--bio-inline">
+              Player Bio
+            </h4>
             <div class="ov-bio-card">
               <nxt1-icon name="person" [size]="18" />
               <p>
@@ -367,12 +369,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         }
 
         <div class="ov-section ov-section--profile">
-          <button
-            type="button"
-            class="ov-last-synced-btn"
-            (click)="onSyncNow()"
-            aria-label="Sync profile with Agent X"
-          >
+          <div class="ov-last-synced-btn">
             <div class="ov-last-synced-main">
               <span class="ov-last-synced-label">Last synced</span>
               <span class="ov-last-synced-time">{{ lastSyncedLabel() }}</span>
@@ -396,7 +393,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
               </svg>
               <span class="ov-last-synced-agent-name">Agent X</span>
             </div>
-          </button>
+          </div>
         </div>
 
         @if (profile.hasMultipleSports() && !profile.isOwnProfile()) {
@@ -690,6 +687,9 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
       .ov-section-title--subsection {
         margin-top: 0;
       }
+      .ov-section-title--bio-inline {
+        margin-top: 24px;
+      }
       .ov-mobile-teams {
         margin-top: -10px;
       }
@@ -705,7 +705,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
 
       .ov-top-row {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1.75fr) minmax(240px, 0.25fr);
         gap: 16px;
         align-items: start;
       }
@@ -815,21 +815,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        cursor: pointer;
-        transition:
-          border-color 0.2s ease,
-          box-shadow 0.2s ease,
-          transform 0.2s ease;
-      }
-      .ov-last-synced-btn:hover {
-        border-color: color-mix(in srgb, var(--m-accent) 44%, var(--m-border));
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
-        transform: translateY(-1px);
-      }
-      .ov-last-synced-btn:focus-visible {
-        outline: none;
-        border-color: var(--m-accent);
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--m-accent) 40%, transparent);
       }
       .ov-last-synced-main {
         display: flex;
@@ -839,8 +824,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
       .ov-last-synced-label {
         font-size: 12px;
         font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        letter-spacing: 0.02em;
         color: var(--m-text-3);
       }
       .ov-last-synced-time {

@@ -16,12 +16,9 @@ import { BRAND_PAGE_SUBTITLE } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { TEST_IDS } from '@nxt1/core/testing';
 import type { PageHeaderAction } from '../components/page-header/page-header.types';
-import {
-  ConnectedAccountsSheetComponent,
-  DEFAULT_PLATFORMS,
-  type ConnectedSource,
-} from '../components/connected-sources';
+import { ConnectedAccountsSheetComponent } from '../components/connected-sources';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
+import type { LinkSourcesFormData } from '@nxt1/core/api';
 import { ProfileService } from '../profile/profile.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
@@ -176,18 +173,21 @@ export class BrandShellComponent {
     { id: 'connections', icon: 'link-outline', label: 'Connections' },
   ];
 
-  /** Build connected sources from the user's social links */
-  private readonly connectedSources = computed<readonly ConnectedSource[]>(() => {
+  /** Build LinkSourcesFormData from the user's connected sources */
+  private readonly linkSourcesData = computed<LinkSourcesFormData | null>(() => {
     const user = this.profileService.user();
-    const links = user?.social ?? [];
-
-    return DEFAULT_PLATFORMS.map((platform) => {
-      const match = links.find((l) => l.platform === platform.platform);
-      if (match?.url) {
-        return { ...platform, connected: true, username: match.username, url: match.url };
-      }
-      return platform;
-    });
+    const sources = user?.connectedSources ?? [];
+    if (!sources.length) return null;
+    return {
+      links: sources.map((src) => ({
+        platform: src.platform,
+        connected: true,
+        connectionType: 'link' as const,
+        url: src.profileUrl,
+        scopeType: src.scopeType ?? 'global',
+        scopeId: src.scopeId,
+      })),
+    };
   });
 
   async onCategorySelect(category: BrandCategory): Promise<void> {
@@ -199,13 +199,27 @@ export class BrandShellComponent {
     this.logger.info('Opening connected accounts sheet');
     this.breadcrumb.trackStateChange('brand:connections-open');
 
+    const user = this.profileService.user();
+    const selectedSports: string[] = [];
+    if (user?.primarySport?.sport) selectedSports.push(user.primarySport.sport);
+    if (user?.additionalSports) {
+      for (const s of user.additionalSports) {
+        if (s.sport) selectedSports.push(s.sport);
+      }
+    }
+
     const result = await this.bottomSheet.openSheet<{
       updatedLinks: { platform: string; url: string; username?: string; displayOrder: number }[];
-      sources: readonly ConnectedSource[];
+      linkSources?: LinkSourcesFormData;
     }>({
       component: ConnectedAccountsSheetComponent,
       ...SHEET_PRESETS.FULL,
-      componentProps: { initialSources: this.connectedSources() },
+      componentProps: {
+        _role: user?.role ?? null,
+        _selectedSports: selectedSports,
+        _linkSourcesData: this.linkSourcesData(),
+        _scope: 'athlete' as const,
+      },
       showHandle: true,
     });
 

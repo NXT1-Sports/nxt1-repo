@@ -257,15 +257,25 @@ export class WriteCoreIdentityTool extends BaseTool {
 
       // ── Identity fields ──────────────────────────────────────────────
       if (identity) {
-        this.mergeIdentity(identity, payload, writtenSections);
+        this.mergeIdentity(identity, userData, payload, writtenSections);
       }
 
       // ── Academics ────────────────────────────────────────────────────
       if (academics) {
         const existingAcademics = (userData['academics'] ?? {}) as Record<string, unknown>;
         const sanitized = this.sanitizeAcademics(academics);
-        if (Object.keys(sanitized).length > 0) {
-          payload['academics'] = { ...existingAcademics, ...sanitized };
+        const mergedAcademics = { ...existingAcademics };
+        let academicsUpdated = false;
+
+        for (const [key, value] of Object.entries(sanitized)) {
+          if (!this.hasValue(existingAcademics[key])) {
+            mergedAcademics[key] = value;
+            academicsUpdated = true;
+          }
+        }
+
+        if (academicsUpdated) {
+          payload['academics'] = mergedAcademics;
           writtenSections.push('academics');
         }
       }
@@ -291,13 +301,23 @@ export class WriteCoreIdentityTool extends BaseTool {
         const sportObj = { ...(updatedSports[sportIndex] ?? {}) } as Record<string, unknown>;
 
         if (sportInfo) {
+          let sportInfoUpdated = false;
           const positions = this.arr(sportInfo, 'positions');
-          if (positions?.length) sportObj['positions'] = positions;
+          if (positions?.length && !this.hasValue(sportObj['positions'])) {
+            sportObj['positions'] = positions;
+            sportInfoUpdated = true;
+          }
           const jersey = sportInfo['jerseyNumber'];
-          if (jersey !== undefined && jersey !== null) sportObj['jerseyNumber'] = jersey;
+          if (jersey !== undefined && jersey !== null && !this.hasValue(sportObj['jerseyNumber'])) {
+            sportObj['jerseyNumber'] = jersey;
+            sportInfoUpdated = true;
+          }
           const side = this.str(sportInfo, 'side');
-          if (side) sportObj['side'] = side;
-          writtenSections.push('sportInfo');
+          if (side && !this.hasValue(sportObj['side'])) {
+            sportObj['side'] = side;
+            sportInfoUpdated = true;
+          }
+          if (sportInfoUpdated) writtenSections.push('sportInfo');
         }
 
         if (team) {
@@ -435,6 +455,7 @@ export class WriteCoreIdentityTool extends BaseTool {
 
   private mergeIdentity(
     id: Record<string, unknown>,
+    userData: Record<string, unknown>,
     payload: Record<string, unknown>,
     written: string[]
   ): void {
@@ -442,20 +463,24 @@ export class WriteCoreIdentityTool extends BaseTool {
       ['firstName', 'firstName'],
       ['lastName', 'lastName'],
       ['displayName', 'displayName'],
-      ['aboutMe', 'aboutMe'],
       ['height', 'height'],
       ['weight', 'weight'],
     ];
     for (const [src, dst] of fields) {
       const val = this.str(id, src);
-      if (val && val.length <= VALIDATION.MAX_NAME_LENGTH) {
+      // ONLY overwrite if the user hasn't already provided this field
+      if (val && val.length <= VALIDATION.MAX_NAME_LENGTH && !this.hasValue(userData[dst])) {
         payload[dst] = val;
         written.push(dst);
       }
     }
     // aboutMe has a longer limit
     const aboutMe = this.str(id, 'aboutMe');
-    if (aboutMe && aboutMe.length <= VALIDATION.MAX_ABOUT_ME_LENGTH) {
+    if (
+      aboutMe &&
+      aboutMe.length <= VALIDATION.MAX_ABOUT_ME_LENGTH &&
+      !this.hasValue(userData['aboutMe'])
+    ) {
       payload['aboutMe'] = aboutMe;
       if (!written.includes('aboutMe')) written.push('aboutMe');
     }
@@ -465,24 +490,46 @@ export class WriteCoreIdentityTool extends BaseTool {
       typeof classOf === 'number' &&
       Number.isInteger(classOf) &&
       classOf >= VALIDATION.MIN_GRADUATION_YEAR &&
-      classOf <= VALIDATION.MAX_GRADUATION_YEAR
+      classOf <= VALIDATION.MAX_GRADUATION_YEAR &&
+      !this.hasValue(userData['classOf'])
     ) {
       payload['classOf'] = classOf;
       written.push('classOf');
     }
 
     // Location
+    const existingLoc = (userData['location'] ?? {}) as Record<string, string>;
+    const loc: Record<string, string> = { ...existingLoc };
+    let locUpdated = false;
+
     const city = this.str(id, 'city');
     const state = this.str(id, 'state');
     const country = this.str(id, 'country');
-    if (city || state || country) {
-      const loc: Record<string, string> = {};
-      if (city) loc['city'] = city;
-      if (state) loc['state'] = state;
-      if (country) loc['country'] = country;
+
+    if (city && !this.hasValue(existingLoc['city'])) {
+      loc['city'] = city;
+      locUpdated = true;
+    }
+    if (state && !this.hasValue(existingLoc['state'])) {
+      loc['state'] = state;
+      locUpdated = true;
+    }
+    if (country && !this.hasValue(existingLoc['country'])) {
+      loc['country'] = country;
+      locUpdated = true;
+    }
+
+    if (locUpdated) {
       payload['location'] = loc;
       written.push('location');
     }
+  }
+
+  private hasValue(val: unknown): boolean {
+    if (val === undefined || val === null) return false;
+    if (typeof val === 'string' && val.trim() === '') return false;
+    if (Array.isArray(val) && val.length === 0) return false;
+    return true;
   }
 
   private sanitizeAcademics(a: Record<string, unknown>): Record<string, unknown> {

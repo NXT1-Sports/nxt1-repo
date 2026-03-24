@@ -779,6 +779,7 @@ export {
   type ProfileSearchParams,
   type FollowResponse,
   type ProfileAnalytics,
+  type ProfileSeasonGameLog,
   // Verification helpers
   getVerification,
   getAllVerifications,
@@ -1000,12 +1001,6 @@ export {
   DEFAULT_WELCOME_SLIDES,
   WELCOME_SLIDES_COUNT,
 } from './onboarding';
-
-// ============================================
-// BRAND
-// ============================================
-
-export * from './brand';
 
 // ============================================
 // PROFILE

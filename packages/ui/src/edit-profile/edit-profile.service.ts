@@ -27,23 +27,12 @@ import type {
   ProfileCompletionTier,
 } from '@nxt1/core';
 import { PROFILE_COMPLETION_TIERS, getCompletionTier, getNextTier } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
-
-// ⚠️ TEMPORARY: Mock data for development (remove when backend is ready)
-import {
-  MOCK_EDIT_PROFILE_FORM_DATA,
-  MOCK_PROFILE_COMPLETION,
-  MOCK_EDIT_PROFILE_SECTIONS,
-} from './edit-profile.mock-data';
-
-/**
- * ⚠️ DEVELOPMENT TOGGLE
- * Set to false to use real API data instead of mocks.
- * Will be removed once backend is fully tested.
- */
-const USE_MOCK_DATA = false;
+import { ANALYTICS_ADAPTER } from '../services/analytics';
+import { NxtBreadcrumbService } from '../services/breadcrumb';
 
 /**
  * Edit Profile state management service.
@@ -103,6 +92,8 @@ export class EditProfileService {
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('EditProfileService');
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -273,29 +264,35 @@ export class EditProfileService {
 
   /**
    * Load profile data for editing.
-   * Will use real API if configured, otherwise falls back to mock data.
+      // Requires EditProfileApiService to be configured.
    *
    * @param userId - User ID to load
    * @param sportIndex - Optional sport index to load (defaults to activeSportIndex)
    */
   async loadProfile(userId?: string, sportIndex?: number): Promise<void> {
+    const effectiveUserId = userId ?? this.currentUserId;
+    const effectiveSportIndex = sportIndex ?? this.currentSportIndex;
+
     this.logger.info('Loading profile for editing', {
-      userId,
-      sportIndex,
-      useMock: USE_MOCK_DATA || !this.api,
+      userId: effectiveUserId,
+      sportIndex: effectiveSportIndex,
     });
 
     // Store user ID and sport index for save operations
-    if (userId) {
-      this.currentUserId = userId;
+    if (effectiveUserId) {
+      this.currentUserId = effectiveUserId;
     }
-    this.currentSportIndex = sportIndex;
+    if (effectiveSportIndex !== undefined) {
+      this.currentSportIndex = effectiveSportIndex;
+    }
 
     // Set active sport index immediately from parameter (before API call)
     // This ensures positionOptions computed updates right away
-    if (sportIndex !== undefined) {
-      this._activeSportIndex.set(sportIndex);
-      this.logger.info('Set active sport index from parameter', { sportIndex });
+    if (effectiveSportIndex !== undefined) {
+      this._activeSportIndex.set(effectiveSportIndex);
+      this.logger.info('Set active sport index from parameter', {
+        sportIndex: effectiveSportIndex,
+      });
     }
 
     // Clear previous data to avoid showing stale data
@@ -304,17 +301,17 @@ export class EditProfileService {
     this._error.set(null);
 
     try {
-      // Use real API if available and not in mock mode
-      if (!USE_MOCK_DATA && this.api && userId) {
-        const response = await this.api.getProfile(userId, sportIndex);
+      // Use real API
+      if (this.api && effectiveUserId) {
+        const response = await this.api.getProfile(effectiveUserId, effectiveSportIndex);
 
         if (!response.success || !response.data) {
           throw new Error(response.error ?? 'Failed to load profile');
         }
 
         this.logger.info('Profile data received from API', {
-          userId,
-          requestedSportIndex: sportIndex,
+          userId: effectiveUserId,
+          requestedSportIndex: effectiveSportIndex,
           receivedSport: response.data.formData.sportsInfo.sport,
           receivedJerseyNumber: response.data.formData.sportsInfo.jerseyNumber,
           receivedPrimaryPosition: response.data.formData.sportsInfo.primaryPosition,
@@ -334,9 +331,7 @@ export class EditProfileService {
 
         this._formData.set(response.data.formData);
         this._completion.set(response.data.completion);
-
-        // Convert formData to sections (optional - can be done on backend later)
-        this._sections.set(MOCK_EDIT_PROFILE_SECTIONS);
+        this._sections.set([]);
 
         this.logger.info('Profile loaded from API - formData updated', {
           sport: this._formData()?.sportsInfo?.sport,
@@ -344,14 +339,11 @@ export class EditProfileService {
           primaryPosition: this._formData()?.sportsInfo?.primaryPosition,
         });
       } else {
-        // Fall back to mock data
-        await this.simulateDelay(500);
-
-        this._formData.set(MOCK_EDIT_PROFILE_FORM_DATA);
-        this._completion.set(MOCK_PROFILE_COMPLETION);
-        this._sections.set(MOCK_EDIT_PROFILE_SECTIONS);
-
-        this.logger.info('Profile loaded from mock data');
+        throw new Error(
+          !this.api
+            ? 'Edit profile API is not configured'
+            : 'Missing user context for edit profile reload'
+        );
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load profile';
@@ -430,6 +422,10 @@ export class EditProfileService {
         secondaryPositions: targetSport.positions?.slice(1),
         jerseyNumber: targetSport.jerseyNumber,
         yearsExperience: targetSport.yearsExperience,
+        teamName: targetSport.team?.name,
+        teamType: targetSport.team?.type,
+        teamLogoUrl: targetSport.team?.logoUrl,
+        teamOrganizationId: targetSport.team?.organizationId,
       },
       academics: {
         ...currentFormData.academics,
@@ -568,6 +564,73 @@ export class EditProfileService {
   }
 
   /**
+   * Remove a photo from the gallery by URL and immediately persist — no Save button needed.
+   * Uses optimistic update with rollback on failure.
+   */
+  async removePhoto(photoUrl: string, currentImages: readonly string[]): Promise<void> {
+    if (!this.currentUserId) {
+      this.logger.warn('Cannot remove photo: no user ID');
+      return;
+    }
+
+    const nextImages = currentImages.filter((url) => url !== photoUrl);
+
+    // Optimistic update
+    this.updatePhotoGallery(nextImages);
+    this.breadcrumb.trackStateChange('edit-profile: photo-removing', {
+      total: nextImages.length,
+    });
+    this.logger.info('Removing photo from gallery', {
+      total: nextImages.length,
+    });
+
+    if (!this.api) {
+      // No API wired — change will be persisted via saveChanges
+      this.logger.debug('No API configured — photo removal queued for batch save');
+      return;
+    }
+
+    this._isSaving.set(true);
+    try {
+      const response = await this.api.updateSection(
+        this.currentUserId,
+        'photos',
+        { profileImgs: nextImages },
+        this.currentSportIndex
+      );
+
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to remove photo');
+      }
+
+      // Clear photos dirty flags — already persisted
+      this._dirtyFields.update((fields) => {
+        const next = new Set(fields);
+        next.delete('photos.profileImgs');
+        next.delete('photos.profileImg');
+        return next;
+      });
+
+      this.logger.info('Photo removed and saved', { remaining: nextImages.length });
+      this.analytics?.trackEvent(APP_EVENTS.PROFILE_PHOTO_REMOVED, {
+        remaining: nextImages.length,
+      });
+      this.breadcrumb.trackStateChange('edit-profile: photo-removed', {
+        total: nextImages.length,
+      });
+      await this.haptics.impact('medium');
+    } catch (err) {
+      // Rollback local state
+      this.updatePhotoGallery(currentImages);
+      this.logger.error('Failed to remove photo', err);
+      this.toast.error('Failed to remove photo. Please try again.');
+      throw err;
+    } finally {
+      this._isSaving.set(false);
+    }
+  }
+
+  /**
    * Save all changes.
    */
   async saveChanges(): Promise<boolean> {
@@ -595,8 +658,8 @@ export class EditProfileService {
       const dirtySections = this.getDirtySections();
       const oldTier = this.currentTier();
 
-      // Use real API if available and not in mock mode
-      if (!USE_MOCK_DATA && this.api && this.currentUserId) {
+      // Use real API
+      if (this.api) {
         let totalXpAwarded = 0;
         let newTier = oldTier;
         let newCompletionPercentage = this._completion()?.percentage ?? 0;
@@ -656,25 +719,7 @@ export class EditProfileService {
           tierUpgrade: newTier !== oldTier ? newTier : null,
         });
       } else {
-        // Fall back to mock simulation
-        await this.simulateDelay(800);
-
-        // Check for tier upgrade
-        const newCompletion = this.calculateCompletion();
-
-        // Update completion
-        this._completion.set(newCompletion);
-
-        // Check for tier upgrade celebration
-        if (newCompletion.tier !== oldTier) {
-          this._lastUnlockedTier.set(newCompletion.tier);
-          this._showCompletionCelebration.set(true);
-          await this.haptics.notification('success');
-        } else {
-          await this.haptics.impact('medium');
-        }
-
-        this.logger.info('Profile saved (mock mode)');
+        throw new Error('Edit profile API is not configured');
       }
 
       // Clear dirty fields
@@ -700,7 +745,7 @@ export class EditProfileService {
   async discardChanges(): Promise<void> {
     this._dirtyFields.set(new Set());
     this._validationErrors.set({});
-    await this.loadProfile();
+    await this.loadProfile(this.currentUserId, this.currentSportIndex);
     this.haptics.impact('light');
   }
 
@@ -759,56 +804,6 @@ export class EditProfileService {
         ...data[sectionKey],
         [fieldId]: value,
       },
-    };
-  }
-
-  private calculateCompletion(): ProfileCompletionData {
-    // Count completed fields
-    const sections = this._sections();
-    let fieldsCompleted = 0;
-    let fieldsTotal = 0;
-    let xpEarned = 0;
-    let xpTotal = 0;
-
-    const sectionData = sections.map((section) => {
-      const completedFields = section.fields.filter(
-        (f) => f.countsTowardCompletion !== false && f.value && f.value !== ''
-      ).length;
-      const totalFields = section.fields.filter((f) => f.countsTowardCompletion !== false).length;
-      const sectionXp = section.fields
-        .filter((f) => f.value && f.value !== '')
-        .reduce((sum, f) => sum + (f.xpReward ?? 0), 0);
-
-      fieldsCompleted += completedFields;
-      fieldsTotal += totalFields;
-      xpEarned += sectionXp;
-      xpTotal += section.xpReward;
-
-      return {
-        sectionId: section.id,
-        percentage: totalFields > 0 ? Math.round((completedFields / totalFields) * 100) : 0,
-        fieldsCompleted: completedFields,
-        fieldsTotal: totalFields,
-        xpEarned: sectionXp,
-        isComplete: completedFields === totalFields,
-      };
-    });
-
-    const percentage = fieldsTotal > 0 ? Math.round((fieldsCompleted / fieldsTotal) * 100) : 0;
-    const tier = getCompletionTier(percentage);
-    const nextTier = getNextTier(tier);
-
-    return {
-      percentage,
-      tier,
-      xpEarned,
-      xpTotal,
-      progressToNextTier: this.progressToNextTier(),
-      nextTier: nextTier ?? undefined,
-      fieldsCompleted,
-      fieldsTotal,
-      sections: sectionData,
-      recentAchievements: this._completion()?.recentAchievements ?? [],
     };
   }
 
@@ -913,9 +908,5 @@ export class EditProfileService {
     this.logger.debug('Section data extracted', { sectionId, data: sectionData });
 
     return sectionData;
-  }
-
-  private simulateDelay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

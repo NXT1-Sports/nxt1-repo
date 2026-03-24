@@ -1,32 +1,29 @@
 /**
- * @fileoverview QR Code Modal Component - Sheet/Modal Wrapper
+ * @fileoverview QR Code Modal Component - Mobile Bottom Sheet Wrapper
  * @module @nxt1/ui/qr-code
- * @version 1.0.0
+ * @version 2.0.0
  *
- * Wrapper component for the QR Code content inside a modal or bottom sheet.
+ * Wrapper for the mobile-specific QR code content inside an Ionic bottom sheet.
  * Handles dismiss via ModalController for proper Ionic integration.
  *
  * NOTE: Uses @Input() decorated properties so Angular's setInput() API
  * (called by Ionic when useSetInputAPI:true) can properly bind componentProps.
  *
- * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
+ * ⭐ MOBILE ONLY — Desktop uses NxtQrCodeContentComponent via NxtOverlayService ⭐
  */
 
 import { Component, ChangeDetectionStrategy, inject, Input } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { ModalController } from '@ionic/angular/standalone';
-import { NxtQrCodeContentComponent } from './qr-code-content.component';
+import { NxtQrCodeMobileComponent } from './qr-code-mobile.component';
 
 @Component({
   selector: 'nxt1-qr-code-modal',
   standalone: true,
-  imports: [CommonModule, NxtQrCodeContentComponent],
+  imports: [NxtQrCodeMobileComponent],
   template: `
-    <nxt1-qr-code-content
+    <nxt1-qr-code-mobile
       [url]="url"
       [displayName]="displayName"
-      [profileImg]="profileImg"
-      [sport]="sport"
       (close)="onClose()"
       (action)="onAction($event)"
     />
@@ -38,7 +35,7 @@ import { NxtQrCodeContentComponent } from './qr-code-content.component';
         height: 100%;
         width: 100%;
         overflow: hidden;
-        background: var(--nxt1-color-bg-primary, #ffffff);
+        background: var(--nxt1-color-bg-primary, #0d0d0d);
       }
     `,
   ],
@@ -60,18 +57,6 @@ export class NxtQrCodeModalComponent {
   @Input() displayName = '';
 
   /**
-   * Profile image URL.
-   * Set via Ionic componentProps.
-   */
-  @Input() profileImg = '';
-
-  /**
-   * Primary sport name.
-   * Set via Ionic componentProps.
-   */
-  @Input() sport = '';
-
-  /**
    * Handle close request — dismisses the modal.
    */
   async onClose(): Promise<void> {
@@ -79,9 +64,9 @@ export class NxtQrCodeModalComponent {
   }
 
   /**
-   * Handle action (copy/share/download) — track but keep modal open.
+   * Handle action (share/download) — track but keep modal open.
    */
-  onAction(_action: 'copy' | 'share' | 'download'): void {
+  onAction(_action: 'share' | 'download'): void {
     // Actions don't auto-dismiss; user may want to do multiple things
   }
 }

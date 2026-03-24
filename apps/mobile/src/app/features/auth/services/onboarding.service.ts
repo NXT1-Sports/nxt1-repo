@@ -772,6 +772,8 @@ export class OnboardingService {
         linkSources: formData.linkSources,
         teamSelection: formData.teamSelection,
         createTeamProfile: formData.createTeamProfile,
+        // Phone number from profile basics step
+        phoneNumber: formData.profile?.phoneNumber || undefined,
       };
 
       const result = await this.performance.trace(

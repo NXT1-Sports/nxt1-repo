@@ -13,6 +13,50 @@
 import type { Type } from '@angular/core';
 
 // ============================================
+// OVERLAY HEADER CONFIG
+// ============================================
+
+/**
+ * Optional structured header config passed to `NxtOverlayService.open()`.
+ * When provided alongside a content component, use `NxtModalHeaderComponent`
+ * directly inside the content template for full slot/action support.
+ *
+ * These types are exported for teams building generic overlay wrappers.
+ */
+export interface OverlayHeaderConfig {
+  /** Title displayed in the modal header. */
+  readonly title: string;
+  /** Optional small-caps label above the title. */
+  readonly subtitle?: string;
+  /** Optional icon name. Requires `showIcon: true` to render. */
+  readonly icon?: string;
+  /** Whether to show the icon. Default false. */
+  readonly showIcon?: boolean;
+  /** Whether to show the Agent X brand mark. Default false. */
+  readonly showAgentXIcon?: boolean;
+  /** Shape of the icon container. Default 'circle'. */
+  readonly iconShape?: 'circle' | 'rounded';
+  /** Position of the close button. Default 'right'. */
+  readonly closePosition?: 'left' | 'right' | 'none';
+  /** Whether to show a bottom border. Default true. */
+  readonly showBorder?: boolean;
+}
+
+/**
+ * Optional structured footer config for `NxtOverlayService.open()`.
+ * For full slot/event support, use `NxtModalFooterComponent` directly
+ * inside the content template.
+ */
+export interface OverlayFooterConfig {
+  /** CTA button label. */
+  readonly label: string;
+  /** Optional icon name. */
+  readonly icon?: string;
+  /** Visual variant of the CTA button. Default 'primary'. */
+  readonly variant?: 'primary' | 'secondary' | 'destructive';
+}
+
+// ============================================
 // OVERLAY CONFIG
 // ============================================
 
@@ -54,6 +98,16 @@ export interface OverlayConfig<T = unknown> {
 
   /** Whether pressing Escape dismisses the overlay (default: true) */
   readonly escDismiss?: boolean;
+
+  /**
+   * Optional async guard called before backdrop-click or Escape dismissal.
+   * Return `true` to allow dismissal, `false` to block it.
+   * Use this to show an "unsaved changes?" confirmation.
+   *
+   * Not called for programmatic `dismiss()` or content `close` output —
+   * those paths are already controlled by the caller.
+   */
+  readonly canDismiss?: () => boolean | Promise<boolean>;
 
   /** ARIA label for the overlay dialog */
   readonly ariaLabel?: string;

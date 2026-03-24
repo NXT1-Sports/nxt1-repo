@@ -224,6 +224,14 @@ export interface EditProfileSportsInfo {
   readonly secondaryPositions?: readonly string[];
   readonly jerseyNumber?: string;
   readonly yearsExperience?: number;
+  /** Team / program name (maps to sports[i].team.name) */
+  readonly teamName?: string;
+  /** Team type (maps to sports[i].team.type) */
+  readonly teamType?: string;
+  /** Team logo URL (maps to sports[i].team.logoUrl) */
+  readonly teamLogoUrl?: string;
+  /** Organization ID linking this team to a program (maps to sports[i].team.organizationId) */
+  readonly teamOrganizationId?: string;
 }
 
 /**

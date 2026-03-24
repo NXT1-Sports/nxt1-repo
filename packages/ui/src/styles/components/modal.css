@@ -478,6 +478,72 @@ ion-alert.nxt-modal-prompt input.alert-input:focus {
 }
 
 /* ============================================
+   DESKTOP WEB — CENTERED MODALS
+   On wider viewports, action sheets and prompts
+   present as centered dialogs instead of bottom sheets.
+   ============================================ */
+
+@media (min-width: 768px) {
+  /* ── Action Sheet → Centered Dialog ── */
+  ion-action-sheet.nxt-modal-action-sheet {
+    --width: 400px;
+    --max-width: 90vw;
+  }
+
+  /* Center the wrapper in the viewport */
+  ion-action-sheet.nxt-modal-action-sheet .action-sheet-wrapper {
+    margin: auto;
+    bottom: auto !important;
+  }
+
+  /* Full rounded corners on desktop (not just top) */
+  ion-action-sheet.nxt-modal-action-sheet.md {
+    --border-radius: var(--nxt1-borderRadius-2xl, 1.25rem);
+  }
+
+  ion-action-sheet.nxt-modal-action-sheet.md .action-sheet-group {
+    border-radius: var(--nxt1-borderRadius-2xl, 1.25rem);
+  }
+
+  ion-action-sheet.nxt-modal-action-sheet.ios .action-sheet-group {
+    border-radius: var(--nxt1-borderRadius-xl, 1rem);
+  }
+
+  /* Cancel group also rounded on desktop */
+  ion-action-sheet.nxt-modal-action-sheet.ios .action-sheet-group:last-of-type {
+    border-radius: var(--nxt1-borderRadius-xl, 1rem);
+  }
+
+  /* ── Prompts → Wider Dialog ── */
+  ion-alert.nxt-modal-prompt {
+    --max-width: 400px;
+    --width: 400px;
+  }
+
+  ion-alert.nxt-modal-prompt-textarea {
+    --max-width: 460px;
+    --width: 460px;
+  }
+
+  /* ── All alerts → Slightly larger on desktop ── */
+  ion-alert.nxt-modal-alert,
+  ion-alert.nxt-modal-confirm {
+    --max-width: 380px;
+  }
+}
+
+@media (min-width: 1024px) {
+  ion-action-sheet.nxt-modal-action-sheet {
+    --width: 440px;
+  }
+
+  ion-alert.nxt-modal-prompt {
+    --max-width: 440px;
+    --width: 440px;
+  }
+}
+
+/* ============================================
    SAFE AREA HANDLING
    ============================================ */
 

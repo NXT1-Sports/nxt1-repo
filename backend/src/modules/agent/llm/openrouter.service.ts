@@ -40,7 +40,13 @@ import type {
   LLMStreamDelta,
   LLMStreamResult,
 } from './llm.types.js';
-import { MODEL_CATALOGUE, IMAGE_MODEL, IMAGE_GENERATION_TIMEOUT_MS } from './llm.types.js';
+import {
+  MODEL_CATALOGUE,
+  MODEL_FALLBACK_CHAIN,
+  IMAGE_MODEL,
+  IMAGE_GENERATION_TIMEOUT_MS,
+} from './llm.types.js';
+import { logger } from '../../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -76,6 +82,11 @@ export class OpenRouterService {
   /**
    * Send a chat completion request to OpenRouter.
    *
+   * If the primary model fails with a non-transient error (e.g. 400 context-too-large,
+   * model unavailable, content policy), the request is automatically retried with the
+   * next model in the tier's fallback chain. This ensures scraping and extraction
+   * tasks degrade gracefully instead of failing outright.
+   *
    * @param messages - The conversation history (system + user + assistant + tool messages).
    * @param options  - Model tier, temperature, max tokens, tool schemas, etc.
    * @returns Parsed completion result with content, tool calls, and telemetry data.
@@ -84,7 +95,52 @@ export class OpenRouterService {
     messages: readonly LLMMessage[],
     options: LLMCompletionOptions
   ): Promise<LLMCompletionResult> {
-    const model = options.modelOverride ?? MODEL_CATALOGUE[options.tier];
+    // If caller specified an exact model override, skip fallback chain
+    if (options.modelOverride) {
+      return this.completeWithModel(messages, options, options.modelOverride);
+    }
+
+    // Build fallback chain: primary model + alternatives for this tier
+    const chain = MODEL_FALLBACK_CHAIN[options.tier] ?? [MODEL_CATALOGUE[options.tier]];
+    let lastError: Error | undefined;
+
+    for (let i = 0; i < chain.length; i++) {
+      const model = chain[i];
+      try {
+        return await this.completeWithModel(messages, options, model);
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+
+        // Never retry on user abort
+        if (options.signal?.aborted) throw lastError;
+
+        // If this was a transient error (5xx, 429), fetchWithRetry already
+        // exhausted its retry budget for this same model. Fall through to
+        // the next model in the chain.
+        const isLastModel = i === chain.length - 1;
+        if (isLastModel) throw lastError;
+
+        logger.warn('[OpenRouter] Model failed, trying fallback', {
+          failedModel: model,
+          nextModel: chain[i + 1],
+          tier: options.tier,
+          error: lastError.message,
+        });
+      }
+    }
+
+    throw lastError ?? new Error('OpenRouter request failed: no models available');
+  }
+
+  /**
+   * Execute a completion with a specific model (no fallback logic).
+   * Handles body building, retry, parsing, and telemetry emission.
+   */
+  private async completeWithModel(
+    messages: readonly LLMMessage[],
+    options: LLMCompletionOptions,
+    model: string
+  ): Promise<LLMCompletionResult> {
     const startMs = Date.now();
 
     const body = this.buildRequestBody(messages, model, options);

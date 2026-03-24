@@ -171,6 +171,11 @@ export interface ProfileFormData {
    * Stored as CoachData.title on the user profile.
    */
   coachTitle?: 'head-coach' | 'assistant-coach' | null;
+  /**
+   * Phone number (optional) - stored as contact.phone on the user profile.
+   * Collected in the profile basics step for early contact info.
+   */
+  phoneNumber?: string;
 }
 
 /**

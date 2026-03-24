@@ -8,11 +8,10 @@
  * Collections:
  * - posts — Timeline/Posts (⭐ sportId for filtering)
  * - videos — Highlight reels (sportId required)
- * - playerStats — Season stats (sportId required)
+ * - playerStats — Season stats + game logs (sportId required)
  * - gameStats — Game-by-game stats (sportId required)
  * - rankingEntries — Rankings (sportId required)
- * - offers — Scholarship offers (sportId required)
- * - interactions — Recruiting activities (sportId required)
+ * - recruiting — Offers, visits, interest, camps, commitments (sportId required)
  * - scoutReports — Scouting evaluations (sportId required)
  * - follows — Follow relationships
  * - userSports — Sport enrollment index
@@ -166,6 +165,12 @@ export interface PlayerStatDoc extends SportFirestoreDoc {
     VerifiedStat,
     'field' | 'label' | 'value' | 'unit' | 'category' | 'verified' | 'verifiedBy' | 'dateRecorded'
   >[];
+  /**
+   * Full game-by-game tables (columns, game entries, totals) in the
+   * ProfileSeasonGameLog format consumed by the Profile Stats UI.
+   * Multiple categories (e.g. Passing, Rushing) per season are stored here.
+   */
+  gameLogs?: Record<string, unknown>[];
   /** Primary data source for this stat document. */
   source: DataSource;
   verified: boolean;
@@ -227,19 +232,18 @@ export interface RankingEntryDoc extends UserFirestoreDoc {
 }
 
 // ============================================
-// OFFERS (College Scholarship Offers)
+// RECRUITING — OFFERS (category: 'offer')
 // ============================================
 
 export type OfferScholarshipType = 'full' | 'partial' | 'walk-on' | 'preferred-walk-on';
 export type OfferDivision = 'D1' | 'D2' | 'D3' | 'NAIA' | 'JUCO';
 
 /**
- * Top-level Firestore document: offers/{offerId}
+ * Top-level Firestore document: Recruiting/{docId} (category: 'offer')
  *
- * Stores college scholarship offers as globally-queryable records.
- * (RecruitingActivity on the sub-collection stores the full history;
- * this top-level doc enables cross-user queries like
- * "all D1 football offers in California for class of 2026".)
+ * Stores college scholarship offers in the unified Recruiting collection.
+ * Discriminated by `category: 'offer'`. Enables cross-user queries like
+ * "all D1 football offers in California for class of 2026".
  *
  * ⭐ sportId required — offers always belong to a specific sport ⭐
  *
@@ -265,7 +269,7 @@ export interface OfferDoc extends UserFirestoreDoc {
 }
 
 // ============================================
-// INTERACTIONS (Recruiting Activities)
+// RECRUITING — INTERACTIONS (category: 'interest' | 'contact' | 'visit' | 'camp' | 'questionnaire')
 // ============================================
 
 export type RecruitingInteractionCategory =
@@ -276,9 +280,10 @@ export type RecruitingInteractionCategory =
   | 'questionnaire';
 
 /**
- * Top-level Firestore document: interactions/{interactionId}
+ * Top-level Firestore document: Recruiting/{docId} (non-offer categories)
  *
- * Stores recruiting interactions (interest, contact, visit, camp) globally.
+ * Stores recruiting interactions (interest, contact, visit, camp) in the
+ * unified Recruiting collection. Discriminated by `category` field.
  * Distinct from offers — covers all non-offer recruiting touchpoints.
  *
  * ⭐ sportId required — interactions always belong to a specific sport ⭐

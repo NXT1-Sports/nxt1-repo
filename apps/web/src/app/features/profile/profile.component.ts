@@ -59,6 +59,7 @@ import {
   ProfileGenerationOverlayComponent,
   ProfileGenerationStateService,
 } from '@nxt1/ui/profile';
+import { EditProfileModalService } from '@nxt1/ui/edit-profile';
 
 import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/cta-banner';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
@@ -177,6 +178,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
   private readonly authFlow = inject(AuthFlowService);
   private readonly authModal = inject(AuthModalService);
   private readonly qrCode = inject(QrCodeService);
+  private readonly editProfileModal = inject(EditProfileModalService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly platform = inject(NxtPlatformService);
   private readonly router = inject(Router);
@@ -578,6 +580,14 @@ export class ProfileComponent implements OnInit, OnDestroy {
             })
           )
         : of({ success: false as const, data: [] }),
+      gameLogs: sportId
+        ? this.apiProfileService.getProfileGameLogs(profile.id, sportId).pipe(
+            catchError((err) => {
+              this.logger.warn('Failed to load game logs', { err });
+              return of({ success: false as const, data: [] });
+            })
+          )
+        : of({ success: false as const, data: [] }),
       metrics: sportId
         ? this.apiProfileService.getProfileMetrics(profile.id, sportId).pipe(
             catchError((err) => {
@@ -624,22 +634,35 @@ export class ProfileComponent implements OnInit, OnDestroy {
       ),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(({ stats, metrics, timeline, rankings, scoutReports, videos, schedule, news }) => {
-        if (stats.success) this.profileService.setAthleticStatsFromRaw(stats.data);
-        if (metrics.success) this.profileService.setMetricsFromRaw(metrics.data);
-        if (timeline.success) this.profileService.setTimelinePosts(timeline.data);
-        if (rankings.success && rankings.data.length > 0) {
-          this.profileService.setRankings(rankings.data as unknown as RankingSource[]);
+      .subscribe(
+        ({
+          stats,
+          gameLogs,
+          metrics,
+          timeline,
+          rankings,
+          scoutReports,
+          videos,
+          schedule,
+          news,
+        }) => {
+          if (stats.success) this.profileService.setAthleticStatsFromRaw(stats.data);
+          if (gameLogs.success) this.profileService.setGameLogs(gameLogs.data);
+          if (metrics.success) this.profileService.setMetricsFromRaw(metrics.data);
+          if (timeline.success) this.profileService.setTimelinePosts(timeline.data);
+          if (rankings.success && rankings.data.length > 0) {
+            this.profileService.setRankings(rankings.data as unknown as RankingSource[]);
+          }
+          if (scoutReports.success) this.profileService.setScoutReports(scoutReports.data);
+          if (videos.success) this.profileService.setVideoPosts(videos.data);
+          if (news.success) this.profileService.setNewsArticles(news.data);
+          // Always call setScheduleEvents when API succeeds, even for empty arrays.
+          // This signals that real API data loaded (overrides embedded mock data).
+          if (schedule.success) {
+            this.profileService.setScheduleEvents(schedule.data);
+          }
         }
-        if (scoutReports.success) this.profileService.setScoutReports(scoutReports.data);
-        if (videos.success) this.profileService.setVideoPosts(videos.data);
-        if (news.success) this.profileService.setNewsArticles(news.data);
-        // Always call setScheduleEvents when API succeeds, even for empty arrays.
-        // This signals that real API data loaded (overrides embedded mock data).
-        if (schedule.success) {
-          this.profileService.setScheduleEvents(schedule.data);
-        }
-      });
+      );
     this.seo.updateForProfile(meta);
 
     this.logger.info('Profile SEO updated', {
@@ -673,6 +696,8 @@ export class ProfileComponent implements OnInit, OnDestroy {
     const sport = activeSport?.sport?.toLowerCase();
     const state = profile.location?.state;
 
+    this.relatedAthletes.set([]);
+
     this.http
       .get<{ success: boolean; data: UserSummary[] }>(
         `${environment.apiURL}/auth/profile/search?limit=50`
@@ -682,7 +707,10 @@ export class ProfileComponent implements OnInit, OnDestroy {
         takeUntilDestroyed(this.destroyRef)
       )
       .subscribe((response) => {
-        if (!response.success) return;
+        if (!response.success) {
+          this.relatedAthletes.set([]);
+          return;
+        }
 
         const scored = response.data
           .filter((u) => u.id !== profile.id && !!u.firstName && !!u.unicode)
@@ -813,9 +841,44 @@ export class ProfileComponent implements OnInit, OnDestroy {
   /**
    * Handle edit profile navigation.
    */
-  protected onEditProfile(): void {
+  protected async onEditProfile(): Promise<void> {
     this.logger.info('Edit profile clicked');
-    this.router.navigate(['/settings/profile']);
+
+    const fetchedProfile = this.fetchedProfile();
+    const authUser = this.authService.user();
+    const userId = fetchedProfile?.id ?? authUser?.uid;
+    if (!userId) {
+      this.logger.warn('Cannot open edit profile: missing user ID');
+      this.toast.error('Unable to open edit profile right now.');
+      return;
+    }
+
+    const result = await this.editProfileModal.open({
+      userId,
+      sportIndex: fetchedProfile?.activeSportIndex ?? 0,
+      apiService: {
+        getProfile: (uid: string, sportIndex?: number) =>
+          this.editProfileApiService.getProfile(uid, sportIndex),
+        updateSection: (
+          uid: string,
+          sectionId: string,
+          data: Record<string, unknown>,
+          sportIndex?: number
+        ) => this.editProfileApiService.updateSection(uid, sectionId, data, sportIndex),
+        updateActiveSportIndex: (uid: string, activeSportIndex: number) =>
+          this.editProfileApiService.updateActiveSportIndex(uid, activeSportIndex),
+        uploadPhoto: (uid: string, type: 'profile' | 'banner', file: File | Blob) =>
+          this.editProfileApiService.uploadPhoto(uid, type, file),
+      },
+    });
+
+    if (!result.saved) {
+      return;
+    }
+
+    this.logger.info('Edit profile saved, refreshing profile data', { userId });
+    this.apiProfileService.invalidateCache(userId);
+    this.reloadProfile();
   }
 
   /**

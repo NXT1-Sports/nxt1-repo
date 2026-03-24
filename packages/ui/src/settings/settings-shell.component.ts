@@ -57,13 +57,9 @@ import type {
 } from './settings-item.component';
 import { NxtSectionNavWebComponent } from '../components/section-nav-web';
 import type { SectionNavItem, SectionNavChangeEvent } from '../components/section-nav-web';
-import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
-import {
-  ConnectedAccountsSheetComponent,
-  DEFAULT_PLATFORMS,
-  type ConnectedSource,
-} from '../components/connected-sources';
+import { ConnectedAccountsModalService } from '../components/connected-sources';
 import type { SettingsSectionId, InboxEmailProvider } from '@nxt1/core';
+import type { LinkSourcesFormData, OnboardingUserType } from '@nxt1/core/api';
 
 /**
  * User info for header display.
@@ -72,6 +68,14 @@ export interface SettingsUser {
   readonly profileImg?: string | null;
   readonly displayName?: string | null;
   readonly connectedEmails?: readonly { provider: string; email: string; isActive: boolean }[];
+  /** User role for connected accounts role-aware recommendations */
+  readonly role?: OnboardingUserType | null;
+  /** User's sport names for sport-scoped platform filtering */
+  readonly selectedSports?: readonly string[];
+  /** Existing connected sources data to pre-populate the link drop step */
+  readonly linkSourcesData?: LinkSourcesFormData | null;
+  /** Scope: 'athlete' or 'team' */
+  readonly scope?: 'athlete' | 'team';
 }
 
 @Component({
@@ -302,7 +306,7 @@ export interface SettingsUser {
 export class SettingsShellComponent implements OnInit {
   protected readonly settings = inject(SettingsService);
   private readonly toast = inject(NxtToastService);
-  private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
   private readonly logger = inject(NxtLoggingService).child('SettingsShellComponent');
   private readonly _activeSection = signal<SettingsSectionId | null>(null);
 
@@ -457,7 +461,6 @@ export class SettingsShellComponent implements OnInit {
   }
 
   protected async onAction(event: SettingsActionEvent): Promise<void> {
-    console.log('[Settings Shell] onAction called with:', event.action, event);
     this.logger.debug('Action triggered', { itemId: event.itemId, action: event.action });
 
     // Handle built-in actions
@@ -486,7 +489,6 @@ export class SettingsShellComponent implements OnInit {
         break;
 
       case 'connectedAccounts':
-        console.log('[Settings Shell] connectedAccounts action - calling openConnectedAccounts()');
         await this.openConnectedAccounts();
         break;
 
@@ -501,44 +503,30 @@ export class SettingsShellComponent implements OnInit {
   }
 
   private async openConnectedAccounts(): Promise<void> {
-    console.log('[Settings Shell] Opening connected accounts sheet...');
+    this.logger.info('Opening connected accounts');
 
-    // Build platform groups - simple "All Platforms" group with default platforms
-    const platformGroups = [
-      {
-        key: 'all',
-        label: 'All Platforms',
-        sources: DEFAULT_PLATFORMS,
-      },
-    ];
+    const currentUser = this.user();
 
-    console.log('[Settings Shell] Calling openSheet with platformGroups:', platformGroups);
-
-    const result = await this.bottomSheet.openSheet<{
-      sources?: readonly ConnectedSource[];
-      provider?: InboxEmailProvider;
-    }>({
-      component: ConnectedAccountsSheetComponent,
-      ...SHEET_PRESETS.FULL,
-      componentProps: {
-        platformGroups,
-        connectedEmails: this.user()?.connectedEmails ?? [],
-        connectProviderCallback: this.connectProviderCallback(),
-      },
-      showHandle: true,
+    const result = await this.connectedAccountsModal.open({
+      role: currentUser?.role ?? null,
+      selectedSports: currentUser?.selectedSports ?? [],
+      linkSourcesData: currentUser?.linkSourcesData ?? null,
+      scope: currentUser?.scope ?? 'athlete',
     });
 
-    console.log('[Settings Shell] openSheet returned!');
-    console.log('[Settings Shell] Sheet dismissed with role:', result.role, 'data:', result.data);
+    this.logger.debug('Connected accounts dismissed', {
+      saved: result.saved,
+      resync: result.resync,
+    });
 
-    if (result.role === 'resync') {
-      console.log('[Settings Shell] Handling resync...');
-      await this.settings.requestConnectedAccountsResync(result.data?.sources ?? DEFAULT_PLATFORMS);
-    } else if (result.role === 'connectProvider' && result.data?.provider) {
-      console.log('[Settings Shell] Emitting connectProviderRequest:', result.data.provider);
-      this.connectProviderRequest.emit(result.data.provider);
-    } else {
-      console.log('[Settings Shell] No matching role handler. Role:', result.role);
+    if (result.resync) {
+      await this.settings.requestConnectedAccountsResync(result.sources ?? []);
+    } else if (result.saved && result.updatedLinks) {
+      this.action.emit({
+        itemId: 'connectedAccounts',
+        action: 'saveConnectedAccounts',
+        data: { updatedLinks: result.updatedLinks, linkSources: result.linkSources },
+      } as SettingsActionEvent);
     }
   }
 }

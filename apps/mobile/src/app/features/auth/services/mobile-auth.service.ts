@@ -133,11 +133,12 @@ export class MobileAuthService implements OnDestroy {
    */
   private async syncFirebaseUser(firebaseUser: FirebaseUser): Promise<void> {
     // Map Firebase user to our AuthUser type
+    // ⭐ profileImg: NEVER use Firebase/Google photoURL — only backend profile images.
     const authUser: AuthUser = {
       uid: firebaseUser.uid,
       email: firebaseUser.email ?? '',
       displayName: firebaseUser.displayName ?? 'User',
-      profileImg: firebaseUser.photoURL ?? undefined,
+      profileImg: undefined,
       role: 'athlete', // Default role - should come from backend
       isPremium: false, // Should come from backend
       hasCompletedOnboarding: false, // Should come from backend

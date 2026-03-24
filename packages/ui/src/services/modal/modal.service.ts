@@ -205,6 +205,12 @@ export class NxtModalService {
     return this.isNativeMobile();
   }
 
+  /** True when running in a desktop-width web browser (not native mobile). */
+  private isDesktopWeb(): boolean {
+    if (!this.isBrowser() || this.isNativeMobile()) return false;
+    return window.innerWidth >= 768;
+  }
+
   // ============================================
   // MODAL MANAGEMENT
   // ============================================
@@ -676,6 +682,12 @@ export class NxtModalService {
   }
 
   private async ionicActionSheet(config: ActionSheetConfig): Promise<ActionSheetResult> {
+    // On desktop web, show a centered alert with radio inputs instead of
+    // a mobile-style bottom slide-up action sheet.
+    if (this.isDesktopWeb()) {
+      return this.desktopActionSheetAsAlert(config);
+    }
+
     let resolvePromise: (value: ActionSheetResult) => void;
     const resultPromise = new Promise<ActionSheetResult>((resolve) => {
       resolvePromise = resolve;
@@ -713,6 +725,76 @@ export class NxtModalService {
     this.applyModalTheme(actionSheet);
     await actionSheet.present();
     await actionSheet.onDidDismiss();
+
+    this.untrackModal(modalId);
+
+    return resultPromise;
+  }
+
+  /**
+   * Desktop-web fallback: renders the action-sheet choices as radio inputs
+   * inside a centered Ionic alert — the same pattern used by the Position
+   * picker — so it feels like a proper desktop modal instead of a mobile
+   * bottom slide-up.
+   */
+  private async desktopActionSheetAsAlert(config: ActionSheetConfig): Promise<ActionSheetResult> {
+    let resolvePromise: (value: ActionSheetResult) => void;
+    const resultPromise = new Promise<ActionSheetResult>((resolve) => {
+      resolvePromise = resolve;
+    });
+
+    const regularActions = config.actions.filter((a) => !a.cancel);
+
+    const alert = await this.alertCtrl.create({
+      header: config.title,
+      message: config.message,
+      cssClass: 'nxt-modal-action-sheet-desktop',
+      inputs: regularActions.map((action, index) => ({
+        type: 'radio' as const,
+        label: action.text,
+        value: index.toString(),
+        cssClass: action.destructive ? 'nxt-action-destructive' : '',
+      })),
+      buttons: [
+        {
+          text: 'Cancel',
+          role: 'cancel',
+          cssClass: 'nxt-modal-cancel-btn',
+          handler: () => {
+            this.triggerHaptic('cancel');
+            resolvePromise({ selected: false, index: -1, action: null });
+          },
+        },
+        {
+          text: 'Done',
+          role: 'confirm',
+          cssClass: 'nxt-modal-confirm-btn',
+          handler: (selectedValue: string) => {
+            if (selectedValue == null) {
+              resolvePromise({ selected: false, index: -1, action: null });
+              return;
+            }
+
+            const idx = parseInt(selectedValue, 10);
+            const action = regularActions[idx];
+
+            this.triggerHaptic(action.destructive ? 'destructive' : 'confirm');
+            resolvePromise({
+              selected: true,
+              index: idx,
+              action,
+              data: action.data,
+            });
+          },
+        },
+      ],
+    });
+
+    const modalId = this.trackModal('action-sheet', () => alert.dismiss());
+
+    this.applyModalTheme(alert);
+    await alert.present();
+    await alert.onDidDismiss();
 
     this.untrackModal(modalId);
 

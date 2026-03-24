@@ -66,12 +66,10 @@ export class QrCodeBottomSheetService {
       componentProps: {
         url: config.url,
         displayName: config.displayName,
-        profileImg: config.profileImg ?? '',
-        sport: config.sport ?? '',
       },
 
       // Standardized sheet preset
-      ...SHEET_PRESETS.TALL,
+      ...SHEET_PRESETS.FULL,
 
       // Show native drag handle bar
       showHandle: true,

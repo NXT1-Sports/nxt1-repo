@@ -82,10 +82,8 @@ export class QrCodeService {
       componentProps: {
         url: config.url,
         displayName: config.displayName,
-        profileImg: config.profileImg ?? '',
-        sport: config.sport ?? '',
       },
-      ...SHEET_PRESETS.TALL,
+      ...SHEET_PRESETS.FULL,
       showHandle: true,
       handleBehavior: 'cycle',
       backdropDismiss: true,

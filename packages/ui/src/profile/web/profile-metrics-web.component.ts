@@ -212,17 +212,11 @@ export class ProfileMetricsWebComponent {
     if (cats.length === 0) return null;
 
     const sideTab = this.activeSideTab();
-    const targetCategoryBySideTab: Readonly<Record<string, string>> = {
-      combine: 'combine results',
-      measurables: 'measurables',
-    };
-    const targetCategory = targetCategoryBySideTab[sideTab];
+    if (!sideTab) return cats[0] ?? null;
 
-    if (!targetCategory) {
-      return cats[0] ?? null;
-    }
-
-    const matched = cats.find((category) => category.name.trim().toLowerCase() === targetCategory);
+    const matched = cats.find(
+      (category) => category.name.toLowerCase().replace(/\s+/g, '-') === sideTab
+    );
     return matched ?? cats[0] ?? null;
   });
 

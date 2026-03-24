@@ -33,7 +33,8 @@
  */
 
 import { Injectable, inject, signal, computed } from '@angular/core';
-import { ToastController, Platform } from '@ionic/angular/standalone';
+import { Platform } from '@ionic/angular/standalone';
+import { NxtToastService } from '@nxt1/ui';
 import { Share, ShareOptions, ShareResult } from '@capacitor/share';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import {
@@ -110,7 +111,7 @@ export interface ShareContentOptions {
  */
 @Injectable({ providedIn: 'root' })
 export class ShareService {
-  private readonly toastController = inject(ToastController);
+  private readonly toast = inject(NxtToastService);
   private readonly platform = inject(Platform);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
@@ -396,7 +397,7 @@ export class ShareService {
 
       // Success feedback
       if (result.activityType) {
-        await this.showToast('Shared successfully!', 'success');
+        this.toast.success('Shared successfully!');
       }
 
       return {
@@ -430,12 +431,12 @@ export class ShareService {
       // Use Web Clipboard API (works in Capacitor WebView)
       await navigator.clipboard.writeText(text);
       await this.triggerHaptic();
-      await this.showToast('Link copied to clipboard!', 'success');
+      this.toast.success('Link copied to clipboard!');
 
       return { completed: true, activityType: 'clipboard' };
     } catch (error) {
       console.error('[ShareService] Clipboard write failed:', error);
-      await this.showToast('Failed to copy link', 'danger');
+      this.toast.error('Failed to copy link');
 
       return {
         completed: false,
@@ -457,7 +458,7 @@ export class ShareService {
       await this.triggerHaptic();
 
       if (showFeedback) {
-        await this.showToast('Copied!', 'success');
+        this.toast.success('Copied!');
       }
 
       return true;
@@ -465,7 +466,7 @@ export class ShareService {
       console.error('[ShareService] Copy failed:', error);
 
       if (showFeedback) {
-        await this.showToast('Failed to copy', 'danger');
+        this.toast.error('Failed to copy');
       }
 
       return false;
@@ -487,24 +488,6 @@ export class ShareService {
     } catch {
       // Haptics not available - ignore
     }
-  }
-
-  /**
-   * Show toast message
-   */
-  private async showToast(
-    message: string,
-    color: 'success' | 'danger' | 'warning' = 'success'
-  ): Promise<void> {
-    const toast = await this.toastController.create({
-      message,
-      duration: 2000,
-      position: 'bottom',
-      color,
-      cssClass: 'share-toast',
-    });
-
-    await toast.present();
   }
 
   private trackShareEvent(

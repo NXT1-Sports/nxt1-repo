@@ -38,6 +38,7 @@ import { NxtBottomSheetService, SHEET_PRESETS } from '@nxt1/ui/components/bottom
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 import type { SettingsUserInfo, SettingsSubscription } from '@nxt1/core';
+import type { LinkSourcesFormData, OnboardingUserType } from '@nxt1/core/api';
 
 @Component({
   selector: 'app-settings',
@@ -120,9 +121,27 @@ export class SettingsComponent implements OnInit {
     const user = this.authService.user();
     if (!user) return null;
 
+    // Convert ConnectedSource[] → LinkSourcesFormData for the shared link drop step
+    const linkSourcesData: LinkSourcesFormData | null = user.connectedSources?.length
+      ? {
+          links: user.connectedSources.map((src) => ({
+            platform: src.platform,
+            connected: true,
+            connectionType: 'link' as const,
+            url: src.profileUrl,
+            scopeType: src.scopeType ?? 'global',
+            scopeId: src.scopeId,
+          })),
+        }
+      : null;
+
     return {
       profileImg: user.profileImg ?? null,
       displayName: user.displayName,
+      role: (user.role as OnboardingUserType) ?? null,
+      selectedSports: user.selectedSports ?? [],
+      linkSourcesData,
+      scope: 'athlete' as const,
     };
   });
 

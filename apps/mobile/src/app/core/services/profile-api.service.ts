@@ -19,7 +19,7 @@ import {
   type UpdateSportProfileRequest,
 } from '@nxt1/core/api';
 import { PROFILE_CACHE_KEYS } from '@nxt1/core/profile';
-import { type ProfilePost } from '@nxt1/core/profile';
+import { type ProfilePost, type ProfileSeasonGameLog } from '@nxt1/core/profile';
 import {
   type User,
   type SportProfile,
@@ -317,6 +317,20 @@ export class ProfileApiService {
     try {
       return await this.http.get<{ success: boolean; data: VerifiedMetric[] }>(
         `${environment.apiUrl}/auth/profile/${userId}/sports/${encodeURIComponent(sportId)}/metrics`
+      );
+    } catch {
+      return { success: false, data: [] };
+    }
+  }
+
+  /** GET /auth/profile/:userId/sports/:sportId/game-logs */
+  async getProfileGameLogs(
+    userId: string,
+    sportId: string
+  ): Promise<{ success: boolean; data: ProfileSeasonGameLog[] }> {
+    try {
+      return await this.http.get<{ success: boolean; data: ProfileSeasonGameLog[] }>(
+        `${environment.apiUrl}/auth/profile/${userId}/sports/${encodeURIComponent(sportId)}/game-logs`
       );
     } catch {
       return { success: false, data: [] };

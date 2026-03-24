@@ -12,6 +12,7 @@ import {
   Component,
   ElementRef,
   Input,
+  OnDestroy,
   OnInit,
   PLATFORM_ID,
   computed,
@@ -22,12 +23,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import {
-  AlertController,
-  IonContent,
-  IonSpinner,
-  ModalController,
-} from '@ionic/angular/standalone';
+import { AlertController, IonSpinner, ModalController } from '@ionic/angular/standalone';
 import { NxtModalService } from '../services/modal';
 import {
   BrowserGeolocationAdapter,
@@ -46,7 +42,7 @@ import { NxtMediaGalleryComponent } from '../components/media-gallery';
 import { NxtListSectionComponent } from '../components/list-section';
 import { NxtListRowComponent } from '../components/list-row';
 import {
-  ConnectedAccountsSheetComponent,
+  ConnectedAccountsModalService,
   type ConnectedSource,
 } from '../components/connected-sources';
 import {
@@ -54,25 +50,76 @@ import {
   PLATFORM_CATEGORIES,
   getPlatformFaviconUrl,
   getRecommendedPlatforms,
+  type LinkSourcesFormData,
 } from '@nxt1/core/api';
-import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
+import { NxtBottomSheetService } from '../components/bottom-sheet';
 
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import { getPositionGroupsForSport, type InboxEmailProvider } from '@nxt1/core';
+import {
+  getPositionGroupsForSport,
+  TEAM_TYPE_CONFIGS,
+  titleCase,
+  type InboxEmailProvider,
+} from '@nxt1/core';
+import { formatPositionDisplay } from '@nxt1/core/constants';
+import { NxtSearchBarComponent } from '../components/search-bar';
+import { HapticButtonDirective } from '../services/haptics';
+import type { SearchTeamsFn, TeamSearchResult } from '../onboarding';
 
 const MAX_GALLERY_IMAGES = 8;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 const HEIGHT_OPTIONS = buildHeightOptions();
 
+/** Debounce time for program search input (ms) */
+const PROGRAM_SEARCH_DEBOUNCE_MS = 300;
+
+/** Minimum query length to trigger program search */
+const PROGRAM_MIN_QUERY_LENGTH = 2;
+
+type DraftProgramType =
+  | 'high-school'
+  | 'middle-school'
+  | 'club'
+  | 'college'
+  | 'juco'
+  | 'organization';
+
+interface ProgramTypeOption {
+  readonly value: DraftProgramType;
+  readonly label: string;
+}
+
+const DRAFT_PROGRAM_TYPE_OPTIONS: readonly ProgramTypeOption[] = [
+  { value: 'high-school', label: 'High School' },
+  { value: 'middle-school', label: 'Middle School' },
+  { value: 'club', label: 'Club / Travel' },
+  { value: 'college', label: 'College' },
+  { value: 'juco', label: 'JUCO' },
+  { value: 'organization', label: 'Organization' },
+];
+
+/** Matches trailing sport names so they can be stripped from draft program names */
+const TRAILING_SPORT_WORD_PATTERN =
+  /\s+(football|basketball|baseball|softball|soccer|volleyball|lacrosse|wrestling|track|cross\s*country|swim(?:ming)?|tennis|golf|hockey)\s*$/i;
+
+/** Suffix patterns per program type — stripped before title-casing */
+const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly RegExp[]>> = {
+  'high-school': [/\s+high\s+school\s*$/i, /\s+hs\s*$/i],
+  'middle-school': [/\s+middle\s+school\s*$/i, /\s+ms\s*$/i],
+  club: [/\s+club\s*$/i, /\s+travel\s*$/i],
+  college: [/\s+community\s+college\s*$/i, /\s+college\s*$/i, /\s+university\s*$/i],
+  juco: [/\s+junior\s+college\s*$/i, /\s+juco\s*$/i],
+  organization: [],
+};
+
 @Component({
   selector: 'nxt1-edit-profile-shell',
   standalone: true,
   imports: [
-    IonContent,
     IonSpinner,
     EditProfileSkeletonComponent,
     NxtSheetHeaderComponent,
@@ -80,9 +127,11 @@ const HEIGHT_OPTIONS = buildHeightOptions();
     NxtMediaGalleryComponent,
     NxtListSectionComponent,
     NxtListRowComponent,
+    NxtSearchBarComponent,
+    HapticButtonDirective,
   ],
   template: `
-    <div class="nxt1-edit-shell">
+    @if (!headless) {
       @if (!isModalMode) {
         <header class="nxt1-edit-header">
           <button type="button" class="nxt1-header-btn" (click)="onClose()" aria-label="Close">
@@ -130,49 +179,52 @@ const HEIGHT_OPTIONS = buildHeightOptions();
           </button>
         </nxt1-sheet-header>
       }
+    }
 
-      <ion-content [fullscreen]="true" class="nxt1-edit-content">
-        @if (profile.isLoading()) {
-          <nxt1-edit-profile-skeleton />
-        } @else if (profile.error()) {
-          <div class="nxt1-error-state">
-            <div class="nxt1-error-icon">
-              <nxt1-icon name="alertCircle" [size]="20" />
-            </div>
-            <p class="nxt1-error-text">{{ profile.error() }}</p>
-            <button type="button" class="nxt1-retry-btn" (click)="loadProfile()">Try Again</button>
+    <div class="nxt1-edit-content">
+      @if (profile.isLoading()) {
+        <nxt1-edit-profile-skeleton />
+      } @else if (profile.error()) {
+        <div class="nxt1-error-state">
+          <div class="nxt1-error-icon">
+            <nxt1-icon name="alertCircle" [size]="20" />
           </div>
-        } @else if (profile.formData(); as form) {
-          <div class="nxt1-edit-body">
-            <!-- Media Gallery -->
-            <input
-              #imageInput
-              type="file"
-              class="nxt1-hidden"
-              accept="image/*"
-              multiple
-              (change)="onImageFilesSelected($event)"
-            />
-            <nxt1-media-gallery
-              [images]="carouselImages()"
-              [maxImages]="maxGalleryImages"
-              (add)="openImagePicker()"
-              (remove)="removeImage($event)"
-            />
+          <p class="nxt1-error-text">{{ profile.error() }}</p>
+          <button type="button" class="nxt1-retry-btn" (click)="loadProfile()">Try Again</button>
+        </div>
+      } @else if (profile.formData(); as form) {
+        <div class="nxt1-edit-body">
+          <!-- Media Gallery -->
+          <input
+            #imageInput
+            type="file"
+            class="nxt1-hidden"
+            accept="image/*"
+            multiple
+            (change)="onImageFilesSelected($event)"
+          />
+          <nxt1-media-gallery
+            [images]="carouselImages()"
+            [maxImages]="maxGalleryImages"
+            (add)="openImagePicker()"
+            (remove)="removeImage($event)"
+          />
 
-            <!-- Connected Accounts -->
-            <nxt1-list-section header="Connected accounts">
-              <nxt1-list-row label="Accounts" (tap)="openConnectedAccounts()">
-                <span
-                  class="nxt1-list-value"
-                  [class.nxt1-list-placeholder]="connectedCount() === 0"
-                  >{{
-                    connectedCount() > 0 ? connectedCount() + ' connected' : 'Connect accounts'
-                  }}</span
-                >
-              </nxt1-list-row>
-            </nxt1-list-section>
+          <!-- Connected Accounts -->
+          <nxt1-list-section header="Connected accounts">
+            <nxt1-list-row label="Accounts" (tap)="openConnectedAccounts()">
+              <span
+                class="nxt1-list-value"
+                [class.nxt1-list-placeholder]="connectedCount() === 0"
+                >{{
+                  connectedCount() > 0 ? connectedCount() + ' connected' : 'Connect accounts'
+                }}</span
+              >
+            </nxt1-list-row>
+          </nxt1-list-section>
 
+          <!-- Two-column layout: About you (left) | Sports info + Physical (right) -->
+          <div [class.nxt1-ep-two-col]="webLayout">
             <!-- About you -->
             <nxt1-list-section header="About you">
               <nxt1-list-row
@@ -213,74 +265,228 @@ const HEIGHT_OPTIONS = buildHeightOptions();
                   >
                 }
               </nxt1-list-row>
-            </nxt1-list-section>
-
-            <!-- Sports info -->
-            <nxt1-list-section header="Sports info">
-              <nxt1-list-row
-                label="Position"
-                [verified]="verifiedFields().has('position')"
-                (tap)="editPosition()"
-              >
-                <span
-                  class="nxt1-list-value capitalize"
-                  [class.nxt1-list-placeholder]="selectedPositions().length === 0"
-                  >{{ positionDisplay() || 'Select position' }}</span
-                >
+              <nxt1-list-row label="Phone" (tap)="editPhone()">
+                <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!form.contact.phone">{{
+                  form.contact.phone || 'Add phone number'
+                }}</span>
               </nxt1-list-row>
-              <nxt1-list-row label="Jersey" (tap)="editJersey()">
-                <span
-                  class="nxt1-list-value"
-                  [class.nxt1-list-placeholder]="!form.sportsInfo.jerseyNumber"
-                  >{{ form.sportsInfo.jerseyNumber || 'Add jersey number' }}</span
-                >
+              <nxt1-list-row label="Email" (tap)="editEmail()">
+                <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!form.contact.email">{{
+                  form.contact.email || 'Add email'
+                }}</span>
               </nxt1-list-row>
             </nxt1-list-section>
 
-            <!-- Physical -->
-            <nxt1-list-section header="Physical">
-              <nxt1-list-row
-                label="Height"
-                [verified]="verifiedFields().has('height')"
-                (tap)="editHeight()"
-              >
-                <span
-                  class="nxt1-list-value"
-                  [class.nxt1-list-placeholder]="!form.physical.height"
-                  >{{ form.physical.height || 'Select height' }}</span
+            <!-- Right column: Sports info + Physical -->
+            <div [class.nxt1-ep-right-col]="webLayout">
+              <!-- Sports info -->
+              <nxt1-list-section header="Sports info">
+                <nxt1-list-row
+                  label="Position"
+                  [verified]="verifiedFields().has('position')"
+                  (tap)="editPosition()"
                 >
-              </nxt1-list-row>
-              <nxt1-list-row label="Weight" (tap)="editWeight()">
-                <span
-                  class="nxt1-list-value"
-                  [class.nxt1-list-placeholder]="!form.physical.weight"
-                  >{{ form.physical.weight ? form.physical.weight + ' lbs' : 'Add weight' }}</span
+                  <span
+                    class="nxt1-list-value capitalize"
+                    [class.nxt1-list-placeholder]="selectedPositions().length === 0"
+                    >{{ positionDisplay() || 'Select position' }}</span
+                  >
+                </nxt1-list-row>
+                <nxt1-list-row label="Jersey" (tap)="editJersey()">
+                  <span
+                    class="nxt1-list-value"
+                    [class.nxt1-list-placeholder]="!form.sportsInfo.jerseyNumber"
+                    >{{ form.sportsInfo.jerseyNumber || 'Add jersey number' }}</span
+                  >
+                </nxt1-list-row>
+                <nxt1-list-row label="Program" (tap)="toggleProgramSearch()">
+                  <span
+                    class="nxt1-list-value"
+                    [class.nxt1-list-placeholder]="!form.sportsInfo.teamName"
+                    >{{ programDisplay() || 'Add your program' }}</span
+                  >
+                </nxt1-list-row>
+
+                <!-- Inline Program Search (expanded) -->
+                @if (isProgramExpanded()) {
+                  <div class="nxt1-program-search-section">
+                    <!-- Currently selected team -->
+                    @if (form.sportsInfo.teamName) {
+                      <div class="nxt1-program-selected">
+                        @if (form.sportsInfo.teamLogoUrl) {
+                          <img
+                            [src]="form.sportsInfo.teamLogoUrl"
+                            [alt]="form.sportsInfo.teamName"
+                            class="nxt1-program-logo"
+                            loading="lazy"
+                          />
+                        } @else {
+                          <div class="nxt1-program-logo-placeholder">
+                            {{ getTeamInitial(form.sportsInfo.teamName) }}
+                          </div>
+                        }
+                        <div class="nxt1-program-selected-info">
+                          <span class="nxt1-program-selected-name">{{
+                            form.sportsInfo.teamName
+                          }}</span>
+                          @if (form.sportsInfo.teamType) {
+                            <span class="nxt1-team-type-badge">{{
+                              formatTeamType(form.sportsInfo.teamType)
+                            }}</span>
+                          }
+                        </div>
+                        <button
+                          type="button"
+                          class="nxt1-program-remove-btn"
+                          nxtHaptic="light"
+                          (click)="clearTeam()"
+                          aria-label="Remove program"
+                        >
+                          <nxt1-icon name="close" [size]="14" />
+                        </button>
+                      </div>
+                    }
+
+                    <!-- Search bar -->
+                    <div class="nxt1-program-search-wrapper">
+                      <nxt1-search-bar
+                        variant="mobile"
+                        [expanded]="true"
+                        placeholder="Search for your program..."
+                        [value]="programSearchQuery()"
+                        (searchInput)="onProgramSearchInput($event)"
+                        (searchClear)="onProgramSearchClear()"
+                      />
+                    </div>
+
+                    <!-- Search loading -->
+                    @if (isProgramSearching()) {
+                      <div class="nxt1-program-search-loading">
+                        <div class="nxt1-program-spinner"></div>
+                        <span class="nxt1-program-search-loading-text">Searching programs...</span>
+                      </div>
+                    } @else if (programSearchResults().length > 0) {
+                      <!-- Search results -->
+                      <div class="nxt1-program-results">
+                        @for (team of programSearchResults(); track team.id) {
+                          <button
+                            type="button"
+                            class="nxt1-program-result-row"
+                            nxtHaptic="selection"
+                            (click)="selectTeam(team)"
+                          >
+                            @if (team.logoUrl) {
+                              <img
+                                [src]="team.logoUrl"
+                                [alt]="team.name"
+                                class="nxt1-program-logo"
+                                loading="lazy"
+                              />
+                            } @else {
+                              <div
+                                class="nxt1-program-logo-placeholder"
+                                [style.background]="
+                                  team.colors?.[0] ?? 'var(--nxt1-color-surface-200)'
+                                "
+                              >
+                                {{ getTeamInitial(team.name) }}
+                              </div>
+                            }
+                            <div class="nxt1-program-result-copy">
+                              <span class="nxt1-program-result-name">{{ team.name }}</span>
+                              @if (team.isDraft) {
+                                <span class="nxt1-program-result-location nxt1-draft-badge"
+                                  >New Program</span
+                                >
+                              } @else if (team.location) {
+                                <span class="nxt1-program-result-location">{{
+                                  team.location
+                                }}</span>
+                              } @else if (team.sport) {
+                                <span class="nxt1-program-result-location">{{ team.sport }}</span>
+                              }
+                              @if (team.teamType && team.teamType !== 'organization') {
+                                <span class="nxt1-team-type-badge">{{
+                                  formatTeamType(team.teamType)
+                                }}</span>
+                              }
+                            </div>
+                            <nxt1-icon name="chevronForward" [size]="14" />
+                          </button>
+                        }
+                      </div>
+                    } @else if (hasProgramSearched()) {
+                      <!-- No results + draft creation -->
+                      <div class="nxt1-program-no-results">
+                        <p class="nxt1-program-no-results-text">No programs found</p>
+                        @if (programSearchQuery().trim().length >= 2) {
+                          <div class="nxt1-program-draft-controls">
+                            <p class="nxt1-program-draft-label">
+                              Select program type to add "{{ programSearchQuery().trim() }}":
+                            </p>
+                            <div class="nxt1-program-draft-chips">
+                              @for (option of draftProgramTypeOptions; track option.value) {
+                                <button
+                                  type="button"
+                                  class="nxt1-program-draft-chip"
+                                  nxtHaptic="light"
+                                  (click)="
+                                    addDraftProgram(programSearchQuery().trim(), option.value)
+                                  "
+                                >
+                                  {{ option.label }}
+                                </button>
+                              }
+                            </div>
+                          </div>
+                        }
+                      </div>
+                    }
+                  </div>
+                }
+              </nxt1-list-section>
+
+              <!-- Physical -->
+              <nxt1-list-section header="Physical">
+                <nxt1-list-row
+                  label="Height"
+                  [verified]="verifiedFields().has('height')"
+                  (tap)="editHeight()"
                 >
-              </nxt1-list-row>
-            </nxt1-list-section>
+                  <span
+                    class="nxt1-list-value"
+                    [class.nxt1-list-placeholder]="!form.physical.height"
+                    >{{ form.physical.height || 'Select height' }}</span
+                  >
+                </nxt1-list-row>
+                <nxt1-list-row label="Weight" (tap)="editWeight()">
+                  <span
+                    class="nxt1-list-value"
+                    [class.nxt1-list-placeholder]="!form.physical.weight"
+                    >{{ form.physical.weight ? form.physical.weight + ' lbs' : 'Add weight' }}</span
+                  >
+                </nxt1-list-row>
+              </nxt1-list-section>
+            </div>
           </div>
-        }
-      </ion-content>
+        </div>
+      }
     </div>
   `,
   styles: [
     `
       :host {
-        display: block;
+        display: flex;
+        flex-direction: column;
         height: 100%;
-        width: 100%;
+        overflow: hidden;
+        background: var(--nxt1-color-bg-primary);
+        color: var(--nxt1-color-text-primary);
       }
 
       /* ============================================
          SHELL CONTAINER
          ============================================ */
-      .nxt1-edit-shell {
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-        background: var(--nxt1-color-bg-primary);
-        color: var(--nxt1-color-text-primary);
-      }
 
       /* ============================================
          HEADER (standalone page mode)
@@ -356,15 +562,17 @@ const HEIGHT_OPTIONS = buildHeightOptions();
          CONTENT AREA
          ============================================ */
       .nxt1-edit-content {
-        --background: transparent;
         flex: 1;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
       }
 
       .nxt1-edit-body {
         display: flex;
         flex-direction: column;
         gap: var(--nxt1-spacing-5);
-        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-4) var(--nxt1-spacing-8);
+        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-4)
+          calc(var(--nxt1-spacing-8) + env(safe-area-inset-bottom, 0px));
       }
 
       /* ============================================
@@ -455,11 +663,297 @@ const HEIGHT_OPTIONS = buildHeightOptions();
         background: var(--nxt1-color-surface-200);
         color: var(--nxt1-color-text-primary);
       }
+
+      /* ============================================
+         INLINE PROGRAM SEARCH
+         ============================================ */
+      .nxt1-program-search-section {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-3);
+        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4) var(--nxt1-spacing-4);
+        background: var(--nxt1-color-surface-100);
+        border-bottom: 1px solid var(--nxt1-color-border-subtle);
+      }
+
+      .nxt1-program-search-wrapper {
+        width: 100%;
+      }
+
+      /* Selected team row */
+      .nxt1-program-selected {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-3);
+        padding: var(--nxt1-spacing-3);
+        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+        border: 1px solid var(--nxt1-color-primary);
+        border-radius: var(--nxt1-borderRadius-lg);
+      }
+
+      .nxt1-program-selected-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        flex: 1;
+        min-width: 0;
+      }
+
+      .nxt1-program-selected-name {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: 600;
+        color: var(--nxt1-color-text-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .nxt1-program-remove-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: var(--nxt1-color-surface-200);
+        border: none;
+        color: var(--nxt1-color-text-tertiary);
+        cursor: pointer;
+        transition: all var(--nxt1-duration-fast);
+        padding: 0;
+        flex-shrink: 0;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .nxt1-program-remove-btn:hover {
+        background: var(--nxt1-color-error, #ff4d4f);
+        color: #ffffff;
+      }
+
+      /* Shared logo styles */
+      .nxt1-program-logo {
+        width: 32px;
+        height: 32px;
+        border-radius: var(--nxt1-borderRadius-sm);
+        object-fit: cover;
+        flex-shrink: 0;
+      }
+
+      .nxt1-program-logo-placeholder {
+        width: 32px;
+        height: 32px;
+        border-radius: var(--nxt1-borderRadius-sm);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: 700;
+        color: var(--nxt1-color-text-primary);
+        background: var(--nxt1-color-surface-200);
+        flex-shrink: 0;
+      }
+
+      /* Search loading */
+      .nxt1-program-search-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--nxt1-spacing-3);
+        padding: var(--nxt1-spacing-4);
+      }
+
+      .nxt1-program-spinner {
+        width: 20px;
+        height: 20px;
+        border: 2px solid var(--nxt1-color-border-default);
+        border-top-color: var(--nxt1-color-primary);
+        border-radius: 50%;
+        animation: nxt1-spin 0.6s linear infinite;
+      }
+
+      @keyframes nxt1-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .nxt1-program-search-loading-text {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        color: var(--nxt1-color-text-tertiary);
+      }
+
+      /* Search results */
+      .nxt1-program-results {
+        display: flex;
+        flex-direction: column;
+        max-height: 240px;
+        overflow-y: auto;
+      }
+
+      .nxt1-program-result-row {
+        appearance: none;
+        -webkit-appearance: none;
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-3);
+        width: 100%;
+        border: none;
+        background: transparent;
+        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-1);
+        text-align: left;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        border-bottom: 1px solid var(--nxt1-color-border-subtle);
+        transition: background var(--nxt1-duration-fast);
+      }
+
+      .nxt1-program-result-row:last-child {
+        border-bottom: none;
+      }
+
+      .nxt1-program-result-row:active {
+        background: var(--nxt1-color-surface-200);
+      }
+
+      .nxt1-program-result-row nxt1-icon {
+        color: var(--nxt1-color-text-tertiary);
+        flex-shrink: 0;
+        margin-left: auto;
+      }
+
+      .nxt1-program-result-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        flex: 1;
+        min-width: 0;
+      }
+
+      .nxt1-program-result-name {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: 600;
+        color: var(--nxt1-color-text-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .nxt1-program-result-location {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        color: var(--nxt1-color-text-tertiary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .nxt1-team-type-badge {
+        display: inline-block;
+        padding: 1px 6px;
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--nxt1-color-text-secondary);
+        background: var(--nxt1-color-surface-200);
+        border-radius: var(--nxt1-borderRadius-full);
+        width: fit-content;
+        margin-top: 2px;
+      }
+
+      .nxt1-draft-badge {
+        color: var(--nxt1-color-warning, #ffaa00) !important;
+      }
+
+      /* No results + draft creation */
+      .nxt1-program-no-results {
+        text-align: center;
+        padding: var(--nxt1-spacing-4);
+      }
+
+      .nxt1-program-no-results-text {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        color: var(--nxt1-color-text-secondary);
+        margin: 0;
+      }
+
+      .nxt1-program-draft-controls {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--nxt1-spacing-2);
+        margin-top: var(--nxt1-spacing-4);
+      }
+
+      .nxt1-program-draft-label {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: 500;
+        color: var(--nxt1-color-text-secondary);
+        margin: 0;
+        text-align: center;
+        width: 100%;
+      }
+
+      .nxt1-program-draft-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--nxt1-spacing-2);
+        justify-content: center;
+        margin-top: var(--nxt1-spacing-2);
+        width: 100%;
+      }
+
+      .nxt1-program-draft-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-borderRadius-full);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        color: var(--nxt1-color-text-primary);
+        cursor: pointer;
+        transition: all var(--nxt1-duration-fast);
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .nxt1-program-draft-chip:hover {
+        background: var(--nxt1-color-surface-200);
+        border-color: var(--nxt1-color-primary);
+      }
+
+      .nxt1-program-draft-chip:active {
+        transform: scale(0.97);
+      }
+
+      /* ============================================
+         2-COLUMN SECTION LAYOUT (web modal, webLayout=true)
+         ============================================ */
+
+      /* Grid wrapper: About you (left col) + right col (Sports info + Physical stacked) */
+      .nxt1-ep-two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--nxt1-spacing-5);
+        align-items: start;
+      }
+
+      /* Right column stacks Sports info above Physical with breathing room */
+      .nxt1-ep-right-col {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-4);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class EditProfileShellComponent implements OnInit {
+export class EditProfileShellComponent implements OnInit, OnDestroy {
   protected readonly profile = inject(EditProfileService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('EditProfileShell');
@@ -477,6 +971,21 @@ export class EditProfileShellComponent implements OnInit {
   readonly save = output<void>();
   protected readonly isModalMode = !!this.modalCtrl;
 
+  /**
+   * When true, the shell renders no header at all.
+   * The parent component (e.g. EditProfileWebModalComponent using NxtModalHeaderComponent)
+   * is responsible for providing the header chrome.
+   * Default false — shell renders its own header (standalone mode or sheet mode).
+   */
+  @Input() headless = false;
+
+  /**
+   * When true, the shell renders its list sections in a 2-column grid layout.
+   * Intended for use in wide web modals where horizontal space is available.
+   * Default false — single-column layout (mobile default).
+   */
+  @Input() webLayout = false;
+
   /** User ID to load/edit - passed from parent component via Ionic componentProps */
   @Input() userId?: string;
 
@@ -486,13 +995,26 @@ export class EditProfileShellComponent implements OnInit {
   /** Optional callback for direct provider connection (bypasses modal dismiss chain) */
   @Input() connectProviderCallback?: (provider: InboxEmailProvider) => void;
 
+  /** Team/program search callback — provided by parent (platform-specific) */
+  @Input() searchTeams?: SearchTeamsFn;
+
   protected readonly imageInputRef = viewChild<ElementRef<HTMLInputElement>>('imageInput');
   private readonly nxtModal = inject(NxtModalService);
   private readonly alertCtrl = inject(AlertController);
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
 
   protected readonly isDetectingLocation = signal(false);
   protected readonly maxGalleryImages = MAX_GALLERY_IMAGES;
+
+  // Inline program search state
+  protected readonly isProgramExpanded = signal(false);
+  protected readonly programSearchQuery = signal('');
+  protected readonly programSearchResults = signal<readonly TeamSearchResult[]>([]);
+  protected readonly isProgramSearching = signal(false);
+  protected readonly hasProgramSearched = signal(false);
+  protected readonly draftProgramTypeOptions = DRAFT_PROGRAM_TYPE_OPTIONS;
+  private programSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     // Track formData changes for debugging
@@ -622,6 +1144,21 @@ export class EditProfileShellComponent implements OnInit {
   protected readonly positionDisplay = computed(() => {
     const positions = this.selectedPositions();
     return positions.length > 0 ? positions.join(', ') : '';
+  });
+
+  protected readonly programDisplay = computed(() => {
+    const data = this.profile.formData();
+    if (!data?.sportsInfo?.teamName) return '';
+
+    const teamName = data.sportsInfo.teamName;
+    const teamType = data.sportsInfo.teamType;
+
+    if (teamType) {
+      const config = TEAM_TYPE_CONFIGS.find((c) => c.id === teamType);
+      if (config) return `${teamName} (${config.shortLabel})`;
+    }
+
+    return teamName;
   });
 
   protected readonly connectedSources = computed<readonly ConnectedSource[]>(() => {
@@ -803,8 +1340,31 @@ export class EditProfileShellComponent implements OnInit {
     }
   }
 
-  protected onClose(): void {
+  /**
+   * Public entrypoint for parent wrappers (e.g. `EditProfileWebModalComponent`)
+   * to trigger the save flow without needing access to the protected `onSave()`.
+   * The shell handles the full lifecycle: API call → analytics → `save` output.
+   */
+  async requestSave(): Promise<void> {
+    await this.onSave();
+  }
+
+  protected async onClose(): Promise<void> {
     if (this.isModalMode) {
+      // If there are unsaved changes, confirm before dismissing
+      if (this.profile.hasUnsavedChanges()) {
+        const discard = await this.bottomSheet.confirm(
+          'Discard Changes?',
+          'You have unsaved changes that will be lost.',
+          {
+            confirmLabel: 'Discard',
+            cancelLabel: 'Keep Editing',
+            destructive: true,
+            icon: 'alert-circle-outline',
+          }
+        );
+        if (!discard) return;
+      }
       void this.modalCtrl!.dismiss(null, 'cancel');
       return;
     }
@@ -812,30 +1372,42 @@ export class EditProfileShellComponent implements OnInit {
   }
 
   protected async openConnectedAccounts(): Promise<void> {
-    console.log('[Edit Profile Shell] Opening connected accounts sheet...');
-    const result = await this.bottomSheet.openSheet<{
-      updatedLinks: { platform: string; url: string; username?: string; displayOrder: number }[];
-      sources: readonly ConnectedSource[];
-    }>({
-      component: ConnectedAccountsSheetComponent,
-      ...SHEET_PRESETS.TALL,
-      componentProps: {
-        platformGroups: this.platformGroups(),
-        connectProviderCallback: this.connectProviderCallback,
-        connectedEmails: this.profile.rawUserData()?.connectedEmails ?? [],
-      },
-      showHandle: true,
+    const data = this.profile.formData();
+    const rawUser = this.profile.rawUserData();
+
+    // Convert existing social links → LinkSourcesFormData
+    const existingLinks = data?.socialLinks?.links ?? [];
+    const linkSourcesData: LinkSourcesFormData | null = existingLinks.length
+      ? {
+          links: existingLinks.map((l) => ({
+            platform: l.platform,
+            connected: !!(l.url || l.username),
+            connectionType: 'link' as const,
+            url: l.url,
+            username: l.username,
+            scopeType: l.scopeType ?? 'global',
+            scopeId: l.scopeId,
+          })),
+        }
+      : null;
+
+    const sport = data?.sportsInfo?.sport;
+    const selectedSports = sport ? [sport] : [];
+
+    const result = await this.connectedAccountsModal.open({
+      role: rawUser?.userType ?? null,
+      selectedSports,
+      linkSourcesData,
+      scope: 'athlete',
     });
 
-    console.log('[Edit Profile Shell] Sheet dismissed with role:', result.role);
-
-    if (result.role === 'save' && result.data?.updatedLinks) {
-      this.profile.updateField('social-links', 'links', result.data.updatedLinks);
+    if (result.saved && result.updatedLinks) {
+      this.profile.updateField('social-links', 'links', result.updatedLinks);
       this.logger.info('Connected accounts updated', {
-        count: result.data.updatedLinks.length,
+        count: result.updatedLinks.length,
       });
       this.analytics?.trackEvent(APP_EVENTS.PROFILE_EDITED, {
-        source: 'connected-accounts-sheet',
+        source: 'connected-accounts-modal',
         action: 'bulk-update',
       });
     }
@@ -920,6 +1492,190 @@ export class EditProfileShellComponent implements OnInit {
     }
   }
 
+  // ============================================
+  // INLINE PROGRAM SEARCH
+  // ============================================
+
+  protected toggleProgramSearch(): void {
+    this.isProgramExpanded.update((v) => !v);
+    if (!this.isProgramExpanded()) {
+      this.resetProgramSearch();
+    }
+    this.breadcrumb.trackUserAction('edit-program-toggle', { expanded: this.isProgramExpanded() });
+  }
+
+  protected onProgramSearchInput(query: string): void {
+    this.programSearchQuery.set(query);
+
+    if (this.programSearchTimer !== null) {
+      clearTimeout(this.programSearchTimer);
+    }
+
+    const trimmed = query.trim();
+    if (trimmed.length < PROGRAM_MIN_QUERY_LENGTH) {
+      this.programSearchResults.set([]);
+      this.isProgramSearching.set(false);
+      return;
+    }
+
+    this.isProgramSearching.set(true);
+    this.programSearchTimer = setTimeout(() => {
+      void this.executeProgramSearch(trimmed);
+    }, PROGRAM_SEARCH_DEBOUNCE_MS);
+  }
+
+  protected onProgramSearchClear(): void {
+    this.resetProgramSearch();
+  }
+
+  protected selectTeam(team: TeamSearchResult): void {
+    this.profile.updateField('sports-info', 'teamName', team.name);
+    this.profile.updateField('sports-info', 'teamType', team.teamType ?? '');
+    this.profile.updateField('sports-info', 'teamLogoUrl', team.logoUrl ?? '');
+    this.profile.updateField('sports-info', 'teamOrganizationId', team.organizationId ?? '');
+
+    // Keep academics.school in sync
+    this.profile.updateField('academics', 'school', team.name);
+
+    this.logger.info('Program selected', {
+      teamName: team.name,
+      teamType: team.teamType,
+      isDraft: team.isDraft,
+    });
+    this.analytics?.trackEvent(APP_EVENTS.PROFILE_EDITED, {
+      source: 'edit-profile-program',
+      field: 'program',
+      teamType: team.teamType,
+    });
+
+    // Collapse and reset search
+    this.isProgramExpanded.set(false);
+    this.resetProgramSearch();
+  }
+
+  protected clearTeam(): void {
+    this.profile.updateField('sports-info', 'teamName', '');
+    this.profile.updateField('sports-info', 'teamType', '');
+    this.profile.updateField('sports-info', 'teamLogoUrl', '');
+    this.profile.updateField('sports-info', 'teamOrganizationId', '');
+    this.profile.updateField('academics', 'school', '');
+
+    this.logger.info('Program cleared');
+    this.analytics?.trackEvent(APP_EVENTS.PROFILE_EDITED, {
+      source: 'edit-profile-program',
+      field: 'program',
+      action: 'clear',
+    });
+  }
+
+  protected addDraftProgram(name: string, programType: string): void {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+
+    const normalizedType = programType as DraftProgramType;
+    const normalizedName = this.normalizeDraftProgramName(trimmed, normalizedType);
+
+    this.profile.updateField('sports-info', 'teamName', normalizedName);
+    this.profile.updateField('sports-info', 'teamType', programType);
+    this.profile.updateField('sports-info', 'teamLogoUrl', '');
+    this.profile.updateField('sports-info', 'teamOrganizationId', '');
+    this.profile.updateField('academics', 'school', normalizedName);
+
+    this.logger.info('Draft program added', {
+      name: normalizedName,
+      requestedName: trimmed,
+      teamType: programType,
+    });
+    this.analytics?.trackEvent(APP_EVENTS.PROFILE_EDITED, {
+      source: 'edit-profile-program',
+      field: 'program',
+      teamType: programType,
+      isDraft: true,
+    });
+
+    this.isProgramExpanded.set(false);
+    this.resetProgramSearch();
+  }
+
+  /**
+   * Normalize draft program name — matches onboarding logic exactly:
+   * 1. Consolidate whitespace
+   * 2. Strip trailing sport words ("football", "basketball", etc.)
+   * 3. Strip program-type suffixes ("high school", "hs", "college", etc.)
+   * 4. Apply proper title casing
+   */
+  private normalizeDraftProgramName(name: string, programType: DraftProgramType): string {
+    let normalized = name.trim().replace(/\s+/g, ' ');
+
+    normalized = normalized.replace(TRAILING_SPORT_WORD_PATTERN, '').trim();
+
+    for (const pattern of PROGRAM_TYPE_SUFFIX_PATTERNS[programType]) {
+      normalized = normalized.replace(pattern, '').trim();
+    }
+
+    // Apply proper title casing (shared @nxt1/core utility)
+    normalized = titleCase(normalized || name.trim());
+
+    return normalized;
+  }
+
+  protected getTeamInitial(name: string | undefined): string {
+    return (name?.trim().charAt(0) || '?').toUpperCase();
+  }
+
+  protected formatTeamType(teamType?: string): string {
+    if (!teamType) return '';
+    return teamType
+      .split('-')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  }
+
+  private async executeProgramSearch(query: string): Promise<void> {
+    const searchFn = this.searchTeams;
+    if (!searchFn) {
+      this.logger.warn('No searchTeams function provided');
+      this.isProgramSearching.set(false);
+      return;
+    }
+
+    try {
+      this.logger.info('Searching programs', { query });
+      const results = await searchFn(query);
+      this.programSearchResults.set(results);
+      this.hasProgramSearched.set(true);
+      this.logger.info('Program search complete', { query, count: results.length });
+    } catch (err) {
+      this.logger.error('Program search failed', err, { query });
+      this.programSearchResults.set([]);
+      this.hasProgramSearched.set(true);
+      this.toast.error('Failed to search programs. Please try again.');
+    } finally {
+      this.isProgramSearching.set(false);
+    }
+  }
+
+  private resetProgramSearch(): void {
+    this.programSearchQuery.set('');
+    this.programSearchResults.set([]);
+    this.isProgramSearching.set(false);
+    this.hasProgramSearched.set(false);
+    if (this.programSearchTimer !== null) {
+      clearTimeout(this.programSearchTimer);
+      this.programSearchTimer = null;
+    }
+  }
+
+  ngOnDestroy(): void {
+    if (this.programSearchTimer !== null) {
+      clearTimeout(this.programSearchTimer);
+    }
+    // Discard unsaved changes so the form is clean next time it opens
+    if (this.profile.hasUnsavedChanges()) {
+      void this.profile.discardChanges();
+    }
+  }
+
   protected async editHeight(): Promise<void> {
     const form = this.profile.formData();
     if (!form) return;
@@ -954,35 +1710,74 @@ export class EditProfileShellComponent implements OnInit {
     }
   }
 
+  protected async editPhone(): Promise<void> {
+    const form = this.profile.formData();
+    if (!form) return;
+
+    const result = await this.nxtModal.prompt({
+      title: 'Phone Number',
+      placeholder: '(555) 123-4567',
+      defaultValue: form.contact.phone ?? '',
+      inputType: 'tel',
+      submitText: 'Done',
+      preferNative: 'ionic',
+    });
+    if (result.confirmed) {
+      this.profile.updateField('contact', 'phone', result.value.trim());
+    }
+  }
+
+  protected async editEmail(): Promise<void> {
+    const form = this.profile.formData();
+    if (!form) return;
+
+    const result = await this.nxtModal.prompt({
+      title: 'Email',
+      placeholder: 'your@email.com',
+      defaultValue: form.contact.email ?? '',
+      inputType: 'email',
+      submitText: 'Done',
+      preferNative: 'ionic',
+    });
+    if (result.confirmed) {
+      this.profile.updateField('contact', 'email', result.value.trim());
+    }
+  }
+
   protected async editPosition(): Promise<void> {
     const form = this.profile.formData();
     if (!form) return;
     const selected = this.selectedPositions();
-    const positions = this.positionOptions();
+    const sport = form.sportsInfo.sport || 'Football';
+    const positionGroups = getPositionGroupsForSport(sport);
     const activeSportIndex = this.profile.activeSportIndex();
     const allSports = this.profile.allSports();
 
     this.logger.info('🎯 Opening position picker', {
-      sport: form.sportsInfo.sport,
+      sport,
       activeSportIndex,
       allSportsCount: allSports?.length,
-      currentSport: allSports?.[activeSportIndex]?.sport,
       currentPositions: selected,
-      availablePositionsCount: positions.length,
-      firstFewPositions: positions.slice(0, 5),
-      allFormDataSportsInfo: form.sportsInfo,
+      groupCount: positionGroups.length,
     });
+
+    const inputs = positionGroups.flatMap((group) =>
+      group.positions.map((pos) => ({
+        name: pos,
+        type: 'checkbox' as const,
+        label:
+          positionGroups.length > 1
+            ? `${group.category}: ${formatPositionDisplay(pos, sport, { showAbbreviation: false })}`
+            : formatPositionDisplay(pos, sport, { showAbbreviation: false }),
+        value: pos,
+        checked: selected.includes(pos),
+      }))
+    );
 
     const alert = await this.alertCtrl.create({
       header: 'Position',
       cssClass: 'nxt-modal-prompt',
-      inputs: positions.map((pos) => ({
-        name: pos,
-        type: 'checkbox' as const,
-        label: pos,
-        value: pos,
-        checked: selected.includes(pos),
-      })),
+      inputs,
       buttons: [
         { text: 'Cancel', role: 'cancel', cssClass: 'nxt-modal-cancel-btn' },
         {
@@ -1113,9 +1908,11 @@ export class EditProfileShellComponent implements OnInit {
     }
   }
 
-  protected removeImage(index: number): void {
-    const nextImages = this.carouselImages().filter((_, imageIndex) => imageIndex !== index);
-    this.profile.updatePhotoGallery(nextImages);
+  protected async removeImage(index: number): Promise<void> {
+    const images = this.carouselImages();
+    const url = images[index];
+    if (!url) return;
+    await this.profile.removePhoto(url, images);
   }
 
   protected async detectLocation(): Promise<void> {

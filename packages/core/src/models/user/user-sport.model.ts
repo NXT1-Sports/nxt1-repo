@@ -460,7 +460,10 @@ export interface SportProfile {
    */
   recruiting?: RecruitingSummary;
 
-  /** Schedule and events */
+  /**
+   * @deprecated V3: Schedule data is now in the top-level Events collection,
+   * fetched via the /schedule API endpoint. Do not read or write this field.
+   */
   schedule?: {
     /** Schedule page URL */
     url?: string;

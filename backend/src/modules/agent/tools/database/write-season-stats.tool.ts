@@ -1,22 +1,21 @@
 /**
- * @fileoverview Write Season Stats Tool — Atomic writer for season game-log data
+ * @fileoverview Write Season Stats Tool — Atomic writer for season stat data
  * @module @nxt1/backend/modules/agent/tools/database
  *
- * Writes distilled season stats to TWO locations:
+ * Writes distilled season stats to the **PlayerStats collection**
+ * (`PlayerStats/{userId}_{sportId}_{season}`).
  *
- * 1. **User sport profile** (`Users/{uid}.sports[i].verifiedGameLog[]`):
- *    Full game-by-game tables (columns, game entries, totals) in the
- *    `ProfileSeasonGameLog` format consumed by the Profile Stats UI.
- *
- * 2. **PlayerStats collection** (`PlayerStats/{userId}_{sportId}_{season}`):
- *    Flat aggregated stat entries (field, label, value, category, season)
- *    derived from the season totals. Used by the stats API endpoint.
+ * Each document contains:
+ * - `stats[]` — Flat aggregated stat entries (field, label, value, category)
+ *   derived from season totals. Used by the stats API endpoint.
+ * - `gameLogs[]` — Full game-by-game tables (columns, game entries, totals)
+ *   in the ProfileSeasonGameLog format consumed by the Profile Stats UI.
  *
  * The distilled data from the platform distillers maps cleanly into both
  * formats — no AI transformation required.
  */
 
-import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult } from '../base.tool.js';
 import { getCacheService } from '../../../../services/cache.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
@@ -44,7 +43,7 @@ export class WriteSeasonStatsTool extends BaseTool {
   readonly name = 'write_season_stats';
 
   readonly description =
-    'Writes distilled season stats (game logs) to both the user sport profile and PlayerStats collection.\n\n' +
+    'Writes distilled season stats (game logs + flat stats) to the PlayerStats collection.\n\n' +
     'Call this after reading the "seasonStats" section via read_distilled_section.\n\n' +
     'Parameters:\n' +
     '- userId (required): Firebase UID.\n' +
@@ -151,75 +150,67 @@ export class WriteSeasonStatsTool extends BaseTool {
       const sportId = targetSport.trim().toLowerCase();
       const now = new Date().toISOString();
 
-      // ── 0. Snapshot previous state for delta computation ──────────────
-      const previousState = this.snapshotPreviousState(userData, targetSport);
+      // ── 0. Read existing PlayerStats docs (used for snapshot + merge) ─
+      const existingPSSnap = await this.db
+        .collection(PLAYER_STATS_COLLECTION)
+        .where('userId', '==', userId)
+        .where('sportId', '==', sportId)
+        .get();
 
-      // ── 1. Build ProfileSeasonGameLog entries for the sport profile ────
+      const existingPSDocs = new Map<string, Record<string, unknown>>();
+      for (const doc of existingPSSnap.docs) {
+        existingPSDocs.set(doc.id, { id: doc.id, ...doc.data() });
+      }
+
+      // Snapshot previous state for delta computation
+      const previousState = this.snapshotPreviousState(userData, existingPSDocs);
+
+      // ── 1. Build ProfileSeasonGameLog entries ─────────────────────────
       const gameLogs = this.buildGameLogs(
         seasonStats as Record<string, unknown>[],
         source,
         teamType
       );
 
+      // Group game logs by season for per-doc storage
+      const gameLogsBySeason = new Map<string, Record<string, unknown>[]>();
+      for (const log of gameLogs) {
+        const season = String(log['season'] ?? '');
+        if (!season) continue;
+        if (!gameLogsBySeason.has(season)) gameLogsBySeason.set(season, []);
+        gameLogsBySeason.get(season)!.push(log);
+      }
+
       // ── 2. Build flat PlayerStats entries from totals ─────────────────
       const flatStats = this.buildFlatStats(seasonStats as Record<string, unknown>[]);
 
-      // ── 3. Write game logs to User sport profile ──────────────────────
-      const rawSports = userData['sports'];
-      const existingSports: Record<string, unknown>[] = Array.isArray(rawSports)
-        ? (rawSports as Record<string, unknown>[])
-        : rawSports && typeof rawSports === 'object'
-          ? (Object.values(rawSports) as Record<string, unknown>[])
-          : [];
-
-      const sportIndex = this.resolveSportIndex(existingSports, targetSport);
-      const isNewSport = sportIndex >= existingSports.length;
-
-      if (isNewSport) {
-        // Create new sport entry with game log
-        const newSport: Record<string, unknown> = {
-          sport: targetSport,
-          order: existingSports.length,
-          accountType: 'free',
-          verifiedGameLog: gameLogs,
-          createdAt: now,
-          updatedAt: now,
-        };
-        const payload: Record<string, unknown> = {
-          sports: [...existingSports, newSport],
-          updatedAt: FieldValue.serverTimestamp(),
-        };
-        await userRef.update(payload);
-      } else {
-        // Update only the targeted sport entry to avoid clobbering concurrent array writes.
-        const sportObj = { ...(existingSports[sportIndex] ?? {}) } as Record<string, unknown>;
-        const existingLogs = Array.isArray(sportObj['verifiedGameLog'])
-          ? (sportObj['verifiedGameLog'] as Record<string, unknown>[])
-          : [];
-
-        const mergedGameLogs = this.mergeGameLogs(existingLogs, gameLogs);
-
-        await userRef.update({
-          [`sports.${sportIndex}.verifiedGameLog`]: mergedGameLogs,
-          [`sports.${sportIndex}.updatedAt`]: now,
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-      }
-
-      // ── 4. Write flat stats to PlayerStats collection ─────────────────
+      // ── 3. Write stats + game logs to PlayerStats collection ──────────
+      const allSeasons = new Set<string>([...flatStats.keys(), ...gameLogsBySeason.keys()]);
       let playerStatsWritten = 0;
 
-      for (const [season, stats] of flatStats.entries()) {
+      for (const season of allSeasons) {
         const docId = `${userId}_${sportId}_${season}`;
-        const docRef = this.db.collection(PLAYER_STATS_COLLECTION).doc(docId);
-        const existingDoc = await docRef.get();
-        const existingStatEntries = existingDoc.exists
-          ? ((existingDoc.data()?.['stats'] ?? []) as Record<string, unknown>[])
+        const existingData = existingPSDocs.get(docId);
+        const existingStatEntries = existingData
+          ? ((existingData['stats'] ?? []) as Record<string, unknown>[])
+          : [];
+        const existingGameLogs = existingData
+          ? ((existingData['gameLogs'] ?? []) as Record<string, unknown>[])
           : [];
 
-        const mergedStats = this.mergeFlatStats(existingStatEntries, stats, source, now);
-        const existingData = existingDoc.data() as Record<string, unknown> | undefined;
+        const incomingStats = flatStats.get(season) ?? [];
+        const incomingLogs = gameLogsBySeason.get(season) ?? [];
 
+        const mergedStats =
+          incomingStats.length > 0
+            ? this.mergeFlatStats(existingStatEntries, incomingStats, source, now)
+            : existingStatEntries;
+        const mergedGameLogs =
+          incomingLogs.length > 0
+            ? this.mergeGameLogs(existingGameLogs, incomingLogs)
+            : existingGameLogs;
+
+        const docRef = this.db.collection(PLAYER_STATS_COLLECTION).doc(docId);
         await docRef.set(
           {
             id: docId,
@@ -228,6 +219,7 @@ export class WriteSeasonStatsTool extends BaseTool {
             season,
             ...(position ? { position } : {}),
             stats: mergedStats,
+            gameLogs: mergedGameLogs,
             source,
             verified: false,
             createdAt: existingData?.['createdAt'] ?? now,
@@ -244,6 +236,7 @@ export class WriteSeasonStatsTool extends BaseTool {
         await Promise.all([
           cache.del(USER_CACHE_KEYS.USER_BY_ID(userId)),
           cache.del(`profile:sub:stats:${userId}:${sportId}`),
+          cache.del(`profile:sub:gamelogs:${userId}:${sportId}`),
           invalidateProfileCaches(
             userId,
             typeof userData['username'] === 'string' ? userData['username'] : undefined,
@@ -312,7 +305,7 @@ export class WriteSeasonStatsTool extends BaseTool {
           source,
           gameLogCategories: gameLogs.length,
           playerStatsDocs: playerStatsWritten,
-          message: `Wrote ${gameLogs.length} game log categor(ies) and ${playerStatsWritten} PlayerStats doc(s) for "${sportId}" from "${source}".`,
+          message: `Wrote ${playerStatsWritten} PlayerStats doc(s) with ${gameLogs.length} game log categor(ies) for "${sportId}" from "${source}".`,
         },
       };
     } catch (err) {
@@ -326,43 +319,36 @@ export class WriteSeasonStatsTool extends BaseTool {
   // ─── Previous State Snapshot (for Delta Computation) ─────────────────────
 
   /**
-   * Extract the current state from the Firestore user document before writing.
+   * Extract the current state from existing PlayerStats documents before writing.
    * This snapshot is compared against the new extraction to compute the delta.
    */
   private snapshotPreviousState(
     userData: Record<string, unknown>,
-    targetSport: string
+    existingPSDocs: Map<string, Record<string, unknown>>
   ): PreviousProfileState {
-    const rawSports = userData['sports'];
-    const sports: Record<string, unknown>[] = Array.isArray(rawSports)
-      ? (rawSports as Record<string, unknown>[])
-      : rawSports && typeof rawSports === 'object'
-        ? (Object.values(rawSports) as Record<string, unknown>[])
+    const seasonStats: PreviousSeasonEntry[] = [];
+
+    for (const [, psData] of existingPSDocs) {
+      const gameLogs = Array.isArray(psData['gameLogs'])
+        ? (psData['gameLogs'] as Record<string, unknown>[])
         : [];
 
-    const sportIndex = this.resolveSportIndex(sports, targetSport);
-    if (sportIndex >= sports.length) {
-      return { seasonStats: [] };
+      for (const log of gameLogs) {
+        seasonStats.push({
+          season: (log['season'] as string) ?? '',
+          category: (log['category'] as string) ?? '',
+          columns: Array.isArray(log['columns'])
+            ? (log['columns'] as Array<{ key: string; label: string }>)
+            : [],
+          totals: (
+            log['totals'] as Array<{ label: string; stats: Record<string, string | number> }>
+          )?.[0]?.stats,
+          averages: (
+            log['totals'] as Array<{ label: string; stats: Record<string, string | number> }>
+          )?.[1]?.stats,
+        });
+      }
     }
-
-    const sportObj = sports[sportIndex] as Record<string, unknown>;
-    const existingLogs = Array.isArray(sportObj['verifiedGameLog'])
-      ? (sportObj['verifiedGameLog'] as Record<string, unknown>[])
-      : [];
-
-    const seasonStats: PreviousSeasonEntry[] = existingLogs.map((log) => ({
-      season: (log['season'] as string) ?? '',
-      category: (log['category'] as string) ?? '',
-      columns: Array.isArray(log['columns'])
-        ? (log['columns'] as Array<{ key: string; label: string }>)
-        : [],
-      totals: (
-        log['totals'] as Array<{ label: string; stats: Record<string, string | number> }>
-      )?.[0]?.stats,
-      averages: (
-        log['totals'] as Array<{ label: string; stats: Record<string, string | number> }>
-      )?.[1]?.stats,
-    }));
 
     return {
       identity: {
@@ -592,22 +578,6 @@ export class WriteSeasonStatsTool extends BaseTool {
   }
 
   // ─── Utilities ──────────────────────────────────────────────────────────
-
-  private resolveSportIndex(
-    existingSports: Record<string, unknown>[],
-    targetSport: string
-  ): number {
-    const normalized = targetSport.toLowerCase().trim();
-    for (let i = 0; i < existingSports.length; i++) {
-      if (
-        typeof existingSports[i]['sport'] === 'string' &&
-        (existingSports[i]['sport'] as string).toLowerCase().trim() === normalized
-      ) {
-        return i;
-      }
-    }
-    return existingSports.length;
-  }
 
   private inferOutcome(result: string): 'win' | 'loss' | 'tie' | undefined {
     const r = result.trim().toUpperCase();

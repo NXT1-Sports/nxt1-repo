@@ -176,24 +176,18 @@ export type AvatarLoadState = 'idle' | 'loading' | 'loaded' | 'error';
 
 /**
  * Color palette for initials backgrounds
- * Uses a consistent hash to always show same color for same name
+ * Uses a consistent hash to always show same color for same name.
+ * Theme-aware via CSS custom properties — mapped to NXT1 design tokens.
  */
 export const AVATAR_INITIALS_COLORS = [
-  '#ef4444', // Red
-  '#f97316', // Orange
-  '#f59e0b', // Amber
-  '#84cc16', // Lime
-  '#22c55e', // Green
-  '#14b8a6', // Teal
-  '#06b6d4', // Cyan
-  '#0ea5e9', // Sky
-  '#3b82f6', // Blue
-  '#6366f1', // Indigo
-  '#8b5cf6', // Violet
-  '#a855f7', // Purple
-  '#d946ef', // Fuchsia
-  '#ec4899', // Pink
-  '#f43f5e', // Rose
+  'var(--nxt1-color-primary, #ccff00)', // Brand Primary (Lime/Volt)
+  'var(--nxt1-color-info, #1d9bf0)', // Info (Blue)
+  'var(--nxt1-color-feedback-success, #22c55e)', // Success (Green)
+  'var(--nxt1-color-feedback-warning, #f59e0b)', // Warning (Amber)
+  'var(--nxt1-color-feedback-error, #ef4444)', // Error (Red)
+  'var(--nxt1-color-accent, #56ff00)', // Accent (Green)
+  'var(--nxt1-color-primary-dark, #a3cc00)', // Primary Dark
+  'var(--nxt1-color-primary-light, #d4ff4d)', // Primary Light
 ] as const;
 
 /**

@@ -621,6 +621,48 @@ router.get(
 );
 
 /**
+ * Get game logs (ProfileSeasonGameLog) from the PlayerStats collection.
+ * GET /api/v1/auth/profile/:userId/sports/:sportId/game-logs
+ */
+router.get(
+  '/:userId/sports/:sportId/game-logs',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId, sportId } = req.params as { userId: string; sportId: string };
+
+    const cache = getCacheService();
+    const cacheKey = `profile:sub:gamelogs:${userId}:${sportId}`;
+    const hit = await cache.get<unknown[]>(cacheKey);
+    if (hit) {
+      markCacheHit(req, 'redis', cacheKey);
+      res.json({ success: true, data: hit });
+      return;
+    }
+
+    const db = req.firebase!.db;
+    const snap = await db
+      .collection(PLAYER_STATS_COLLECTION)
+      .where('userId', '==', userId)
+      .where('sportId', '==', sportId.toLowerCase())
+      .get();
+
+    const gameLogs = snap.docs
+      .flatMap((doc) => {
+        const data = doc.data() as Record<string, unknown>;
+        return Array.isArray(data['gameLogs']) ? data['gameLogs'] : [];
+      })
+      .sort((a, b) => {
+        const sa = String((a as Record<string, unknown>)['season'] ?? '');
+        const sb = String((b as Record<string, unknown>)['season'] ?? '');
+        return sb.localeCompare(sa);
+      });
+
+    await cache.set(cacheKey, gameLogs, { ttl: CACHE_TTL.STATS });
+    res.json({ success: true, data: gameLogs });
+  })
+);
+
+/**
  * Get VerifiedMetric entries from the sport metrics sub-collection.
  * GET /api/v1/auth/profile/:userId/sports/:sportId/metrics
  */

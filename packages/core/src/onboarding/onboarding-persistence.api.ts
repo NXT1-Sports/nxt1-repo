@@ -164,6 +164,8 @@ export interface ProfileFormData {
     zipCode?: string;
     country?: string;
   } | null;
+  /** Phone number (optional) — saved to contact.phone */
+  phoneNumber?: string;
 }
 
 /** School form data */
@@ -481,8 +483,10 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
   if (formData.contact?.contactEmail) {
     contact['email'] = formData.contact.contactEmail;
   }
-  if (formData.contact?.phoneNumber) {
-    contact['phone'] = formData.contact.phoneNumber;
+  // Phone can come from profile step (basics) or contact step
+  const phoneNumber = formData.contact?.phoneNumber || formData.profile?.phoneNumber;
+  if (phoneNumber) {
+    contact['phone'] = phoneNumber;
   }
   if (Object.keys(contact).length > 0) {
     payload['contact'] = contact;

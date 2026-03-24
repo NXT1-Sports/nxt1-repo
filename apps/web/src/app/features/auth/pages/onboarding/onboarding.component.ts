@@ -302,6 +302,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             <!-- Step 4: Select Teams -->
             @if (currentStep().id === 'select-teams') {
               <nxt1-onboarding-team-selection-step
+                variant="list-row"
                 [teamSelectionData]="teamSelectionFormData()"
                 [sportData]="sportFormData()"
                 [disabled]="isLoading()"
@@ -379,7 +380,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
         @if (!isMobile()) {
           <nxt1-onboarding-navigation-buttons
             [showSkip]="isCurrentStepOptional()"
-            [showBack]="canGoBack()"
+            [showBack]="false"
             [isLastStep]="isLastStep()"
             [loading]="isLoading()"
             [disabled]="!isCurrentStepValid() && !isCurrentStepOptional()"
@@ -1431,6 +1432,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         createTeamProfile: formData.createTeamProfile,
         // Pass pre-fetched scrape job ID so backend skips re-enqueuing
         ...(this.preloadScrapeJobId && { scrapeJobId: this.preloadScrapeJobId }),
+        // Phone number from profile basics step
+        phoneNumber: formData.profile?.phoneNumber || undefined,
       };
 
       const result = await this.authApi.saveOnboardingProfile(user.uid, profileData);

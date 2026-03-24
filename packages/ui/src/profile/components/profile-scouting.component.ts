@@ -29,18 +29,7 @@
  * ⭐ WEB ONLY — SSR-optimized, zero Ionic ⭐
  */
 
-import {
-  Component,
-  ChangeDetectionStrategy,
-  DestroyRef,
-  inject,
-  signal,
-  computed,
-  OnInit,
-  output,
-  PLATFORM_ID,
-} from '@angular/core';
-import { isPlatformBrowser } from '@angular/common';
+import { Component, ChangeDetectionStrategy, inject, input, computed, output } from '@angular/core';
 import { NxtIconComponent } from '../../components/icon';
 import {
   type ScoutReport,
@@ -86,9 +75,6 @@ function formatViewCount(count: number): string {
   if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
   return `${count}`;
 }
-
-/** Module-level flag so skeleton only shows once per session. */
-let _hasLoadedOnce = false;
 
 @Component({
   selector: 'nxt1-profile-scouting',
@@ -137,6 +123,11 @@ let _hasLoadedOnce = false;
           <p class="profile-scouting__empty-msg">
             Scouting reports from coaches, scouts, and verified evaluators will appear here.
           </p>
+          @if (emptyCta()) {
+            <button class="profile-scouting__empty-cta" (click)="emptyCtaClick.emit()">
+              {{ emptyCta() }}
+            </button>
+          }
         </div>
       }
 
@@ -236,18 +227,39 @@ let _hasLoadedOnce = false;
       }
 
       .profile-scouting__empty-title {
-        font-size: var(--nxt1-font-size-lg, 18px);
+        font-size: 16px;
         font-weight: 700;
         color: var(--nxt1-color-text-primary, #fff);
-        margin: 0;
+        margin: 16px 0 8px;
       }
 
       .profile-scouting__empty-msg {
         font-size: var(--nxt1-font-size-sm, 14px);
         color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.6));
-        max-width: 360px;
+        max-width: 280px;
         margin: 0;
         line-height: 1.5;
+      }
+
+      .profile-scouting__empty-cta {
+        margin-top: 12px;
+        padding: 10px 24px;
+        background: var(--timeline-primary, var(--nxt1-color-primary));
+        border: none;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        color: #000;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s ease;
+
+        &:hover {
+          filter: brightness(1.1);
+        }
+
+        &:active {
+          filter: brightness(0.95);
+        }
       }
 
       /* ═══════════════════════════════════════════════
@@ -447,14 +459,22 @@ let _hasLoadedOnce = false;
     `,
   ],
 })
-export class ProfileScoutingComponent implements OnInit {
+export class ProfileScoutingComponent {
   // ============================================
   // DEPENDENCIES
   // ============================================
 
-  private readonly platformId = inject(PLATFORM_ID);
-  private readonly destroyRef = inject(DestroyRef);
   private readonly profile = inject(ProfileService);
+
+  // ============================================
+  // INPUTS
+  // ============================================
+
+  /** Loading state from parent shell. */
+  readonly isLoading = input<boolean>(false);
+
+  /** Optional CTA label shown in empty state. */
+  readonly emptyCta = input<string | null>(null);
 
   // ============================================
   // OUTPUTS
@@ -463,15 +483,12 @@ export class ProfileScoutingComponent implements OnInit {
   /** Emits when a report card is clicked. */
   readonly reportClick = output<ScoutReport>();
 
+  /** Emits when the empty-state CTA is clicked. */
+  readonly emptyCtaClick = output<void>();
+
   // ============================================
   // STATE
   // ============================================
-
-  /**
-   * Loading state — false on server (SSR renders content for SEO crawlers).
-   * On the browser, true only on the very first mount.
-   */
-  protected readonly isLoading = signal(!_hasLoadedOnce && isPlatformBrowser(this.platformId));
 
   /** Skeleton placeholder slots. */
   protected readonly skeletonSlots = SKELETON_SLOTS;
@@ -483,21 +500,6 @@ export class ProfileScoutingComponent implements OnInit {
       (a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
     );
   });
-
-  // ============================================
-  // LIFECYCLE
-  // ============================================
-
-  ngOnInit(): void {
-    if (_hasLoadedOnce || !isPlatformBrowser(this.platformId)) return;
-
-    const timer = setTimeout(() => {
-      _hasLoadedOnce = true;
-      this.isLoading.set(false);
-    }, 400);
-
-    this.destroyRef.onDestroy(() => clearTimeout(timer));
-  }
 
   // ============================================
   // EVENT HANDLERS

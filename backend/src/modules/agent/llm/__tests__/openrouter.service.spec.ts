@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OpenRouterService } from '../openrouter.service.js';
-import { MODEL_CATALOGUE } from '../llm.types.js';
+import { MODEL_CATALOGUE, MODEL_FALLBACK_CHAIN } from '../llm.types.js';
 
 // ─── Mock Setup ─────────────────────────────────────────────────────────────
 
@@ -244,23 +244,53 @@ describe('OpenRouterService', () => {
 
   // ─── Error Handling ─────────────────────────────────────────────────────
 
-  it('should throw OpenRouterError on non-200 response', async () => {
-    fetchSpy.mockResolvedValueOnce(new Response('Rate limit exceeded', { status: 429 }));
-    // Will retry, so mock another failure
-    fetchSpy.mockResolvedValueOnce(new Response('Rate limit exceeded', { status: 429 }));
-    fetchSpy.mockResolvedValueOnce(new Response('Rate limit exceeded', { status: 429 }));
+  it('should throw OpenRouterError when ALL models in fallback chain fail', async () => {
+    // With fallback, the fast tier tries haiku then gpt-4o-mini.
+    // fetchWithRetry does MAX_RETRIES=2 per model → 3 calls each.
+    // Mock enough 429 responses for all models in the chain.
+    const totalCalls = 20; // generous buffer for all models × retries
+    for (let i = 0; i < totalCalls; i++) {
+      fetchSpy.mockResolvedValueOnce(new Response('Rate limit exceeded', { status: 429 }));
+    }
 
     await expect(
       service.complete([{ role: 'user', content: 'test' }], { tier: 'fast' })
     ).rejects.toThrow('OpenRouter API error 429');
-  });
+  }, 30_000);
 
-  it('should throw when response has no choices', async () => {
-    fetchSpy.mockResolvedValueOnce(
-      new Response(JSON.stringify({ choices: [] }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
+  it('should fallback to next model on non-200 response', async () => {
+    // Override default mock: return 429 for all calls
+    fetchSpy.mockResolvedValue(new Response('Rate limit exceeded', { status: 429 }));
+
+    // After haiku exhausts retries, gpt-4o-mini gets a success response.
+    // Use mockImplementation to serve success after N failures.
+    let callCount = 0;
+    fetchSpy.mockImplementation(async () => {
+      callCount++;
+      // Let the last model succeed on its first try
+      // (haiku makes 3 calls with retries, then gpt-4o-mini starts)
+      if (callCount >= 4) {
+        return new Response(JSON.stringify(MOCK_RESPONSE), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response('Rate limit exceeded', { status: 429 });
+    });
+
+    const result = await service.complete([{ role: 'user', content: 'test' }], { tier: 'fast' });
+    expect(result.content).toBe('Hello from the mock LLM.');
+  }, 30_000);
+
+  it('should throw when ALL models return no choices', async () => {
+    // Override default mock: every call returns a fresh empty-choices Response
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ choices: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
     );
 
     await expect(
@@ -286,14 +316,35 @@ describe('OpenRouterService', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('should NOT retry on 400 (non-retryable)', async () => {
+  it('should fallback on 400 (non-retryable) and succeed with next model', async () => {
+    // 400 is non-retryable — fetchWithRetry throws immediately.
+    // Fallback chain catches it and tries the next model.
+    fetchSpy
+      .mockResolvedValueOnce(new Response('Bad request', { status: 400 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(MOCK_RESPONSE), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+    const result = await service.complete([{ role: 'user', content: 'test' }], { tier: 'fast' });
+    expect(result.content).toBe('Hello from the mock LLM.');
+    // 1 call for haiku (400, no retry) + 1 for gpt-4o-mini (success)
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('should NOT fallback when modelOverride is specified', async () => {
     fetchSpy.mockResolvedValueOnce(new Response('Bad request', { status: 400 }));
 
     await expect(
-      service.complete([{ role: 'user', content: 'test' }], { tier: 'fast' })
+      service.complete([{ role: 'user', content: 'test' }], {
+        tier: 'fast',
+        modelOverride: 'anthropic/claude-3.5-haiku',
+      })
     ).rejects.toThrow('OpenRouter API error 400');
 
-    // Only 1 call — no retry on 400
+    // Only 1 call — modelOverride skips fallback chain
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 

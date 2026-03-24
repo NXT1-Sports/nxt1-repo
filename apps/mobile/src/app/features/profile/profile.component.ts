@@ -61,6 +61,7 @@ import {
   type RelatedAthlete,
   type RankingSource,
   type RefreshEvent,
+  type TeamSearchResult,
 } from '@nxt1/ui';
 import { parseApiError, requiresAuth, isTeamRole } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
@@ -489,10 +490,13 @@ export class ProfileComponent {
    * @param sportId - Optional sport filter (e.g. 'football', 'basketball') for schedule events
    */
   private async fetchSubCollections(userId: string, sportId?: string): Promise<void> {
-    const [stats, metrics, timeline, rankings, scoutReports, videos, schedule, news] =
+    const [stats, gameLogs, metrics, timeline, rankings, scoutReports, videos, schedule, news] =
       await Promise.all([
         sportId
           ? this.profileApiService.getProfileStats(userId, sportId)
+          : Promise.resolve({ success: false as const, data: [] }),
+        sportId
+          ? this.profileApiService.getProfileGameLogs(userId, sportId)
           : Promise.resolve({ success: false as const, data: [] }),
         sportId
           ? this.profileApiService.getProfileMetrics(userId, sportId)
@@ -509,6 +513,11 @@ export class ProfileComponent {
       this.uiProfileService.setAthleticStatsFromRaw(stats.data);
     } else if (sportId) {
       this.logger.warn('Failed to load profile stats', { userId, sportId });
+    }
+    if (gameLogs.success) {
+      this.uiProfileService.setGameLogs(gameLogs.data);
+    } else if (sportId) {
+      this.logger.warn('Failed to load profile game logs', { userId, sportId });
     }
     if (metrics.success) {
       this.uiProfileService.setMetricsFromRaw(metrics.data);
@@ -737,6 +746,7 @@ export class ProfileComponent {
       onConnectProvider: (provider) => {
         void this.emailConnection.connectProvider(provider, userId);
       },
+      searchTeams: this.searchTeamsFn,
     });
 
     if (result?.saved) {
@@ -751,6 +761,53 @@ export class ProfileComponent {
       }
     }
   }
+
+  /**
+   * Searches programs/teams via the backend API.
+   * Passed to the edit-profile bottom sheet for inline program search.
+   */
+  private readonly searchTeamsFn = async (query: string): Promise<readonly TeamSearchResult[]> => {
+    this.logger.debug('Program search requested', { query });
+    try {
+      const url = `${environment.apiUrl}/programs/search`;
+      const response = await this.http.get<{
+        success: boolean;
+        data: Array<{
+          id: string;
+          name: string;
+          type: string;
+          location?: { state?: string; city?: string };
+          logoUrl?: string;
+          primaryColor?: string;
+          secondaryColor?: string;
+          mascot?: string;
+          teamCount?: number;
+          isClaimed?: boolean;
+        }>;
+      }>(url, { params: { q: query, limit: '20' } });
+
+      if (!response.success || !response.data) return [];
+
+      return response.data.map((org) => ({
+        id: org.id,
+        name: org.name,
+        sport: '',
+        teamType: org.type,
+        location:
+          org.location?.city && org.location?.state
+            ? `${org.location.city}, ${org.location.state}`
+            : (org.location?.state ?? ''),
+        logoUrl: org.logoUrl ?? undefined,
+        colors: [org.primaryColor, org.secondaryColor].filter(Boolean) as string[],
+        memberCount: org.teamCount ?? 0,
+        isSchool: org.type === 'high-school' || org.type === 'middle-school',
+        organizationId: org.id,
+      }));
+    } catch (err) {
+      this.logger.error('Program search failed', err, { query });
+      return [];
+    }
+  };
 
   /**
    * Opens the manage team bottom sheet (full-screen on mobile).

@@ -14,8 +14,8 @@ import { appGuard } from '../middleware/auth.middleware.js';
 import { logger } from '../utils/logger.js';
 import { asyncHandler } from '@nxt1/core/errors/express';
 import { notFoundError, forbiddenError, fieldError } from '@nxt1/core/errors';
-import type { User, SportProfile } from '@nxt1/core';
-import { formatFileSize } from '@nxt1/core';
+import type { User, SportProfile, TeamType } from '@nxt1/core';
+import { formatFileSize, TEAM_TYPES } from '@nxt1/core';
 import { invalidateProfileCaches } from './profile.routes.js';
 import type {
   EditProfileData,
@@ -117,6 +117,27 @@ function buildPhotoStoragePath(userId: string, type: 'profile' | 'banner'): stri
   }
 }
 
+/**
+ * Delete a file from Firebase Storage by its public URL.
+ * Best-effort: errors are logged but do not fail the parent request.
+ * Handles URLs with encoded characters.
+ */
+async function deleteFromStorage(
+  url: string,
+  storage: ReturnType<typeof getStorage>
+): Promise<void> {
+  try {
+    const bucket = storage.bucket();
+    const urlPrefix = `https://storage.googleapis.com/${bucket.name}/`;
+    if (!url.startsWith(urlPrefix)) return; // Not a file in our bucket
+    const storagePath = decodeURIComponent(url.slice(urlPrefix.length));
+    await bucket.file(storagePath).delete({ ignoreNotFound: true });
+    logger.debug('[EditProfile] Deleted storage file', { storagePath });
+  } catch (err) {
+    logger.warn('[EditProfile] Failed to delete storage file (best-effort)', { url, err });
+  }
+}
+
 // ============================================
 // MAPPERS
 // ============================================
@@ -160,6 +181,10 @@ function userToEditProfileFormData(user: User, sportIndex?: number): EditProfile
       secondaryPositions: activeSport?.positions?.slice(1),
       jerseyNumber: activeSport?.jerseyNumber,
       yearsExperience: activeSport?.yearsExperience,
+      teamName: activeSport?.team?.name,
+      teamType: activeSport?.team?.type,
+      teamLogoUrl: activeSport?.team?.logoUrl,
+      teamOrganizationId: activeSport?.team?.organizationId,
     },
     academics: {
       school: activeSport?.team?.name,
@@ -312,6 +337,41 @@ function sectionToFirestoreUpdate(
 
       if (data.yearsExperience !== undefined) {
         targetSport.yearsExperience = data.yearsExperience || undefined;
+      }
+
+      // Team / program name and type
+      if (
+        data.teamName !== undefined ||
+        data.teamType !== undefined ||
+        data.teamLogoUrl !== undefined ||
+        data.teamOrganizationId !== undefined
+      ) {
+        if (!targetSport.team) {
+          targetSport.team = { type: TEAM_TYPES.HIGH_SCHOOL, name: '' };
+        }
+        if (data.teamName !== undefined) {
+          targetSport.team.name = data.teamName || '';
+        }
+        if (data.teamType !== undefined) {
+          const validTypes = Object.values(TEAM_TYPES) as string[];
+          const incoming = data.teamType || TEAM_TYPES.HIGH_SCHOOL;
+          targetSport.team.type = validTypes.includes(incoming)
+            ? (incoming as TeamType)
+            : TEAM_TYPES.HIGH_SCHOOL;
+        }
+        if (data.teamLogoUrl !== undefined) {
+          targetSport.team.logoUrl = data.teamLogoUrl || undefined;
+        }
+        if (data.teamOrganizationId !== undefined) {
+          targetSport.team.organizationId = data.teamOrganizationId || undefined;
+        }
+
+        logger.debug('[EditProfile] Updating team info', {
+          teamName: targetSport.team.name,
+          teamType: targetSport.team.type,
+          teamLogoUrl: targetSport.team.logoUrl,
+          organizationId: targetSport.team.organizationId,
+        });
       }
 
       // Update the entire sports array (not nested paths)
@@ -769,6 +829,22 @@ router.put(
 
     const user = { id: doc.id, ...doc.data() } as User;
 
+    // Clean up orphaned Storage files when photos are removed from the gallery
+    if (sectionId === 'photos' && Array.isArray(sectionData.profileImgs)) {
+      const oldUrls: string[] = (user as unknown as Record<string, string[]>)['profileImgs'] ?? [];
+      const newUrls: string[] = sectionData.profileImgs as string[];
+      const orphanedUrls = oldUrls.filter((url) => !newUrls.includes(url));
+      if (orphanedUrls.length > 0) {
+        logger.info('[EditProfile] Removing orphaned photo Storage files', {
+          userId: uid,
+          count: orphanedUrls.length,
+        });
+        await Promise.allSettled(
+          orphanedUrls.map((url) => deleteFromStorage(url, req.firebase!.storage))
+        );
+      }
+    }
+
     // Log user's sports BEFORE update
     logger.debug('[EditProfile] User sports BEFORE update', {
       userId: uid,
@@ -1015,13 +1091,70 @@ router.post(
 /**
  * Delete profile/banner photo
  * DELETE /api/v1/profile/:uid/photo/:type
+ *
+ * type='banner'  — deletes bannerImg from Storage + clears field
+ * type='profile' — deletes all profileImgs from Storage + clears gallery
  */
-router.delete('/:uid/photo/:type', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
+router.delete(
+  '/:uid/photo/:type',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { uid, type } = req.params;
+    const currentUserId = req.user!.uid;
+
+    if (type !== 'profile' && type !== 'banner') {
+      throw fieldError('type', 'Type must be "profile" or "banner"', 'invalid');
+    }
+
+    if (uid !== currentUserId) {
+      throw forbiddenError('owner');
+    }
+
+    const db = req.firebase!.db;
+    const userRef = db.collection(USERS_COLLECTION).doc(uid);
+    const doc = await userRef.get();
+
+    if (!doc.exists) {
+      throw notFoundError('profile');
+    }
+
+    const user = { id: doc.id, ...doc.data() } as User;
+    const userData = doc.data() as Record<string, unknown>;
+
+    logger.info('[EditProfile] Deleting photo', { userId: uid, type });
+
+    const updates: Record<string, unknown> = {};
+
+    if (type === 'banner') {
+      const bannerImg = (userData['bannerImg'] as string | undefined) ?? null;
+      if (bannerImg) {
+        await deleteFromStorage(bannerImg, req.firebase!.storage);
+      }
+      updates['bannerImg'] = null;
+    } else {
+      // Delete all profile gallery images
+      const profileImgs: string[] = (userData['profileImgs'] as string[] | undefined) ?? [];
+      await Promise.allSettled(
+        profileImgs.map((url) => deleteFromStorage(url, req.firebase!.storage))
+      );
+      updates['profileImgs'] = [];
+      updates['profileImg'] = null;
+    }
+
+    await userRef.update(updates);
+
+    await invalidateProfileCaches(uid, user.username, user.unicode).catch((err) =>
+      logger.warn('[EditProfile] Cache invalidation failed after photo delete', {
+        userId: uid,
+        err,
+      })
+    );
+
+    logger.info('[EditProfile] Photo deleted', { userId: uid, type });
+
+    res.json({ success: true });
+  })
+);
 
 /**
  * Update active sport index

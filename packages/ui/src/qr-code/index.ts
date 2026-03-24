@@ -25,6 +25,7 @@
 
 // Components
 export { NxtQrCodeContentComponent } from './qr-code-content.component';
+export { NxtQrCodeMobileComponent } from './qr-code-mobile.component';
 export { NxtQrCodeModalComponent } from './qr-code-modal.component';
 
 // Services

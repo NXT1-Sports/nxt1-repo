@@ -30,6 +30,7 @@ import {
   type SettingsActionEvent,
 } from '@nxt1/ui';
 import type { SettingsUserInfo, SettingsSubscription, InboxEmailProvider } from '@nxt1/core';
+import type { LinkSourcesFormData, OnboardingUserType } from '@nxt1/core/api';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 import { MobileEmailConnectionService } from '../activity/services/email-connection.service';
 
@@ -135,10 +136,31 @@ export class SettingsComponent {
     const user = this.authService.user();
     if (!user) return null;
 
+    // Access full profile from ProfileService for sports & connectedSources
+    const profile = this.authService.profile();
+
+    // Convert ConnectedSource[] → LinkSourcesFormData for the shared link drop step
+    const linkSourcesData: LinkSourcesFormData | null = profile?.connectedSources?.length
+      ? {
+          links: profile.connectedSources.map((src) => ({
+            platform: src.platform,
+            connected: true,
+            connectionType: 'link' as const,
+            url: src.profileUrl,
+            scopeType: src.scopeType ?? 'global',
+            scopeId: src.scopeId,
+          })),
+        }
+      : null;
+
     return {
       profileImg: user.profileImg ?? undefined,
       displayName: user.displayName ?? undefined,
       connectedEmails: user.connectedEmails ?? [],
+      role: (profile?.role as OnboardingUserType) ?? null,
+      selectedSports: profile?.sports?.map((s) => s.sport).filter(Boolean) ?? [],
+      linkSourcesData,
+      scope: 'athlete' as const,
     };
   });
 

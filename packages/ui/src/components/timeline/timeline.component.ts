@@ -70,6 +70,11 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
               {{ emptyConfig().description }}
             }
           </p>
+          @if (isOwnProfile() && emptyCta()) {
+            <button class="tl-empty__cta" (click)="emptyCtaClick.emit()">
+              {{ emptyCta() }}
+            </button>
+          }
         </div>
       }
 
@@ -349,7 +354,7 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        padding: 56px 24px 48px;
+        padding: 48px 24px;
         text-align: center;
       }
 
@@ -362,7 +367,7 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
         display: flex;
         align-items: center;
         justify-content: center;
-        margin-bottom: 20px;
+        margin-bottom: 4px;
 
         nxt1-icon {
           color: var(--tl-text-3);
@@ -370,19 +375,39 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
       }
 
       .tl-empty__title {
-        font-size: 18px;
+        font-size: 16px;
         font-weight: 700;
         color: var(--tl-text-1);
-        margin: 0 0 8px;
-        letter-spacing: -0.01em;
+        margin: 16px 0 8px;
       }
 
       .tl-empty__desc {
         font-size: 14px;
-        line-height: 1.6;
+        line-height: 1.5;
         color: var(--tl-text-2);
         margin: 0;
-        max-width: 320px;
+        max-width: 280px;
+      }
+
+      .tl-empty__cta {
+        margin-top: 12px;
+        padding: 10px 24px;
+        background: var(--timeline-primary, var(--nxt1-color-primary));
+        border: none;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        color: #000;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s ease;
+
+        &:hover {
+          filter: brightness(1.1);
+        }
+
+        &:active {
+          filter: brightness(0.95);
+        }
       }
 
       /* ═══ LOADING SKELETONS ═══ */
@@ -481,12 +506,18 @@ export class NxtTimelineComponent {
   /** Custom dot configs keyed by variant (merges with defaults). */
   readonly dotOverrides = input<Partial<Record<string, TimelineDotConfig>> | undefined>(undefined);
 
+  /** CTA button label to show in empty state (when itemsIsEmpty && isOwnProfile). */
+  readonly emptyCta = input<string | null>(null);
+
   // ============================================
   // OUTPUTS
   // ============================================
 
   /** Emits when a timeline item card is clicked. */
   readonly itemClick = output<TimelineItem>();
+
+  /** Emits when the CTA button in empty state is clicked. */
+  readonly emptyCtaClick = output<void>();
 
   // ============================================
   // COMPUTED

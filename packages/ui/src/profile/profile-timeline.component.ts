@@ -291,7 +291,7 @@ import { FeedPostCardComponent } from '../feed/feed-post-card.component';
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        padding: 60px 24px;
+        padding: 48px 24px;
         text-align: center;
       }
 
@@ -300,39 +300,41 @@ import { FeedPostCardComponent } from '../feed/feed-post-card.component';
         height: 80px;
         border-radius: 50%;
         background: var(--timeline-surface);
+        border: 1px solid var(--timeline-border);
         display: flex;
         align-items: center;
         justify-content: center;
-        margin-bottom: 20px;
+        margin-bottom: 4px;
 
         nxt1-icon {
-          font-size: 36px;
+          font-size: 40px;
           color: var(--timeline-text-tertiary);
         }
       }
 
       .empty-title {
-        font-size: 20px;
-        font-weight: 600;
+        font-size: 16px;
+        font-weight: 700;
         color: var(--timeline-text-primary);
-        margin: 0 0 8px;
+        margin: 16px 0 8px;
       }
 
       .empty-message {
-        font-size: 15px;
+        font-size: 14px;
+        line-height: 1.5;
         color: var(--timeline-text-secondary);
         margin: 0 0 24px;
-        max-width: 300px;
+        max-width: 280px;
       }
 
       .empty-cta {
-        padding: 12px 32px;
+        padding: 10px 24px;
         background: var(--timeline-primary);
         border: none;
         border-radius: var(--nxt1-radius-full, 9999px);
         color: #000;
-        font-size: 15px;
-        font-weight: 600;
+        font-size: 14px;
+        font-weight: 700;
         cursor: pointer;
         transition: all 0.2s ease;
 

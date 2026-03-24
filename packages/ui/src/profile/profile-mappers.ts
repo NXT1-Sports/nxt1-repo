@@ -372,10 +372,8 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
       ? (sportAny['recruitingActivities'] as RecruitingActivity[]).map(recruitingActivityToProfile)
       : [];
 
-  const gameLog: readonly ProfileSeasonGameLog[] =
-    sportAny?.['verifiedGameLog'] && Array.isArray(sportAny['verifiedGameLog'])
-      ? (sportAny['verifiedGameLog'] as ProfileSeasonGameLog[])
-      : [];
+  // gameLog is no longer embedded on the User doc — loaded from PlayerStats via API.
+  const gameLog: readonly ProfileSeasonGameLog[] = [];
 
   return {
     user: profileUser,

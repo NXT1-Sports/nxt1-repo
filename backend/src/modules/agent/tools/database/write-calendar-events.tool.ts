@@ -20,6 +20,7 @@ import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
 import { SyncDiffService, type PreviousScheduleEntry } from '../../sync/index.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 import { logger } from '../../../../utils/logger.js';
+import { normalizeOpponentName } from './dedup-utils.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -317,6 +318,12 @@ export class WriteCalendarEventsTool extends BaseTool {
         },
       };
     } catch (err) {
+      logger.error('[WriteCalendarEvents] Failed to write calendar events', {
+        userId,
+        sport: targetSport,
+        source,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to write calendar events',
@@ -327,15 +334,13 @@ export class WriteCalendarEventsTool extends BaseTool {
   // ─── Utilities ──────────────────────────────────────────────────────────
 
   /**
-   * Dedup key: date (day portion) + opponent + sport + eventType.
-   * Uses 'unknown' for empty opponent to avoid generic collisions.
-   * Prevents duplicate game entries from repeated scrapes.
+   * Dedup key: date (day portion) + opponent (aggressively normalized) + sport + eventType.
+   * Uses {@link normalizeOpponentName} to handle variations like
+   * "St. Mary's JV" vs "Saint Marys".
    */
   private dedupeKey(data: Record<string, unknown>): string {
     const date = String(data['date'] ?? '').split('T')[0] || 'nodate';
-    const opponent = String(data['opponent'] ?? 'unknown')
-      .toLowerCase()
-      .trim();
+    const opponent = normalizeOpponentName(String(data['opponent'] ?? ''));
     const sport = String(data['sport'] ?? '')
       .toLowerCase()
       .trim();

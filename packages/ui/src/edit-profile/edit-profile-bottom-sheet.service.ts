@@ -26,8 +26,8 @@
 import { Injectable, inject } from '@angular/core';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import { EditProfileShellComponent } from './edit-profile-shell.component';
-import { EditProfileService } from './edit-profile.service';
 import type { InboxEmailProvider } from '@nxt1/core';
+import type { SearchTeamsFn } from '../onboarding';
 
 /**
  * Edit Profile Sheet Service
@@ -43,7 +43,6 @@ import type { InboxEmailProvider } from '@nxt1/core';
 @Injectable({ providedIn: 'root' })
 export class EditProfileBottomSheetService {
   private readonly bottomSheet = inject(NxtBottomSheetService);
-  private readonly profileService = inject(EditProfileService);
 
   /**
    * Opens the Edit Profile in a native draggable bottom sheet.
@@ -60,46 +59,36 @@ export class EditProfileBottomSheetService {
   async open(
     userId?: string,
     sportIndex?: number,
-    options?: { onConnectProvider?: (provider: InboxEmailProvider) => void }
+    options?: {
+      onConnectProvider?: (provider: InboxEmailProvider) => void;
+      searchTeams?: SearchTeamsFn;
+    }
   ): Promise<{ saved: boolean }> {
     const result = await this.bottomSheet.openSheet<{
       saved?: boolean;
     }>({
       // The component to inject
       component: EditProfileShellComponent,
-      componentProps: { userId, sportIndex, connectProviderCallback: options?.onConnectProvider },
+      componentProps: {
+        userId,
+        sportIndex,
+        connectProviderCallback: options?.onConnectProvider,
+        searchTeams: options?.searchTeams,
+      },
 
-      // Standardized sheet preset
+      // Standardized sheet preset (full-screen like Agent X)
       ...SHEET_PRESETS.FULL,
 
       // Show native drag handle bar
       showHandle: true,
       handleBehavior: 'cycle',
 
-      // Backdrop behavior
-      backdropDismiss: false,
-
-      // Swipe-to-dismiss confirmation for unsaved changes
-      canDismiss: async (_data, role) => {
-        // Allow explicit save/cancel/connectProvider
-        if (role === 'save' || role === 'cancel' || role === 'connectProvider') return true;
-
-        // Check for unsaved changes on gesture dismiss
-        if (this.profileService.hasUnsavedChanges()) {
-          return await this.bottomSheet.confirm(
-            'Discard Changes?',
-            'You have unsaved changes that will be lost.',
-            {
-              confirmLabel: 'Discard',
-              cancelLabel: 'Keep Editing',
-              destructive: true,
-              icon: 'alert-circle-outline',
-            }
-          );
-        }
-
-        return true;
-      },
+      // Backdrop & gesture dismiss: always allow (no canDismiss function).
+      // Using a canDismiss function — even one that returns true — causes Ionic
+      // to pause the drag animation while it awaits the result, creating a
+      // visible bounce. Unsaved-changes confirmation is handled in the
+      // component's onClose() method instead.
+      backdropDismiss: true,
     });
 
     return {

@@ -1,15 +1,18 @@
 /**
- * @fileoverview QR Code Content Component - Web/Desktop QR Code Display
+ * @fileoverview QR Code Mobile Component - Mobile Bottom Sheet Layout
  * @module @nxt1/ui/qr-code
- * @version 3.0.0
+ * @version 1.0.0
  *
- * Centered QR code card with Share + Save buttons.
- * Matches the mobile layout — no profile image, name, sport, URL, or branding.
+ * A clean, focused mobile QR code sheet that shows:
+ * - Shared sheet header (title left, close right)
+ * - Centered QR code card
+ * - "Scan to view profile" instruction
+ * - Share + Save action buttons
  *
- * Used by the web overlay (NxtOverlayService) for desktop.
- * Mobile uses NxtQrCodeMobileComponent instead.
+ * No profile image, name, sport, URL display, copy link, or branding logo.
+ * Desktop/web uses NxtQrCodeContentComponent instead.
  *
- * ⭐ WEB/DESKTOP ONLY ⭐
+ * ⭐ MOBILE ONLY ⭐
  */
 
 import {
@@ -27,43 +30,54 @@ import {
 import { isPlatformBrowser } from '@angular/common';
 import { NxtIconComponent } from '../components/icon/icon.component';
 import { NxtLogoComponent } from '../components/logo/logo.component';
+import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 import { NxtToastService } from '../services/toast';
 import { NxtLoggingService } from '../services/logging';
 
 @Component({
-  selector: 'nxt1-qr-code-content',
+  selector: 'nxt1-qr-code-mobile',
   standalone: true,
-  imports: [NxtIconComponent, NxtLogoComponent],
+  imports: [NxtIconComponent, NxtLogoComponent, NxtSheetHeaderComponent],
   template: `
-    <div class="qr-wrap">
-      <!-- ─── QR Code card ─── -->
-      <div class="qr-card">
-        @if (loading()) {
-          <div class="qr-skeleton">
-            <div class="qr-skeleton-pulse"></div>
-          </div>
-        } @else if (error()) {
-          <div class="qr-error">
-            <nxt1-icon name="alertCircle" [size]="32" />
-            <p>Failed to generate QR code</p>
-            <button type="button" class="qr-retry" (click)="generateQrCode()">Try Again</button>
-          </div>
-        } @else {
-          <canvas
-            #qrCanvas
-            class="qr-canvas"
-            [attr.aria-label]="'QR code for ' + displayName + ' profile'"
-            role="img"
-          ></canvas>
-        }
+    <div class="qr-sheet">
+      <!-- ─── Standard sheet header: title left, close right ─── -->
+      <nxt1-sheet-header
+        title="QR Code"
+        closePosition="right"
+        [showBorder]="true"
+        (closeSheet)="close.emit()"
+      />
 
-        <!-- NXT1 watermark centred on QR -->
-        <div class="qr-watermark">
-          <nxt1-logo variant="default" size="xs" />
+      <!-- ─── QR Code centered ─── -->
+      <div class="qr-content">
+        <div class="qr-card">
+          @if (loading()) {
+            <div class="qr-skeleton">
+              <div class="qr-skeleton-pulse"></div>
+            </div>
+          } @else if (error()) {
+            <div class="qr-error">
+              <nxt1-icon name="alertCircle" [size]="32" />
+              <p>Failed to generate QR code</p>
+              <button type="button" class="qr-retry" (click)="generateQrCode()">Try Again</button>
+            </div>
+          } @else {
+            <canvas
+              #qrCanvas
+              class="qr-canvas"
+              [attr.aria-label]="'QR code for ' + displayName + ' profile'"
+              role="img"
+            ></canvas>
+          }
+
+          <!-- NXT1 watermark in center of QR -->
+          <div class="qr-watermark">
+            <nxt1-logo variant="default" size="xs" />
+          </div>
         </div>
-      </div>
 
-      <p class="qr-hint">Scan to view profile</p>
+        <p class="qr-hint">Scan to view profile</p>
+      </div>
 
       <!-- ─── Share + Save buttons ─── -->
       <div class="qr-actions">
@@ -84,19 +98,26 @@ import { NxtLoggingService } from '../services/logging';
       :host {
         display: block;
         width: 100%;
+        height: 100%;
       }
 
-      /* ─── Centred column ─── */
-      .qr-wrap {
+      .qr-sheet {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+
+      /* ─── QR Code Area ─── */
+      .qr-content {
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
+        flex: 1;
         gap: var(--nxt1-spacing-3, 0.75rem);
         padding: var(--nxt1-spacing-6, 1.5rem) var(--nxt1-spacing-5, 1.25rem);
       }
 
-      /* ─── QR card ─── */
       .qr-card {
         position: relative;
         display: flex;
@@ -136,7 +157,6 @@ import { NxtLoggingService } from '../services/logging';
         box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
       }
 
-      /* ─── Hint text ─── */
       .qr-hint {
         margin: 0;
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
@@ -202,13 +222,13 @@ import { NxtLoggingService } from '../services/logging';
         padding: var(--nxt1-spacing-1, 0.25rem) var(--nxt1-spacing-2, 0.5rem);
       }
 
-      /* ─── Action buttons ─── */
+      /* ─── Action Buttons ─── */
       .qr-actions {
         display: flex;
         align-items: center;
         gap: var(--nxt1-spacing-3, 0.75rem);
-        width: 100%;
-        max-width: 280px;
+        padding: var(--nxt1-spacing-4, 1rem) var(--nxt1-spacing-5, 1.25rem);
+        padding-bottom: calc(var(--nxt1-spacing-5, 1.25rem) + env(safe-area-inset-bottom, 0px));
       }
 
       .qr-btn {
@@ -246,36 +266,19 @@ import { NxtLoggingService } from '../services/logging';
           transform: none;
         }
       }
-
-      @media (forced-colors: active) {
-        .qr-card {
-          border: 2px solid CanvasText;
-        }
-        .qr-btn {
-          border: 1px solid ButtonText;
-        }
-      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class NxtQrCodeContentComponent {
+export class NxtQrCodeMobileComponent {
   private readonly toast = inject(NxtToastService);
-  private readonly logger = inject(NxtLoggingService).child('QrCodeContent');
+  private readonly logger = inject(NxtLoggingService).child('QrCodeMobile');
   private readonly platformId = inject(PLATFORM_ID);
 
   private readonly qrCanvas = viewChild<ElementRef<HTMLCanvasElement>>('qrCanvas');
 
   @Input() url = '';
   @Input() displayName = '';
-
-  /**
-   * Kept for backward-compat with existing call-sites that still pass these;
-   * the web layout no longer renders them.
-   */
-  @Input() profileImg = '';
-  @Input() sport = '';
-  @Input() embedded = false;
 
   readonly close = output<void>();
   readonly action = output<'share' | 'download'>();
@@ -317,13 +320,14 @@ export class NxtQrCodeContentComponent {
       }
 
       const canvas = canvasRef.nativeElement;
-      const dataUrl = await QRCode.toDataURL(this.url, {
+      const options = {
         width: 240,
         margin: 1,
         color: { dark: '#000000', light: '#ffffff' },
         errorCorrectionLevel: 'H' as const,
-      });
+      };
 
+      const dataUrl = await QRCode.toDataURL(this.url, options);
       const img = new Image();
       img.onload = () => {
         const ctx = canvas.getContext('2d');
@@ -360,8 +364,7 @@ export class NxtQrCodeContentComponent {
         await navigator.share(shareData);
         this.action.emit('share');
       } else {
-        await navigator.clipboard.writeText(this.url);
-        this.toast.success('Link copied');
+        await this.fallbackCopy();
       }
     } catch (err) {
       if ((err as DOMException)?.name !== 'AbortError') {
@@ -377,7 +380,8 @@ export class NxtQrCodeContentComponent {
     if (!canvasRef?.nativeElement) return;
 
     try {
-      const dataUrl = canvasRef.nativeElement.toDataURL('image/png', 1.0);
+      const canvas = canvasRef.nativeElement;
+      const dataUrl = canvas.toDataURL('image/png', 1.0);
       const link = document.createElement('a');
       link.download = `${this.displayName || 'nxt1'}-qr-code.png`;
       link.href = dataUrl;
@@ -388,6 +392,15 @@ export class NxtQrCodeContentComponent {
     } catch (err) {
       this.logger.error('Failed to download QR code', err);
       this.toast.error('Failed to save QR code');
+    }
+  }
+
+  private async fallbackCopy(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(this.url);
+      this.toast.success('Link copied');
+    } catch {
+      this.logger.warn('Clipboard fallback failed');
     }
   }
 }

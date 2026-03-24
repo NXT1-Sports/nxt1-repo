@@ -359,6 +359,8 @@ export const APP_EVENTS = {
   PROFILE_SPORT_REMOVED: 'profile_sport_removed',
   /** Profile photo updated */
   PROFILE_PHOTO_UPDATED: 'profile_photo_updated',
+  /** Profile photo removed from gallery */
+  PROFILE_PHOTO_REMOVED: 'profile_photo_removed',
   /** Profile tab changed (overview, timeline, stats, etc.) */
   PROFILE_TAB_CHANGED: 'profile_tab_changed',
 

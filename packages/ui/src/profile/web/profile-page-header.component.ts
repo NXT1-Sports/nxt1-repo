@@ -44,21 +44,19 @@ import { ProfileService } from '../profile.service';
         </div>
       </div>
 
-      <!-- ═══ TRAILING: Follow stats + button ═══ -->
+      <!-- ═══ TRAILING: Edit Profile (own) or Follow (other) ═══ -->
       <div headerTrailing class="mdh-trailing">
-        <div class="mdh-follow-stats">
-          <button type="button" class="mdh-stat">
-            <span class="mdh-stat-count">{{ followersCount() }}</span>
-            <span class="mdh-stat-label">Followers</span>
+        @if (isOwnProfileView()) {
+          <button
+            type="button"
+            class="mdh-edit-btn"
+            (click)="editProfile.emit()"
+            aria-label="Edit profile"
+          >
+            <nxt1-icon name="pencil" [size]="13" />
+            Edit Profile
           </button>
-          @if (isOwnProfileView()) {
-            <button type="button" class="mdh-stat">
-              <span class="mdh-stat-count">{{ followingCount() }}</span>
-              <span class="mdh-stat-label">Following</span>
-            </button>
-          }
-        </div>
-        @if (showFollowAction()) {
+        } @else {
           <button
             type="button"
             class="mdh-follow-btn"
@@ -94,39 +92,40 @@ import { ProfileService } from '../profile.service';
       }
 
       /* ============================================
-         FOLLOW STATS — Followers / Following counts
+         EDIT PROFILE BUTTON — own profile view
          ============================================ */
-      .mdh-follow-stats {
-        display: flex;
+      .mdh-edit-btn {
+        display: inline-flex;
         align-items: center;
-        gap: var(--nxt1-spacing-4, 16px);
-      }
-      .mdh-stat {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 1px;
-        background: none;
-        border: none;
-        padding: 0;
-        cursor: pointer;
-        line-height: 1;
-      }
-      .mdh-stat:hover .mdh-stat-count {
-        color: var(--nxt1-color-primary);
-      }
-      .mdh-stat-count {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-lg, 18px);
-        font-weight: var(--nxt1-fontWeight-bold);
+        justify-content: center;
+        gap: 6px;
+        flex-shrink: 0;
+        border: 1.5px solid var(--nxt1-color-border-secondary, rgba(255, 255, 255, 0.2));
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
         color: var(--nxt1-color-text-primary);
-        transition: color 0.15s ease;
+        border-radius: var(--nxt1-radius-md, 8px);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: 13px;
+        font-weight: var(--nxt1-fontWeight-semibold);
+        letter-spacing: 0.01em;
+        line-height: 1;
+        padding: 7px 16px;
+        cursor: pointer;
+        transition:
+          transform 0.1s ease,
+          background 0.15s ease,
+          border-color 0.15s ease;
       }
-      .mdh-stat-label {
-        font-size: var(--nxt1-fontSize-xs, 12px);
-        font-weight: var(--nxt1-fontWeight-medium);
-        color: var(--nxt1-color-text-tertiary);
-        letter-spacing: 0.04em;
+      .mdh-edit-btn:hover {
+        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.1));
+        border-color: var(--nxt1-color-border-primary, rgba(255, 255, 255, 0.35));
+      }
+      .mdh-edit-btn:active {
+        transform: scale(0.97);
+      }
+      .mdh-edit-btn:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary);
+        outline-offset: 2px;
       }
 
       /* ============================================
@@ -245,15 +244,10 @@ export class ProfilePageHeaderComponent {
   readonly showFollowAction = input(false);
   readonly back = output<void>();
   readonly follow = output<void>();
+  readonly editProfile = output<void>();
 
-  /* ── Follow Stats ── */
+  /* ── Follow State ── */
 
-  protected readonly followersCount = computed(
-    () => this.profile.followStats()?.followersCount ?? 0
-  );
-  protected readonly followingCount = computed(
-    () => this.profile.followStats()?.followingCount ?? 0
-  );
   protected readonly isFollowing = computed(() => this.profile.followStats()?.isFollowing ?? false);
   protected readonly isOwnProfileView = computed(() => !this.showFollowAction());
 

@@ -21,6 +21,7 @@ import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
 import { SyncDiffService, type PreviousVideoEntry } from '../../sync/index.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 import { logger } from '../../../../utils/logger.js';
+import { normalizeVideoUrl } from './dedup-utils.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -127,7 +128,7 @@ export class WriteAthleteVideosTool extends BaseTool {
       for (const doc of existingSnap.docs) {
         const data = doc.data();
         const src = String(data['src'] ?? data['url'] ?? '');
-        existingKeys.add(this.normalizeVideoSrc(src));
+        existingKeys.add(normalizeVideoUrl(src));
         previousVideos.push({
           src,
           provider: String(data['provider'] ?? data['platform'] ?? 'other'),
@@ -152,7 +153,7 @@ export class WriteAthleteVideosTool extends BaseTool {
           continue;
         }
 
-        const normalizedSrc = this.normalizeVideoSrc(src.trim());
+        const normalizedSrc = normalizeVideoUrl(src.trim());
 
         // Provider validation / fallback
         const rawProvider = this.str(v, 'provider') ?? 'other';
@@ -298,6 +299,12 @@ export class WriteAthleteVideosTool extends BaseTool {
         },
       };
     } catch (err) {
+      logger.error('[WriteAthleteVideos] Failed to write athlete videos', {
+        userId,
+        sport: targetSport,
+        source,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to write athlete videos',
@@ -307,11 +314,5 @@ export class WriteAthleteVideosTool extends BaseTool {
 
   // ─── Utilities ──────────────────────────────────────────────────────────
 
-  /**
-   * Normalize a video URL for dedup comparison.
-   * Lowercases and strips trailing slash. Preserves query params (YouTube videoId is in v=...).
-   */
-  private normalizeVideoSrc(src: string): string {
-    return src.toLowerCase().replace(/\/$/, '').trim();
-  }
+  // normalizeVideoSrc replaced by shared normalizeVideoUrl from dedup-utils
 }

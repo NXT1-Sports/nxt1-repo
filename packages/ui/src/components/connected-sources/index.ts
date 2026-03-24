@@ -12,3 +12,12 @@ export {
 } from './connected-sources.component';
 
 export { ConnectedAccountsSheetComponent } from './connected-accounts-sheet.component';
+export {
+  ConnectedAccountsWebModalComponent,
+  type ConnectedAccountsModalCloseData,
+} from './connected-accounts-web-modal.component';
+export {
+  ConnectedAccountsModalService,
+  type ConnectedAccountsModalOptions,
+  type ConnectedAccountsModalResult,
+} from './connected-accounts-modal.service';

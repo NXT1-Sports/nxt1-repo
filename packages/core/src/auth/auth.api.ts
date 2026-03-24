@@ -163,6 +163,8 @@ export interface OnboardingProfileData {
   createTeamProfile?: CreateTeamProfileFormData;
   /** Pre-fetched scrape job ID from Step 5 — backend skips re-enqueue if set */
   scrapeJobId?: string;
+  /** Phone number (optional) — saved to contact.phone */
+  phoneNumber?: string;
 }
 
 /**

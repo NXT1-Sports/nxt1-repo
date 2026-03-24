@@ -41,223 +41,106 @@ export interface RelatedAthlete {
   readonly matchReason: string;
 }
 
-// ============================================
-// MOCK DATA
-// ============================================
-
-const MOCK_RELATED_ATHLETES: readonly RelatedAthlete[] = [
-  {
-    id: 'rel-001',
-    unicode: 'jayden-williams-2026',
-    firstName: 'Jayden',
-    lastName: 'Williams',
-    profileImg: 'https://i.pravatar.cc/300?img=11',
-    sport: 'Football',
-    position: 'Quarterback',
-    classYear: '2026',
-    school: 'Lake Travis HS',
-    state: 'TX',
-    isVerified: true,
-    matchReason: 'Same position',
-  },
-  {
-    id: 'rel-002',
-    unicode: 'devon-carter-2026',
-    firstName: 'Devon',
-    lastName: 'Carter',
-    profileImg: 'https://i.pravatar.cc/300?img=12',
-    sport: 'Football',
-    position: 'Wide Receiver',
-    classYear: '2026',
-    school: 'Westlake HS',
-    state: 'TX',
-    isVerified: false,
-    matchReason: 'Same school district',
-  },
-  {
-    id: 'rel-003',
-    unicode: 'tre-jackson-2026',
-    firstName: 'Tre',
-    lastName: 'Jackson',
-    profileImg: 'https://i.pravatar.cc/300?img=53',
-    sport: 'Football',
-    position: 'Quarterback',
-    classYear: '2026',
-    school: 'Allen HS',
-    state: 'TX',
-    isVerified: true,
-    matchReason: 'Same position',
-  },
-  {
-    id: 'rel-004',
-    unicode: 'caleb-harris-2026',
-    firstName: 'Caleb',
-    lastName: 'Harris',
-    profileImg: 'https://i.pravatar.cc/300?img=14',
-    sport: 'Football',
-    position: 'Running Back',
-    classYear: '2026',
-    school: 'Katy HS',
-    state: 'TX',
-    isVerified: false,
-    matchReason: 'Same class year',
-  },
-  {
-    id: 'rel-005',
-    unicode: 'malik-thompson-2026',
-    firstName: 'Malik',
-    lastName: 'Thompson',
-    profileImg: 'https://i.pravatar.cc/300?img=15',
-    sport: 'Football',
-    position: 'Quarterback',
-    classYear: '2026',
-    school: 'North Shore HS',
-    state: 'TX',
-    isVerified: true,
-    matchReason: 'Same position',
-  },
-  {
-    id: 'rel-006',
-    unicode: 'isaiah-brooks-2026',
-    firstName: 'Isaiah',
-    lastName: 'Brooks',
-    profileImg: 'https://i.pravatar.cc/300?img=57',
-    sport: 'Football',
-    position: 'Safety',
-    classYear: '2026',
-    school: 'Cedar Hill HS',
-    state: 'TX',
-    isVerified: false,
-    matchReason: 'Same region',
-  },
-  {
-    id: 'rel-007',
-    unicode: 'jordan-davis-2027',
-    firstName: 'Jordan',
-    lastName: 'Davis',
-    profileImg: 'https://i.pravatar.cc/300?img=60',
-    sport: 'Football',
-    position: 'Quarterback',
-    classYear: '2027',
-    school: 'Southlake Carroll HS',
-    state: 'TX',
-    isVerified: true,
-    matchReason: 'Same position',
-  },
-  {
-    id: 'rel-008',
-    unicode: 'aiden-martinez-2026',
-    firstName: 'Aiden',
-    lastName: 'Martinez',
-    profileImg: 'https://i.pravatar.cc/300?img=52',
-    sport: 'Football',
-    position: 'Linebacker',
-    classYear: '2026',
-    school: 'DeSoto HS',
-    state: 'TX',
-    isVerified: false,
-    matchReason: 'Same class year',
-  },
-] as const;
-
 @Component({
   selector: 'nxt1-related-athletes',
   standalone: true,
   imports: [NxtIconComponent, NxtImageComponent],
   template: `
-    <section class="related-section" aria-labelledby="related-heading">
-      <!-- Section Header -->
-      <div class="related-header">
-        <div class="related-header-left">
-          <div class="related-header-icon" aria-hidden="true">
-            <nxt1-icon name="people" [size]="18" />
+    @if (athletes().length > 0) {
+      <section class="related-section" aria-labelledby="related-heading">
+        <!-- Section Header -->
+        <div class="related-header">
+          <div class="related-header-left">
+            <div class="related-header-icon" aria-hidden="true">
+              <nxt1-icon name="people" [size]="18" />
+            </div>
+            <div class="related-header-text">
+              <h2 id="related-heading" class="related-title">Related Athletes</h2>
+              <p class="related-subtitle">{{ subtitle() }}</p>
+            </div>
           </div>
-          <div class="related-header-text">
-            <h2 id="related-heading" class="related-title">Related Athletes</h2>
-            <p class="related-subtitle">{{ subtitle() }}</p>
-          </div>
-        </div>
-        @if (athletes().length > 4) {
-          <button
-            type="button"
-            class="related-see-all-btn"
-            aria-label="See all related athletes"
-            (click)="seeAllClick.emit()"
-          >
-            See All
-            <nxt1-icon name="chevronForward" [size]="14" />
-          </button>
-        }
-      </div>
-
-      <!-- Scroll Container -->
-      <div class="related-scroll-wrapper" role="list" aria-label="Related athletes">
-        <div class="related-scroll-track">
-          @for (athlete of athletes(); track athlete.id) {
-            <article
-              class="related-card"
-              role="listitem"
-              tabindex="0"
-              [attr.aria-label]="
-                athlete.firstName +
-                ' ' +
-                athlete.lastName +
-                ', ' +
-                athlete.position +
-                ' at ' +
-                athlete.school
-              "
-              (click)="onAthleteClick(athlete)"
-              (keydown.enter)="onAthleteClick(athlete)"
-              (keydown.space)="onAthleteClick(athlete); $event.preventDefault()"
+          @if (athletes().length > 4) {
+            <button
+              type="button"
+              class="related-see-all-btn"
+              aria-label="See all related athletes"
+              (click)="seeAllClick.emit()"
             >
-              <!-- Avatar -->
-              <div class="related-card-avatar-wrap">
-                @if (athlete.profileImg) {
-                  <nxt1-image
-                    class="related-card-avatar"
-                    [src]="athlete.profileImg"
-                    [alt]="athlete.firstName + ' ' + athlete.lastName"
-                    [width]="48"
-                    [height]="48"
-                    variant="avatar"
-                    fit="cover"
-                    [showPlaceholder]="false"
-                  />
-                } @else {
-                  <div class="related-card-avatar-fallback" aria-hidden="true">
-                    {{ athlete.firstName.charAt(0) }}{{ athlete.lastName.charAt(0) }}
-                  </div>
-                }
-                @if (athlete.isVerified) {
-                  <span class="related-card-verified" aria-label="Verified athlete">
-                    <nxt1-icon name="checkmarkCircle" [size]="14" />
-                  </span>
-                }
-              </div>
-
-              <!-- Info -->
-              <div class="related-card-info">
-                <h3 class="related-card-name">{{ athlete.firstName }} {{ athlete.lastName }}</h3>
-                <span class="related-card-position">{{ athlete.position }}</span>
-                <span class="related-card-school">{{ athlete.school }}</span>
-                <div class="related-card-meta">
-                  <span class="related-card-class">Class of {{ athlete.classYear }}</span>
-                  <span class="related-card-dot" aria-hidden="true">·</span>
-                  <span class="related-card-state">{{ athlete.state }}</span>
-                </div>
-              </div>
-
-              <!-- Match Reason Tag -->
-              <div class="related-card-tag">
-                <nxt1-icon name="flash" [size]="10" />
-                <span>{{ athlete.matchReason }}</span>
-              </div>
-            </article>
+              See All
+              <nxt1-icon name="chevronForward" [size]="14" />
+            </button>
           }
         </div>
-      </div>
-    </section>
+
+        <!-- Scroll Container -->
+        <div class="related-scroll-wrapper" role="list" aria-label="Related athletes">
+          <div class="related-scroll-track">
+            @for (athlete of athletes(); track athlete.id) {
+              <article
+                class="related-card"
+                role="listitem"
+                tabindex="0"
+                [attr.aria-label]="
+                  athlete.firstName +
+                  ' ' +
+                  athlete.lastName +
+                  ', ' +
+                  athlete.position +
+                  ' at ' +
+                  athlete.school
+                "
+                (click)="onAthleteClick(athlete)"
+                (keydown.enter)="onAthleteClick(athlete)"
+                (keydown.space)="onAthleteClick(athlete); $event.preventDefault()"
+              >
+                <!-- Avatar -->
+                <div class="related-card-avatar-wrap">
+                  @if (athlete.profileImg) {
+                    <nxt1-image
+                      class="related-card-avatar"
+                      [src]="athlete.profileImg"
+                      [alt]="athlete.firstName + ' ' + athlete.lastName"
+                      [width]="48"
+                      [height]="48"
+                      variant="avatar"
+                      fit="cover"
+                      [showPlaceholder]="false"
+                    />
+                  } @else {
+                    <div class="related-card-avatar-fallback" aria-hidden="true">
+                      {{ athlete.firstName.charAt(0) }}{{ athlete.lastName.charAt(0) }}
+                    </div>
+                  }
+                  @if (athlete.isVerified) {
+                    <span class="related-card-verified" aria-label="Verified athlete">
+                      <nxt1-icon name="checkmarkCircle" [size]="14" />
+                    </span>
+                  }
+                </div>
+
+                <!-- Info -->
+                <div class="related-card-info">
+                  <h3 class="related-card-name">{{ athlete.firstName }} {{ athlete.lastName }}</h3>
+                  <span class="related-card-position">{{ athlete.position }}</span>
+                  <span class="related-card-school">{{ athlete.school }}</span>
+                  <div class="related-card-meta">
+                    <span class="related-card-class">Class of {{ athlete.classYear }}</span>
+                    <span class="related-card-dot" aria-hidden="true">·</span>
+                    <span class="related-card-state">{{ athlete.state }}</span>
+                  </div>
+                </div>
+
+                <!-- Match Reason Tag -->
+                <div class="related-card-tag">
+                  <nxt1-icon name="flash" [size]="10" />
+                  <span>{{ athlete.matchReason }}</span>
+                </div>
+              </article>
+            }
+          </div>
+        </div>
+      </section>
+    }
   `,
   styles: [
     `
@@ -753,8 +636,8 @@ const MOCK_RELATED_ATHLETES: readonly RelatedAthlete[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class RelatedAthletesComponent {
-  /** Athletes to display — defaults to mock data for development */
-  readonly athletes = input<readonly RelatedAthlete[]>(MOCK_RELATED_ATHLETES);
+  /** Athletes to display from live profile discovery results. */
+  readonly athletes = input<readonly RelatedAthlete[]>([]);
 
   /** Whether section is loading */
   readonly loading = input<boolean>(false);

@@ -127,6 +127,9 @@ export class NxtOverlayService {
     host.escDismiss.set(config.escDismiss ?? true);
     host.ariaLabel.set(config.ariaLabel);
     host.showCloseButton.set(config.showCloseButton ?? false);
+    if (config.canDismiss) {
+      host.canDismiss.set(config.canDismiss);
+    }
     if (config.maxWidth) {
       host.customMaxWidth.set(config.maxWidth);
     }

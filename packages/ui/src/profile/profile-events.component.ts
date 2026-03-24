@@ -34,8 +34,10 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="visitsEmpty"
         [cardLayout]="cardLayout()"
+        [emptyCta]="emptyCta()"
         fallbackIcon="school"
         (itemClick)="onItemClick($event)"
+        (emptyCtaClick)="emptyCtaClick.emit()"
       />
     }
 
@@ -47,8 +49,10 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="campsEmpty"
         [cardLayout]="cardLayout()"
+        [emptyCta]="emptyCta()"
         fallbackIcon="flag"
         (itemClick)="onItemClick($event)"
+        (emptyCtaClick)="emptyCtaClick.emit()"
       />
     }
 
@@ -60,8 +64,10 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="generalEmpty"
         [cardLayout]="cardLayout()"
+        [emptyCta]="emptyCta()"
         fallbackIcon="calendar"
         (itemClick)="onItemClick($event)"
+        (emptyCtaClick)="emptyCtaClick.emit()"
       />
     }
 
@@ -73,8 +79,10 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="globalEmpty"
         [cardLayout]="cardLayout()"
+        [emptyCta]="emptyCta()"
         fallbackIcon="calendar"
         (itemClick)="onItemClick($event)"
+        (emptyCtaClick)="emptyCtaClick.emit()"
       />
     }
   `,
@@ -117,12 +125,16 @@ export class ProfileEventsComponent {
   /** Card layout: vertical (mobile) or horizontal (desktop). */
   readonly cardLayout = input<TimelineCardLayout>('vertical');
 
+  /** CTA button label to show in empty state (when items are empty && isOwnProfile). */
+  readonly emptyCta = input<string | null>(null);
+
   // ============================================
   // OUTPUTS
   // ============================================
 
   readonly eventClick = output<ProfileEvent>();
   readonly addEventClick = output<void>();
+  readonly emptyCtaClick = output<void>();
 
   // ============================================
   // EMPTY STATE CONFIGS

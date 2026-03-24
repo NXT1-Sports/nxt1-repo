@@ -202,11 +202,7 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   },
   {
     id: 'footer',
-    items: [
-      { id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' },
-      { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
-      { id: 'help', label: 'Help Center', icon: 'help', route: '/help-center' },
-    ],
+    items: [{ id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' }],
   },
   {
     id: 'follow-us',
@@ -406,14 +402,10 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
     ],
   },
 
-  // ── Footer (Usage, Settings, Help Center) ──
+  // ── Footer (Usage) ──
   {
     id: 'footer',
-    items: [
-      { id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' },
-      { id: 'settings', label: 'Settings', icon: 'settings', action: 'settings' as const },
-      { id: 'help', label: 'Help Center', icon: 'help', route: '/help-center' },
-    ],
+    items: [{ id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' }],
   },
 
   // ── Follow Us ──

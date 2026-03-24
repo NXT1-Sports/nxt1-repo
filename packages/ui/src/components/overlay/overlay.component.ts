@@ -331,6 +331,12 @@ export class NxtOverlayComponent implements OnDestroy {
   /** Whether to show the built-in close button */
   readonly showCloseButton = signal(false);
 
+  /**
+   * Optional guard called before backdrop-click or Escape dismissal.
+   * Set by NxtOverlayService when `canDismiss` is provided in OverlayConfig.
+   */
+  readonly canDismiss = signal<(() => boolean | Promise<boolean>) | undefined>(undefined);
+
   /** Visibility state — controls CSS animations */
   readonly visible = signal(false);
 
@@ -386,10 +392,11 @@ export class NxtOverlayComponent implements OnDestroy {
   // ============================================
 
   /** Backdrop click handler */
-  protected onBackdropClick(): void {
-    if (this.backdropDismiss()) {
-      this.dismissed.emit('backdrop');
-    }
+  protected async onBackdropClick(): Promise<void> {
+    if (!this.backdropDismiss()) return;
+    const guard = this.canDismiss();
+    if (guard && !(await guard())) return;
+    this.dismissed.emit('backdrop');
   }
 
   /** Close button handler */
@@ -398,10 +405,12 @@ export class NxtOverlayComponent implements OnDestroy {
   }
 
   /** Escape key handler (bound as arrow function for proper `this`) */
-  private readonly onKeyDown = (event: KeyboardEvent): void => {
+  private readonly onKeyDown = async (event: KeyboardEvent): Promise<void> => {
     if (event.key === 'Escape' && this.escDismiss()) {
       event.preventDefault();
       event.stopPropagation();
+      const guard = this.canDismiss();
+      if (guard && !(await guard())) return;
       this.dismissed.emit('escape');
     }
   };

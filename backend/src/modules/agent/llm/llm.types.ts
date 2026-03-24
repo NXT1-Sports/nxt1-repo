@@ -23,6 +23,21 @@ export const MODEL_CATALOGUE: Record<ModelTier, string> = {
 } as const;
 
 /**
+ * Ordered fallback chains per tier. When the primary model (index 0) fails
+ * with a non-transient error (e.g. 400 context-too-large, model unavailable),
+ * the service retries with the next model in the chain.
+ *
+ * Index 0 is always the MODEL_CATALOGUE primary. Subsequent entries are
+ * progressively cheaper / smaller models that are more likely to succeed.
+ */
+export const MODEL_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
+  fast: ['anthropic/claude-3.5-haiku', 'openai/gpt-4o-mini'],
+  balanced: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'anthropic/claude-3.5-haiku'],
+  reasoning: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'anthropic/claude-3.5-haiku'],
+  creative: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o'],
+} as const;
+
+/**
  * Dedicated image generation model — separate from text tiers because
  * image models require different request shapes (modalities, extended timeout).
  * Must match the model used in the legacy nxt1 project (functions/).

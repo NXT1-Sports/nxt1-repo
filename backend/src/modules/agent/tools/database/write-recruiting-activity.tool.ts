@@ -17,6 +17,8 @@ import { BaseTool, type ToolResult } from '../base.tool.js';
 import { getCacheService } from '../../../../services/cache.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
+import { normalizeCollegeName } from './dedup-utils.js';
+import { logger } from '../../../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -201,6 +203,20 @@ export class WriteRecruitingActivityTool extends BaseTool {
 
       if (written > 0) {
         await batch.commit();
+        logger.info('[WriteRecruitingActivity] Recruiting activities written', {
+          userId,
+          sport: sportId,
+          source,
+          written,
+          skipped,
+        });
+      } else {
+        logger.info('[WriteRecruitingActivity] No new recruiting activities to write', {
+          userId,
+          sport: sportId,
+          source,
+          skipped,
+        });
       }
 
       // Cache invalidation
@@ -232,6 +248,12 @@ export class WriteRecruitingActivityTool extends BaseTool {
         },
       };
     } catch (err) {
+      logger.error('[WriteRecruitingActivity] Failed to write recruiting activities', {
+        userId,
+        sport: targetSport,
+        source,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to write recruiting activities',
@@ -242,17 +264,15 @@ export class WriteRecruitingActivityTool extends BaseTool {
   // ─── Utilities ──────────────────────────────────────────────────────────
 
   /**
-   * Dedup key: category + collegeName (normalized) + sport + date.
-   * Uses date (or 'undated') to distinguish same-college multi-year interactions.
-   * Prevents re-importing the same offer from repeated scrapes.
+   * Dedup key: category + collegeName (aggressively normalized) + sport + date.
+   * Uses {@link normalizeCollegeName} to handle variations like
+   * "The Ohio State University" vs "Ohio State".
    */
   private dedupeKey(data: Record<string, unknown>): string {
     const category = String(data['category'] ?? '')
       .toLowerCase()
       .trim();
-    const college = String(data['collegeName'] ?? 'unknown')
-      .toLowerCase()
-      .trim();
+    const college = normalizeCollegeName(String(data['collegeName'] ?? ''));
     const sport = String(data['sport'] ?? '')
       .toLowerCase()
       .trim();

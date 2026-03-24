@@ -434,14 +434,12 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         firebaseUser.email || firebaseUser.providerData?.[0]?.email || userProfile?.email || '';
 
       // Create AuthUser from Firebase + backend data (minimal auth state)
-      // ⭐ profileImg: ALWAYS prefer backend profileImg (source of truth).
-      // Firebase photoURL is only used as initial fallback for brand-new social sign-ups
-      // before they have a backend profile.
+      // ⭐ profileImg: ONLY use backend profileImgs — never fall back to Firebase/Google photoURL.
       const authUser: AuthUser = {
         uid: firebaseUser.uid,
         email: userEmail,
         displayName: firebaseUser.displayName ?? userDisplayName ?? 'User',
-        profileImg: userProfile?.profileImgs?.[0] ?? firebaseUser.photoURL ?? undefined,
+        profileImg: userProfile?.profileImgs?.[0] ?? undefined,
         role: this.profileService.role() ?? 'athlete',
         isPremium: this.profileService.isPremium(),
         hasCompletedOnboarding,

@@ -97,12 +97,6 @@ export const routes: Routes = [
         pathMatch: 'prefix',
       },
 
-      // Brand - Brand Vault (raw materials for Agent X)
-      {
-        path: 'brand',
-        loadChildren: () => import('./features/brand/brand.routes').then((m) => m.BRAND_ROUTES),
-      },
-
       // Activity Tab - Notifications & Activity Feed
       {
         path: 'activity',

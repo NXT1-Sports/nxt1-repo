@@ -17,7 +17,7 @@
  */
 
 import { InjectionToken, Signal } from '@angular/core';
-import type { ConnectedEmail, UserRole } from '@nxt1/core';
+import type { ConnectedEmail, ConnectedSource, UserRole } from '@nxt1/core';
 
 // ============================================
 // USER TYPES
@@ -42,6 +42,10 @@ export interface AppUser {
   username?: string | null;
   referralCode?: string | null;
   connectedEmails?: ConnectedEmail[];
+  /** Sport names extracted from user's SportProfile[] */
+  selectedSports?: string[];
+  /** Connected sources for the link drop step */
+  connectedSources?: ConnectedSource[];
 }
 
 /**

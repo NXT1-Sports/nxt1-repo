@@ -24,6 +24,51 @@ import type { DistilledProfile, DistilledTeam } from './distillers/index.js';
 import type { PageStructuredData } from './page-data.types.js';
 import { OpenRouterService } from '../../llm/openrouter.service.js';
 import { logger } from '../../../../utils/logger.js';
+import { getCacheService } from '../../../../services/cache.service.js';
+import { createHash } from 'crypto';
+
+// ─── Scrape Cooldown ────────────────────────────────────────────────────────
+
+/**
+ * Minimum interval between scrapes of the same URL (12 hours).
+ * Prevents runaway costs from repeated automated scrapes of the same profile.
+ *
+ * The agent can bypass this with `force: true` for user-initiated manual refreshes.
+ */
+const SCRAPE_COOLDOWN_MS = 12 * 60 * 60 * 1000; // 12 hours
+const SCRAPE_COOLDOWN_PREFIX = 'scrape:cooldown:';
+
+/** SHA-256 hash of the URL, truncated to 16 chars for compact cache keys. */
+function urlCooldownKey(url: string): string {
+  const hash = createHash('sha256').update(url.toLowerCase().trim()).digest('hex').slice(0, 16);
+  return `${SCRAPE_COOLDOWN_PREFIX}${hash}`;
+}
+
+/**
+ * Check if a URL was scraped recently (within cooldown window).
+ * Returns the ISO timestamp of last scrape if still in cooldown, else null.
+ */
+async function checkScrapeCooldown(url: string): Promise<string | null> {
+  try {
+    const cache = getCacheService();
+    const val = await cache.get<string>(urlCooldownKey(url));
+    return val ?? null;
+  } catch {
+    return null; // If cache is unavailable, allow the scrape
+  }
+}
+
+/** Record that a URL was just scraped (sets cooldown). */
+async function setScrapeCooldown(url: string): Promise<void> {
+  try {
+    const cache = getCacheService();
+    await cache.set(urlCooldownKey(url), new Date().toISOString(), {
+      ttl: SCRAPE_COOLDOWN_MS / 1000, // Redis TTL in seconds
+    });
+  } catch {
+    // Best-effort — don't block scraping if cache write fails
+  }
+}
 
 // ─── Structured Data Enrichment ─────────────────────────────────────────────
 
@@ -198,6 +243,11 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
         type: 'string',
         description: 'The full URL of the athlete profile to scrape.',
       },
+      force: {
+        type: 'boolean',
+        description:
+          'Set to true to bypass the 12-hour scrape cooldown. Use only for user-initiated manual refreshes, not automated syncs.',
+      },
     },
     required: ['url'],
   } as const;
@@ -231,6 +281,45 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
     }
 
     const cleanUrl = url.trim();
+    const force = input['force'] === true;
+
+    // ── Cooldown check (cost control) ─────────────────────────────────
+    if (!force) {
+      const lastScrapedAt = await checkScrapeCooldown(cleanUrl);
+      if (lastScrapedAt) {
+        // Check if we have a cached distilled result to return
+        const cached = getCachedScrapeResult(cleanUrl);
+        if (cached) {
+          const index = buildProfileIndex(cached.profile);
+          return {
+            success: true,
+            data: {
+              mode: 'distilled',
+              platform: index.platform,
+              url: cleanUrl,
+              faviconUrl: null,
+              index: index.summary,
+              availableSections: index.availableSections,
+              cooldown: true,
+              lastScrapedAt,
+              instructions:
+                'This URL was scraped recently (within 12h cooldown). Returning cached index. ' +
+                'Use `read_distilled_section` to access cached data. ' +
+                'Pass `force: true` to bypass the cooldown for a manual refresh.',
+            },
+          };
+        }
+
+        logger.info(
+          '[ScrapeAndIndex] URL in cooldown, no cached result available — allowing scrape',
+          {
+            url: cleanUrl,
+            lastScrapedAt,
+          }
+        );
+        // Fall through to scrape — cooldown exists but in-memory cache expired
+      }
+    }
 
     try {
       // ── Step 1: Scrape the page ─────────────────────────────────────
@@ -298,6 +387,9 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
             expiry: Date.now() + CACHE_TTL_MS,
           });
 
+          // Record cooldown so the same URL isn't re-scraped within 12h
+          await setScrapeCooldown(cleanUrl);
+
           const index = buildProfileIndex(enriched);
 
           return {
@@ -327,6 +419,9 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
         rawStructuredData: null,
         expiry: Date.now() + CACHE_TTL_MS,
       });
+
+      // Record cooldown even for raw fallback — the page was still fetched
+      await setScrapeCooldown(cleanUrl);
 
       return {
         success: true,

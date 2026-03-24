@@ -26,6 +26,14 @@ export { NxtOverlayComponent } from './overlay.component';
 // Service
 export { NxtOverlayService } from './overlay.service';
 
+// Shared surface components — parallel to NxtSheetHeaderComponent / NxtSheetFooterComponent
+export {
+  NxtModalHeaderComponent,
+  type ModalHeaderClosePosition,
+  type ModalHeaderIconShape,
+} from './modal-header.component';
+export { NxtModalFooterComponent, type ModalFooterVariant } from './modal-footer.component';
+
 // Types
 export type {
   OverlayConfig,
@@ -33,4 +41,6 @@ export type {
   OverlayResult,
   OverlayDismissReason,
   OverlaySize,
+  OverlayHeaderConfig,
+  OverlayFooterConfig,
 } from './overlay.types';

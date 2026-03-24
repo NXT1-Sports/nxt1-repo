@@ -12,24 +12,29 @@
 
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { NxtIconComponent } from '../icon';
+import { HapticButtonDirective } from '../../services/haptics/haptic.directive';
 
 @Component({
   selector: 'nxt1-media-gallery',
   standalone: true,
-  imports: [NxtIconComponent],
+  imports: [NxtIconComponent, HapticButtonDirective],
   template: `
     <section class="nxt1-media-section">
       <div class="nxt1-media-row">
         @for (image of images(); track image; let i = $index) {
           <article class="nxt1-media-tile" [class.nxt1-media-tile--primary]="i === 0">
             <img [src]="image" [alt]="'Image ' + (i + 1)" class="nxt1-media-img" />
+            @if (i === 0) {
+              <span class="nxt1-media-primary-badge">Primary</span>
+            }
             <button
               type="button"
               class="nxt1-media-remove"
               aria-label="Remove image"
+              nxtHaptic="medium"
               (click)="remove.emit(i)"
             >
-              <nxt1-icon name="trash" [size]="12" />
+              <nxt1-icon name="trash" [size]="14" />
             </button>
           </article>
         }
@@ -75,9 +80,9 @@ import { NxtIconComponent } from '../icon';
         width: var(--nxt1-spacing-20);
         height: var(--nxt1-spacing-24);
         border-radius: var(--nxt1-borderRadius-lg);
-        overflow: hidden;
         border: 1px solid var(--nxt1-color-border-default);
         background: var(--nxt1-color-surface-200);
+        /* overflow must NOT be hidden on tile — it clips the delete button */
       }
 
       .nxt1-media-tile--primary {
@@ -89,6 +94,7 @@ import { NxtIconComponent } from '../icon';
         height: 100%;
         display: block;
         object-fit: cover;
+        border-radius: var(--nxt1-borderRadius-lg);
       }
 
       .nxt1-media-remove {
@@ -96,24 +102,70 @@ import { NxtIconComponent } from '../icon';
         -webkit-appearance: none;
         border: none;
         position: absolute;
-        top: var(--nxt1-spacing-1-5);
-        right: var(--nxt1-spacing-1-5);
+        top: var(--nxt1-spacing-1);
+        right: var(--nxt1-spacing-1);
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: var(--nxt1-spacing-5);
-        height: var(--nxt1-spacing-5);
+        width: 26px;
+        height: 26px;
         border-radius: var(--nxt1-borderRadius-full);
-        background: var(--nxt1-color-bg-overlay);
-        color: var(--nxt1-color-text-primary);
+        background: rgba(220, 38, 38, 0.9);
+        color: #fff;
         cursor: pointer;
         padding: 0;
+        z-index: 2;
         -webkit-tap-highlight-color: transparent;
+        opacity: 1;
+        transition:
+          opacity 150ms ease,
+          transform 150ms ease,
+          background 150ms ease;
+      }
+
+      /* Desktop (hover-capable): hide by default, show on tile hover */
+      @media (hover: hover) {
+        .nxt1-media-remove {
+          opacity: 0;
+        }
+
+        .nxt1-media-tile:hover .nxt1-media-remove {
+          opacity: 1;
+        }
+      }
+
+      .nxt1-media-remove:hover {
+        background: rgba(220, 38, 38, 1);
+        transform: scale(1.1);
+      }
+
+      .nxt1-media-remove:active {
+        transform: scale(0.92);
+      }
+
+      .nxt1-media-primary-badge {
+        position: absolute;
+        bottom: var(--nxt1-spacing-1-5);
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 2;
+        background: rgba(0, 0, 0, 0.65);
+        color: #fff;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: 9px;
+        font-weight: var(--nxt1-fontWeight-bold);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        padding: 2px 6px;
+        border-radius: var(--nxt1-borderRadius-full);
+        white-space: nowrap;
+        pointer-events: none;
       }
 
       .nxt1-media-add {
         appearance: none;
         -webkit-appearance: none;
+        overflow: hidden;
         display: flex;
         flex-direction: column;
         align-items: center;

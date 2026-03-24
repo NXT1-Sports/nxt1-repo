@@ -227,13 +227,6 @@ export const DEFAULT_DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] 
       { id: 'manage-team', label: 'Manage Team', icon: 'users', route: '/manage-team' },
     ],
   },
-  {
-    id: 'footer',
-    items: [
-      { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
-      { id: 'help', label: 'Help & Support', icon: 'help', route: '/help' },
-    ],
-  },
 ];
 
 // ============================================
@@ -259,10 +252,6 @@ export const LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
       { id: 'colleges', label: 'Colleges', icon: 'graduationCap', route: '/colleges' },
       { id: 'teams', label: 'Teams', icon: 'users', route: '/teams' },
     ],
-  },
-  {
-    id: 'footer',
-    items: [{ id: 'help', label: 'Help & Support', icon: 'help', route: '/help' }],
   },
 ];
 
@@ -299,13 +288,6 @@ export const LOGGED_IN_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
       { id: 'analytics', label: 'Analytics', icon: 'barChart', route: '/analytics' },
       { id: 'xp', label: 'XP', icon: 'sparkles', route: '/xp' },
       { id: 'manage-team', label: 'Manage Team', icon: 'users', route: '/manage-team' },
-    ],
-  },
-  {
-    id: 'footer',
-    items: [
-      { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
-      { id: 'help', label: 'Help & Support', icon: 'help', route: '/help' },
     ],
   },
 ];

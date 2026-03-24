@@ -227,6 +227,12 @@ export class BrowserAuthService implements IAuthService {
         hasCompletedOnboarding,
         unicode: profile.unicode ?? undefined,
         connectedEmails,
+        selectedSports: Array.isArray(profile.sports)
+          ? profile.sports.map((s) => s.sport).filter(Boolean)
+          : undefined,
+        connectedSources: Array.isArray(profile.connectedSources)
+          ? profile.connectedSources
+          : undefined,
         createdAt:
           profile.createdAt instanceof Date
             ? profile.createdAt.toISOString()
