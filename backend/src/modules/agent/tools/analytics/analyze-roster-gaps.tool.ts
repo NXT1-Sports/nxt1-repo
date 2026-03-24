@@ -3,17 +3,18 @@
  * @module @nxt1/backend/modules/agent/tools/analytics
  *
  * Reads a team's roster from Firestore and returns a structured breakdown
- * of positional coverage, class-year distribution, and identified gaps.
- * The LLM uses this data to produce actionable recruiting recommendations.
+ * of positional coverage, graduation-year distribution, and identified gaps.
+ * The LLM uses this data to produce actionable recommendations for tryout
+ * planning, off-season development, and next-season roster building.
  *
- * Designed for:
- * - **Coaches / Directors** — Identifying where to focus recruiting efforts.
- * - **Recruiters** — Understanding program needs before outreach.
+ * Designed for high school and club sports workflows:
+ * - **HS / Club Coaches & Directors** — Identifying thin position groups,
+ *   planning tryouts, and prioritizing off-season player development.
  *
  * Data flow:
  * 1. Look up the team document to get roster member UIDs.
  * 2. Batch-read member profiles.
- * 3. Aggregate by position, class year, and measurables.
+ * 3. Aggregate by position, graduation year, and measurables.
  * 4. Return the structured summary for LLM analysis.
  */
 
@@ -52,15 +53,16 @@ export class AnalyzeRosterGapsTool extends BaseTool {
   readonly name = 'analyze_roster_gaps';
 
   readonly description =
-    'Reads a team roster and produces a structured breakdown of positional depth, ' +
-    'class-year distribution, and roster composition.\n\n' +
+    'Reads a high school or club team roster and produces a structured breakdown ' +
+    'of positional depth, graduation-year distribution, and roster composition.\n\n' +
     'Use this when a coach or director asks about roster needs, depth chart gaps, ' +
-    'or where to focus recruiting efforts. After receiving the data, synthesize it ' +
-    'into actionable recommendations prioritized by urgency.\n\n' +
+    'or where to focus tryout and development efforts. After receiving the data, ' +
+    'synthesize it into actionable recommendations prioritized by urgency — e.g. ' +
+    '"You have only 1 goalkeeper graduating this year, but zero backup setters."\n\n' +
     'Parameters:\n' +
     '- teamId (required): Firestore document ID of the team.\n' +
     '- sport (required): Sport key (e.g. "football", "basketball").\n' +
-    '- graduatingYear (optional): Class year to consider as graduating/leaving. Defaults to current year.';
+    '- graduatingYear (optional): Graduation year to flag as departing seniors. Defaults to current year.';
 
   readonly parameters = {
     type: 'object',
@@ -76,7 +78,7 @@ export class AnalyzeRosterGapsTool extends BaseTool {
       graduatingYear: {
         type: 'number',
         description:
-          'Class year to treat as graduating (players leaving the roster). ' +
+          'Graduation year to flag as departing seniors (players leaving the roster). ' +
           'Defaults to the current calendar year.',
       },
     },

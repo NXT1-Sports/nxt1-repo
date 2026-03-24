@@ -2,21 +2,21 @@
  * @fileoverview Build Recruiting Board Tool — Prospect pipeline management
  * @module @nxt1/backend/modules/agent/tools/analytics
  *
- * Creates or updates a recruiting board (prospect pipeline) in Firestore for a
- * coach or director. Each board is a prioritized list of prospects with status
- * tracking, fit scores, and notes.
+ * Creates or updates a recruiting board (prospect pipeline) in Firestore for
+ * a high school or club coach/director. Each board is a prioritized list of
+ * athletes the coach is tracking for their team, with status tracking and notes.
  *
- * Designed for:
- * - **Coaches / Directors** — Managing their recruiting pipeline and prospect tracking.
- * - **Recruiters** — Building and maintaining prospect boards for programs.
+ * Designed for high school and club sports workflows:
+ * - **HS / Club Coaches & Directors** — Tracking athletes they want to recruit
+ *   to their program via tryouts, showcases, camps, or direct invitation.
  *
  * Storage: `Teams/{teamId}/recruitingBoards/{boardId}`
  *
  * Board operations:
- * - "create"  — Create a new board with an initial set of prospects.
- * - "add"     — Add prospects to an existing board.
- * - "update"  — Update status/notes for a prospect on the board.
- * - "remove"  — Remove a prospect from the board.
+ * - "create"  — Create a new board with an initial set of athletes.
+ * - "add"     — Add athletes to an existing board.
+ * - "update"  — Update status/notes for an athlete on the board.
+ * - "remove"  — Remove an athlete from the board.
  * - "read"    — Read the current board state.
  */
 
@@ -33,13 +33,12 @@ const MAX_BOARD_NAME_LENGTH = 100;
 const MAX_NOTES_LENGTH = 2000;
 
 const VALID_STATUSES = [
-  'prospect',
+  'scouted',
   'contacted',
-  'interested',
-  'visited',
-  'offered',
-  'committed',
-  'signed',
+  'tryout_invited',
+  'evaluated',
+  'rostered',
+  'waitlisted',
   'passed',
 ] as const;
 
@@ -69,14 +68,14 @@ export class BuildRecruitingBoardTool extends BaseTool {
   readonly name = 'build_recruiting_board';
 
   readonly description =
-    'Creates, reads, or updates a recruiting prospect board for a team.\n\n' +
-    'A recruiting board is a prioritized pipeline of prospects with status ' +
-    'tracking (prospect → contacted → interested → visited → offered → committed → signed).\n\n' +
+    'Creates, reads, or updates a recruiting board for a high school or club team.\n\n' +
+    'A recruiting board is a prioritized list of athletes a coach is tracking ' +
+    'with status pipeline: scouted → contacted → tryout_invited → evaluated → rostered.\n\n' +
     'Operations:\n' +
-    '- "create" — Create a new board with a name and optional initial prospects.\n' +
-    '- "add" — Add one or more prospects to an existing board.\n' +
-    '- "update" — Update status, priority, or notes for a prospect.\n' +
-    '- "remove" — Remove a prospect from the board.\n' +
+    '- "create" — Create a new board with a name and optional initial athletes.\n' +
+    '- "add" — Add one or more athletes to an existing board.\n' +
+    '- "update" — Update status, priority, or notes for an athlete.\n' +
+    '- "remove" — Remove an athlete from the board.\n' +
     '- "read" — Read the current board state.\n\n' +
     'Parameters:\n' +
     '- teamId (required): Firestore ID of the team.\n' +
@@ -84,8 +83,8 @@ export class BuildRecruitingBoardTool extends BaseTool {
     '- boardId (optional): Required for add/update/remove/read. Omit for create.\n' +
     '- boardName (optional): Name for a new board (create only).\n' +
     '- sport (optional): Sport key for the board (create only).\n' +
-    '- prospects (optional): Array of prospect objects for create/add.\n' +
-    '- prospect (optional): Single prospect object for update/remove.';
+    '- prospects (optional): Array of athlete objects for create/add.\n' +
+    '- prospect (optional): Single athlete object for update/remove.';
 
   readonly parameters = {
     type: 'object',
@@ -449,9 +448,7 @@ export class BuildRecruitingBoardTool extends BaseTool {
         name: String(item['name'] ?? ''),
         position: String(item['position'] ?? 'Unknown'),
         classOf: typeof item['classOf'] === 'number' ? item['classOf'] : null,
-        status: this.isValidStatus(item['status'])
-          ? (item['status'] as ProspectStatus)
-          : 'prospect',
+        status: this.isValidStatus(item['status']) ? (item['status'] as ProspectStatus) : 'scouted',
         priority: typeof item['priority'] === 'number' ? item['priority'] : 99,
         notes: typeof item['notes'] === 'string' ? item['notes'].slice(0, MAX_NOTES_LENGTH) : '',
         addedAt: now,

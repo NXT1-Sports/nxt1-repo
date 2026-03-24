@@ -176,7 +176,7 @@ describe('BuildRecruitingBoardTool', () => {
           sport: 'football',
           prospects: [
             { userId: 'p1', name: 'John', position: 'QB', status: 'contacted', priority: 1 },
-            { userId: 'p2', name: 'Jane', position: 'WR', status: 'prospect', priority: 2 },
+            { userId: 'p2', name: 'Jane', position: 'WR', status: 'scouted', priority: 2 },
           ],
         },
       });

@@ -6,9 +6,10 @@
  * structured scout report grading Physical, Technical, Mental, and Potential
  * dimensions on a 1–100 scale.
  *
- * Designed for:
- * - **Athletes** — Self-assessment and college-readiness check.
- * - **Coaches / Directors** — Prospect evaluation and roster decisions.
+ * Designed for high school and club sports workflows:
+ * - **Athletes** — Self-assessment, development tracking, and recruiting profile review.
+ * - **HS / Club Coaches & Directors** — Evaluating their own athletes' progress,
+ *   preparing scouting reports for showcases, and supporting recruiting visibility.
  *
  * The tool gathers raw data; the LLM synthesizes the narrative evaluation.
  * This keeps the tool deterministic (pure data read) while leveraging the
@@ -31,13 +32,14 @@ export class GenerateScoutReportTool extends BaseTool {
   readonly name = 'generate_scout_report';
 
   readonly description =
-    'Reads an athlete profile, combine metrics, and season stats from the database ' +
-    'to compile the raw data needed for a structured scout report.\n\n' +
+    'Reads a high school or club athlete profile, combine metrics, and season stats ' +
+    'from the database to compile the raw data needed for a structured scout report.\n\n' +
     'Returns profile identity, physical measurables, verified stats, awards, ' +
     'and team history so you can generate a scout report with Physical / Technical / ' +
     'Mental / Potential scores (1–100).\n\n' +
     'Use this tool BEFORE writing a scout report so you have verified data to cite. ' +
-    'After receiving the data, synthesize it into the standard scout report format.\n\n' +
+    'Useful for athlete self-assessments, coach evaluations, showcase prep, and ' +
+    'building a recruiting profile that stands out to college programs.\n\n' +
     'Parameters:\n' +
     '- userId (required): Firebase UID of the athlete to evaluate.\n' +
     '- sport (required): Sport key (e.g. "football", "basketball").\n' +

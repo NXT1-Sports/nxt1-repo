@@ -1,5 +1,5 @@
 /**
- * @fileoverview Compare Athletes Tool — Side-by-side prospect comparison
+ * @fileoverview Compare Athletes Tool — Side-by-side athlete comparison
  * @module @nxt1/backend/modules/agent/tools/analytics
  *
  * Reads two athlete profiles from Firestore and returns a structured
@@ -7,10 +7,11 @@
  * and awards. The LLM then uses this data to produce a narrative
  * comparison with recommendations.
  *
- * Designed for:
- * - **Coaches / Directors** — Evaluating which prospect is the better fit.
- * - **Athletes** — Understanding how they compare to peers/competitors.
- * - **Recruiters** — Building shortlists and prospect boards.
+ * Designed for high school and club sports workflows:
+ * - **HS / Club Coaches & Directors** — Comparing athletes on their roster
+ *   for lineup decisions, depth chart planning, and development priorities.
+ * - **Athletes** — Understanding how they stack up against teammates or
+ *   competitors at showcases and camps.
  */
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
@@ -43,7 +44,9 @@ export class CompareAthletesTool extends BaseTool {
     'Reads two athlete profiles from the database and returns a structured ' +
     'side-by-side comparison of identity, measurables, sport data, stats, ' +
     'academics, and awards.\n\n' +
-    'Use this when a coach or athlete wants to compare two prospects head-to-head. ' +
+    'Use this when a high school or club coach wants to compare two athletes ' +
+    'for lineup decisions, depth chart planning, or development tracking. ' +
+    'Also useful when an athlete wants to benchmark against a peer or competitor. ' +
     'After receiving the comparison data, synthesize it into a formatted table ' +
     'with analysis and a recommendation.\n\n' +
     'Parameters:\n' +

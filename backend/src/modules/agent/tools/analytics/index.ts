@@ -2,14 +2,15 @@
  * @fileoverview Analytics Tools
  * @module @nxt1/backend/modules/agent/tools/analytics
  *
- * High-intent tools for athlete evaluation, prospect comparison,
- * roster analysis, and recruiting pipeline management.
+ * High-intent tools for athlete evaluation, comparison, roster analysis,
+ * and recruiting pipeline management — built for high school and club
+ * sports workflows.
  *
- * These tools serve both athlete-side and coach/director-side workflows:
+ * These tools serve both athlete-side and HS/club coach/director-side workflows:
  * - GenerateScoutReportTool  — Structured athlete evaluation data
- * - CompareAthletesTool      — Side-by-side prospect comparison
+ * - CompareAthletesTool      — Side-by-side athlete comparison
  * - AnalyzeRosterGapsTool    — Team depth chart gap analysis
- * - BuildRecruitingBoardTool — Prospect pipeline CRUD
+ * - BuildRecruitingBoardTool — Athlete tracking pipeline CRUD
  */
 
 export { GenerateScoutReportTool } from './generate-scout-report.tool.js';
