@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, computed, output } from '@angular/core';
 import { LOGO_PATHS } from '@nxt1/design-tokens/assets';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';
@@ -102,69 +102,90 @@ export const MOCK_RANKINGS: RankingSource[] = [
   imports: [NxtIconComponent, NxtImageComponent],
   template: `
     <section class="rankings-shell" aria-label="Recruiting rankings">
-      <div class="rankings-grid">
-        @for (source of rankings(); track source.id) {
-          <article class="ranking-card">
-            <div class="ranking-card__header">
-              <div class="ranking-card__source">
-                <nxt1-image
-                  class="ranking-card__logo"
-                  [src]="source.logoUrl"
-                  [alt]="source.name + ' logo'"
-                  [width]="24"
-                  [height]="24"
-                  variant="avatar"
-                  fit="contain"
-                  [showPlaceholder]="false"
-                />
-                <span class="ranking-card__name">{{ source.name }}</span>
+      @if (rankings().length === 0) {
+        <div class="rankings-empty" role="status">
+          <div class="rankings-empty__icon" aria-hidden="true">
+            <nxt1-icon name="trophy" [size]="48" />
+          </div>
+          <h3 class="rankings-empty__title">No Rankings</h3>
+          <p class="rankings-empty__desc">
+            @if (isOwnProfile()) {
+              Your rankings from scouting services will appear here.
+            } @else {
+              Rankings from scouting services will appear here.
+            }
+          </p>
+          @if (isOwnProfile()) {
+            <button class="rankings-empty__cta" (click)="addRankingClick.emit()">
+              Add Ranking
+            </button>
+          }
+        </div>
+      } @else {
+        <div class="rankings-grid">
+          @for (source of rankings(); track source.id) {
+            <article class="ranking-card">
+              <div class="ranking-card__header">
+                <div class="ranking-card__source">
+                  <nxt1-image
+                    class="ranking-card__logo"
+                    [src]="source.logoUrl"
+                    [alt]="source.name + ' logo'"
+                    [width]="24"
+                    [height]="24"
+                    variant="avatar"
+                    fit="contain"
+                    [showPlaceholder]="false"
+                  />
+                  <span class="ranking-card__name">{{ source.name }}</span>
+                </div>
+
+                @if (source.stars > 0) {
+                  <div class="ranking-card__stars" [attr.aria-label]="source.stars + ' stars'">
+                    @for (star of [1, 2, 3, 4, 5]; track star) {
+                      <nxt1-icon
+                        name="star"
+                        [class.star--filled]="star <= source.stars"
+                        [class.star--empty]="star > source.stars"
+                        size="14"
+                      />
+                    }
+                    <span class="ranking-card__star-number">{{ source.stars.toFixed(1) }}</span>
+                  </div>
+                }
               </div>
 
-              @if (source.stars > 0) {
-                <div class="ranking-card__stars" [attr.aria-label]="source.stars + ' stars'">
-                  @for (star of [1, 2, 3, 4, 5]; track star) {
-                    <nxt1-icon
-                      name="star"
-                      [class.star--filled]="star <= source.stars"
-                      [class.star--empty]="star > source.stars"
-                      size="14"
-                    />
-                  }
-                  <span class="ranking-card__star-number">{{ source.stars.toFixed(1) }}</span>
+              <div class="ranking-card__ranks">
+                <div class="rank-item">
+                  <span class="rank-item__label">NATL</span>
+                  <span class="rank-item__value">
+                    {{ source.nationalRank ? '#' + source.nationalRank : '--' }}
+                  </span>
+                </div>
+                <div class="rank-item">
+                  <span class="rank-item__label">STATE</span>
+                  <span class="rank-item__value">
+                    {{ source.stateRank ? '#' + source.stateRank : '--' }}
+                  </span>
+                </div>
+                <div class="rank-item">
+                  <span class="rank-item__label">POS</span>
+                  <span class="rank-item__value">
+                    {{ source.positionRank ? '#' + source.positionRank : '--' }}
+                  </span>
+                </div>
+              </div>
+
+              @if (source.score !== null) {
+                <div class="ranking-card__footer">
+                  <span class="ranking-card__score-label">Score</span>
+                  <span class="ranking-card__score-val">{{ source.score }}</span>
                 </div>
               }
-            </div>
-
-            <div class="ranking-card__ranks">
-              <div class="rank-item">
-                <span class="rank-item__label">NATL</span>
-                <span class="rank-item__value">
-                  {{ source.nationalRank ? '#' + source.nationalRank : '--' }}
-                </span>
-              </div>
-              <div class="rank-item">
-                <span class="rank-item__label">STATE</span>
-                <span class="rank-item__value">
-                  {{ source.stateRank ? '#' + source.stateRank : '--' }}
-                </span>
-              </div>
-              <div class="rank-item">
-                <span class="rank-item__label">POS</span>
-                <span class="rank-item__value">
-                  {{ source.positionRank ? '#' + source.positionRank : '--' }}
-                </span>
-              </div>
-            </div>
-
-            @if (source.score !== null) {
-              <div class="ranking-card__footer">
-                <span class="ranking-card__score-label">Score</span>
-                <span class="ranking-card__score-val">{{ source.score }}</span>
-              </div>
-            }
-          </article>
-        }
-      </div>
+            </article>
+          }
+        </div>
+      }
     </section>
   `,
   styles: [
@@ -177,6 +198,67 @@ export const MOCK_RANKINGS: RankingSource[] = [
       .rankings-shell {
         display: grid;
         gap: var(--nxt1-spacing-4);
+      }
+
+      .rankings-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 48px 24px;
+        text-align: center;
+      }
+
+      .rankings-empty__icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 4px;
+
+        nxt1-icon {
+          color: var(--nxt1-color-text-tertiary);
+        }
+      }
+
+      .rankings-empty__title {
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--nxt1-color-text-primary);
+        margin: 16px 0 8px;
+      }
+
+      .rankings-empty__desc {
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--nxt1-color-text-secondary);
+        margin: 0;
+        max-width: 280px;
+      }
+
+      .rankings-empty__cta {
+        margin-top: 12px;
+        padding: 10px 24px;
+        background: var(--nxt1-color-primary);
+        border: none;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        color: #000;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s ease;
+
+        &:hover {
+          filter: brightness(1.1);
+        }
+
+        &:active {
+          filter: brightness(0.95);
+        }
       }
 
       .rankings-grid {
@@ -322,6 +404,9 @@ export const MOCK_RANKINGS: RankingSource[] = [
 export class ProfileRankingsComponent {
   private readonly profile = inject(ProfileService);
   protected readonly rankings = this.profile.rankings;
+  protected readonly isOwnProfile = this.profile.isOwnProfile;
+
+  readonly addRankingClick = output<void>();
 
   protected onSourceLogoError(event: Event, source: RankingSource): void {
     const image = event.target as HTMLImageElement | null;

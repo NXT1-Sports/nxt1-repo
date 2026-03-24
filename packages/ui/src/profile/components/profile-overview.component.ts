@@ -20,6 +20,7 @@ import {
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
+import { NxtPlatformIconComponent } from '../../components/platform-icon';
 import { NxtImageComponent } from '../../components/image';
 import { NxtTimelineComponent } from '../../components/timeline';
 import {
@@ -65,7 +66,13 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
 @Component({
   selector: 'nxt1-profile-overview',
   standalone: true,
-  imports: [NxtIconComponent, NxtImageComponent, NxtTimelineComponent, NxtHistoryTimelineComponent],
+  imports: [
+    NxtIconComponent,
+    NxtPlatformIconComponent,
+    NxtImageComponent,
+    NxtTimelineComponent,
+    NxtHistoryTimelineComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="madden-tab-section madden-overview" aria-labelledby="overview-heading">
@@ -92,9 +99,9 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                   class="madden-team-block madden-team-block--clickable"
                   role="button"
                   tabindex="0"
-                  (click)="onEditTeam()"
-                  (keydown.enter)="onEditTeam()"
-                  (keydown.space)="onEditTeam(); $event.preventDefault()"
+                  (click)="onTeamClick(team)"
+                  (keydown.enter)="onTeamClick(team)"
+                  (keydown.space)="onTeamClick(team); $event.preventDefault()"
                 >
                   @if (team.logoUrl) {
                     <nxt1-image
@@ -323,20 +330,12 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                   [attr.aria-label]="acct.label"
                 >
                   <span class="ov-connected-icon" [style.color]="acct.color">
-                    @if (acct.faviconUrl && acct.icon === 'link') {
-                      <img
-                        [src]="acct.faviconUrl"
-                        [alt]="acct.label + ' icon'"
-                        class="ov-connected-favicon"
-                        width="14"
-                        height="14"
-                        loading="lazy"
-                        referrerpolicy="no-referrer"
-                        (error)="onFaviconError($event)"
-                      />
-                    } @else {
-                      <nxt1-icon [name]="acct.icon" [size]="14" />
-                    }
+                    <nxt1-platform-icon
+                      [icon]="acct.icon"
+                      [faviconUrl]="acct.faviconUrl"
+                      [size]="14"
+                      [alt]="acct.label + ' icon'"
+                    />
                   </span>
                   <span class="ov-connected-label">{{ acct.label }}</span>
                   <span class="ov-connected-check">
@@ -362,8 +361,13 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                   points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
                 />
               </svg>
-              Agent X is your personal recruiting manager — connecting all your accounts in one
-              place so coaches see a complete, always up-to-date profile without the extra work.
+              @if (profile.isOwnProfile()) {
+                Agent X is your personal AI sports agent — connecting all your accounts in one place
+                so coaches see a complete, always up-to-date profile without the extra work.
+              } @else {
+                Agent X keeps {{ profile.user()?.firstName ?? 'this athlete' }}'s accounts connected
+                in one place — so you always see a complete, up-to-date profile.
+              }
             </p>
           </div>
         }
@@ -456,35 +460,33 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
       @if (activeSideTab() === 'awards') {
         <div class="ov-top-row ov-top-row--single">
           <div class="ov-section ov-section--profile">
-            <h3 class="ov-section-title ov-overview-title">Awards</h3>
+            @if (awardsTimelineItems().length > 0) {
+              <h3 class="ov-section-title ov-overview-title">Awards</h3>
+            }
             <nxt1-timeline
               [items]="awardsTimelineItems()"
               [isLoading]="profile.isLoading()"
               [isOwnProfile]="profile.isOwnProfile()"
               [emptyState]="awardsEmptyState"
+              [emptyCta]="profile.isOwnProfile() ? 'Add Award' : null"
               [dotOverrides]="awardsDotOverrides"
               cardLayout="horizontal"
               fallbackIcon="trophy"
+              (emptyCtaClick)="onAddAward()"
             />
           </div>
         </div>
       }
 
       @if (activeSideTab() === 'academic') {
-        <div class="ov-top-row">
+        <div class="ov-top-row ov-top-row--single">
           <div class="ov-section ov-section--profile">
-            <h3 class="ov-section-title ov-overview-title">Academic</h3>
-            @if (
-              !profile.user()?.gpa &&
-              !profile.user()?.sat &&
-              !profile.user()?.act &&
-              !profile.user()?.school?.name
-            ) {
+            @if (!profile.user()?.gpa && !profile.user()?.sat && !profile.user()?.act) {
               <div class="madden-empty">
                 <div class="madden-empty__icon" aria-hidden="true">
                   <nxt1-icon name="school-outline" [size]="40" />
                 </div>
-                <h3>No academic info yet</h3>
+                <h3>No Academic Info Yet</h3>
                 <p>
                   @if (profile.isOwnProfile()) {
                     Add GPA, test scores, and school details to strengthen your profile.
@@ -499,27 +501,26 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                 }
               </div>
             } @else {
-              <div class="madden-stat-group">
-                <div class="madden-stat-grid">
-                  @if (profile.user()?.gpa) {
-                    <div class="madden-stat-card">
-                      <span class="madden-stat-value">{{ profile.user()?.gpa }}</span>
-                      <span class="madden-stat-label">GPA</span>
-                    </div>
-                  }
-                  @if (profile.user()?.sat) {
-                    <div class="madden-stat-card">
-                      <span class="madden-stat-value">{{ profile.user()?.sat }}</span>
-                      <span class="madden-stat-label">SAT</span>
-                    </div>
-                  }
-                  @if (profile.user()?.act) {
-                    <div class="madden-stat-card">
-                      <span class="madden-stat-value">{{ profile.user()?.act }}</span>
-                      <span class="madden-stat-label">ACT</span>
-                    </div>
-                  }
-                </div>
+              <h3 class="ov-section-title ov-overview-title">Academic</h3>
+              <div class="acad-stats">
+                @if (profile.user()?.gpa) {
+                  <div class="acad-stat">
+                    <span class="acad-stat__value">{{ profile.user()?.gpa }}</span>
+                    <span class="acad-stat__label">GPA</span>
+                  </div>
+                }
+                @if (profile.user()?.sat) {
+                  <div class="acad-stat">
+                    <span class="acad-stat__value">{{ profile.user()?.sat }}</span>
+                    <span class="acad-stat__label">SAT</span>
+                  </div>
+                }
+                @if (profile.user()?.act) {
+                  <div class="acad-stat">
+                    <span class="acad-stat__value">{{ profile.user()?.act }}</span>
+                    <span class="acad-stat__label">ACT</span>
+                  </div>
+                }
               </div>
             }
           </div>
@@ -597,7 +598,12 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                       rel="noopener noreferrer"
                     >
                       <span class="contact-social-chip-icon" [style.color]="acct.color">
-                        <nxt1-icon [name]="acct.icon" [size]="16" />
+                        <nxt1-platform-icon
+                          [icon]="acct.icon"
+                          [faviconUrl]="acct.faviconUrl"
+                          [size]="16"
+                          [alt]="acct.label + ' icon'"
+                        />
                       </span>
                       <span class="contact-social-chip-handle">{{
                         acct.handle || acct.label
@@ -1196,83 +1202,87 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         display: flex;
         flex-direction: column;
         align-items: center;
+        justify-content: center;
+        padding: 48px 24px;
         text-align: center;
-        gap: 12px;
-        padding: 40px 20px;
-        color: var(--m-text-3);
       }
       .madden-empty h3 {
         font-size: 16px;
         font-weight: 700;
-        color: var(--m-text-2);
-        margin: 0;
+        color: var(--nxt1-color-text-primary);
+        margin: 16px 0 8px;
       }
       .madden-empty__icon {
         width: 80px;
         height: 80px;
         border-radius: 50%;
-        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
-        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-default);
         display: flex;
         align-items: center;
         justify-content: center;
         margin-bottom: 4px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.4));
+        color: var(--nxt1-color-text-tertiary);
       }
       .madden-empty p {
         font-size: 14px;
-        max-width: 320px;
-        margin: 0;
         line-height: 1.5;
+        color: var(--nxt1-color-text-secondary);
+        margin: 0;
+        max-width: 280px;
       }
       .madden-cta-btn {
-        padding: 10px 20px;
-        border-radius: 8px;
-        border: 1px solid var(--m-accent);
-        background: color-mix(in srgb, var(--m-accent) 12%, transparent);
-        color: var(--m-accent);
-        font-weight: 700;
+        margin-top: 12px;
+        padding: 10px 24px;
+        background: var(--nxt1-color-primary);
+        border: none;
+        border-radius: 9999px;
+        color: #000;
         font-size: 14px;
+        font-weight: 700;
         cursor: pointer;
-        transition:
-          background 0.15s ease,
-          transform 0.15s ease;
+        transition: all 0.2s ease;
       }
       .madden-cta-btn:hover {
-        background: color-mix(in srgb, var(--m-accent) 20%, transparent);
+        filter: brightness(1.1);
       }
       .madden-cta-btn:active {
-        transform: scale(0.97);
+        filter: brightness(0.95);
       }
 
       /* Stat grid (academic sub-section) */
-      .madden-stat-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      .acad-stats {
+        display: flex;
+        flex-wrap: wrap;
         gap: 10px;
+        margin-bottom: 4px;
       }
-      .madden-stat-card {
+      .acad-stat {
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 4px;
-        padding: 16px 12px;
+        justify-content: center;
+        width: 110px;
+        min-height: 80px;
+        padding: 14px 8px;
         border-radius: 10px;
         background: var(--m-surface);
         border: 1px solid var(--m-border);
+        flex-shrink: 0;
       }
-      .madden-stat-value {
-        font-size: 28px;
+      .acad-stat__value {
+        font-size: 24px;
         font-weight: 800;
         color: var(--m-text);
         line-height: 1;
+        margin-bottom: 5px;
       }
-      .madden-stat-label {
-        font-size: 12px;
+      .acad-stat__label {
+        font-size: 11px;
         font-weight: 600;
         color: var(--m-text-3);
         text-transform: uppercase;
-        letter-spacing: 0.06em;
+        letter-spacing: 0.07em;
       }
 
       /* Contact sub-section */
@@ -1368,6 +1378,13 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         display: flex;
         align-items: center;
         flex-shrink: 0;
+      }
+      .contact-social-chip-favicon {
+        display: block;
+        width: 16px;
+        height: 16px;
+        border-radius: 3px;
+        object-fit: contain;
       }
       .contact-social-chip-handle {
         font-size: 13px;
@@ -1572,7 +1589,8 @@ export class ProfileOverviewComponent implements OnDestroy {
   // ── Outputs ──
 
   readonly editProfileClick = output<void>();
-  readonly editTeamClick = output<void>();
+  readonly teamClick = output<ProfileTeamAffiliation>();
+  readonly addAwardClick = output<void>();
 
   // ── Trait label ──
 
@@ -1788,13 +1806,6 @@ export class ProfileOverviewComponent implements OnDestroy {
     }
   );
 
-  protected onFaviconError(event: Event): void {
-    const img = event.target;
-    if (img instanceof HTMLImageElement) {
-      img.style.display = 'none';
-    }
-  }
-
   // ── Awards ──
 
   protected readonly awardsEmptyState: Partial<TimelineEmptyConfig> = {
@@ -1902,12 +1913,16 @@ export class ProfileOverviewComponent implements OnDestroy {
     this.editProfileClick.emit();
   }
 
-  protected onEditTeam(): void {
-    this.editTeamClick.emit();
+  protected onTeamClick(team: ProfileTeamAffiliation): void {
+    this.teamClick.emit(team);
   }
 
   protected onEditContact(): void {
     // placeholder — edit contact functionality
+  }
+
+  protected onAddAward(): void {
+    this.addAwardClick.emit();
   }
 
   protected async onSyncNow(): Promise<void> {

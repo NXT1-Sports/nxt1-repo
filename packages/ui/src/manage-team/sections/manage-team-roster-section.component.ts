@@ -73,7 +73,7 @@ import { NxtAvatarComponent } from '../../components/avatar';
 
             <!-- Player Avatar -->
             <nxt1-avatar
-              [src]="player.photoUrl ?? null"
+              [src]="player.profileImgs?.[0] ?? null"
               [initials]="getInitials(player)"
               [size]="'md'"
             />

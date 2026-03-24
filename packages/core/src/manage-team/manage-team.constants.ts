@@ -11,7 +11,6 @@ import type {
   ManageTeamSection,
   ManageTeamSectionId,
   ManageTeamTabId,
-  IntegrationProvider,
   SponsorTier,
   StaffRole,
   TeamLevel,
@@ -64,12 +63,6 @@ export const MANAGE_TEAM_SECTIONS: Record<
     icon: 'ribbon-outline',
     description: 'Team sponsors & partners',
   },
-  integrations: {
-    id: 'integrations',
-    title: 'Integrations',
-    icon: 'link-outline',
-    description: 'Connect external data sources',
-  },
 } as const;
 
 /**
@@ -83,88 +76,6 @@ export const MANAGE_TEAM_TABS: readonly { id: ManageTeamTabId; label: string; ic
   { id: 'staff', label: 'Staff', icon: 'briefcase-outline' },
   { id: 'sponsors', label: 'Sponsors', icon: 'ribbon-outline' },
 ] as const;
-
-// ============================================
-// INTEGRATION PROVIDERS
-// ============================================
-
-/**
- * Supported integration provider configurations.
- */
-export const INTEGRATION_PROVIDERS: Record<
-  IntegrationProvider,
-  {
-    readonly name: string;
-    readonly logo: string;
-    readonly supportedTypes: readonly string[];
-    readonly description: string;
-    readonly urlPattern?: string;
-  }
-> = {
-  maxpreps: {
-    name: 'MaxPreps',
-    logo: 'maxpreps',
-    supportedTypes: ['schedule', 'stats', 'roster', 'rankings'],
-    description: 'Sync schedule, stats, and rankings from MaxPreps',
-    urlPattern: 'maxpreps.com',
-  },
-  hudl: {
-    name: 'Hudl',
-    logo: 'hudl',
-    supportedTypes: ['video', 'roster'],
-    description: 'Import highlights and roster from Hudl',
-    urlPattern: 'hudl.com',
-  },
-  gamechanger: {
-    name: 'GameChanger',
-    logo: 'gamechanger',
-    supportedTypes: ['schedule', 'stats', 'roster'],
-    description: 'Sync game data from GameChanger',
-    urlPattern: 'gc.com',
-  },
-  'scorebook-live': {
-    name: 'Scorebook Live',
-    logo: 'scorebook',
-    supportedTypes: ['schedule', 'stats'],
-    description: 'Live game stats and schedule sync',
-    urlPattern: 'scorebooklive.com',
-  },
-  sidearm: {
-    name: 'SIDEARM Sports',
-    logo: 'sidearm',
-    supportedTypes: ['schedule', 'roster', 'stats'],
-    description: 'College athletics data integration',
-    urlPattern: '',
-  },
-  ncsa: {
-    name: 'NCSA',
-    logo: 'ncsa',
-    supportedTypes: ['roster'],
-    description: 'Import recruit profiles from NCSA',
-    urlPattern: 'ncsasports.org',
-  },
-  'perfect-game': {
-    name: 'Perfect Game',
-    logo: 'perfectgame',
-    supportedTypes: ['rankings', 'stats'],
-    description: 'Baseball/softball rankings and stats',
-    urlPattern: 'perfectgame.org',
-  },
-  prepbaseballreport: {
-    name: 'Prep Baseball Report',
-    logo: 'pbr',
-    supportedTypes: ['rankings', 'stats'],
-    description: 'Baseball rankings and evaluations',
-    urlPattern: 'prepbaseballreport.com',
-  },
-  custom: {
-    name: 'Custom Link',
-    logo: 'link',
-    supportedTypes: ['all'],
-    description: 'Add a custom data source URL',
-    urlPattern: '',
-  },
-} as const;
 
 // ============================================
 // SPONSOR TIERS
@@ -334,13 +245,6 @@ export function getAllManageTeamSections(): readonly Omit<
   'fields' | 'completionPercent'
 >[] {
   return Object.values(MANAGE_TEAM_SECTIONS);
-}
-
-/**
- * Get integration provider config.
- */
-export function getIntegrationProvider(provider: IntegrationProvider) {
-  return INTEGRATION_PROVIDERS[provider];
 }
 
 /**

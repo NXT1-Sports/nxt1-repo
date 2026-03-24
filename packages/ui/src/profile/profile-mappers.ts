@@ -34,7 +34,7 @@ import type {
   RecruitingActivity,
   ProfileSeasonGameLog,
 } from '@nxt1/core';
-import { isTeamRole, isAthleteRole, USER_ROLES } from '@nxt1/core';
+import { isTeamRole, isAthleteRole, USER_ROLES, buildTeamSlug } from '@nxt1/core';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 /** Map a UserAward (User model) → ProfileAward (UI model). */
@@ -68,6 +68,7 @@ function mapTeamHistory(entry: TeamHistoryEntry): ProfileTeamAffiliation {
     name: entry.name,
     type: (entry.type as ProfileTeamType | undefined) ?? 'other',
     logoUrl: entry.logoUrl,
+    teamCode: buildTeamSlug(entry.name) || undefined,
     location,
     seasonRecord,
     wins: entry.record?.wins,
@@ -237,11 +238,8 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     ? user.connectedSources.map(mapConnectedSource)
     : undefined;
 
-  // ── Measurables / stats verification (from active sport's verification) ─────
-  // Prefer the new agnostic `verifications[]` array; fall back to deprecated fields.
+  // ── Stats verification (from active sport's verification) ───────────────────
   const sportVerif = activeSport?.verification;
-  const measurablesVerifiedBy = sportVerif?.measurablesVerifiedBy ?? undefined;
-  const measurablesVerifiedUrl = sportVerif?.measurablesVerifiedUrl ?? undefined;
   const statsVerifiedBy = sportVerif?.statsVerifiedBy ?? undefined;
   const statsVerifiedUrl = sportVerif?.statsVerifiedUrl ?? undefined;
 
@@ -253,9 +251,23 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
 
   // ── Academic data (top-level canonical, athlete.academics fallback) ────────
   const academics = user.academics ?? user.athlete?.academics;
-  const gpa = academics?.gpa !== undefined ? String(academics.gpa) : undefined;
-  const sat = academics?.satScore !== undefined ? String(academics.satScore) : undefined;
-  const act = academics?.actScore !== undefined ? String(academics.actScore) : undefined;
+  const rawGpa = academics?.gpa;
+  const gpa = (() => {
+    if (rawGpa == null) return undefined;
+    const n = parseFloat(String(rawGpa));
+    if (isNaN(n)) return undefined;
+    return n % 1 === 0 ? n.toFixed(1) : String(n);
+  })();
+
+  // Guard: reject null, undefined, NaN, and the literal string "null"/"NaN"
+  const safeScore = (v: unknown): string | undefined => {
+    if (v == null) return undefined;
+    const n = Number(v);
+    if (isNaN(n) || !isFinite(n)) return undefined;
+    return String(n);
+  };
+  const sat = safeScore(academics?.satScore);
+  const act = safeScore(academics?.actScore);
 
   // ── Role-derived fields ────────────────────────────────────────────────────
   const isRecruiterRole = user.role === USER_ROLES.RECRUITER;
@@ -322,8 +334,6 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     weight: user.weight,
 
     // Verification — deprecated flat fields (sport.verification)
-    measurablesVerifiedBy,
-    measurablesVerifiedUrl,
     statsVerifiedBy,
     statsVerifiedUrl,
 

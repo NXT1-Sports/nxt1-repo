@@ -29,6 +29,16 @@ export {
   type ManageTeamSheetResult,
 } from './manage-team-bottom-sheet.service';
 
+// Modal service (adaptive: bottom sheet on mobile, overlay on desktop)
+export {
+  ManageTeamModalService,
+  type ManageTeamModalOptions,
+  type ManageTeamModalResult,
+} from './manage-team-modal.service';
+
+// Web modal wrapper (desktop overlay)
+export { ManageTeamWebModalComponent } from './manage-team-web-modal.component';
+
 // Service
 export { ManageTeamService } from './manage-team.service';
 
@@ -47,8 +57,4 @@ export {
   ManageTeamStatsSectionComponent,
   ManageTeamStaffSectionComponent,
   ManageTeamSponsorsSectionComponent,
-  ManageTeamIntegrationsSectionComponent,
 } from './sections';
-
-// Mock data (for development/testing)
-export { MOCK_MANAGE_TEAM_FORM_DATA } from './manage-team.mock-data';

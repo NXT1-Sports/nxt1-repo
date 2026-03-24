@@ -12,4 +12,3 @@ export { ManageTeamScheduleSectionComponent } from './manage-team-schedule-secti
 export { ManageTeamStatsSectionComponent } from './manage-team-stats-section.component';
 export { ManageTeamStaffSectionComponent } from './manage-team-staff-section.component';
 export { ManageTeamSponsorsSectionComponent } from './manage-team-sponsors-section.component';
-export { ManageTeamIntegrationsSectionComponent } from './manage-team-integrations-section.component';

@@ -182,13 +182,6 @@ export class ManageTeamBottomSheetService {
   }
 
   /**
-   * Open sheet for managing integrations
-   */
-  async openIntegrations(teamId: string): Promise<ManageTeamSheetResult> {
-    return this.openSection(teamId, 'integrations');
-  }
-
-  /**
    * Open sheet for managing sponsors
    */
   async openSponsors(teamId: string): Promise<ManageTeamSheetResult> {

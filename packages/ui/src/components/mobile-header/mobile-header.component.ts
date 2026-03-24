@@ -149,7 +149,7 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
           }
 
           <!-- User Avatar (authenticated) -->
-          @if (user()) {
+          @if (config().showAvatar !== false && user()) {
             <button
               type="button"
               class="mobile-header__avatar-btn"

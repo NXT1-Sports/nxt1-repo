@@ -15,19 +15,14 @@ import { ProfileService } from '../profile.service';
   imports: [NxtIconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="madden-tab-section" aria-labelledby="academic-heading">
+    <section class="acad-section" aria-labelledby="academic-heading">
       <h2 id="academic-heading" class="sr-only">Academic Profile</h2>
-      @if (
-        !profile.user()?.gpa &&
-        !profile.user()?.sat &&
-        !profile.user()?.act &&
-        !profile.user()?.school?.name
-      ) {
+      @if (!profile.user()?.gpa && !profile.user()?.sat && !profile.user()?.act) {
         <div class="madden-empty">
           <div class="madden-empty__icon" aria-hidden="true">
             <nxt1-icon name="school-outline" [size]="40" />
           </div>
-          <h3>No academic info yet</h3>
+          <h3>No Academic Info Yet</h3>
           <p>
             @if (profile.isOwnProfile()) {
               Add GPA, test scores, and school details to strengthen your profile.
@@ -42,21 +37,29 @@ import { ProfileService } from '../profile.service';
           }
         </div>
       } @else {
-        <div class="madden-stat-group">
-          <div class="madden-stat-grid">
-            @if (profile.user()?.gpa) {
-              <div class="madden-stat-card">
-                <span class="madden-stat-value">{{ profile.user()?.gpa }}</span>
-                <span class="madden-stat-label">GPA</span>
-              </div>
-            }
-            @if (profile.user()?.act) {
-              <div class="madden-stat-card">
-                <span class="madden-stat-value">{{ profile.user()?.act }}</span>
-                <span class="madden-stat-label">ACT</span>
-              </div>
-            }
-          </div>
+        <div class="acad-row-label">
+          <nxt1-icon name="school-outline" [size]="14" class="acad-row-label__icon" />
+          <span>Academic Info</span>
+        </div>
+        <div class="acad-stats">
+          @if (profile.user()?.gpa) {
+            <div class="acad-stat">
+              <span class="acad-stat__value">{{ profile.user()?.gpa }}</span>
+              <span class="acad-stat__label">GPA</span>
+            </div>
+          }
+          @if (profile.user()?.sat) {
+            <div class="acad-stat">
+              <span class="acad-stat__value">{{ profile.user()?.sat }}</span>
+              <span class="acad-stat__label">SAT</span>
+            </div>
+          }
+          @if (profile.user()?.act) {
+            <div class="acad-stat">
+              <span class="acad-stat__value">{{ profile.user()?.act }}</span>
+              <span class="acad-stat__label">ACT</span>
+            </div>
+          }
         </div>
       }
     </section>
@@ -72,75 +75,104 @@ import { ProfileService } from '../profile.service';
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        text-align: center;
         padding: 48px 24px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
+        text-align: center;
       }
       .madden-empty h3 {
         font-size: 16px;
         font-weight: 700;
-        color: var(--m-text);
+        color: var(--nxt1-color-text-primary);
         margin: 16px 0 8px;
       }
       .madden-empty__icon {
         width: 80px;
         height: 80px;
         border-radius: 50%;
-        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
-        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-default);
         display: flex;
         align-items: center;
         justify-content: center;
         margin-bottom: 4px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.4));
+        color: var(--nxt1-color-text-tertiary);
       }
       .madden-empty p {
         font-size: 14px;
-        color: var(--m-text-2);
-        margin: 0 0 20px;
+        line-height: 1.5;
+        color: var(--nxt1-color-text-secondary);
+        margin: 0;
         max-width: 280px;
       }
       .madden-cta-btn {
-        background: var(--m-accent);
-        color: #000;
-        border: none;
-        border-radius: 999px;
+        margin-top: 12px;
         padding: 10px 24px;
+        background: var(--nxt1-color-primary);
+        border: none;
+        border-radius: 9999px;
+        color: #000;
         font-size: 14px;
         font-weight: 700;
         cursor: pointer;
-        transition: filter 0.15s;
+        transition: all 0.2s ease;
       }
       .madden-cta-btn:hover {
         filter: brightness(1.1);
       }
-
-      .madden-stat-group {
-        margin-bottom: 24px;
+      .madden-cta-btn:active {
+        filter: brightness(0.95);
       }
-      .madden-stat-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(120px, 160px));
+
+      /* ── SECTION LABEL ROW ── */
+      .acad-row-label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 12px;
+      }
+      .acad-row-label__icon {
+        color: var(--m-text-3);
+        flex-shrink: 0;
+      }
+      .acad-row-label span {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--m-text-3);
+        text-transform: uppercase;
+        letter-spacing: 0.09em;
+      }
+
+      /* ── STATS ROW — flex so cards never stretch ── */
+      .acad-stats {
+        display: flex;
+        flex-wrap: wrap;
         gap: 10px;
       }
-      .madden-stat-card {
-        position: relative;
+      .acad-stat {
         display: flex;
         flex-direction: column;
-        gap: 4px;
-        padding: 12px;
-        border-radius: 8px;
+        align-items: center;
+        justify-content: center;
+        width: 110px;
+        min-height: 80px;
+        padding: 14px 8px;
+        border-radius: 10px;
         background: var(--m-surface);
         border: 1px solid var(--m-border);
+        flex-shrink: 0;
       }
-      .madden-stat-value {
-        font-size: 20px;
+      .acad-stat__value {
+        font-size: 24px;
         font-weight: 800;
         color: var(--m-text);
+        line-height: 1;
+        margin-bottom: 5px;
       }
-      .madden-stat-label {
-        font-size: 12px;
-        color: var(--m-text-2);
+      .acad-stat__label {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--m-text-3);
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
       }
 
       .sr-only {

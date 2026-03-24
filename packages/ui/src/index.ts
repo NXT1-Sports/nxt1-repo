@@ -138,6 +138,7 @@ export {
   type UIIconName,
   type BrandIconName,
 } from './components/icon';
+export { NxtPlatformIconComponent } from './components/platform-icon';
 export {
   NxtBackButtonComponent,
   type BackButtonSize,
@@ -1263,6 +1264,12 @@ export {
   ManageTeamBottomSheetService,
   type ManageTeamSheetOptions,
   type ManageTeamSheetResult,
+  // Modal Service (Adaptive: bottom sheet on mobile, overlay on desktop)
+  ManageTeamModalService,
+  type ManageTeamModalOptions,
+  type ManageTeamModalResult,
+  // Web Modal Wrapper
+  ManageTeamWebModalComponent,
   // Skeleton
   ManageTeamSkeletonComponent,
   // Landing Page (Public Marketing)
@@ -1275,9 +1282,6 @@ export {
   ManageTeamStatsSectionComponent,
   ManageTeamStaffSectionComponent,
   ManageTeamSponsorsSectionComponent,
-  ManageTeamIntegrationsSectionComponent,
-  // Mock Data (Development Only)
-  MOCK_MANAGE_TEAM_FORM_DATA,
 } from './manage-team';
 
 // ============================================

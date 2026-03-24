@@ -47,6 +47,9 @@ export interface MobileHeaderConfig {
 
   /** Visual variant */
   readonly variant?: 'default' | 'blur' | 'elevated';
+
+  /** Whether to show user avatar button (default: true) */
+  readonly showAvatar?: boolean;
 }
 
 /**
@@ -83,6 +86,7 @@ export const DEFAULT_MOBILE_HEADER_CONFIG: MobileHeaderConfig = {
   bordered: true,
   searchPlaceholder: 'Search NXT1',
   variant: 'default',
+  showAvatar: true,
 };
 
 /**

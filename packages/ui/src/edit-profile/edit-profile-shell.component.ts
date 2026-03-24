@@ -224,23 +224,15 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
           </nxt1-list-section>
 
           <!-- Two-column layout: About you (left) | Sports info + Physical (right) -->
-          <div [class.nxt1-ep-two-col]="webLayout">
+          <div class="nxt1-ep-sections" [class.nxt1-ep-two-col]="webLayout">
             <!-- About you -->
             <nxt1-list-section header="About you">
-              <nxt1-list-row
-                label="Name"
-                [verified]="verifiedFields().has('name')"
-                (tap)="editName()"
-              >
+              <nxt1-list-row label="Name" (tap)="editName()">
                 <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!displayName()">{{
                   displayName() || 'Add your name'
                 }}</span>
               </nxt1-list-row>
-              <nxt1-list-row
-                label="Class"
-                [verified]="verifiedFields().has('class')"
-                (tap)="editClassYear()"
-              >
+              <nxt1-list-row label="Class" (tap)="editClassYear()">
                 <span
                   class="nxt1-list-value"
                   [class.nxt1-list-placeholder]="!form.basicInfo.classYear"
@@ -278,14 +270,10 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
             </nxt1-list-section>
 
             <!-- Right column: Sports info + Physical -->
-            <div [class.nxt1-ep-right-col]="webLayout">
+            <div class="nxt1-ep-sections" [class.nxt1-ep-right-col]="webLayout">
               <!-- Sports info -->
               <nxt1-list-section header="Sports info">
-                <nxt1-list-row
-                  label="Position"
-                  [verified]="verifiedFields().has('position')"
-                  (tap)="editPosition()"
-                >
+                <nxt1-list-row label="Position" (tap)="editPosition()">
                   <span
                     class="nxt1-list-value capitalize"
                     [class.nxt1-list-placeholder]="selectedPositions().length === 0"
@@ -459,11 +447,51 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
                     >{{ form.physical.height || 'Select height' }}</span
                   >
                 </nxt1-list-row>
-                <nxt1-list-row label="Weight" (tap)="editWeight()">
+                @if (isMale()) {
+                  <nxt1-list-row
+                    label="Weight"
+                    [verified]="verifiedFields().has('weight')"
+                    (tap)="editWeight()"
+                  >
+                    <span
+                      class="nxt1-list-value"
+                      [class.nxt1-list-placeholder]="!form.physical.weight"
+                      >{{
+                        form.physical.weight ? form.physical.weight + ' lbs' : 'Add weight'
+                      }}</span
+                    >
+                  </nxt1-list-row>
+                }
+              </nxt1-list-section>
+
+              <!-- Academics -->
+              <nxt1-list-section header="Academics">
+                <nxt1-list-row label="GPA" (tap)="editGpa()">
                   <span
                     class="nxt1-list-value"
-                    [class.nxt1-list-placeholder]="!form.physical.weight"
-                    >{{ form.physical.weight ? form.physical.weight + ' lbs' : 'Add weight' }}</span
+                    [class.nxt1-list-placeholder]="!form.academics.gpa"
+                    >{{ form.academics.gpa || 'Add GPA' }}</span
+                  >
+                </nxt1-list-row>
+                <nxt1-list-row label="SAT" (tap)="editSat()">
+                  <span
+                    class="nxt1-list-value"
+                    [class.nxt1-list-placeholder]="!form.academics.sat"
+                    >{{ form.academics.sat || 'Add SAT score' }}</span
+                  >
+                </nxt1-list-row>
+                <nxt1-list-row label="ACT" (tap)="editAct()">
+                  <span
+                    class="nxt1-list-value"
+                    [class.nxt1-list-placeholder]="!form.academics.act"
+                    >{{ form.academics.act || 'Add ACT score' }}</span
+                  >
+                </nxt1-list-row>
+                <nxt1-list-row label="Intended Major" (tap)="editIntendedMajor()">
+                  <span
+                    class="nxt1-list-value"
+                    [class.nxt1-list-placeholder]="!form.academics.intendedMajor"
+                    >{{ form.academics.intendedMajor || 'Add intended major' }}</span
                   >
                 </nxt1-list-row>
               </nxt1-list-section>
@@ -932,6 +960,15 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
       }
 
       /* ============================================
+         SECTION SPACING (mobile default: stacked with gap)
+         ============================================ */
+      .nxt1-ep-sections {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-5);
+      }
+
+      /* ============================================
          2-COLUMN SECTION LAYOUT (web modal, webLayout=true)
          ============================================ */
 
@@ -969,7 +1006,15 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
 
   readonly close = output<void>();
   readonly save = output<void>();
-  protected readonly isModalMode = !!this.modalCtrl;
+
+  /**
+   * True only when running inside a real Ionic modal (bottom sheet).
+   * When headless=true the shell is hosted by the web overlay wrapper
+   * which communicates via save/close outputs — Ionic dismiss must NOT be used.
+   */
+  protected get isModalMode(): boolean {
+    return !!this.modalCtrl && !this.headless;
+  }
 
   /**
    * When true, the shell renders no header at all.
@@ -1108,10 +1153,24 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     return positions;
   });
 
-  /** Mock verified fields — will be replaced with backend verification status */
-  protected readonly verifiedFields = signal<ReadonlySet<string>>(
-    new Set(['name', 'class', 'position', 'height'])
-  );
+  /** Fields whose values originate from a verified external source (e.g. MaxPreps, Rivals). */
+  protected readonly verifiedFields = computed<ReadonlySet<string>>(() => {
+    const raw = this.profile.rawUserData();
+    if (!raw?.sports) return new Set<string>();
+    const sportIdx = this.profile.activeSportIndex();
+    const sport = raw.sports[sportIdx];
+    if (!sport?.verifications?.length) return new Set<string>();
+    const scopes = new Set((sport.verifications as { scope: string }[]).map((v) => v.scope));
+    const fields = new Set<string>();
+    if (scopes.has('measurables')) {
+      fields.add('height');
+      fields.add('weight');
+    }
+    return fields;
+  });
+
+  /** Whether user is male (weight row hidden for female users) */
+  protected readonly isMale = computed(() => this.profile.rawUserData()?.gender !== 'female');
   protected readonly heightOptions = HEIGHT_OPTIONS;
 
   protected readonly classOptions = computed(() => {
@@ -1333,7 +1392,12 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       this.analytics?.trackEvent(APP_EVENTS.PROFILE_EDITED, { source: 'edit-profile-shell' });
       this.breadcrumb.trackStateChange('edit-profile:saved');
       if (this.isModalMode) {
-        await this.modalCtrl!.dismiss({ saved: true }, 'save');
+        try {
+          await this.modalCtrl!.dismiss({ saved: true }, 'save');
+        } catch (err) {
+          this.logger.warn('Ionic dismiss failed, falling back to output', { err });
+          this.save.emit();
+        }
         return;
       }
       this.save.emit();
@@ -1365,7 +1429,12 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
         );
         if (!discard) return;
       }
-      void this.modalCtrl!.dismiss(null, 'cancel');
+      try {
+        await this.modalCtrl!.dismiss(null, 'cancel');
+      } catch (err) {
+        this.logger.warn('Ionic dismiss failed on close, falling back to output', { err });
+        this.close.emit();
+      }
       return;
     }
     this.close.emit();
@@ -1707,6 +1776,73 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     });
     if (result.confirmed) {
       this.profile.updateField('physical', 'weight', result.value.trim());
+    }
+  }
+
+  protected async editGpa(): Promise<void> {
+    const form = this.profile.formData();
+    if (!form) return;
+
+    const result = await this.nxtModal.prompt({
+      title: 'GPA',
+      placeholder: 'e.g. 3.5',
+      defaultValue: form.academics.gpa ?? '',
+      inputType: 'text',
+      submitText: 'Done',
+      preferNative: 'ionic',
+    });
+    if (result.confirmed) {
+      this.profile.updateField('academics', 'gpa', result.value.trim());
+    }
+  }
+
+  protected async editSat(): Promise<void> {
+    const form = this.profile.formData();
+    if (!form) return;
+
+    const result = await this.nxtModal.prompt({
+      title: 'SAT Score',
+      placeholder: 'e.g. 1200',
+      defaultValue: form.academics.sat ?? '',
+      inputType: 'number',
+      submitText: 'Done',
+      preferNative: 'ionic',
+    });
+    if (result.confirmed) {
+      this.profile.updateField('academics', 'sat', result.value.trim());
+    }
+  }
+
+  protected async editAct(): Promise<void> {
+    const form = this.profile.formData();
+    if (!form) return;
+
+    const result = await this.nxtModal.prompt({
+      title: 'ACT Score',
+      placeholder: 'e.g. 28',
+      defaultValue: form.academics.act ?? '',
+      inputType: 'number',
+      submitText: 'Done',
+      preferNative: 'ionic',
+    });
+    if (result.confirmed) {
+      this.profile.updateField('academics', 'act', result.value.trim());
+    }
+  }
+
+  protected async editIntendedMajor(): Promise<void> {
+    const form = this.profile.formData();
+    if (!form) return;
+
+    const result = await this.nxtModal.prompt({
+      title: 'Intended Major',
+      placeholder: 'e.g. Business, Engineering',
+      defaultValue: form.academics.intendedMajor ?? '',
+      submitText: 'Done',
+      preferNative: 'ionic',
+    });
+    if (result.confirmed) {
+      this.profile.updateField('academics', 'intendedMajor', result.value.trim());
     }
   }
 

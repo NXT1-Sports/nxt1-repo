@@ -17,8 +17,6 @@ import type {
   TeamScheduleEvent,
   StaffMember,
   TeamSponsor,
-  TeamIntegration,
-  IntegrationProvider,
 } from './manage-team.types';
 
 // ============================================
@@ -347,67 +345,6 @@ export function createManageTeamApi(http: HttpAdapter, baseUrl: string) {
       );
       if (!response.success) {
         throw new Error(response.error ?? 'Failed to remove sponsor');
-      }
-    },
-
-    // ============================================
-    // INTEGRATIONS
-    // ============================================
-
-    /**
-     * Get team integrations.
-     */
-    async getIntegrations(teamId: string): Promise<readonly TeamIntegration[]> {
-      const response = await http.get<ApiResponse<TeamIntegration[]>>(
-        `${endpoint}/${teamId}/integrations`
-      );
-      return response.success ? (response.data ?? []) : [];
-    },
-
-    /**
-     * Connect integration.
-     */
-    async connectIntegration(
-      teamId: string,
-      provider: IntegrationProvider,
-      config: { url: string; autoSync?: boolean }
-    ): Promise<TeamIntegration> {
-      const response = await http.post<ApiResponse<TeamIntegration>>(
-        `${endpoint}/${teamId}/integrations`,
-        { provider, ...config }
-      );
-      if (!response.success || !response.data) {
-        throw new Error(response.error ?? 'Failed to connect integration');
-      }
-      return response.data;
-    },
-
-    /**
-     * Sync integration data.
-     */
-    async syncIntegration(
-      teamId: string,
-      integrationId: string
-    ): Promise<{ status: string; lastSync: string }> {
-      const response = await http.post<ApiResponse<{ status: string; lastSync: string }>>(
-        `${endpoint}/${teamId}/integrations/${integrationId}/sync`,
-        {}
-      );
-      if (!response.success || !response.data) {
-        throw new Error(response.error ?? 'Failed to sync integration');
-      }
-      return response.data;
-    },
-
-    /**
-     * Disconnect integration.
-     */
-    async disconnectIntegration(teamId: string, integrationId: string): Promise<void> {
-      const response = await http.delete<ApiResponse<void>>(
-        `${endpoint}/${teamId}/integrations/${integrationId}`
-      );
-      if (!response.success) {
-        throw new Error(response.error ?? 'Failed to disconnect integration');
       }
     },
   } as const;

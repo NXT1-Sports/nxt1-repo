@@ -50,7 +50,9 @@ export interface ScheduleRow {
           <h3>No schedule yet</h3>
           <p>{{ resolvedEmptyMessage() }}</p>
           @if (showAddButton()) {
-            <button type="button" class="madden-cta-btn" (click)="onAddEvent()">Add Game</button>
+            <button type="button" class="madden-cta-btn" (click)="onAddEvent()">
+              Add Schedule
+            </button>
           }
         </div>
       } @else {
@@ -421,7 +423,7 @@ export class ProfileScheduleComponent {
   readonly emptyMessage = input<string>('');
 
   /** Whether to show the "Add Game" CTA in the empty state. */
-  readonly showAddButton = input(false);
+  readonly showAddButton = input<boolean>(false);
 
   // ── Resolved display rows ──
 

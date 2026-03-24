@@ -40,6 +40,7 @@ import { NxtToastService } from '@nxt1/ui/services/toast';
 import { AuthModalService } from '@nxt1/ui/auth';
 import { QrCodeService } from '@nxt1/ui/qr-code';
 import { TeamProfileService } from '@nxt1/ui/team-profile';
+import { ManageTeamModalService } from '@nxt1/ui/manage-team';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
@@ -123,6 +124,7 @@ export class TeamComponent implements OnInit {
   private readonly analytics = inject(AnalyticsService);
   private readonly share = inject(ShareService);
   private readonly teamProfile = inject(TeamProfileService);
+  private readonly manageTeamModal = inject(ManageTeamModalService);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -311,10 +313,25 @@ export class TeamComponent implements OnInit {
   }
 
   /**
-   * Handle manage team navigation.
+   * Handle manage team — open adaptive modal overlay.
+   * On save, invalidate cache and reload team data.
    */
-  protected onManageTeam(): void {
-    this.router.navigate(['/manage-team', this.teamSlug()]);
+  protected async onManageTeam(): Promise<void> {
+    const team = this.teamProfile.team();
+    const result = await this.manageTeamModal.open({
+      teamId: team?.id ?? undefined,
+    });
+
+    if (result.saved) {
+      // Reload team data to reflect management changes
+      const slug = this.teamSlug();
+      if (slug) {
+        this.teamProfile.startLoading();
+        this.teamProfile.loadTeam(slug, this.isTeamAdmin()).catch((error) => {
+          this.logger.error('Failed to reload team after manage', { slug, error });
+        });
+      }
+    }
   }
 
   /**

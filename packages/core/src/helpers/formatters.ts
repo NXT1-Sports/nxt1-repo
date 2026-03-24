@@ -204,6 +204,25 @@ export function slugify(text: string): string {
 }
 
 /**
+ * Build a URL-safe slug from a team name.
+ *
+ * Matches the backend's `buildTeamSlug()` algorithm exactly so that
+ * client-generated slugs resolve correctly via `GET /teams/by-slug/:slug`.
+ */
+export function buildTeamSlug(teamName: string): string {
+  if (!teamName) return '';
+  return teamName
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // strip accent marks
+    .replace(/[^a-z0-9\s-]/g, '') // only letters, digits, spaces, hyphens
+    .trim()
+    .replace(/\s+/g, '-') // spaces → hyphens
+    .replace(/-+/g, '-') // collapse consecutive hyphens
+    .replace(/^-|-$/g, ''); // trim leading/trailing hyphens
+}
+
+/**
  * Convert camelCase to Title Case
  */
 export function camelToTitle(text: string): string {

@@ -224,10 +224,6 @@ export interface DataVerification {
  * Verification info for a sport profile's data.
  */
 export interface SportVerification {
-  /** Who verified measurables (e.g., 'NXT1 Verified', 'Combine Results') */
-  measurablesVerifiedBy?: string;
-  /** URL to verification source */
-  measurablesVerifiedUrl?: string;
   /** Who verified stats */
   statsVerifiedBy?: string;
   /** URL to stats verification source */

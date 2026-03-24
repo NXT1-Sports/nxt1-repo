@@ -67,9 +67,9 @@ import { STAFF_ROLE_CONFIG } from '@nxt1/core';
 
                     <!-- Avatar -->
                     <div class="staff-avatar">
-                      @if (member.photoUrl) {
+                      @if (member.profileImgs?.length) {
                         <img
-                          [src]="member.photoUrl"
+                          [src]="member.profileImgs![0]"
                           [alt]="member.displayName ?? member.firstName + ' ' + member.lastName"
                         />
                       } @else {

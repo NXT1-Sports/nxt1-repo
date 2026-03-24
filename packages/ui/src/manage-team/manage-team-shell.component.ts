@@ -52,7 +52,6 @@ import type {
   TeamScheduleEvent,
   StaffMember,
   TeamSponsor,
-  TeamIntegration,
 } from '@nxt1/core';
 import { MANAGE_TEAM_TABS, getAllManageTeamSections } from '@nxt1/core';
 import { ManageTeamService } from './manage-team.service';
@@ -65,7 +64,6 @@ import {
   ManageTeamStatsSectionComponent,
   ManageTeamStaffSectionComponent,
   ManageTeamSponsorsSectionComponent,
-  ManageTeamIntegrationsSectionComponent,
 } from './sections';
 
 /** Event emitted when shell requests close */
@@ -95,11 +93,10 @@ export interface ManageTeamCloseEvent {
     ManageTeamStatsSectionComponent,
     ManageTeamStaffSectionComponent,
     ManageTeamSponsorsSectionComponent,
-    ManageTeamIntegrationsSectionComponent,
   ],
   template: `
-    <!-- Header -->
-    @if (showHeader()) {
+    <!-- Header (suppressed when headless — web modal provides its own) -->
+    @if (showHeader() && !headless()) {
       <ion-header class="ion-no-border shell-header">
         <ion-toolbar>
           <ion-title>{{ title() }}</ion-title>
@@ -243,12 +240,6 @@ export interface ManageTeamCloseEvent {
                           (action)="onSponsorAction($event)"
                         />
                       }
-                      @case ('integrations') {
-                        <nxt1-manage-team-integrations-section
-                          [integrations]="service.integrations()"
-                          (action)="onIntegrationAction($event)"
-                        />
-                      }
                     }
                   </div>
                 }
@@ -256,8 +247,8 @@ export interface ManageTeamCloseEvent {
             }
           </div>
 
-          <!-- Actions Footer -->
-          @if (showFooter()) {
+          <!-- Actions Footer (suppressed when headless — web modal provides its own save button) -->
+          @if (showFooter() && !headless()) {
             <div class="actions-footer">
               @if (mode() !== 'inline') {
                 <button type="button" class="cancel-btn" (click)="onClose(false)">
@@ -676,6 +667,13 @@ export class ManageTeamShellComponent implements OnInit {
   /** Team ID to manage (null for new team) */
   readonly teamId = input<string | null>(null);
 
+  /**
+   * When headless=true, the shell is hosted by the web overlay wrapper
+   * (ManageTeamWebModalComponent). The built-in ion-header and footer
+   * are suppressed — the wrapper provides its own modal chrome.
+   */
+  readonly headless = input(false);
+
   /** Display mode */
   readonly mode = input<'full' | 'compact' | 'inline'>('full');
 
@@ -751,9 +749,8 @@ export class ManageTeamShellComponent implements OnInit {
     return sectionCompletion && sectionCompletion.percentage < 100 ? 1 : 0;
   }
 
-  getStatsIntegration(): TeamIntegration | null {
-    const integrations = this.service.integrations();
-    return integrations.find((i) => i.type === 'stats' && i.status === 'connected') ?? null;
+  getStatsIntegration(): null {
+    return null;
   }
 
   getTeamStats(): {
@@ -785,7 +782,11 @@ export class ManageTeamShellComponent implements OnInit {
     const formData = this.service.formData();
     if (formData) {
       this.save.emit(formData);
-      this.onClose(true);
+      // In headless mode (web overlay), the wrapper handles close after save.
+      // Only auto-close in non-headless mode (bottom sheet / standalone page).
+      if (!this.headless()) {
+        this.onClose(true);
+      }
     }
   }
 
@@ -797,7 +798,6 @@ export class ManageTeamShellComponent implements OnInit {
       stats: 'var(--nxt1-color-warning)',
       staff: 'var(--nxt1-color-info)',
       sponsors: 'var(--nxt1-color-success)',
-      integrations: 'var(--nxt1-color-primary)',
     };
     return colors[sectionId] ?? 'var(--nxt1-color-primary)';
   }
@@ -842,13 +842,12 @@ export class ManageTeamShellComponent implements OnInit {
     this.sectionAction.emit({ section: 'sponsors', action: event.action, data: event });
   }
 
-  onIntegrationAction(event: {
-    action: string;
-    integrationId?: string;
-    integration?: TeamIntegration;
-    provider?: string;
-    externalUrl?: string;
-  }): void {
-    this.sectionAction.emit({ section: 'integrations', action: event.action, data: event });
+  /**
+   * Public endpoint for the web modal wrapper to trigger save.
+   * The wrapper calls this so the actual API / analytics / haptics run
+   * inside the shell, then the shell emits `save` → wrapper closes overlay.
+   */
+  async requestSave(): Promise<void> {
+    await this.onSave();
   }
 }

@@ -32,8 +32,10 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isLoading]="isLoading()"
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="committedEmpty"
+        [emptyCta]="isOwnProfile() ? 'Add Commitment' : null"
         [cardLayout]="cardLayout()"
         (itemClick)="onItemClick($event)"
+        (emptyCtaClick)="addCommitmentClick.emit()"
       />
     }
 
@@ -43,8 +45,10 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isLoading]="isLoading()"
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="offersEmpty"
+        [emptyCta]="isOwnProfile() ? 'Add Offer' : null"
         [cardLayout]="cardLayout()"
         (itemClick)="onItemClick($event)"
+        (emptyCtaClick)="addOfferClick.emit()"
       />
     }
 
@@ -54,8 +58,10 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isLoading]="isLoading()"
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="interestsEmpty"
+        [emptyCta]="isOwnProfile() ? 'Add Interest' : null"
         [cardLayout]="cardLayout()"
         (itemClick)="onItemClick($event)"
+        (emptyCtaClick)="addOfferClick.emit()"
       />
     }
 
@@ -66,8 +72,10 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isLoading]="isLoading()"
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="globalEmpty"
+        [emptyCta]="isOwnProfile() ? 'Add Recruiting Activity' : null"
         [cardLayout]="cardLayout()"
         (itemClick)="onItemClick($event)"
+        (emptyCtaClick)="addOfferClick.emit()"
       />
     }
   `,

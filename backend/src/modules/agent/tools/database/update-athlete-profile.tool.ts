@@ -50,6 +50,7 @@ import { invalidateTeamCache } from '../../../../services/team-code.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
 import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
+import { platformDisplayName } from './platform-utils.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -549,6 +550,26 @@ export class UpdateAthleteProfileTool extends BaseTool {
         payload['conference'] = FieldValue.delete();
         payload['division'] = FieldValue.delete();
         payload['level'] = FieldValue.delete();
+      }
+
+      // ── Measurables verification ─────────────────────────────────────
+      // When height or weight was written from an external source, tag the
+      // active sport with a DataVerification entry so the profile header
+      // can render a "Verified by [Source]" badge.
+      const measurablesWritten =
+        writtenSections.includes('height') || writtenSections.includes('weight');
+      if (measurablesWritten) {
+        this.mergeMeasurablesVerification(
+          payload,
+          existingSports,
+          sportIndex,
+          isNewSport,
+          source,
+          profileUrl,
+          faviconUrl,
+          now
+        );
+        writtenSections.push('verification');
       }
 
       // --- Timestamp ---
@@ -1224,6 +1245,60 @@ export class UpdateAthleteProfileTool extends BaseTool {
     }
 
     return merged;
+  }
+
+  // ─── Measurables Verification ──────────────────────────────────────────
+
+  /**
+   * Merges a measurables DataVerification entry into the target sport's
+   * `verifications[]` array within the payload. If a verification with
+   * `scope: 'measurables'` already exists from the same source, it is
+   * updated; otherwise a new entry is appended.
+   */
+  private mergeMeasurablesVerification(
+    payload: Record<string, unknown>,
+    existingSports: Record<string, unknown>[],
+    sportIndex: number,
+    isNewSport: boolean,
+    source: string,
+    profileUrl: string,
+    faviconUrl: string | undefined,
+    now: string
+  ): void {
+    const displayName = platformDisplayName(source);
+
+    const entry: Record<string, unknown> = {
+      scope: 'measurables',
+      verifiedBy: displayName,
+      sourceUrl: profileUrl,
+      verifiedAt: now,
+    };
+    if (faviconUrl) entry['sourceLogoUrl'] = faviconUrl;
+
+    // Resolve the sports array that will be written
+    const sportsArr = Array.isArray(payload['sports'])
+      ? (payload['sports'] as Record<string, unknown>[]).map((s) => ({ ...s }))
+      : existingSports.map((s) => ({ ...s }));
+
+    const targetIdx = isNewSport ? sportsArr.length - 1 : sportIndex;
+    if (targetIdx < 0 || targetIdx >= sportsArr.length) return;
+
+    const sportObj = { ...sportsArr[targetIdx] };
+
+    // Merge into verifications[] array (new architecture)
+    const existing = Array.isArray(sportObj['verifications'])
+      ? ([...sportObj['verifications']] as Record<string, unknown>[])
+      : [];
+    const matchIdx = existing.findIndex((v) => v['scope'] === 'measurables');
+    if (matchIdx >= 0) {
+      existing[matchIdx] = { ...existing[matchIdx], ...entry };
+    } else {
+      existing.push(entry);
+    }
+    sportObj['verifications'] = existing;
+
+    sportsArr[targetIdx] = sportObj;
+    payload['sports'] = sportsArr;
   }
 
   // ─── ConnectedSources ───────────────────────────────────────────────────

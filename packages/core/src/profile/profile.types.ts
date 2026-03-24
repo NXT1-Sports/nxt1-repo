@@ -297,10 +297,6 @@ export interface ProfileUser {
   readonly weight?: string;
   /** Gender (optional profile field) */
   readonly gender?: Gender | string;
-  /** Measurables verified by source (e.g., "Rivals", "247Sports") */
-  readonly measurablesVerifiedBy?: string;
-  /** URL for the verification source */
-  readonly measurablesVerifiedUrl?: string;
   /** Stats verified by source (e.g., "MaxPreps") — powers the shared verification banner */
   readonly statsVerifiedBy?: string;
   /** URL for the stats verification source */
@@ -715,13 +711,6 @@ export function getVerification(
   if (match) return match;
 
   // Backward compat: fall back to deprecated flat fields
-  if (scope === 'measurables' && user.measurablesVerifiedBy) {
-    return {
-      scope: 'measurables',
-      verifiedBy: user.measurablesVerifiedBy,
-      sourceUrl: user.measurablesVerifiedUrl,
-    };
-  }
   if (scope === 'stats' && user.statsVerifiedBy) {
     return {
       scope: 'stats',
@@ -746,13 +735,6 @@ export function getAllVerifications(
   const existingScopes = new Set(result.map((v) => v.scope));
 
   // Backfill from deprecated flat fields if not already present
-  if (!existingScopes.has('measurables') && user.measurablesVerifiedBy) {
-    result.push({
-      scope: 'measurables',
-      verifiedBy: user.measurablesVerifiedBy,
-      sourceUrl: user.measurablesVerifiedUrl,
-    });
-  }
   if (!existingScopes.has('stats') && user.statsVerifiedBy) {
     result.push({
       scope: 'stats',

@@ -269,6 +269,7 @@ export {
   capitalize,
   titleCase,
   slugify,
+  buildTeamSlug,
   camelToTitle,
   kebabToTitle,
   formatFullName,

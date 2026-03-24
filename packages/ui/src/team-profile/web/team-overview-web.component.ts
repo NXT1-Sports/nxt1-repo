@@ -13,6 +13,8 @@
 import { Component, ChangeDetectionStrategy, inject, input, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
+import { NxtPlatformIconComponent } from '../../components/platform-icon';
+import { getPlatformFaviconUrl } from '@nxt1/core/onboarding';
 import { NxtImageComponent } from '../../components/image';
 import {
   NxtHistoryTimelineComponent,
@@ -24,7 +26,13 @@ import { NxtToastService } from '../../services/toast/toast.service';
 @Component({
   selector: 'nxt1-team-overview-web',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent, NxtImageComponent, NxtHistoryTimelineComponent],
+  imports: [
+    CommonModule,
+    NxtIconComponent,
+    NxtPlatformIconComponent,
+    NxtImageComponent,
+    NxtHistoryTimelineComponent,
+  ],
   template: `
     <div class="team-overview">
       <!-- ═══ TEAM PROFILE + ABOUT (side-by-side) ═══ -->
@@ -84,7 +92,12 @@ import { NxtToastService } from '../../services/toast/toast.service';
                   [attr.aria-label]="acct.label"
                 >
                   <span class="team-connected-icon" [style.color]="acct.color">
-                    <nxt1-icon [name]="acct.icon" [size]="14" />
+                    <nxt1-platform-icon
+                      [icon]="acct.icon"
+                      [faviconUrl]="acct.faviconUrl"
+                      [size]="14"
+                      [alt]="acct.label + ' icon'"
+                    />
                   </span>
                   <span class="team-connected-label">{{ acct.label }}</span>
                   <span class="team-connected-check">
@@ -698,6 +711,7 @@ export class TeamOverviewWebComponent {
       readonly icon: string;
       readonly color: string;
       readonly url: string;
+      readonly faviconUrl: string | null;
     }> => {
       const social = this.teamProfile.team()?.social;
       if (!social?.length) return [];
@@ -718,6 +732,7 @@ export class TeamOverviewWebComponent {
             icon: meta.icon,
             color: meta.color,
             url: link.url,
+            faviconUrl: getPlatformFaviconUrl(link.platform.toLowerCase()),
           };
         });
     }

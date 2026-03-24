@@ -15,6 +15,7 @@ import {
   Component,
   computed,
   inject,
+  input,
   OnInit,
   signal,
 } from '@angular/core';
@@ -60,10 +61,10 @@ import { OnboardingLinkDropStepComponent } from '../../onboarding/onboarding-lin
       <div class="nxt1-sheet-body">
         <!-- Shared connected accounts editor (same as onboarding) -->
         <nxt1-onboarding-link-drop-step
-          [linkSourcesData]="_linkSourcesData"
-          [selectedSports]="_selectedSports"
-          [role]="_role"
-          [scope]="_scope"
+          [linkSourcesData]="_linkSourcesData()"
+          [selectedSports]="_selectedSports()"
+          [role]="_role()"
+          [scope]="_scope()"
           (linkSourcesChange)="onLinkSourcesChange($event)"
         />
       </div>
@@ -129,16 +130,16 @@ export class ConnectedAccountsSheetComponent implements OnInit {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   /** User role — passed through to link drop step for role-aware recommendations */
-  _role: OnboardingUserType | null = null;
+  readonly _role = input<OnboardingUserType | null>(null);
 
   /** Selected sports — passed through for sport-scoped platform filtering */
-  _selectedSports: readonly string[] = [];
+  readonly _selectedSports = input<readonly string[]>([]);
 
   /** Existing link sources data — pre-populates the link drop step */
-  _linkSourcesData: LinkSourcesFormData | null = null;
+  readonly _linkSourcesData = input<LinkSourcesFormData | null>(null);
 
   /** Scope — 'athlete' or 'team' */
-  _scope: 'athlete' | 'team' = 'athlete';
+  readonly _scope = input<'athlete' | 'team'>('athlete');
 
   /** Tracks the latest link sources from the embedded step */
   private readonly _latestLinkSources = signal<LinkSourcesFormData | null>(null);
@@ -187,7 +188,7 @@ export class ConnectedAccountsSheetComponent implements OnInit {
   }
 
   requestResync(): void {
-    const linkSources = this._latestLinkSources() ?? this._linkSourcesData;
+    const linkSources = this._latestLinkSources() ?? this._linkSourcesData();
     const connectedLinks = linkSources?.links.filter((l) => l.connected) ?? [];
     this.logger.info('Connected accounts re-sync requested', {
       connectedCount: connectedLinks.length,

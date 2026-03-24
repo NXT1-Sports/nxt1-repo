@@ -269,7 +269,8 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                       <nxt1-profile-overview
                         [activeSideTab]="activeSideTab()"
                         (editProfileClick)="editProfileClick.emit()"
-                        (editTeamClick)="editTeamClick.emit()"
+                        (teamClick)="teamClick.emit($event)"
+                        (addAwardClick)="editProfileClick.emit()"
                       />
                     }
                     @case ('timeline') {
@@ -305,7 +306,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                         [isLoading]="profile.isLoading()"
                         [activeSection]="activeSideTab()"
                         [entityName]="profile.user()?.firstName ?? 'Athlete'"
-                        [emptyCta]="profile.isOwnProfile() ? 'Share News' : null"
+                        [emptyCta]="profile.isOwnProfile() ? 'Add Articles' : null"
                         (itemClick)="onNewsBoardItemClick($event)"
                         (emptyCtaClick)="onAddNews()"
                       />
@@ -332,7 +333,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
 
                     @case ('offers') {
                       @if (activeSideTab() === 'rankings') {
-                        <nxt1-profile-rankings />
+                        <nxt1-profile-rankings (addRankingClick)="onAddRanking()" />
                       } @else if (activeSideTab() === 'scouting') {
                         <nxt1-profile-scouting
                           [isLoading]="profile.isLoading()"
@@ -482,9 +483,9 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                         class="madden-team-block madden-team-block--clickable"
                         role="button"
                         tabindex="0"
-                        (click)="onEditTeam()"
-                        (keydown.enter)="onEditTeam()"
-                        (keydown.space)="onEditTeam(); $event.preventDefault()"
+                        (click)="onTeamClick(team)"
+                        (keydown.enter)="onTeamClick(team)"
+                        (keydown.space)="onTeamClick(team); $event.preventDefault()"
                       >
                         @if (team.logoUrl) {
                           <nxt1-image
@@ -1269,6 +1270,8 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
       @media (max-width: 768px) {
         .madden-top-tabs {
           padding-left: 8px;
+          margin-top: 4px;
+          margin-bottom: 0;
         }
         .madden-top-tabs ::ng-deep .option-scroller--scrollable.option-scroller--md {
           --scroller-padding: 8px;
@@ -1352,8 +1355,8 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         .madden-content-layer {
           grid-template-columns: minmax(0, 1fr);
           grid-template-rows: auto;
-          gap: var(--nxt1-spacing-4, 16px);
-          padding-top: 24px;
+          gap: var(--nxt1-spacing-2, 8px);
+          padding-top: 0;
           padding-left: 0;
           min-height: auto;
           overflow-x: hidden;
@@ -1387,7 +1390,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
           max-height: none;
           overflow-y: visible;
           overflow-x: hidden;
-          padding: 0 12px 24px;
+          padding: 0 12px 120px;
           align-items: stretch;
           scrollbar-gutter: auto;
           box-sizing: border-box;
@@ -1482,7 +1485,7 @@ export class ProfileShellWebComponent implements OnInit {
   readonly backClick = output<void>();
   readonly tabChange = output<ProfileTabId>();
   readonly editProfileClick = output<void>();
-  readonly editTeamClick = output<void>();
+  readonly teamClick = output<ProfileTeamAffiliation>();
   readonly shareClick = output<void>();
   readonly followClick = output<void>();
   readonly menuClick = output<void>();
@@ -1874,8 +1877,8 @@ export class ProfileShellWebComponent implements OnInit {
     this.editProfileClick.emit();
   }
 
-  protected onEditTeam(): void {
-    this.editTeamClick.emit();
+  protected onTeamClick(team: ProfileTeamAffiliation): void {
+    this.teamClick.emit(team);
   }
 
   protected onEditBanner(): void {
@@ -1947,6 +1950,11 @@ export class ProfileShellWebComponent implements OnInit {
 
   protected onAddOffer(): void {
     this.logger.debug('Add offer');
+  }
+
+  // Rankings
+  protected onAddRanking(): void {
+    this.logger.debug('Add ranking');
   }
 
   // Scouting

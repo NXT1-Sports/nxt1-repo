@@ -46,7 +46,7 @@ import { TeamProfileService } from '../team-profile.service';
     } @else {
       <div class="team-empty-state">
         <nxt1-icon name="document-text-outline" size="40" />
-        <h3>No posts yet</h3>
+        <h3>No updates yet</h3>
         <p>Team updates and announcements will appear here.</p>
       </div>
     }
