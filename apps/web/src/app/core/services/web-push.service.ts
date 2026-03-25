@@ -93,6 +93,8 @@ export class WebPushService {
   private messagingInstance: unknown = null;
   private firebaseApp: unknown = null;
 
+  private readonly WEB_TOKEN_STORAGE_KEY = 'nxt1_web_fcm_token';
+
   // ============================================
   // INITIALIZATION
   // ============================================
@@ -250,8 +252,16 @@ export class WebPushService {
       this._token.set(token);
       this.logger.info('FCM token acquired');
 
-      // Register token with backend via Cloud Function
-      await this.registerToken(token);
+      // Skip backend call if this exact token was already registered for this user
+      const userId = this.auth.user()?.uid ?? '';
+      const storedEntry = localStorage.getItem(this.WEB_TOKEN_STORAGE_KEY);
+      if (storedEntry === `${token}:${userId}`) {
+        this.logger.debug('FCM token already registered, skipping backend call');
+      } else {
+        // Register token with backend via Cloud Function
+        await this.registerToken(token);
+        localStorage.setItem(this.WEB_TOKEN_STORAGE_KEY, `${token}:${userId}`);
+      }
 
       // Listen for foreground messages
       onMessage(this.messagingInstance as ReturnType<typeof getMessaging>, (payload) => {
@@ -395,11 +405,15 @@ export function provideWebPush(): EnvironmentProviders {
               const isReady = auth.isInitialized();
               const isLoggedIn = auth.isAuthenticated();
 
-              if (!isReady || initialized) return;
+              if (!isReady) return;
 
-              if (isLoggedIn) {
+              if (isLoggedIn && !initialized) {
                 initialized = true;
                 webPush.initialize();
+              } else if (!isLoggedIn && initialized) {
+                // User logged out — clear cached token so next login triggers fresh registration
+                initialized = false;
+                localStorage.removeItem('nxt1_web_fcm_token');
               }
             },
             { injector }

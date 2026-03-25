@@ -79,15 +79,19 @@ export class FcmRegistrationService {
       }
 
       if (token) {
-        this.logger.debug('Reusing cached FCM token', {
+        // Token already present in persistent cache → already registered with backend.
+        // Restore in-memory cache and skip the Cloud Function call.
+        this.cachedToken = token;
+        this.logger.debug('FCM token already registered (from cache), skipping backend call', {
           platform: this.ionicPlatform.is('ios') ? 'ios' : 'android',
         });
-      } else {
-        // ── Slow path: get FCM token from Firebase Messaging ──────────────────
-        const result = await FirebaseMessaging.getToken();
-        token = result.token;
-        this.logger.debug('FCM token received', { token });
+        return;
       }
+
+      // ── Slow path: get FCM token from Firebase Messaging ──────────────────
+      const result = await FirebaseMessaging.getToken();
+      token = result.token;
+      this.logger.debug('FCM token received', { token });
 
       // Determine platform
       const platform = this.ionicPlatform.is('ios')

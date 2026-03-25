@@ -105,6 +105,9 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
 @Component({
   selector: 'app-profile',
   standalone: true,
+  // Scope ProfileService to this component instance so each route navigation
+  // gets isolated state and cannot pollute a concurrent instance's view.
+  providers: [ProfileService],
   imports: [
     ProfileShellWebComponent,
     TeamProfileShellWebComponent,
@@ -255,8 +258,12 @@ export class ProfileComponent implements OnInit, OnDestroy {
    * True when viewing own profile and the user has a coach/director role.
    */
   protected readonly showTeamProfile = computed(() => {
-    const profile = this.fetchedProfile();
-    return this.isOwnProfile() && !!profile && isTeamRole(profile.role);
+    const fetchedProfile = this.fetchedProfile();
+    // Fall back to the cached auth user role so TeamProfileShellWebComponent
+    // mounts immediately on back-navigation (teamData is already cached)
+    // rather than waiting for getMe() to return and causing a profile skeleton flash.
+    const role = fetchedProfile?.role ?? this.authService.user()?.role;
+    return this.isOwnProfile() && !!role && isTeamRole(role);
   });
 
   /**
@@ -454,17 +461,6 @@ export class ProfileComponent implements OnInit, OnDestroy {
       });
     }
 
-    // CRITICAL: Clear old profile data immediately when route params change
-    // This effect runs synchronously when fetchSource changes, BEFORE the
-    // toObservable pipe executes, preventing old data flash.
-    effect(() => {
-      const source = this.fetchSource();
-      if (source) {
-        // Route changed to a different profile — clear immediately
-        this.profileService.startLoading();
-      }
-    });
-
     // SSR: own profile (/profile) — auth is not initialized server-side so no API fetch
     // happens during SSR. Set minimal noIndex meta so the empty shell HTML is never
     // accidentally crawled. This effect fires immediately on both SSR and client.
@@ -539,9 +535,10 @@ export class ProfileComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    // Reset to loading state so if user navigates back to /profile the
-    // skeleton shows immediately instead of flashing stale error/data.
-    this.profileService.startLoading();
+    // NOTE: Do NOT call profileService.startLoading() here.
+    // The new component's constructor always calls startLoading() before its first
+    // fetch, so calling it here would race with the new component's data load and
+    // reset _isLoading=true AFTER the new component has already displayed data.
   }
 
   ngOnInit(): void {
@@ -789,7 +786,12 @@ export class ProfileComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.teamProfileService.startLoading();
+    // Only show the team skeleton when there is no data already cached.
+    // If data exists, refresh silently (stale-while-revalidate) so navigating
+    // back to own profile does not flash a loading skeleton.
+    if (!this.teamProfileService.teamData()) {
+      this.teamProfileService.startLoading();
+    }
 
     try {
       const response = await this.teamApi.getTeamBySlug(slug).toPromise();

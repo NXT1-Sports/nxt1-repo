@@ -98,6 +98,11 @@ import { environment } from '../../../environments/environment';
 @Component({
   selector: 'app-profile',
   standalone: true,
+  // Scope ProfileService to this component instance so each navigation
+  // (own profile / other profile) gets isolated state. Without this,
+  // Ionic's stack navigation keeps both components alive simultaneously
+  // and they share the singleton — causing stale data cross-contamination.
+  providers: [UiProfileService],
   imports: [
     IonHeader,
     IonContent,
@@ -310,23 +315,16 @@ export class ProfileComponent {
 
   constructor() {
     this.destroyRef.onDestroy(() => {
-      this.uiProfileService.startLoading();
-      this.teamProfile.startLoading();
+      // NOTE: Do NOT call startLoading() on any profile service here.
+      // When navigating back in Ionic, Component A (own profile) stays alive.
+      // Calling teamProfile.startLoading() here fires when ANY profile component
+      // (including other users' profiles) is destroyed, which resets the shared
+      // TeamProfileService _isLoading=true while Component A is still visible.
     });
 
     this.uiProfileService.setApiService({
       updateActiveSportIndex: (userId: string, activeSportIndex: number) =>
         this.editProfileApiService.updateActiveSportIndex(userId, activeSportIndex),
-    });
-
-    // CRITICAL: Clear old profile data immediately when route params change
-    // This effect runs synchronously when routeParam changes, BEFORE the
-    // combineLatest pipe executes, preventing old data flash.
-    effect(() => {
-      this.routeParam();
-      // Trigger on any param change (including undefined → value transitions)
-      // startLoading() will clear all old data synchronously
-      this.uiProfileService.startLoading();
     });
 
     /**
@@ -468,7 +466,12 @@ export class ProfileComponent {
       return;
     }
 
-    this.teamProfile.startLoading();
+    // Only show the team skeleton when there is no data already cached.
+    // If data exists, refresh silently (stale-while-revalidate) so navigating
+    // back to own profile does not flash a loading skeleton.
+    if (!this.teamProfile.teamData()) {
+      this.teamProfile.startLoading();
+    }
 
     try {
       const response = await this.teamApi.getTeamBySlug(slug);
