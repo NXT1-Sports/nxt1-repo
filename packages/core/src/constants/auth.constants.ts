@@ -74,11 +74,11 @@ export const AUTH_ROUTES = {
  * Post-auth redirect paths
  */
 export const AUTH_REDIRECTS = {
-  /** Default redirect after auth (existing users) */
-  DEFAULT: '/home',
+  /** Default redirect after auth (existing users with completed onboarding) */
+  DEFAULT: '/agent',
   /** Agent X landing after onboarding congratulations */
   AGENT: '/agent',
-  /** Onboarding flow (new users) */
+  /** Onboarding flow (new users or incomplete onboarding) */
   ONBOARDING: '/auth/onboarding',
 } as const;
 

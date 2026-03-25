@@ -112,7 +112,12 @@ export class AppComponent {
     this.logger.debug('Handling initial navigation', { currentUrl, userId: user?.uid });
 
     // If already on a specific route (deep link), respect it
-    if (currentUrl !== '/' && currentUrl !== '/auth' && currentUrl !== '/home') {
+    if (
+      currentUrl !== '/' &&
+      currentUrl !== '/auth' &&
+      currentUrl !== '/home' &&
+      currentUrl !== '/agent'
+    ) {
       this.logger.debug('On specific route, respecting current navigation');
       return;
     }
@@ -131,8 +136,8 @@ export class AppComponent {
         .navigateRoot(AUTH_REDIRECTS.ONBOARDING)
         .catch((err) => this.logger.error('Navigation to onboarding failed', err));
     } else {
-      // Authenticated and onboarding complete - go to home
-      this.logger.info('Authenticated and onboarded, navigating to home');
+      // Authenticated and onboarding complete - go to agent
+      this.logger.info('Authenticated and onboarded, navigating to agent');
       this.navController
         .navigateRoot(AUTH_REDIRECTS.DEFAULT)
         .catch((err) => this.logger.error('Navigation to home failed', err));

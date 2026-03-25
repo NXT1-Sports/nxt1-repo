@@ -342,9 +342,26 @@ export class NativeAuthService {
       this.logger.info('Starting Microsoft Sign-In via native MSAL SDK');
       await this.haptics.selection();
 
+      // Use MSAL directly to get native Microsoft tokens.
+      // Firebase credential exchange is handled by FirebaseAuthService via
+      // the backend /auth/microsoft/custom-token endpoint to avoid the
+      // signInWithCredential 400 error and the @capacitor-firebase/authentication
+      // "missing initial state" redirect flow issue in WebView.
+      // Clear cached MSAL session first to force the account picker UI.
+      // Without this, MSAL silently reuses the cached account and skips the picker.
+      try {
+        await MsAuthPlugin.logout({ clientId: environment.msClientId });
+      } catch {
+        // Ignore logout errors — no cached account is fine
+      }
+
       const result = await MsAuthPlugin.login({
         clientId: environment.msClientId,
-        scopes: ['User.Read', 'Mail.Send', 'Mail.Read'],
+        // Use only User.Read for sign-in. MSAL automatically includes openid/profile/email
+        // OIDC scopes so the idToken contains preferred_username/name claims.
+        // Mail.Send and Mail.Read are admin-consent scopes that cannot be combined
+        // with OIDC scopes in a single request for personal Microsoft accounts.
+        scopes: ['User.Read'],
         prompt: 'select_account',
       });
 
@@ -360,14 +377,12 @@ export class NativeAuthService {
         throw new Error('Microsoft Sign-In did not return ID token');
       }
 
-      // Return standardized result — Firebase credential creation is done in
-      // FirebaseAuthService.signInWithMicrosoft() via signInWithCredential().
       return {
         provider: 'microsoft',
         idToken: result.idToken,
         accessToken: result.accessToken,
         user: {
-          id: '', // populated after Firebase signInWithCredential
+          id: '',
           email: null,
           displayName: null,
           photoUrl: null,

@@ -623,6 +623,19 @@ export class OnboardingLinkDropStepComponent {
   // ---- Outputs ----
   readonly linkSourcesChange = output<LinkSourcesFormData>();
 
+  /**
+   * Emitted when the user manually enters tokens for a sign-in platform (Google / Microsoft).
+   * The parent container is responsible for calling the backend connect endpoint and then
+   * calling `markSigninConnected()` on success.
+   */
+  readonly signinTokenConnect = output<{
+    platform: 'google' | 'microsoft';
+    accessToken: string;
+    refreshToken?: string;
+    scopeType: PlatformScope;
+    scopeId?: string;
+  }>();
+
   // ---- State ----
   readonly activeMode = signal<ConnectionMode>('link');
 
@@ -811,6 +824,23 @@ export class OnboardingLinkDropStepComponent {
     });
   }
 
+  /**
+   * Mark a sign-in platform as connected (called by the parent after a successful backend call).
+   */
+  markSigninConnected(platform: string, scopeType: PlatformScope, scopeId?: string): void {
+    const key = connKey(platform, scopeType, scopeId);
+    this._connectedMap.update((map) => ({
+      ...map,
+      [key]: {
+        connected: true,
+        connectionType: 'signin' as PlatformConnectionType,
+        scopeType,
+        scopeId,
+      },
+    }));
+    this.emitChange();
+  }
+
   setMode(mode: ConnectionMode): void {
     this.activeMode.set(mode);
     this.logger.info('Connection mode switched', { mode });
@@ -839,6 +869,14 @@ export class OnboardingLinkDropStepComponent {
     const placeholder = platformDef?.placeholder ?? '@username';
     const isSignIn = source.connectionType === 'signin';
     const isUrl = placeholder.toLowerCase().includes('url');
+
+    // ── Google / Microsoft: collect tokens manually then delegate to parent ──
+    if (isSignIn && (source.platform === 'google' || source.platform === 'microsoft')) {
+      await this._handleSigninTokenEntry(
+        source as typeof source & { platform: 'google' | 'microsoft' }
+      );
+      return;
+    }
 
     const title = isSignIn ? `Sign in to ${source.label}` : `Link ${source.label}`;
     const message = isSignIn
@@ -915,6 +953,52 @@ export class OnboardingLinkDropStepComponent {
       connected: !!(nextValue.url || nextValue.username),
     });
     this.emitChange();
+  }
+
+  /**
+   * Show sequential prompts to collect access/refresh tokens for Google or Microsoft,
+   * then emit `signinTokenConnect` for the parent to handle the backend API call.
+   */
+  private async _handleSigninTokenEntry(
+    source: ConnectedSource & { platform: 'google' | 'microsoft' }
+  ): Promise<void> {
+    const scopeType: PlatformScope = source.scopeType ?? 'global';
+    const scopeId = source.scopeId;
+
+    // Step 1: Access Token (both providers)
+    const accessTokenRes = await this.nxtModal.prompt({
+      title: `Connect ${source.label}`,
+      message: `Paste your ${source.label} Access Token.`,
+      placeholder: 'Access token…',
+      defaultValue: '',
+      submitText: source.platform === 'microsoft' ? 'Next' : 'Connect',
+      preferNative: 'native',
+    });
+    if (!accessTokenRes.confirmed || !accessTokenRes.value.trim()) return;
+    const accessToken = accessTokenRes.value.trim();
+
+    // Step 2: Refresh Token (Microsoft only — optional but strongly recommended)
+    let refreshToken: string | undefined;
+    if (source.platform === 'microsoft') {
+      const refreshTokenRes = await this.nxtModal.prompt({
+        title: `Connect ${source.label}`,
+        message: 'Paste your Microsoft Refresh Token (optional — enables long-term access).',
+        placeholder: 'Refresh token (optional)…',
+        defaultValue: '',
+        submitText: 'Connect',
+        preferNative: 'native',
+      });
+      if (!refreshTokenRes.confirmed) return;
+      refreshToken = refreshTokenRes.value.trim() || undefined;
+    }
+
+    this.signinTokenConnect.emit({
+      platform: source.platform,
+      accessToken,
+      refreshToken,
+      scopeType,
+      scopeId,
+    });
   }
 
   /** Convert a platform def + connected state into a ConnectedSource, resolving scope from current sport */

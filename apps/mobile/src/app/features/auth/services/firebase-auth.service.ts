@@ -467,11 +467,15 @@ export class FirebaseAuthService implements OnDestroy {
     this.logger.debug('Starting Microsoft Sign-In');
 
     if (this.nativeAuth.isNativeAvailable) {
-      this.logger.debug(
-        'Using native Microsoft OAuth via MSAL (@recognizebv/capacitor-plugin-msauth)'
-      );
+      this.logger.debug('Using native Microsoft OAuth via MSAL + backend custom token exchange');
       try {
-        // NativeAuthService now uses MSAL directly — returns raw Microsoft tokens.
+        // NativeAuthService uses MSAL to get a native idToken.
+        // signInWithNativeCredential handles the backend exchange:
+        //   MSAL idToken → POST /auth/microsoft/custom-token → Firebase custom token
+        //   → signInWithCustomToken()
+        // This avoids both:
+        // - signInWithCredential 400 (requestUri mismatch in WebView)
+        // - @capacitor-firebase/authentication "missing initial state" redirect error
         const result = await this.nativeAuth.signInWithMicrosoft();
 
         // User cancelled
@@ -480,20 +484,7 @@ export class FirebaseAuthService implements OnDestroy {
           return null;
         }
 
-        // Build a Firebase OAuthCredential using ONLY the OAuth access_token.
-        // Do NOT pass idToken: the MSAL id_token has audience = MSAL clientId,
-        // which Firebase rejects with auth/invalid-credential-or-provider-id because
-        // Firebase's Microsoft provider validates id_token audience against its own
-        // Azure AD client registration. The access_token, however, is a Microsoft
-        // Graph token — Firebase calls /v1.0/me with it to verify identity, so
-        // audience matching is not required.
-        const microsoftProvider = new OAuthProvider('microsoft.com');
-        const oauthCredential = microsoftProvider.credential({
-          accessToken: result.accessToken,
-        });
-
-        this.logger.debug('Signing into Firebase with Microsoft OAuthCredential');
-        const userCredential = await signInWithCredential(this.auth, oauthCredential);
+        const userCredential = await this.signInWithNativeCredential(result);
 
         // Capture accessToken for Microsoft Mail so backend can send emails on
         // behalf of this user (fire-and-forget — sign-in succeeds regardless).
@@ -698,9 +689,13 @@ export class FirebaseAuthService implements OnDestroy {
         }
 
         case 'microsoft': {
-          this.logger.debug('Exchanging Microsoft token for Firebase custom token');
-
-          const response = await fetch(`${environment.apiUrl}/auth/microsoft/custom-token`, {
+          // signInWithCredential is NOT used for MSAL native tokens because
+          // the MSAL idToken's `aud` claim equals the native app client ID
+          // (aaceb7d3-...), not the OAuth client Firebase Console expects.
+          // Firebase rejects it with auth/invalid-credential-or-provider-id.
+          // Instead: exchange via backend custom-token endpoint, which validates
+          // the MSAL token server-side and returns a proper Firebase custom token.
+          const msResponse = await fetch(`${environment.apiUrl}/auth/microsoft/custom-token`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -709,16 +704,26 @@ export class FirebaseAuthService implements OnDestroy {
             }),
           });
 
-          if (!response.ok) {
-            const errorText = await response.text();
+          if (!msResponse.ok) {
+            const errorText = await msResponse.text();
             throw new Error(`Backend token exchange failed: ${errorText}`);
           }
 
-          const { firebaseToken } = await response.json();
+          const {
+            firebaseToken,
+            email: msEmail,
+            displayName: msDisplayName,
+          } = await msResponse.json();
 
-          // Sign in with custom token
           const { signInWithCustomToken } = await import('@angular/fire/auth');
-          return await signInWithCustomToken(this.auth, firebaseToken);
+          const userCred = await signInWithCustomToken(this.auth, firebaseToken);
+
+          await userCred.user.reload();
+
+          if (msEmail) nativeResult.user.email = msEmail;
+          if (msDisplayName) nativeResult.user.displayName = msDisplayName;
+
+          return userCred;
         }
 
         default:

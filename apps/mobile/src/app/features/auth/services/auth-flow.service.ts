@@ -644,8 +644,19 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         throw new Error(`${method} sign-in returned no result`);
       }
 
-      // Extract email from multiple sources (Firebase sometimes doesn't set user.email)
-      const userEmail = result.user.email || result.user.providerData?.[0]?.email || null;
+      // Extract email from multiple sources:
+      // 1. user.email (standard OAuth providers — Google, Apple)
+      // 2. providerData (linked provider, set after providerToLink backend call)
+      // 3. ID token custom claims (Microsoft custom-token auth stores email in claims)
+      let userEmail = result.user.email || result.user.providerData?.[0]?.email || null;
+      if (!userEmail) {
+        try {
+          const tokenResult = await result.user.getIdTokenResult();
+          userEmail = (tokenResult.claims['email'] as string | undefined) ?? null;
+        } catch {
+          // Non-fatal: proceed without email from claims
+        }
+      }
 
       this.logger.debug(`${method} Firebase sign-in successful`, {
         uid: result.user.uid,
@@ -806,6 +817,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         if (!credentials.skipNavigation) {
           await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
         }
+
+        // Register FCM token for push notifications (non-blocking)
+        void this.fcmRegistration.registerToken();
+
         return true;
       } finally {
         // Always clear flag to prevent state leaks (via core state manager)

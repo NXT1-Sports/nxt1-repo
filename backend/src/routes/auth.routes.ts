@@ -2042,13 +2042,13 @@ router.post(
  * This allows native MSAL authentication to work with Firebase Auth.
  *
  * POST /auth/microsoft/custom-token
- * Body: { idToken: string, accessToken: string }
+ * Body: { idToken: string, accessToken?: string }
  * Returns: { firebaseToken: string }
  */
 router.post(
   '/microsoft/custom-token',
   asyncHandler(async (req: Request, res: Response) => {
-    const { idToken } = req.body;
+    const { idToken, accessToken } = req.body;
 
     if (!idToken || typeof idToken !== 'string') {
       const error = validationError([
@@ -2070,9 +2070,46 @@ router.post(
       const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
       const payload = JSON.parse(Buffer.from(base64, 'base64').toString());
 
+      // Prefer `oid` (Azure AD Object ID — stable GUID format, same across all apps)
+      // over `sub` (pairwise subject — app-specific, long base64 string for personal MSA accounts)
       const microsoftUid = payload.sub || payload.oid;
-      const email = payload.preferred_username || payload.email;
-      const name = payload.name;
+      let email: string | undefined = payload.preferred_username || payload.email;
+      let name: string | undefined = payload.name;
+
+      if (!microsoftUid) {
+        const error = validationError([
+          { field: 'idToken', message: 'Invalid token: missing sub/oid', rule: 'invalid' },
+        ]);
+        sendError(res, error);
+        return;
+      }
+
+      // For personal Microsoft accounts (consumer tenant), the idToken may not contain
+      // email/preferred_username. Fall back to Microsoft Graph /me if accessToken is provided.
+      if (!email && accessToken && typeof accessToken === 'string') {
+        logger.debug(
+          '[Microsoft Custom Token] Email missing from idToken, fetching from Graph API'
+        );
+        try {
+          const graphRes = await fetch(
+            'https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName,displayName',
+            {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            }
+          );
+          if (graphRes.ok) {
+            const graphUser = (await graphRes.json()) as {
+              mail?: string;
+              userPrincipalName?: string;
+              displayName?: string;
+            };
+            email = graphUser.mail || graphUser.userPrincipalName;
+            name = name || graphUser.displayName;
+          }
+        } catch (graphError) {
+          logger.warn('[Microsoft Custom Token] Graph API call failed', { graphError });
+        }
+      }
 
       if (!microsoftUid || !email) {
         const error = validationError([
@@ -2085,11 +2122,23 @@ router.post(
       logger.debug('[Microsoft Custom Token] Token decoded', { email, name });
 
       // Create deterministic Firebase UID
-      const firebaseUid = `microsoft_${microsoftUid}`;
+      const firebaseUid = `${microsoftUid}`;
 
       // Check if user exists, create if not
       try {
-        await req.firebase!.auth.getUser(firebaseUid);
+        const existingUser = await req.firebase!.auth.getUser(firebaseUid);
+        // Update email/displayName if not set (e.g. first time we get email from Graph API)
+        if ((!existingUser.email && email) || (!existingUser.displayName && name)) {
+          try {
+            await req.firebase!.auth.updateUser(firebaseUid, {
+              ...(email && !existingUser.email ? { email, emailVerified: true } : {}),
+              ...(name && !existingUser.displayName ? { displayName: name } : {}),
+            });
+          } catch (updateErr) {
+            // Email may already be in use by another provider — non-fatal
+            logger.warn('[Microsoft Custom Token] Could not update user email/name', { updateErr });
+          }
+        }
       } catch (error: unknown) {
         if (
           error &&
@@ -2098,15 +2147,58 @@ router.post(
           error.code === 'auth/user-not-found'
         ) {
           logger.debug('[Microsoft Custom Token] Creating new Firebase user');
-          await req.firebase!.auth.createUser({
-            uid: firebaseUid,
-            email: email,
-            displayName: name,
-            emailVerified: true,
-          });
+          // Attempt to create with email so it appears in Firebase Console.
+          // If email conflicts with an existing provider, fall back to no email
+          // (the email is still propagated via custom token claims).
+          try {
+            await req.firebase!.auth.createUser({
+              uid: firebaseUid,
+              email,
+              displayName: name,
+              emailVerified: true,
+            });
+          } catch (createWithEmailErr: unknown) {
+            const code =
+              createWithEmailErr &&
+              typeof createWithEmailErr === 'object' &&
+              'code' in createWithEmailErr
+                ? (createWithEmailErr as { code: string }).code
+                : '';
+            if (code === 'auth/email-already-exists') {
+              logger.warn(
+                '[Microsoft Custom Token] Email already taken by another provider, creating without email',
+                { email }
+              );
+              await req.firebase!.auth.createUser({
+                uid: firebaseUid,
+                displayName: name,
+                emailVerified: false,
+              });
+            } else {
+              throw createWithEmailErr;
+            }
+          }
         } else {
           throw error;
         }
+      }
+
+      // Link the microsoft.com provider to the user so Firebase Console shows
+      // the Microsoft icon and providerData is populated on the client-side user.
+      // providerToLink is an Admin-SDK-only operation — it works for custom-token
+      // users that have no OAuth provider linked yet.
+      try {
+        await req.firebase!.auth.updateUser(firebaseUid, {
+          providerToLink: {
+            uid: microsoftUid,
+            providerId: 'microsoft.com',
+            ...(email ? { email } : {}),
+            ...(name ? { displayName: name } : {}),
+          },
+        });
+      } catch (linkErr) {
+        // Non-fatal: provider may already be linked, or Admin SDK version may not support it
+        logger.warn('[Microsoft Custom Token] Could not link microsoft.com provider', { linkErr });
       }
 
       // Create Firebase custom token
@@ -2118,11 +2210,16 @@ router.post(
 
       logger.info('[Microsoft Custom Token] Success', { uid: firebaseUid, email });
 
-      res.json({ firebaseToken });
+      res.json({ firebaseToken, email: email ?? null, displayName: name ?? null });
     } catch (error: unknown) {
       logger.error('[Microsoft Custom Token] Error', { error });
+      const errorDetail = error instanceof Error ? error.message : String(error);
       const validError = validationError([
-        { field: 'idToken', message: 'Failed to process Microsoft token', rule: 'invalid' },
+        {
+          field: 'idToken',
+          message: `Failed to process Microsoft token: ${errorDetail}`,
+          rule: 'invalid',
+        },
       ]);
       sendError(res, validError);
     }

@@ -17,6 +17,7 @@
 import { Injectable, inject, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Platform } from '@ionic/angular/standalone';
+import { Auth } from '@angular/fire/auth';
 import { Functions, httpsCallable } from '@angular/fire/functions';
 import { NxtLoggingService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
@@ -29,12 +30,15 @@ interface RegisterTokenResponse {
 export class FcmRegistrationService {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly ionicPlatform = inject(Platform);
+  private readonly auth = inject(Auth);
   private readonly functions = inject(Functions);
   private readonly logger: ILogger = inject(NxtLoggingService).child('FcmRegistrationService');
 
-  /** Cached FCM token for current device */
+  /** Cached FCM token for current device (keyed by UID) */
   private cachedToken?: string;
+  private cachedTokenUid?: string;
   private readonly STORAGE_KEY = 'nxt1_fcm_token';
+  private readonly STORAGE_UID_KEY = 'nxt1_fcm_token_uid';
 
   /**
    * Request permission and register FCM token for the current user.
@@ -66,22 +70,30 @@ export class FcmRegistrationService {
 
       this.logger.debug('Push notification permission granted');
 
-      // ── Fast path: reuse cached token if available ────────────────────────────
-      let token = this.cachedToken;
-      if (!token) {
+      // ── Fast path: reuse cached token if it belongs to the current user ──────
+      const currentUid = this.auth.currentUser?.uid;
+      let token =
+        this.cachedToken && this.cachedTokenUid === currentUid ? this.cachedToken : undefined;
+
+      if (!token && currentUid) {
         try {
           const { Preferences } = await import('@capacitor/preferences');
-          const stored = await Preferences.get({ key: this.STORAGE_KEY });
-          token = stored.value ?? undefined;
+          const [stored, storedUid] = await Promise.all([
+            Preferences.get({ key: this.STORAGE_KEY }),
+            Preferences.get({ key: this.STORAGE_UID_KEY }),
+          ]);
+          if (stored.value && storedUid.value === currentUid) {
+            token = stored.value;
+          }
         } catch {
           // Storage read failure is non-fatal — fall through to re-register
         }
       }
 
       if (token) {
-        // Token already present in persistent cache → already registered with backend.
-        // Restore in-memory cache and skip the Cloud Function call.
+        // Token already registered for this user on this device — skip backend call.
         this.cachedToken = token;
+        this.cachedTokenUid = currentUid;
         this.logger.debug('FCM token already registered (from cache), skipping backend call', {
           platform: this.ionicPlatform.is('ios') ? 'ios' : 'android',
         });
@@ -108,11 +120,15 @@ export class FcmRegistrationService {
 
       await registerFcmToken({ token: token!, platform });
 
-      // Cache token for later unregister
+      // Cache token for later unregister (scoped to current user UID)
       this.cachedToken = token;
+      this.cachedTokenUid = currentUid;
       try {
         const { Preferences } = await import('@capacitor/preferences');
-        await Preferences.set({ key: this.STORAGE_KEY, value: token! });
+        await Promise.all([
+          Preferences.set({ key: this.STORAGE_KEY, value: token! }),
+          Preferences.set({ key: this.STORAGE_UID_KEY, value: currentUid ?? '' }),
+        ]);
       } catch (storageError) {
         this.logger.warn('Failed to cache FCM token', { error: storageError });
       }
@@ -163,9 +179,13 @@ export class FcmRegistrationService {
 
       // Clear cached token
       this.cachedToken = undefined;
+      this.cachedTokenUid = undefined;
       try {
         const { Preferences } = await import('@capacitor/preferences');
-        await Preferences.remove({ key: this.STORAGE_KEY });
+        await Promise.all([
+          Preferences.remove({ key: this.STORAGE_KEY }),
+          Preferences.remove({ key: this.STORAGE_UID_KEY }),
+        ]);
       } catch (storageError) {
         this.logger.warn('Failed to clear cached FCM token', { error: storageError });
       }

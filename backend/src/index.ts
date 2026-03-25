@@ -92,27 +92,59 @@ app.use(
   })
 );
 
+// Private network origin check (RFC 1918) — used for LAN dev/device testing
+const isPrivateNetworkOrigin = (origin: string): boolean => {
+  try {
+    const { hostname } = new URL(origin);
+    return (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      /^10\.\d+\.\d+\.\d+$/.test(hostname) ||
+      /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/.test(hostname) ||
+      /^192\.168\.\d+\.\d+$/.test(hostname)
+    );
+  } catch {
+    return false;
+  }
+};
+
+const STATIC_ALLOWED_ORIGINS = process.env['CORS_ORIGINS']
+  ? process.env['CORS_ORIGINS'].split(',')
+  : [
+      'http://localhost:4200',
+      'http://127.0.0.1:4200',
+      'http://localhost:4300',
+      'http://127.0.0.1:4300',
+      'http://localhost:8100',
+      'http://127.0.0.1:8100',
+      // Capacitor native apps (iOS & Android)
+      'capacitor://localhost',
+      'ionic://localhost',
+      'https://nxt1.com',
+      'https://www.nxt1.com',
+      'https://nxt1sports.com',
+      'https://www.nxt1sports.com',
+      // Firebase App Hosting (staging)
+      'https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app',
+    ];
+
 app.use(
   cors({
-    origin: process.env['CORS_ORIGINS']
-      ? process.env['CORS_ORIGINS'].split(',')
-      : [
-          'http://localhost:4200',
-          'http://127.0.0.1:4200',
-          'http://localhost:4300',
-          'http://127.0.0.1:4300',
-          'http://localhost:8100',
-          'http://127.0.0.1:8100',
-          // Capacitor native apps (iOS & Android)
-          'capacitor://localhost',
-          'ionic://localhost',
-          'https://nxt1.com',
-          'https://www.nxt1.com',
-          'https://nxt1sports.com',
-          'https://www.nxt1sports.com',
-          // Firebase App Hosting (staging)
-          'https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app',
-        ],
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. native mobile, curl, server-to-server)
+      if (!origin) return callback(null, true);
+
+      if (STATIC_ALLOWED_ORIGINS.includes(origin)) {
+        return callback(null, true);
+      }
+
+      // Allow LAN IPs in non-production (Ionic live-reload on physical devices)
+      if (process.env['NODE_ENV'] !== 'production' && isPrivateNetworkOrigin(origin)) {
+        return callback(null, true);
+      }
+
+      callback(new Error(`CORS: origin '${origin}' not allowed`));
+    },
     credentials: true,
   })
 );
