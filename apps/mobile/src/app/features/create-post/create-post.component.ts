@@ -215,7 +215,7 @@ export class CreatePostComponent implements OnInit, OnDestroy {
     {
       id: 'post',
       title: 'Create Post',
-      description: 'Share an update, highlight, or recruiting moment.',
+      description: 'Share an update, highlight, or sports moment.',
     },
     {
       id: 'video',

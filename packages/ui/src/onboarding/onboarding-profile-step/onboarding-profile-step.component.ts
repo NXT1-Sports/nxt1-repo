@@ -393,7 +393,6 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
           inputId="phoneNumber"
           [optional]="true"
           [error]="phoneError()"
-          hint="Optional — for direct contact from coaches"
           testId="onboarding-phone-field"
         >
           <ion-input

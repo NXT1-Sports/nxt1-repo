@@ -505,7 +505,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
     `
       /* ============================================
          FEED POST CARD - NXT1 2026 Design System
-         Professional sports recruiting post card
+         Professional sports intelligence post card
          ============================================ */
 
       :host {

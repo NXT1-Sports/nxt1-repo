@@ -29,19 +29,19 @@ export class AthletesComponent implements OnInit {
 
   ngOnInit(): void {
     this.seo.updatePage({
-      title: 'For Athletes — D1 Dream Recruiting Platform | NXT1',
+      title: 'For Athletes — The Sports Intelligence Platform | NXT1',
       description:
-        "If they can't find you, they can't sign you. Build a verified NXT1 recruiting profile, publish highlights, earn XP for daily actions, and climb the Risers to Watch leaderboard to get discovered by college coaches.",
+        "If they can't find you, they can't sign you. Let AI coordinators build your NXT1 profile, publish highlights, earn XP for daily actions, and climb the Risers to Watch leaderboard to get noticed by college coaches.",
       keywords: [
-        'D1 recruiting',
-        'student athlete recruiting',
+        'D1 athletics',
+        'student athlete platform',
         'college scholarship offers',
         'athlete highlight reels',
-        'recruiting profile',
-        'recruiting visibility',
+        'athlete intelligence',
+        'athlete visibility',
         'athlete leaderboard',
         'sports gamification',
-        'recruiting XP',
+        'athlete XP',
       ],
       canonicalUrl: 'https://nxt1sports.com/athletes',
       image: 'https://nxt1sports.com/assets/shared/images/athlete-1.png',

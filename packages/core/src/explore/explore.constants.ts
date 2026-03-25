@@ -227,7 +227,7 @@ export const EXPLORE_EMPTY_STATES: Record<
   },
   news: {
     title: 'No news yet',
-    message: 'Check back soon for the latest sports recruiting news and updates',
+    message: 'Check back soon for the latest sports news and updates',
     icon: 'newspaper-outline',
   },
   colleges: {
@@ -296,7 +296,7 @@ export const EXPLORE_INITIAL_STATES: Record<
   },
   news: {
     title: 'News',
-    message: 'Latest sports recruiting news, commits, and updates',
+    message: 'Latest sports news, commits, and updates',
   },
   colleges: {
     title: 'Discover Colleges',

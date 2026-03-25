@@ -98,14 +98,14 @@ let killerComparisonInstanceCounter = 0;
           align="center"
           [headingLevel]="2"
           title="Stop Paying for 2012 Tech."
-          subtitle="A direct side-by-side view of outdated recruiting tools versus the modern NXT1 platform."
+          subtitle="A direct side-by-side view of outdated legacy tools versus the modern NXT1 intelligence platform."
         />
       </div>
 
       <div class="killer-comparison__table-wrapper">
         <table class="killer-comparison__table">
           <caption class="sr-only">
-            Comparison chart between legacy recruiting platforms and NXT1 across cost, updates, app
+            Comparison chart between legacy sports platforms and NXT1 across cost, updates, app
             experience, AI, brand building, and data verification.
           </caption>
           <thead>

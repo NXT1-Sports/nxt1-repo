@@ -52,12 +52,12 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
     id: 'athletes',
     title: 'For Athletes',
     description:
-      'Build your recruiting profile, showcase highlights, and connect with college coaches.',
+      'Let AI coordinators build your profile, generate highlights, and connect you with the right programs.',
     icon: 'athlete',
     route: '/auth?role=athlete',
     cta: 'Start Your Journey',
     gradientClass: 'hero-card--athletes',
-    ariaLabel: 'Learn about NXT1 for athletes and start your recruiting journey',
+    ariaLabel: 'Learn about NXT1 for athletes and let AI coordinators power your journey',
   },
   {
     id: 'teams',
@@ -72,7 +72,8 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
   {
     id: 'scouts',
     title: 'For Recruiters',
-    description: 'Discover top talent, build watch lists, and streamline your recruiting process.',
+    description:
+      'Discover top talent, build watch lists, and let AI coordinators streamline your evaluation process.',
     icon: 'scout',
     route: '/auth?role=recruiter',
     cta: 'Find Elite Talent',
@@ -117,7 +118,7 @@ const MOVEMENT_ITEMS: readonly MovementActivityItem[] = [
     id: 'movement-4',
     userName: 'Mia Johnson',
     location: 'GA',
-    update: 'booked an official recruiting call',
+    update: 'booked an official campus visit call',
     timeLabel: '46s ago',
   },
   {
@@ -153,13 +154,13 @@ const LANDING_FAQS: readonly FaqItem[] = [
     id: 'discoverability',
     question: 'How do athletes get discovered?',
     answer:
-      'Athletes improve visibility by completing profiles, uploading highlights, and engaging in recruiting workflows that make them easier to evaluate and contact.',
+      'Athletes improve visibility by completing profiles, uploading highlights, and using AI-powered workflows that surface them to evaluators automatically.',
   },
   {
     id: 'coach-tools',
-    question: 'Can coaches and teams use NXT1 for recruiting operations?',
+    question: 'Can coaches and teams use NXT1 for talent operations?',
     answer:
-      'Yes. Coaches and team staff can search talent, organize watch lists, and manage recruiting workflows directly in the platform.',
+      'Yes. Coaches and team staff can search talent, organize watch lists, and delegate workflows to AI coordinators directly in the platform.',
   },
   {
     id: 'agentx',
@@ -234,7 +235,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
           <h2 id="partners-heading" class="sr-only">Our Partners</h2>
           <nxt1-partner-marquee
             title="Trusted By Leading Organizations"
-            subtitle="Partnering with the best to power the future of sports recruiting"
+            subtitle="Partnering with the best to power the future of sports intelligence"
             label="Our Partners"
             variant="minimal"
             [showLabel]="true"
@@ -270,7 +271,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
               badgeLabel="Live Activity"
               title="The Movement Is"
               accentText="Happening Now"
-              subtitle="Real-time recruiting signals from athletes and coaches across the country — offers, graphics, and visibility moving every minute."
+              subtitle="Real-time intelligence signals from athletes and coaches across the country — offers, graphics, and visibility moving every minute."
               ariaId="movement-section-title"
             >
               <nxt1-movement-section [items]="movementItems" />
@@ -322,7 +323,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
               variant="conversion"
               badgeLabel="Join The Revolution"
               title="Stop Competing. Start Dominating."
-              subtitle="Join the NXT1 sports recruiting platform to build a verified athlete profile, publish elite highlights, and get discovered by college coaches with real recruiting signals."
+              subtitle="Join the NXT1 sports intelligence platform — powered by AI coordinators that build your profile, generate elite highlights, and surface you to college coaches automatically."
               ctaLabel="Create Your NXT1 Account"
               ctaRoute="/auth"
               titleId="landing-final-cta-title"
@@ -416,26 +417,26 @@ export class LandingComponent implements OnInit {
 
     const seoConfig: SeoConfig = {
       page: {
-        title: 'NXT1 Sports - The Future of Sports Recruiting',
+        title: 'NXT1 Sports - The Sports Intelligence Platform',
         description:
-          'Build your verified recruiting profile, connect with college coaches, and get discovered. The all-in-one sports recruiting platform for athletes, coaches, scouts, and teams.',
+          'The sports intelligence platform powered by AI coordinators. Autonomous workflows, AI scout reports, and a unified command center for athletes, coaches, scouts, and teams.',
         keywords: [
-          'sports recruiting',
-          'college recruiting',
+          'sports intelligence',
+          'AI sports platform',
           'high school athletes',
           'athletic profile',
           'college coaches',
-          'NCAA recruiting',
+          'AI coordinators',
           'NXT1',
-          'recruiting platform',
+          'sports intelligence platform',
           'NIL valuation',
           'athlete highlights',
-          'sports scouting',
-          'recruiting calendar 2026',
+          'AI scout reports',
+          'autonomous sports workflows',
           'coach outreach',
           'athletic scholarship',
-          'club sports recruiting',
-          'D1 recruiting',
+          'sports AI',
+          'D1 athletics',
         ],
         canonicalUrl: 'https://nxt1sports.com/',
         image: 'https://nxt1sports.com/assets/images/og-image.jpg',
@@ -462,7 +463,7 @@ export class LandingComponent implements OnInit {
               'https://www.youtube.com/@nxt1sports',
             ],
             description:
-              'The all-in-one sports recruiting platform connecting athletes, coaches, scouts, and teams.',
+              'The sports intelligence platform powered by AI coordinators — connecting athletes, coaches, scouts, and teams.',
             foundingDate: '2023',
             contactPoint: {
               '@type': 'ContactPoint',
@@ -493,11 +494,11 @@ export class LandingComponent implements OnInit {
             '@type': 'WebPage',
             '@id': 'https://nxt1sports.com/#webpage',
             url: 'https://nxt1sports.com/',
-            name: 'NXT1 Sports - The Future of Sports Recruiting',
+            name: 'NXT1 Sports - The Sports Intelligence Platform',
             isPartOf: { '@id': 'https://nxt1sports.com/#website' },
             about: { '@id': 'https://nxt1sports.com/#organization' },
             description:
-              'Build your verified recruiting profile, connect with college coaches, and get discovered. The all-in-one sports recruiting platform for athletes, coaches, scouts, and teams.',
+              'The sports intelligence platform powered by AI coordinators. Autonomous workflows, AI scout reports, and a unified command center for athletes, coaches, scouts, and teams.',
             primaryImageOfPage: {
               '@type': 'ImageObject',
               url: 'https://nxt1sports.com/assets/images/og-image.jpg',

@@ -52,12 +52,6 @@ import { ProfileSkeletonComponent } from '../../profile/profile-skeleton.compone
                   <div class="sk-ph-name skeleton-animate"></div>
                   <div class="sk-ph-subtitle skeleton-animate"></div>
                 </div>
-                <!-- Trailing: Follow stats + button -->
-                <div class="sk-ph-trailing">
-                  <div class="sk-ph-stat skeleton-animate"></div>
-                  <div class="sk-ph-stat skeleton-animate"></div>
-                  <div class="sk-ph-follow skeleton-animate"></div>
-                </div>
               </div>
             </div>
 
@@ -71,7 +65,6 @@ import { ProfileSkeletonComponent } from '../../profile/profile-skeleton.compone
                   <div class="sk-mh-name skeleton-animate"></div>
                   <div class="sk-mh-meta skeleton-animate"></div>
                 </div>
-                <div class="sk-mh-follow skeleton-animate"></div>
               </div>
               <!-- Stats row: Record, Athletes, Followers -->
               <div class="sk-mh-stats">
@@ -315,13 +308,6 @@ import { ProfileSkeletonComponent } from '../../profile/profile-skeleton.compone
         border-radius: 8px;
       }
 
-      .sk-ph-follow {
-        width: 88px;
-        height: 34px;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        flex-shrink: 0;
-      }
-
       /* ─── MOBILE HERO (mobile only) ─── */
       /* mirrors: nxt1-team-mobile-hero layout */
       .sk-mobile-hero {
@@ -367,13 +353,6 @@ import { ProfileSkeletonComponent } from '../../profile/profile-skeleton.compone
         width: 180px;
         height: 12px;
         border-radius: 4px;
-      }
-
-      .sk-mh-follow {
-        width: 72px;
-        height: 30px;
-        border-radius: 999px;
-        flex-shrink: 0;
       }
 
       .sk-mh-stats {

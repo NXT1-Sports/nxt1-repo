@@ -277,7 +277,7 @@ export class AuthComponent implements OnInit {
         'login',
         'register',
         'create account',
-        'sports recruiting',
+        'sports intelligence',
         'athlete profile',
       ],
     });

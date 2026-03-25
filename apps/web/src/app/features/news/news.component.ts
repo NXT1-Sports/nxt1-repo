@@ -45,11 +45,11 @@ export class NewsComponent implements OnInit {
 
   ngOnInit(): void {
     this.seo.updatePage({
-      title: 'Recruiting News',
+      title: 'Sports News',
       description:
-        'Stay current with recruiting trends, athlete stories, and college sports updates on NXT1.',
+        'Stay current with sports intelligence, athlete stories, and college sports updates on NXT1.',
       canonicalUrl: 'https://nxt1sports.com/news',
-      keywords: ['sports recruiting news', 'college recruiting', 'athlete news', 'nxt1'],
+      keywords: ['sports intelligence news', 'college sports', 'athlete news', 'nxt1'],
     });
   }
 

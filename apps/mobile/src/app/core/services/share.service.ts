@@ -288,7 +288,7 @@ export class ShareService {
   async shareApp(): Promise<ShareResultData> {
     const result = await this.shareCustom({
       title: 'NXT1 Sports',
-      text: 'Check out NXT1 Sports - The ultimate platform for athletic recruiting and highlights!',
+      text: 'Check out NXT1 Sports - The sports intelligence platform powered by AI coordinators!',
       url: 'https://nxt1sports.com',
     });
 

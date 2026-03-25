@@ -61,6 +61,7 @@ import { filter, takeUntil } from 'rxjs/operators';
 import { Subject } from 'rxjs';
 import { NxtLogoComponent } from '../logo';
 import { NxtIconComponent } from '../icon';
+import { NxtAvatarComponent } from '../avatar';
 import { NxtSearchBarComponent, type SearchBarSubmitEvent } from '../search-bar';
 import {
   NxtSearchResultsDropdownComponent,
@@ -92,6 +93,7 @@ import type {
     NxtIconComponent,
     NxtSearchBarComponent,
     NxtSearchResultsDropdownComponent,
+    NxtAvatarComponent,
   ],
   template: `
     <!--
@@ -376,16 +378,13 @@ import type {
               >
                 <!-- Avatar -->
                 <div class="user-avatar">
-                  @if (user()?.profileImg) {
-                    <img
-                      [src]="user()!.profileImg"
-                      [alt]="user()?.name || 'User avatar'"
-                      class="avatar-img"
-                      loading="lazy"
-                    />
-                  } @else {
-                    <span class="avatar-initials">{{ userInitials() }}</span>
-                  }
+                  <nxt1-avatar
+                    [src]="user()?.profileImg"
+                    [name]="user()?.name"
+                    [customSize]="32"
+                    [showSkeleton]="false"
+                    cssClass="nav-user-avatar"
+                  />
                   @if (user()?.verified) {
                     <span class="avatar-verified" aria-label="Verified">
                       <nxt1-icon name="checkmarkCircle" size="12" />
@@ -412,15 +411,13 @@ import type {
                 <!-- User Info Header -->
                 <div class="user-info">
                   <div class="user-info-avatar">
-                    @if (user()?.profileImg) {
-                      <img
-                        [src]="user()!.profileImg"
-                        [alt]="user()?.name || 'User avatar'"
-                        class="avatar-img-lg"
-                      />
-                    } @else {
-                      <span class="avatar-initials-lg">{{ userInitials() }}</span>
-                    }
+                    <nxt1-avatar
+                      [src]="user()?.profileImg"
+                      [name]="user()?.name"
+                      [customSize]="40"
+                      [showSkeleton]="false"
+                      cssClass="nav-user-avatar-lg"
+                    />
                   </div>
                   <div class="user-info-text">
                     <span class="user-info-name">{{ user()?.name }}</span>
@@ -527,21 +524,15 @@ import type {
           <div class="mobile-user-section border-(--nxt1-nav-border)] mt-auto border-t p-4">
             <div class="mobile-user-info mb-4 flex items-center gap-3">
               <div
-                class="mobile-user-avatar bg-(--nxt1-nav-active-bg)] flex h-12 w-12 items-center justify-center overflow-hidden rounded-full"
+                class="mobile-user-avatar flex h-12 w-12 items-center justify-center overflow-hidden rounded-full"
               >
-                @if (user()?.profileImg) {
-                  <img
-                    [src]="user()!.profileImg"
-                    [alt]="user()?.name || 'User avatar'"
-                    class="h-full w-full object-cover"
-                  />
-                } @else {
-                  <span
-                    class="mobile-avatar-initials text-(--nxt1-nav-text)] text-lg font-semibold"
-                  >
-                    {{ userInitials() }}
-                  </span>
-                }
+                <nxt1-avatar
+                  [src]="user()?.profileImg"
+                  [name]="user()?.name"
+                  [customSize]="48"
+                  [showSkeleton]="false"
+                  cssClass="nav-mobile-user-avatar"
+                />
               </div>
               <div class="mobile-user-text flex flex-col gap-0.5">
                 <span class="mobile-user-name text-(--nxt1-nav-text)] text-base font-semibold">{{

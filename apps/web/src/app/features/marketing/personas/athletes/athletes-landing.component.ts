@@ -6,7 +6,7 @@
  * Orchestrator for the `/athletes` persona marketing page.
  * Composes shared NXT1 section components with athlete-specific
  * content aimed at high-school and club student-athletes looking
- * to build a recruiting profile, upload highlights, and get
+ * to harness AI coordinators, upload highlights, and get
  * exposure to college coaches.
  */
 
@@ -44,7 +44,7 @@ const AUDIENCES: AudienceSegment[] = [
     icon: 'football-outline',
     title: 'High School Athletes',
     description:
-      'Start building your recruiting profile as early as freshman year. Track your development through graduation and get noticed.',
+      'Start building your athlete profile as early as freshman year. Track your development through graduation and get noticed.',
   },
   {
     id: 'athletes-club-travel',
@@ -67,7 +67,7 @@ const FAQS: FaqItem[] = [
     id: 'athletes-free',
     question: 'Is NXT1 free for athletes?',
     answer:
-      'Yes! Every athlete gets a free recruiting profile with unlimited highlight uploads. Premium tiers offer additional analytics, priority visibility, and advanced video tools.',
+      'Yes! Every athlete gets a free profile with unlimited highlight uploads. Premium tiers offer additional analytics, priority visibility, and advanced video tools.',
   },
   {
     id: 'athletes-sports',
@@ -89,7 +89,7 @@ const FAQS: FaqItem[] = [
   },
   {
     id: 'athletes-when-start',
-    question: 'When should I start my recruiting profile?',
+    question: 'When should I start my athlete profile?',
     answer:
       'The earlier the better! Many athletes create their NXT1 profile as early as 8th grade or freshman year. Starting early lets you track development and build a history that impresses coaches.',
   },
@@ -130,7 +130,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
 
     <nxt1-audience-section
       title="Built for Every Athlete"
-      subtitle="Whether you're a high school freshman or a college transfer, NXT1 adapts to your recruiting stage."
+      subtitle="Whether you're a high school freshman or a college transfer, NXT1 adapts to your stage with AI-powered coordinators."
       [segments]="audiences"
     />
 
@@ -152,7 +152,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
       variant="conversion"
       badgeLabel="Join The Revolution"
       title="Stop Competing. Start Dominating."
-      subtitle="Join the NXT1 sports recruiting platform to build a verified athlete profile, publish elite highlights, and get discovered by college coaches with real recruiting signals."
+      subtitle="Join the NXT1 sports intelligence platform — powered by AI coordinators that build your profile, generate elite highlights, and surface you to college coaches automatically."
       ctaLabel="Create Your NXT1 Account"
       ctaRoute="/auth"
       titleId="landing-final-cta-title"

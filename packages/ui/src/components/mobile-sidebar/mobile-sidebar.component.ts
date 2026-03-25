@@ -399,7 +399,7 @@ import { formatSportDisplayName } from '@nxt1/core';
               <nxt1-icon name="download" [size]="20" />
               <span class="mobile-sidebar__app-promo-title">Get the NXT1 App</span>
             </div>
-            <p class="mobile-sidebar__app-promo-subtitle">The #1 Exposure & Marketing Platform</p>
+            <p class="mobile-sidebar__app-promo-subtitle">The Sports Intelligence Platform</p>
             <div class="mobile-sidebar__app-promo-buttons">
               <a
                 [href]="appStoreUrl"

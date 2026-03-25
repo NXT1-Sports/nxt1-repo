@@ -682,7 +682,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     this.seo.updatePage({
       title: 'Complete Your Profile',
       description:
-        'Complete your NXT1 profile to access personalized features and connect with the sports recruiting community.',
+        'Complete your NXT1 profile to access personalized features and connect with the sports intelligence community.',
       keywords: [
         'onboarding',
         'profile setup',

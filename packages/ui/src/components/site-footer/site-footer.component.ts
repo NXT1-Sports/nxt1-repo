@@ -492,7 +492,7 @@ export class NxtSiteFooterComponent {
 
   /** Tagline displayed under logo. */
   readonly tagline = input<string>(
-    'The #1 sports recruiting platform for student-athletes, coaches, parents, and scouts.'
+    'The sports intelligence platform powered by AI coordinators — built for athletes, coaches, parents, and scouts.'
   );
 
   /** CTA button label (omit to hide). */

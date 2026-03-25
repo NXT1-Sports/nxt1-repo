@@ -62,7 +62,7 @@ const SITE_NAME = 'NXT1 Sports';
 
 /** Default site description */
 const DEFAULT_DESCRIPTION =
-  'Build your verified recruiting profile, connect with college coaches, and get discovered. The all-in-one sports recruiting platform for athletes, coaches, scouts, and teams.';
+  'The sports intelligence platform powered by AI coordinators. Autonomous workflows, AI scout reports, and a unified command center for athletes, coaches, scouts, and teams.';
 
 /** Default OG image */
 const DEFAULT_OG_IMAGE = 'https://nxt1sports.com/assets/images/og-image.jpg';
@@ -248,7 +248,7 @@ export class SeoService {
   resetToDefaults(): void {
     this.applySeoConfig({
       page: {
-        title: `${SITE_NAME} - The Sports Content Platform`,
+        title: `${SITE_NAME} - The Sports Intelligence Platform`,
         description: DEFAULT_DESCRIPTION,
         canonicalUrl: BASE_URL,
         image: DEFAULT_OG_IMAGE,

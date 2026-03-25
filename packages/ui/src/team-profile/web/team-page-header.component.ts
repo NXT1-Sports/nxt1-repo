@@ -55,39 +55,6 @@ import { TeamProfileService } from '../team-profile.service';
           }
         </div>
       </div>
-
-      <!-- ═══ TRAILING: Follow stats + button ═══ -->
-      <div headerTrailing class="team-trailing">
-        <div class="team-follow-stats">
-          <button type="button" class="team-stat">
-            <span class="team-stat-count">{{ followersCount() }}</span>
-            <span class="team-stat-label">Followers</span>
-          </button>
-          @if (teamProfile.isTeamAdmin()) {
-            <button type="button" class="team-stat">
-              <span class="team-stat-count">{{ followingCount() }}</span>
-              <span class="team-stat-label">Following</span>
-            </button>
-          }
-        </div>
-        @if (!teamProfile.isTeamAdmin()) {
-          <button
-            type="button"
-            class="follow-btn"
-            [class.follow-btn--following]="teamProfile.followStats()?.isFollowing"
-            (click)="follow.emit()"
-            [attr.aria-label]="
-              teamProfile.followStats()?.isFollowing ? 'Unfollow team' : 'Follow team'
-            "
-          >
-            <nxt1-icon
-              [name]="teamProfile.followStats()?.isFollowing ? 'checkmark' : 'plus'"
-              [size]="13"
-            />
-            {{ teamProfile.followStats()?.isFollowing ? 'Following' : 'Follow' }}
-          </button>
-        }
-      </div>
     </nxt1-entity-page-header>
   `,
   styles: [
@@ -176,98 +143,6 @@ import { TeamProfileService } from '../team-profile.service';
       }
 
       /* ============================================
-         FOLLOW STATS — Followers count
-         ============================================ */
-      .team-follow-stats {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-4, 16px);
-      }
-      .team-stat {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 1px;
-        background: none;
-        border: none;
-        padding: 0;
-        cursor: pointer;
-        line-height: 1;
-      }
-      .team-stat:hover .team-stat-count {
-        color: var(--nxt1-color-primary);
-      }
-      .team-stat-count {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-lg, 18px);
-        font-weight: var(--nxt1-fontWeight-bold);
-        color: var(--nxt1-color-text-primary);
-        transition: color 0.15s ease;
-      }
-      .team-stat-label {
-        font-size: var(--nxt1-fontSize-xs, 12px);
-        font-weight: var(--nxt1-fontWeight-medium);
-        color: var(--nxt1-color-text-tertiary);
-        letter-spacing: 0.04em;
-      }
-
-      /* ============================================
-         FOLLOW BUTTON — matches profile header style
-         ============================================ */
-      .follow-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        flex-shrink: 0;
-        border: 1.5px solid var(--nxt1-color-primary);
-        background: color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent);
-        color: var(--nxt1-color-primary);
-        border-radius: var(--nxt1-radius-md, 8px);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: 13px;
-        font-weight: var(--nxt1-fontWeight-semibold);
-        letter-spacing: 0.01em;
-        line-height: 1;
-        padding: 7px 16px;
-        cursor: pointer;
-        backdrop-filter: blur(4px);
-        -webkit-backdrop-filter: blur(4px);
-        transition:
-          transform 0.1s ease,
-          background 0.15s ease,
-          border-color 0.15s ease,
-          color 0.15s ease;
-      }
-
-      .follow-btn:hover {
-        background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-bg-primary);
-        border-color: var(--nxt1-color-primary);
-      }
-
-      .follow-btn:active {
-        transform: scale(0.97);
-      }
-
-      .follow-btn:focus-visible {
-        outline: 2px solid var(--nxt1-color-primary);
-        outline-offset: 2px;
-      }
-
-      .follow-btn--following {
-        border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.08));
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
-        color: var(--nxt1-color-text-secondary);
-      }
-
-      .follow-btn--following:hover {
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
-        color: var(--nxt1-color-text-primary);
-        border-color: var(--nxt1-color-border-default);
-      }
-
-      /* ============================================
          RESPONSIVE
          ============================================ */
       @media (max-width: 900px) {
@@ -309,18 +184,6 @@ export class TeamPageHeaderComponent {
   // ============================================
 
   readonly back = output<void>();
-  readonly follow = output<void>();
-
-  // ============================================
-  // FOLLOW STATS
-  // ============================================
-
-  protected readonly followersCount = computed(
-    () => this.teamProfile.followStats()?.followersCount ?? 0
-  );
-  protected readonly followingCount = computed(
-    () => this.teamProfile.followStats()?.followingCount ?? 0
-  );
 
   protected readonly headerTeamName = computed(() => {
     const team = this.teamProfile.team();

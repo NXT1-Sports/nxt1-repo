@@ -106,6 +106,8 @@ import {
 } from '@nxt1/ui/services';
 // ── Auth ──
 import { AuthModalService } from '@nxt1/ui/auth';
+// ── Activity (for mark-all-read on /activity route) ──
+import { ActivityService } from '@nxt1/ui/activity';
 // ── Explore (for global search dropdown) ──
 import { ExploreService } from '@nxt1/ui/explore';
 import type { TopNavSearchSubmitEvent } from '@nxt1/ui/components/top-nav';
@@ -204,11 +206,7 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   },
   {
     id: 'footer',
-    items: [
-      { id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' },
-      { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
-      { id: 'help-center', label: 'Help Center', icon: 'help', route: '/help-center' },
-    ],
+    items: [{ id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' }],
   },
   {
     id: 'follow-us',
@@ -507,6 +505,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
         (notificationsClick)="onNotificationsClick()"
         (editClick)="onMobileProfileEditClick()"
         (moreClick)="onMobileProfileMoreClick()"
+        (markAllReadClick)="onMobileActivityMarkAllReadClick()"
         (userClick)="onMobileUserClick()"
       />
 
@@ -567,6 +566,8 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
 
       <!-- MOBILE: Bottom Tab Bar — CSS-hidden at 768px+, auth-gated -->
       @if (showMobileFooter()) {
+        <!-- Background fill so nothing peeks below the floating pill -->
+        <div class="shell__footer-bg" aria-hidden="true"></div>
         <nxt1-mobile-footer
           [tabs]="footerTabs()"
           [activeTabId]="activeTabId()"
@@ -699,6 +700,19 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
         --nxt1-z-index-footer: 1000;
       }
 
+      /* Solid background fill that extends from screen bottom up to footer pill —
+         prevents the raw page bg from showing in the gap below the floating pill */
+      .shell__footer-bg {
+        display: none; /* desktop: hidden */
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: var(--nxt1-footer-bottom, 28px);
+        background: var(--nxt1-nav-bgSolid, rgb(22, 22, 22));
+        z-index: 999; /* just below footer (1000) */
+      }
+
       /* ============================================
          RESPONSIVE LAYOUT — 100% CSS-Driven
          ──────────────────────────────────────────
@@ -737,6 +751,11 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
         /* Footer padding when footer is present */
         .shell__content--has-footer {
           padding-bottom: var(--shell-footer-height);
+        }
+
+        /* Show footer background fill on mobile */
+        .shell__footer-bg {
+          display: block;
         }
       }
 
@@ -786,6 +805,7 @@ export class WebShellComponent {
   private readonly badgeCount = inject(BadgeCountService);
   private readonly profileActions = inject(ProfilePageActionsService);
   private readonly notificationState = inject(NxtNotificationStateService);
+  private readonly activityService = inject(ActivityService);
   private readonly authModal = inject(AuthModalService);
   private readonly elementRef = inject(ElementRef);
   private readonly exploreService = inject(ExploreService);
@@ -1025,13 +1045,18 @@ export class WebShellComponent {
   /** Whether the current route should show a back arrow instead of hamburger */
   private readonly _showMobileBack = computed(() => {
     const route = this._currentRoute();
-    // Back arrow only for other people's profiles (/profile/:param), hamburger for own (/profile)
-    return route.startsWith('/profile/');
+    // Back arrow only for other people's profiles (/profile/:param) or team pages (/team/:slug)
+    return route.startsWith('/profile/') || route.startsWith('/team/');
   });
 
   /** Whether the current route is any profile page (hides search/bell) */
   private readonly _isOnProfilePage = computed(() => {
     return this._currentRoute().startsWith('/profile');
+  });
+
+  /** Whether the current route is the activity page */
+  private readonly _isOnActivityPage = computed(() => {
+    return this._currentRoute().startsWith('/activity');
   });
 
   /** Mobile header configuration — route-aware (back arrow on profile pages) */
@@ -1044,17 +1069,19 @@ export class WebShellComponent {
 
     const onProfilePage = this._isOnProfilePage();
     const isOwnProfilePage = this._currentRoute() === '/profile';
+    const onActivityPage = this._isOnActivityPage();
 
     return createMobileHeaderConfig({
       showBack: this._showMobileBack(),
       showLogo: true,
-      // Hide search & bell on profile pages — top nav shows edit/more instead
-      showSearch: !onProfilePage,
-      showNotifications: !onProfilePage,
+      // Hide search & bell on profile/activity pages — top nav shows relevant actions instead
+      showSearch: !onProfilePage && !onActivityPage,
+      showNotifications: !onProfilePage && !onActivityPage,
       notificationCount: this.badgeCount.totalUnread(),
       showSignIn, // Hidden until auth resolves, then show only if not logged in
       showMore: onProfilePage,
       showEdit: isOwnProfilePage,
+      showMarkAllRead: onActivityPage && this.activityService.totalUnread() > 0,
       showAvatar: false,
       sticky: true,
       hideOnScroll: false,
@@ -1318,6 +1345,13 @@ export class WebShellComponent {
     this.profileActions.requestMore();
   }
 
+  /**
+   * Handle mobile top-nav mark-all-read click on the activity page.
+   */
+  onMobileActivityMarkAllReadClick(): void {
+    this.activityService.markAllRead();
+  }
+
   // ============================================
   // MOBILE SIDEBAR HANDLERS
   // ============================================
@@ -1529,11 +1563,11 @@ export class WebShellComponent {
 
   /**
    * Handle logo click with auth-aware destination.
-   * Authenticated users go to /explore, guests go to root landing (/).
+   * Authenticated users go to /agent, guests go to root landing (/).
    */
   onLogoClick(): void {
     if (this.authFlow.isAuthenticated()) {
-      this.router.navigate(['/explore']);
+      this.router.navigate(['/agent']);
       return;
     }
 

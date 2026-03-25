@@ -64,7 +64,7 @@ export class MediaCoverageComponent implements OnInit {
         canonicalUrl: 'https://nxt1sports.com/media-coverage',
         keywords: [
           'athlete media coverage',
-          'sports recruiting media',
+          'sports intelligence media',
           'direct to coaches newsletter',
           'athlete newsletter feature',
           'college coach email digest',

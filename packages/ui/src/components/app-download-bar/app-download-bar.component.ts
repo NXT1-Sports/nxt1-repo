@@ -59,7 +59,7 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
           </div>
           <div class="download-bar__text">
             <span class="download-bar__title">Download NXT1</span>
-            <span class="download-bar__subtitle">The #1 Exposure & Marketing Platform</span>
+            <span class="download-bar__subtitle">The Sports Intelligence Platform</span>
           </div>
         </div>
 

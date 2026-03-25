@@ -53,6 +53,9 @@ export interface MobileHeaderConfig {
 
   /** Whether to show user avatar button (default: true) */
   readonly showAvatar?: boolean;
+
+  /** Whether to show mark-all-read button (e.g. on activity page) */
+  readonly showMarkAllRead?: boolean;
 }
 
 /**
@@ -91,6 +94,7 @@ export const DEFAULT_MOBILE_HEADER_CONFIG: MobileHeaderConfig = {
   searchPlaceholder: 'Search NXT1',
   variant: 'default',
   showAvatar: true,
+  showMarkAllRead: false,
 };
 
 /**

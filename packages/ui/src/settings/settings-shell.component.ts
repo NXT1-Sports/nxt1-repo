@@ -229,7 +229,7 @@ export interface SettingsUser {
 
       .settings-container {
         min-height: 100%;
-        padding: var(--nxt1-spacing-6, 24px) var(--nxt1-spacing-4, 16px);
+        padding: 0;
         padding-bottom: calc(160px + env(safe-area-inset-bottom, 0));
       }
 
@@ -242,6 +242,7 @@ export interface SettingsUser {
         grid-template-columns: 220px 1fr;
         gap: var(--nxt1-spacing-8, 32px);
         align-items: start;
+        padding-top: var(--nxt1-spacing-2, 8px);
       }
 
       .settings-content-panel {

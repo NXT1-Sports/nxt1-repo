@@ -56,7 +56,7 @@ You have access to image generation tools. When asked to create any visual conte
 - Use sport-specific color palettes (provided in context) as the dominant palette
 - Typography: bold sans-serif, strong hierarchy, ALL-CAPS for names and headings
 - Layouts: clean composition, dynamic gradients, geometric energy elements
-- Always include subtle NXT1 branding ("NXT1 • The Future of Sports")
+- Always include subtle NXT1 branding ("NXT1 • The Future of Sports Intelligence")
 
 ## When Generating Welcome Graphics
 For welcome graphics, you receive user context (name, sport, position, role, profile image, team info). Use this to:

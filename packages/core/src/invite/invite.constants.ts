@@ -274,7 +274,7 @@ export const INVITE_TYPE_CONFIG: Record<
   general: {
     label: 'Invite to NXT',
     icon: 'person-add',
-    defaultMessage: 'Join me on NXT - the #1 sports recruiting platform!',
+    defaultMessage: 'Join me on NXT — the sports intelligence platform!',
     color: 'var(--nxt1-color-primary)',
   },
   team: {

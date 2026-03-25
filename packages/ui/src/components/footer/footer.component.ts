@@ -553,6 +553,15 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
         object-fit: cover;
       }
 
+      /* Theme-aware initials — match nav design tokens, not random hash colors */
+      .profile-avatar-wrapper ::ng-deep .nxt1-avatar {
+        --avatar-initials-bg: var(--pill-bg, var(--nxt1-color-surface-200)) !important;
+        --avatar-initials-color: var(
+          --footer-icon-default,
+          var(--nxt1-color-text-secondary)
+        ) !important;
+      }
+
       .tab-button--active .profile-avatar-wrapper {
         border-color: var(--footer-icon-active, #ffffff);
       }

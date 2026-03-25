@@ -97,35 +97,15 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
 
         <!-- Right: Action Buttons -->
         <div class="mobile-header__actions">
-          <!-- Search Button -->
-          @if (config().showSearch !== false) {
+          <!-- Mark All Read Button (activity page only) -->
+          @if (config().showMarkAllRead) {
             <button
               type="button"
               class="mobile-header__action-btn"
-              aria-label="Search"
-              (click)="onSearchClick($event)"
+              aria-label="Mark all as read"
+              (click)="onMarkAllReadClick($event)"
             >
-              <nxt1-icon name="search" [size]="22" />
-            </button>
-          }
-
-          <!-- Notifications Button (authenticated only) -->
-          @if (config().showNotifications !== false && user()) {
-            <button
-              type="button"
-              class="mobile-header__action-btn mobile-header__notifications-btn"
-              [attr.aria-label]="
-                'Notifications' +
-                (config().notificationCount ? ', ' + config().notificationCount + ' unread' : '')
-              "
-              (click)="onNotificationsClick($event)"
-            >
-              <nxt1-icon name="bell" [size]="22" />
-              @if (config().notificationCount && config().notificationCount! > 0) {
-                <span class="mobile-header__badge">
-                  {{ config().notificationCount! > 99 ? '99+' : config().notificationCount }}
-                </span>
-              }
+              <nxt1-icon name="checkmarkDone" [size]="22" />
             </button>
           }
 
@@ -527,6 +507,9 @@ export class NxtMobileHeaderComponent implements OnDestroy {
   /** Emitted when edit (pencil) button is clicked */
   readonly editClick = output<Event>();
 
+  /** Emitted when mark-all-read button is clicked */
+  readonly markAllReadClick = output<Event>();
+
   /** Emitted when user avatar is clicked */
   readonly userClick = output<Event>();
 
@@ -607,6 +590,11 @@ export class NxtMobileHeaderComponent implements OnDestroy {
   onEditClick(event: Event): void {
     this.haptics.impact('light');
     this.editClick.emit(event);
+  }
+
+  onMarkAllReadClick(event: Event): void {
+    this.haptics.impact('light');
+    this.markAllReadClick.emit(event);
   }
 
   onUserClick(event: Event): void {

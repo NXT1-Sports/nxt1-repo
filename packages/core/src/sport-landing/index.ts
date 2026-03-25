@@ -122,11 +122,11 @@ const FOOTBALL_CONFIG: SportLandingConfig = {
   displayName: 'Football',
 
   heroBadgeIcon: 'football-outline',
-  heroBadgeLabel: 'Football Recruiting',
+  heroBadgeLabel: 'Football Intelligence',
   heroTitle: 'The #1 Football',
-  heroAccent: 'Recruiting Platform',
+  heroAccent: 'Intelligence Platform',
   heroSubtitle:
-    'Build your football recruiting profile, upload game film and highlights, track analytics, and connect with college coaches — all in one platform built for football players.',
+    'Build your football profile, upload game film and highlights, track analytics, and connect with college coaches — all powered by AI coordinators built for football players.',
 
   stats: [
     { label: 'Football Athletes', value: '65K+' },
@@ -135,14 +135,14 @@ const FOOTBALL_CONFIG: SportLandingConfig = {
     { label: 'Scholarships Matched', value: '4.2K+' },
   ],
 
-  featuresTitle: 'Built for Football Recruiting',
+  featuresTitle: 'Built for Football Intelligence',
   featuresSubtitle:
-    'Every tool football players and coaches need — from highlight reels and measurables to direct messaging and scouting reports.',
+    'Every tool football players and coaches need — from highlight reels and measurables to direct messaging and AI scouting reports.',
   features: [
     {
       id: 'fb-profile',
       icon: 'person-outline',
-      title: 'Football Recruiting Profile',
+      title: 'Football Athlete Profile',
       description:
         'Showcase your position, stats, measurables, 40-time, GPA, and film. College coaches search NXT1 profiles every day.',
     },
@@ -156,7 +156,7 @@ const FOOTBALL_CONFIG: SportLandingConfig = {
     {
       id: 'fb-analytics',
       icon: 'bar-chart-outline',
-      title: 'Recruiting Analytics',
+      title: 'Performance Analytics',
       description:
         'See which coaches viewed your profile, how many times your film was watched, and how your stock is trending week over week.',
     },
@@ -185,14 +185,14 @@ const FOOTBALL_CONFIG: SportLandingConfig = {
 
   audienceTitle: 'Every Level of Football',
   audienceSubtitle:
-    "Whether you're a Pop Warner standout or a college transfer, NXT1 is your recruiting home.",
+    "Whether you're a Pop Warner standout or a college transfer, NXT1 is your sports intelligence home.",
   audiences: [
     {
       id: 'fb-hs',
       icon: 'football-outline',
       title: 'High School Football',
       description:
-        'Start building your recruiting profile as a freshman. Track development through your senior season and get noticed by college programs.',
+        'Start building your athlete profile as a freshman. Track development through your senior season and get noticed by college programs.',
     },
     {
       id: 'fb-7v7',
@@ -210,14 +210,14 @@ const FOOTBALL_CONFIG: SportLandingConfig = {
     },
   ],
 
-  faqTitle: 'Football Recruiting FAQs',
+  faqTitle: 'Football FAQs',
   faqSubtitle: 'Common questions from football athletes and families.',
   faqs: [
     {
       id: 'fb-faq-free',
       question: 'Is NXT1 free for football players?',
       answer:
-        'Yes! Every football athlete gets a free recruiting profile with unlimited highlight uploads. Premium tiers add advanced analytics, priority coach visibility, and AI scouting reports.',
+        'Yes! Every football athlete gets a free profile with unlimited highlight uploads. Premium tiers add advanced analytics, priority coach visibility, and AI scouting reports.',
     },
     {
       id: 'fb-faq-find',
@@ -233,7 +233,7 @@ const FOOTBALL_CONFIG: SportLandingConfig = {
     },
     {
       id: 'fb-faq-start',
-      question: 'When should I start my football recruiting profile?',
+      question: 'When should I start my football profile?',
       answer:
         'The earlier the better — many successful recruits create their profiles in 8th grade or freshman year. College coaches evaluate talent earlier every year.',
     },
@@ -245,15 +245,15 @@ const FOOTBALL_CONFIG: SportLandingConfig = {
     },
   ],
 
-  ctaTitle: 'Ready to Get Recruited for Football?',
+  ctaTitle: 'Ready to Elevate Your Football Career?',
   ctaSubtitle:
-    'Join 65,000+ football athletes already using NXT1 to build their recruiting profile and connect with college coaches.',
+    'Join 65,000+ football athletes already using NXT1 to build their profile, get discovered, and connect with college coaches.',
   ctaLabel: 'Create Free Profile',
   ctaRoute: '/auth',
 
-  seoTitle: 'Football Recruiting — Build Your Profile | NXT1',
+  seoTitle: 'Football — Build Your Athlete Profile | NXT1',
   seoDescription:
-    'The #1 football recruiting platform. Build a free recruiting profile, upload game film, track analytics, and connect with 900+ college football programs on NXT1.',
+    'The #1 football intelligence platform. Build a free athlete profile, upload game film, track analytics, and connect with 900+ college football programs on NXT1.',
 
   previewSportLabel: 'Football',
   previewHighlights: [
@@ -278,11 +278,11 @@ const BASKETBALL_CONFIG: SportLandingConfig = {
   displayName: 'Basketball',
 
   heroBadgeIcon: 'basketball-outline',
-  heroBadgeLabel: 'Basketball Recruiting',
+  heroBadgeLabel: 'Basketball Intelligence',
   heroTitle: 'The #1 Basketball',
-  heroAccent: 'Recruiting Platform',
+  heroAccent: 'Intelligence Platform',
   heroSubtitle:
-    'Build your basketball recruiting profile, upload game film and mixtapes, track analytics, and connect with college coaches — all in one platform built for basketball players.',
+    'Build your basketball profile, upload game film and mixtapes, track analytics, and connect with college coaches — all powered by AI coordinators built for basketball players.',
 
   stats: [
     { label: 'Basketball Athletes', value: '40K+' },
@@ -291,14 +291,14 @@ const BASKETBALL_CONFIG: SportLandingConfig = {
     { label: 'Scholarships Matched', value: '2.8K+' },
   ],
 
-  featuresTitle: 'Built for Basketball Recruiting',
+  featuresTitle: 'Built for Basketball Intelligence',
   featuresSubtitle:
-    'Film breakdown, measurables, coach connections, and analytics — everything basketball players need to get recruited.',
+    'Film breakdown, measurables, coach connections, and analytics — everything basketball players need to get discovered.',
   features: [
     {
       id: 'bb-profile',
       icon: 'person-outline',
-      title: 'Basketball Recruiting Profile',
+      title: 'Basketball Athlete Profile',
       description:
         'Showcase your position, stats, measurables, vertical leap, GPA, and film. College coaches search NXT1 profiles every day.',
     },
@@ -312,7 +312,7 @@ const BASKETBALL_CONFIG: SportLandingConfig = {
     {
       id: 'bb-analytics',
       icon: 'bar-chart-outline',
-      title: 'Recruiting Analytics',
+      title: 'Performance Analytics',
       description:
         'See which coaches viewed your profile, how many times your film was watched, and how your stock is trending week over week.',
     },
@@ -341,14 +341,14 @@ const BASKETBALL_CONFIG: SportLandingConfig = {
 
   audienceTitle: 'Every Level of Basketball',
   audienceSubtitle:
-    'From middle school prospects to college transfers, NXT1 is your basketball recruiting home.',
+    'From middle school prospects to college transfers, NXT1 is your basketball intelligence home.',
   audiences: [
     {
       id: 'bb-hs',
       icon: 'basketball-outline',
       title: 'High School Basketball',
       description:
-        "Build your recruiting profile starting freshman year. Track your development from JV to varsity and get on college coaches' radars.",
+        "Build your athlete profile starting freshman year. Track your development from JV to varsity and get on college coaches' radars.",
     },
     {
       id: 'bb-aau',
@@ -366,14 +366,14 @@ const BASKETBALL_CONFIG: SportLandingConfig = {
     },
   ],
 
-  faqTitle: 'Basketball Recruiting FAQs',
+  faqTitle: 'Basketball FAQs',
   faqSubtitle: 'Common questions from basketball athletes and families.',
   faqs: [
     {
       id: 'bb-faq-free',
       question: 'Is NXT1 free for basketball players?',
       answer:
-        'Yes! Every basketball athlete gets a free recruiting profile with unlimited highlight uploads. Premium tiers add advanced analytics, priority coach visibility, and AI scouting reports.',
+        'Yes! Every basketball athlete gets a free profile with unlimited highlight uploads. Premium tiers add advanced analytics, priority coach visibility, and AI scouting reports.',
     },
     {
       id: 'bb-faq-find',
@@ -389,27 +389,27 @@ const BASKETBALL_CONFIG: SportLandingConfig = {
     },
     {
       id: 'bb-faq-start',
-      question: 'When should I start my basketball recruiting profile?',
+      question: 'When should I start my basketball profile?',
       answer:
         'Many successful recruits start in 7th or 8th grade. The earlier you build your profile and upload film, the more data coaches have when they start evaluating your class.',
     },
     {
       id: 'bb-faq-girls',
-      question: "Does NXT1 support women's basketball recruiting?",
+      question: "Does NXT1 support women's basketball?",
       answer:
         "Yes — NXT1 is for all basketball athletes regardless of gender. Our search tools let coaches filter by boys' and girls' basketball programs separately.",
     },
   ],
 
-  ctaTitle: 'Ready to Get Recruited for Basketball?',
+  ctaTitle: 'Ready to Elevate Your Basketball Career?',
   ctaSubtitle:
-    'Join 40,000+ basketball athletes already using NXT1 to build their recruiting profile and connect with college coaches.',
+    'Join 40,000+ basketball athletes already using NXT1 to build their profile, get discovered, and connect with college coaches.',
   ctaLabel: 'Create Free Profile',
   ctaRoute: '/auth',
 
-  seoTitle: 'Basketball Recruiting — Build Your Profile | NXT1',
+  seoTitle: 'Basketball — Build Your Athlete Profile | NXT1',
   seoDescription:
-    'The #1 basketball recruiting platform. Build a free recruiting profile, upload game film, track analytics, and connect with 1,100+ college basketball programs on NXT1.',
+    'The #1 basketball intelligence platform. Build a free athlete profile, upload game film, track analytics, and connect with 1,100+ college basketball programs on NXT1.',
 
   previewSportLabel: 'Basketball',
   previewHighlights: [

@@ -39,7 +39,7 @@ import {
 } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';
-import { NxtPageHeaderComponent } from '../../components/page-header';
+// NxtPageHeaderComponent removed — web team profile uses shell top nav on mobile and page header in wide layouts
 import { NxtRefresherComponent, type RefreshEvent } from '../../components/refresh-container';
 import {
   NxtOptionScrollerComponent,
@@ -82,7 +82,6 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
     CommonModule,
     NxtIconComponent,
     NxtImageComponent,
-    NxtPageHeaderComponent,
     NxtRefresherComponent,
     NxtOptionScrollerComponent,
     NxtSectionNavWebComponent,
@@ -103,32 +102,6 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
     TeamProfileSkeletonComponent,
   ],
   template: `
-    <!-- Shared top header (mobile parity with profile shell) -->
-    <div class="md:hidden">
-      <nxt1-page-header [showBack]="true" (backClick)="backClick.emit()">
-        <div pageHeaderSlot="end" class="header-actions">
-          <button
-            type="button"
-            class="header-action-btn"
-            aria-label="More options"
-            (click)="onMenuClick()"
-          >
-            <nxt1-icon name="moreHorizontal" [size]="22" />
-          </button>
-          @if (isTeamAdmin()) {
-            <button
-              type="button"
-              class="header-action-btn"
-              aria-label="Manage team"
-              (click)="manageTeamClick.emit()"
-            >
-              <nxt1-icon name="plus" [size]="22" />
-            </button>
-          }
-        </div>
-      </nxt1-page-header>
-    </div>
-
     <main class="team-profile-main">
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
@@ -161,14 +134,14 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
               <!-- Desktop Header (extracted component) -->
               @if (teamProfile.team()) {
                 <div class="madden-header-top-pad hidden md:block">
-                  <nxt1-team-page-header (back)="backClick.emit()" (follow)="followClick.emit()" />
+                  <nxt1-team-page-header (back)="backClick.emit()" />
                 </div>
               }
 
               <!-- Mobile Hero (extracted component) -->
               @if (teamProfile.team()) {
                 <div class="md:hidden">
-                  <nxt1-team-mobile-hero (back)="backClick.emit()" (follow)="followClick.emit()" />
+                  <nxt1-team-mobile-hero (back)="backClick.emit()" />
                 </div>
               }
 
@@ -1105,7 +1078,6 @@ export class TeamProfileShellWebComponent implements OnInit {
   readonly tabChange = output<TeamProfileTabId>();
   readonly shareClick = output<void>();
   readonly menuClick = output<void>();
-  readonly followClick = output<void>();
   readonly qrCodeClick = output<void>();
   readonly manageTeamClick = output<void>();
   readonly rosterMemberClick = output<TeamProfileRosterMember>();

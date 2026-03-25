@@ -178,7 +178,7 @@ let highlightReelNetworkInstanceCounter = 0;
           <span class="hrn__benefit-bar" aria-hidden="true"></span>
           <p class="hrn__benefit-copy">
             Your play doesn't just live on your phone. It lives on the
-            <em class="hrn__benefit-accent">largest sports recruiting network</em>
+            <em class="hrn__benefit-accent">largest sports intelligence network</em>
             in the country.
           </p>
         </aside>

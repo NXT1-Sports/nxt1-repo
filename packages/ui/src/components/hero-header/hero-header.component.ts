@@ -20,8 +20,8 @@
  *
  * <!-- With custom headline -->
  * <nxt1-hero-header
- *   headline="The Future of Sports Recruiting"
- *   subheadline="Connect. Compete. Get Recruited."
+ *   headline="The Sports Intelligence Platform"
+ *   subheadline="Command. Compete. Dominate."
  * />
  *
  * <!-- Landing page variant -->
@@ -176,9 +176,9 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
       >
         <!-- SEO heading (screen reader only) -->
         @if (seoHeadingLevel === 1) {
-          <h1 class="sr-only">NXT1 — The Future of Sports Recruiting</h1>
+          <h1 class="sr-only">NXT1 — The Sports Intelligence Platform</h1>
         } @else {
-          <h2 class="sr-only">NXT1 — The Future of Sports Recruiting</h2>
+          <h2 class="sr-only">NXT1 — The Sports Intelligence Platform</h2>
         }
 
         <!-- Brand Logo -->

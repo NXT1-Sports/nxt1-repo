@@ -962,6 +962,16 @@
   height: var(--nxt1-spacing-10, 2.5rem);
 }
 
+/* NxtAvatarComponent overrides — theme-aware, sleek nav style
+   Override hash-based random colors with nav design tokens.
+   Uses !important to beat inline [style.--avatar-initials-bg] binding. */
+.nxt1-desktop-nav .user-avatar .nxt1-avatar,
+.nxt1-desktop-nav .user-info-avatar .nxt1-avatar,
+.nxt1-desktop-nav .mobile-user-avatar .nxt1-avatar {
+  --avatar-initials-bg: var(--nxt1-nav-active-bg) !important;
+  --avatar-initials-color: var(--nxt1-nav-text) !important;
+}
+
 .nxt1-desktop-nav .avatar-img,
 .nxt1-desktop-nav .avatar-img-lg {
   width: 100%;

@@ -41,7 +41,7 @@ export class HelpCenterComponent {
       description:
         'Find answers, troubleshooting guides, and support resources for your NXT1 account.',
       canonicalUrl: 'https://nxt1sports.com/help-center',
-      keywords: ['help center', 'support', 'nxt1 support', 'recruiting platform help'],
+      keywords: ['help center', 'support', 'nxt1 support', 'sports intelligence platform help'],
     });
 
     // Reactively sync user role to help center service

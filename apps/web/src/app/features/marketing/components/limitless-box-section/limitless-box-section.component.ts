@@ -115,7 +115,7 @@ let limitlessBoxInstanceCounter = 0;
           layout="stack"
           title="Just Ask."
           subtitle="There is no menu. If you can think it, Agent X can build it."
-          support="NXT1 isn't just a recruiting tool. It's a career management engine. It grows with you."
+          support="NXT1 isn't just a sports platform. It's an AI-powered intelligence engine that works for you."
         />
 
         <div class="limitless-stage" role="group" [attr.aria-labelledby]="promptTitleId">
@@ -172,7 +172,8 @@ let limitlessBoxInstanceCounter = 0;
         <aside class="limitless-box__insight" [attr.aria-labelledby]="insightTitleId">
           <h3 class="limitless-box__insight-title" [id]="insightTitleId">Key Insight</h3>
           <p class="limitless-box__insight-copy">
-            NXT1 isn't just a recruiting tool. It's a career management engine. It grows with you.
+            NXT1 isn't just a sports platform. It's an AI-powered intelligence engine that works for
+            you.
           </p>
         </aside>
       </div>

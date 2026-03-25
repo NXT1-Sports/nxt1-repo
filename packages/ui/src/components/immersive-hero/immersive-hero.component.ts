@@ -591,9 +591,9 @@ export interface ImmersiveHeroShot {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtImmersiveHeroComponent {
-  readonly headline = input('The Future of Sports Recruiting');
+  readonly headline = input('The Sports Intelligence Platform');
   readonly subhead = input(
-    'Elite design. Automated recruiting. AI exposure. All in one super app.'
+    'Elite design. AI coordinators. Autonomous workflows. All in one platform.'
   );
   readonly shots = input<readonly ImmersiveHeroShot[]>([]);
 

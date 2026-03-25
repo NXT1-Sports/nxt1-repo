@@ -96,29 +96,6 @@ import { TeamProfileService } from '../team-profile.service';
         @if (headerSubtitle()) {
           <p class="team-mobile-hero__meta">{{ headerSubtitle() }}</p>
         }
-        @if (!teamProfile.isTeamAdmin()) {
-          <button
-            type="button"
-            class="team-mobile-hero__follow-btn"
-            [class.team-mobile-hero__follow-btn--following]="teamProfile.followStats()?.isFollowing"
-            aria-label="Follow team"
-            (click)="follow.emit()"
-          >
-            @if (!teamProfile.followStats()?.isFollowing) {
-              <nxt1-icon name="plus" [size]="13" />
-            }
-            {{ teamProfile.followStats()?.isFollowing ? 'Following' : 'Follow' }}
-          </button>
-        }
-        <!-- Followers count -->
-        @if (teamProfile.followStats()) {
-          <div class="team-mobile-hero__followers">
-            <span class="team-mobile-hero__followers-count">{{
-              teamProfile.followStats()!.followersCount
-            }}</span>
-            <span class="team-mobile-hero__followers-label">Followers</span>
-          </div>
-        }
       </div>
     </section>
   `,
@@ -300,55 +277,6 @@ import { TeamProfileService } from '../team-profile.service';
           line-height: 1.35;
           color: var(--m-text-2, rgba(255, 255, 255, 0.7));
         }
-        .team-mobile-hero__follow-btn {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 6px;
-          margin-top: 6px;
-          align-self: flex-start;
-          border: 1.5px solid var(--m-accent, var(--nxt1-color-primary, #d4ff00));
-          background: color-mix(
-            in srgb,
-            var(--m-accent, var(--nxt1-color-primary, #d4ff00)) 12%,
-            transparent
-          );
-          color: var(--m-accent, var(--nxt1-color-primary, #d4ff00));
-          border-radius: var(--nxt1-radius-md, 8px);
-          font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-          font-size: 13px;
-          font-weight: var(--nxt1-fontWeight-semibold, 600);
-          letter-spacing: 0.01em;
-          line-height: 1;
-          padding: 7px 16px;
-          cursor: pointer;
-        }
-        .team-mobile-hero__follow-btn:active {
-          transform: scale(0.97);
-        }
-        .team-mobile-hero__follow-btn--following {
-          border-color: var(--m-border, rgba(255, 255, 255, 0.08));
-          background: var(--m-surface, rgba(255, 255, 255, 0.04));
-          color: var(--m-text-2, rgba(255, 255, 255, 0.7));
-        }
-
-        /* ── Followers count ── */
-        .team-mobile-hero__followers {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          margin-top: 8px;
-        }
-        .team-mobile-hero__followers-count {
-          font-size: 15px;
-          font-weight: 800;
-          color: var(--m-text, #ffffff);
-        }
-        .team-mobile-hero__followers-label {
-          font-size: 13px;
-          font-weight: 500;
-          color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-        }
       }
     `,
   ],
@@ -370,7 +298,6 @@ export class TeamMobileHeroComponent {
   // ============================================
 
   readonly back = output<void>();
-  readonly follow = output<void>();
 
   protected readonly headerTeamName = computed(() => {
     const team = this.teamProfile.team();

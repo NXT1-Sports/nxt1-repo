@@ -68,7 +68,6 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
       (backClick)="onBackClick()"
       (tabChange)="onTabChange($event)"
       (shareClick)="onShare()"
-      (followClick)="onFollow()"
       (qrCodeClick)="onQrCode()"
       (manageTeamClick)="onManageTeam()"
       (rosterMemberClick)="onRosterMemberClick($event)"
