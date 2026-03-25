@@ -24,6 +24,7 @@ export type ProfileTabId =
   | 'news'
   | 'videos'
   | 'offers'
+  | 'scout'
   | 'metrics'
   | 'stats'
   | 'academic'

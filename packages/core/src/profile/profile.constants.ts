@@ -49,15 +49,21 @@ export const PROFILE_TABS: readonly ProfileTab[] = [
     icon: 'videocam',
   },
   {
-    id: 'news',
-    label: 'News',
-    icon: 'newspaper-outline',
-  },
-  {
     id: 'offers',
     label: 'Recruit',
     icon: 'trophy',
     visibleFor: ['athlete'],
+  },
+  {
+    id: 'scout',
+    label: 'Scout',
+    icon: 'clipboard',
+    visibleFor: ['athlete'],
+  },
+  {
+    id: 'news',
+    label: 'News',
+    icon: 'newspaper-outline',
   },
   {
     id: 'metrics',
@@ -522,6 +528,11 @@ export const PROFILE_EMPTY_STATES: Record<
     message: 'Your recruiting journey is just getting started. Keep working!',
     icon: 'trophy-outline',
     ctaLabel: 'Add Recruit Update',
+  },
+  scout: {
+    title: 'No scout reports yet',
+    message: 'Scout reports and rankings will appear here as they become available.',
+    icon: 'clipboard-outline',
   },
   metrics: {
     title: 'No metrics recorded',

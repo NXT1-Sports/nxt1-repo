@@ -123,6 +123,7 @@ export const COLLECTIONS = {
   STRIPE_CUSTOMERS: 'stripeCustomers',
   PAYMENT_LOGS: 'paymentLogs',
   BILLING_CONTEXTS: 'billingContexts',
+  TEAM_BUDGET_ALLOCATIONS: 'teamBudgetAllocations',
 } as const;
 
 /**

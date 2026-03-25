@@ -21,6 +21,7 @@ import {
   getOrCreateCustomer,
   getStripeClient,
   getOrCreateBillingContext,
+  getOrgTeamAllocations,
 } from '../modules/billing/index.js';
 import { USAGE_PRODUCT_CONFIGS, USAGE_CATEGORY_CONFIGS, USAGE_HISTORY_PAGE_SIZE } from '@nxt1/core';
 import type {
@@ -326,6 +327,37 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     }
 
     // Budgets from billing context
+    const accountName =
+      billingCtx.billingEntity === 'organization'
+        ? 'Organization'
+        : billingCtx.billingEntity === 'team'
+          ? 'Team'
+          : 'Personal';
+
+    // For org billing, include team allocations so the AD can see per-team breakdown
+    let teamAllocations: UsageBudget['teamAllocations'];
+    if (billingCtx.billingEntity === 'organization' && billingCtx.organizationId) {
+      const allocations = await getOrgTeamAllocations(db, billingCtx.organizationId);
+      if (allocations.length > 0) {
+        // Resolve team names in parallel
+        const teamDocs = await Promise.all(
+          allocations.map((a) => db.collection('teams').doc(a.teamId).get())
+        );
+        const teamNames = new Map(
+          teamDocs.map((doc) => [doc.id, (doc.data()?.['name'] as string) ?? 'Unknown Team'])
+        );
+
+        teamAllocations = allocations.map((a) => ({
+          teamId: a.teamId,
+          teamName: teamNames.get(a.teamId) ?? 'Unknown Team',
+          monthlyLimit: a.monthlyLimit,
+          currentSpend: a.currentPeriodSpend,
+          percentUsed:
+            a.monthlyLimit > 0 ? Math.round((a.currentPeriodSpend / a.monthlyLimit) * 100) : 0,
+        }));
+      }
+    }
+
     const budgets: UsageBudget[] = [
       {
         id: `budget-${userId}`,
@@ -338,8 +370,9 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
             ? Math.round((billingCtx.currentPeriodSpend / billingCtx.monthlyBudget) * 100)
             : 0,
         stopOnLimit: billingCtx.hardStop,
-        accountName: billingCtx.billingEntity === 'team' ? 'Team' : 'Personal',
+        accountName,
         ownershipPercent: 100,
+        teamAllocations,
       },
     ];
 
@@ -859,6 +892,36 @@ router.get('/budgets', appGuard, async (req: Request, res: Response) => {
 
     const ctx = await getOrCreateBillingContext(db, userId);
 
+    const accountName =
+      ctx.billingEntity === 'organization'
+        ? 'Organization'
+        : ctx.billingEntity === 'team'
+          ? 'Team'
+          : 'Personal';
+
+    // For org billing, include team allocations
+    let teamAllocations: UsageBudget['teamAllocations'];
+    if (ctx.billingEntity === 'organization' && ctx.organizationId) {
+      const allocations = await getOrgTeamAllocations(db, ctx.organizationId);
+      if (allocations.length > 0) {
+        const teamDocs = await Promise.all(
+          allocations.map((a) => db.collection('teams').doc(a.teamId).get())
+        );
+        const teamNames = new Map(
+          teamDocs.map((doc) => [doc.id, (doc.data()?.['name'] as string) ?? 'Unknown Team'])
+        );
+
+        teamAllocations = allocations.map((a) => ({
+          teamId: a.teamId,
+          teamName: teamNames.get(a.teamId) ?? 'Unknown Team',
+          monthlyLimit: a.monthlyLimit,
+          currentSpend: a.currentPeriodSpend,
+          percentUsed:
+            a.monthlyLimit > 0 ? Math.round((a.currentPeriodSpend / a.monthlyLimit) * 100) : 0,
+        }));
+      }
+    }
+
     const budgets: UsageBudget[] = [
       {
         id: `budget-${userId}`,
@@ -871,8 +934,9 @@ router.get('/budgets', appGuard, async (req: Request, res: Response) => {
             ? Math.round((ctx.currentPeriodSpend / ctx.monthlyBudget) * 100)
             : 0,
         stopOnLimit: ctx.hardStop,
-        accountName: ctx.billingEntity === 'team' ? 'Team' : 'Personal',
+        accountName,
         ownershipPercent: 100,
+        teamAllocations,
       },
     ];
 

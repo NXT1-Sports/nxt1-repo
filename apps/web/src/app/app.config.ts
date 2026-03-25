@@ -103,7 +103,7 @@ import { providePerformance, getPerformance } from '@angular/fire/performance';
 import { AUTH_SERVICE, BrowserAuthService } from './features/auth';
 
 // Settings persistence adapter (connects SettingsService → backend API)
-import { SETTINGS_PERSISTENCE_ADAPTER } from '@nxt1/ui/settings';
+import { SETTINGS_PERSISTENCE_ADAPTER, APP_VERSION } from '@nxt1/ui/settings';
 import { SettingsApiService } from './features/settings/services/settings-api.service';
 
 import { environment } from '../environments/environment';
@@ -327,6 +327,9 @@ export const appConfig: ApplicationConfig = {
 
     // Provide settings persistence adapter (web: HTTP → backend API)
     { provide: SETTINGS_PERSISTENCE_ADAPTER, useExisting: SettingsApiService },
+
+    // App version — drives the version string shown in Settings footer
+    { provide: APP_VERSION, useFactory: () => environment.appVersion },
 
     // Global error handler - catches all unhandled errors
     // Handles chunk loading failures, tracks errors, provides recovery

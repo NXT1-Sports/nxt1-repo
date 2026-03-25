@@ -360,6 +360,15 @@ import { EmailTokensService } from '../../services/email-tokens.service';
       .nxt1-notif-popover__content .activity-list__empty,
       .nxt1-notif-popover__content .activity-list__error {
         padding: var(--nxt1-spacing-8) var(--nxt1-spacing-5);
+        min-height: 100%;
+        box-sizing: border-box;
+      }
+
+      .nxt1-notif-popover__content .activity-list,
+      .nxt1-notif-popover__content nxt1-activity-list {
+        display: flex;
+        flex-direction: column;
+        min-height: 100%;
       }
 
       .nxt1-notif-popover__content .activity-item {

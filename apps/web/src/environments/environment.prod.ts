@@ -5,8 +5,8 @@
 //  */
 // export const environment = {
 //   production: true,
-//   appVersion: '2.0.0',
-//   version: '2.0.0',
+//   appVersion: '1.0.0',
+//   version: '1.0.0',
 
 //   // Backend API URLs (Production)
 //   apiURL: 'http://34.72.3.113:8080/api/v1',
@@ -48,8 +48,8 @@
  */
 export const environment = {
   production: false,
-  appVersion: '2.0.0-staging',
-  version: '2.0.0-staging',
+  appVersion: '1.0.0',
+  version: '1.0.0',
 
   // Backend API URLs (Staging)
   apiURL: 'https://api.nxt1sports.com/api/v1/staging',

@@ -72,6 +72,7 @@ import programsRoutes from './routes/programs.routes.js';
 import billingRoutes from './routes/billing.routes.js';
 import webhookRoutes, { webhookRawBodyMiddleware } from './routes/webhook.routes.js';
 import usageRoutes from './routes/usage.routes.js';
+import iapRoutes from './routes/iap.routes.js';
 // Staging-only dev utilities
 import seedRoutes from './routes/seed.routes.js';
 
@@ -284,6 +285,8 @@ async function setupApplication() {
     { path: '/webhook', rateLimitType: 'billing', handler: webhookRoutes },
     // Usage dashboard routes
     { path: '/usage', rateLimitType: 'api', handler: usageRoutes },
+    // Apple IAP wallet routes
+    { path: '/iap', rateLimitType: 'billing', handler: iapRoutes },
     // SSR routes with lighter limits (for SEO crawlers)
     { path: '/ssr', rateLimitType: 'api', handler: ssrRoutes },
   ];

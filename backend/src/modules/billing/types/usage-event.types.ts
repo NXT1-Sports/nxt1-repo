@@ -204,8 +204,11 @@ export interface UsageEventMessage {
 // BILLING CONTEXT (Org vs Individual)
 // ============================================
 
-/** Who pays: the individual user or the team/organization */
-export type BillingEntity = 'individual' | 'team';
+/** Who pays: the individual user, a team sub-allocation, or the parent organization */
+export type BillingEntity = 'individual' | 'team' | 'organization';
+
+/** How this billing context is funded */
+export type PaymentProvider = 'stripe' | 'iap';
 
 /**
  * Billing context stored per user in Firestore (`billingContexts` collection).
@@ -218,10 +221,13 @@ export interface BillingContext {
   /** The team this user belongs to (if any) */
   teamId?: string;
 
+  /** The organization that pays (if billingEntity is 'organization') */
+  organizationId?: string;
+
   /** Who is billed for this user's usage */
   billingEntity: BillingEntity;
 
-  /** Monthly spending budget in cents — $20 (2000) default for individuals, $200 (20000) for teams */
+  /** Monthly spending budget in cents */
   monthlyBudget: number;
 
   /** Accumulated spend in the current billing period (cents) */
@@ -242,11 +248,63 @@ export interface BillingContext {
   /** Whether the user has been notified at 100% (budget reached) */
   notified100: boolean;
 
+  /** Whether the IAP wallet user has been notified of a low balance */
+  iapLowBalanceNotified: boolean;
+
   /** Whether the budget hard-stop is enabled (stops tasks at 100%) */
   hardStop: boolean;
 
+  /** How this context is funded ('stripe' = post-paid, 'iap' = pre-paid wallet) */
+  paymentProvider: PaymentProvider;
+
+  /**
+   * Pre-paid wallet balance in cents (IAP users only).
+   * Decremented on each usage event. Rolls over indefinitely (no monthly reset).
+   * Ignored for stripe-billed entities.
+   */
+  walletBalanceCents: number;
+
   /** Stripe subscription ID for Pro plan ($50/m) — null if free tier */
   proSubscriptionId?: string;
+
+  /** Created timestamp */
+  createdAt: Timestamp;
+
+  /** Updated timestamp */
+  updatedAt: Timestamp;
+}
+
+/**
+ * Team-level budget allocation within an organization.
+ * Stored in `teamBudgetAllocations` collection.
+ */
+export interface TeamBudgetAllocation {
+  /** Team ID */
+  teamId: string;
+
+  /** Parent organization ID */
+  organizationId: string;
+
+  /** Monthly sub-limit in cents (0 = no sub-limit, draws from org pool) */
+  monthlyLimit: number;
+
+  /** Accumulated spend this period in cents */
+  currentPeriodSpend: number;
+
+  /** ISO date — start of current billing period */
+  periodStart: string;
+
+  /** ISO date — end of current billing period */
+  periodEnd: string;
+
+  /** Whether this team has been notified at 50% of its sub-limit */
+  notified50: boolean;
+
+  /** Whether this team has been notified at 80% of its sub-limit */
+  notified80: boolean;
+
+  /** Whether this team has been notified at 100% of its sub-limit */
+  notified100: boolean;
 
   /** Created timestamp */
   createdAt: Timestamp;
@@ -264,6 +322,9 @@ export const DEFAULT_INDIVIDUAL_BUDGET = 2000; // $20
 
 /** Default monthly budget for team/organization accounts (in cents) */
 export const DEFAULT_TEAM_BUDGET = 20000; // $200
+
+/** Default monthly budget for organization accounts (in cents) */
+export const DEFAULT_ORGANIZATION_BUDGET = 50000; // $500
 
 /** Budget alert thresholds as percentages */
 export const BUDGET_ALERT_THRESHOLDS = [50, 80, 100] as const;

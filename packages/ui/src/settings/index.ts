@@ -17,6 +17,9 @@ export {
   type SettingsPersistenceAdapter,
 } from './settings-persistence-adapter';
 
+// App version token (provided per-app via environment.appVersion)
+export { APP_VERSION } from './settings-version.token';
+
 // Components
 export { SettingsShellComponent, type SettingsUser } from './settings-shell.component';
 export {

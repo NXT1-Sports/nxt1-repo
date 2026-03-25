@@ -20,9 +20,18 @@ import {
   getOrCreateBillingContext,
   updateBudget,
   updateTeamBudget,
+  updateOrgBudget,
+  updateTeamAllocation,
+  getOrgTeamAllocations,
 } from '../modules/billing/index.js';
 import { validateBody } from '../middleware/validation.middleware.js';
-import { CreateUsageEventDto, UpdateBudgetDto, UpdateTeamBudgetDto } from '../dtos/billing.dto.js';
+import {
+  CreateUsageEventDto,
+  UpdateBudgetDto,
+  UpdateTeamBudgetDto,
+  UpdateOrganizationBudgetDto,
+  UpdateTeamAllocationDto,
+} from '../dtos/billing.dto.js';
 
 const router = Router();
 
@@ -260,6 +269,7 @@ router.get('/budget', appGuard, async (req: Request, res: Response) => {
             : 0,
         hardStop: ctx.hardStop,
         teamId: ctx.teamId,
+        organizationId: ctx.organizationId,
       },
     });
   } catch (error) {
@@ -344,5 +354,162 @@ router.put(
     }
   }
 );
+
+/**
+ * PUT /api/v1/billing/budget/org/:orgId
+ * Update an organization's master monthly budget (org admin only)
+ * Body: { monthlyBudget: number (cents) }
+ */
+router.put(
+  '/budget/org/:orgId',
+  appGuard,
+  validateBody(UpdateOrganizationBudgetDto),
+  async (req: Request, res: Response) => {
+    try {
+      const orgId = String(req.params['orgId'] ?? '').trim();
+      if (!orgId || orgId.length > 128) {
+        return res.status(400).json({ error: 'Invalid organization ID' });
+      }
+      const { monthlyBudget } = req.body;
+      const db = req.firebase?.db;
+
+      if (!db) throw new Error('Firebase context not available');
+
+      // Verify the caller is an org admin
+      const userId = req.user!.uid;
+      const orgDoc = await db.collection('organizations').doc(orgId).get();
+      const orgData = orgDoc.data();
+
+      if (!orgData) {
+        return res.status(404).json({ error: 'Organization not found' });
+      }
+
+      const admins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
+      const adminIds = admins.map((a) => a.userId).filter(Boolean);
+      const ownerId = orgData['ownerId'] as string | undefined;
+
+      if (!adminIds.includes(userId) && ownerId !== userId) {
+        return res
+          .status(403)
+          .json({ error: 'Only organization admins can update the org budget' });
+      }
+
+      await updateOrgBudget(db, orgId, monthlyBudget);
+
+      return res.json({ success: true, organizationId: orgId, monthlyBudget });
+    } catch (error) {
+      logger.error('[PUT /budget/org/:orgId] Failed to update org budget', { error });
+      return res.status(500).json({
+        error: 'Failed to update organization budget',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+);
+
+/**
+ * PUT /api/v1/billing/budget/org/:orgId/team/:teamId
+ * Update a team's sub-allocation within an organization (org admin only)
+ * Body: { monthlyLimit: number (cents) }
+ */
+router.put(
+  '/budget/org/:orgId/team/:teamId',
+  appGuard,
+  validateBody(UpdateTeamAllocationDto),
+  async (req: Request, res: Response) => {
+    try {
+      const orgId = String(req.params['orgId'] ?? '').trim();
+      const teamId = String(req.params['teamId'] ?? '').trim();
+      if (!orgId || orgId.length > 128 || !teamId || teamId.length > 128) {
+        return res.status(400).json({ error: 'Invalid organization or team ID' });
+      }
+      const { monthlyLimit } = req.body;
+      const db = req.firebase?.db;
+
+      if (!db) throw new Error('Firebase context not available');
+
+      // Verify the caller is an org admin
+      const userId = req.user!.uid;
+      const orgDoc = await db.collection('organizations').doc(orgId).get();
+      const orgData = orgDoc.data();
+
+      if (!orgData) {
+        return res.status(404).json({ error: 'Organization not found' });
+      }
+
+      const admins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
+      const adminIds = admins.map((a) => a.userId).filter(Boolean);
+      const ownerId = orgData['ownerId'] as string | undefined;
+
+      if (!adminIds.includes(userId) && ownerId !== userId) {
+        return res
+          .status(403)
+          .json({ error: 'Only organization admins can update team allocations' });
+      }
+
+      // Verify team belongs to this org
+      const teamDoc = await db.collection('teams').doc(teamId).get();
+      const teamData = teamDoc.data();
+      if (!teamData || teamData['organizationId'] !== orgId) {
+        return res.status(400).json({ error: 'Team does not belong to this organization' });
+      }
+
+      await updateTeamAllocation(db, teamId, orgId, monthlyLimit);
+
+      return res.json({ success: true, teamId, organizationId: orgId, monthlyLimit });
+    } catch (error) {
+      logger.error('[PUT /budget/org/:orgId/team/:teamId] Failed to update team allocation', {
+        error,
+      });
+      return res.status(500).json({
+        error: 'Failed to update team allocation',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+);
+
+/**
+ * GET /api/v1/billing/budget/org/:orgId/allocations
+ * Get all team allocations for an organization (org admin only)
+ */
+router.get('/budget/org/:orgId/allocations', appGuard, async (req: Request, res: Response) => {
+  try {
+    const orgId = String(req.params['orgId'] ?? '').trim();
+    if (!orgId || orgId.length > 128) {
+      return res.status(400).json({ error: 'Invalid organization ID' });
+    }
+    const db = req.firebase?.db;
+
+    if (!db) throw new Error('Firebase context not available');
+
+    // Verify the caller is an org admin
+    const userId = req.user!.uid;
+    const orgDoc = await db.collection('organizations').doc(orgId).get();
+    const orgData = orgDoc.data();
+
+    if (!orgData) {
+      return res.status(404).json({ error: 'Organization not found' });
+    }
+
+    const admins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
+    const adminIds = admins.map((a) => a.userId).filter(Boolean);
+    const ownerId = orgData['ownerId'] as string | undefined;
+
+    if (!adminIds.includes(userId) && ownerId !== userId) {
+      return res.status(403).json({ error: 'Only organization admins can view allocations' });
+    }
+
+    const allocations = await getOrgTeamAllocations(db, orgId);
+
+    return res.json({ success: true, data: allocations });
+  } catch (error) {
+    logger.error('[GET /budget/org/:orgId/allocations] Failed to get allocations', { error });
+    return res.status(500).json({
+      error: 'Failed to get team allocations',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
 
 export default router;

@@ -59,6 +59,7 @@ import { NxtSectionNavWebComponent } from '../components/section-nav-web';
 import type { SectionNavItem, SectionNavChangeEvent } from '../components/section-nav-web';
 import { ConnectedAccountsModalService } from '../components/connected-sources';
 import type { SettingsSectionId, InboxEmailProvider } from '@nxt1/core';
+import { APP_VERSION } from './settings-version.token';
 import type { LinkSourcesFormData, OnboardingUserType } from '@nxt1/core/api';
 
 /**
@@ -354,7 +355,7 @@ export class SettingsShellComponent implements OnInit {
   // CONSTANTS
   // ============================================
 
-  protected readonly appVersion = '2.0.0';
+  protected readonly appVersion = inject(APP_VERSION, { optional: true }) ?? '2.0.0';
 
   // ============================================
   // COMPUTED

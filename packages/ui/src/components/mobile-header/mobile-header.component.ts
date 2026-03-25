@@ -129,6 +129,18 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
             </button>
           }
 
+          <!-- Edit Button (pencil — own profile only) -->
+          @if (config().showEdit) {
+            <button
+              type="button"
+              class="mobile-header__action-btn"
+              aria-label="Edit profile"
+              (click)="onEditClick($event)"
+            >
+              <nxt1-icon name="pencil" [size]="22" />
+            </button>
+          }
+
           <!-- More Button (kebab menu) -->
           @if (config().showMore) {
             <button
@@ -137,7 +149,7 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
               aria-label="More options"
               (click)="onMoreClick($event)"
             >
-              <nxt1-icon name="moreVertical" [size]="22" />
+              <nxt1-icon name="moreHorizontal" [size]="22" />
             </button>
           }
 
@@ -512,6 +524,9 @@ export class NxtMobileHeaderComponent implements OnDestroy {
   /** Emitted when more button (kebab menu) is clicked */
   readonly moreClick = output<Event>();
 
+  /** Emitted when edit (pencil) button is clicked */
+  readonly editClick = output<Event>();
+
   /** Emitted when user avatar is clicked */
   readonly userClick = output<Event>();
 
@@ -587,6 +602,11 @@ export class NxtMobileHeaderComponent implements OnDestroy {
   onMoreClick(event: Event): void {
     this.haptics.impact('light');
     this.moreClick.emit(event);
+  }
+
+  onEditClick(event: Event): void {
+    this.haptics.impact('light');
+    this.editClick.emit(event);
   }
 
   onUserClick(event: Event): void {

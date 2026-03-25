@@ -24,6 +24,9 @@ export interface MobileHeaderConfig {
   /** Whether to show the more (kebab) menu button */
   readonly showMore?: boolean;
 
+  /** Whether to show the edit (pencil) button — used on own profile pages */
+  readonly showEdit?: boolean;
+
   /** Whether to show notifications bell */
   readonly showNotifications?: boolean;
 
@@ -78,6 +81,7 @@ export const DEFAULT_MOBILE_HEADER_CONFIG: MobileHeaderConfig = {
   showLogo: true,
   showSearch: true,
   showMore: false,
+  showEdit: false,
   showNotifications: true,
   notificationCount: 0,
   showSignIn: true,

@@ -44,12 +44,23 @@ import { EmailTokensService } from './services/email-tokens.service';
     <nxt1-activity-shell
       [user]="userInfo()"
       [tabs]="alertsOnlyTabs"
+      [showHeader]="false"
       (avatarClick)="onAvatarClick()"
       (tabChange)="onTabChange($event)"
       (itemNavigate)="onItemNavigate($event)"
       (connectProviderRequest)="onConnectProvider($event)"
     />
   `,
+  styles: [
+    `
+      :host {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ActivityComponent implements OnInit {

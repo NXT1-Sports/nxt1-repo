@@ -51,7 +51,7 @@ import { mobileAuthInterceptor } from './core/infrastructure/interceptors/auth.i
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 
 // Settings persistence adapter (connects SettingsService → backend API)
-import { SETTINGS_PERSISTENCE_ADAPTER } from '@nxt1/ui/settings';
+import { SETTINGS_PERSISTENCE_ADAPTER, APP_VERSION } from '@nxt1/ui/settings';
 import { SettingsApiService } from './core/services/settings-api.service';
 
 // Edit Profile API configuration
@@ -205,6 +205,9 @@ export const appConfig: ApplicationConfig = {
 
     // Settings persistence adapter (connects SettingsService → backend API)
     { provide: SETTINGS_PERSISTENCE_ADAPTER, useExisting: SettingsApiService },
+
+    // App version — drives the version string shown in Settings footer
+    { provide: APP_VERSION, useFactory: () => environment.appVersion },
 
     // ============================================
     // EDIT PROFILE API CONFIGURATION

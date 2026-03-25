@@ -13,11 +13,26 @@ import type {
   DesktopSidebarSection,
   DesktopSidebarUserData,
 } from '../desktop-sidebar/desktop-sidebar.types';
+import type { SidenavSportProfile } from '@nxt1/core';
 
 // Re-export for convenience — mobile sidebar uses the same nav types
 export type MobileSidebarItem = DesktopSidebarItem;
 export type MobileSidebarSection = DesktopSidebarSection;
-export type MobileSidebarUserData = DesktopSidebarUserData;
+
+/**
+ * Mobile sidebar user data — extends desktop user data with sport profile
+ * switching support (parity with the native mobile app sidenav).
+ */
+export interface MobileSidebarUserData extends DesktopSidebarUserData {
+  /** Available sport profiles for multi-sport athletes */
+  readonly sportProfiles?: readonly SidenavSportProfile[];
+
+  /** Currently active sport profile ID */
+  readonly activeSportProfileId?: string;
+
+  /** Primary sport display label (shown below name) */
+  readonly sportLabel?: string;
+}
 
 /**
  * Mobile sidebar configuration.
@@ -54,6 +69,17 @@ export interface MobileSidebarSelectEvent {
 
   /** Section ID */
   readonly sectionId: string;
+
+  /** DOM event */
+  readonly event: Event;
+}
+
+/**
+ * Sport profile selection event.
+ */
+export interface MobileSidebarSportSelectEvent {
+  /** Selected sport profile */
+  readonly profile: SidenavSportProfile;
 
   /** DOM event */
   readonly event: Event;

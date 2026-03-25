@@ -116,12 +116,12 @@ function formatViewCount(count: number): string {
       <!-- ═══ Empty State ═══ -->
       @else if (filteredReports().length === 0) {
         <div class="profile-scouting__empty" role="status">
-          <div class="profile-scouting__empty-icon" aria-hidden="true">
-            <nxt1-icon name="clipboard" [size]="48" />
+          <div class="madden-empty__icon" aria-hidden="true">
+            <nxt1-icon name="clipboard" [size]="40" />
           </div>
           <h3 class="profile-scouting__empty-title">No Scouting Reports</h3>
           <p class="profile-scouting__empty-msg">
-            Scouting reports from coaches, scouts, and verified evaluators will appear here.
+            Agent X will automatically generate scouting reports for this athlete.
           </p>
           @if (emptyCta()) {
             <button class="profile-scouting__empty-cta" (click)="emptyCtaClick.emit()">
@@ -221,9 +221,17 @@ function formatViewCount(count: number): string {
         text-align: center;
       }
 
-      .profile-scouting__empty-icon {
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.3));
-        margin-bottom: var(--nxt1-spacing-1, 4px);
+      .madden-empty__icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-default);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 4px;
+        color: var(--nxt1-color-text-tertiary);
       }
 
       .profile-scouting__empty-title {

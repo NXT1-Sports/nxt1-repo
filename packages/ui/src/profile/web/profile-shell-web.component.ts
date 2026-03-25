@@ -70,6 +70,11 @@ import { NxtToastService } from '../../services/toast/toast.service';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { ProfileService } from '../profile.service';
 import { type IconName } from '@nxt1/design-tokens/assets/icons';
+import {
+  NxtBottomSheetService,
+  SHEET_PRESETS,
+  type BottomSheetAction,
+} from '../../components/bottom-sheet';
 
 import { ProfileTimelineComponent } from '../profile-timeline.component';
 import { ProfileOffersComponent } from '../profile-offers.component';
@@ -332,9 +337,23 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                     }
 
                     @case ('offers') {
-                      @if (activeSideTab() === 'rankings') {
-                        <nxt1-profile-rankings (addRankingClick)="onAddRanking()" />
-                      } @else if (activeSideTab() === 'scouting') {
+                      <nxt1-profile-offers
+                        [offers]="profile.offers()"
+                        [committedOffers]="profile.committedOffers()"
+                        [activeOffers]="profile.activeOffers()"
+                        [interestOffers]="profile.interestOffers()"
+                        [isEmpty]="!profile.hasRecruitingActivity()"
+                        [isOwnProfile]="profile.isOwnProfile()"
+                        [activeSection]="activeSideTab()"
+                        cardLayout="horizontal"
+                        (offerClick)="onOfferClick($event)"
+                        (addOfferClick)="onAddOffer()"
+                        (addCommitmentClick)="onAddOffer()"
+                      />
+                    }
+
+                    @case ('scout') {
+                      @if (activeSideTab() === 'scouting') {
                         <nxt1-profile-scouting
                           [isLoading]="profile.isLoading()"
                           [emptyCta]="profile.isOwnProfile() ? 'Add Scout Report' : null"
@@ -342,19 +361,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                           (emptyCtaClick)="onAddScoutReport()"
                         />
                       } @else {
-                        <nxt1-profile-offers
-                          [offers]="profile.offers()"
-                          [committedOffers]="profile.committedOffers()"
-                          [activeOffers]="profile.activeOffers()"
-                          [interestOffers]="profile.interestOffers()"
-                          [isEmpty]="!profile.hasRecruitingActivity()"
-                          [isOwnProfile]="profile.isOwnProfile()"
-                          [activeSection]="activeSideTab()"
-                          cardLayout="horizontal"
-                          (offerClick)="onOfferClick($event)"
-                          (addOfferClick)="onAddOffer()"
-                          (addCommitmentClick)="onAddOffer()"
-                        />
+                        <nxt1-profile-rankings (addRankingClick)="onAddRanking()" />
                       }
                     }
 
@@ -1271,7 +1278,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         .madden-top-tabs {
           padding-left: 8px;
           margin-top: 4px;
-          margin-bottom: 0;
+          margin-bottom: 12px;
         }
         .madden-top-tabs ::ng-deep .option-scroller--scrollable.option-scroller--md {
           --scroller-padding: 8px;
@@ -1390,7 +1397,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
           max-height: none;
           overflow-y: visible;
           overflow-x: hidden;
-          padding: 0 12px 120px;
+          padding: 12px 12px 120px;
           align-items: stretch;
           scrollbar-gutter: auto;
           box-sizing: border-box;
@@ -1453,6 +1460,7 @@ export class ProfileShellWebComponent implements OnInit {
   protected readonly profile = inject(ProfileService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileShellWeb');
+  private readonly bottomSheet = inject(NxtBottomSheetService);
   protected readonly formatSportDisplayName = formatSportDisplayName;
 
   // ============================================
@@ -1654,6 +1662,8 @@ export class ProfileShellWebComponent implements OnInit {
           label: 'Interests',
           badge: this.profile.interestOffers().length || undefined,
         },
+      ],
+      scout: [
         {
           id: 'rankings',
           label: 'Rankings',
@@ -1985,11 +1995,46 @@ export class ProfileShellWebComponent implements OnInit {
   }
 
   /**
-   * Handle menu click — emits output for the web wrapper to handle.
-   * (Web app does not use Ionic, so the bottom sheet service is not available.)
+   * Handle menu click — opens a bottom sheet with profile actions.
    */
-  protected onMenuClick(): void {
-    this.menuClick.emit();
+  protected async onMenuClick(): Promise<void> {
+    const isOwn = this.isOwnProfile();
+
+    const actions: BottomSheetAction[] = isOwn
+      ? [
+          { label: 'Share Profile', role: 'primary', icon: 'share' },
+          { label: 'QR Code', role: 'secondary', icon: 'qrCode' },
+          { label: 'Copy Link', role: 'secondary', icon: 'link' },
+        ]
+      : [
+          { label: 'Share Profile', role: 'primary', icon: 'share' },
+          { label: 'Copy Link', role: 'secondary', icon: 'link' },
+          { label: 'Report', role: 'destructive', icon: 'flag' },
+        ];
+
+    const result = await this.bottomSheet.show<BottomSheetAction>({
+      title: 'Profile Actions',
+      actions,
+      backdropDismiss: true,
+      ...SHEET_PRESETS.HALF,
+    });
+
+    const selected = result?.data as BottomSheetAction | undefined;
+    if (!selected) return;
+
+    switch (selected.label) {
+      case 'Share Profile':
+        this.shareClick.emit();
+        break;
+      case 'QR Code':
+        this.qrCodeClick.emit();
+        break;
+      case 'Copy Link':
+        this.menuClick.emit();
+        break;
+      default:
+        this.menuClick.emit();
+    }
   }
 
   // ============================================

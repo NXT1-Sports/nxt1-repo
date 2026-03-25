@@ -28,35 +28,17 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon, IonRippleEffect } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  personAddOutline,
-  heartOutline,
-  chatbubbleOutline,
-  atOutline,
-  mailOutline,
-  trophyOutline,
-  pricetagOutline,
-  megaphoneOutline,
-  ribbonOutline,
-  alarmOutline,
-  informationCircleOutline,
-  sparklesOutline,
-  chevronForward,
-  ellipsisHorizontal,
-  volumeMuteOutline,
-  playCircleOutline,
-} from 'ionicons/icons';
+import { IonRippleEffect } from '@ionic/angular/standalone';
 import { type ActivityItem, ACTIVITY_TYPE_ICONS, ACTIVITY_TYPE_COLORS } from '@nxt1/core';
 import type { MessageActivityMetadata } from '@nxt1/core';
+import { NxtIconComponent } from '../components/icon';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-logo.constants';
 
 // Register all icons
 @Component({
   selector: 'nxt1-activity-item',
   standalone: true,
-  imports: [CommonModule, IonIcon, IonRippleEffect],
+  imports: [CommonModule, NxtIconComponent, IonRippleEffect],
   template: `
     <div
       class="activity-item"
@@ -103,7 +85,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
                 <polygon [attr.points]="agentXLogoPolygon" />
               </svg>
             } @else {
-              <ion-icon [name]="typeIcon()"></ion-icon>
+              <nxt1-icon [name]="typeIcon()" [size]="21" />
             }
           </div>
         }
@@ -137,7 +119,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
         <!-- Message indicators: muted -->
         @if (isMessage()) {
           @if (msgMeta()?.isMuted) {
-            <ion-icon name="volume-mute-outline" class="activity-item__mute-icon"></ion-icon>
+            <nxt1-icon name="volumeMuteOutline" [size]="14" class="activity-item__mute-icon" />
           }
         }
 
@@ -163,11 +145,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
           >
             <img [src]="item().mediaUrl" [alt]="item().title" loading="lazy" />
             @if (item().mediaType === 'video') {
-              <ion-icon
-                name="play-circle-outline"
-                class="activity-item__media-play"
-                aria-hidden="true"
-              ></ion-icon>
+              <nxt1-icon name="playCircle" [size]="24" class="activity-item__media-play" />
             }
           </div>
         } @else if (item().action) {
@@ -178,7 +156,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
             (click)="handleActionClick($event)"
           >
             @if (item().action?.icon) {
-              <ion-icon [name]="item().action?.icon ?? ''"></ion-icon>
+              <nxt1-icon [name]="item().action?.icon ?? ''" [size]="16" />
             }
             <span>{{ item().action?.label }}</span>
           </button>
@@ -313,8 +291,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
           inset 0 1px 1px var(--nxt1-color-alpha-white28, rgba(255, 255, 255, 0.28));
       }
 
-      .activity-item__icon-circle ion-icon {
-        font-size: 21px;
+      .activity-item__icon-circle nxt1-icon {
         color: var(--nxt1-color-text-onDark, #ffffff);
       }
 
@@ -467,7 +444,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
         background: var(--nxt1-color-primaryDark, #a3cc00);
       }
 
-      .activity-item__action ion-icon {
+      .activity-item__action nxt1-icon {
         font-size: 14px;
       }
 
@@ -517,27 +494,6 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ActivityItemComponent {
-  constructor() {
-    addIcons({
-      personAddOutline,
-      heartOutline,
-      chatbubbleOutline,
-      atOutline,
-      mailOutline,
-      trophyOutline,
-      pricetagOutline,
-      megaphoneOutline,
-      ribbonOutline,
-      alarmOutline,
-      informationCircleOutline,
-      sparklesOutline,
-      chevronForward,
-      ellipsisHorizontal,
-      volumeMuteOutline,
-      playCircleOutline,
-    });
-  }
-
   /** The activity item to display */
   readonly item = input.required<ActivityItem>();
 
@@ -608,7 +564,7 @@ export class ActivityItemComponent {
   });
 
   /** Agent tab/system visual uses branded Agent X mark */
-  protected readonly isAgentItem = computed(() => false);
+  protected readonly isAgentItem = computed(() => this.item().type === 'agent_task');
 
   readonly agentXLogoPath = AGENT_X_LOGO_PATH;
   readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;

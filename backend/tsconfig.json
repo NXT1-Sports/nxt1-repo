@@ -27,7 +27,10 @@
         "../packages/core/dist/*.d.ts"
       ],
       "@nxt1/cache": ["../packages/cache/dist/index.d.ts"],
-      "@nxt1/cache/*": ["../packages/cache/dist/*.d.ts"]
+      "@nxt1/cache/*": ["../packages/cache/dist/*.d.ts"],
+      "@apple/app-store-server-library": [
+        "../node_modules/@apple/app-store-server-library/dist/index.d.ts"
+      ]
     }
   },
   "references": [

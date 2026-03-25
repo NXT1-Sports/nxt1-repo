@@ -35,19 +35,7 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon, IonSpinner } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  mailOutline,
-  notificationsOutline,
-  pricetagOutline,
-  atOutline,
-  checkmarkCircleOutline,
-  sparklesOutline,
-  alertCircleOutline,
-  refreshOutline,
-  chevronForward,
-} from 'ionicons/icons';
+import { IonSpinner } from '@ionic/angular/standalone';
 import {
   type ActivityItem,
   type ActivityTabId,
@@ -68,7 +56,6 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
   standalone: true,
   imports: [
     CommonModule,
-    IonIcon,
     IonSpinner,
     NxtIconComponent,
     ActivityItemComponent,
@@ -89,12 +76,12 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
       @else if (error()) {
         <div class="activity-list__error">
           <div class="activity-list__error-icon">
-            <ion-icon name="alert-circle-outline"></ion-icon>
+            <nxt1-icon name="alertCircle" [size]="36" />
           </div>
           <h3 class="activity-list__error-title">Something went wrong</h3>
           <p class="activity-list__error-message">{{ error() }}</p>
           <button type="button" class="activity-list__error-action" (click)="retry.emit()">
-            <ion-icon name="refresh-outline"></ion-icon>
+            <nxt1-icon name="refresh" [size]="18" />
             <span>Try Again</span>
           </button>
         </div>
@@ -120,9 +107,9 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
                 <polygon [attr.points]="agentXLogoPolygon" />
               </svg>
             } @else if (isAnalyticsTab()) {
-              <nxt1-icon name="analytics-outline" [size]="36" />
+              <nxt1-icon name="barChart" [size]="36" />
             } @else {
-              <ion-icon [name]="emptyState().icon"></ion-icon>
+              <nxt1-icon [name]="emptyState().icon" [size]="36" />
             }
           </div>
           <h3 class="activity-list__empty-title">{{ emptyState().title }}</h3>
@@ -151,10 +138,11 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
                         <span class="activity-list__provider-name">{{ provider.name }}</span>
                         <span class="activity-list__provider-desc">{{ provider.description }}</span>
                       </div>
-                      <ion-icon
-                        name="chevron-forward"
+                      <nxt1-icon
+                        name="chevronForward"
+                        [size]="18"
                         class="activity-list__provider-arrow"
-                      ></ion-icon>
+                      />
                     </button>
                   }
                 }
@@ -249,8 +237,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
         margin-bottom: 20px;
       }
 
-      .activity-list__empty-icon ion-icon {
-        font-size: 36px;
+      .activity-list__empty-icon nxt1-icon {
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
       }
 
@@ -414,8 +401,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
         margin-bottom: 20px;
       }
 
-      .activity-list__error-icon ion-icon {
-        font-size: 36px;
+      .activity-list__error-icon nxt1-icon {
         color: var(--nxt1-color-error, #ef4444);
       }
 
@@ -452,7 +438,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
         background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.1));
       }
 
-      .activity-list__error-action ion-icon {
+      .activity-list__error-action nxt1-icon {
         font-size: 18px;
       }
 
@@ -487,20 +473,6 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ActivityListComponent {
-  constructor() {
-    addIcons({
-      mailOutline,
-      notificationsOutline,
-      pricetagOutline,
-      atOutline,
-      checkmarkCircleOutline,
-      sparklesOutline,
-      alertCircleOutline,
-      refreshOutline,
-      chevronForward,
-    });
-  }
-
   // ============================================
   // INPUTS
   // ============================================

@@ -56,6 +56,8 @@
     "version:patch": "npm version patch --workspaces --include-workspace-root",
     "version:minor": "npm version minor --workspaces --include-workspace-root",
     "version:major": "npm version major --workspaces --include-workspace-root",
+    "version": "node scripts/sync-version.mjs && git add apps/web/src/environments apps/mobile/src/environments",
+    "version:sync": "node scripts/sync-version.mjs",
     "graph": "turbo run build --graph",
     "mobile:ios": "npm run -w @nxt1/mobile ios",
     "mobile:android": "npm run -w @nxt1/mobile android",

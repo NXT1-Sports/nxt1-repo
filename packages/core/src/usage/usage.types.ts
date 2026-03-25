@@ -281,8 +281,11 @@ export interface UsageCoupon {
 // BUDGETS & ALERTS
 // ============================================
 
-/** Who pays: the individual user or the team/organization */
-export type BillingEntity = 'individual' | 'team';
+/** Who pays: the individual user, a team sub-allocation, or the parent organization */
+export type BillingEntity = 'individual' | 'team' | 'organization';
+
+/** How a billing context is funded */
+export type PaymentProviderType = 'stripe' | 'iap';
 
 /** The user's billing context summary (returned by GET /budget) */
 export interface BillingContextSummary {
@@ -294,11 +297,31 @@ export interface BillingContextSummary {
   readonly percentUsed: number;
   readonly hardStop: boolean;
   readonly teamId?: string;
+  readonly organizationId?: string;
+  /** How this context is funded */
+  readonly paymentProvider: PaymentProviderType;
+  /** Pre-paid wallet balance in cents (IAP users only, 0 for stripe) */
+  readonly walletBalanceCents: number;
+}
+
+/** A team's sub-allocation within an organization budget */
+export interface TeamBudgetAllocation {
+  /** Team ID */
+  readonly teamId: string;
+  /** Team display name */
+  readonly teamName: string;
+  /** Monthly sub-limit in cents (0 = no sub-limit, draws from org pool) */
+  readonly monthlyLimit: number;
+  /** Current spend this period in cents */
+  readonly currentSpend: number;
+  /** Percentage of sub-limit used (0 if no sub-limit) */
+  readonly percentUsed: number;
 }
 
 /** Default budgets (cents) */
 export const DEFAULT_INDIVIDUAL_BUDGET = 2000; // $20
 export const DEFAULT_TEAM_BUDGET = 20000; // $200
+export const DEFAULT_ORGANIZATION_BUDGET = 50000; // $500
 
 /** A product budget configuration */
 export interface UsageBudget {
@@ -320,6 +343,8 @@ export interface UsageBudget {
   readonly accountName: string;
   /** Account ownership percentage (e.g. 100) */
   readonly ownershipPercent: number;
+  /** Team allocations (only present for org-level budgets) */
+  readonly teamAllocations?: readonly TeamBudgetAllocation[];
 }
 
 // ============================================

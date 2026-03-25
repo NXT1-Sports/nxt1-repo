@@ -1386,6 +1386,22 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   }
 
   protected async onSave(): Promise<void> {
+    // "Done" button with no unsaved changes → just close the sheet
+    if (!this.profile.hasUnsavedChanges()) {
+      this.logger.info('No unsaved changes, closing edit profile');
+      if (this.isModalMode) {
+        try {
+          await this.modalCtrl!.dismiss({ saved: false }, 'cancel');
+        } catch (err) {
+          this.logger.warn('Ionic dismiss failed, falling back to output', { err });
+          this.close.emit();
+        }
+        return;
+      }
+      this.close.emit();
+      return;
+    }
+
     this.breadcrumb.trackStateChange('edit-profile:saving');
     const didSave = await this.profile.saveChanges();
     if (didSave) {

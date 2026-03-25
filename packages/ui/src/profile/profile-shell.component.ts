@@ -319,9 +319,23 @@ export interface ProfileShellUser {
               }
 
               @case ('offers') {
-                @if (activeSideTab() === 'rankings') {
-                  <nxt1-profile-rankings />
-                } @else if (activeSideTab() === 'scouting') {
+                <nxt1-profile-offers
+                  [offers]="profile.offers()"
+                  [committedOffers]="profile.committedOffers()"
+                  [activeOffers]="profile.activeOffers()"
+                  [interestOffers]="profile.interestOffers()"
+                  [isEmpty]="!profile.hasRecruitingActivity()"
+                  [isOwnProfile]="profile.isOwnProfile()"
+                  [activeSection]="activeSideTab()"
+                  cardLayout="horizontal"
+                  (offerClick)="onOfferClick($event)"
+                  (addOfferClick)="onAddOffer()"
+                  (addCommitmentClick)="onAddOffer()"
+                />
+              }
+
+              @case ('scout') {
+                @if (activeSideTab() === 'scouting') {
                   <nxt1-profile-scouting
                     [isLoading]="profile.isLoading()"
                     [emptyCta]="profile.isOwnProfile() ? 'Add Scout Report' : null"
@@ -329,19 +343,7 @@ export interface ProfileShellUser {
                     (emptyCtaClick)="onAddScoutReport()"
                   />
                 } @else {
-                  <nxt1-profile-offers
-                    [offers]="profile.offers()"
-                    [committedOffers]="profile.committedOffers()"
-                    [activeOffers]="profile.activeOffers()"
-                    [interestOffers]="profile.interestOffers()"
-                    [isEmpty]="!profile.hasRecruitingActivity()"
-                    [isOwnProfile]="profile.isOwnProfile()"
-                    [activeSection]="activeSideTab()"
-                    cardLayout="horizontal"
-                    (offerClick)="onOfferClick($event)"
-                    (addOfferClick)="onAddOffer()"
-                    (addCommitmentClick)="onAddOffer()"
-                  />
+                  <nxt1-profile-rankings />
                 }
               }
 
@@ -831,6 +833,8 @@ export class ProfileShellComponent implements OnInit {
           label: 'Interests',
           badge: this.profile.interestOffers().length || undefined,
         },
+      ],
+      scout: [
         {
           id: 'rankings',
           label: 'Rankings',

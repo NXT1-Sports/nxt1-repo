@@ -94,6 +94,7 @@ import {
   NxtMobileSidebarComponent,
   type MobileSidebarConfig,
   type MobileSidebarSelectEvent,
+  type MobileSidebarUserData,
   createMobileSidebarConfig,
 } from '@nxt1/ui/components/mobile-sidebar';
 // ── Services (separate from component barrel) ──
@@ -111,6 +112,7 @@ import type { TopNavSearchSubmitEvent } from '@nxt1/ui/components/top-nav';
 // ── App-level imports ──
 import { AuthFlowService } from '../../../features/auth/services';
 import { BadgeCountService } from '../../services/badge-count.service';
+import { ProfilePageActionsService } from '../../services/profile-page-actions.service';
 import { NotificationPopoverComponent } from '../../../features/activity/components';
 import {
   DEFAULT_SOCIAL_LINKS,
@@ -202,7 +204,11 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   },
   {
     id: 'footer',
-    items: [{ id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' }],
+    items: [
+      { id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' },
+      { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
+      { id: 'help-center', label: 'Help Center', icon: 'help', route: '/help-center' },
+    ],
   },
   {
     id: 'follow-us',
@@ -499,19 +505,23 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
         (logoClick)="onLogoClick()"
         (searchClick)="onMobileSearchClick()"
         (notificationsClick)="onNotificationsClick()"
+        (editClick)="onMobileProfileEditClick()"
+        (moreClick)="onMobileProfileMoreClick()"
         (userClick)="onMobileUserClick()"
       />
 
       <!-- MOBILE: Slide-Out Drawer — CSS-hidden at 768px+, self-manages open/close -->
       <nxt1-mobile-sidebar
         [sections]="mobileSidebarSections()"
-        [user]="sidebarUserData()"
+        [user]="mobileSidebarUserData()"
         [config]="mobileSidebarConfig()"
         [open]="mobileSidebarOpen()"
         (itemSelect)="onMobileSidebarItemSelect($event)"
         (userClick)="onMobileSidebarUserClick($event)"
         (logoClick)="onLogoClick()"
         (closeRequest)="closeMobileSidebar()"
+        (sportProfileSelect)="onMobileSidebarSportSelect($event)"
+        (addSportClick)="onMobileSidebarAddSport()"
       />
 
       <!-- MAIN CONTENT — ALWAYS VISIBLE, ALWAYS INDEXABLE -->
@@ -774,6 +784,7 @@ export class WebShellComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly scrollService = inject(NxtScrollService);
   private readonly badgeCount = inject(BadgeCountService);
+  private readonly profileActions = inject(ProfilePageActionsService);
   private readonly notificationState = inject(NxtNotificationStateService);
   private readonly authModal = inject(AuthModalService);
   private readonly elementRef = inject(ElementRef);
@@ -865,6 +876,33 @@ export class WebShellComponent {
       handle: user?.unicode ? `@${user.unicode}` : undefined,
       verified: false,
       isPremium: false,
+    };
+  });
+
+  /** Mobile sidebar user data — includes sport profiles for the sport switcher */
+  readonly mobileSidebarUserData = computed<MobileSidebarUserData | null>(() => {
+    const baseData = this.sidebarUserData();
+    if (!baseData) return null;
+
+    const user = this.authFlow.user() as {
+      sports?: Array<{ sport: string; positions?: string[]; isPrimary?: boolean }>;
+      primarySport?: string;
+      isPremium?: boolean;
+      planTier?: string;
+    } | null;
+
+    const sportProfiles =
+      user?.sports?.map((s, i) => ({
+        id: `sport-${i}`,
+        sport: s.sport,
+        position: s.positions?.[0] ?? undefined,
+        isActive: s.isPrimary ?? false,
+      })) ?? [];
+
+    return {
+      ...baseData,
+      isPremium: user?.isPremium || user?.planTier === 'premium' || false,
+      sportProfiles,
     };
   });
 
@@ -987,7 +1025,13 @@ export class WebShellComponent {
   /** Whether the current route should show a back arrow instead of hamburger */
   private readonly _showMobileBack = computed(() => {
     const route = this._currentRoute();
-    return route.startsWith('/profile');
+    // Back arrow only for other people's profiles (/profile/:param), hamburger for own (/profile)
+    return route.startsWith('/profile/');
+  });
+
+  /** Whether the current route is any profile page (hides search/bell) */
+  private readonly _isOnProfilePage = computed(() => {
+    return this._currentRoute().startsWith('/profile');
   });
 
   /** Mobile header configuration — route-aware (back arrow on profile pages) */
@@ -998,14 +1042,19 @@ export class WebShellComponent {
       !this._signInButtonLocked() &&
       this.mobileHeaderUserData() === null;
 
+    const onProfilePage = this._isOnProfilePage();
+    const isOwnProfilePage = this._currentRoute() === '/profile';
+
     return createMobileHeaderConfig({
       showBack: this._showMobileBack(),
       showLogo: true,
-      showSearch: true,
-      showNotifications: true,
+      // Hide search & bell on profile pages — top nav shows edit/more instead
+      showSearch: !onProfilePage,
+      showNotifications: !onProfilePage,
       notificationCount: this.badgeCount.totalUnread(),
       showSignIn, // Hidden until auth resolves, then show only if not logged in
-      showMore: false,
+      showMore: onProfilePage,
+      showEdit: isOwnProfilePage,
       showAvatar: false,
       sticky: true,
       hideOnScroll: false,
@@ -1253,6 +1302,22 @@ export class WebShellComponent {
     this.router.navigate(['/settings/account']);
   }
 
+  /**
+   * Handle mobile top-nav pencil (edit profile) click on own profile page.
+   * Delegates to profile.component via ProfilePageActionsService.
+   */
+  onMobileProfileEditClick(): void {
+    this.profileActions.requestEdit();
+  }
+
+  /**
+   * Handle mobile top-nav three-dot (more) click on any profile page.
+   * Delegates to profile.component via ProfilePageActionsService.
+   */
+  onMobileProfileMoreClick(): void {
+    this.profileActions.requestMore();
+  }
+
   // ============================================
   // MOBILE SIDEBAR HANDLERS
   // ============================================
@@ -1284,6 +1349,26 @@ export class WebShellComponent {
    * Handle mobile sidebar user section click
    */
   onMobileSidebarUserClick(_event: Event): void {
+    this.router.navigate(['/profile']);
+  }
+
+  /**
+   * Handle mobile sidebar sport profile selection.
+   * Navigates to profile (sport switching handled by backend).
+   */
+  onMobileSidebarSportSelect(
+    event: import('@nxt1/ui/components/mobile-sidebar').MobileSidebarSportSelectEvent
+  ): void {
+    this.logger.debug('Sport profile selected', { sport: event.profile.sport });
+    this.router.navigate(['/profile']);
+  }
+
+  /**
+   * Handle mobile sidebar "Add Sport" click.
+   * Navigates to edit-profile or profile page where sport management lives.
+   */
+  onMobileSidebarAddSport(): void {
+    this.logger.debug('Add sport clicked from mobile sidebar');
     this.router.navigate(['/profile']);
   }
 

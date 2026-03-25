@@ -27,7 +27,7 @@ import type { ConnectedEmail } from '@nxt1/core';
 @Injectable({ providedIn: 'root' })
 export class EmailTokensService implements OnDestroy {
   private readonly platformId = inject(PLATFORM_ID);
-  private readonly auth = inject(Auth);
+  private readonly auth = inject(Auth, { optional: true });
 
   private firestoreUnsub?: Unsubscribe;
   private authUnsub?: () => void;
@@ -36,13 +36,13 @@ export class EmailTokensService implements OnDestroy {
   readonly connectedEmails = signal<readonly ConnectedEmail[]>([]);
 
   constructor() {
-    if (isPlatformBrowser(this.platformId)) {
+    if (isPlatformBrowser(this.platformId) && this.auth) {
       this.watchAuthState();
     }
   }
 
   private watchAuthState(): void {
-    this.authUnsub = onAuthStateChanged(this.auth, (user) => {
+    this.authUnsub = onAuthStateChanged(this.auth!, (user) => {
       this.cleanupFirestore();
       if (user) {
         this.subscribeToEmailTokens(user.uid);

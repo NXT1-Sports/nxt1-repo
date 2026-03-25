@@ -27,6 +27,7 @@ export type {
   UsageHistoryResponse,
   BillingEntity,
   BillingContextSummary,
+  PaymentProviderType,
 } from './usage.types';
 
 export { DEFAULT_INDIVIDUAL_BUDGET, DEFAULT_TEAM_BUDGET } from './usage.types';

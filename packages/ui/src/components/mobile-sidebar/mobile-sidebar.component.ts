@@ -58,9 +58,11 @@ import type {
   MobileSidebarItem,
   MobileSidebarUserData,
   MobileSidebarSelectEvent,
+  MobileSidebarSportSelectEvent,
 } from './mobile-sidebar.types';
 import { DEFAULT_MOBILE_SIDEBAR_CONFIG } from './mobile-sidebar.types';
 import type { DesktopSidebarSection } from '../desktop-sidebar/desktop-sidebar.types';
+import { formatSportDisplayName } from '@nxt1/core';
 
 @Component({
   selector: 'nxt1-mobile-sidebar',
@@ -123,28 +125,106 @@ import type { DesktopSidebarSection } from '../desktop-sidebar/desktop-sidebar.t
           </div>
         }
 
-        <!-- User Section (authenticated) -->
+        <!-- User Section (authenticated) — Sport Profile Switcher -->
         @if (config().showUserSection !== false && user()) {
           <div class="mobile-sidebar__user">
-            <button
-              type="button"
-              class="mobile-sidebar__user-btn"
-              (click)="onUserClick($event)"
-              aria-label="View profile"
-            >
-              <nxt1-avatar
-                [src]="user()!.profileImg"
-                [name]="user()!.name"
-                [initials]="user()!.initials"
-                size="md"
-              />
-              <div class="mobile-sidebar__user-info">
-                <span class="mobile-sidebar__user-name">{{ user()!.name }}</span>
-                @if (user()!.handle) {
-                  <span class="mobile-sidebar__user-handle">{{ user()!.handle }}</span>
+            <div class="mobile-sidebar__profile-row">
+              <button
+                type="button"
+                class="mobile-sidebar__user-btn"
+                (click)="onUserClick($event)"
+                aria-label="View profile"
+              >
+                <div class="mobile-sidebar__avatar-wrap">
+                  <nxt1-avatar
+                    [src]="user()!.profileImg"
+                    [name]="user()!.name"
+                    [initials]="user()!.initials"
+                    size="md"
+                  />
+                  @if (user()!.isPremium) {
+                    <span class="mobile-sidebar__pro-badge">PRO</span>
+                  }
+                </div>
+                <div class="mobile-sidebar__user-info">
+                  <span class="mobile-sidebar__user-name">{{ user()!.name }}</span>
+                  <span class="mobile-sidebar__user-sport">{{ getUserSportLabel(user()!) }}</span>
+                </div>
+              </button>
+
+              <!-- Expand Arrow for Sport Profiles -->
+              @if ((user()!.sportProfiles?.length ?? 0) > 0) {
+                <button
+                  type="button"
+                  class="mobile-sidebar__expand-btn"
+                  [class.mobile-sidebar__expand-btn--open]="sportsExpanded()"
+                  (click)="toggleSportsExpanded($event)"
+                  [attr.aria-expanded]="sportsExpanded()"
+                  aria-label="Show sports"
+                >
+                  <nxt1-icon name="chevronDown" [size]="18" />
+                </button>
+              }
+            </div>
+
+            <!-- Expandable Sport Profiles List -->
+            @if (sportsExpanded() && (user()!.sportProfiles?.length ?? 0) > 0) {
+              <div class="mobile-sidebar__sport-list">
+                @for (profile of user()!.sportProfiles; track profile.id) {
+                  <button
+                    type="button"
+                    class="mobile-sidebar__sport-item"
+                    [class.mobile-sidebar__sport-item--active]="profile.isActive"
+                    (click)="onSportProfileSelect(profile, $event)"
+                    [attr.aria-label]="'Switch to ' + formatSportDisplay(profile.sport)"
+                  >
+                    <nxt1-avatar
+                      [src]="profile.profileImg || user()!.profileImg"
+                      [name]="profile.sport"
+                      [initials]="getSportInitials(profile.sport)"
+                      [customSize]="28"
+                      [showSkeleton]="false"
+                    />
+                    <div class="mobile-sidebar__sport-info">
+                      <span class="mobile-sidebar__sport-name">{{
+                        formatSportDisplay(profile.sport)
+                      }}</span>
+                      @if (profile.position) {
+                        <span class="mobile-sidebar__sport-position">{{ profile.position }}</span>
+                      }
+                    </div>
+                    @if (profile.isActive) {
+                      <nxt1-icon name="checkmark" [size]="16" class="mobile-sidebar__sport-check" />
+                    }
+                  </button>
                 }
+
+                <!-- Add Sport Button -->
+                <button
+                  type="button"
+                  class="mobile-sidebar__sport-item mobile-sidebar__sport-item--add"
+                  (click)="onAddSportClick($event)"
+                  aria-label="Add sport profile"
+                >
+                  <div class="mobile-sidebar__add-icon">
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="16"
+                      height="16"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.2"
+                      stroke-linecap="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M12 5v14" />
+                      <path d="M5 12h14" />
+                    </svg>
+                  </div>
+                  <span class="mobile-sidebar__sport-name">Add Sport</span>
+                </button>
               </div>
-            </button>
+            }
           </div>
         }
 
@@ -597,11 +677,18 @@ import type { DesktopSidebarSection } from '../desktop-sidebar/desktop-sidebar.t
         border-bottom: 1px solid var(--mobile-sidebar-border);
       }
 
+      .mobile-sidebar__profile-row {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 0.5rem);
+      }
+
       .mobile-sidebar__user-btn {
         display: flex;
         align-items: center;
         gap: var(--nxt1-spacing-3, 0.75rem);
-        width: 100%;
+        flex: 1;
+        min-width: 0;
         padding: var(--nxt1-spacing-2, 0.5rem);
         background: none;
         border: none;
@@ -612,6 +699,25 @@ import type { DesktopSidebarSection } from '../desktop-sidebar/desktop-sidebar.t
 
       .mobile-sidebar__user-btn:hover {
         background: var(--mobile-sidebar-item-hover);
+      }
+
+      .mobile-sidebar__avatar-wrap {
+        position: relative;
+        flex-shrink: 0;
+      }
+
+      .mobile-sidebar__pro-badge {
+        position: absolute;
+        bottom: -2px;
+        right: -2px;
+        font-size: 8px;
+        font-weight: var(--nxt1-fontWeight-bold, 700);
+        color: var(--nxt1-ui-text-inverse, #000);
+        background: var(--nxt1-color-primary);
+        padding: 1px 4px;
+        border-radius: var(--nxt1-borderRadius-full, 9999px);
+        line-height: 1;
+        letter-spacing: 0.02em;
       }
 
       .mobile-sidebar__user-info {
@@ -628,6 +734,117 @@ import type { DesktopSidebarSection } from '../desktop-sidebar/desktop-sidebar.t
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      .mobile-sidebar__user-sport {
+        display: block;
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        color: var(--mobile-sidebar-text-tertiary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      /* ── Expand Arrow Button ── */
+      .mobile-sidebar__expand-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        width: 32px;
+        height: 32px;
+        border: none;
+        background: none;
+        border-radius: var(--nxt1-borderRadius-full, 9999px);
+        color: var(--mobile-sidebar-text-tertiary);
+        cursor: pointer;
+        transition:
+          transform var(--mobile-sidebar-transition-fast),
+          background var(--mobile-sidebar-transition-fast);
+      }
+
+      .mobile-sidebar__expand-btn:hover {
+        background: var(--mobile-sidebar-item-hover);
+      }
+
+      .mobile-sidebar__expand-btn--open {
+        transform: rotate(180deg);
+      }
+
+      /* ── Sport Profiles List ── */
+      .mobile-sidebar__sport-list {
+        display: flex;
+        flex-direction: column;
+        padding: var(--nxt1-spacing-2, 0.5rem) 0 0;
+      }
+
+      .mobile-sidebar__sport-item {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-3, 0.75rem);
+        width: 100%;
+        padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-2, 0.5rem);
+        background: none;
+        border: none;
+        border-radius: var(--mobile-sidebar-item-radius);
+        cursor: pointer;
+        color: var(--mobile-sidebar-text-primary);
+        transition: background var(--mobile-sidebar-transition-fast);
+      }
+
+      .mobile-sidebar__sport-item:hover {
+        background: var(--mobile-sidebar-item-hover);
+      }
+
+      .mobile-sidebar__sport-item--active {
+        background: var(--mobile-sidebar-item-active);
+      }
+
+      .mobile-sidebar__sport-info {
+        flex: 1;
+        min-width: 0;
+        text-align: left;
+      }
+
+      .mobile-sidebar__sport-name {
+        display: block;
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-medium, 500);
+        color: var(--mobile-sidebar-text-primary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .mobile-sidebar__sport-position {
+        display: block;
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        color: var(--mobile-sidebar-text-tertiary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .mobile-sidebar__sport-check {
+        flex-shrink: 0;
+        color: var(--mobile-sidebar-accent);
+      }
+
+      /* ── Add Sport ── */
+      .mobile-sidebar__sport-item--add {
+        color: var(--mobile-sidebar-text-secondary);
+      }
+
+      .mobile-sidebar__add-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border-radius: var(--nxt1-borderRadius-full, 9999px);
+        border: 1.5px dashed var(--mobile-sidebar-text-tertiary);
+        color: var(--mobile-sidebar-text-tertiary);
+        flex-shrink: 0;
       }
 
       .mobile-sidebar__user-handle {
@@ -1009,6 +1226,12 @@ export class NxtMobileSidebarComponent implements OnDestroy {
   /** Emitted when sidebar should close */
   readonly closeRequest = output<void>();
 
+  /** Emitted when a sport profile is selected from the switcher */
+  readonly sportProfileSelect = output<MobileSidebarSportSelectEvent>();
+
+  /** Emitted when "Add Sport" is clicked */
+  readonly addSportClick = output<Event>();
+
   // ============================================
   // STATE
   // ============================================
@@ -1018,6 +1241,9 @@ export class NxtMobileSidebarComponent implements OnDestroy {
 
   /** Tracks expanded state for items with children (by item ID) */
   private readonly _expandedItems = signal<ReadonlySet<string>>(new Set<string>());
+
+  /** Whether sport profiles dropdown is expanded */
+  readonly sportsExpanded = signal(false);
 
   /** Internal open state (synced with input) */
   readonly isOpen = computed(() => this.open());
@@ -1179,6 +1405,78 @@ export class NxtMobileSidebarComponent implements OnDestroy {
     this.haptics.impact('light');
     this.logoClick.emit(event);
     this.close();
+  }
+
+  // ============================================
+  // SPORT PROFILE SWITCHER METHODS
+  // ============================================
+
+  /**
+   * Toggle sport profiles dropdown expansion.
+   */
+  toggleSportsExpanded(event: Event): void {
+    event.stopPropagation();
+    this.haptics.impact('light');
+    this.sportsExpanded.update((v) => !v);
+  }
+
+  /**
+   * Handle sport profile selection.
+   */
+  onSportProfileSelect(profile: import('@nxt1/core').SidenavSportProfile, event: Event): void {
+    event.stopPropagation();
+    this.haptics.impact('light');
+    this.sportProfileSelect.emit({ profile, event });
+    this.sportsExpanded.set(false);
+    this.close();
+  }
+
+  /**
+   * Handle "Add Sport" click.
+   */
+  onAddSportClick(event: Event): void {
+    event.stopPropagation();
+    this.haptics.impact('light');
+    this.addSportClick.emit(event);
+    this.sportsExpanded.set(false);
+    this.close();
+  }
+
+  /**
+   * Get the sport label displayed under the user's name.
+   */
+  getUserSportLabel(userData: MobileSidebarUserData): string {
+    if (userData.sportLabel) return userData.sportLabel;
+
+    const activeSport = userData.sportProfiles?.find((p) => p.isActive);
+    const firstSport = userData.sportProfiles?.[0];
+    const profile = activeSport ?? firstSport;
+
+    if (profile?.sport && profile.position) {
+      return `${formatSportDisplayName(profile.sport)} • ${profile.position}`;
+    }
+    if (profile?.sport) {
+      return formatSportDisplayName(profile.sport);
+    }
+    if (userData.handle) return userData.handle;
+    return 'Athlete';
+  }
+
+  /**
+   * Format sport name for display.
+   */
+  formatSportDisplay(sportName: string): string {
+    return formatSportDisplayName(sportName);
+  }
+
+  /**
+   * Build compact initials from a sport name for avatar fallbacks.
+   */
+  getSportInitials(sportName: string): string {
+    const parts = sportName.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return 'SP';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
   }
 
   // ============================================

@@ -43,6 +43,9 @@ export { ShareService } from './share.service';
 // Edit Profile API Service for persisting user profile data
 export { EditProfileApiService } from './edit-profile-api.service';
 
+// Profile Page Actions Bus (lets web-shell top-nav buttons trigger profile actions)
+export { ProfilePageActionsService } from './profile-page-actions.service';
+
 // Agent X Background Job Service (enqueue AI jobs via BullMQ)
 
 // ============================================

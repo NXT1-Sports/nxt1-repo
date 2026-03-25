@@ -153,8 +153,8 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
               <div class="sk-split">
                 <!-- ═══ LEFT COLUMN ═══ -->
                 <div class="sk-left">
-                  <!-- Page Header: Back + Identity(Name+Subtitle) + Follow Stats + Follow Button (desktop only) -->
-                  <!-- mirrors: nxt1-entity-page-header → back, identity(name + subline), trailing(stats + follow) -->
+                  <!-- Page Header: Back + Identity(Name+Subtitle) + Edit Profile / Follow Button (desktop only) -->
+                  <!-- mirrors: nxt1-entity-page-header → back, identity(name + subline), trailing(edit-btn or follow-btn) -->
                   <div class="sk-page-header">
                     <div class="sk-ph-row">
                       <!-- Back button -->
@@ -164,11 +164,9 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
                         <div class="sk-ph-name skeleton-animate"></div>
                         <div class="sk-ph-subtitle skeleton-animate"></div>
                       </div>
-                      <!-- Trailing: Follow stats + Follow button -->
+                      <!-- Trailing: Edit Profile button (own profile) or Follow button -->
                       <div class="sk-ph-trailing">
-                        <div class="sk-ph-stat skeleton-animate"></div>
-                        <div class="sk-ph-stat skeleton-animate"></div>
-                        <div class="sk-ph-follow skeleton-animate"></div>
+                        <div class="sk-ph-edit skeleton-animate"></div>
                       </div>
                     </div>
                   </div>
@@ -795,11 +793,12 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
       }
 
       /* ─────── STAGE ─────── */
-      /* mirrors: .madden-stage { height: calc(100vh - 64px); overflow: hidden } */
+      /* mirrors: .madden-stage { min-height: calc(100vh - 64px); overflow: hidden; flex-shrink: 0 } */
       .sk-stage {
         position: relative;
-        height: calc(100vh - 64px);
+        min-height: calc(100vh - 64px);
         overflow: hidden;
+        flex-shrink: 0;
       }
 
       /* Decorative halftone background (matches .stage-halftone-bg) */
@@ -892,18 +891,11 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
         margin-left: auto;
       }
 
-      /* Follow stat block: mirrors .mdh-stat { width/height for count+label column } */
-      .sk-ph-stat {
-        width: 56px;
-        height: 36px;
-        border-radius: 8px;
-      }
-
-      /* Follow button: mirrors .mdh-follow-btn */
-      .sk-ph-follow {
-        width: 88px;
-        height: 34px;
-        border-radius: var(--nxt1-radius-full, 9999px);
+      /* Edit Profile button: mirrors .mdh-edit-btn { padding: 7px 16px; border-radius: 8px; font-size: 13px } */
+      .sk-ph-edit {
+        width: 112px;
+        height: 32px;
+        border-radius: var(--nxt1-radius-md, 8px);
         flex-shrink: 0;
       }
 
@@ -917,14 +909,15 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
 
       /* ═══════════════════════════════════════
          TOP TAB BAR
-         mirrors: .madden-top-tabs { padding: 0 8px; padding-left: calc(var(--shell-content-padding-x,32px) - 4px); margin-top: -6px }
+         mirrors: .madden-top-tabs { padding: 0 8px; padding-left: calc(var(--shell-content-padding-x,32px) - 4px); margin-top: 12px; margin-bottom: 12px }
          ═══════════════════════════════════════ */
       .sk-top-tabs {
         display: flex;
         gap: 8px;
         padding: 0 8px;
         padding-left: calc(var(--shell-content-padding-x, 32px) - 4px);
-        margin-top: -6px;
+        margin-top: 12px;
+        margin-bottom: 12px;
         overflow: hidden;
         flex-shrink: 0;
       }
@@ -969,7 +962,7 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
         display: grid;
         grid-template-columns: 180px minmax(0, 1fr);
         gap: var(--nxt1-spacing-6, 24px);
-        padding-top: var(--nxt1-spacing-2, 8px);
+        padding-top: var(--nxt1-spacing-6, 24px);
         padding-left: calc(var(--shell-content-padding-x, 32px) - 4px);
         flex: 1;
         min-height: 0;
@@ -1354,10 +1347,10 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
           margin: 32px 12px 10px;
         }
 
-        /* mirrors: .madden-mobile-hero__carousel { width:148px } → .carousel-glow-wrap { height:228px; border-radius:14px } */
+        /* mirrors: .madden-mobile-hero__carousel { width:148px } → .carousel-glow-wrap { height:220px; border-radius:14px } */
         .sk-mh-carousel {
           width: 148px;
-          height: 228px;
+          height: 220px;
           border-radius: 14px;
         }
 
@@ -1429,9 +1422,11 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
           border-radius: 3px;
         }
 
-        /* Top tabs: reduce left padding (mirrors real profile mobile) */
+        /* Top tabs: reduce left padding + adjust margins (mirrors real profile mobile) */
         .sk-top-tabs {
           padding-left: 8px;
+          margin-top: 4px;
+          margin-bottom: 0;
         }
 
         /* ─── CONTENT LAYER: single column ─── */

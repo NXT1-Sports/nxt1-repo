@@ -67,16 +67,69 @@ async function processUsageEvent(message: UsageEventMessage): Promise<void> {
     const userData = userDoc.data();
     const userEmail = (userData?.['email'] as string) || `${event.userId}@nxt1.app`;
 
-    // ── Determine billing entity (individual vs team) ────────
+    // ── Determine billing entity (individual vs organization vs legacy team) ────────
     const billingCtx = await getBillingContext(firestore, event.userId);
-    const isTeamBilled = billingCtx?.billingEntity === 'team' && billingCtx.teamId;
+
+    // No billing context at worker time is an error — budget was pre-checked; this
+    // shouldn't happen in normal flow, but guard defensively.
+    if (!billingCtx) {
+      throw new Error(`No billing context found for user ${event.userId}`);
+    }
+
+    // ── IAP wallet users: skip Stripe entirely — usage was pre-paid via Apple ────
+    if (billingCtx.paymentProvider === 'iap') {
+      logger.info('[processUsageEvent] IAP user — skipping Stripe invoice, marking SENT', {
+        usageEventId,
+        userId: event.userId,
+        feature: event.feature,
+        costCents: event.unitCostSnapshot * event.quantity,
+        walletBalanceCents: billingCtx.walletBalanceCents,
+      });
+      await updateUsageEventStatus(firestore, usageEventId, UsageEventStatus.SENT, {
+        stripeInvoiceItemId: undefined,
+        errorMessage: undefined,
+      });
+      return;
+    }
+
+    const isOrgBilled = billingCtx.billingEntity === 'organization' && billingCtx.organizationId;
+    const isTeamBilled = billingCtx.billingEntity === 'team' && billingCtx.teamId;
 
     let customerEmail = userEmail;
     let customerId: string;
     let customerUserId = event.userId;
+    let description: string;
 
-    if (isTeamBilled && billingCtx.teamId) {
-      // Team pays — get/create a Stripe customer for the team
+    if (isOrgBilled && billingCtx.organizationId) {
+      // Organization pays — get/create a Stripe customer for the org
+      const orgDoc = await firestore
+        .collection('organizations')
+        .doc(billingCtx.organizationId)
+        .get();
+      const orgData = orgDoc.data();
+      const orgEmail =
+        (orgData?.['billingEmail'] as string) || (orgData?.['email'] as string) || userEmail;
+      customerEmail = orgEmail;
+      customerUserId = `org:${billingCtx.organizationId}`;
+
+      const orgCustomer = await getOrCreateCustomer(
+        firestore,
+        customerUserId,
+        customerEmail,
+        billingCtx.teamId,
+        environment
+      );
+      customerId = orgCustomer.customerId;
+      description = `${event.feature} usage - ${event.quantity}x (team: ${billingCtx.teamId ?? 'none'}, by ${userEmail})`;
+
+      logger.info('[processUsageEvent] Billing to org customer', {
+        organizationId: billingCtx.organizationId,
+        teamId: billingCtx.teamId,
+        customerId,
+        generatingUserId: event.userId,
+      });
+    } else if (isTeamBilled && billingCtx.teamId) {
+      // Legacy team pays — get/create a Stripe customer for the team
       const teamDoc = await firestore.collection('teams').doc(billingCtx.teamId).get();
       const teamData = teamDoc.data();
       const teamEmail =
@@ -92,8 +145,9 @@ async function processUsageEvent(message: UsageEventMessage): Promise<void> {
         environment
       );
       customerId = teamCustomer.customerId;
+      description = `${event.feature} usage - ${event.quantity}x (by ${userEmail})`;
 
-      logger.info('[processUsageEvent] Billing to team customer', {
+      logger.info('[processUsageEvent] Billing to team customer (legacy)', {
         teamId: billingCtx.teamId,
         customerId,
         generatingUserId: event.userId,
@@ -108,17 +162,13 @@ async function processUsageEvent(message: UsageEventMessage): Promise<void> {
         environment
       );
       customerId = userCustomer.customerId;
+      description = `${event.feature} usage - ${event.quantity}x`;
 
       logger.info('[processUsageEvent] Billing to individual customer', {
         userId: event.userId,
         customerId,
       });
     }
-
-    // Create invoice item with retry — include generating user in description for org billing
-    const description = isTeamBilled
-      ? `${event.feature} usage - ${event.quantity}x (by ${userEmail})`
-      : `${event.feature} usage - ${event.quantity}x`;
 
     // When a Stripe Price ID is configured, pass quantity (Stripe calculates total).
     // When no Price ID (fallback), pass total cost in cents as the quantity arg.

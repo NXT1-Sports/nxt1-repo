@@ -62,6 +62,11 @@ import {
 } from '@nxt1/ui/profile';
 import { TeamProfileShellWebComponent, TeamProfileService } from '@nxt1/ui/team-profile';
 import { EditProfileModalService } from '@nxt1/ui/edit-profile';
+import {
+  NxtBottomSheetService,
+  SHEET_PRESETS,
+  type BottomSheetAction,
+} from '@nxt1/ui/components/bottom-sheet';
 import type { TeamSearchResult } from '@nxt1/ui/onboarding';
 
 import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/cta-banner';
@@ -83,7 +88,12 @@ import type {
 import type { ApiResponse } from '@nxt1/core/profile';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { AuthFlowService } from '../auth/services';
-import { SeoService, AnalyticsService, ShareService } from '../../core/services';
+import {
+  SeoService,
+  AnalyticsService,
+  ShareService,
+  ProfilePageActionsService,
+} from '../../core/services';
 import { clearHttpCache } from '../../core/infrastructure';
 import { EditProfileApiService } from '../../core/services/edit-profile-api.service';
 import { ProfileService as ApiProfileService } from './services/profile.service';
@@ -220,6 +230,8 @@ export class ProfileComponent implements OnInit, OnDestroy {
   private readonly seo = inject(SeoService);
   private readonly analytics = inject(AnalyticsService);
   private readonly share = inject(ShareService);
+  private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly profilePageActions = inject(ProfilePageActionsService);
   /**
    * Platform-specific API service — fetches real profile data from the backend.
    * @see apps/web/src/app/features/profile/services/profile.service.ts
@@ -488,6 +500,22 @@ export class ProfileComponent implements OnInit, OnDestroy {
       ) {
         this.profileService.setError('Please sign in to continue.');
         this.authModal.present();
+      }
+    });
+
+    // Handle mobile top-nav edit (pencil) button — delegated via ProfilePageActionsService
+    effect(() => {
+      const count = this.profilePageActions.editRequested();
+      if (count > 0) {
+        void this.onEditProfile();
+      }
+    });
+
+    // Handle mobile top-nav three-dot (more) button — delegated via ProfilePageActionsService
+    effect(() => {
+      const count = this.profilePageActions.moreRequested();
+      if (count > 0) {
+        void this.onProfileMoreMenu();
       }
     });
 
@@ -1200,6 +1228,58 @@ export class ProfileComponent implements OnInit, OnDestroy {
   protected onAiSummary(): void {
     this.logger.info('AI summary requested', { unicode: this.profileUnicode() });
     this.toast.info('AI summary feature coming soon');
+  }
+
+  /**
+   * Handle mobile top-nav three-dot menu — shows profile actions bottom sheet.
+   * Called via ProfilePageActionsService from the web-shell's (moreClick) handler.
+   */
+  protected async onProfileMoreMenu(): Promise<void> {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    const isOwn = this.isOwnProfile();
+    const actions: BottomSheetAction[] = isOwn
+      ? [
+          { label: 'Share Profile', role: 'primary', icon: 'share' },
+          { label: 'QR Code', role: 'secondary', icon: 'qrCode' },
+          { label: 'Copy Link', role: 'secondary', icon: 'link' },
+        ]
+      : [
+          { label: 'Share Profile', role: 'primary', icon: 'share' },
+          { label: 'Copy Link', role: 'secondary', icon: 'link' },
+          { label: 'Report', role: 'destructive', icon: 'flag' },
+        ];
+
+    const result = await this.bottomSheet.show<BottomSheetAction>({
+      title: 'Profile Actions',
+      actions,
+      backdropDismiss: true,
+      ...SHEET_PRESETS.HALF,
+    });
+
+    const selected = result?.data as BottomSheetAction | undefined;
+    if (!selected) return;
+
+    switch (selected.label) {
+      case 'Share Profile':
+        await this.onShare();
+        break;
+      case 'QR Code':
+        await this.onQrCode();
+        break;
+      case 'Copy Link': {
+        const meta = this.profileMeta();
+        const unicode = meta?.id || this.profileUnicode();
+        if (unicode) {
+          const url = `https://nxt1sports.com/profile/${unicode}`;
+          await navigator.clipboard.writeText(url);
+          this.toast.success('Link copied!');
+        }
+        break;
+      }
+      default:
+        break;
+    }
   }
 
   /**

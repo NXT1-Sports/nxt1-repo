@@ -251,19 +251,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                 </div>
               }
             </div>
-
-            <h4 class="ov-section-title ov-section-title--subsection ov-section-title--bio-inline">
-              Player Bio
-            </h4>
-            <div class="ov-bio-card">
-              <nxt1-icon name="person" [size]="18" />
-              <p>
-                {{
-                  profile.user()?.aboutMe ||
-                    'No bio added yet. Add a short player bio to help coaches understand your story and goals.'
-                }}
-              </p>
-            </div>
           </div>
 
           <!-- ═══ AGENT X TRAIT (inline, no large container) ═══ -->
@@ -299,6 +286,22 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
               </div>
             </div>
           }
+        </div>
+
+        <!-- ═══ PLAYER BIO (full width) ═══ -->
+        <div class="ov-section ov-section--bio">
+          <h4 class="ov-section-title ov-section-title--subsection ov-section-title--bio-inline">
+            Player Bio
+          </h4>
+          <div class="ov-bio-card">
+            <nxt1-icon name="person" [size]="18" />
+            <p>
+              {{
+                profile.user()?.aboutMe ||
+                  'No bio added yet. Add a short player bio to help coaches understand your story and goals.'
+              }}
+            </p>
+          </div>
         </div>
 
         <!-- ═══ PLAYER ARCHETYPES (badge-style labels) ═══ -->
@@ -1453,6 +1456,10 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         }
         /* Hide duplicate player stats on mobile — already shown in mobile hero */
         .ov-section--player-stats {
+          display: none;
+        }
+        /* Hide desktop bio block on mobile — bio is already in ov-mobile-teams */
+        .ov-section--bio {
           display: none;
         }
         .ov-mobile-teams .madden-team-block {

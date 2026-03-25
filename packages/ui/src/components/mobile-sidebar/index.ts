@@ -23,6 +23,7 @@ export type {
   MobileSidebarSection,
   MobileSidebarUserData,
   MobileSidebarSelectEvent,
+  MobileSidebarSportSelectEvent,
 } from './mobile-sidebar.types';
 
 export { DEFAULT_MOBILE_SIDEBAR_CONFIG, createMobileSidebarConfig } from './mobile-sidebar.types';

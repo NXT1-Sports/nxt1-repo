@@ -53,19 +53,19 @@ export const ACTIVITY_DEFAULT_TAB: ActivityTabId = 'alerts';
  * Icon mapping for activity types.
  */
 export const ACTIVITY_TYPE_ICONS: Record<ActivityType, string> = {
-  follow: 'person-add-outline',
-  like: 'heart-outline',
-  comment: 'chatbubble-outline',
-  mention: 'at-outline',
-  message: 'mail-outline',
-  offer: 'trophy-outline',
-  deal: 'pricetag-outline',
-  announcement: 'megaphone-outline',
-  milestone: 'ribbon-outline',
-  reminder: 'alarm-outline',
-  system: 'information-circle-outline',
-  update: 'sparkles-outline',
-  agent_task: 'sparkles-outline',
+  follow: 'user',
+  like: 'heart',
+  comment: 'chatBubble',
+  mention: 'mail',
+  message: 'messages',
+  offer: 'trophy',
+  deal: 'receipt',
+  announcement: 'notifications',
+  milestone: 'ribbon',
+  reminder: 'time',
+  system: 'infoCircle',
+  update: 'sparkles',
+  agent_task: 'sparkles',
 } as const;
 
 /**
@@ -85,7 +85,7 @@ export const ACTIVITY_TYPE_COLORS: Record<ActivityType, string> = {
   reminder: 'var(--nxt1-color-warning)',
   system: 'var(--nxt1-color-text-secondary)',
   update: 'var(--nxt1-color-primary)',
-  agent_task: 'var(--nxt1-color-success)',
+  agent_task: 'var(--nxt1-color-primary)',
 } as const;
 
 /**
@@ -155,13 +155,13 @@ export const ACTIVITY_EMPTY_STATES: Record<
 > = {
   alerts: {
     title: 'No alerts yet',
-    message: 'Social activity and system updates will appear here.',
-    icon: 'heart-outline',
+    message: 'Agent X updates, follows, and notifications will appear here.',
+    icon: 'bell',
   },
   analytics: {
     title: 'No analytics yet',
     message: 'Your recruiting stats and Agent X performance will appear here.',
-    icon: 'bar-chart-outline',
+    icon: 'barChart',
   },
 } as const;
 

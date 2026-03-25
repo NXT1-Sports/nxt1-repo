@@ -5,8 +5,8 @@
  */
 export const environment = {
   production: false,
-  appVersion: '2.0.0-staging',
-  version: '2.0.0-staging',
+  appVersion: '1.0.0-staging',
+  version: '1.0.0-staging',
 
   // Backend API URLs (Staging)
   apiURL: 'https://api.nxt1sports.com/api/v1/staging',
