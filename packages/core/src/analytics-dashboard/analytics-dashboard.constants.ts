@@ -46,7 +46,7 @@ export const ANALYTICS_TABS: readonly AnalyticsTab[] = [
   },
   {
     id: 'recruiting',
-    label: 'Recruiting',
+    label: 'Discovery',
     icon: 'school-outline',
     athleteOnly: true,
   },

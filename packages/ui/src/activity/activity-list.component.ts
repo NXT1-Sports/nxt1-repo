@@ -106,8 +106,6 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
                 <path [attr.d]="agentXLogoPath" />
                 <polygon [attr.points]="agentXLogoPolygon" />
               </svg>
-            } @else if (isAnalyticsTab()) {
-              <nxt1-icon name="barChart" [size]="36" />
             } @else {
               <nxt1-icon [name]="emptyState().icon" [size]="36" />
             }
@@ -547,9 +545,6 @@ export class ActivityListComponent {
 
   /** Whether the active tab is the Agent X tab */
   protected readonly isAgentTab = computed(() => false);
-
-  /** Whether the active tab is the Analytics tab */
-  protected readonly isAnalyticsTab = computed(() => this.activeTab() === 'analytics');
 
   /** Whether the active tab is the Inbox tab */
   protected readonly isInboxTab = computed(() => false);

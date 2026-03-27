@@ -706,6 +706,7 @@ export class ProfileComponent {
         sport: team.sport || 'Sports',
         unicode: team.slug,
         isOwnProfile: true,
+        entityType: 'team',
       });
     } catch (err) {
       this.logger.error('Failed to open QR code', err);

@@ -437,6 +437,8 @@ export const APP_EVENTS = {
   FILTER_APPLIED: 'filter_applied',
   /** Explore page viewed */
   EXPLORE_VIEWED: 'explore_viewed',
+  /** Explore tab switched (pulse, discover, feed, etc.) */
+  EXPLORE_TAB_CHANGED: 'explore_tab_changed',
 
   // ============================================
   // COLLEGE RECRUITING EVENTS
@@ -752,6 +754,28 @@ export const APP_EVENTS = {
   ANALYTICS_REPORT_LOADED: 'analytics_report_loaded',
   /** Analytics report load failed */
   ANALYTICS_REPORT_FAILED: 'analytics_report_failed',
+
+  // ============================================
+  // NEWS / PULSE EVENTS
+  // ============================================
+  /** News feed loaded successfully */
+  NEWS_FEED_VIEWED: 'news_feed_viewed',
+  /** Individual article viewed in detail */
+  NEWS_ARTICLE_VIEWED: 'news_article_viewed',
+  /** Article clicked in feed list */
+  NEWS_ARTICLE_CLICKED: 'news_article_clicked',
+  /** Article detail closed */
+  NEWS_DETAIL_CLOSED: 'news_detail_closed',
+  /** Load more articles triggered */
+  NEWS_LOAD_MORE: 'news_load_more',
+  /** Feed refreshed (pull-to-refresh) */
+  NEWS_FEED_REFRESHED: 'news_feed_refreshed',
+  /** Feed load error */
+  NEWS_ERROR_FEED_LOAD: 'news_error_feed_load',
+  /** Retry after error */
+  NEWS_FEED_RETRY: 'news_feed_retry',
+  /** Category filter changed */
+  NEWS_CATEGORY_CHANGED: 'news_category_changed',
 } as const;
 
 export type AppEventName = (typeof APP_EVENTS)[keyof typeof APP_EVENTS];

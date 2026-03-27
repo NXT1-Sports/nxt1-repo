@@ -38,12 +38,15 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
-import { NxtSectionNavWebComponent } from '../../components/section-nav-web';
-import type { SectionNavChangeEvent } from '../../components/section-nav-web';
+import {
+  NxtOptionScrollerWebComponent,
+  type OptionScrollerChangeEvent,
+} from '../../components/option-scroller-web';
 import { NxtRefresherComponent, type RefreshEvent } from '../../components/refresh-container';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
-import { UsageService, USAGE_SECTION_NAVS, type UsageSection } from '../usage.service';
+import { UsageService, type UsageSection } from '../usage.service';
+import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 import { UsageSkeletonComponent } from '../usage-skeleton.component';
 import { UsageHelpContentComponent } from '../usage-help-content.component';
 import { UsageErrorStateComponent } from '../usage-error-state.component';
@@ -67,7 +70,7 @@ export type { UsageUser };
   imports: [
     CommonModule,
     NxtDesktopPageHeaderComponent,
-    NxtSectionNavWebComponent,
+    NxtOptionScrollerWebComponent,
     NxtRefresherComponent,
     UsageSkeletonComponent,
     UsageErrorStateComponent,
@@ -87,45 +90,52 @@ export type { UsageUser };
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
       <div class="usage-dashboard">
-        <!-- Desktop Page Header -->
-        <nxt1-desktop-page-header
-          title="Billing & Usage"
-          subtitle="Manage your billing, usage, and payment details for your account."
-          actionLabel="How it works"
-          actionIcon="help-circle-outline"
-          (actionClick)="showHelpDialog()"
+        <!-- Desktop Page Header — hidden on mobile via CSS -->
+        <div class="desktop-header-wrap">
+          <nxt1-desktop-page-header
+            title="Billing & Usage"
+            subtitle="Manage your billing, usage, and payment details for your account."
+            actionLabel="How it works"
+            actionIcon="help-circle-outline"
+            (actionClick)="showHelpDialog()"
+          />
+        </div>
+
+        <!-- Section Tab Scroller — ALWAYS in DOM (prevents re-mount indicator glitch) -->
+        <nxt1-option-scroller-web
+          [options]="$any(svc.sectionNavs())"
+          [selectedId]="svc.activeSection()"
+          [stretchToFill]="true"
+          [showDivider]="true"
+          ariaLabel="Billing sections"
+          [attr.data-testid]="testIds.SECTION_NAV"
+          (selectionChange)="onSectionNavChange($event)"
         />
 
-        @if (svc.error() && !hasData()) {
-          <nxt1-usage-error-state
-            [message]="svc.error() ?? 'Failed to load usage data'"
-            (retry)="svc.loadDashboard()"
-          />
-        } @else {
-          <div class="dashboard-layout">
-            <!-- Side Navigation (Desktop) / Scroll Tabs (Mobile) -->
-            <nxt1-section-nav-web
-              [items]="sectionNavs"
-              [activeId]="svc.activeSection()"
-              ariaLabel="Billing sections"
-              (selectionChange)="onSectionNavChange($event)"
+        <!-- Content – padded with design tokens -->
+        <div class="content-wrapper">
+          @if (svc.error() && !hasData()) {
+            <nxt1-usage-error-state
+              [message]="svc.error() ?? 'Failed to load usage data'"
+              [attr.data-testid]="testIds.ERROR_STATE"
+              (retry)="svc.loadDashboard()"
             />
-
-            <!-- Content Panel -->
+          } @else {
             <section
               class="section-content"
               [attr.id]="'section-' + svc.activeSection()"
               role="tabpanel"
             >
-              <!-- Loading State -->
               @if (svc.isLoading() && !hasData()) {
-                <nxt1-usage-skeleton />
+                <nxt1-usage-skeleton [attr.data-testid]="testIds.LOADING_SKELETON" />
               } @else {
                 @switch (svc.activeSection()) {
                   @case ('overview') {
                     <nxt1-usage-overview
                       [data]="svc.overview()"
+                      [isPersonal]="svc.isPersonal()"
                       (viewPaymentHistory)="svc.setActiveSection('payment-history')"
+                      (buyCredit)="onBuyCredits()"
                     />
 
                     @if (svc.subscriptions().length > 0) {
@@ -135,24 +145,22 @@ export type { UsageUser };
                       />
                     }
 
-                    <nxt1-usage-budgets
-                      [budgets]="svc.budgets()"
-                      (createBudget)="onCreateBudget()"
-                      (editBudget)="onEditBudget($event)"
-                    />
+                    @if (svc.isOrg()) {
+                      <nxt1-usage-budgets
+                        [budgets]="svc.budgets()"
+                        (createBudget)="onCreateBudget()"
+                        (editBudget)="onEditBudget($event)"
+                      />
+                    }
                   }
 
                   @case ('metered-usage') {
                     <nxt1-usage-chart
                       [chartData]="svc.chartData()"
-                      [productTabs]="svc.productDetails()"
-                      [activeTab]="svc.activeProductTab()"
                       [timeframe]="svc.timeframe()"
                       [yLabels]="svc.chartYLabels()"
-                      (tabChange)="svc.setActiveProductTab($event)"
                       (timeframeChange)="svc.setTimeframe($event)"
                       (viewBreakdown)="svc.setActiveSection('breakdown')"
-                      (manageBudgets)="svc.setActiveSection('overview')"
                     />
                   }
 
@@ -191,8 +199,8 @@ export type { UsageUser };
                 }
               }
             </section>
-          </div>
-        }
+          }
+        </div>
       </div>
     </main>
 
@@ -232,6 +240,8 @@ export type { UsageUser };
         display: block;
         height: 100%;
         width: 100%;
+        /* Cancel shell top padding so option scroller sits flush under the nav bar */
+        margin-top: calc(-1 * var(--shell-content-padding-top, 0px));
       }
 
       .usage-main {
@@ -245,18 +255,33 @@ export type { UsageUser };
       }
 
       /* ==============================
-       TWO-PANEL LAYOUT (Desktop)
+       DESKTOP HEADER — hide on mobile
        ============================== */
 
-      .dashboard-layout {
-        display: grid;
-        grid-template-columns: 180px 1fr;
-        gap: var(--nxt1-spacing-6, 24px);
-        align-items: start;
-        padding-top: var(--nxt1-spacing-2, 8px);
+      .desktop-header-wrap {
+        display: block;
       }
 
-      /* Side nav styles are handled by NxtSectionNavWebComponent */
+      @media (max-width: 768px) {
+        .desktop-header-wrap {
+          display: none;
+        }
+      }
+
+      /* ==============================
+       CONTENT WRAPPER — horizontal padding
+       Scroller stays edge-to-edge (no padding on .usage-dashboard)
+       ============================== */
+
+      .content-wrapper {
+        padding: var(--nxt1-spacing-5) var(--nxt1-spacing-4);
+      }
+
+      @media (min-width: 769px) {
+        .content-wrapper {
+          padding: var(--nxt1-spacing-6) var(--nxt1-spacing-6);
+        }
+      }
 
       /* ==============================
        CONTENT PANEL
@@ -264,22 +289,6 @@ export type { UsageUser };
 
       .section-content {
         min-width: 0;
-      }
-
-      /* ==============================
-       RESPONSIVE: Tablet & Mobile
-       ============================== */
-
-      @media (max-width: 768px) {
-        .usage-dashboard {
-          padding: var(--nxt1-spacing-4) var(--nxt1-spacing-3);
-          padding-bottom: var(--nxt1-spacing-16);
-        }
-
-        .dashboard-layout {
-          grid-template-columns: 1fr;
-          gap: var(--nxt1-spacing-4, 16px);
-        }
       }
 
       /* ==============================
@@ -363,10 +372,10 @@ export type { UsageUser };
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsageShellWebComponent implements OnInit {
+  protected readonly testIds = USAGE_TEST_IDS;
   protected readonly svc = inject(UsageService);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
-  protected readonly sectionNavs = USAGE_SECTION_NAVS;
 
   // ============================================
   // STATE
@@ -417,44 +426,58 @@ export class UsageShellWebComponent implements OnInit {
   // EVENT HANDLERS
   // ============================================
 
-  protected onSectionNavChange(event: SectionNavChangeEvent): void {
-    this.svc.setActiveSection(event.id as UsageSection);
+  protected onSectionNavChange(event: OptionScrollerChangeEvent): void {
+    this.svc.setActiveSection(event.option.id as UsageSection);
   }
 
   protected onManageSubscriptions(): void {
+    this.haptics.impact('light');
     // Navigate to subscription management
   }
 
   protected onDownloadReceipt(_recordId: string): void {
+    this.haptics.impact('light');
     // API call to get receipt URL and open
   }
 
   protected onDownloadInvoice(_recordId: string): void {
+    this.haptics.impact('light');
     // API call to get invoice URL and open
   }
 
   protected onCreateBudget(): void {
+    this.haptics.impact('light');
     // Open budget creation form/bottom sheet
   }
 
   protected onEditBudget(_budgetId: string): void {
+    this.haptics.impact('light');
     // Open budget editing form/bottom sheet
   }
 
   protected onEditBilling(): void {
+    this.haptics.impact('light');
     // Open billing info editing form/bottom sheet
   }
 
   protected onEditPayment(): void {
+    this.haptics.impact('light');
     // Open payment method form/bottom sheet
   }
 
   protected onRedeemCoupon(): void {
+    this.haptics.impact('light');
     // Open coupon redemption form/bottom sheet
   }
 
   protected onEditAdditional(): void {
+    this.haptics.impact('light');
     // Open additional info form/bottom sheet
+  }
+
+  protected onBuyCredits(): void {
+    this.haptics.impact('light');
+    // Navigate to credit purchase flow
   }
 
   // ============================================

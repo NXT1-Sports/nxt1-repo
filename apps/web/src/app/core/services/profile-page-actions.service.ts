@@ -33,4 +33,30 @@ export class ProfilePageActionsService {
   requestMore(): void {
     this._moreRequested.update((n) => n + 1);
   }
+
+  // ──────────────────────────────────────────────────────────
+  // Page-level action visibility — set by page components
+  // (team / profile) so the shell knows what buttons to show.
+  // ──────────────────────────────────────────────────────────
+
+  private readonly _showEdit = signal(false);
+  private readonly _showMore = signal(false);
+
+  /** True when the current page wants the pencil button visible */
+  readonly showEditButton = this._showEdit.asReadonly();
+
+  /** True when the current page wants the three-dot button visible */
+  readonly showMoreButton = this._showMore.asReadonly();
+
+  /** Called by page components (e.g. TeamComponent) to configure mobile action buttons */
+  setMobileActions(options: { showEdit: boolean; showMore: boolean }): void {
+    this._showEdit.set(options.showEdit);
+    this._showMore.set(options.showMore);
+  }
+
+  /** Called on destroy to reset buttons when leaving the page */
+  clearMobileActions(): void {
+    this._showEdit.set(false);
+    this._showMore.set(false);
+  }
 }

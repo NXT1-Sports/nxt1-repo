@@ -10,7 +10,12 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
 import { createHash } from 'crypto';
 import { logger } from '../../utils/logger.js';
-import { type UsageEvent, type CreateUsageEventInput, UsageEventStatus } from './types/index.js';
+import {
+  type UsageEvent,
+  type CreateUsageEventInput,
+  type UsageCostType,
+  UsageEventStatus,
+} from './types/index.js';
 import { COLLECTIONS, getStripePriceId, getUnitCost } from './config.js';
 import { publishUsageEvent } from './pubsub.service.js';
 
@@ -83,6 +88,13 @@ export async function recordUsageEvent(
     // Get Stripe Price ID
     const stripePriceId = getStripePriceId(input.feature, environment);
 
+    // Determine cost type and final unit cost snapshot
+    const isDynamic = typeof input.dynamicCostCents === 'number' && input.dynamicCostCents > 0;
+    const costType: UsageCostType = isDynamic ? 'dynamic' : 'static';
+    const unitCostSnapshot: number = isDynamic
+      ? (input.dynamicCostCents as number)
+      : input.unitCostSnapshot || getUnitCost(input.feature);
+
     // Create usage event
     const now = FieldValue.serverTimestamp();
     const usageEvent: Omit<UsageEvent, 'id' | 'createdAt' | 'updatedAt'> = {
@@ -90,7 +102,11 @@ export async function recordUsageEvent(
       teamId: input.teamId,
       feature: input.feature,
       quantity: input.quantity,
-      unitCostSnapshot: input.unitCostSnapshot || getUnitCost(input.feature),
+      unitCostSnapshot,
+      costType,
+      ...(isDynamic && input.rawProviderCostUsd != null
+        ? { rawProviderCostUsd: input.rawProviderCostUsd }
+        : {}),
       currency: input.currency || 'usd',
       stripePriceId,
       idempotencyKey,

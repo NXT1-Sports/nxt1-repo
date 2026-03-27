@@ -247,15 +247,10 @@ export class TeamProfileService {
 
   /** Tab badge counts */
   readonly tabBadges = computed(() => ({
-    overview: 0,
+    intel: 0,
     timeline: this.allPosts().length,
-    videos: this.videoPosts().length,
     roster: this.roster().length,
-    schedule: this.schedule().length,
-    stats: 0,
-    news: this.newsPosts().length + this.newsArticles().length,
-    recruiting: this.recruitingActivity().length,
-    photos: this.galleryImages().length,
+    connect: 0,
   }));
 
   /** Filtered posts based on active tab */
@@ -263,10 +258,6 @@ export class TeamProfileService {
     const tab = this._activeTab();
 
     switch (tab) {
-      case 'videos':
-        return this.videoPosts();
-      case 'news':
-        return this.newsPosts();
       case 'timeline':
         return this.allPosts();
       default:
@@ -292,6 +283,14 @@ export class TeamProfileService {
   async loadTeamById(teamId: string, isAdmin = false): Promise<void> {
     if (!teamId) {
       this.setError('Team ID is required');
+      return;
+    }
+
+    // SSR hydration guard: if data is already present for this team (transferred
+    // from server render), skip the destructive reset to prevent mismatch.
+    const existing = this._teamData();
+    if (existing?.team?.id === teamId) {
+      this.logger.debug('Team already hydrated, skipping reload', { teamId });
       return;
     }
 
@@ -338,6 +337,14 @@ export class TeamProfileService {
   async loadTeam(slug: string, isAdmin = false): Promise<void> {
     if (!slug) {
       this.setError('Team slug is required');
+      return;
+    }
+
+    // SSR hydration guard: if data is already present for this slug (transferred
+    // from server render), skip the destructive reset to prevent mismatch.
+    const existing = this._teamData();
+    if (existing?.team?.slug === slug) {
+      this.logger.debug('Team already hydrated, skipping reload', { slug });
       return;
     }
 

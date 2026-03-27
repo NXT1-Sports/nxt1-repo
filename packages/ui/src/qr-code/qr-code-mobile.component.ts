@@ -279,6 +279,7 @@ export class NxtQrCodeMobileComponent {
 
   @Input() url = '';
   @Input() displayName = '';
+  @Input() entityType: 'profile' | 'team' = 'profile';
 
   readonly close = output<void>();
   readonly action = output<'share' | 'download'>();
@@ -353,9 +354,10 @@ export class NxtQrCodeMobileComponent {
   async onShare(): Promise<void> {
     if (!isPlatformBrowser(this.platformId)) return;
 
+    const entityLabel = this.entityType === 'team' ? 'team' : 'profile';
     const shareData: ShareData = {
-      title: `${this.displayName} — NXT1 Profile`,
-      text: `Check out ${this.displayName}'s profile on NXT1`,
+      title: `${this.displayName} — NXT1 ${this.entityType === 'team' ? 'Team' : 'Profile'}`,
+      text: `Check out ${this.displayName}'s ${entityLabel} on NXT1`,
       url: this.url,
     };
 

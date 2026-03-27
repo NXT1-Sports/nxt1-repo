@@ -27,7 +27,7 @@ import type {
   ConnectedEmail,
 } from '@nxt1/core';
 import { RosterEntryStatus, RosterRole } from '@nxt1/core/models';
-import { isValidTeamCode, USER_SCHEMA_VERSION } from '@nxt1/core';
+import { isValidTeamCode, USER_SCHEMA_VERSION, normalizeName } from '@nxt1/core';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import {
   validationError,
@@ -791,8 +791,9 @@ router.post(
     };
 
     // Optional: firstName/lastName (may already be set from earlier steps)
-    const firstName = (profileData['firstName'] as string)?.trim();
-    const lastName = (profileData['lastName'] as string)?.trim();
+    // Always normalize to Title Case (e.g. "john doe" → "John Doe")
+    const firstName = normalizeName((profileData['firstName'] as string) || '');
+    const lastName = normalizeName((profileData['lastName'] as string) || '');
     if (firstName) updateData.firstName = firstName;
     if (lastName) updateData.lastName = lastName;
 

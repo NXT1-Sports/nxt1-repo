@@ -29,13 +29,16 @@ import {
   POSTS_CACHE_PREFIX,
   POSTS_CACHE_TTL,
 } from '@nxt1/core/constants';
-import type { GetFeedQuery, FeedCursor, FeedPost } from '@nxt1/core/feed';
+import type { GetFeedQuery, FeedCursor, FeedPost, FeedItem, FeedAuthor } from '@nxt1/core/feed';
+import { feedPostToFeedItem } from '@nxt1/core/feed';
 import { getCacheService } from '../services/cache.service.js';
 import type { FirestorePostDoc, UserProfile } from '../adapters/firestore-posts.adapter.js';
 import {
   firestorePostToFeedPost,
   userProfileToFeedAuthor,
 } from '../adapters/firestore-posts.adapter.js';
+import { createFeedHydrationService } from '../services/feed-hydration.service.js';
+import { createTimelineService } from '../services/timeline.service.js';
 import type { Firestore } from 'firebase-admin/firestore';
 
 const router: ExpressRouter = Router();
@@ -236,39 +239,198 @@ router.get('/', optionalAuth, async (req: Request, res: Response): Promise<void>
 });
 
 /**
- * Get trending feed.
+ * Get trending feed — high-engagement items across Posts, Events, and Stats.
  * GET /api/v1/feed/trending
- * TODO: Implement trending algorithm (most-liked/viewed posts in last 24h)
+ * Reads pre-computed pointer array from Redis, hydrates into FeedItem[].
+ * Falls back to explore feed if trending pointers are not yet computed.
  */
-router.get('/trending', (_req: Request, res: Response) => {
-  res.status(501).json({ success: false, error: 'Not implemented yet' });
+router.get('/trending', optionalAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const db = req.firebase!.db;
+    const limit = Math.min(parseInt(String(req.query['limit'] || 20)) || 20, 50);
+    const offset = parseInt(String(req.query['offset'] || 0)) || 0;
+
+    const hydrationService = createFeedHydrationService(db);
+    const items = await hydrationService.getTrendingFeed(limit, offset);
+
+    res.json({
+      success: true,
+      data: { posts: items, hasMore: items.length === limit },
+    });
+  } catch (error) {
+    logger.error('[Feed] Failed to get trending feed', { error });
+    res.status(500).json({ success: false, error: 'Failed to get trending feed' });
+  }
 });
 
 /**
- * Get discover feed (posts from users not followed).
+ * Get discover feed — polymorphic items from users not followed.
  * GET /api/v1/feed/discover
- * TODO: Implement discovery algorithm
+ * Reads pre-computed pointer array from Redis, hydrates into FeedItem[].
+ * Falls back to live Firestore query if Redis is empty.
  */
-router.get('/discover', (_req: Request, res: Response) => {
-  res.status(501).json({ success: false, error: 'Not implemented yet' });
+router.get('/discover', optionalAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const db = req.firebase!.db;
+    const limit = Math.min(parseInt(String(req.query['limit'] || 20)) || 20, 50);
+    const offset = parseInt(String(req.query['offset'] || 0)) || 0;
+
+    const hydrationService = createFeedHydrationService(db);
+    const items = await hydrationService.getExploreFeed(limit, offset);
+
+    res.json({
+      success: true,
+      data: { posts: items, hasMore: items.length === limit },
+    });
+  } catch (error) {
+    logger.error('[Feed] Failed to get discover feed', { error });
+    res.status(500).json({ success: false, error: 'Failed to get discover feed' });
+  }
 });
 
 /**
- * Get a specific user's public posts feed.
+ * Get a specific user's public feed (polymorphic timeline).
  * GET /api/v1/feed/users/:uid
- * TODO: Implement — proxies to profile/:userId/timeline with feed format
+ * Proxies to the TimelineService for read-time assembly.
  */
-router.get('/users/:uid', (_req: Request, res: Response) => {
-  res.status(501).json({ success: false, error: 'Not implemented yet' });
+router.get('/users/:uid', optionalAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const db = req.firebase!.db;
+    const { uid } = req.params as { uid: string };
+    const limit = Math.min(parseInt(String(req.query['limit'] || 20)) || 20, 50);
+    const cursor = req.query['cursor'] as string | undefined;
+
+    // Fetch user profile for author enrichment
+    const userDoc = await db.collection('Users').doc(uid).get();
+    if (!userDoc.exists) {
+      res.status(404).json({ success: false, error: 'User not found' });
+      return;
+    }
+    const userData = userDoc.data()!;
+    const author = userProfileToFeedAuthor({
+      uid,
+      displayName: (userData['displayName'] as string) || 'Unknown User',
+      photoURL: userData['photoURL'] as string | undefined,
+      role: userData['role'] as string | undefined,
+      sport: userData['sport'] as string | undefined,
+      position: userData['position'] as string | undefined,
+      schoolName: userData['schoolName'] as string | undefined,
+      isVerified: userData['isVerified'] as boolean | undefined,
+      profileCode: userData['profileCode'] as string | undefined,
+      firstName: userData['firstName'] as string | undefined,
+      lastName: userData['lastName'] as string | undefined,
+      classYear: userData['classYear'] as string | undefined,
+      schoolLogoUrl: userData['schoolLogoUrl'] as string | undefined,
+    });
+
+    const timelineService = createTimelineService(db);
+    const result = await timelineService.getProfileTimeline(uid, author, {
+      limit,
+      viewerUserId: req.user?.uid,
+      cursor,
+    });
+
+    res.json(result);
+  } catch (error) {
+    logger.error('[Feed] Failed to get user feed', { error });
+    res.status(500).json({ success: false, error: 'Failed to get user feed' });
+  }
 });
 
 /**
- * Get a team's posts feed.
+ * Get a team's polymorphic feed.
  * GET /api/v1/feed/teams/:teamCode
- * TODO: Implement — queries Posts where teamId == teamCode
+ * Query: limit, cursor
+ *
+ * Resolves teamCode → team document, queries Posts where teamId == team.id,
+ * maps to FeedItem[], sorts chronologically, and paginates.
  */
-router.get('/teams/:teamCode', (_req: Request, res: Response) => {
-  res.status(501).json({ success: false, error: 'Not implemented yet' });
+router.get('/teams/:teamCode', optionalAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const db = req.firebase!.db;
+    const { teamCode } = req.params as { teamCode: string };
+    const limit = Math.min(parseInt(String(req.query['limit'] || 20)) || 20, 50);
+    const cursor = req.query['cursor'] as string | undefined;
+
+    // Resolve teamCode string → team document
+    const teamCodeService = await import('../services/team-code.service.js');
+    const { team: teamDoc } = await teamCodeService.getTeamCodeByCode(db, teamCode);
+
+    if (!teamDoc) {
+      res.status(404).json({ success: false, error: 'Team not found' });
+      return;
+    }
+
+    // Build FeedAuthor from team data
+    const teamId = teamDoc.id!;
+    const teamAuthor: FeedAuthor = {
+      uid: teamId,
+      profileCode: teamDoc.slug || teamDoc.teamCode || teamId,
+      displayName: teamDoc.teamName || teamDoc.teamCode || 'Unknown Team',
+      firstName: teamDoc.teamName || '',
+      lastName: '',
+      avatarUrl: teamDoc.logoUrl || teamDoc.teamLogoImg,
+      role: 'team' as const,
+      verificationStatus: 'verified' as const,
+      isVerified: true,
+    };
+
+    // Build Firestore query for team posts
+    const fetchLimit = limit + 1;
+    let query = db
+      .collection(POSTS_COLLECTIONS.POSTS)
+      .where('teamId', '==', teamId)
+      .where('deletedAt', '==', null)
+      .orderBy('createdAt', 'desc') as FirebaseFirestore.Query;
+
+    if (cursor) {
+      try {
+        const cursorDate = new Date(Buffer.from(cursor, 'base64').toString());
+        query = query.startAfter(Timestamp.fromMillis(cursorDate.getTime()));
+      } catch {
+        logger.warn('[Feed] Invalid team cursor', { cursor, teamCode });
+      }
+    }
+
+    query = query.limit(fetchLimit);
+    const snapshot = await query.get();
+
+    const posts = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      data: doc.data() as FirestorePostDoc,
+    }));
+
+    const hasMore = posts.length > limit;
+    const resultPosts = hasMore ? posts.slice(0, limit) : posts;
+
+    // Map to FeedItem[] via existing mappers
+    const items: FeedItem[] = resultPosts.map((post) => {
+      const feedPost = firestorePostToFeedPost(post.id, post.data, teamAuthor);
+      return feedPostToFeedItem(feedPost);
+    });
+
+    const nextCursor =
+      items.length > 0
+        ? Buffer.from(items[items.length - 1].createdAt).toString('base64')
+        : undefined;
+
+    logger.debug('[Feed] Team feed assembled', {
+      teamCode,
+      teamId: teamId,
+      count: items.length,
+      hasMore,
+    });
+
+    res.json({
+      success: true,
+      data: items,
+      nextCursor: hasMore ? nextCursor : undefined,
+      hasMore,
+    });
+  } catch (error) {
+    logger.error('[Feed] Failed to get team feed', { error, teamCode: req.params['teamCode'] });
+    res.status(500).json({ success: false, error: 'Failed to get team feed' });
+  }
 });
 
 export default router;

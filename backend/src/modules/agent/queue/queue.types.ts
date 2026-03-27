@@ -37,6 +37,12 @@ export const MAX_JOB_ATTEMPTS = 2 as const;
 /** Backoff delay between retry attempts (exponential, in ms). */
 export const RETRY_BACKOFF_MS = 5_000 as const;
 
+/** Maximum number of active recurring schedules per user. */
+export const MAX_RECURRING_JOBS_PER_USER = 10 as const;
+
+/** Minimum interval between recurring job executions (1 hour in ms). */
+export const MIN_RECURRING_INTERVAL_MS = 3_600_000 as const;
+
 /**
  * How long BullMQ holds the lock on an active job (ms).
  * Must exceed the longest expected agent execution time.
@@ -118,5 +124,25 @@ export interface AgentJobStatusResponse {
   /** Error message if the job failed. */
   readonly error: string | null;
   /** ISO timestamp of when the job was created. */
+  readonly createdAt: string;
+}
+
+// ─── Recurring Job Shapes ───────────────────────────────────────────────────
+
+/**
+ * Frontend-facing summary of a single recurring schedule.
+ * Returned by the list_recurring_tasks tool and the REST API.
+ * Metadata is persisted in Firestore (`recurring_tasks/{key}`).
+ */
+export interface RecurringJobInfo {
+  /** The BullMQ repeatable job key (used for removal). */
+  readonly key: string;
+  /** Human-readable action description. */
+  readonly actionSummary: string;
+  /** The cron pattern controlling execution. */
+  readonly cronExpression: string;
+  /** ISO timestamp of the next scheduled execution (null if paused/unknown). */
+  readonly nextRun: string | null;
+  /** ISO timestamp of when the schedule was created. */
   readonly createdAt: string;
 }

@@ -1,14 +1,14 @@
 /**
  * @fileoverview Profile Timeline Component - Posts Feed with Filters
  * @module @nxt1/ui/profile
- * @version 3.0.0
+ * @version 4.0.0
  *
  * Timeline content feed with sub-filters (All Posts, Pinned, Media).
  * Supports loading states, empty states, and infinite scroll.
  *
- * Uses the shared FeedPostCardComponent for consistent post card
- * rendering across the entire app (feed, explore, profile).
- * This follows the Instagram/Twitter pattern: one card component everywhere.
+ * Uses polymorphic Smart Shell + atomic card rendering.
+ * Each FeedItem variant is rendered by its specialized atomic component,
+ * composed via FeedCardShellComponent.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
@@ -22,33 +22,69 @@ import {
   signal,
   effect,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import type {
   ProfilePost,
-  ProfileUser,
   FeedPost,
-  FeedAuthor,
+  FeedItem,
+  FeedItemPost,
+  FeedItemEvent,
+  FeedItemStat,
+  FeedItemMetric,
+  FeedItemOffer,
+  FeedItemCommitment,
+  FeedItemVisit,
+  FeedItemCamp,
+  FeedItemAward,
+  FeedItemNews,
   ProfileTimelineFilterId,
 } from '@nxt1/core';
 import {
-  profilePostToFeedPost,
-  profileUserToFeedAuthor,
   PROFILE_TIMELINE_FILTERS,
   PROFILE_TIMELINE_DEFAULT_FILTER,
+  feedOfferToContentCard,
+  feedCommitmentToContentCard,
+  feedVisitToContentCard,
+  feedCampToContentCard,
+  feedPostToFeedItem,
 } from '@nxt1/core';
+import type { ContentCardItem } from '@nxt1/core';
+import { FEED_CARD_TEST_IDS, PROFILE_TIMELINE_TEST_IDS } from '@nxt1/core/testing';
 import { ProfileSkeletonComponent } from './profile-skeleton.component';
 import { NxtIconComponent } from '../components/icon';
-import { FeedPostCardComponent } from '../feed/feed-post-card.component';
+import { NxtActivityCardComponent } from '../components/activity-card';
+import { FeedCardShellComponent } from '../feed/feed-card-shell.component';
+import { FeedPostContentComponent } from '../feed/feed-post-content.component';
+import { FeedStatCardComponent } from '../feed/feed-stat-card.component';
+import { FeedEventCardComponent } from '../feed/feed-event-card.component';
+import { FeedMetricsCardComponent } from '../feed/feed-metrics-card.component';
+import { FeedAwardCardComponent } from '../feed/feed-award-card.component';
+import { FeedNewsCardComponent } from '../feed/feed-news-card.component';
 
 @Component({
   selector: 'nxt1-profile-timeline',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent, ProfileSkeletonComponent, FeedPostCardComponent],
+  imports: [
+    NxtIconComponent,
+    NxtActivityCardComponent,
+    ProfileSkeletonComponent,
+    FeedCardShellComponent,
+    FeedPostContentComponent,
+    FeedStatCardComponent,
+    FeedEventCardComponent,
+    FeedMetricsCardComponent,
+    FeedAwardCardComponent,
+    FeedNewsCardComponent,
+  ],
   template: `
-    <div class="profile-timeline">
+    <div class="profile-timeline" [attr.data-testid]="timelineTestIds.CONTAINER">
       <!-- Filter Tabs (only shown when filters enabled) -->
       @if (showFilters()) {
-        <nav class="timeline-filters" role="tablist" aria-label="Timeline filters">
+        <nav
+          class="timeline-filters"
+          role="tablist"
+          aria-label="Timeline filters"
+          [attr.data-testid]="timelineTestIds.FILTERS_NAV"
+        >
           <div class="timeline-filters__scroll">
             @for (filter of filters; track filter.id) {
               <button
@@ -58,18 +94,31 @@ import { FeedPostCardComponent } from '../feed/feed-post-card.component';
                 [class.timeline-filter--active]="activeFilter() === filter.id"
                 [attr.aria-selected]="activeFilter() === filter.id"
                 [attr.aria-controls]="'timeline-panel-' + filter.id"
+                [attr.data-testid]="timelineTestIds.FILTER_TAB"
                 (click)="setFilter(filter.id)"
               >
                 <nxt1-icon [name]="filter.icon" [size]="14" />
                 <span>{{ filter.label }}</span>
                 @if (filter.id === 'pinned' && pinnedCount() > 0) {
-                  <span class="timeline-filter__badge">{{ pinnedCount() }}</span>
+                  <span
+                    class="timeline-filter__badge"
+                    [attr.data-testid]="timelineTestIds.FILTER_BADGE"
+                    >{{ pinnedCount() }}</span
+                  >
                 }
                 @if (filter.id === 'offers' && filterBadgeCounts().offers > 0) {
-                  <span class="timeline-filter__badge">{{ filterBadgeCounts().offers }}</span>
+                  <span
+                    class="timeline-filter__badge"
+                    [attr.data-testid]="timelineTestIds.FILTER_BADGE"
+                    >{{ filterBadgeCounts().offers }}</span
+                  >
                 }
                 @if (filter.id === 'events' && filterBadgeCounts().events > 0) {
-                  <span class="timeline-filter__badge">{{ filterBadgeCounts().events }}</span>
+                  <span
+                    class="timeline-filter__badge"
+                    [attr.data-testid]="timelineTestIds.FILTER_BADGE"
+                    >{{ filterBadgeCounts().events }}</span
+                  >
                 }
               </button>
             }
@@ -79,7 +128,7 @@ import { FeedPostCardComponent } from '../feed/feed-post-card.component';
 
       <!-- Loading State -->
       @if (isLoading()) {
-        <div class="timeline-loading">
+        <div class="timeline-loading" [attr.data-testid]="timelineTestIds.LOADING">
           @for (i of [1, 2, 3]; track i) {
             <nxt1-profile-skeleton variant="post" />
           }
@@ -88,53 +137,109 @@ import { FeedPostCardComponent } from '../feed/feed-post-card.component';
 
       <!-- Error State -->
       @else if (error()) {
-        <div class="timeline-error">
+        <div class="timeline-error" [attr.data-testid]="timelineTestIds.ERROR">
           <nxt1-icon name="alertCircle" [size]="48" />
           <h3>Something went wrong</h3>
           <p>{{ error() }}</p>
-          <button class="retry-btn" (click)="retry.emit()">Try Again</button>
+          <button
+            class="retry-btn"
+            [attr.data-testid]="timelineTestIds.RETRY_BTN"
+            (click)="retry.emit()"
+          >
+            Try Again
+          </button>
         </div>
       }
 
       <!-- Filtered Empty State -->
       @else if (isFilteredEmpty()) {
-        <div class="timeline-empty">
+        <div class="timeline-empty" [attr.data-testid]="timelineTestIds.EMPTY">
           <div class="empty-icon">
             <nxt1-icon [name]="resolvedEmptyIcon()" [size]="36" />
           </div>
           <h3 class="empty-title">{{ resolvedEmptyTitle() }}</h3>
           <p class="empty-message">{{ resolvedEmptyMessage() }}</p>
           @if (isOwnProfile() && (!showFilters() || activeFilter() === 'all') && emptyCta()) {
-            <button class="empty-cta" (click)="emptyCtaClick.emit()">
+            <button
+              class="empty-cta"
+              [attr.data-testid]="timelineTestIds.EMPTY_CTA"
+              (click)="emptyCtaClick.emit()"
+            >
               {{ emptyCta() }}
             </button>
           }
         </div>
       }
 
-      <!-- Posts List — Uses shared FeedPostCardComponent for consistent styles -->
+      <!-- Posts List — Polymorphic Smart Shell + Atomic Cards -->
       @else {
-        <div class="timeline-posts" role="tabpanel" [id]="'timeline-panel-' + activeFilter()">
-          @for (post of filteredFeedPosts(); track post.id; let idx = $index) {
-            <nxt1-feed-post-card
-              [post]="post"
+        <div
+          class="timeline-posts"
+          role="tabpanel"
+          [id]="'timeline-panel-' + activeFilter()"
+          [attr.data-testid]="timelineTestIds.POSTS_PANEL"
+        >
+          @for (item of filteredPolyFeed(); track item.id; let idx = $index) {
+            <nxt1-feed-card-shell
+              [item]="item"
               [hideAuthor]="true"
               [showMenu]="showMenu()"
-              (postClick)="handlePostClick(idx)"
-              (reactClick)="handleLikeClick(idx)"
-              (repostClick)="handleCommentClick(idx)"
-              (shareClick)="handleShareClick(idx)"
-              (menuClick)="handleMenuClick(idx)"
-            />
+              (contentClick)="handlePolyPostClick(idx)"
+              (menuClick)="handlePolyMenuClick(idx)"
+            >
+              @switch (item.feedType) {
+                @case ('POST') {
+                  <nxt1-feed-post-content [data]="asPost(item)" />
+                }
+                @case ('EVENT') {
+                  <nxt1-feed-event-card [data]="asEvent(item).eventData" />
+                }
+                @case ('STAT') {
+                  <nxt1-feed-stat-card [data]="asStat(item).statData" />
+                }
+                @case ('METRIC') {
+                  <nxt1-feed-metrics-card [data]="asMetric(item).metricsData" />
+                }
+                @case ('OFFER') {
+                  <nxt1-activity-card [item]="toOfferCard(asOffer(item))" />
+                }
+                @case ('COMMITMENT') {
+                  <nxt1-activity-card [item]="toCommitmentCard(asCommitment(item))" />
+                }
+                @case ('VISIT') {
+                  <nxt1-activity-card [item]="toVisitCard(asVisit(item))" />
+                }
+                @case ('CAMP') {
+                  <nxt1-activity-card [item]="toCampCard(asCamp(item))" />
+                }
+                @case ('AWARD') {
+                  <nxt1-feed-award-card [data]="asAward(item).awardData" />
+                }
+                @case ('NEWS') {
+                  <nxt1-feed-news-card [data]="asNews(item).newsData" />
+                }
+                @default {
+                  @if (asFallbackContent(item); as content) {
+                    <p class="feed-fallback-text">{{ content }}</p>
+                  }
+                }
+              }
+            </nxt1-feed-card-shell>
           }
 
           <!-- Load More (only for 'all' filter) -->
           @if (hasMore() && activeFilter() === 'all') {
-            <div class="load-more">
+            <div class="load-more" [attr.data-testid]="timelineTestIds.LOAD_MORE">
               @if (isLoadingMore()) {
                 <span class="load-more-spinner" aria-hidden="true"></span>
               } @else {
-                <button class="load-more-btn" (click)="loadMore.emit()">Load More</button>
+                <button
+                  class="load-more-btn"
+                  [attr.data-testid]="timelineTestIds.LOAD_MORE_BTN"
+                  (click)="loadMore.emit()"
+                >
+                  Load More
+                </button>
               }
             </div>
           }
@@ -147,7 +252,7 @@ import { FeedPostCardComponent } from '../feed/feed-post-card.component';
       /* ============================================
        PROFILE TIMELINE - Posts Feed
        2026 Professional Native-Style Design
-       Card styles delegated to shared FeedPostCardComponent
+       Card styles delegated to FeedCardShellComponent + atomic cards
        ============================================ */
 
       :host {
@@ -400,6 +505,12 @@ import { FeedPostCardComponent } from '../feed/feed-post-card.component';
 })
 export class ProfileTimelineComponent {
   // ============================================
+  // TEST IDS
+  // ============================================
+
+  protected readonly timelineTestIds = PROFILE_TIMELINE_TEST_IDS;
+
+  // ============================================
   // INPUTS
   // ============================================
 
@@ -414,8 +525,13 @@ export class ProfileTimelineComponent {
    */
   readonly unifiedFeed = input<readonly FeedPost[]>([]);
 
-  /** Profile owner — used to build FeedAuthor for card rendering */
-  readonly profileUser = input<ProfileUser | null>(null);
+  /**
+   * New polymorphic feed (discriminated union FeedItem[]).
+   * When provided, the component renders via Smart Shell + atomic cards
+   * instead of the legacy monolithic FeedPostCardComponent.
+   * Built by the backend's TimelineService.
+   */
+  readonly polymorphicFeed = input<readonly FeedItem[]>([]);
 
   readonly isLoading = input(false);
   readonly isLoadingMore = input(false);
@@ -478,18 +594,19 @@ export class ProfileTimelineComponent {
 
   /** Count of pinned posts (for badge on Pinned tab) */
   protected readonly pinnedCount = computed(() => {
-    const feed = this.unifiedFeed();
-    if (feed.length > 0) return feed.filter((p) => p.isPinned).length;
+    const feed = this.effectiveFeed();
+    if (feed.length > 0) return feed.filter((item) => item.isPinned).length;
     return this.posts().filter((p) => p.isPinned).length;
   });
 
   /** Badge counts for activity type filters */
   protected readonly filterBadgeCounts = computed(() => {
-    const feed = this.unifiedFeed();
+    const feed = this.effectiveFeed();
     return {
-      offers: feed.filter((p) => p.type === 'offer' || p.type === 'commitment').length,
+      offers: feed.filter((item) => item.feedType === 'OFFER' || item.feedType === 'COMMITMENT')
+        .length,
       events: feed.filter(
-        (p) => p.type === 'visit' || p.type === 'camp' || p.type === 'schedule' || p.type === 'game'
+        (item) => item.feedType === 'EVENT' || item.feedType === 'VISIT' || item.feedType === 'CAMP'
       ).length,
     };
   });
@@ -513,80 +630,58 @@ export class ProfileTimelineComponent {
   // COMPUTED — Map ProfilePost[] → FeedPost[] for unified rendering
   // ============================================
 
-  /** Build FeedAuthor from profile user (shared across all posts) */
-  private readonly feedAuthor = computed<FeedAuthor>(() => {
-    const user = this.profileUser();
-    if (user) return profileUserToFeedAuthor(user);
+  // ============================================
+  // BRIDGE — Prefer polymorphicFeed; auto-convert legacy unifiedFeed if needed
+  // ============================================
 
-    // Fallback author when profileUser is not provided
-    return {
-      uid: '',
-      profileCode: '',
-      displayName: '',
-      firstName: '',
-      lastName: '',
-      role: 'athlete',
-      verificationStatus: 'unverified',
-      isVerified: false,
-    };
-  });
-
-  /** All FeedPosts — from unified feed or mapped from ProfilePosts */
-  private readonly allFeedPosts = computed<readonly FeedPost[]>(() => {
+  /**
+   * Resolved feed data: uses `polymorphicFeed` when provided by parent,
+   * otherwise auto-converts legacy `unifiedFeed` input via `feedPostToFeedItem`.
+   * This ensures the polymorphic template works with both new and old data sources.
+   */
+  private readonly effectiveFeed = computed<readonly FeedItem[]>(() => {
+    const poly = this.polymorphicFeed();
+    if (poly.length > 0) return poly;
     const unified = this.unifiedFeed();
-    if (unified.length > 0) return unified;
-
-    const posts = this.posts();
-    const author = this.feedAuthor();
-    return posts.map((p) => profilePostToFeedPost(p, author));
+    if (unified.length > 0) return unified.map((p) => feedPostToFeedItem(p));
+    return [];
   });
 
-  /** Filtered FeedPosts for the card component — supports all filter types */
-  protected readonly filteredFeedPosts = computed<readonly FeedPost[]>(() => {
-    const feed = this.allFeedPosts();
+  /** Build FeedAuthor from profile user (shared across all posts) */
+  /** Whether the filtered view is empty (content exists but none match filter) */
+  protected readonly isFilteredEmpty = computed(() => {
+    if (this.isEmpty()) return true;
+    return this.filteredPolyFeed().length === 0;
+  });
+
+  /** Filtered FeedItems for the polymorphic path */
+  protected readonly filteredPolyFeed = computed<readonly FeedItem[]>(() => {
+    const feed = this.effectiveFeed();
     const filter = this._activeFilter();
 
     switch (filter) {
       case 'all':
         return feed;
       case 'pinned':
-        return feed.filter((p) => p.isPinned);
+        return feed.filter((item) => item.isPinned);
       case 'media':
         return feed.filter(
-          (p) =>
-            p.type === 'image' || p.type === 'video' || p.type === 'highlight' || p.media.length > 0
+          (item) => item.feedType === 'POST' && (item as FeedItemPost).media.length > 0
         );
       case 'offers':
-        return feed.filter(
-          (p) =>
-            p.type === 'offer' || p.type === 'commitment' || !!p.offerData || !!p.commitmentData
-        );
+        return feed.filter((item) => item.feedType === 'OFFER' || item.feedType === 'COMMITMENT');
       case 'events':
         return feed.filter(
-          (p) =>
-            p.type === 'visit' ||
-            p.type === 'camp' ||
-            p.type === 'schedule' ||
-            p.type === 'game' ||
-            !!p.visitData ||
-            !!p.campData ||
-            !!p.scheduleData
+          (item) =>
+            item.feedType === 'EVENT' || item.feedType === 'VISIT' || item.feedType === 'CAMP'
         );
       case 'stats':
-        return feed.filter(
-          (p) => p.type === 'stats' || p.type === 'metrics' || !!p.statUpdateData || !!p.metricsData
-        );
+        return feed.filter((item) => item.feedType === 'STAT' || item.feedType === 'METRIC');
       case 'news':
-        return feed.filter((p) => p.type === 'news' || p.type === 'article' || !!p.newsData);
+        return feed.filter((item) => item.feedType === 'NEWS' || item.feedType === 'SCOUT_REPORT');
       default:
         return feed;
     }
-  });
-
-  /** Whether the filtered view is empty (content exists but none match filter) */
-  protected readonly isFilteredEmpty = computed(() => {
-    if (this.isEmpty()) return true;
-    return this.filteredFeedPosts().length === 0;
   });
 
   // ============================================
@@ -601,46 +696,91 @@ export class ProfileTimelineComponent {
 
   // ============================================
   // EVENT HANDLERS
-  // Resolve FeedPost → ProfilePost by matching ID for backward compat.
-  // Activity-only items (offers, stats, etc.) have no matching ProfilePost,
-  // so we find the closest match or skip.
   // ============================================
 
-  /**
-   * Finds the source ProfilePost for a given FeedPost index.
-   * Returns null for activity-only items (offers, stats, etc.) that
-   * have no backing ProfilePost.
-   */
-  private resolveProfilePost(feedIndex: number): ProfilePost | null {
-    const feedPost = this.filteredFeedPosts()[feedIndex];
-    if (!feedPost) return null;
-
-    // Match by ID — profilePostToFeedPost preserves the original post ID
-    return this.posts().find((p) => p.id === feedPost.id) ?? null;
-  }
-
-  protected handlePostClick(index: number): void {
-    const post = this.resolveProfilePost(index);
+  protected handlePolyPostClick(index: number): void {
+    // Try to resolve to legacy ProfilePost for backward compat
+    const item = this.filteredPolyFeed()[index];
+    if (!item) return;
+    const post = this.posts().find((p) => p.id === item.id);
     if (post) this.postClick.emit(post);
   }
 
-  protected handleLikeClick(index: number): void {
-    const post = this.resolveProfilePost(index);
-    if (post) this.reactClick.emit(post);
-  }
-
-  protected handleCommentClick(index: number): void {
-    const post = this.resolveProfilePost(index);
-    if (post) this.repostClick.emit(post);
-  }
-
-  protected handleShareClick(index: number): void {
-    const post = this.resolveProfilePost(index);
-    if (post) this.shareClick.emit(post);
-  }
-
-  protected handleMenuClick(index: number): void {
-    const post = this.resolveProfilePost(index);
+  protected handlePolyMenuClick(index: number): void {
+    const item = this.filteredPolyFeed()[index];
+    if (!item) return;
+    const post = this.posts().find((p) => p.id === item.id);
     if (post) this.menuClick.emit(post);
+  }
+
+  // ============================================
+  // POLYMORPHIC → ContentCardItem CONVERTERS
+  // ============================================
+
+  protected toOfferCard(item: FeedItemOffer): ContentCardItem {
+    return feedOfferToContentCard(item.offerData);
+  }
+
+  protected toCommitmentCard(item: FeedItemCommitment): ContentCardItem {
+    return feedCommitmentToContentCard(item.commitmentData);
+  }
+
+  protected toVisitCard(item: FeedItemVisit): ContentCardItem {
+    return feedVisitToContentCard(item.visitData);
+  }
+
+  protected toCampCard(item: FeedItemCamp): ContentCardItem {
+    return feedCampToContentCard(item.campData);
+  }
+
+  // ============================================
+  // TYPE-SAFE CAST HELPERS
+  // Used in @switch template to narrow FeedItem without $any().
+  // Each @case guarantees the feedType discriminator, so the cast is safe.
+  // ============================================
+
+  protected asPost(item: FeedItem): FeedItemPost {
+    return item as FeedItemPost;
+  }
+
+  protected asEvent(item: FeedItem): FeedItemEvent {
+    return item as FeedItemEvent;
+  }
+
+  protected asStat(item: FeedItem): FeedItemStat {
+    return item as FeedItemStat;
+  }
+
+  protected asMetric(item: FeedItem): FeedItemMetric {
+    return item as FeedItemMetric;
+  }
+
+  protected asOffer(item: FeedItem): FeedItemOffer {
+    return item as FeedItemOffer;
+  }
+
+  protected asCommitment(item: FeedItem): FeedItemCommitment {
+    return item as FeedItemCommitment;
+  }
+
+  protected asVisit(item: FeedItem): FeedItemVisit {
+    return item as FeedItemVisit;
+  }
+
+  protected asCamp(item: FeedItem): FeedItemCamp {
+    return item as FeedItemCamp;
+  }
+
+  protected asAward(item: FeedItem): FeedItemAward {
+    return item as FeedItemAward;
+  }
+
+  protected asNews(item: FeedItem): FeedItemNews {
+    return item as FeedItemNews;
+  }
+
+  protected asFallbackContent(item: FeedItem): string | null {
+    const record = item as unknown as Record<string, unknown>;
+    return typeof record['content'] === 'string' ? record['content'] : null;
   }
 }

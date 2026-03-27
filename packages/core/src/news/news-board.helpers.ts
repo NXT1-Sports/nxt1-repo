@@ -11,27 +11,11 @@
  */
 
 import type { NewsArticle } from './news.types';
-import type { NewsBoardCategory, NewsBoardItem } from './news-board.types';
+import type { NewsBoardItem } from './news-board.types';
 
 // ============================================
 // NewsArticle → NewsBoardItem
 // ============================================
-
-/**
- * Derive the normalised board category from a `NewsSource.type`.
- *
- * | Source type          | Board category    |
- * |----------------------|-------------------|
- * | `'editorial'`        | `'announcement'`  |
- * | `'ai-agent'`         | `'announcement'`  |
- * | `'syndicated'`       | `'media-mention'` |
- * | `'user-generated'`   | `'news'`          |
- */
-function resolveCategory(sourceType: string): NewsBoardCategory {
-  if (sourceType === 'editorial' || sourceType === 'ai-agent') return 'announcement';
-  if (sourceType === 'syndicated') return 'media-mention';
-  return 'news';
-}
 
 /**
  * Map a single `NewsArticle` to the display-adapter `NewsBoardItem`.
@@ -41,13 +25,12 @@ function mapArticleToBoardItem(article: NewsArticle): NewsBoardItem {
     id: article.id,
     title: article.title,
     excerpt: article.excerpt,
-    imageUrl: article.thumbnailUrl ?? article.heroImageUrl,
-    sourceName: article.source.name,
-    sourceAvatarUrl: article.source.avatarUrl,
-    category: resolveCategory(article.source.type),
+    imageUrl: article.imageUrl,
+    sourceName: article.source,
+    faviconUrl: article.faviconUrl,
+    category: 'news',
     publishedAt: article.publishedAt,
-    readingTimeMinutes: article.readingTimeMinutes,
-    likeCount: article.likeCount,
+    viewCount: article.viewCount,
     commentCount: undefined,
     ctaLabel: 'Read Article',
   };

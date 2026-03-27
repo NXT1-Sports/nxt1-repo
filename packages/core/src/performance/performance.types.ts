@@ -359,6 +359,14 @@ export const TRACE_NAMES = {
   // Analytics panel traces
   ANALYTICS_REPORT_LOAD: 'analytics_report_load',
   ANALYTICS_REPORT_REFRESH: 'analytics_report_refresh',
+
+  // News (Pulse) traces
+  NEWS_FEED_LOAD: 'news_feed_load',
+  NEWS_ARTICLE_LOAD: 'news_article_load',
+  NEWS_TRENDING_LOAD: 'news_trending_load',
+  NEWS_SEARCH: 'news_search',
+  NEWS_LOAD_MORE: 'news_load_more',
+  NEWS_USER_LOAD: 'news_user_load',
 } as const;
 
 export type TraceName = (typeof TRACE_NAMES)[keyof typeof TRACE_NAMES];

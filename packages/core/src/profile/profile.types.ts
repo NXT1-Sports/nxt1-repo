@@ -15,22 +15,12 @@
 // ============================================
 
 /**
- * Profile tab identifiers for content filtering.
- * 'timeline' shows all content, 'videos' filters to video posts only.
+ * Profile tab identifiers for the 3-tab Intelligence Dossier layout.
+ * - 'intel'    — AI-generated overview (Agent X brief, key data)
+ * - 'timeline' — Unified chronological feed (posts, videos, news, events)
+ * - 'connect'  — Contact, offers, schedule, and recruiting actions
  */
-export type ProfileTabId =
-  | 'overview'
-  | 'timeline'
-  | 'news'
-  | 'videos'
-  | 'offers'
-  | 'scout'
-  | 'metrics'
-  | 'stats'
-  | 'academic'
-  | 'events'
-  | 'schedule'
-  | 'contact';
+export type ProfileTabId = 'intel' | 'timeline' | 'connect';
 
 /**
  * Configuration for a profile content tab.

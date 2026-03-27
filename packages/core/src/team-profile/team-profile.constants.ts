@@ -24,17 +24,16 @@ import type {
 // ============================================
 
 /**
- * Team profile content tabs with display configuration.
+ * Team profile content tabs — 4-tab Intelligence layout.
  * Order determines display order in tab bar.
  *
- * Matches the user's spec:
- * Overview, Timeline, Roster, Schedule, Videos, News, Stats, Recruiting
+ * Intel, Timeline, Roster, Connect
  */
 export const TEAM_PROFILE_TABS: readonly TeamProfileTab[] = [
   {
-    id: 'overview',
-    label: 'Overview',
-    icon: 'grid',
+    id: 'intel',
+    label: 'Intel',
+    icon: 'radar',
   },
   {
     id: 'timeline',
@@ -47,36 +46,16 @@ export const TEAM_PROFILE_TABS: readonly TeamProfileTab[] = [
     icon: 'people',
   },
   {
-    id: 'schedule',
-    label: 'Schedule',
-    icon: 'calendar-clear',
-  },
-  {
-    id: 'videos',
-    label: 'Videos',
-    icon: 'videocam',
-  },
-  {
-    id: 'news',
-    label: 'News',
-    icon: 'newspaper',
-  },
-  {
-    id: 'stats',
-    label: 'Stats',
-    icon: 'stats-chart',
-  },
-  {
-    id: 'recruiting',
-    label: 'Recruiting',
-    icon: 'trophy',
+    id: 'connect',
+    label: 'Connect',
+    icon: 'paper-plane',
   },
 ] as const;
 
 /**
  * Default selected tab.
  */
-export const TEAM_PROFILE_DEFAULT_TAB: TeamProfileTabId = 'overview';
+export const TEAM_PROFILE_DEFAULT_TAB: TeamProfileTabId = 'intel';
 
 /**
  * Tabs where the verification banner is hidden.
@@ -258,10 +237,10 @@ export const TEAM_PROFILE_EMPTY_STATES: Record<
     readonly ctaLabel?: string;
   }
 > = {
-  overview: {
-    title: 'Team overview not available',
-    message: 'Team information will appear here once the profile is set up.',
-    icon: 'grid',
+  intel: {
+    title: 'Team intel not available',
+    message: 'The Agent X team intelligence brief will appear here once generated.',
+    icon: 'radar',
   },
   timeline: {
     title: 'No updates yet',
@@ -269,39 +248,17 @@ export const TEAM_PROFILE_EMPTY_STATES: Record<
     icon: 'newspaper',
     ctaLabel: 'Add Update',
   },
-  videos: {
-    title: 'No videos yet',
-    message: 'Team highlights, game film, and training videos will appear here.',
-    icon: 'videocam',
-    ctaLabel: 'Upload Video',
-  },
   roster: {
     title: 'No roster members',
     message: 'Athletes and staff will appear here when they join the team.',
     icon: 'people',
     ctaLabel: 'Invite Athletes',
   },
-  schedule: {
-    title: 'No schedule yet',
-    message: 'Games, practices, and events will appear here.',
-    icon: 'calendar-clear',
-    ctaLabel: 'Add Schedule',
-  },
-  stats: {
-    title: 'No team stats',
-    message: 'Team statistics and season records will appear here.',
-    icon: 'stats-chart',
-  },
-  news: {
-    title: 'No news yet',
-    message: 'Team news and announcements will appear here.',
-    icon: 'newspaper',
-    ctaLabel: 'Create Post',
-  },
-  recruiting: {
-    title: 'No recruiting activity',
-    message: 'Offers, commitments, and recruiting updates will appear here.',
-    icon: 'trophy',
+  connect: {
+    title: 'No contact info yet',
+    message: 'Add team contact details so athletes and coaches can reach you.',
+    icon: 'paper-plane',
+    ctaLabel: 'Add Contact Info',
   },
 } as const;
 

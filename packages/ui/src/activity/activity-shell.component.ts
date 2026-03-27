@@ -35,28 +35,15 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonContent } from '@ionic/angular/standalone';
-import {
-  type ActivityTab,
-  type ActivityTabId,
-  type ActivityItem,
-  type ConnectedEmail,
-  type InboxEmailProvider,
-  type AnalyticsUserRole,
-  ACTIVITY_TABS,
-} from '@nxt1/core';
+import { type ActivityItem, type ConnectedEmail, type InboxEmailProvider } from '@nxt1/core';
 import { NxtPageHeaderComponent, type PageHeaderAction } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
-import {
-  NxtOptionScrollerComponent,
-  type OptionScrollerItem,
-  type OptionScrollerChangeEvent,
-} from '../components/option-scroller';
+
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBrowserService } from '../services/browser';
 import { ActivityService } from './activity.service';
 import { ActivityListComponent } from './activity-list.component';
-import { ActivityAnalyticsPanelComponent } from './activity-analytics-panel.component';
 
 /**
  * User info for header display.
@@ -67,8 +54,7 @@ export interface ActivityUser {
   readonly displayName?: string | null;
   readonly connectedEmails?: readonly ConnectedEmail[];
   readonly email?: string | null;
-  /** User role — determines which analytics view to render on the Analytics tab */
-  readonly role?: AnalyticsUserRole | null;
+  readonly role?: string | null;
 }
 
 @Component({
@@ -79,9 +65,7 @@ export interface ActivityUser {
     IonContent,
     NxtPageHeaderComponent,
     NxtRefresherComponent,
-    NxtOptionScrollerComponent,
     ActivityListComponent,
-    ActivityAnalyticsPanelComponent,
   ],
   template: `
     <!-- Professional Page Header (Twitter/X style) — hidden on web (uses top nav) -->
@@ -115,45 +99,29 @@ export interface ActivityUser {
       </nxt1-page-header>
     }
 
-    <!-- Twitter/TikTok Style Tab Selector (Options Scroller) — hidden when single tab -->
-    @if (showTabs()) {
-      <nxt1-option-scroller
-        [options]="tabOptions()"
-        [selectedId]="activity.activeTab()"
-        [config]="{ scrollable: false, stretchToFill: true, centered: true, showDivider: true }"
-        (selectionChange)="onTabChange($event)"
-      />
-    }
-
     <ion-content [fullscreen]="true" class="activity-content">
       <!-- Pull-to-Refresh -->
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
       <div class="activity-container">
-        <!-- Analytics tab: render the embedded analytics dashboard panel -->
-        @if (activity.activeTab() === 'analytics') {
-          <nxt1-activity-analytics-panel [role]="userRole()" [userId]="userUid()" />
-        } @else {
-          <!-- Unified Activity List — all other tabs render through this component -->
-          <nxt1-activity-list
-            [items]="activity.unifiedItems()"
-            [isLoading]="activity.isLoading()"
-            [isLoadingMore]="activity.isLoadingMore()"
-            [isEmpty]="activity.isEmpty()"
-            [error]="activity.error()"
-            [hasMore]="activity.hasMore()"
-            [activeTab]="activity.activeTab()"
-            [connectedEmails]="connectedEmails()"
-            (loadMore)="onLoadMore()"
-            (retry)="onRetry()"
-            (emptyCta)="onEmptyCta()"
-            (itemClick)="onItemClick($event)"
-            (actionClick)="onActionClick($event)"
-            (markRead)="onMarkRead($event)"
-            (archive)="onArchive($event)"
-            (connectProvider)="onConnectProvider($event)"
-          />
-        }
+        <nxt1-activity-list
+          [items]="activity.unifiedItems()"
+          [isLoading]="activity.isLoading()"
+          [isLoadingMore]="activity.isLoadingMore()"
+          [isEmpty]="activity.isEmpty()"
+          [error]="activity.error()"
+          [hasMore]="activity.hasMore()"
+          [activeTab]="activity.activeTab()"
+          [connectedEmails]="connectedEmails()"
+          (loadMore)="onLoadMore()"
+          (retry)="onRetry()"
+          (emptyCta)="onEmptyCta()"
+          (itemClick)="onItemClick($event)"
+          (actionClick)="onActionClick($event)"
+          (markRead)="onMarkRead($event)"
+          (archive)="onArchive($event)"
+          (connectProvider)="onConnectProvider($event)"
+        />
       </div>
     </ion-content>
   `,
@@ -169,6 +137,7 @@ export interface ActivityUser {
         flex-direction: column;
         flex: 1;
         min-height: 0;
+        height: 100%;
         width: 100%;
 
         /* Theme-aware CSS Variables */
@@ -247,9 +216,6 @@ export class ActivityShellComponent {
   /** User info for header avatar */
   readonly user = input<ActivityUser | null>(null);
 
-  /** Configurable tabs — defaults to all tabs. Pass a subset to limit (e.g. alerts-only on desktop). */
-  readonly tabs = input<readonly ActivityTab[]>(ACTIVITY_TABS);
-
   /** Whether to show the built-in page header. False on web (uses its own top nav). */
   readonly showHeader = input(true);
 
@@ -259,9 +225,6 @@ export class ActivityShellComponent {
 
   /** Emitted when avatar is clicked (open sidenav) */
   readonly avatarClick = output<void>();
-
-  /** Emitted when a tab changes */
-  readonly tabChange = output<ActivityTabId>();
 
   /** Emitted when a user wants to connect an email provider */
   readonly connectProviderRequest = output<InboxEmailProvider>();
@@ -277,16 +240,6 @@ export class ActivityShellComponent {
   protected readonly displayName = computed(() => {
     const user = this.user();
     return user?.displayName ?? 'User';
-  });
-
-  /** User role for the analytics panel */
-  protected readonly userRole = computed((): AnalyticsUserRole => {
-    return (this.user()?.role as AnalyticsUserRole | null | undefined) ?? 'athlete';
-  });
-
-  /** User UID for the analytics panel */
-  protected readonly userUid = computed((): string | null => {
-    return this.user()?.uid ?? null;
   });
 
   /** Connected email accounts from user data */
@@ -309,37 +262,12 @@ export class ActivityShellComponent {
       : [];
   });
 
-  /** Whether to show the tab bar (hidden when only 1 tab) */
-  protected readonly showTabs = computed(() => this.tabs().length > 1);
-
-  /** Tab options for options scroller */
-  protected readonly tabOptions = computed((): OptionScrollerItem[] => {
-    const badges = this.activity.badges();
-
-    return this.tabs().map((tab) => ({
-      id: tab.id,
-      label: tab.label,
-      badge: badges[tab.id] ?? 0,
-    }));
-  });
-
   /** Total unread count */
   protected readonly totalUnread = computed(() => this.activity.totalUnread());
 
   // ============================================
   // EVENT HANDLERS
   // ============================================
-
-  /**
-   * Handle tab selection change.
-   * ActivityService internally handles loading messages for inbox/all tabs.
-   */
-  protected async onTabChange(event: OptionScrollerChangeEvent): Promise<void> {
-    const tabId = event.option.id as ActivityTabId;
-    this.logger.debug('Tab changed', { tabId });
-    await this.activity.switchTab(tabId);
-    this.tabChange.emit(tabId);
-  }
 
   /**
    * Handle header action click.

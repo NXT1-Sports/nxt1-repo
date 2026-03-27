@@ -40,6 +40,7 @@ import { IonIcon, IonSpinner } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { alertCircleOutline, refreshOutline } from 'ionicons/icons';
 import { type NewsArticle, type NewsCategoryId, NEWS_UI_CONFIG } from '@nxt1/core';
+import { TEST_IDS } from '@nxt1/core/testing';
 import { NewsArticleCardComponent } from './news-article-card.component';
 import { NewsSkeletonComponent } from './news-skeleton.component';
 import { NewsEmptyStateComponent } from './news-empty-state.component';
@@ -57,10 +58,10 @@ import { NewsEmptyStateComponent } from './news-empty-state.component';
     NewsEmptyStateComponent,
   ],
   template: `
-    <div class="news-list">
+    <div class="news-list" [attr.data-testid]="testIds.LIST_CONTAINER">
       <!-- Loading State: Skeletons -->
       @if (isLoading()) {
-        <div class="news-list__skeletons">
+        <div class="news-list__skeletons" [attr.data-testid]="testIds.SKELETON">
           @for (i of skeletonArray; track i) {
             <nxt1-news-skeleton [variant]="i === 1 ? 'featured' : 'card'" />
           }
@@ -69,13 +70,18 @@ import { NewsEmptyStateComponent } from './news-empty-state.component';
 
       <!-- Error State -->
       @else if (error()) {
-        <div class="news-list__error">
+        <div class="news-list__error" [attr.data-testid]="testIds.ERROR_STATE">
           <div class="news-list__error-icon">
             <ion-icon name="alert-circle-outline"></ion-icon>
           </div>
           <h3 class="news-list__error-title">Something went wrong</h3>
           <p class="news-list__error-message">{{ error() }}</p>
-          <button type="button" class="news-list__error-action" (click)="retry.emit()">
+          <button
+            type="button"
+            class="news-list__error-action"
+            [attr.data-testid]="testIds.RETRY_BTN"
+            (click)="retry.emit()"
+          >
             <ion-icon name="refresh-outline"></ion-icon>
             <span>Try Again</span>
           </button>
@@ -84,14 +90,22 @@ import { NewsEmptyStateComponent } from './news-empty-state.component';
 
       <!-- Empty State -->
       @else if (isEmpty()) {
-        <nxt1-news-empty-state [category]="activeCategory()" (ctaClick)="emptyCta.emit()" />
+        <nxt1-news-empty-state
+          [category]="activeCategory()"
+          (ctaClick)="emptyCta.emit()"
+          [attr.data-testid]="testIds.EMPTY_STATE"
+        />
       }
 
       <!-- Articles List -->
       @else {
-        <div class="news-list__articles">
+        <div class="news-list__articles" [attr.data-testid]="testIds.LIST">
           @for (article of articles(); track article.id; let i = $index) {
-            <div class="news-list__article-wrapper" [style.animation-delay]="i * 50 + 'ms'">
+            <div
+              class="news-list__article-wrapper"
+              [style.animation-delay]="i * 50 + 'ms'"
+              [attr.data-testid]="testIds.LIST_ITEM"
+            >
               <nxt1-news-article-card
                 [article]="article"
                 (articleClick)="articleClick.emit($event)"
@@ -102,7 +116,7 @@ import { NewsEmptyStateComponent } from './news-empty-state.component';
 
         <!-- Load More / Infinite Scroll -->
         @if (hasMore()) {
-          <div class="news-list__load-more">
+          <div class="news-list__load-more" [attr.data-testid]="testIds.LOAD_MORE">
             @if (isLoadingMore()) {
               <ion-spinner name="crescent" color="primary"></ion-spinner>
             } @else {
@@ -302,6 +316,8 @@ import { NewsEmptyStateComponent } from './news-empty-state.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NewsListComponent {
+  protected readonly testIds = TEST_IDS.NEWS;
+
   constructor() {
     addIcons({ alertCircleOutline, refreshOutline });
   }
@@ -338,12 +354,6 @@ export class NewsListComponent {
 
   /** Emitted when article is clicked */
   readonly articleClick = output<NewsArticle>();
-
-  /** Emitted when bookmark is clicked */
-  readonly bookmarkClick = output<NewsArticle>();
-
-  /** Emitted when share is clicked */
-  readonly shareClick = output<NewsArticle>();
 
   /** Array for skeleton rendering */
   readonly skeletonArray = Array.from({ length: NEWS_UI_CONFIG.SKELETON_COUNT }, (_, i) => i + 1);

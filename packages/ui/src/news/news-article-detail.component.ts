@@ -1,92 +1,52 @@
 /**
  * @fileoverview News Article Detail Component
  * @module @nxt1/ui/news
- * @version 1.0.0
+ * @version 2.0.0
  *
- * Full-screen article reading experience with progress tracking and XP.
+ * Full-screen article reading experience with AI summary + "Read Full Story" CTA.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  *
  * Features:
  * - Full-width hero image with gradient overlay
- * - Floating back button
- * - Share/bookmark actions
- * - Sticky progress bar at top
- * - Rich text content with proper typography
- * - Related articles section
- * - XP reward celebration on completion
- * - Reading progress tracking
+ * - Floating back button and share action
+ * - Real publisher attribution (favicon + name)
+ * - Rich text AI-generated summary
+ * - "Read Full Story" CTA linking to original source
  *
  * @example
  * ```html
  * <nxt1-news-article-detail
  *   [article]="selectedArticle()"
- *   [readingProgress]="progress()"
  *   (back)="onBack()"
- *   (bookmark)="onBookmark()"
  *   (share)="onShare()"
- *   (progressUpdate)="onProgressUpdate($event)"
+ *   (readFullStory)="onReadFullStory($event)"
  * />
  * ```
  */
 
-import {
-  Component,
-  ChangeDetectionStrategy,
-  input,
-  output,
-  computed,
-  inject,
-  AfterViewInit,
-  OnDestroy,
-  PLATFORM_ID,
-} from '@angular/core';
-import { isPlatformBrowser, CommonModule } from '@angular/common';
-import { IonIcon } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  arrowBack,
-  bookmarkOutline,
-  bookmark,
-  shareOutline,
-  timeOutline,
-  eyeOutline,
-  sparklesOutline,
-  checkmarkCircle,
-} from 'ionicons/icons';
-import { type NewsArticle, NEWS_CATEGORIES, NEWS_CATEGORY_BG_COLORS } from '@nxt1/core';
+import { Component, ChangeDetectionStrategy, input, output, computed, inject } from '@angular/core';
+import { type NewsArticle } from '@nxt1/core';
 import { NxtImageComponent } from '../components/image';
-import { NxtAvatarComponent } from '../components/avatar';
-import { NewsBookmarkButtonComponent } from './news-bookmark-button.component';
-import { NewsReadingProgressComponent } from './news-reading-progress.component';
 import { HapticsService } from '../services/haptics/haptics.service';
 
-// Register icons
 @Component({
   selector: 'nxt1-news-article-detail',
   standalone: true,
-  imports: [
-    CommonModule,
-    IonIcon,
-    NxtImageComponent,
-    NxtAvatarComponent,
-    NewsBookmarkButtonComponent,
-    NewsReadingProgressComponent,
-  ],
+  imports: [NxtImageComponent],
   template: `
     @if (article()) {
-      <div class="article-detail">
-        <!-- Sticky Progress Bar -->
-        <div class="article-detail__progress-bar" [style.width.%]="readingProgress()"></div>
-
+      <article class="article-detail">
         <!-- Hero Section -->
         <div class="article-detail__hero">
-          <nxt1-image
-            [src]="article()!.heroImageUrl || article()!.thumbnailUrl || ''"
-            [alt]="article()!.title"
-            class="article-detail__hero-image"
-            fit="cover"
-          />
+          @if (article()!.imageUrl) {
+            <nxt1-image
+              [src]="article()!.imageUrl!"
+              [alt]="article()!.title"
+              class="article-detail__hero-image"
+              fit="cover"
+            />
+          }
 
           <!-- Gradient Overlay -->
           <div class="article-detail__hero-overlay"></div>
@@ -95,31 +55,54 @@ import { HapticsService } from '../services/haptics/haptics.service';
           <button
             type="button"
             class="article-detail__back-btn"
+            data-testid="news-article-detail-back"
             (click)="onBackClick()"
             aria-label="Go back"
           >
-            <ion-icon name="arrow-back"></ion-icon>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 512 512"
+              fill="currentColor"
+            >
+              <path
+                d="M328 112L184 256l144 144"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="48"
+              />
+            </svg>
           </button>
 
-          <!-- Floating Actions -->
+          <!-- Share Button -->
           <div class="article-detail__hero-actions">
-            <nxt1-news-bookmark-button
-              [isBookmarked]="article()!.isBookmarked"
-              (bookmarkToggle)="onBookmarkClick()"
-            />
             <button
               type="button"
               class="article-detail__action-btn"
+              data-testid="news-article-detail-share"
               (click)="onShareClick()"
               aria-label="Share article"
             >
-              <ion-icon name="share-outline"></ion-icon>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="20"
+                height="20"
+                viewBox="0 0 512 512"
+                fill="currentColor"
+              >
+                <path
+                  d="M336 192h40a40 40 0 0140 40v192a40 40 0 01-40 40H136a40 40 0 01-40-40V232a40 40 0 0140-40h40M336 128l-80-80-80 80M256 321V48"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="32"
+                />
+              </svg>
             </button>
-          </div>
-
-          <!-- Category Badge -->
-          <div class="article-detail__category" [style.background]="categoryColor()">
-            {{ categoryLabel() }}
           </div>
         </div>
 
@@ -128,99 +111,67 @@ import { HapticsService } from '../services/haptics/haptics.service';
           <!-- Title -->
           <h1 class="article-detail__title">{{ article()!.title }}</h1>
 
-          <!-- Meta Info -->
+          <!-- Source + Date -->
           <div class="article-detail__meta">
-            <!-- Source -->
             <div class="article-detail__source">
-              <nxt1-avatar
-                [src]="article()!.source.avatarUrl"
-                [name]="article()!.source.name"
-                size="sm"
-              />
+              @if (article()!.faviconUrl) {
+                <img
+                  [src]="article()!.faviconUrl"
+                  [alt]="article()!.source"
+                  class="article-detail__favicon"
+                  width="24"
+                  height="24"
+                  loading="lazy"
+                />
+              }
               <div class="article-detail__source-info">
-                <span class="article-detail__source-name">
-                  {{ article()!.source.name }}
-                  @if (article()!.source.isVerified) {
-                    <ion-icon name="checkmark-circle" class="article-detail__verified"></ion-icon>
-                  }
-                </span>
+                <span class="article-detail__source-name">{{ article()!.source }}</span>
                 <span class="article-detail__date">{{ formattedDate() }}</span>
               </div>
             </div>
-
-            <!-- Reading Progress -->
-            <nxt1-news-reading-progress
-              [progress]="readingProgress()"
-              [xpEarned]="xpEarned()"
-              [xpTotal]="article()!.xpReward"
-            />
           </div>
 
-          <!-- Reading Time & Views -->
-          <div class="article-detail__stats">
-            <span class="article-detail__stat">
-              <ion-icon name="time-outline"></ion-icon>
-              {{ article()!.readingTimeMinutes }} min read
-            </span>
-            <span class="article-detail__stat">
-              <ion-icon name="eye-outline"></ion-icon>
-              {{ formatViewCount() }} views
-            </span>
-          </div>
-
-          <!-- Article Body -->
+          <!-- Article Body (AI Summary) -->
           <div class="article-detail__body" [innerHTML]="article()!.content"></div>
 
-          <!-- Tags -->
-          @if (article()!.tags && article()!.tags!.length > 0) {
-            <div class="article-detail__tags">
-              @for (tag of article()!.tags; track tag) {
-                <span class="article-detail__tag">#{{ tag }}</span>
-              }
-            </div>
-          }
-
-          <!-- XP Completion Banner -->
-          @if (readingProgress() >= 100 && !xpClaimed) {
-            <div class="article-detail__xp-banner">
-              <ion-icon name="sparkles-outline"></ion-icon>
-              <span>You earned +{{ article()!.xpReward }} XP!</span>
-            </div>
-          }
-
-          <!-- Related Articles -->
-          @if (relatedArticles().length > 0) {
-            <div class="article-detail__related">
-              <h2 class="article-detail__related-title">Related Articles</h2>
-              <div class="article-detail__related-list">
-                @for (related of relatedArticles(); track related.id) {
-                  <button
-                    type="button"
-                    class="article-detail__related-item"
-                    (click)="onRelatedClick(related)"
-                  >
-                    @if (related.thumbnailUrl) {
-                      <nxt1-image
-                        [src]="related.thumbnailUrl"
-                        [alt]="related.title"
-                        class="article-detail__related-image"
-                        fit="cover"
-                      />
-                    }
-                    <span class="article-detail__related-text">{{ related.title }}</span>
-                  </button>
-                }
-              </div>
-            </div>
-          }
+          <!-- Read Full Story CTA -->
+          <div class="article-detail__cta">
+            <a
+              [href]="article()!.sourceUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="article-detail__cta-btn"
+              data-testid="news-article-detail-read-full"
+              (click)="onReadFullStoryClick()"
+            >
+              Read Full Story on {{ article()!.source }}
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="18"
+                height="18"
+                viewBox="0 0 512 512"
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="40"
+              >
+                <path
+                  d="M384 224v184a40 40 0 01-40 40H104a40 40 0 01-40-40V168a40 40 0 0140-40h167"
+                />
+                <path d="M336 64h112v112" />
+                <path d="M224 288L440 72" />
+              </svg>
+            </a>
+          </div>
         </div>
-      </div>
+      </article>
     }
   `,
   styles: [
     `
       /* ============================================
-         NEWS ARTICLE DETAIL - Full Reading Experience
+         NEWS ARTICLE DETAIL - AI Summary + CTA
          ============================================ */
 
       :host {
@@ -234,20 +185,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
       }
 
       /* ============================================
-         STICKY PROGRESS BAR
-         ============================================ */
-
-      .article-detail__progress-bar {
-        position: fixed;
-        top: 0;
-        left: 0;
-        height: 3px;
-        background: var(--nxt1-color-primary, #ccff00);
-        z-index: 100;
-        transition: width 0.1s ease;
-      }
-
-      /* ============================================
          HERO SECTION
          ============================================ */
 
@@ -256,6 +193,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
         width: 100%;
         aspect-ratio: 16 / 10;
         overflow: hidden;
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
       }
 
       .article-detail__hero-image {
@@ -301,10 +239,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
         background: rgba(0, 0, 0, 0.7);
       }
 
-      .article-detail__back-btn ion-icon {
-        font-size: 24px;
-      }
-
       /* Hero Actions */
       .article-detail__hero-actions {
         position: absolute;
@@ -334,25 +268,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
         background: rgba(0, 0, 0, 0.7);
       }
 
-      .article-detail__action-btn ion-icon {
-        font-size: 20px;
-      }
-
-      /* Category Badge */
-      .article-detail__category {
-        position: absolute;
-        bottom: 20px;
-        left: 20px;
-        padding: 6px 14px;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        font-size: 12px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: var(--nxt1-color-text-onPrimary, #000);
-        z-index: 10;
-      }
-
       /* ============================================
          CONTENT SECTION
          ============================================ */
@@ -376,15 +291,24 @@ import { HapticsService } from '../services/haptics/haptics.service';
       .article-detail__meta {
         display: flex;
         align-items: center;
-        justify-content: space-between;
         gap: 16px;
-        margin-bottom: 16px;
+        margin-bottom: 24px;
+        padding-bottom: 24px;
+        border-bottom: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
       }
 
       .article-detail__source {
         display: flex;
         align-items: center;
         gap: 12px;
+      }
+
+      .article-detail__favicon {
+        width: 24px;
+        height: 24px;
+        border-radius: 4px;
+        object-fit: contain;
+        flex-shrink: 0;
       }
 
       .article-detail__source-info {
@@ -397,40 +321,11 @@ import { HapticsService } from '../services/haptics/haptics.service';
         font-size: 14px;
         font-weight: 600;
         color: var(--nxt1-color-text-primary, #fff);
-        display: flex;
-        align-items: center;
-        gap: 4px;
-      }
-
-      .article-detail__verified {
-        font-size: 16px;
-        color: var(--nxt1-color-primary, #ccff00);
       }
 
       .article-detail__date {
         font-size: 12px;
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
-      }
-
-      /* Stats */
-      .article-detail__stats {
-        display: flex;
-        gap: 16px;
-        margin-bottom: 24px;
-        padding-bottom: 24px;
-        border-bottom: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-      }
-
-      .article-detail__stat {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 13px;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-      }
-
-      .article-detail__stat ion-icon {
-        font-size: 16px;
       }
 
       /* Article Body */
@@ -466,127 +361,40 @@ import { HapticsService } from '../services/haptics/haptics.service';
         color: var(--nxt1-color-text-primary, #fff);
       }
 
-      /* Tags */
-      .article-detail__tags {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 32px;
-        padding-top: 24px;
-        border-top: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-      }
+      /* ============================================
+         READ FULL STORY CTA
+         ============================================ */
 
-      .article-detail__tag {
-        padding: 6px 12px;
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.05));
-        border-radius: var(--nxt1-radius-full, 9999px);
-        font-size: 13px;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-      }
-
-      /* XP Banner */
-      .article-detail__xp-banner {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        padding: 16px;
-        margin-top: 32px;
-        background: linear-gradient(
-          135deg,
-          rgba(204, 255, 0, 0.15) 0%,
-          rgba(204, 255, 0, 0.05) 100%
-        );
-        border: 1px solid rgba(204, 255, 0, 0.3);
-        border-radius: var(--nxt1-radius-lg, 16px);
-        font-size: 16px;
-        font-weight: 700;
-        color: var(--nxt1-color-primary, #ccff00);
-        animation: xp-appear 0.5s ease;
-      }
-
-      .article-detail__xp-banner ion-icon {
-        font-size: 24px;
-        animation: sparkle 1s ease infinite;
-      }
-
-      @keyframes xp-appear {
-        from {
-          opacity: 0;
-          transform: translateY(20px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-
-      @keyframes sparkle {
-        0%,
-        100% {
-          transform: scale(1) rotate(0deg);
-        }
-        50% {
-          transform: scale(1.1) rotate(10deg);
-        }
-      }
-
-      /* Related Articles */
-      .article-detail__related {
+      .article-detail__cta {
         margin-top: 40px;
         padding-top: 32px;
         border-top: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        text-align: center;
       }
 
-      .article-detail__related-title {
-        margin: 0 0 16px;
-        font-size: 18px;
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary, #fff);
-      }
-
-      .article-detail__related-list {
-        display: flex;
-        gap: 12px;
-        overflow-x: auto;
-        padding-bottom: 8px;
-        -webkit-overflow-scrolling: touch;
-      }
-
-      .article-detail__related-item {
-        flex: 0 0 200px;
-        display: flex;
-        flex-direction: column;
+      .article-detail__cta-btn {
+        display: inline-flex;
+        align-items: center;
         gap: 8px;
-        padding: 0;
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-        border-radius: var(--nxt1-radius-md, 12px);
-        overflow: hidden;
-        cursor: pointer;
-        transition: transform 0.15s ease;
+        padding: 14px 28px;
+        background: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-text-onPrimary, #000);
+        font-size: 15px;
+        font-weight: 700;
+        text-decoration: none;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        transition:
+          opacity 0.15s ease,
+          transform 0.15s ease;
       }
 
-      .article-detail__related-item:hover {
-        transform: translateY(-2px);
+      .article-detail__cta-btn:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
       }
 
-      .article-detail__related-image {
-        width: 100%;
-        height: 100px;
-        object-fit: cover;
-      }
-
-      .article-detail__related-text {
-        padding: 8px 12px 12px;
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--nxt1-color-text-primary, #fff);
-        text-align: left;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
+      .article-detail__cta-btn:active {
+        transform: translateY(0);
       }
 
       /* ============================================
@@ -610,71 +418,24 @@ import { HapticsService } from '../services/haptics/haptics.service';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class NewsArticleDetailComponent implements AfterViewInit, OnDestroy {
-  constructor() {
-    addIcons({
-      arrowBack,
-      bookmarkOutline,
-      bookmark,
-      shareOutline,
-      timeOutline,
-      eyeOutline,
-      sparklesOutline,
-      checkmarkCircle,
-    });
-  }
-
-  private readonly platformId = inject(PLATFORM_ID);
+export class NewsArticleDetailComponent {
   private readonly haptics = inject(HapticsService);
 
   /** Article to display */
   readonly article = input<NewsArticle | null>(null);
 
-  /** Current reading progress (0-100) */
-  readonly readingProgress = input<number>(0);
-
-  /** XP earned so far */
-  readonly xpEarned = input<number>(0);
-
-  /** Related articles */
-  readonly relatedArticles = input<NewsArticle[]>([]);
-
   /** Emitted when back button is clicked */
   readonly back = output<void>();
-
-  /** Emitted when bookmark is toggled */
-  readonly bookmarkToggle = output<void>();
 
   /** Emitted when share is clicked */
   readonly share = output<void>();
 
-  /** Emitted when reading progress updates */
-  readonly progressUpdate = output<number>();
-
-  /** Emitted when related article is clicked */
-  readonly relatedClick = output<NewsArticle>();
-
-  /** Whether XP has been claimed (prevents re-showing banner) */
-  xpClaimed = false;
-
-  private scrollHandler: (() => void) | null = null;
+  /** Emitted when "Read Full Story" is clicked */
+  readonly readFullStory = output<string>();
 
   // ============================================
   // COMPUTED PROPERTIES
   // ============================================
-
-  protected readonly categoryLabel = computed(() => {
-    const art = this.article();
-    if (!art) return '';
-    const category = NEWS_CATEGORIES.find((c) => c.id === art.category);
-    return category?.label || art.category;
-  });
-
-  protected readonly categoryColor = computed(() => {
-    const art = this.article();
-    if (!art) return '';
-    return NEWS_CATEGORY_BG_COLORS[art.category] || 'var(--nxt1-color-surface-300)';
-  });
 
   protected readonly formattedDate = computed(() => {
     const art = this.article();
@@ -688,22 +449,6 @@ export class NewsArticleDetailComponent implements AfterViewInit, OnDestroy {
   });
 
   // ============================================
-  // LIFECYCLE
-  // ============================================
-
-  ngAfterViewInit(): void {
-    if (isPlatformBrowser(this.platformId)) {
-      this.setupScrollTracking();
-    }
-  }
-
-  ngOnDestroy(): void {
-    if (this.scrollHandler && isPlatformBrowser(this.platformId)) {
-      window.removeEventListener('scroll', this.scrollHandler);
-    }
-  }
-
-  // ============================================
   // EVENT HANDLERS
   // ============================================
 
@@ -712,40 +457,15 @@ export class NewsArticleDetailComponent implements AfterViewInit, OnDestroy {
     this.back.emit();
   }
 
-  async onBookmarkClick(): Promise<void> {
-    this.bookmarkToggle.emit();
-  }
-
   async onShareClick(): Promise<void> {
     await this.haptics.impact('light');
     this.share.emit();
   }
 
-  onRelatedClick(article: NewsArticle): void {
-    this.relatedClick.emit(article);
-  }
-
-  formatViewCount(): string {
+  onReadFullStoryClick(): void {
     const art = this.article();
-    if (!art) return '0';
-    const count = art.viewCount;
-    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-    if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
-    return count.toString();
-  }
-
-  // ============================================
-  // SCROLL TRACKING
-  // ============================================
-
-  private setupScrollTracking(): void {
-    this.scrollHandler = () => {
-      const scrollTop = window.scrollY;
-      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-      const progress = Math.min(100, Math.max(0, (scrollTop / docHeight) * 100));
-      this.progressUpdate.emit(Math.round(progress));
-    };
-
-    window.addEventListener('scroll', this.scrollHandler, { passive: true });
+    if (art) {
+      this.readFullStory.emit(art.sourceUrl);
+    }
   }
 }

@@ -56,16 +56,9 @@ export async function notifyYield(db: Firestore, notification: YieldNotification
     const title = isApproval ? 'Agent X needs your approval' : 'Agent X has a question for you';
     const body = promptToUser.length > 200 ? promptToUser.slice(0, 197) + '...' : promptToUser;
 
-    const deepLink =
-      isApproval && approvalId
-        ? `/agent-x/approvals/${approvalId}`
-        : threadId
-          ? `/agent-x?thread=${encodeURIComponent(threadId)}`
-          : '/agent-x';
+    const deepLink = threadId ? `/agent-x?thread=${encodeURIComponent(threadId)}` : '/agent-x';
 
-    const notificationType = isApproval
-      ? NOTIFICATION_TYPES.AI_NEEDS_APPROVAL
-      : NOTIFICATION_TYPES.AI_NEEDS_INPUT;
+    const notificationType = NOTIFICATION_TYPES.AGENT_ACTION;
 
     await dispatch(db, {
       userId,

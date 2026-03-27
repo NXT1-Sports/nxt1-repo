@@ -57,6 +57,29 @@ const RETRY_DELAY_MS = 1_500;
 /** Status codes that are safe to retry on. */
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 
+/** Helicone proxy base URL (set to empty to disable). */
+const HELICONE_API_KEY = process.env['HELICONE_API_KEY'] ?? '';
+
+/**
+ * Build Helicone tracing headers when enabled.
+ * These are passthrough headers — OpenRouter forwards them to Helicone
+ * without affecting the LLM request itself.
+ */
+function buildHeliconeHeaders(
+  ctx?: LLMCompletionOptions['telemetryContext']
+): Record<string, string> {
+  if (!HELICONE_API_KEY) return {};
+  return {
+    'Helicone-Auth': `Bearer ${HELICONE_API_KEY}`,
+    // Groups all LLM calls within a single Agent X operation into one session
+    ...(ctx?.operationId && { 'Helicone-Session-Id': ctx.operationId }),
+    // Tags the coordinator / planner name so the waterfall shows which agent made the call
+    ...(ctx?.agentId && { 'Helicone-Session-Name': ctx.agentId }),
+    ...(ctx?.userId && { 'Helicone-User-Id': ctx.userId }),
+    'Helicone-Property-Platform': 'nxt1',
+  };
+}
+
 // ─── Service ────────────────────────────────────────────────────────────────
 
 export class OpenRouterService {
@@ -143,7 +166,12 @@ export class OpenRouterService {
     const startMs = Date.now();
 
     const body = this.buildRequestBody(messages, model, options);
-    const raw = await this.fetchWithRetry(body, options.signal);
+    const raw = await this.fetchWithRetry(
+      body,
+      options.signal,
+      DEFAULT_TIMEOUT_MS,
+      options.telemetryContext
+    );
     const latencyMs = Date.now() - startMs;
 
     const result = this.parseResponse(raw, model, latencyMs);
@@ -213,7 +241,12 @@ export class OpenRouterService {
       modalities: ['text', 'image'],
     };
 
-    const raw = await this.fetchWithRetry(body, options.signal, IMAGE_GENERATION_TIMEOUT_MS);
+    const raw = await this.fetchWithRetry(
+      body,
+      options.signal,
+      IMAGE_GENERATION_TIMEOUT_MS,
+      options.telemetryContext
+    );
     const latencyMs = Date.now() - startMs;
 
     // Extract image from response (base64 inline_data or URL)
@@ -300,6 +333,7 @@ export class OpenRouterService {
           'HTTP-Referer': this.siteUrl,
           'X-Title': this.siteName,
           'Content-Type': 'application/json',
+          ...buildHeliconeHeaders(options.telemetryContext),
         },
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -465,13 +499,14 @@ export class OpenRouterService {
   private async fetchWithRetry(
     body: Record<string, unknown>,
     signal?: AbortSignal,
-    timeoutMs: number = DEFAULT_TIMEOUT_MS
+    timeoutMs: number = DEFAULT_TIMEOUT_MS,
+    telemetryContext?: LLMCompletionOptions['telemetryContext']
   ): Promise<OpenRouterRawResponse> {
     let lastError: Error | undefined;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        return await this.fetchOnce(body, signal, timeoutMs);
+        return await this.fetchOnce(body, signal, timeoutMs, telemetryContext);
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
 
@@ -493,7 +528,8 @@ export class OpenRouterService {
   private async fetchOnce(
     body: Record<string, unknown>,
     signal?: AbortSignal,
-    timeoutMs: number = DEFAULT_TIMEOUT_MS
+    timeoutMs: number = DEFAULT_TIMEOUT_MS,
+    telemetryContext?: LLMCompletionOptions['telemetryContext']
   ): Promise<OpenRouterRawResponse> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -510,6 +546,7 @@ export class OpenRouterService {
           'HTTP-Referer': this.siteUrl,
           'X-Title': this.siteName,
           'Content-Type': 'application/json',
+          ...buildHeliconeHeaders(telemetryContext),
         },
         body: JSON.stringify(body),
         signal: controller.signal,

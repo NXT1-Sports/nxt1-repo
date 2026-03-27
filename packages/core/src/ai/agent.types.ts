@@ -109,6 +109,7 @@ export type AgentToolCategory =
   | 'communication'
   | 'analytics'
   | 'compliance'
+  | 'automation'
   | 'system';
 
 /** The record of a single tool invocation during an operation. */

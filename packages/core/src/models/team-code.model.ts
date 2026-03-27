@@ -15,7 +15,7 @@ import type {
   TeamProfileRecruitingActivity,
   TeamProfileStatsCategory,
 } from '../team-profile/team-profile.types';
-import type { ContactInfo, SocialLinks } from './user.model';
+import type { ConnectedSource, ContactInfo, SocialLinks } from './user.model';
 
 // ============================================
 // TEAM MEMBER ROLES
@@ -162,6 +162,8 @@ export interface Code {
   }>;
   lastUpdatedStat?: string | Date | null;
   socialLinks?: SocialLinks;
+  /** Connected sources (V2) — replaces socialLinks. Each entry is a platform URL with sync status. */
+  connectedSources?: ConnectedSource[];
   contactInfo?: ContactInfo;
   teamLinks?: {
     newsPageUrl?: string;
@@ -174,6 +176,8 @@ export interface Code {
   };
   totalTraffic?: number;
   analytic?: TeamAnalytics;
+  /** Gallery images (URLs) for the team profile page */
+  galleryImages?: string[];
   /** Stats categories embedded in the team document (e.g. Offense, Defense, Season Record) */
   statsCategories?: TeamProfileStatsCategory[];
   /** Recruiting activity items embedded in the team document */

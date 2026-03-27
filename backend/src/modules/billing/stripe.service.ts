@@ -425,3 +425,149 @@ export async function createInvoiceItemWithRetry(
     createInvoiceItem(customerId, stripePriceId, quantity, idempotencyKey, environment, description)
   );
 }
+
+// ============================================
+// METERED BILLING (B2B Scale-Ready)
+// ============================================
+
+/**
+ * Stripe Meter event name for AI usage.
+ * Must match the meter created in Stripe Dashboard or via `createUsageMeter()`.
+ */
+const METER_EVENT_NAME = 'nxt1_ai_usage';
+
+/**
+ * Report a metered billing event to Stripe.
+ *
+ * Instead of creating individual invoice items for each AI call (which hits
+ * rate limits at scale), this streams lightweight "usage ticks" to a Stripe
+ * Billing Meter. Stripe aggregates these automatically and produces a single
+ * clean line item on the monthly invoice.
+ *
+ * For B2B teams/organizations with high-volume usage (100s–1000s of AI calls
+ * per billing period), this is the production-grade approach.
+ *
+ * @param customerId Stripe customer ID
+ * @param costCents Total cost in cents for this usage event
+ * @param environment Stripe environment
+ * @param metadata Additional context for the meter event
+ * @returns The meter event ID from Stripe
+ */
+export async function reportMeterEvent(
+  customerId: string,
+  costCents: number,
+  environment: 'staging' | 'production',
+  metadata?: {
+    userId?: string;
+    teamId?: string;
+    feature?: string;
+    usageEventId?: string;
+  }
+): Promise<{ success: boolean; meterEventId?: string; error?: string }> {
+  try {
+    const stripe = getStripeClient(environment);
+
+    // Stripe billing.meterEvents.create expects positive integer values
+    const value = Math.max(1, Math.round(costCents));
+
+    // Stripe Billing Meters API (2024+) — not yet in @types/stripe
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const billing = (stripe as Record<string, any>)['billing'];
+    const meterEvent = await billing.meterEvents.create({
+      event_name: METER_EVENT_NAME,
+      payload: {
+        stripe_customer_id: customerId,
+        value: String(value),
+      },
+      timestamp: Math.floor(Date.now() / 1000),
+    });
+
+    logger.info('[reportMeterEvent] Meter event reported', {
+      meterEventId: meterEvent.identifier,
+      customerId,
+      costCents,
+      feature: metadata?.feature,
+    });
+
+    return {
+      success: true,
+      meterEventId: meterEvent.identifier,
+    };
+  } catch (error) {
+    logger.error('[reportMeterEvent] Failed to report meter event', {
+      error,
+      customerId,
+      costCents,
+      metadata,
+    });
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Report meter event with exponential backoff retry.
+ * Used by the usage processing worker for B2B billing.
+ */
+export async function reportMeterEventWithRetry(
+  customerId: string,
+  costCents: number,
+  environment: 'staging' | 'production',
+  metadata?: {
+    userId?: string;
+    teamId?: string;
+    feature?: string;
+    usageEventId?: string;
+  }
+): Promise<{ success: boolean; meterEventId?: string; error?: string }> {
+  return retryWithBackoff(() => reportMeterEvent(customerId, costCents, environment, metadata));
+}
+
+/**
+ * Create an AI usage meter in Stripe (one-time setup).
+ * Call this during initial environment provisioning or via an admin endpoint.
+ *
+ * The meter aggregates usage ticks (cost in cents) per customer per billing period.
+ * Stripe automatically adds the aggregated amount as a single line item to invoices.
+ */
+export async function createUsageMeter(
+  environment: 'staging' | 'production'
+): Promise<{ success: boolean; meterId?: string; error?: string }> {
+  try {
+    const stripe = getStripeClient(environment);
+
+    // Stripe Billing Meters API (2024+) — not yet in @types/stripe
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const billing = (stripe as Record<string, any>)['billing'];
+    const meter = await billing.meters.create({
+      display_name: 'NXT1 AI Usage',
+      event_name: METER_EVENT_NAME,
+      default_aggregation: {
+        formula: 'sum',
+      },
+      customer_mapping: {
+        type: 'by_id',
+        event_payload_key: 'stripe_customer_id',
+      },
+      value_settings: {
+        event_payload_key: 'value',
+      },
+    });
+
+    logger.info('[createUsageMeter] Meter created', {
+      meterId: meter.id,
+      environment,
+    });
+
+    return { success: true, meterId: meter.id };
+  } catch (error) {
+    logger.error('[createUsageMeter] Failed to create meter', { error, environment });
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}

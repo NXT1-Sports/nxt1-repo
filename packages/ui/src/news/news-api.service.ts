@@ -68,23 +68,11 @@ export class NewsApiService implements NewsApi {
   /** Get single article by ID */
   readonly getArticle = this.api.getArticle;
 
-  /** Toggle bookmark status */
-  readonly toggleBookmark = this.api.toggleBookmark;
-
-  /** Update reading progress */
-  readonly updateProgress = this.api.updateProgress;
-
-  /** Get reading statistics */
-  readonly getReadingStats = this.api.getReadingStats;
-
   /** Get trending articles */
   readonly getTrending = this.api.getTrending;
 
   /** Search articles */
   readonly search = this.api.search;
-
-  /** Mark article as read */
-  readonly markAsRead = this.api.markAsRead;
 
   /**
    * Get news articles from a user's personal news sub-collection.

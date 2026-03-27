@@ -23,11 +23,14 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
 import { logger } from '../../utils/logger.js';
 import { COLLECTIONS } from './config.js';
+import { getPlatformConfig } from './platform-config.service.js';
 import {
   type BillingContext,
   type BillingEntity,
   type PaymentProvider,
   type TeamBudgetAllocation,
+  type WalletHold,
+  type WalletHoldResult,
   DEFAULT_INDIVIDUAL_BUDGET,
   DEFAULT_ORGANIZATION_BUDGET,
   BUDGET_ALERT_THRESHOLDS,
@@ -131,6 +134,7 @@ export async function getOrCreateBillingContext(
     hardStop: true,
     paymentProvider: 'stripe',
     walletBalanceCents: 0,
+    pendingHoldsCents: 0,
   };
 
   const ts = FieldValue.serverTimestamp();
@@ -270,19 +274,22 @@ function checkSingleTierBudget(ctx: BillingContext, costCents: number): BudgetCh
 
 /**
  * IAP wallet budget check.
- * Instead of monthly spend vs budget, we check if the prepaid wallet has enough funds.
+ * Instead of monthly spend vs budget, we check if the prepaid wallet has enough
+ * **available** funds (balance minus pending holds).
  */
 function checkWalletBudget(ctx: BillingContext, costCents: number): BudgetCheckResult {
   const walletBalance = ctx.walletBalanceCents ?? 0;
+  const pendingHolds = ctx.pendingHoldsCents ?? 0;
+  const availableBalance = walletBalance - pendingHolds;
 
-  if (walletBalance < costCents) {
+  if (availableBalance < costCents) {
     return {
       allowed: false,
       reason:
-        `Wallet balance of $${(walletBalance / 100).toFixed(2)} is insufficient. ` +
+        `Wallet balance of $${(availableBalance / 100).toFixed(2)} (available) is insufficient. ` +
         'Add funds in Settings → Usage to continue.',
       currentSpend: 0,
-      budget: walletBalance,
+      budget: availableBalance,
       percentUsed: 100,
       billingEntity: 'individual',
     };
@@ -291,7 +298,7 @@ function checkWalletBudget(ctx: BillingContext, costCents: number): BudgetCheckR
   return {
     allowed: true,
     currentSpend: 0,
-    budget: walletBalance,
+    budget: availableBalance,
     percentUsed: 0,
     billingEntity: 'individual',
   };
@@ -387,10 +394,12 @@ async function updateSpend(db: Firestore, userId: string, costCents: number): Pr
  *   2. Verify sufficient funds (prevents negative balance)
  *   3. Decrement walletBalanceCents and increment currentPeriodSpend
  *
- * Fires a low-balance alert when balance drops below $2.00 (separate
- * `iapLowBalanceNotified` flag — distinct from Stripe's notified100).
+ * Fires a low-balance alert when balance drops below the configured threshold
+ * (default $2.00, via `platformConfig/billing.lowBalanceThresholdCents`).
+ * Uses a separate `iapLowBalanceNotified` flag — distinct from Stripe's notified100.
  */
 async function deductWallet(db: Firestore, userId: string, costCents: number): Promise<void> {
+  const config = await getPlatformConfig(db);
   const collRef = db.collection(COLLECTIONS.BILLING_CONTEXTS);
   const snapshot = await collRef.where('userId', '==', userId).limit(1).get();
 
@@ -415,7 +424,7 @@ async function deductWallet(db: Firestore, userId: string, costCents: number): P
     }
 
     newBalance = currentBalance - costCents;
-    shouldNotifyLow = newBalance < LOW_BALANCE_THRESHOLD_CENTS && !data.iapLowBalanceNotified;
+    shouldNotifyLow = newBalance < config.lowBalanceThresholdCents && !data.iapLowBalanceNotified;
 
     const updates: Record<string, unknown> = {
       walletBalanceCents: FieldValue.increment(-costCents),
@@ -447,8 +456,6 @@ async function deductWallet(db: Firestore, userId: string, costCents: number): P
     });
   }
 }
-
-const LOW_BALANCE_THRESHOLD_CENTS = 200; // $2.00
 
 // ============================================
 // IAP WALLET REFUND
@@ -1386,4 +1393,291 @@ export async function resetMonthlyBudgets(db: Firestore): Promise<number> {
 
   logger.info('[resetMonthlyBudgets] Reset complete', { totalCount });
   return totalCount;
+}
+
+// ============================================
+// WALLET HOLDS (Gas-Station Pre-Auth)
+// ============================================
+
+/** Default hold expiry — used only when dynamic config is unavailable */
+const DEFAULT_HOLD_EXPIRY_MS = 10 * 60 * 1000;
+
+/**
+ * Create a wallet hold — atomically reserve funds for an in-flight AI operation.
+ *
+ * This prevents race conditions where N parallel requests all pass the balance
+ * check and then overdraw the wallet. The hold increases `pendingHoldsCents`
+ * on the billing context and creates a `walletHolds` document for tracking.
+ *
+ * @param db Firestore instance
+ * @param userId User's Firebase UID
+ * @param estimatedCostCents Worst-case cost from `estimateMaxCost()`
+ * @param jobId Unique job identifier for correlation
+ * @param feature The feature being used (for audit trail)
+ * @returns Hold result with holdId if successful
+ */
+export async function createWalletHold(
+  db: Firestore,
+  userId: string,
+  estimatedCostCents: number,
+  jobId: string,
+  feature: string
+): Promise<WalletHoldResult> {
+  if (estimatedCostCents <= 0) {
+    return { success: false, reason: 'Estimated cost must be positive' };
+  }
+
+  const collRef = db.collection(COLLECTIONS.BILLING_CONTEXTS);
+  const snapshot = await collRef.where('userId', '==', userId).limit(1).get();
+
+  if (snapshot.empty) {
+    return { success: false, reason: 'Billing context not found' };
+  }
+
+  const docRef = snapshot.docs[0]!.ref;
+  let holdId = '';
+  let availableBalance = 0;
+
+  try {
+    await db.runTransaction(async (txn) => {
+      const doc = await txn.get(docRef);
+      const data = doc.data() as BillingContext;
+
+      const walletBalance = data.walletBalanceCents ?? 0;
+      const pendingHolds = data.pendingHoldsCents ?? 0;
+      availableBalance = walletBalance - pendingHolds;
+
+      if (availableBalance < estimatedCostCents) {
+        throw new Error(
+          `Insufficient available balance: $${(availableBalance / 100).toFixed(2)} < $${(estimatedCostCents / 100).toFixed(2)}`
+        );
+      }
+
+      // Create hold document
+      const holdRef = db.collection(COLLECTIONS.WALLET_HOLDS).doc();
+      holdId = holdRef.id;
+
+      txn.set(holdRef, {
+        userId,
+        amountCents: estimatedCostCents,
+        status: 'active',
+        jobId,
+        feature,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+
+      // Atomically increase pending holds on the billing context
+      txn.update(docRef, {
+        pendingHoldsCents: FieldValue.increment(estimatedCostCents),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    });
+
+    logger.info('[createWalletHold] Hold created', {
+      holdId,
+      userId,
+      estimatedCostCents,
+      jobId,
+      feature,
+    });
+
+    return {
+      success: true,
+      holdId,
+      availableBalance: availableBalance - estimatedCostCents,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to create hold';
+    logger.warn('[createWalletHold] Hold rejected', {
+      userId,
+      estimatedCostCents,
+      reason: message,
+    });
+    return { success: false, reason: message, availableBalance };
+  }
+}
+
+/**
+ * Capture a wallet hold — deduct the actual cost and release the remaining hold.
+ *
+ * Called after an AI operation completes with the real cost from `resolveAICost()`.
+ * The actual cost is always ≤ the hold amount (estimates are conservative).
+ *
+ * Lifecycle:
+ *   1. Release the full hold amount from `pendingHoldsCents`
+ *   2. Deduct the actual cost from `walletBalanceCents`
+ *   3. Mark the hold document as 'captured'
+ *
+ * @param db Firestore instance
+ * @param holdId The hold document ID from `createWalletHold()`
+ * @param actualCostCents The real cost after LLM execution
+ */
+export async function captureWalletHold(
+  db: Firestore,
+  holdId: string,
+  actualCostCents: number
+): Promise<void> {
+  if (actualCostCents < 0) {
+    throw new Error('Actual cost cannot be negative');
+  }
+
+  const holdRef = db.collection(COLLECTIONS.WALLET_HOLDS).doc(holdId);
+
+  await db.runTransaction(async (txn) => {
+    const holdDoc = await txn.get(holdRef);
+
+    if (!holdDoc.exists) {
+      throw new Error(`Wallet hold ${holdId} not found`);
+    }
+
+    const hold = holdDoc.data() as WalletHold;
+
+    if (hold.status !== 'active') {
+      throw new Error(`Wallet hold ${holdId} is already ${hold.status}`);
+    }
+
+    // Find the user's billing context
+    const ctxSnap = await txn.get(
+      db.collection(COLLECTIONS.BILLING_CONTEXTS).where('userId', '==', hold.userId).limit(1)
+    );
+
+    if (ctxSnap.empty) {
+      throw new Error(`Billing context not found for user ${hold.userId}`);
+    }
+
+    const ctxRef = ctxSnap.docs[0]!.ref;
+
+    // Release the full hold and deduct the actual cost
+    txn.update(ctxRef, {
+      pendingHoldsCents: FieldValue.increment(-hold.amountCents),
+      walletBalanceCents: FieldValue.increment(-actualCostCents),
+      currentPeriodSpend: FieldValue.increment(actualCostCents),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    // Mark hold as captured
+    txn.update(holdRef, {
+      status: 'captured',
+      capturedAmountCents: actualCostCents,
+      resolvedAt: FieldValue.serverTimestamp(),
+    });
+  });
+
+  logger.info('[captureWalletHold] Hold captured', { holdId, actualCostCents });
+}
+
+/**
+ * Release a wallet hold without charging — used when an AI operation fails
+ * or is cancelled. Returns the full hold amount to the available balance.
+ *
+ * @param db Firestore instance
+ * @param holdId The hold document ID from `createWalletHold()`
+ */
+export async function releaseWalletHold(db: Firestore, holdId: string): Promise<void> {
+  const holdRef = db.collection(COLLECTIONS.WALLET_HOLDS).doc(holdId);
+
+  await db.runTransaction(async (txn) => {
+    const holdDoc = await txn.get(holdRef);
+
+    if (!holdDoc.exists) {
+      throw new Error(`Wallet hold ${holdId} not found`);
+    }
+
+    const hold = holdDoc.data() as WalletHold;
+
+    if (hold.status !== 'active') {
+      logger.warn('[releaseWalletHold] Hold already resolved', {
+        holdId,
+        status: hold.status,
+      });
+      return;
+    }
+
+    // Find the user's billing context
+    const ctxSnap = await txn.get(
+      db.collection(COLLECTIONS.BILLING_CONTEXTS).where('userId', '==', hold.userId).limit(1)
+    );
+
+    if (ctxSnap.empty) {
+      throw new Error(`Billing context not found for user ${hold.userId}`);
+    }
+
+    const ctxRef = ctxSnap.docs[0]!.ref;
+
+    // Release the hold — no deduction
+    txn.update(ctxRef, {
+      pendingHoldsCents: FieldValue.increment(-hold.amountCents),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    // Mark hold as released
+    txn.update(holdRef, {
+      status: 'released',
+      resolvedAt: FieldValue.serverTimestamp(),
+    });
+  });
+
+  logger.info('[releaseWalletHold] Hold released', { holdId });
+}
+
+/**
+ * Expire stale wallet holds that were never captured or released.
+ * Called by a scheduled Cloud Function to prevent permanently locked funds.
+ *
+ * @param db Firestore instance
+ * @returns Number of expired holds
+ */
+export async function expireStaleHolds(db: Firestore): Promise<number> {
+  const config = await getPlatformConfig(db);
+  const holdExpiryMs = config.holdExpiryMs || DEFAULT_HOLD_EXPIRY_MS;
+  const cutoff = new Date(Date.now() - holdExpiryMs);
+
+  const snapshot = await db
+    .collection(COLLECTIONS.WALLET_HOLDS)
+    .where('status', '==', 'active')
+    .where('createdAt', '<', cutoff)
+    .limit(200)
+    .get();
+
+  if (snapshot.empty) return 0;
+
+  let expiredCount = 0;
+  const batch = db.batch();
+
+  // Group holds by userId to batch-update billing contexts
+  const holdsByUser = new Map<string, number>();
+
+  for (const doc of snapshot.docs) {
+    const hold = doc.data() as WalletHold;
+
+    batch.update(doc.ref, {
+      status: 'expired',
+      resolvedAt: FieldValue.serverTimestamp(),
+    });
+
+    const existing = holdsByUser.get(hold.userId) ?? 0;
+    holdsByUser.set(hold.userId, existing + hold.amountCents);
+    expiredCount++;
+  }
+
+  await batch.commit();
+
+  // Release pending holds on each affected user's billing context
+  for (const [userId, totalHeldCents] of holdsByUser) {
+    const ctxSnap = await db
+      .collection(COLLECTIONS.BILLING_CONTEXTS)
+      .where('userId', '==', userId)
+      .limit(1)
+      .get();
+
+    if (!ctxSnap.empty) {
+      await ctxSnap.docs[0]!.ref.update({
+        pendingHoldsCents: FieldValue.increment(-totalHeldCents),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
+  logger.info('[expireStaleHolds] Expired stale holds', { expiredCount });
+  return expiredCount;
 }

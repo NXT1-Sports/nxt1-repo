@@ -64,6 +64,14 @@ export interface UsageOverview {
   readonly period: UsagePeriod;
   /** Currency code */
   readonly currency: Currency;
+  /** Billing entity type — drives B2C vs B2B UI fork */
+  readonly billingEntity: BillingEntity;
+  /** How this context is funded */
+  readonly paymentProvider: PaymentProviderType;
+  /** Pre-paid wallet balance in cents (B2C / IAP users) */
+  readonly walletBalanceCents: number;
+  /** Pending wallet holds in cents (funds reserved for in-flight operations) */
+  readonly pendingHoldsCents: number;
 }
 
 // ============================================
@@ -375,6 +383,10 @@ export interface UsageDashboardData {
   readonly coupon: UsageCoupon | null;
   /** Budgets */
   readonly budgets: readonly UsageBudget[];
+  /** Billing entity type — drives B2C vs B2B UI fork */
+  readonly billingEntity: BillingEntity;
+  /** How this context is funded */
+  readonly paymentProvider: PaymentProviderType;
 }
 
 // ============================================

@@ -46,7 +46,6 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
         (postSelect)="onPostSelect($event)"
         (authorSelect)="onAuthorSelect($event)"
         (newsArticleSelect)="onNewsArticleSelect($event)"
-        (xpBadgeClick)="onXpBadgeClick()"
       />
     </ion-content>
   `,
@@ -169,13 +168,5 @@ export class ExploreComponent {
   protected onNewsArticleSelect(article: { id: string; title: string }): void {
     this.logger.debug('News article selected', { id: article.id });
     this.navController.navigateForward(['/news', article.id]);
-  }
-
-  /**
-   * Handle XP badge click - navigate to XP/rewards.
-   */
-  protected onXpBadgeClick(): void {
-    this.logger.debug('XP badge clicked');
-    this.navController.navigateForward(['/rewards']);
   }
 }

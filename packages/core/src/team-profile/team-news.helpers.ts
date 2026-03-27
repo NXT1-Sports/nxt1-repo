@@ -41,11 +41,10 @@ function mapPostToBoardItem(post: TeamProfilePost): NewsBoardItem {
     excerpt: post.body ?? '',
     imageUrl: post.thumbnailUrl,
     sourceName: undefined,
-    sourceAvatarUrl: undefined,
+    faviconUrl: undefined,
     category: resolveCategory(post.type),
     publishedAt: post.createdAt,
-    readingTimeMinutes: undefined,
-    likeCount: post.likeCount || undefined,
+    viewCount: undefined,
     commentCount: post.commentCount || undefined,
     ctaLabel: undefined,
   };

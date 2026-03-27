@@ -11,28 +11,24 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import type {
-  UsageChartDataPoint,
-  UsageProductDetail,
-  UsageProductCategory,
-  UsageTimeframe,
-} from '@nxt1/core';
+import type { UsageChartDataPoint, UsageTimeframe } from '@nxt1/core';
 import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
+import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 
 @Component({
   selector: 'nxt1-usage-chart',
   standalone: true,
   imports: [CommonModule],
   template: `
-    <section class="usage-chart-section">
+    <section class="usage-chart-section" [attr.data-testid]="testIds.CHART_SECTION">
       <!-- METERED USAGE HEADER -->
       <div class="chart-section-header">
-        <h2 class="section-heading">Metered usage</h2>
         <div class="timeframe-select">
           <select
             [value]="timeframe()"
             (change)="onTimeframeChange($event)"
             class="timeframe-dropdown"
+            [attr.data-testid]="testIds.TIMEFRAME_SELECT"
           >
             @for (opt of timeframeOptions; track opt.id) {
               <option [value]="opt.id">{{ opt.label }}</option>
@@ -42,7 +38,7 @@ import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
       </div>
 
       <!-- LINE CHART -->
-      <div class="chart-container">
+      <div class="chart-container" [attr.data-testid]="testIds.CHART_CONTAINER">
         <div class="chart-header">
           <div>
             <h3 class="chart-title">Metered usage</h3>
@@ -107,75 +103,21 @@ import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
         </div>
       </div>
 
-      <!-- PRODUCT TABS -->
-      <div class="product-tabs-container">
-        <h3 class="tabs-title">Usage by products</h3>
-
-        <div class="product-tabs">
-          @for (tab of productTabs(); track tab.category) {
-            <button
-              type="button"
-              class="product-tab"
-              [class.product-tab--active]="activeTab() === tab.category"
-              (click)="tabChange.emit(tab.category)"
-            >
-              <span>{{ tab.label }}</span>
-            </button>
-          }
+      <!-- BILLABLE SUMMARY (replaces per-product tabs — everything flows through Agent X) -->
+      <div class="billable-summary">
+        <div class="detail-header">
+          <h3 class="tabs-title">Billable usage</h3>
+          <button
+            type="button"
+            class="card-link"
+            [attr.data-testid]="testIds.CHART_VIEW_BREAKDOWN"
+            (click)="viewBreakdown.emit()"
+          >
+            View breakdown
+          </button>
         </div>
-
-        <!-- Active Tab Detail -->
-        @if (activeDetail()) {
-          <div class="tab-detail">
-            <div class="detail-columns">
-              <!-- Left: Billable usage -->
-              <div class="detail-column">
-                <div class="detail-header">
-                  <h4 class="detail-label">Billable usage</h4>
-                  <button type="button" class="card-link" (click)="viewBreakdown.emit()">
-                    View details
-                  </button>
-                </div>
-                <div class="detail-amount">{{ formatAmount(activeDetail()!.billableAmount) }}</div>
-                <p class="detail-stats">
-                  {{ formatAmount(activeDetail()!.consumedAmount) }} consumed usage –
-                  {{ formatAmount(activeDetail()!.discountAmount) }} discounts
-                </p>
-                <p class="detail-description">{{ activeDetail()!.discountDescription }}</p>
-              </div>
-
-              <!-- Right: Included usage -->
-              <div class="detail-column">
-                <div class="detail-header">
-                  <h4 class="detail-label">Included usage</h4>
-                  <button type="button" class="card-link" (click)="manageBudgets.emit()">
-                    Manage budgets
-                  </button>
-                </div>
-                @for (quota of activeDetail()!.includedQuotas; track quota.label) {
-                  <div class="quota-row">
-                    <span class="quota-label">{{ quota.label }}</span>
-                    <span class="quota-value">
-                      {{ quota.used }} {{ quota.unit }} used / {{ quota.included | number }}
-                      {{ quota.unit }} included
-                    </span>
-                  </div>
-                  <div class="quota-bar-container">
-                    <div
-                      class="quota-bar"
-                      [style.width.%]="getQuotaPercent(quota.used, quota.included)"
-                    ></div>
-                  </div>
-                }
-                @if (activeDetail()!.includedQuotas.length > 0) {
-                  <p class="quota-reset">
-                    Included usage limits reset in {{ activeDetail()!.includedResetDays }} days.
-                  </p>
-                }
-              </div>
-            </div>
-          </div>
-        }
+        <div class="detail-amount">{{ totalBillable() }}</div>
+        <p class="detail-stats">All Agent X operations for this period.</p>
       </div>
     </section>
   `,
@@ -392,9 +334,9 @@ import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
         color: var(--nxt1-color-text-tertiary);
       }
 
-      /* ── PRODUCT TABS ─────────────── */
+      /* ── BILLABLE SUMMARY ─────────────── */
 
-      .product-tabs-container {
+      .billable-summary {
         background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-subtle);
         border-radius: var(--nxt1-radius-lg, 12px);
@@ -407,73 +349,7 @@ import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
         font-size: var(--nxt1-fontSize-base);
         font-weight: var(--nxt1-fontWeight-semibold);
         color: var(--nxt1-color-text-primary);
-        margin: 0 0 var(--nxt1-spacing-4) 0;
-      }
-
-      .product-tabs {
-        display: flex;
-        gap: var(--nxt1-spacing-1);
-        border-bottom: 1px solid var(--nxt1-color-border-subtle);
-        margin-bottom: var(--nxt1-spacing-5);
-        overflow-x: auto;
-        scrollbar-width: none;
-        -webkit-overflow-scrolling: touch;
-
-        &::-webkit-scrollbar {
-          display: none;
-        }
-      }
-
-      .product-tab {
-        display: flex;
-        align-items: center;
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
-        font-size: var(--nxt1-fontSize-sm);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-weight: var(--nxt1-fontWeight-medium);
-        color: var(--nxt1-color-text-secondary);
-        background: none;
-        border: none;
-        border-bottom: var(--nxt1-spacing-0-5, 2px) solid transparent;
-        cursor: pointer;
-        white-space: nowrap;
-        transition: all var(--nxt1-transition-fast);
-
-        &:hover {
-          color: var(--nxt1-color-text-primary);
-        }
-
-        &.product-tab--active {
-          color: var(--nxt1-color-text-primary);
-          border-bottom-color: var(--nxt1-color-primary);
-        }
-      }
-
-      .tab-detail {
-        animation: fadeIn var(--nxt1-duration-normal) var(--nxt1-easing-out);
-      }
-
-      @keyframes fadeIn {
-        from {
-          opacity: 0;
-          transform: translateY(var(--nxt1-spacing-1, 4px));
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-
-      .detail-columns {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: var(--nxt1-spacing-6);
-      }
-
-      @media (max-width: 768px) {
-        .detail-columns {
-          grid-template-columns: 1fr;
-        }
+        margin: 0;
       }
 
       .detail-header {
@@ -481,13 +357,6 @@ import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
         align-items: center;
         justify-content: space-between;
         margin-bottom: var(--nxt1-spacing-2);
-      }
-
-      .detail-label {
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        color: var(--nxt1-color-text-primary);
-        margin: 0;
       }
 
       .card-link {
@@ -519,53 +388,6 @@ import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
       .detail-stats {
         font-size: var(--nxt1-fontSize-xs);
         color: var(--nxt1-color-text-secondary);
-        margin: 0 0 var(--nxt1-spacing-2) 0;
-      }
-
-      .detail-description {
-        font-size: var(--nxt1-fontSize-xs);
-        color: var(--nxt1-color-text-tertiary);
-        line-height: var(--nxt1-lineHeight-normal);
-        margin: 0;
-      }
-
-      .quota-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: var(--nxt1-spacing-1);
-      }
-
-      .quota-label {
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-medium);
-        color: var(--nxt1-color-text-primary);
-      }
-
-      .quota-value {
-        font-size: var(--nxt1-fontSize-xs);
-        color: var(--nxt1-color-text-secondary);
-      }
-
-      .quota-bar-container {
-        height: var(--nxt1-spacing-1-5);
-        background: var(--nxt1-color-surface-300);
-        border-radius: var(--nxt1-radius-full);
-        overflow: hidden;
-        margin-bottom: var(--nxt1-spacing-3);
-      }
-
-      .quota-bar {
-        height: 100%;
-        background: var(--nxt1-color-primary);
-        border-radius: var(--nxt1-radius-full);
-        transition: width var(--nxt1-duration-slow) var(--nxt1-easing-out);
-        min-width: var(--nxt1-spacing-0-5, 2px);
-      }
-
-      .quota-reset {
-        font-size: var(--nxt1-fontSize-xs);
-        color: var(--nxt1-color-text-tertiary);
         margin: 0;
       }
     `,
@@ -573,22 +395,23 @@ import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsageChartComponent {
+  protected readonly testIds = USAGE_TEST_IDS;
+
   readonly chartData = input.required<readonly UsageChartDataPoint[]>();
-  readonly productTabs = input.required<readonly UsageProductDetail[]>();
-  readonly activeTab = input.required<UsageProductCategory>();
   readonly timeframe = input.required<UsageTimeframe>();
   readonly yLabels = input.required<readonly string[]>();
 
-  readonly tabChange = output<UsageProductCategory>();
   readonly timeframeChange = output<UsageTimeframe>();
   readonly viewBreakdown = output<void>();
-  readonly manageBudgets = output<void>();
 
   protected readonly timeframeOptions = USAGE_TIMEFRAME_OPTIONS;
 
-  protected readonly activeDetail = computed(
-    () => this.productTabs().find((t) => t.category === this.activeTab()) ?? null
-  );
+  /** Total billable amount from the chart's final data point */
+  protected readonly totalBillable = computed(() => {
+    const data = this.chartData();
+    if (data.length === 0) return formatPrice(0);
+    return formatPrice(data[data.length - 1]!.amount);
+  });
 
   private readonly hoverIndex = signal<number | null>(null);
   private readonly hoverXValue = signal(0);
@@ -665,10 +488,5 @@ export class UsageChartComponent {
 
   protected formatAmount(cents: number): string {
     return formatPrice(cents);
-  }
-
-  protected getQuotaPercent(used: number, total: number): number {
-    if (total <= 0) return 0;
-    return Math.min(100, Math.round((used / total) * 100));
   }
 }

@@ -10,6 +10,19 @@
  */
 
 import type { FeedPost, FeedPostType, FeedAuthor, FeedMedia } from './feed.types';
+import type {
+  FeedItem,
+  FeedItemPost,
+  FeedItemEvent,
+  FeedItemStat,
+  FeedItemOffer,
+  FeedItemVisit,
+  FeedItemCamp,
+  FeedItemBase,
+  FeedEngagement,
+  FeedUserEngagement,
+  FeedScheduleData,
+} from './feed.types';
 import type { ProfilePost, ProfilePostType } from '../profile/profile.types';
 import type { ProfileUser, ProfileOffer, ProfileEvent } from '../profile/profile.types';
 import type { TeamProfilePost, TeamProfilePostType } from '../team-profile/team-profile.types';
@@ -529,4 +542,324 @@ export function teamPostsToFeedPosts(
   author: FeedAuthor
 ): readonly FeedPost[] {
   return posts.map((post) => teamPostToFeedPost(post, author));
+}
+
+// ============================================
+// POLYMORPHIC FEED ITEM HELPERS (2026)
+// ============================================
+
+/**
+ * Default empty engagement counters for newly assembled feed items.
+ */
+const EMPTY_ENGAGEMENT: FeedEngagement = {
+  reactionCount: 0,
+  likeCount: 0,
+  commentCount: 0,
+  repostCount: 0,
+  shareCount: 0,
+  viewCount: 0,
+  bookmarkCount: 0,
+};
+
+/**
+ * Default user engagement state (no interactions).
+ */
+const EMPTY_USER_ENGAGEMENT: FeedUserEngagement = {
+  isReacted: false,
+  reactionType: null,
+  isLiked: false,
+  isBookmarked: false,
+  isReposted: false,
+  isFollowingAuthor: false,
+};
+
+/**
+ * Construct the shared base fields for a FeedItem.
+ */
+function buildFeedItemBase(
+  id: string,
+  author: FeedAuthor,
+  createdAt: string,
+  overrides?: {
+    engagement?: Partial<FeedEngagement>;
+    userEngagement?: Partial<FeedUserEngagement>;
+    isPinned?: boolean;
+    isFeatured?: boolean;
+  }
+): Omit<FeedItemBase, 'feedType'> {
+  return {
+    id,
+    author,
+    engagement: { ...EMPTY_ENGAGEMENT, ...overrides?.engagement },
+    userEngagement: { ...EMPTY_USER_ENGAGEMENT, ...overrides?.userEngagement },
+    isPinned: overrides?.isPinned ?? false,
+    isFeatured: overrides?.isFeatured ?? false,
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
+/**
+ * Convert a legacy FeedPost to the new FeedItemPost variant.
+ * Used during migration to bridge old-style data into the union.
+ */
+export function feedPostToFeedItem(post: FeedPost): FeedItemPost {
+  return {
+    ...buildFeedItemBase(post.id, post.author, post.createdAt, {
+      engagement: post.engagement,
+      userEngagement: post.userEngagement,
+      isPinned: post.isPinned,
+      isFeatured: post.isFeatured,
+    }),
+    feedType: 'POST',
+    postType: post.type,
+    visibility: post.visibility,
+    title: post.title,
+    content: post.content,
+    richContent: post.richContent,
+    media: post.media,
+    hashtags: post.hashtags,
+    mentions: post.mentions,
+    location: post.location,
+    externalSource: post.externalSource,
+    commentsDisabled: post.commentsDisabled,
+    postTags: post.postTags,
+    repostData: post.repostData,
+    updatedAt: post.updatedAt,
+  };
+}
+
+/**
+ * Convert a Firestore Events document into a FeedItemEvent.
+ * Called by the backend timeline assembler.
+ */
+export function eventDocToFeedItemEvent(
+  docId: string,
+  data: {
+    date: string;
+    opponent?: string;
+    opponentLogoUrl?: string;
+    location?: string;
+    isHome?: boolean;
+    status?: string;
+    result?: { teamScore?: number; opponentScore?: number; outcome?: string; overtime?: boolean };
+    sport?: string;
+    teamId?: string;
+  },
+  author: FeedAuthor
+): FeedItemEvent {
+  const resultStr =
+    data.result && data.status === 'final'
+      ? `${data.result.outcome === 'win' ? 'W' : data.result.outcome === 'loss' ? 'L' : 'T'} ${data.result.teamScore ?? 0}-${data.result.opponentScore ?? 0}`
+      : undefined;
+
+  return {
+    ...buildFeedItemBase(`event-${docId}`, author, data.date),
+    feedType: 'EVENT',
+    referenceId: docId,
+    eventData: {
+      eventTitle: data.opponent ? `vs ${data.opponent}` : 'Game',
+      opponent: data.opponent,
+      opponentLogoUrl: data.opponentLogoUrl,
+      venue: data.location,
+      dateTime: data.date,
+      isHome: data.isHome,
+      result: resultStr,
+      status: (data.status as FeedScheduleData['status']) ?? 'final',
+    },
+  };
+}
+
+/**
+ * Convert a Firestore PlayerStats document into a FeedItemStat.
+ * Called by the backend timeline assembler.
+ */
+export function statDocToFeedItemStat(
+  docId: string,
+  data: {
+    createdAt: string;
+    context?: string;
+    gameDate?: string;
+    gameResult?: string;
+    opponent?: string;
+    stats: readonly {
+      label: string;
+      value: string | number;
+      unit?: string;
+      isHighlight?: boolean;
+    }[];
+    seasonTotals?: readonly {
+      label: string;
+      value: string | number;
+      unit?: string;
+      isHighlight?: boolean;
+    }[];
+  },
+  author: FeedAuthor
+): FeedItemStat {
+  return {
+    ...buildFeedItemBase(`stat-${docId}`, author, data.createdAt),
+    feedType: 'STAT',
+    referenceId: docId,
+    statData: {
+      context: data.context ?? 'Stat Update',
+      gameDate: data.gameDate,
+      gameResult: data.gameResult,
+      opponent: data.opponent,
+      stats: data.stats,
+      seasonTotals: data.seasonTotals,
+    },
+  };
+}
+
+/**
+ * Convert a ProfileOffer into a FeedItemOffer.
+ */
+export function profileOfferToFeedItemOffer(
+  offer: ProfileOffer,
+  author: FeedAuthor
+): FeedItemOffer {
+  const media: readonly FeedMedia[] = offer.graphicUrl
+    ? [
+        {
+          id: `${offer.id}-graphic`,
+          type: 'image',
+          url: offer.graphicUrl,
+          thumbnailUrl: offer.graphicUrl,
+          altText: `${offer.collegeName} offer graphic`,
+        },
+      ]
+    : [];
+
+  return {
+    ...buildFeedItemBase(`offer-${offer.id}`, author, offer.date),
+    feedType: 'OFFER',
+    referenceId: offer.id,
+    offerData: {
+      collegeName: offer.collegeName,
+      collegeLogoUrl: offer.collegeLogoUrl,
+      offerType:
+        offer.scholarshipType === 'preferred_walk_on'
+          ? 'preferred-walk-on'
+          : offer.category === 'offer'
+            ? 'scholarship'
+            : 'interest',
+      sport: offer.sport,
+      division: offer.division,
+      conference: offer.conference,
+    },
+    media,
+  };
+}
+
+/**
+ * Convert a ProfileEvent into a FeedItemVisit or FeedItemCamp.
+ */
+export function profileEventToFeedItemVariant(
+  event: ProfileEvent,
+  author: FeedAuthor
+): FeedItemVisit | FeedItemCamp | FeedItemEvent {
+  if (event.type === 'visit') {
+    return {
+      ...buildFeedItemBase(`visit-${event.id}`, author, event.startDate),
+      feedType: 'VISIT',
+      referenceId: event.id,
+      visitData: {
+        collegeName:
+          event.name.replace(/\s*(Official|Unofficial)\s*Visit/i, '').trim() || event.name,
+        collegeLogoUrl: event.logoUrl,
+        visitType: event.name.toLowerCase().includes('official') ? 'official' : 'unofficial',
+        location: event.location,
+        visitDate: event.startDate,
+        endDate: event.endDate,
+        graphicUrl: event.graphicUrl,
+      },
+      media: event.graphicUrl
+        ? [
+            {
+              id: `${event.id}-graphic`,
+              type: 'image',
+              url: event.graphicUrl,
+              thumbnailUrl: event.graphicUrl,
+              altText: `${event.name} graphic`,
+            },
+          ]
+        : [],
+    };
+  }
+
+  if (event.type === 'camp' || event.type === 'combine' || event.type === 'showcase') {
+    return {
+      ...buildFeedItemBase(`camp-${event.id}`, author, event.startDate),
+      feedType: 'CAMP',
+      referenceId: event.id,
+      campData: {
+        campName: event.name,
+        campType: event.type as 'camp' | 'combine' | 'showcase',
+        location: event.location,
+        eventDate: event.startDate,
+        logoUrl: event.logoUrl,
+        graphicUrl: event.graphicUrl,
+      },
+      media: event.graphicUrl
+        ? [
+            {
+              id: `${event.id}-graphic`,
+              type: 'image',
+              url: event.graphicUrl,
+              thumbnailUrl: event.graphicUrl,
+              altText: `${event.name} graphic`,
+            },
+          ]
+        : [],
+    };
+  }
+
+  // Default: game or other type → FeedItemEvent
+  return {
+    ...buildFeedItemBase(`event-${event.id}`, author, event.startDate),
+    feedType: 'EVENT',
+    referenceId: event.id,
+    eventData: {
+      eventTitle: event.name,
+      venue: event.location,
+      dateTime: event.startDate,
+      status: 'final',
+    },
+  };
+}
+
+/**
+ * Builds a polymorphic unified activity feed from profile data.
+ * This is the 2026 replacement for buildUnifiedActivityFeed.
+ *
+ * @param posts - User's timeline posts (already as FeedPost[])
+ * @param offers - Recruiting offers
+ * @param events - Visits, camps, combines, showcases
+ * @param author - Profile owner as FeedAuthor
+ * @returns Chronologically sorted (newest first) FeedItem array
+ */
+export function buildPolymorphicActivityFeed(
+  posts: readonly FeedPost[],
+  offers: readonly ProfileOffer[],
+  events: readonly ProfileEvent[],
+  author: FeedAuthor
+): readonly FeedItem[] {
+  const items: FeedItem[] = [];
+
+  for (const post of posts) {
+    items.push(feedPostToFeedItem(post));
+  }
+
+  for (const offer of offers) {
+    items.push(profileOfferToFeedItemOffer(offer, author));
+  }
+
+  for (const event of events) {
+    items.push(profileEventToFeedItemVariant(event, author));
+  }
+
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  return items;
 }

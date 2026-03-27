@@ -787,3 +787,351 @@ export interface FeedCommentsResponse {
   /** Error message */
   readonly error?: string;
 }
+
+// ============================================
+// POLYMORPHIC FEED ITEM — DISCRIMINATED UNION
+// ============================================
+// 2026 Enterprise Standard: Each feed item variant is strictly
+// typed via `feedType` discriminator. The backend assembles these
+// from multiple Firestore collections (Posts, Events, PlayerStats, etc.)
+// and the frontend renders them via @switch (item.feedType).
+//
+// The legacy FeedPost interface above is preserved for backward
+// compatibility during migration and will be removed in Phase 5.
+// ============================================
+
+/**
+ * Discriminator tag for polymorphic feed items.
+ * Each value maps to a specific payload shape.
+ */
+export type FeedItemType =
+  | 'POST'
+  | 'EVENT'
+  | 'STAT'
+  | 'METRIC'
+  | 'OFFER'
+  | 'COMMITMENT'
+  | 'VISIT'
+  | 'CAMP'
+  | 'AWARD'
+  | 'NEWS'
+  | 'SCOUT_REPORT'
+  | 'ACADEMIC'
+  | 'SHARED_REFERENCE';
+
+/**
+ * Base fields shared by every feed item regardless of type.
+ * Provides the data the "Smart Shell" wrapper needs to render
+ * consistently (author, timestamp, engagement, interactions).
+ */
+export interface FeedItemBase {
+  /** Unique item ID (may be prefixed, e.g. "event-abc123") */
+  readonly id: string;
+  /** Discriminator tag — determines which payload is present */
+  readonly feedType: FeedItemType;
+  /** Item author / actor */
+  readonly author: FeedAuthor;
+  /** Engagement counters */
+  readonly engagement: FeedEngagement;
+  /** Current user's engagement state */
+  readonly userEngagement: FeedUserEngagement;
+  /** Whether item is pinned to top of timeline */
+  readonly isPinned: boolean;
+  /** Whether item is featured / promoted */
+  readonly isFeatured: boolean;
+  /** Created timestamp (ISO 8601) */
+  readonly createdAt: string;
+  /** Updated timestamp (ISO 8601) */
+  readonly updatedAt: string;
+}
+
+// --- Variant: Standard Text/Media Post ---
+
+/**
+ * A user-authored text or media post from the Posts collection.
+ */
+export interface FeedItemPost extends FeedItemBase {
+  readonly feedType: 'POST';
+  /** Post visibility */
+  readonly visibility: FeedPostVisibility;
+  /** Granular content type for the post (text, image, video, etc.) */
+  readonly postType: FeedPostType;
+  /** Post title */
+  readonly title?: string;
+  /** Text body */
+  readonly content?: string;
+  /** Rich content (markdown/HTML) */
+  readonly richContent?: string;
+  /** Media attachments */
+  readonly media: readonly FeedMedia[];
+  /** Hashtags */
+  readonly hashtags?: readonly string[];
+  /** Mentions */
+  readonly mentions?: readonly string[];
+  /** Location tag */
+  readonly location?: string;
+  /** External source annotation (e.g. synced from Hudl) */
+  readonly externalSource?: FeedExternalSource;
+  /** Whether comments are disabled */
+  readonly commentsDisabled: boolean;
+  /** Attached profile data tags (stat chips, award chips) */
+  readonly postTags?: readonly FeedPostTag[];
+  /** Repost metadata */
+  readonly repostData?: FeedRepostData;
+  /** Original post (for reposts) */
+  readonly originalPost?: FeedItemPost;
+}
+
+// --- Variant: Structured Game/Event ---
+
+/**
+ * A structured game or event from the Events collection.
+ * Rendered as a native box score / schedule card.
+ */
+export interface FeedItemEvent extends FeedItemBase {
+  readonly feedType: 'EVENT';
+  /** ID of the source document in the Events collection */
+  readonly referenceId: string;
+  /** Structured event/game data */
+  readonly eventData: FeedScheduleData;
+}
+
+// --- Variant: Stat Update ---
+
+/**
+ * A stat-line update from a game or season, sourced from PlayerStats.
+ */
+export interface FeedItemStat extends FeedItemBase {
+  readonly feedType: 'STAT';
+  /** ID of the source document in the PlayerStats collection */
+  readonly referenceId: string;
+  /** Structured stat data */
+  readonly statData: FeedStatUpdateData;
+}
+
+// --- Variant: Metrics / Measurables ---
+
+/**
+ * Combine results, measurables, or physical testing data.
+ */
+export interface FeedItemMetric extends FeedItemBase {
+  readonly feedType: 'METRIC';
+  /** ID of the source document */
+  readonly referenceId: string;
+  /** Structured metrics data */
+  readonly metricsData: FeedMetricsData;
+}
+
+// --- Variant: College Offer ---
+
+/**
+ * A recruiting offer from a college program.
+ */
+export interface FeedItemOffer extends FeedItemBase {
+  readonly feedType: 'OFFER';
+  /** ID of the source recruiting activity document */
+  readonly referenceId: string;
+  /** Structured offer data */
+  readonly offerData: FeedOfferData;
+  /** Optional media (offer graphic) */
+  readonly media?: readonly FeedMedia[];
+}
+
+// --- Variant: Commitment ---
+
+/**
+ * A commitment to a college program.
+ */
+export interface FeedItemCommitment extends FeedItemBase {
+  readonly feedType: 'COMMITMENT';
+  /** ID of the source recruiting activity document */
+  readonly referenceId: string;
+  /** Structured commitment data */
+  readonly commitmentData: FeedCommitmentData;
+  /** Optional media (commitment graphic) */
+  readonly media?: readonly FeedMedia[];
+}
+
+// --- Variant: Campus Visit ---
+
+/**
+ * A campus visit, junior day, or game-day visit.
+ */
+export interface FeedItemVisit extends FeedItemBase {
+  readonly feedType: 'VISIT';
+  /** ID of the source event document */
+  readonly referenceId: string;
+  /** Structured visit data */
+  readonly visitData: FeedVisitData;
+  /** Optional media (visit photo) */
+  readonly media?: readonly FeedMedia[];
+}
+
+// --- Variant: Camp/Combine/Showcase ---
+
+/**
+ * Attendance or result from a camp, combine, or showcase.
+ */
+export interface FeedItemCamp extends FeedItemBase {
+  readonly feedType: 'CAMP';
+  /** ID of the source event document */
+  readonly referenceId: string;
+  /** Structured camp data */
+  readonly campData: FeedCampData;
+  /** Optional media (camp graphic) */
+  readonly media?: readonly FeedMedia[];
+}
+
+// --- Variant: Award ---
+
+/**
+ * An award, honor, or achievement.
+ */
+export interface FeedItemAward extends FeedItemBase {
+  readonly feedType: 'AWARD';
+  /** ID of the source award document */
+  readonly referenceId: string;
+  /** Structured award data */
+  readonly awardData: FeedAwardData;
+}
+
+// --- Variant: News Article ---
+
+/**
+ * An AI-generated or syndicated news article.
+ */
+export interface FeedItemNews extends FeedItemBase {
+  readonly feedType: 'NEWS';
+  /** ID of the source news document */
+  readonly referenceId: string;
+  /** Structured news data */
+  readonly newsData: FeedNewsData;
+}
+
+// --- Variant: AI Scout Report ---
+
+/**
+ * An Agent X-generated scout report.
+ */
+export interface FeedItemScoutReport extends FeedItemBase {
+  readonly feedType: 'SCOUT_REPORT';
+  /** ID of the source scout report document */
+  readonly referenceId: string;
+  /** Scout report summary text */
+  readonly summary: string;
+  /** Overall rating (0-100) */
+  readonly overallRating?: number;
+  /** Tier classification */
+  readonly tier?: string;
+}
+
+// --- Variant: Academic Update ---
+
+/**
+ * A GPA, test score, or eligibility update.
+ */
+export interface FeedItemAcademic extends FeedItemBase {
+  readonly feedType: 'ACADEMIC';
+  /** ID of the source academic document */
+  readonly referenceId: string;
+  /** Structured academic data */
+  readonly academicData: FeedAcademicData;
+}
+
+// --- Variant: Shared Reference (Quote-Post) ---
+
+/**
+ * A user post that references another entity (event, stat, etc.).
+ * Rendered as the user's text caption + an embedded native widget.
+ */
+export interface FeedItemSharedReference extends FeedItemBase {
+  readonly feedType: 'SHARED_REFERENCE';
+  /** User's caption text */
+  readonly content?: string;
+  /** Media attachments */
+  readonly media?: readonly FeedMedia[];
+  /** Type of the referenced entity */
+  readonly referenceType: FeedItemType;
+  /** ID of the referenced entity document */
+  readonly referenceId: string;
+  /** The fully hydrated referenced entity (resolved by backend) */
+  readonly referenceItem: FeedItem;
+}
+
+// --- The Discriminated Union ---
+
+/**
+ * Polymorphic feed item — the 2026 standard for timeline and explore data.
+ *
+ * Use `item.feedType` as the discriminator in `@switch` blocks:
+ * ```typescript
+ * @switch (item.feedType) {
+ *   @case ('POST') { <nxt1-feed-text-content [data]="item" /> }
+ *   @case ('EVENT') { <nxt1-feed-event-card [data]="item" /> }
+ *   @case ('STAT') { <nxt1-feed-stat-card [data]="item" /> }
+ * }
+ * ```
+ */
+export type FeedItem =
+  | FeedItemPost
+  | FeedItemEvent
+  | FeedItemStat
+  | FeedItemMetric
+  | FeedItemOffer
+  | FeedItemCommitment
+  | FeedItemVisit
+  | FeedItemCamp
+  | FeedItemAward
+  | FeedItemNews
+  | FeedItemScoutReport
+  | FeedItemAcademic
+  | FeedItemSharedReference;
+
+// --- Type guard helpers ---
+
+/** Narrow a FeedItem to FeedItemPost */
+export function isFeedItemPost(item: FeedItem): item is FeedItemPost {
+  return item.feedType === 'POST';
+}
+
+/** Narrow a FeedItem to FeedItemEvent */
+export function isFeedItemEvent(item: FeedItem): item is FeedItemEvent {
+  return item.feedType === 'EVENT';
+}
+
+/** Narrow a FeedItem to FeedItemStat */
+export function isFeedItemStat(item: FeedItem): item is FeedItemStat {
+  return item.feedType === 'STAT';
+}
+
+/** Narrow a FeedItem to FeedItemSharedReference */
+export function isFeedItemSharedReference(item: FeedItem): item is FeedItemSharedReference {
+  return item.feedType === 'SHARED_REFERENCE';
+}
+
+// --- Response types for the new polymorphic API ---
+
+/**
+ * Polymorphic timeline response from the backend.
+ */
+export interface FeedItemResponse {
+  readonly success: boolean;
+  readonly data: readonly FeedItem[];
+  readonly nextCursor?: string;
+  readonly hasMore: boolean;
+}
+
+/**
+ * Redis materialized view pointer for explore feed.
+ * Stored in Redis by the background worker; hydrated by the API.
+ */
+export interface FeedPointer {
+  /** The feed item type */
+  readonly feedType: FeedItemType;
+  /** Document ID in the source collection */
+  readonly id: string;
+  /** Collection name in Firestore */
+  readonly collection: string;
+  /** Engagement score used by the ranking algorithm */
+  readonly score?: number;
+}

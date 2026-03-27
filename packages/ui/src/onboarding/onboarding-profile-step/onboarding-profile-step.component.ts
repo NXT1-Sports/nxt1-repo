@@ -55,7 +55,7 @@ import {
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { IonInput, IonSelect, IonSelectOption, IonSpinner } from '@ionic/angular/standalone';
-import { isValidName, isValidPhone } from '@nxt1/core/helpers';
+import { isValidName, isValidPhone, normalizeName } from '@nxt1/core/helpers';
 import { USER_ROLES } from '@nxt1/core';
 import type {
   ProfileFormData,
@@ -1026,7 +1026,7 @@ export class OnboardingProfileStepComponent {
    */
   onFirstNameInput(event: CustomEvent): void {
     const input = event.target as HTMLInputElement;
-    this.firstName.set(input.value || '');
+    this.firstName.set(normalizeName(input.value || ''));
     this.emitProfileChange();
   }
 
@@ -1035,7 +1035,7 @@ export class OnboardingProfileStepComponent {
    */
   onLastNameInput(event: CustomEvent): void {
     const input = event.target as HTMLInputElement;
-    this.lastName.set(input.value || '');
+    this.lastName.set(normalizeName(input.value || ''));
     this.emitProfileChange();
   }
 
@@ -1248,8 +1248,8 @@ export class OnboardingProfileStepComponent {
   private emitProfileChange(): void {
     const images = this.profileImgs();
     this.profileChange.emit({
-      firstName: this.firstName(),
-      lastName: this.lastName(),
+      firstName: normalizeName(this.firstName()),
+      lastName: normalizeName(this.lastName()),
       profileImgs: images.length > 0 ? images : null,
       gender: this.gender(),
       location: this.location(),
@@ -1279,7 +1279,7 @@ export class OnboardingProfileStepComponent {
     });
 
     if (result.confirmed && result.value.trim()) {
-      this.firstName.set(result.value.trim());
+      this.firstName.set(normalizeName(result.value.trim()));
       this.firstNameTouched.set(true);
       this.emitProfileChange();
     }
@@ -1301,7 +1301,7 @@ export class OnboardingProfileStepComponent {
     });
 
     if (result.confirmed && result.value.trim()) {
-      this.lastName.set(result.value.trim());
+      this.lastName.set(normalizeName(result.value.trim()));
       this.lastNameTouched.set(true);
       this.emitProfileChange();
     }

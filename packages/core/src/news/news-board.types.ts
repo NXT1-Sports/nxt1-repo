@@ -43,8 +43,8 @@ export interface NewsBoardItem {
   /** Source / author display name (shown in footer pill). */
   readonly sourceName?: string;
 
-  /** Source / author avatar URL (shown in footer pill). */
-  readonly sourceAvatarUrl?: string;
+  /** Source favicon URL (shown in footer pill). */
+  readonly faviconUrl?: string;
 
   /**
    * Normalised category for board-level filtering.
@@ -58,11 +58,8 @@ export interface NewsBoardItem {
   /** Publication timestamp (ISO 8601 string). */
   readonly publishedAt: string;
 
-  /** Estimated reading time in minutes (omit to hide). */
-  readonly readingTimeMinutes?: number;
-
-  /** Like count (shown in meta when reading time unavailable). */
-  readonly likeCount?: number;
+  /** View count (shown in meta). */
+  readonly viewCount?: number;
 
   /** Comment count (shown in meta). */
   readonly commentCount?: number;

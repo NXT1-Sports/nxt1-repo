@@ -2,7 +2,14 @@
  * @fileoverview Agent Activity & Notification Service
  * @module @nxt1/backend/services/agent-activity
  *
- * Convenience wrapper for Agent X task completion notifications.
+ * Unified dispatcher for ALL Agent X notifications. Every agent output —
+ * whether it's a welcome graphic, daily briefing, coach-reply analysis,
+ * or a generated highlight reel — flows through a single `AGENT_ACTION`
+ * notification type.
+ *
+ * Title, body, and media are derived dynamically from the operation result
+ * so the AI controls its own notification copy. No hardcoded strings.
+ *
  * Delegates to the unified `NotificationService.dispatch()` — no direct
  * Firestore writes to `notifications` or `users/{uid}/activity` here.
  *
@@ -35,27 +42,22 @@ export interface AgentActivityInput {
 // ============================================
 
 /**
- * Log a completed Agent X task to the user's activity feed and dispatch a push notification.
+ * Log a completed Agent X action to the user's activity feed and dispatch
+ * a push notification.
  *
- * Delegates to the unified NotificationService so the same push queue,
- * Cloud Function processor, and preference checks are used as every
- * other feature on the platform.
+ * Title and body are built dynamically from the operation result — the AI
+ * controls what the user sees. No special-case branching for welcome,
+ * briefing, or any other action type.
  */
 export async function logAgentTaskCompletion(
   db: Firestore,
   input: AgentActivityInput
 ): Promise<DispatchResult> {
   const { userId, job, result } = input;
-  const isWelcome = job.context?.['origin'] === 'registration';
-  const title = isWelcome ? 'Welcome to NXT1! 🎨' : buildTitle(result);
-  const body = isWelcome
-    ? 'Agent X created a personalized welcome graphic just for you.'
-    : result.summary || 'Your task has been completed.';
+  const title = buildTitle(result);
+  const body = buildBody(result);
   const threadId = job.context?.['threadId'] as string | undefined;
   const deepLink = threadId ? `/agent-x?thread=${encodeURIComponent(threadId)}` : '/agent-x';
-  const notificationType = isWelcome
-    ? NOTIFICATION_TYPES.AGENT_WELCOME
-    : NOTIFICATION_TYPES.AI_TASK_COMPLETE;
 
   // Extract media URLs from result data (e.g. generated graphics, highlight reels)
   const imageUrl = (result.data?.['imageUrl'] as string) ?? '';
@@ -63,7 +65,7 @@ export async function logAgentTaskCompletion(
 
   const dispatchResult = await dispatch(db, {
     userId,
-    type: notificationType,
+    type: NOTIFICATION_TYPES.AGENT_ACTION,
     title,
     body,
     deepLink,
@@ -89,7 +91,7 @@ export async function logAgentTaskCompletion(
     },
   });
 
-  logger.info('Agent task activity dispatched via unified service', {
+  logger.info('Agent action dispatched via unified service', {
     userId,
     activityId: dispatchResult.activityId,
     notificationId: dispatchResult.notificationId,
@@ -114,7 +116,7 @@ export interface AgentFailureInput {
 }
 
 /**
- * Notify the user that an Agent X task failed.
+ * Notify the user that an Agent X action failed.
  * The user sees this in their activity feed so they know something
  * went wrong (instead of just silence).
  */
@@ -123,18 +125,18 @@ export async function logAgentTaskFailure(
   input: AgentFailureInput
 ): Promise<DispatchResult> {
   const { userId, job, errorMessage } = input;
-  const isWelcome = job.context?.['origin'] === 'registration';
 
-  const title = 'Agent X: Task Issue';
-  const body = isWelcome
-    ? "We couldn't generate your welcome graphic right now. Tap to try again."
-    : `Something went wrong with your request. ${errorMessage.length <= 80 ? errorMessage : 'Tap to retry.'}`;
+  const title = 'Agent X ran into an issue';
+  const body =
+    errorMessage.length <= 100
+      ? `${errorMessage} Tap to retry.`
+      : 'Something went wrong with your request. Tap to retry.';
   const threadId = job.context?.['threadId'] as string | undefined;
   const deepLink = threadId ? `/agent-x?thread=${encodeURIComponent(threadId)}` : '/agent-x';
 
   const dispatchResult = await dispatch(db, {
     userId,
-    type: NOTIFICATION_TYPES.AI_TASK_COMPLETE,
+    type: NOTIFICATION_TYPES.AGENT_ACTION,
     title,
     body,
     deepLink,
@@ -155,7 +157,7 @@ export async function logAgentTaskFailure(
     },
   });
 
-  logger.info('Agent task failure notification dispatched', {
+  logger.info('Agent action failure notification dispatched', {
     userId,
     activityId: dispatchResult.activityId,
     operationId: job.operationId,
@@ -164,12 +166,38 @@ export async function logAgentTaskFailure(
   return dispatchResult;
 }
 
+// ============================================
+// DYNAMIC TITLE & BODY BUILDERS
+// ============================================
+
 /**
- * Build a human-readable title from the operation result.
+ * Build a concise, dynamic push-notification title from the operation result.
+ * The AI's own summary drives the copy — no hardcoded per-action strings.
  */
 function buildTitle(result: AgentOperationResult): string {
-  if (result.summary && result.summary.length <= 65) {
+  // If the agent provided a short-enough summary, use it directly
+  if (result.summary && result.summary.length <= 60) {
     return `Agent X: ${result.summary}`;
   }
-  return 'Agent X: Task Complete';
+  // If the summary is too long, take the first sentence
+  if (result.summary) {
+    const firstSentence = result.summary.split(/[.!]/).at(0)?.trim();
+    if (firstSentence && firstSentence.length <= 60) {
+      return `Agent X: ${firstSentence}`;
+    }
+  }
+  return 'Agent X has an update for you';
+}
+
+/**
+ * Build the notification body from the result.
+ * Prefers the agent's own description, falls back gracefully.
+ */
+function buildBody(result: AgentOperationResult): string {
+  if (result.summary && result.summary.length > 60) {
+    // Truncate to push-notification friendly length
+    return result.summary.length <= 200 ? result.summary : result.summary.slice(0, 197) + '...';
+  }
+  // If summary was used as title, use a generic CTA
+  return 'Tap to see what Agent X has for you.';
 }

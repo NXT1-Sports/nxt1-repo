@@ -101,7 +101,7 @@ import {
   SIDENAV_WIDTHS,
   SIDENAV_ANIMATION,
 } from '@nxt1/ui';
-import { AUTH_ROUTES, formatSportDisplayName } from '@nxt1/core';
+import { AUTH_ROUTES, formatSportDisplayName, isTeamRole } from '@nxt1/core';
 import { AuthFlowService } from '../../../features/auth/services/auth-flow.service';
 import { ProfileService } from '../../../core/services/profile.service';
 
@@ -159,6 +159,7 @@ import { ProfileService } from '../../../core/services/profile.service';
         [config]="footerConfig()"
         [profileAvatarSrc]="sidenavUser()?.profileImg"
         [profileAvatarName]="sidenavUser()?.name"
+        [profileAvatarIsTeam]="profileAvatarIsTeam()"
         (tabSelect)="onTabSelect($event)"
         (scrollToTop)="onScrollToTop($event)"
       />
@@ -330,6 +331,12 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     })
   );
 
+  /**
+   * Whether the current user is a coach/director (team role).
+   * When true, footer profile tab shows team logo; falls back to shield icon when no logo.
+   */
+  readonly profileAvatarIsTeam = computed(() => isTeamRole(this.profileService.user()?.role));
+
   // ============================================
   // SIDENAV CONFIGURATION
   // ============================================
@@ -360,7 +367,11 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       const primarySportName = this.resolveSportName(primarySport);
       const position = primarySport?.positions?.[0] ?? '';
       const displayName = `${profile.firstName} ${profile.lastName}`.trim();
-      const profileImg = profile.profileImgs?.[0] || authUser?.profileImg || undefined;
+      // Coach/Director roles: use team logo instead of user profile photo
+      const profileImg =
+        isTeamRole(profile.role) && profile.teamCode?.logoUrl
+          ? profile.teamCode.logoUrl
+          : profile.profileImgs?.[0] || authUser?.profileImg || undefined;
 
       const subtitle = primarySportName
         ? position
@@ -720,6 +731,24 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     if (tab.isActionButton) {
       this.handleAgentAction(tab, currentTabId ?? this.getFallbackTabId());
       return;
+    }
+
+    // Special case: Coach/Director profile tab → navigate to their team by slug
+    // Mirrors the web top nav behavior where /profile redirects to /team/:slug
+    if (tab.id === 'profile') {
+      const user = this.profileService.user();
+      if (user && isTeamRole(user.role)) {
+        const slug =
+          user.teamCode?.slug ?? user.teamCode?.unicode ?? user.coach?.managedTeamCodes?.[0];
+        if (slug) {
+          const direction = this.getAnimationDirection(
+            currentTabId ?? this.getFallbackTabId(),
+            tab.id
+          );
+          this.navigateToTab(`/team/${slug}`, direction);
+          return;
+        }
+      }
     }
 
     // Navigate to tab route with directional animation

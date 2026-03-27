@@ -200,16 +200,16 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   /**
-   * Team profile routes - Use Client rendering to avoid SSR hydration mismatch
-   * Data is loaded async on client for better performance
+   * Team profile routes — Server-rendered for SEO (Open Graph, rich snippets).
+   * Hydration mismatch fixed via slug-aware guard in TeamProfileService.
    */
   {
     path: 'team/:slug',
-    renderMode: RenderMode.Client,
+    renderMode: RenderMode.Server,
   },
   {
     path: 'team/**',
-    renderMode: RenderMode.Client,
+    renderMode: RenderMode.Server,
   },
   {
     path: 'manage-team',

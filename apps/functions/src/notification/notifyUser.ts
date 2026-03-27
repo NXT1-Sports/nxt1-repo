@@ -21,6 +21,9 @@
 
 import * as admin from 'firebase-admin';
 
+/** 45-day TTL — Firestore auto-deletes expired docs when a TTL policy is enabled. */
+const NOTIFICATION_TTL_MS = 45 * 24 * 60 * 60 * 1000;
+
 export interface FunctionNotifyInput {
   readonly userId: string;
   readonly type: string;
@@ -87,6 +90,7 @@ export async function notifyUser(
     },
     status: 'pending',
     createdAt: now,
+    expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + NOTIFICATION_TTL_MS),
   });
 
   // 2. Activity feed doc — user-visible in the /activity inbox tab
@@ -102,6 +106,7 @@ export async function notifyUser(
     deepLink: input.deepLink,
     metadata: input.metadata ?? null,
     source: input.source ?? null,
+    expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + NOTIFICATION_TTL_MS),
   });
 
   await batch.commit();

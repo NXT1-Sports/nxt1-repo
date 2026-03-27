@@ -167,13 +167,18 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
                     class="profile-avatar-wrapper"
                     [class.profile-avatar-wrapper--active]="isActiveTab(tab)"
                   >
-                    <nxt1-avatar
-                      [src]="profileAvatarSrc()"
-                      [name]="profileAvatarName()"
-                      [customSize]="28"
-                      [showSkeleton]="false"
-                      cssClass="footer-profile-avatar"
-                    />
+                    @if (!profileAvatarSrc() && profileAvatarIsTeam()) {
+                      <!-- Team role with no logo: show shield icon instead of initials -->
+                      <nxt1-icon name="shield" [size]="26" class="team-shield-icon" />
+                    } @else {
+                      <nxt1-avatar
+                        [src]="profileAvatarSrc()"
+                        [name]="profileAvatarName()"
+                        [customSize]="28"
+                        [showSkeleton]="false"
+                        cssClass="footer-profile-avatar"
+                      />
+                    }
                   </div>
                 } @else {
                   <nxt1-icon [name]="tab.icon" [size]="24" class="tab-icon" />
@@ -781,6 +786,12 @@ export class NxtMobileFooterComponent {
 
   /** Profile avatar display name (for initials fallback) */
   readonly profileAvatarName = input<string | undefined>(undefined);
+
+  /**
+   * Whether the profile owner is a team role (coach/director).
+   * When true and no profileAvatarSrc, shows a shield icon instead of initials.
+   */
+  readonly profileAvatarIsTeam = input<boolean>(false);
 
   /** Currently active tab ID (if controlling externally). Set to null for no selection. */
   readonly activeTabId = input<string | null | undefined>(undefined);

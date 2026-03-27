@@ -116,6 +116,7 @@ import {
   createEmptySportEntry,
 } from '@nxt1/core/api';
 import { AUTH_ROUTES, AUTH_REDIRECTS as _AUTH_REDIRECTS, USER_ROLES } from '@nxt1/core/constants';
+import { normalizeName } from '@nxt1/core/helpers';
 import { createBrowserStorageAdapter, STORAGE_KEYS as _STORAGE_KEYS } from '@nxt1/core/storage';
 
 // Geolocation - Cross-platform location detection
@@ -1500,8 +1501,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
       const profileData: OnboardingProfileData = {
         userType,
-        firstName: formData.profile?.firstName || '',
-        lastName: formData.profile?.lastName || '',
+        firstName: normalizeName(formData.profile?.firstName || ''),
+        lastName: normalizeName(formData.profile?.lastName || ''),
         profileImgs: formData.profile?.profileImgs || undefined,
         bio: formData.profile?.bio,
         gender: formData.profile?.gender ?? undefined,

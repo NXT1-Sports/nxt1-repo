@@ -62,7 +62,7 @@ export const HELP_CATEGORIES: readonly HelpCategory[] = [
   },
   {
     id: 'recruiting',
-    label: 'Recruiting',
+    label: 'Discovery',
     icon: 'school-outline',
     description: 'Navigate the college recruiting process',
     color: 'var(--nxt1-color-feedback-warning)',

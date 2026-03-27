@@ -1,18 +1,15 @@
 /**
  * @fileoverview News Service - Shared State Management
  * @module @nxt1/ui/news
- * @version 1.0.0
+ * @version 2.0.0
  *
- * Signal-based state management for Sports News feature.
+ * Signal-based state management for Sports News (Pulse) feature.
  * Shared between web and mobile applications.
  *
  * Features:
  * - Reactive state with Angular signals
  * - Category-based feed management
- * - Badge counts tracking
  * - Infinite scroll pagination
- * - Bookmark functionality
- * - Reading progress tracking with XP
  * - Pull-to-refresh support
  *
  * @example
@@ -32,28 +29,23 @@
  * ```
  */
 
-import { Injectable, inject, signal, computed, InjectionToken } from '@angular/core';
+import { Injectable, inject, signal, computed, InjectionToken, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import {
   type NewsArticle,
   type NewsCategoryId,
   type NewsPagination,
   type NewsFilter,
-  type ReadingStats,
   NEWS_DEFAULT_CATEGORY,
   NEWS_CATEGORIES,
   NEWS_PAGINATION_DEFAULTS,
-  NEWS_XP_REWARDS,
 } from '@nxt1/core';
+import { APP_EVENTS, FIREBASE_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
-// Mock data — used only when no real API adapter is provided (dev / mobile stub)
-import {
-  getMockArticlesByCategory,
-  getMockRelatedArticles,
-  MOCK_NEWS_BADGE_COUNTS,
-  MOCK_READING_STATS,
-} from './news.mock-data';
+import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 
 // ============================================
 // NEWS API ADAPTER INJECTION TOKEN
@@ -69,8 +61,8 @@ export interface INewsApiAdapter {
     page: number,
     limit: number
   ): Promise<{ data: NewsArticle[]; pagination: NewsPagination }>;
-  toggleBookmark(articleId: string): Promise<void>;
-  getRelatedArticles(articleId: string, limit?: number): Promise<NewsArticle[]>;
+
+  getArticle?(id: string): Promise<NewsArticle | null>;
 }
 
 /**
@@ -95,7 +87,12 @@ export class NewsService {
   private readonly apiAdapter = inject(NEWS_API_ADAPTER, { optional: true });
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
+  private readonly platformId = inject(PLATFORM_ID);
+
+  // ✅ All four observability pillars
   private readonly logger = inject(NxtLoggingService).child('NewsService');
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -104,16 +101,15 @@ export class NewsService {
   private readonly _articles = signal<NewsArticle[]>([]);
   private readonly _activeCategory = signal<NewsCategoryId>(NEWS_DEFAULT_CATEGORY);
   private readonly _filters = signal<NewsFilter>({});
-  // ⚠️ FALLBACK: Using mock badge counts when no adapter is provided
-  private readonly _badges = signal<Record<NewsCategoryId, number>>(MOCK_NEWS_BADGE_COUNTS);
+  private readonly _badges = signal<Record<NewsCategoryId, number>>(
+    {} as Record<NewsCategoryId, number>
+  );
   private readonly _isLoading = signal(false);
   private readonly _isLoadingMore = signal(false);
   private readonly _isRefreshing = signal(false);
   private readonly _error = signal<string | null>(null);
   private readonly _pagination = signal<NewsPagination | null>(null);
   private readonly _selectedArticle = signal<NewsArticle | null>(null);
-  private readonly _readingProgress = signal<number>(0);
-  private readonly _readingStats = signal<ReadingStats | null>(MOCK_READING_STATS);
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
@@ -155,12 +151,6 @@ export class NewsService {
   /** Currently selected article for detail view */
   readonly selectedArticle = computed(() => this._selectedArticle());
 
-  /** Current reading progress (0-100) */
-  readonly readingProgress = computed(() => this._readingProgress());
-
-  /** User's reading statistics */
-  readonly readingStats = computed(() => this._readingStats());
-
   /** Total unread count across all categories */
   readonly totalUnread = computed(() => {
     const badges = this._badges();
@@ -182,27 +172,6 @@ export class NewsService {
     }));
   });
 
-  /** Bookmarked articles */
-  readonly bookmarkedArticles = computed(() => {
-    return this._articles().filter((article) => article.isBookmarked);
-  });
-
-  /** Unread articles in current category */
-  readonly unreadArticles = computed(() => {
-    return this._articles().filter((article) => !article.isRead);
-  });
-
-  /** Featured articles */
-  readonly featuredArticles = computed(() => {
-    return this._articles().filter((article) => article.isFeatured);
-  });
-
-  /** Total XP earned from reading */
-  readonly totalXp = computed(() => {
-    const stats = this._readingStats();
-    return stats?.totalXpEarned ?? 0;
-  });
-
   // ============================================
   // PUBLIC METHODS
   // ============================================
@@ -214,6 +183,7 @@ export class NewsService {
    */
   async setCategory(category: NewsCategoryId): Promise<void> {
     if (category === this._activeCategory()) return;
+    this.analytics?.trackEvent(APP_EVENTS.NEWS_CATEGORY_CHANGED, { news_category: category });
     await this.loadFeed(category);
   }
 
@@ -224,7 +194,8 @@ export class NewsService {
    * @param category - Category ID to load (defaults to current active category)
    */
   async loadFeed(category: NewsCategoryId = this._activeCategory()): Promise<void> {
-    this.logger.debug('Loading news feed', { category });
+    this.logger.info('Loading news feed', { category });
+    this.breadcrumb.trackStateChange('news:loading', { category });
     this._activeCategory.set(category);
     this._isLoading.set(true);
     this._error.set(null);
@@ -237,24 +208,32 @@ export class NewsService {
         this._articles.set(result.data);
         this._pagination.set(result.pagination);
       } else {
-        // Mock fallback (dev / mobile stub)
-        await this.simulateNetworkDelay();
-        const articles = getMockArticlesByCategory(category);
-        this._articles.set(articles);
+        // No API adapter — show empty feed
+        this._articles.set([]);
         this._pagination.set({
           page: 1,
           limit: NEWS_PAGINATION_DEFAULTS.LIMIT,
-          total: articles.length,
-          totalPages: Math.ceil(articles.length / NEWS_PAGINATION_DEFAULTS.LIMIT),
-          hasMore: articles.length > NEWS_PAGINATION_DEFAULTS.LIMIT,
+          total: 0,
+          totalPages: 0,
+          hasMore: false,
         });
       }
 
-      this.logger.debug('Feed loaded successfully', { count: this._articles().length });
+      this.logger.info('Feed loaded successfully', { category, count: this._articles().length });
+      this.breadcrumb.trackStateChange('news:loaded', { category, count: this._articles().length });
+      this.analytics?.trackEvent(APP_EVENTS.NEWS_FEED_VIEWED, {
+        news_category: category,
+        count: this._articles().length,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load news';
       this._error.set(message);
-      this.logger.error('Failed to load feed', err);
+      this.logger.error('Failed to load feed', err, { category });
+      this.breadcrumb.trackStateChange('news:error', { category });
+      this.analytics?.trackEvent(APP_EVENTS.NEWS_ERROR_FEED_LOAD, {
+        news_category: category,
+        error: message,
+      });
     } finally {
       this._isLoading.set(false);
     }
@@ -267,7 +246,7 @@ export class NewsService {
     const pagination = this._pagination();
     if (!pagination?.hasMore || this._isLoadingMore()) return;
 
-    this.logger.debug('Loading more articles');
+    this.logger.info('Loading more articles', { nextPage: pagination.page + 1 });
     this._isLoadingMore.set(true);
 
     try {
@@ -281,16 +260,16 @@ export class NewsService {
         this._articles.update((current) => [...current, ...result.data]);
         this._pagination.set(result.pagination);
       } else {
-        // Mock fallback: simulate no more pages
-        await this.simulateNetworkDelay(500);
-        this._pagination.update((p) => (p ? { ...p, page: p.page + 1, hasMore: false } : null));
+        // No API adapter — nothing to load
+        this._pagination.update((p) => (p ? { ...p, hasMore: false } : null));
       }
 
+      this.analytics?.trackEvent(APP_EVENTS.NEWS_LOAD_MORE, { page: pagination.page + 1 });
       await this.haptics.impact('light');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load more';
       this.toast.error(message);
-      this.logger.error('Failed to load more', err);
+      this.logger.error('Failed to load more', err, { page: pagination.page + 1 });
     } finally {
       this._isLoadingMore.set(false);
     }
@@ -300,14 +279,16 @@ export class NewsService {
    * Refresh feed (pull-to-refresh).
    */
   async refresh(): Promise<void> {
-    this.logger.debug('Refreshing feed');
+    this.logger.info('Refreshing feed');
+    this.analytics?.trackEvent(APP_EVENTS.NEWS_FEED_REFRESHED);
     this._isRefreshing.set(true);
 
     try {
       await this.loadFeed(this._activeCategory());
       await this.haptics.notification('success');
       this.toast.success('Feed updated');
-    } catch {
+    } catch (err) {
+      this.logger.error('Failed to refresh feed', err);
       await this.haptics.notification('error');
     } finally {
       this._isRefreshing.set(false);
@@ -322,23 +303,16 @@ export class NewsService {
   async selectArticle(article: NewsArticle | null): Promise<void> {
     if (!article) {
       this._selectedArticle.set(null);
-      this._readingProgress.set(0);
       return;
     }
 
-    this.logger.debug('Selecting article', { articleId: article.id });
-    this._readingProgress.set(0);
-
+    this.logger.info('Selecting article', { articleId: article.id });
     this._selectedArticle.set(article);
-
-    // Award XP for opening article
-    this.awardXp('article-open', NEWS_XP_REWARDS['article-open']);
-
-    // Mark as read in the list
-    this._articles.update((articles) =>
-      articles.map((a) => (a.id === article.id ? { ...a, isRead: true } : a))
-    );
-
+    this.analytics?.trackEvent(APP_EVENTS.NEWS_ARTICLE_VIEWED, {
+      articleId: article.id,
+      sport: article.sport,
+      source: article.source,
+    });
     await this.haptics.impact('light');
   }
 
@@ -348,71 +322,45 @@ export class NewsService {
    */
   clearSelectedArticle(): void {
     this._selectedArticle.set(null);
-    this._readingProgress.set(0);
   }
 
   /**
-   * Update reading progress.
+   * Load an article by its Firestore document ID.
+   * Used when navigating directly to /news/:id.
    *
-   * @param progress - Progress percentage (0-100)
+   * @param id - Firestore document ID
    */
-  updateReadingProgress(progress: number): void {
-    const previousProgress = this._readingProgress();
-    this._readingProgress.set(progress);
-
-    // Award XP for milestones
-    if (previousProgress < 50 && progress >= 50) {
-      this.awardXp('article-half', NEWS_XP_REWARDS['article-half']);
-    }
-    if (previousProgress < 100 && progress >= 100) {
-      this.awardXp('article-complete', NEWS_XP_REWARDS['article-complete']);
-    }
-  }
-
-  /**
-   * Toggle bookmark status for an article.
-   *
-   * @param articleId - Article to bookmark/unbookmark
-   */
-  async toggleBookmark(articleId: string): Promise<void> {
-    this.logger.debug('Toggling bookmark', { articleId });
-
-    // Optimistic update
-    const previous = this._articles();
-    this._articles.update((articles) =>
-      articles.map((a) => (a.id === articleId ? { ...a, isBookmarked: !a.isBookmarked } : a))
-    );
-
-    // Also update selected article if it's the same
-    const selected = this._selectedArticle();
-    if (selected?.id === articleId) {
-      this._selectedArticle.set({ ...selected, isBookmarked: !selected.isBookmarked });
-    }
+  async loadArticleById(id: string): Promise<void> {
+    this._isLoading.set(true);
+    this._error.set(null);
+    this.logger.info('Loading article by ID', { id });
+    this.breadcrumb.trackStateChange('news:article-loading', { id });
 
     try {
-      if (this.apiAdapter) {
-        await this.apiAdapter.toggleBookmark(articleId);
+      if (this.apiAdapter?.getArticle) {
+        const article = await this.apiAdapter.getArticle(id);
+        if (article) {
+          this._selectedArticle.set(article);
+          this.analytics?.trackEvent(APP_EVENTS.NEWS_ARTICLE_VIEWED, {
+            articleId: article.id,
+            sport: article.sport,
+            source: article.source,
+          });
+          this.logger.info('Article loaded', { id, source: article.source });
+          this.breadcrumb.trackStateChange('news:article-loaded', { id });
+        } else {
+          this._error.set('Article not found');
+          this.logger.warn('Article not found', { id });
+        }
       } else {
-        // Mock fallback
-        await this.simulateNetworkDelay(200);
-      }
-
-      const article = this._articles().find((a) => a.id === articleId);
-      if (article?.isBookmarked) {
-        await this.haptics.notification('success');
-        this.toast.success('Article saved');
-      } else {
-        await this.haptics.impact('light');
-        this.toast.info('Removed from saved');
+        this._error.set('Article loading not available');
       }
     } catch (err) {
-      // Rollback on error
-      this._articles.set(previous);
-      if (selected?.id === articleId) {
-        this._selectedArticle.set(selected);
-      }
-      this.toast.error('Failed to update bookmark');
-      this.logger.error('Bookmark toggle failed', err, { articleId });
+      const message = err instanceof Error ? err.message : 'Failed to load article';
+      this._error.set(message);
+      this.logger.error('Failed to load article by ID', err, { id });
+    } finally {
+      this._isLoading.set(false);
     }
   }
 
@@ -422,43 +370,27 @@ export class NewsService {
    * @param article - Article to share
    */
   async shareArticle(article: NewsArticle): Promise<void> {
-    this.logger.debug('Sharing article', { articleId: article.id });
+    this.logger.info('Sharing article', { articleId: article.id });
 
     try {
-      // Native share API (handled by platform-specific code)
-      if (typeof navigator !== 'undefined' && navigator.share) {
+      if (isPlatformBrowser(this.platformId) && navigator.share) {
         await navigator.share({
           title: article.title,
           text: article.excerpt,
           url: `https://nxt1.com/news/${article.slug || article.id}`,
         });
 
-        // Award XP for sharing
-        this.awardXp('article-share', NEWS_XP_REWARDS['article-share']);
+        this.analytics?.trackEvent(FIREBASE_EVENTS.SHARE, {
+          method: 'native',
+          content_type: 'news_article',
+          item_id: article.id,
+        });
         await this.haptics.notification('success');
       }
     } catch (err) {
       // User cancelled or share failed - not an error
       this.logger.debug('Share cancelled or failed', { error: err });
     }
-  }
-
-  /**
-   * Get related articles for current article.
-   */
-  getRelatedArticles(articleId: string): NewsArticle[] {
-    // For sync callers — return mock. Async variant used by components with adapter.
-    return getMockRelatedArticles(articleId, 3);
-  }
-
-  /**
-   * Get related articles (async, uses real API when adapter is available).
-   */
-  async getRelatedArticlesAsync(articleId: string): Promise<NewsArticle[]> {
-    if (this.apiAdapter) {
-      return this.apiAdapter.getRelatedArticles(articleId, 3);
-    }
-    return getMockRelatedArticles(articleId, 3);
   }
 
   /**
@@ -478,34 +410,5 @@ export class NewsService {
   async clearFilters(): Promise<void> {
     this._filters.set({});
     await this.loadFeed(this._activeCategory());
-  }
-
-  // ============================================
-  // PRIVATE METHODS
-  // ============================================
-
-  /**
-   * Award XP and show toast.
-   */
-  private awardXp(type: string, amount: number): void {
-    this.toast.success(`+${amount} XP earned!`, { duration: 2000 });
-    this.logger.debug('XP awarded', { type, amount });
-
-    // Update reading stats
-    this._readingStats.update((stats) =>
-      stats
-        ? {
-            ...stats,
-            totalXpEarned: stats.totalXpEarned + amount,
-          }
-        : null
-    );
-  }
-
-  /**
-   * Simulate network delay for mock data.
-   */
-  private async simulateNetworkDelay(ms: number = 800): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

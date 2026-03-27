@@ -6,6 +6,7 @@
  * Uses unified error handling from @nxt1/core.
  */
 
+import { timingSafeEqual } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { auth as prodAuth } from '../utils/firebase.js';
 import { unauthorizedError, forbiddenError } from '@nxt1/core/errors';
@@ -149,4 +150,32 @@ export async function adminGuard(req: Request, res: Response, next: NextFunction
     const apiError = forbiddenError('admin');
     res.status(403).json(apiError.toResponse());
   }
+}
+
+/**
+ * CRON guard — validates a shared secret from Cloud Scheduler.
+ *
+ * The secret is stored in `CRON_SECRET` env var (Firebase Secret Manager)
+ * and passed by the Cloud Function in the `x-cron-secret` header.
+ */
+export function cronGuard(req: Request, res: Response, next: NextFunction): void {
+  const secret = req.headers['x-cron-secret'];
+  const expected = process.env['CRON_SECRET'];
+
+  if (!expected || typeof secret !== 'string') {
+    const error = forbiddenError('permission');
+    res.status(403).json(error.toResponse());
+    return;
+  }
+
+  // Constant-time comparison to prevent timing attacks
+  const a = Buffer.from(secret, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+    const error = forbiddenError('permission');
+    res.status(403).json(error.toResponse());
+    return;
+  }
+
+  next();
 }

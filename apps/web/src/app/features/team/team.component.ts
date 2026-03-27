@@ -41,11 +41,21 @@ import { AuthModalService } from '@nxt1/ui/auth';
 import { QrCodeService } from '@nxt1/ui/qr-code';
 import { TeamProfileService } from '@nxt1/ui/team-profile';
 import { ManageTeamModalService } from '@nxt1/ui/manage-team';
+import {
+  NxtBottomSheetService,
+  SHEET_PRESETS,
+  type BottomSheetAction,
+} from '@nxt1/ui/components/bottom-sheet';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { AuthFlowService } from '../auth/services';
-import { SeoService, AnalyticsService, ShareService } from '../../core/services';
+import {
+  SeoService,
+  AnalyticsService,
+  ShareService,
+  ProfilePageActionsService,
+} from '../../core/services';
 
 const CTA_AVATARS: readonly CtaAvatarImage[] = [
   { src: `/${IMAGE_PATHS.athlete1}`, alt: 'High school athlete' },
@@ -124,6 +134,8 @@ export class TeamComponent implements OnInit {
   private readonly share = inject(ShareService);
   private readonly teamProfile = inject(TeamProfileService);
   private readonly manageTeamModal = inject(ManageTeamModalService);
+  private readonly profilePageActions = inject(ProfilePageActionsService);
+  private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -152,6 +164,35 @@ export class TeamComponent implements OnInit {
   protected readonly ctaAvatars = CTA_AVATARS;
 
   constructor() {
+    // Update mobile top-nav edit/more buttons when team admin status is resolved
+    effect(() => {
+      const isAdmin = this.isTeamAdmin();
+      // Show more for everyone; show pencil only for admins
+      this.profilePageActions.setMobileActions({ showEdit: isAdmin, showMore: true });
+    });
+
+    // Handle mobile top-nav pencil tap — open manage team modal
+    // Capture current counter so we only react to NEW taps, not stale values
+    // from a previous page (e.g. profile → team navigation).
+    let lastEditHandled = this.profilePageActions.editRequested();
+    effect(() => {
+      const count = this.profilePageActions.editRequested();
+      if (count > lastEditHandled) {
+        lastEditHandled = count;
+        void this.onManageTeam();
+      }
+    });
+
+    // Handle mobile top-nav three-dot tap — open team action sheet
+    let lastMoreHandled = this.profilePageActions.moreRequested();
+    effect(() => {
+      const count = this.profilePageActions.moreRequested();
+      if (count > lastMoreHandled) {
+        lastMoreHandled = count;
+        void this.onTeamMoreMenu();
+      }
+    });
+
     // Effect to update SEO when team data loads
     effect(() => {
       const team = this.teamProfile.team();
@@ -159,6 +200,9 @@ export class TeamComponent implements OnInit {
         this.updateSeo(team);
       }
     });
+
+    // Clear mobile action buttons when navigating away from this page
+    this.destroyRef.onDestroy(() => this.profilePageActions.clearMobileActions());
   }
 
   ngOnInit(): void {
@@ -304,6 +348,7 @@ export class TeamComponent implements OnInit {
         sport: team.sport || 'Sports',
         unicode: team.slug,
         isOwnProfile: this.isTeamAdmin(),
+        entityType: 'team',
       });
     } catch (err) {
       this.logger.error('Failed to open QR code modal', err);
@@ -350,6 +395,52 @@ export class TeamComponent implements OnInit {
   protected onPostClick(post: TeamProfilePost): void {
     if (post.id) {
       this.router.navigate(['/post', post.id]);
+    }
+  }
+
+  /**
+   * Mobile three-dot menu — triggered by top-nav (moreClick) via ProfilePageActionsService.
+   * Mirrors TeamProfileShellWebComponent.onMenuClick() for the mobile top-nav context.
+   */
+  protected async onTeamMoreMenu(): Promise<void> {
+    const isAdmin = this.isTeamAdmin();
+    const actions: BottomSheetAction[] = isAdmin
+      ? [
+          { label: 'Manage Team', role: 'secondary', icon: 'settings' },
+          { label: 'Share Team', role: 'secondary', icon: 'share' },
+          { label: 'QR Code', role: 'secondary', icon: 'qrCode' },
+          { label: 'Copy Link', role: 'secondary', icon: 'link' },
+        ]
+      : [
+          { label: 'Share Team', role: 'secondary', icon: 'share' },
+          { label: 'Copy Link', role: 'secondary', icon: 'link' },
+          { label: 'Report', role: 'destructive', icon: 'flag' },
+        ];
+
+    const result = await this.bottomSheet.show<BottomSheetAction>({
+      actions,
+      showClose: false,
+      backdropDismiss: true,
+      ...SHEET_PRESETS.COMPACT,
+    });
+
+    const selected = result?.data as BottomSheetAction | undefined;
+    if (!selected) return;
+
+    switch (selected.label) {
+      case 'Manage Team':
+        await this.onManageTeam();
+        break;
+      case 'Share Team':
+      case 'Copy Link':
+        await this.onShare();
+        break;
+      case 'QR Code':
+        await this.onQrCode();
+        break;
+      case 'Report':
+        this.logger.info('Report team requested');
+        break;
     }
   }
 }

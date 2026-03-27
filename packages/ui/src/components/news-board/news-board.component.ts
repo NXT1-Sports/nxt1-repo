@@ -372,15 +372,7 @@ export class NewsBoardComponent {
 
   /** Section-aware filtered item list. */
   readonly filteredItems = computed((): readonly NewsArticle[] => {
-    const section = this.normalizedSection();
     const all = this.items();
-
-    if (section === 'announcements') {
-      return all.filter((i) => (i.category as string) === 'announcement');
-    }
-    if (section === 'media-mentions') {
-      return all.filter((i) => (i.category as string) === 'media-mention');
-    }
     return all;
   });
 

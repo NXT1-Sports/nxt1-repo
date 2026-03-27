@@ -53,6 +53,11 @@ import {
 import { GenerateImageTool } from '../tools/media/index.js';
 import { WebSearchTool } from '../tools/integrations/web-search.tool.js';
 import { AskUserTool } from '../tools/comms/ask-user.tool.js';
+import {
+  ScheduleRecurringTaskTool,
+  ListRecurringTasksTool,
+  CancelRecurringTaskTool,
+} from '../tools/automation/index.js';
 import { ContextBuilder } from '../memory/context-builder.js';
 import { VectorMemoryService } from '../memory/vector.service.js';
 import { AgentChatService } from '../services/agent-chat.service.js';
@@ -210,6 +215,11 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   const jobRepository = new AgentJobRepository(); // production Firestore
   const stagingJobRepository = new AgentJobRepository(stagingDb); // staging Firestore
   const agentChatService = new AgentChatService();
+
+  // ── 3a. Automation tools (require queueService + Firestore for durable metadata) ──
+  toolRegistry.register(new ScheduleRecurringTaskTool(queueService, stagingDb));
+  toolRegistry.register(new ListRecurringTasksTool(queueService, stagingDb));
+  toolRegistry.register(new CancelRecurringTaskTool(queueService, stagingDb));
 
   // ── 4. Start the background worker ────────────────────────────────────
   // The worker wraps the AgentRouter and additionally persists

@@ -1,0 +1,231 @@
+/**
+ * @fileoverview Schedule Recurring Task Tool
+ * @module @nxt1/backend/modules/agent/tools/automation
+ *
+ * Allows Agent X to create a recurring (cron-based) background task
+ * that re-runs the specified action on a schedule.
+ *
+ * **Restricted to ELITE and TEAM plans.**
+ * Lower-tier users receive a friendly upsell message.
+ *
+ * Security:
+ * - Validates subscription tier directly against Firestore (not LLM input).
+ * - Enforces minimum interval of 1 hour to prevent runaway costs.
+ * - Enforces per-user cap of 10 active schedules.
+ */
+
+import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { BaseTool, type ToolResult } from '../base.tool.js';
+import type { AgentToolCategory, AgentJobPayload } from '@nxt1/core';
+import { PLAN_TIERS, type PlanTier } from '@nxt1/core/constants';
+import type { AgentQueueService } from '../../queue/queue.service.js';
+import { MIN_RECURRING_INTERVAL_MS, MAX_RECURRING_JOBS_PER_USER } from '../../queue/queue.types.js';
+import { logger } from '../../../../utils/logger.js';
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+const RECURRING_TASKS_COLLECTION = 'recurring_tasks' as const;
+const ELIGIBLE_TIERS: readonly string[] = [PLAN_TIERS.ELITE, PLAN_TIERS.TEAM];
+
+/**
+ * Parse a cron expression and estimate the minimum interval in ms
+ * between two consecutive firings. Returns Infinity if unparseable.
+ * Only handles standard 5-field cron (`m h dom mon dow`).
+ */
+function estimateCronIntervalMs(cron: string): number {
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length < 5) return Infinity;
+
+  const [minute, hour] = parts;
+
+  // Every-N-minutes shorthand: */N * * * *
+  const everyMin = minute?.match(/^\*\/(\d+)$/);
+  if (everyMin) return parseInt(everyMin[1], 10) * 60 * 1000;
+
+  // Every-N-hours shorthand: 0 */N * * *
+  const everyHour = hour?.match(/^\*\/(\d+)$/);
+  if (everyHour && (minute === '0' || minute === '*')) {
+    return parseInt(everyHour[1], 10) * 60 * 60 * 1000;
+  }
+
+  // Wildcard minute = every minute
+  if (minute === '*' && hour === '*') return 60 * 1000;
+
+  // Fixed hour = at most once per day
+  if (hour !== '*' && !hour?.includes('/') && !hour?.includes(',')) {
+    return 24 * 60 * 60 * 1000;
+  }
+
+  // Default: assume at least hourly
+  return 60 * 60 * 1000;
+}
+
+// ─── Tool ───────────────────────────────────────────────────────────────────
+
+export class ScheduleRecurringTaskTool extends BaseTool {
+  readonly name = 'schedule_recurring_task';
+  readonly description =
+    'Create a recurring scheduled task that Agent X will automatically execute on a cron schedule. ' +
+    'Requires the ELITE or TEAM subscription plan. ' +
+    'Provide a human-readable action summary (what to do each time), a standard cron expression, ' +
+    'and the userId. The minimum allowed interval is 1 hour.';
+
+  readonly parameters = {
+    type: 'object',
+    properties: {
+      userId: {
+        type: 'string',
+        description: 'The ID of the user to create the schedule for.',
+      },
+      actionSummary: {
+        type: 'string',
+        description:
+          'A clear description of the recurring action (e.g. "Send weekly recruiting update to all D2 coaches in Ohio").',
+      },
+      cronExpression: {
+        type: 'string',
+        description:
+          'A standard 5-field cron expression (minute hour day-of-month month day-of-week). ' +
+          'Examples: "0 8 * * 1" = every Monday at 8 AM, "0 9 1 * *" = 1st of each month at 9 AM.',
+      },
+    },
+    required: ['userId', 'actionSummary', 'cronExpression'],
+  };
+
+  readonly isMutation = true;
+  readonly category: AgentToolCategory = 'automation';
+
+  private readonly db: Firestore;
+  private readonly queueService: AgentQueueService;
+
+  constructor(queueService: AgentQueueService, db?: Firestore) {
+    super();
+    this.queueService = queueService;
+    this.db = db ?? getFirestore();
+  }
+
+  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+    const userId = this.str(input, 'userId');
+    if (!userId) return this.paramError('userId');
+
+    const actionSummary = this.str(input, 'actionSummary');
+    if (!actionSummary) return this.paramError('actionSummary');
+
+    const cronExpression = this.str(input, 'cronExpression');
+    if (!cronExpression) return this.paramError('cronExpression');
+
+    // ── 1. Validate subscription tier ────────────────────────────────
+    const tier = await this.getUserTier(userId);
+    if (!tier || !ELIGIBLE_TIERS.includes(tier)) {
+      return {
+        success: false,
+        error:
+          'Recurring scheduled tasks require the Elite or Team plan. ' +
+          'The user should upgrade their subscription to unlock automated scheduling. ' +
+          'Let them know this is an Elite-tier feature and offer to show upgrade options.',
+      };
+    }
+
+    // ── 2. Validate cron frequency ───────────────────────────────────
+    const intervalMs = estimateCronIntervalMs(cronExpression);
+    if (intervalMs < MIN_RECURRING_INTERVAL_MS) {
+      return {
+        success: false,
+        error:
+          `The cron expression "${cronExpression}" would execute more frequently than once per hour. ` +
+          'The minimum interval for recurring tasks is 1 hour. Please use a less frequent schedule.',
+      };
+    }
+
+    // ── 3. Enforce per-user schedule cap (Firestore is source of truth) ──
+    const existingCount = await this.countUserTasks(userId);
+    if (existingCount >= MAX_RECURRING_JOBS_PER_USER) {
+      return {
+        success: false,
+        error:
+          `Maximum of ${MAX_RECURRING_JOBS_PER_USER} recurring schedules per user reached. ` +
+          'Cancel an existing schedule before adding a new one.',
+      };
+    }
+
+    // ── 4. Build the recurring job payload ───────────────────────────
+    const ts = Date.now();
+    const jobName = `recv:${userId}:${ts}`;
+    const operationId = `recurring-${userId}-${ts}`;
+    const payload: AgentJobPayload = {
+      operationId,
+      userId,
+      intent: actionSummary,
+      sessionId: `scheduled-${userId}`,
+      origin: 'system_cron',
+    };
+
+    // ── 5. Enqueue via BullMQ then persist durable metadata ──────────
+    try {
+      const key = await this.queueService.enqueueRecurring(
+        jobName,
+        cronExpression,
+        payload,
+        'production'
+      );
+
+      // Firestore is the durable source of truth for recurring task metadata.
+      // Redis is ephemeral — it must NEVER be used for persistent business data.
+      await this.db.collection(RECURRING_TASKS_COLLECTION).doc(key).set({
+        userId,
+        actionSummary,
+        cronExpression,
+        jobName,
+        createdAt: FieldValue.serverTimestamp(),
+        environment: 'production',
+      });
+
+      logger.info('Recurring task scheduled', {
+        userId,
+        key,
+        cronExpression,
+        actionSummary,
+      });
+
+      return {
+        success: true,
+        data: {
+          key,
+          actionSummary,
+          cronExpression,
+          message: `Recurring task scheduled successfully. Action "${actionSummary}" will run on schedule: ${cronExpression}.`,
+        },
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to schedule recurring task';
+      logger.error('Failed to schedule recurring task', {
+        userId,
+        cronExpression,
+        error: message,
+      });
+      return { success: false, error: message };
+    }
+  }
+
+  // ─── Internals ──────────────────────────────────────────────────────
+
+  private async getUserTier(userId: string): Promise<PlanTier | null> {
+    try {
+      const doc = await this.db.collection('users').doc(userId).get();
+      if (!doc.exists) return null;
+      const data = doc.data();
+      return (data?.['stripeSubscription']?.['tier'] as PlanTier) ?? PLAN_TIERS.FREE;
+    } catch {
+      return null;
+    }
+  }
+
+  private async countUserTasks(userId: string): Promise<number> {
+    const snap = await this.db
+      .collection(RECURRING_TASKS_COLLECTION)
+      .where('userId', '==', userId)
+      .count()
+      .get();
+    return snap.data().count;
+  }
+}

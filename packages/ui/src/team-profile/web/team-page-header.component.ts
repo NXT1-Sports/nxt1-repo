@@ -15,7 +15,7 @@
  *
  * ⭐ WEB ONLY — SSR-safe, design-token-based ⭐
  */
-import { Component, ChangeDetectionStrategy, inject, computed, output } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, computed, input, output } from '@angular/core';
 import { NxtEntityPageHeaderComponent } from '../../components/entity-page-header';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';
@@ -55,6 +55,20 @@ import { TeamProfileService } from '../team-profile.service';
           }
         </div>
       </div>
+      <!-- ═══ TRAILING: Manage Program (admin) ═══ -->
+      @if (isTeamAdmin()) {
+        <div headerTrailing class="team-trailing">
+          <button
+            type="button"
+            class="team-edit-btn"
+            (click)="manageTeam.emit()"
+            aria-label="Manage team"
+          >
+            <nxt1-icon name="settings" [size]="13" />
+            Manage Team
+          </button>
+        </div>
+      }
     </nxt1-entity-page-header>
   `,
   styles: [
@@ -142,6 +156,38 @@ import { TeamProfileService } from '../team-profile.service';
         gap: var(--nxt1-spacing-4, 16px);
       }
 
+      .team-edit-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        flex-shrink: 0;
+        border: 1.5px solid var(--nxt1-color-border-secondary, rgba(255, 255, 255, 0.2));
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
+        color: var(--nxt1-color-text-primary);
+        border-radius: var(--nxt1-radius-md, 8px);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: 13px;
+        font-weight: var(--nxt1-fontWeight-semibold);
+        letter-spacing: 0.01em;
+        line-height: 1;
+        padding: 7px 16px;
+        cursor: pointer;
+        transition:
+          transform 0.1s ease,
+          background 0.15s ease,
+          border-color 0.15s ease;
+      }
+
+      .team-edit-btn:hover {
+        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.1));
+        border-color: var(--nxt1-color-border-primary, rgba(255, 255, 255, 0.35));
+      }
+
+      .team-edit-btn:active {
+        transform: scale(0.97);
+      }
+
       /* ============================================
          RESPONSIVE
          ============================================ */
@@ -183,7 +229,10 @@ export class TeamPageHeaderComponent {
   // OUTPUTS
   // ============================================
 
+  readonly isTeamAdmin = input(false);
+
   readonly back = output<void>();
+  readonly manageTeam = output<void>();
 
   protected readonly headerTeamName = computed(() => {
     const team = this.teamProfile.team();

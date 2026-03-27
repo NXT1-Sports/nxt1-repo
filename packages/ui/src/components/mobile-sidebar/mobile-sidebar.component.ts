@@ -204,7 +204,7 @@ import { formatSportDisplayName } from '@nxt1/core';
                   type="button"
                   class="mobile-sidebar__sport-item mobile-sidebar__sport-item--add"
                   (click)="onAddSportClick($event)"
-                  aria-label="Add sport profile"
+                  [attr.aria-label]="user()!.actionLabel || 'Add Sport'"
                 >
                   <div class="mobile-sidebar__add-icon">
                     <svg
@@ -221,7 +221,9 @@ import { formatSportDisplayName } from '@nxt1/core';
                       <path d="M5 12h14" />
                     </svg>
                   </div>
-                  <span class="mobile-sidebar__sport-name">Add Sport</span>
+                  <span class="mobile-sidebar__sport-name">{{
+                    user()!.actionLabel || 'Add Sport'
+                  }}</span>
                 </button>
               </div>
             }

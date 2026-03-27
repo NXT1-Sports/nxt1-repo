@@ -18,10 +18,11 @@
  *   POST /api/v1/agent-x/briefing/generate         → Generate daily AI briefing
  *   POST /api/v1/agent-x/pause       → Pause the entire queue (admin)
  *   POST /api/v1/agent-x/resume      → Resume the entire queue (admin)
+ *   POST /api/v1/agent-x/cron/daily-briefings → Run daily briefings (Cloud Scheduler)
  */
 
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
-import { appGuard, adminGuard } from '../middleware/auth.middleware.js';
+import { appGuard, adminGuard, cronGuard } from '../middleware/auth.middleware.js';
 import { validateBody } from '../middleware/validation.middleware.js';
 import {
   AskAgentDto,
@@ -1435,6 +1436,20 @@ router.get('/queue-stats', adminGuard, async (_req: Request, res: Response) => {
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('Failed to get queue stats', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to get stats' });
+  }
+});
+
+// ─── POST /cron/daily-briefings — Cloud Scheduler trigger (CRON only) ─────
+
+router.post('/cron/daily-briefings', cronGuard, async (_req: Request, res: Response) => {
+  try {
+    const { runDailyBriefings } = await import('../modules/agent/triggers/trigger.listeners.js');
+    await runDailyBriefings();
+    res.json({ success: true, message: 'Daily briefings completed' });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('CRON daily briefings failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Daily briefings failed' });
   }
 });
 

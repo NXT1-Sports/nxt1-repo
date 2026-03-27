@@ -45,7 +45,8 @@ import {
 import { NxtToastService } from '../services/toast/toast.service';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtPlatformService } from '../services/platform/platform.service';
-import { UsageService, USAGE_SECTION_NAVS, type UsageSection } from './usage.service';
+import { UsageService, type UsageSection } from './usage.service';
+import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 import { UsageSkeletonComponent } from './usage-skeleton.component';
 import { UsageHelpContentComponent } from './usage-help-content.component';
 import { UsageErrorStateComponent } from './usage-error-state.component';
@@ -102,6 +103,7 @@ export interface UsageUser {
           pageHeaderSlot="end"
           class="usage-help-header-btn"
           aria-label="How it works"
+          [attr.data-testid]="testIds.HELP_BTN"
           (click)="showHelp()"
         >
           <nxt1-icon name="help-circle-outline" size="20" />
@@ -114,7 +116,7 @@ export interface UsageUser {
       <nxt1-option-scroller
         [options]="tabOptions()"
         [selectedId]="svc.activeSection()"
-        [config]="{ scrollable: true, stretchToFill: false, showDivider: true }"
+        [config]="{ scrollable: false, stretchToFill: true, centered: true, showDivider: true }"
         (selectionChange)="onTabChange($event)"
       />
     </div>
@@ -134,7 +136,12 @@ export interface UsageUser {
                   Manage your billing, usage, and payment details for your account.
                 </p>
               </div>
-              <button type="button" class="help-btn" (click)="showHelp()">
+              <button
+                type="button"
+                class="help-btn"
+                [attr.data-testid]="testIds.HELP_BTN"
+                (click)="showHelp()"
+              >
                 <nxt1-icon name="help-circle-outline" size="16" />
                 <span>How it works</span>
               </button>
@@ -145,13 +152,19 @@ export interface UsageUser {
         @if (svc.error() && !hasData()) {
           <nxt1-usage-error-state
             [message]="svc.error() ?? 'Failed to load usage data'"
+            [attr.data-testid]="testIds.ERROR_STATE"
             (retry)="svc.loadDashboard()"
           />
         } @else {
           <div class="dashboard-layout">
             <!-- Side Navigation (Desktop only) -->
-            <nav class="section-nav" role="tablist" aria-label="Billing sections">
-              @for (nav of sectionNavs; track nav.id) {
+            <nav
+              class="section-nav"
+              role="tablist"
+              aria-label="Billing sections"
+              [attr.data-testid]="testIds.SECTION_NAV"
+            >
+              @for (nav of svc.sectionNavs(); track nav.id) {
                 <button
                   class="nav-item"
                   [class.nav-item--active]="svc.activeSection() === nav.id"
@@ -168,13 +181,15 @@ export interface UsageUser {
             <main class="section-content">
               <!-- Loading State -->
               @if (svc.isLoading() && !hasData()) {
-                <nxt1-usage-skeleton />
+                <nxt1-usage-skeleton [attr.data-testid]="testIds.LOADING_SKELETON" />
               } @else {
                 @switch (svc.activeSection()) {
                   @case ('overview') {
                     <nxt1-usage-overview
                       [data]="svc.overview()"
+                      [isPersonal]="svc.isPersonal()"
                       (viewPaymentHistory)="svc.setActiveSection('payment-history')"
+                      (buyCredit)="onBuyCredits()"
                     />
 
                     @if (svc.subscriptions().length > 0) {
@@ -184,24 +199,22 @@ export interface UsageUser {
                       />
                     }
 
-                    <nxt1-usage-budgets
-                      [budgets]="svc.budgets()"
-                      (createBudget)="onCreateBudget()"
-                      (editBudget)="onEditBudget($event)"
-                    />
+                    @if (svc.isOrg()) {
+                      <nxt1-usage-budgets
+                        [budgets]="svc.budgets()"
+                        (createBudget)="onCreateBudget()"
+                        (editBudget)="onEditBudget($event)"
+                      />
+                    }
                   }
 
                   @case ('metered-usage') {
                     <nxt1-usage-chart
                       [chartData]="svc.chartData()"
-                      [productTabs]="svc.productDetails()"
-                      [activeTab]="svc.activeProductTab()"
                       [timeframe]="svc.timeframe()"
                       [yLabels]="svc.chartYLabels()"
-                      (tabChange)="svc.setActiveProductTab($event)"
                       (timeframeChange)="svc.setTimeframe($event)"
                       (viewBreakdown)="svc.setActiveSection('breakdown')"
-                      (manageBudgets)="svc.setActiveSection('overview')"
                     />
                   }
 
@@ -475,13 +488,13 @@ export interface UsageUser {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsageShellComponent implements OnInit {
+  protected readonly testIds = USAGE_TEST_IDS;
   protected readonly svc = inject(UsageService);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
   private readonly platform = inject(NxtPlatformService);
   private readonly modalController = inject(ModalController);
   private readonly usageBottomSheet = inject(UsageBottomSheetService);
-  protected readonly sectionNavs = USAGE_SECTION_NAVS;
 
   // ============================================
   // INPUTS
@@ -511,7 +524,7 @@ export class UsageShellComponent implements OnInit {
 
   /** Tab options for mobile option scroller */
   protected readonly tabOptions = computed((): OptionScrollerItem[] => {
-    return USAGE_SECTION_NAVS.map((nav) => ({
+    return this.svc.sectionNavs().map((nav) => ({
       id: nav.id,
       label: nav.label,
     }));
@@ -576,14 +589,22 @@ export class UsageShellComponent implements OnInit {
   // ============================================
 
   protected onManageSubscriptions(): void {
+    this.haptics.impact('light');
     // Navigate to subscription management
   }
 
+  protected onBuyCredits(): void {
+    this.haptics.impact('light');
+    // Navigate to in-app purchase / top-up flow
+  }
+
   protected onDownloadReceipt(_recordId: string): void {
+    this.haptics.impact('light');
     // API call to get receipt URL and open
   }
 
   protected onDownloadInvoice(_recordId: string): void {
+    this.haptics.impact('light');
     // API call to get invoice URL and open
   }
 
@@ -599,18 +620,22 @@ export class UsageShellComponent implements OnInit {
   }
 
   protected onEditBilling(): void {
+    this.haptics.impact('light');
     // Open billing info editing form/bottom sheet
   }
 
   protected onEditPayment(): void {
+    this.haptics.impact('light');
     // Open payment method form/bottom sheet
   }
 
   protected onRedeemCoupon(): void {
+    this.haptics.impact('light');
     // Open coupon redemption form/bottom sheet
   }
 
   protected onEditAdditional(): void {
+    this.haptics.impact('light');
     // Open additional info form/bottom sheet
   }
 }

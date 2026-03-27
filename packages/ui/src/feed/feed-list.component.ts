@@ -1,67 +1,97 @@
 /**
- * @fileoverview Feed List Component - Virtual Scroll Feed
+ * @fileoverview Feed List Component - Polymorphic Feed with Virtual Scroll
  * @module @nxt1/ui/feed
- * @version 1.0.0
+ * @version 3.0.0
  *
  * List component for feed with skeleton, empty, and error states.
- * Uses Ionic's virtual scroll for 2026 best practices.
+ * Renders via polymorphic Smart Shell + atomic cards.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  *
  * Features:
+ * - Polymorphic rendering via FeedCardShell + @switch
  * - Skeleton loading state (no spinners)
  * - Filter-specific empty states
  * - Error state with retry
  * - Infinite scroll with auto-load
  * - Smooth item animations
- * - Virtual scrolling for performance
  *
  * @example
  * ```html
  * <nxt1-feed-list
- *   [posts]="posts()"
+ *   [polymorphicFeed]="items()"
  *   [isLoading]="isLoading()"
- *   [isLoadingMore]="isLoadingMore()"
  *   [isEmpty]="isEmpty()"
  *   [error]="error()"
  *   [hasMore]="hasMore()"
- *   [filterType]="filterType()"
  *   (loadMore)="onLoadMore()"
  *   (retry)="onRetry()"
- *   (postClick)="onPostClick($event)"
- *   (reactClick)="onLike($event)"
  * />
  * ```
  */
 
-import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { IonSpinner, IonInfiniteScroll, IonInfiniteScrollContent } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../components/icon';
-import { type FeedPost, type FeedAuthor, type FeedFilterType, FEED_UI_CONFIG } from '@nxt1/core';
-import { FeedPostCardComponent } from './feed-post-card.component';
+import { NxtActivityCardComponent } from '../components/activity-card';
+import {
+  type FeedPost,
+  type FeedAuthor,
+  type FeedFilterType,
+  type FeedItem,
+  type FeedItemPost,
+  type FeedItemEvent,
+  type FeedItemStat,
+  type FeedItemMetric,
+  type FeedItemOffer,
+  type FeedItemCommitment,
+  type FeedItemVisit,
+  type FeedItemCamp,
+  type FeedItemAward,
+  type FeedItemNews,
+  type ContentCardItem,
+  FEED_UI_CONFIG,
+  feedOfferToContentCard,
+  feedCommitmentToContentCard,
+  feedVisitToContentCard,
+  feedCampToContentCard,
+  feedPostToFeedItem,
+} from '@nxt1/core';
+import { FEED_CARD_TEST_IDS } from '@nxt1/core/testing';
+import { FeedCardShellComponent } from './feed-card-shell.component';
+import { FeedPostContentComponent } from './feed-post-content.component';
+import { FeedStatCardComponent } from './feed-stat-card.component';
+import { FeedEventCardComponent } from './feed-event-card.component';
+import { FeedMetricsCardComponent } from './feed-metrics-card.component';
+import { FeedAwardCardComponent } from './feed-award-card.component';
+import { FeedNewsCardComponent } from './feed-news-card.component';
 import { FeedSkeletonComponent } from './feed-skeleton.component';
 import { FeedEmptyStateComponent } from './feed-empty-state.component';
 
-// Register icons
 @Component({
   selector: 'nxt1-feed-list',
   standalone: true,
   imports: [
-    CommonModule,
     NxtIconComponent,
+    NxtActivityCardComponent,
     IonSpinner,
     IonInfiniteScroll,
     IonInfiniteScrollContent,
-    FeedPostCardComponent,
+    FeedCardShellComponent,
+    FeedPostContentComponent,
+    FeedStatCardComponent,
+    FeedEventCardComponent,
+    FeedMetricsCardComponent,
+    FeedAwardCardComponent,
+    FeedNewsCardComponent,
     FeedSkeletonComponent,
     FeedEmptyStateComponent,
   ],
   template: `
-    <div class="feed-list">
+    <div class="feed-list" data-testid="feed-list-container">
       <!-- Loading State: Skeletons -->
       @if (isLoading()) {
-        <div class="feed-list__skeletons">
+        <div class="feed-list__skeletons" data-testid="feed-list-skeletons">
           @for (i of skeletonArray; track i) {
             <nxt1-feed-skeleton [variant]="i % 2 === 0 ? 'post-with-media' : 'post'" />
           }
@@ -70,13 +100,18 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
 
       <!-- Error State -->
       @else if (error()) {
-        <div class="feed-list__error">
+        <div class="feed-list__error" data-testid="feed-list-error">
           <div class="feed-list__error-icon">
             <nxt1-icon name="alertCircle" [size]="32" />
           </div>
           <h3 class="feed-list__error-title">Something went wrong</h3>
           <p class="feed-list__error-message">{{ error() }}</p>
-          <button type="button" class="feed-list__error-action" (click)="retry.emit()">
+          <button
+            type="button"
+            class="feed-list__error-action"
+            data-testid="feed-list-retry-btn"
+            (click)="retry.emit()"
+          >
             <nxt1-icon name="refresh" [size]="16" />
             <span>Try Again</span>
           </button>
@@ -90,24 +125,59 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
 
       <!-- Posts List -->
       @else {
-        <div class="feed-list__posts">
-          @for (post of posts(); track post.id; let i = $index) {
+        <div class="feed-list__posts" data-testid="feed-list-posts">
+          @for (item of effectiveFeed(); track item.id; let i = $index) {
             <div
               class="feed-list__post-wrapper"
               [style.animation-delay]="i * animationDelay + 'ms'"
             >
-              <nxt1-feed-post-card
-                [post]="post"
+              <nxt1-feed-card-shell
+                [item]="item"
+                [hideAuthor]="false"
                 [showMenu]="showMenu()"
                 [compact]="compactCards()"
-                (postClick)="postClick.emit($event)"
-                (authorClick)="authorClick.emit($event)"
-                (reactClick)="reactClick.emit($event)"
-                (repostClick)="repostClick.emit($event)"
-                (shareClick)="shareClick.emit($event)"
-                (bookmarkClick)="bookmarkClick.emit($event)"
-                (menuClick)="menuClick.emit($event)"
-              />
+                (authorClick)="handlePolyAuthorClick($event)"
+                (contentClick)="handlePolyContentClick(i)"
+                (menuClick)="handlePolyMenuClick(i)"
+              >
+                @switch (item.feedType) {
+                  @case ('POST') {
+                    <nxt1-feed-post-content [data]="asPost(item)" />
+                  }
+                  @case ('EVENT') {
+                    <nxt1-feed-event-card [data]="asEvent(item).eventData" />
+                  }
+                  @case ('STAT') {
+                    <nxt1-feed-stat-card [data]="asStat(item).statData" />
+                  }
+                  @case ('METRIC') {
+                    <nxt1-feed-metrics-card [data]="asMetric(item).metricsData" />
+                  }
+                  @case ('OFFER') {
+                    <nxt1-activity-card [item]="toOfferCard(asOffer(item))" />
+                  }
+                  @case ('COMMITMENT') {
+                    <nxt1-activity-card [item]="toCommitmentCard(asCommitment(item))" />
+                  }
+                  @case ('VISIT') {
+                    <nxt1-activity-card [item]="toVisitCard(asVisit(item))" />
+                  }
+                  @case ('CAMP') {
+                    <nxt1-activity-card [item]="toCampCard(asCamp(item))" />
+                  }
+                  @case ('AWARD') {
+                    <nxt1-feed-award-card [data]="asAward(item).awardData" />
+                  }
+                  @case ('NEWS') {
+                    <nxt1-feed-news-card [data]="asNews(item).newsData" />
+                  }
+                  @default {
+                    @if (asFallbackContent(item); as content) {
+                      <p class="feed-fallback-text">{{ content }}</p>
+                    }
+                  }
+                }
+              </nxt1-feed-card-shell>
             </div>
           }
         </div>
@@ -131,7 +201,7 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
         }
 
         <!-- End of Feed -->
-        @if (!hasMore() && posts().length > 0) {
+        @if (!hasMore() && effectiveFeed().length > 0) {
           <div class="feed-list__end">
             <span>You're all caught up! 🎉</span>
           </div>
@@ -160,6 +230,7 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
 
       .feed-list {
         min-height: 400px;
+        padding-top: 16px;
       }
 
       /* ============================================
@@ -248,6 +319,14 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
         flex-direction: column;
       }
 
+      @media (min-width: 768px) {
+        .feed-list__posts {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 16px;
+        }
+      }
+
       .feed-list__post-wrapper {
         animation: feed-item-in 0.3s ease-out both;
       }
@@ -308,7 +387,12 @@ export class FeedListComponent {
   // INPUTS
   // ============================================
 
+  /** Legacy feed posts (backward compatibility) */
   readonly posts = input<readonly FeedPost[]>([]);
+
+  /** New polymorphic feed items (discriminated union FeedItem[]) */
+  readonly polymorphicFeed = input<readonly FeedItem[]>([]);
+
   readonly isLoading = input(false);
   readonly isLoadingMore = input(false);
   readonly isEmpty = input(false);
@@ -329,6 +413,7 @@ export class FeedListComponent {
   readonly shareClick = output<FeedPost>();
   readonly bookmarkClick = output<FeedPost>();
   readonly menuClick = output<FeedPost>();
+  readonly itemClick = output<FeedItem>();
   readonly loadMore = output<void>();
   readonly retry = output<void>();
   readonly emptyCta = output<void>();
@@ -342,6 +427,22 @@ export class FeedListComponent {
     (_, i) => i + 1
   );
   protected readonly animationDelay = FEED_UI_CONFIG.ITEM_ANIMATION_DELAY;
+  protected readonly testIds = FEED_CARD_TEST_IDS;
+
+  // ============================================
+  // BRIDGE — Prefer polymorphicFeed; auto-convert legacy posts if needed
+  // ============================================
+
+  /**
+   * Resolved feed data: uses `polymorphicFeed` when provided by parent,
+   * otherwise auto-converts legacy `posts` input via `feedPostToFeedItem`.
+   * This ensures the polymorphic template works with both new and old data sources.
+   */
+  protected readonly effectiveFeed = computed<readonly FeedItem[]>(() => {
+    const poly = this.polymorphicFeed();
+    if (poly.length > 0) return poly;
+    return this.posts().map((p) => feedPostToFeedItem(p));
+  });
 
   // ============================================
   // METHODS
@@ -349,10 +450,95 @@ export class FeedListComponent {
 
   protected onInfiniteScroll(event: CustomEvent): void {
     this.loadMore.emit();
-
-    // Complete the infinite scroll after a short delay
     setTimeout(() => {
       (event.target as HTMLIonInfiniteScrollElement)?.complete();
     }, 500);
+  }
+
+  // ============================================
+  // POLYMORPHIC EVENT HANDLERS
+  // ============================================
+
+  protected handlePolyAuthorClick(author: FeedAuthor): void {
+    this.authorClick.emit(author);
+  }
+
+  protected handlePolyContentClick(index: number): void {
+    const item = this.effectiveFeed()[index];
+    if (item) this.itemClick.emit(item);
+  }
+
+  protected handlePolyMenuClick(index: number): void {
+    const item = this.effectiveFeed()[index];
+    if (item) this.itemClick.emit(item);
+  }
+
+  // ============================================
+  // POLYMORPHIC → ContentCardItem CONVERTERS
+  // ============================================
+
+  protected toOfferCard(item: FeedItemOffer): ContentCardItem {
+    return feedOfferToContentCard(item.offerData);
+  }
+
+  protected toCommitmentCard(item: FeedItemCommitment): ContentCardItem {
+    return feedCommitmentToContentCard(item.commitmentData);
+  }
+
+  protected toVisitCard(item: FeedItemVisit): ContentCardItem {
+    return feedVisitToContentCard(item.visitData);
+  }
+
+  protected toCampCard(item: FeedItemCamp): ContentCardItem {
+    return feedCampToContentCard(item.campData);
+  }
+
+  // ============================================
+  // TYPE-SAFE CAST HELPERS
+  // ============================================
+
+  protected asPost(item: FeedItem): FeedItemPost {
+    return item as FeedItemPost;
+  }
+
+  protected asEvent(item: FeedItem): FeedItemEvent {
+    return item as FeedItemEvent;
+  }
+
+  protected asStat(item: FeedItem): FeedItemStat {
+    return item as FeedItemStat;
+  }
+
+  protected asMetric(item: FeedItem): FeedItemMetric {
+    return item as FeedItemMetric;
+  }
+
+  protected asOffer(item: FeedItem): FeedItemOffer {
+    return item as FeedItemOffer;
+  }
+
+  protected asCommitment(item: FeedItem): FeedItemCommitment {
+    return item as FeedItemCommitment;
+  }
+
+  protected asVisit(item: FeedItem): FeedItemVisit {
+    return item as FeedItemVisit;
+  }
+
+  protected asCamp(item: FeedItem): FeedItemCamp {
+    return item as FeedItemCamp;
+  }
+
+  protected asAward(item: FeedItem): FeedItemAward {
+    return item as FeedItemAward;
+  }
+
+  protected asNews(item: FeedItem): FeedItemNews {
+    return item as FeedItemNews;
+  }
+
+  protected asFallbackContent(item: FeedItem): string | null {
+    const record = item as unknown as Record<string, unknown>;
+    return typeof record['content'] === 'string' ? record['content'] : null;
   }
 }

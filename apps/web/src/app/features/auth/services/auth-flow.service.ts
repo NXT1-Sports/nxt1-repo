@@ -464,6 +464,17 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             role: user.role ?? null,
             planTier: user.planTier ?? null,
             onboardingCompleted: user.onboardingCompleted,
+            // Team data — used by top-nav menu for coach/director → /team/:slug redirect
+            teamCode: user.teamCode
+              ? {
+                  slug: user.teamCode.slug,
+                  unicode: user.teamCode.unicode,
+                  teamName: user.teamCode.teamName,
+                  sport: user.teamCode.sport,
+                  logoUrl: user.teamCode.logoUrl ?? user.teamCode.teamLogoImg ?? null,
+                }
+              : null,
+            managedTeamCodes: user.coach?.managedTeamCodes ?? null,
             // Normalise: Firestore dot-notation writes can convert sports array
             // to a plain map {"0": {...}}. Convert back before array methods.
             ...(() => {

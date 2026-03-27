@@ -26,7 +26,7 @@ import type {
   TeamProfileRecruitingActivity,
   TeamProfileStatsCategory,
 } from '../team-profile/team-profile.types';
-import type { ContactInfo, SocialLinks } from './user.model';
+import type { ConnectedSource, ContactInfo, SocialLinks } from './user.model';
 
 // ============================================
 // TEAM STATUS
@@ -153,6 +153,9 @@ export interface Team {
   /** Team description/about */
   description?: string;
 
+  /** Team media gallery images URLs */
+  galleryImages?: string[];
+
   // ============================================
   // URLs & LINKS
   // ============================================
@@ -212,6 +215,9 @@ export interface Team {
 
   /** Social media links */
   socialLinks?: SocialLinks;
+
+  /** Connected sources (V2) — replaces socialLinks. Each entry is a platform URL with sync status. */
+  connectedSources?: ConnectedSource[];
 
   /** Contact information */
   contactInfo?: ContactInfo;
@@ -310,6 +316,7 @@ export interface CreateTeamInput {
   division?: string;
   conference?: string;
   description?: string;
+  galleryImages?: string[];
   /** Defaults to `true` if not provided */
   isClaimed?: boolean;
   /** Defaults to `'admin'` if not provided */
@@ -339,6 +346,7 @@ export interface UpdateTeamInput {
   division?: string;
   conference?: string;
   description?: string;
+  galleryImages?: string[];
   packageId?: string;
   expireAt?: Date | string;
   socialLinks?: SocialLinks;

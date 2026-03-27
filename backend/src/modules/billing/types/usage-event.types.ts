@@ -50,6 +50,13 @@ export enum UsageEventStatus {
 }
 
 /**
+ * How the cost for this event was determined.
+ * - `static`  — Looked up from USAGE_PRODUCT_CONFIGS (hardcoded per-feature price).
+ * - `dynamic` — Calculated at runtime from actual AI provider token usage + margin.
+ */
+export type UsageCostType = 'static' | 'dynamic';
+
+/**
  * Usage event stored in Firestore (SOURCE OF TRUTH)
  */
 export interface UsageEvent {
@@ -70,6 +77,12 @@ export interface UsageEvent {
 
   /** Unit cost snapshot at time of usage (for audit trail) */
   unitCostSnapshot: number;
+
+  /** How cost was determined: 'static' (hardcoded) or 'dynamic' (AI token-based) */
+  costType: UsageCostType;
+
+  /** Raw provider cost in USD before margin (only present for dynamic pricing) */
+  rawProviderCostUsd?: number;
 
   /** Currency code (e.g., 'usd') */
   currency: string;
@@ -123,6 +136,20 @@ export interface CreateUsageEventInput {
   jobId?: string;
   /** Optional metadata */
   metadata?: Record<string, unknown>;
+
+  // ── Dynamic pricing fields (Phase 1 — AI token-based costs) ──
+
+  /**
+   * When provided, this is the dynamically calculated cost in cents
+   * (from `resolveAICost()`). Takes precedence over static `unitCostSnapshot`.
+   */
+  dynamicCostCents?: number;
+
+  /**
+   * Raw provider cost in USD (e.g. OpenRouter `costUsd`).
+   * Stored on the event for audit trail / margin analysis.
+   */
+  rawProviderCostUsd?: number;
 }
 
 /**
@@ -264,6 +291,14 @@ export interface BillingContext {
    */
   walletBalanceCents: number;
 
+  /**
+   * Pending hold amount in cents (IAP users only).
+   * Represents funds that have been reserved by in-flight AI operations
+   * but not yet captured. Prevents race conditions where parallel requests
+   * all pass the balance check simultaneously.
+   */
+  pendingHoldsCents: number;
+
   /** Stripe subscription ID for Pro plan ($50/m) — null if free tier */
   proSubscriptionId?: string;
 
@@ -316,6 +351,43 @@ export interface TeamBudgetAllocation {
 // ============================================
 // BUDGET DEFAULTS
 // ============================================
+
+/**
+ * Wallet hold — a temporary reservation of funds for an in-flight AI operation.
+ * Stored in Firestore `walletHolds` collection.
+ */
+export interface WalletHold {
+  /** Hold document ID */
+  id: string;
+  /** User who owns this hold */
+  userId: string;
+  /** Amount reserved in cents */
+  amountCents: number;
+  /** Whether the hold has been captured or released */
+  status: 'active' | 'captured' | 'released' | 'expired';
+  /** Job ID that triggered this hold (for correlation with usage events) */
+  jobId: string;
+  /** Feature being used */
+  feature: string;
+  /** Created timestamp */
+  createdAt: Timestamp;
+  /** When captured/released */
+  resolvedAt?: Timestamp;
+  /** Actual cost captured (if captured) */
+  capturedAmountCents?: number;
+}
+
+/** Result of creating a wallet hold */
+export interface WalletHoldResult {
+  /** Whether the hold was successfully created */
+  success: boolean;
+  /** Hold document ID (if successful) */
+  holdId?: string;
+  /** Reason for failure (if not successful) */
+  reason?: string;
+  /** Available balance after hold */
+  availableBalance?: number;
+}
 
 /** Default monthly budget for individual accounts (in cents) */
 export const DEFAULT_INDIVIDUAL_BUDGET = 2000; // $20

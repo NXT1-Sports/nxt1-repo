@@ -56,7 +56,6 @@ function buildBadgeCounts(
 ): Record<ActivityTabId, number> {
   return {
     alerts: items.filter((item) => item.tab === 'alerts').length,
-    analytics: items.filter((item) => item.tab === 'analytics').length,
   };
 }
 

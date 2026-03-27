@@ -246,7 +246,7 @@ export const routes: Routes = [
         loadChildren: () => import('./features/super-profiles/super-profiles.routes'),
       },
 
-      // Recruiting Scouts & Colleges - Public Directory & Marketing
+      // For Scouts & Colleges - Athlete Directory & Intelligence Platform
       {
         path: 'recruiting-scouts-colleges',
         loadChildren: () => import('./features/athlete-profiles/athlete-profiles.routes'),
@@ -254,7 +254,7 @@ export const routes: Routes = [
 
       // ---- Persona-Specific Marketing Pages ----
 
-      // Athletes - Student-Athlete Recruiting
+      // Athletes - Student-Athlete Intelligence & Discovery
       {
         path: 'athletes',
         loadChildren: () => import('./features/athletes/athletes.routes'),
@@ -279,13 +279,13 @@ export const routes: Routes = [
         loadChildren: () => import('./features/media-coverage/media-coverage.routes'),
       },
 
-      // AI for Athletes - Communication Training & AI Recruiting Tools
+      // AI for Athletes - Intelligent Outreach & Profile Distribution
       {
         path: 'ai-athletes',
         loadChildren: () => import('./features/ai-athletes/ai-athletes.routes'),
       },
 
-      // College Coaches - Coach Recruiting Tools (canonical)
+      // College Coaches - Prospect Discovery & Management Tools (canonical)
       {
         path: 'college-coaches',
         loadChildren: () => import('./features/coaches/coaches.routes'),

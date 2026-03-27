@@ -30,6 +30,9 @@ export interface QrCodeConfig {
 
   /** Whether this is the user's own profile */
   readonly isOwnProfile?: boolean;
+
+  /** Entity type for contextual share text (defaults to 'profile') */
+  readonly entityType?: 'profile' | 'team';
 }
 
 /**

@@ -44,18 +44,9 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { isPlatformBrowser, CommonModule } from '@angular/common';
 import { Router, RouterModule, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
-import {
-  type ActivityItem,
-  type ActivityTabId,
-  type InboxEmailProvider,
-  ACTIVITY_TABS_ALERTS_ONLY,
-} from '@nxt1/core';
+import { type ActivityItem, type InboxEmailProvider } from '@nxt1/core';
 import { ActivityService, ActivityListComponent } from '@nxt1/ui/activity';
-import {
-  NxtOptionScrollerComponent,
-  type OptionScrollerItem,
-  type OptionScrollerChangeEvent,
-} from '@nxt1/ui/components/option-scroller';
+
 import { NxtIconComponent } from '@nxt1/ui/components/icon';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { AUTH_SERVICE, type IAuthService } from '../../../../features/auth/services/auth.interface';
@@ -65,13 +56,7 @@ import { EmailTokensService } from '../../services/email-tokens.service';
 @Component({
   selector: 'app-notification-popover',
   standalone: true,
-  imports: [
-    CommonModule,
-    RouterModule,
-    ActivityListComponent,
-    NxtOptionScrollerComponent,
-    NxtIconComponent,
-  ],
+  imports: [CommonModule, RouterModule, ActivityListComponent, NxtIconComponent],
   encapsulation: ViewEncapsulation.None,
   template: `
     <!-- Backdrop (transparent, click to close) -->
@@ -112,24 +97,6 @@ import { EmailTokensService } from '../../services/email-tokens.service';
           }
         </div>
       </div>
-
-      <!-- Tab Selector — hidden when single tab (desktop shows alerts only) -->
-      @if (showTabs()) {
-        <div class="nxt1-notif-popover__tabs">
-          <nxt1-option-scroller
-            [options]="tabOptions()"
-            [selectedId]="activity.activeTab()"
-            [config]="{
-              scrollable: false,
-              stretchToFill: true,
-              centered: true,
-              showDivider: true,
-              size: 'sm',
-            }"
-            (selectionChange)="onTabChange($event)"
-          />
-        </div>
-      }
 
       <!-- Content (scrollable) -->
       <div class="nxt1-notif-popover__content">
@@ -447,19 +414,6 @@ export class NotificationPopoverComponent {
   // COMPUTED
   // ============================================
 
-  /** Whether to show tab bar (hidden when only 1 tab) */
-  protected readonly showTabs = computed(() => ACTIVITY_TABS_ALERTS_ONLY.length > 1);
-
-  /** Tab options for options scroller */
-  protected readonly tabOptions = computed((): OptionScrollerItem[] => {
-    const badges = this.activity.badges();
-    return ACTIVITY_TABS_ALERTS_ONLY.map((tab) => ({
-      id: tab.id,
-      label: tab.label,
-      badge: badges[tab.id] ?? 0,
-    }));
-  });
-
   // ============================================
   // CONSTRUCTOR
   // ============================================
@@ -520,11 +474,6 @@ export class NotificationPopoverComponent {
   // ============================================
   // EVENT HANDLERS
   // ============================================
-
-  protected async onTabChange(event: OptionScrollerChangeEvent): Promise<void> {
-    const tabId = event.option.id as ActivityTabId;
-    await this.activity.switchTab(tabId);
-  }
 
   protected async onMarkAllRead(): Promise<void> {
     await this.activity.markAllRead();

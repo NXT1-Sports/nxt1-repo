@@ -15,17 +15,23 @@
  * - User context from AuthService
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
-import { Router } from '@angular/router';
-import { ExploreShellWebComponent, type ExploreUser } from '@nxt1/ui/explore';
+import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
+import { Router, ActivatedRoute } from '@angular/router';
+import { Location } from '@angular/common';
+import { ExploreShellWebComponent, type ExploreUser, ExploreService } from '@nxt1/ui/explore';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
+import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import type { ExploreItem, ExploreTabId, ScoutReport, FeedPost, FeedAuthor } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 
+/** Valid URL slugs that map to explore tab IDs */
+const VALID_TAB_SLUGS = new Set(['pulse', 'discover']);
+
 @Component({
   selector: 'app-explore',
-  standalone: true,
   imports: [ExploreShellWebComponent],
   template: `
     <nxt1-explore-shell-web
@@ -37,25 +43,69 @@ import { SeoService } from '../../core/services';
       (postSelect)="onPostSelect($event)"
       (authorSelect)="onAuthorSelect($event)"
       (newsArticleSelect)="onNewsArticleSelect($event)"
-      (xpBadgeClick)="onXpBadgeClick()"
     />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ExploreComponent {
+export class ExploreComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+  private readonly location = inject(Location);
   private readonly logger = inject(NxtLoggingService).child('ExploreComponent');
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly seo = inject(SeoService);
+  private readonly exploreService = inject(ExploreService);
 
   ngOnInit(): void {
-    this.seo.updatePage({
-      title: 'Explore',
-      description:
-        'Discover top athletic talent, teams, and sports content from across the country.',
-      keywords: ['explore', 'discover', 'athletes', 'recruiting', 'sports'],
-    });
+    const tabParam = this.route.snapshot.paramMap.get('tab');
+
+    // Reject unknown tab slugs — redirect to base /explore
+    if (tabParam !== null && !VALID_TAB_SLUGS.has(tabParam)) {
+      void this.router.navigate(['/explore'], { replaceUrl: true });
+      return;
+    }
+
+    if (tabParam === 'pulse') {
+      void this.exploreService.switchTab('news');
+      this.updateSeoForTab('news');
+    } else if (tabParam === 'discover') {
+      void this.exploreService.switchTab('for-you');
+      this.updateSeoForTab('for-you');
+    } else {
+      this.updateSeoForTab(this.exploreService.activeTab());
+    }
+
+    this.breadcrumb.trackStateChange('explore:initialized', { tab: tabParam ?? 'default' });
+    this.analytics?.trackEvent(APP_EVENTS.EXPLORE_VIEWED, { tab: tabParam ?? 'default' });
   }
+
+  private updateSeoForTab(tab: ExploreTabId): void {
+    if (tab === 'news') {
+      this.seo.updatePage({
+        title: 'Pulse | Explore',
+        description:
+          'Stay updated with the real-time Pulse of NXT1. Discover sports news, latest highlights, recruiting updates, and daily briefings.',
+        keywords: ['pulse', 'news', 'explore', 'briefing', 'recruiting updates', 'sports news'],
+      });
+    } else if (tab === 'for-you') {
+      this.seo.updatePage({
+        title: 'Discover | Explore',
+        description:
+          'Discover top athletic talent, personalized team updates, dynamic content, and scout reports tuned to your preferences.',
+        keywords: ['discover', 'explore', 'athletes', 'teams', 'colleges', 'sports'],
+      });
+    } else {
+      this.seo.updatePage({
+        title: 'Explore',
+        description:
+          'Discover top athletic talent, teams, and sports content from across the country.',
+        keywords: ['explore', 'discover', 'athletes', 'recruiting', 'sports'],
+      });
+    }
+  }
+
   /**
    * Transform auth user to ExploreUser interface.
    */
@@ -104,6 +154,18 @@ export class ExploreComponent {
    */
   protected onTabChange(tab: ExploreTabId): void {
     this.logger.debug('Explore tab changed', { tab });
+    this.breadcrumb.trackStateChange('explore:tab-changed', { tab });
+    this.analytics?.trackEvent(APP_EVENTS.EXPLORE_TAB_CHANGED, { tab });
+
+    if (tab === 'news') {
+      this.location.replaceState('/explore/pulse');
+    } else if (tab === 'for-you') {
+      this.location.replaceState('/explore/discover');
+    } else {
+      this.location.replaceState('/explore');
+    }
+
+    this.updateSeoForTab(tab);
   }
 
   // ── Feed / Following / News Handlers ──
@@ -131,13 +193,5 @@ export class ExploreComponent {
   protected onNewsArticleSelect(article: { id: string; title: string }): void {
     this.logger.debug('News article selected', { id: article.id });
     void this.router.navigate(['/news', article.id]);
-  }
-
-  /**
-   * Handle XP badge click - navigate to XP/rewards.
-   */
-  protected onXpBadgeClick(): void {
-    this.logger.debug('XP badge clicked');
-    void this.router.navigate(['/rewards']);
   }
 }

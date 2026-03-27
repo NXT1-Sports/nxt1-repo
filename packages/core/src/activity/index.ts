@@ -40,12 +40,5 @@ export {
   type InboxEmailProvider,
 } from './activity.constants';
 
-// Mapper (Conversation → ActivityItem)
-export {
-  conversationToActivityItem,
-  conversationsToActivityItems,
-  type MessageActivityMetadata,
-} from './conversation-mapper';
-
 // API
 export { createActivityApi, type ActivityApi } from './activity.api';

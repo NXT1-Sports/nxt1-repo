@@ -156,14 +156,6 @@ export const MOCK_NOTIFICATIONS = [
     isRead: false,
     createdAt: new Date(Date.now() - 1800000).toISOString(),
   },
-  {
-    id: 'notif-002',
-    type: 'follow',
-    title: 'New follower',
-    body: 'University of Texas started following you',
-    isRead: false,
-    createdAt: new Date(Date.now() - 3600000).toISOString(),
-  },
 ];
 
 // =============================================================================

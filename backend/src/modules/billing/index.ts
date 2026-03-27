@@ -15,3 +15,6 @@ export * from './helicone.service.js';
 export * from './pricing.service.js';
 export * from './iap.service.js';
 export * from './iap-webhook.service.js';
+export * from './cost-resolver.service.js';
+export * from './helicone-webhook.service.js';
+export * from './platform-config.service.js';

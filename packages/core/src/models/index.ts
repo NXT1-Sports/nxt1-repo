@@ -421,3 +421,11 @@ export {
   toggleSidenavSection,
   filterSidenavByRoles,
 } from './navigation.model';
+
+// User Display Context — Single source of truth for user menus/sidebars/headers
+export {
+  type UserDisplayInput,
+  type UserDisplayFallback,
+  type UserDisplayContext,
+  buildUserDisplayContext,
+} from './user-display-context';

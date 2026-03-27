@@ -44,9 +44,13 @@ import {
   INVITE_API_BASE_URL,
   MESSAGES_API_BASE_URL,
   USAGE_API_BASE_URL,
+  NEWS_API_BASE_URL,
+  NEWS_API_ADAPTER,
 } from '@nxt1/ui';
 // Mobile-specific Activity API adapter (uses CapacitorHttpAdapter + auth)
 import { ActivityApiService as MobileActivityApiService } from './features/activity/services/activity-api.service';
+// News API adapter — wraps shared NewsApiService for NEWS_API_ADAPTER token
+import { NewsApiAdapterService } from './features/news/services/news-api-adapter.service';
 import { mobileAuthInterceptor } from './core/infrastructure/interceptors/auth.interceptor';
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 
@@ -190,6 +194,12 @@ export const appConfig: ApplicationConfig = {
 
     // Activity API adapter — use the mobile Capacitor adapter (auth headers, native SSL)
     { provide: ACTIVITY_API_ADAPTER, useExisting: MobileActivityApiService },
+
+    // News API base URL
+    { provide: NEWS_API_BASE_URL, useFactory: () => environment.apiUrl },
+
+    // News API adapter — root-level so shared NewsService (providedIn: 'root') resolves it
+    { provide: NEWS_API_ADAPTER, useExisting: NewsApiAdapterService },
 
     // Analytics Dashboard API base URL
     { provide: ANALYTICS_API_BASE_URL, useFactory: () => environment.apiUrl },

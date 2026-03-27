@@ -69,13 +69,14 @@ import {
 } from '../search-results-dropdown';
 import { NxtPlatformService } from '../../services/platform';
 import { HapticsService } from '../../services/haptics';
-import type { ExploreItem } from '@nxt1/core';
+import type { ExploreItem, SidenavSportProfile } from '@nxt1/core';
 import type { TopNavItem, TopNavUserMenuItem, TopNavUserData, TopNavConfig } from '@nxt1/core';
 import {
   DEFAULT_TOP_NAV_ITEMS,
   DEFAULT_USER_MENU_ITEMS,
   createTopNavConfig,
   findTopNavItemByRoute,
+  formatSportDisplayName,
 } from '@nxt1/core';
 import type {
   TopNavSelectEvent,
@@ -408,30 +409,111 @@ import type {
                 role="menu"
                 aria-label="User menu"
               >
-                <!-- User Info Header -->
-                <div class="user-info">
-                  <div class="user-info-avatar">
-                    <nxt1-avatar
-                      [src]="user()?.profileImg"
-                      [name]="user()?.name"
-                      [customSize]="40"
-                      [showSkeleton]="false"
-                      cssClass="nav-user-avatar-lg"
-                    />
-                  </div>
-                  <div class="user-info-text">
-                    <span class="user-info-name">{{ user()?.name }}</span>
-                    @if (user()?.email) {
-                      <span class="user-info-email">{{ user()?.email }}</span>
-                    }
-                    @if (user()?.roleBadge) {
-                      <span class="user-info-role">{{ user()?.roleBadge }}</span>
-                    }
-                  </div>
-                  @if (user()?.isPremium) {
-                    <span class="premium-badge">PRO</span>
+                <!-- Switcher Title -->
+                @if (user()?.switcherTitle) {
+                  <div class="user-dropdown-title">{{ user()?.switcherTitle }}</div>
+                }
+
+                <!-- User Info Header — clickable to navigate to profile/team -->
+                <div class="user-info-row">
+                  <button
+                    type="button"
+                    class="user-info user-info--clickable"
+                    (click)="onUserInfoClick($event)"
+                    aria-label="View profile"
+                  >
+                    <div class="user-info-avatar">
+                      <nxt1-avatar
+                        [src]="user()?.profileImg"
+                        [name]="user()?.name"
+                        [customSize]="40"
+                        [showSkeleton]="false"
+                        cssClass="nav-user-avatar-lg"
+                      />
+                      @if (user()?.isPremium) {
+                        <span class="premium-badge-sm">PRO</span>
+                      }
+                    </div>
+                    <div class="user-info-text">
+                      <span class="user-info-name">{{ user()?.name }}</span>
+                      @if (user()?.sportLabel) {
+                        <span class="user-info-sport">{{ user()?.sportLabel }}</span>
+                      }
+                    </div>
+                  </button>
+
+                  <!-- Expand Arrow for Sport Profiles -->
+                  @if ((user()?.sportProfiles?.length ?? 0) > 0) {
+                    <button
+                      type="button"
+                      class="user-info-expand"
+                      [class.user-info-expand--open]="sportSwitcherExpanded()"
+                      (click)="toggleSportSwitcher($event)"
+                      [attr.aria-expanded]="sportSwitcherExpanded()"
+                      aria-label="Show sports"
+                    >
+                      <nxt1-icon name="chevronDown" [size]="16" />
+                    </button>
                   }
                 </div>
+
+                <!-- Expandable Sport/Team Profiles List -->
+                @if (sportSwitcherExpanded() && (user()?.sportProfiles?.length ?? 0) > 0) {
+                  <div class="user-sport-list">
+                    @for (profile of user()!.sportProfiles; track profile.id) {
+                      <button
+                        type="button"
+                        class="user-sport-item"
+                        [class.user-sport-item--active]="profile.isActive"
+                      >
+                        <nxt1-avatar
+                          [src]="profile.profileImg || user()!.profileImg"
+                          [name]="profile.sport"
+                          [initials]="getSportInitials(profile.sport)"
+                          [customSize]="28"
+                          [showSkeleton]="false"
+                        />
+                        <div class="user-sport-info">
+                          <span class="user-sport-name">{{
+                            formatSportDisplay(profile.sport)
+                          }}</span>
+                          @if (profile.position) {
+                            <span class="user-sport-position">{{ profile.position }}</span>
+                          }
+                        </div>
+                        @if (profile.isActive) {
+                          <nxt1-icon name="checkmark" [size]="14" class="user-sport-check" />
+                        }
+                      </button>
+                    }
+
+                    <!-- Add Sport / Add Team Button -->
+                    <button
+                      type="button"
+                      class="user-sport-item user-sport-item--add"
+                      (click)="onAddSportButtonClick($event)"
+                    >
+                      <div class="user-sport-add-icon">
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="14"
+                          height="14"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2.2"
+                          stroke-linecap="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M12 5v14" />
+                          <path d="M5 12h14" />
+                        </svg>
+                      </div>
+                      <span class="user-sport-name">{{
+                        user()?.isTeamRole ? 'Add Team' : 'Add Sport'
+                      }}</span>
+                    </button>
+                  </div>
+                }
 
                 <div class="user-menu-divider"></div>
 
@@ -522,29 +604,123 @@ import type {
         <!-- Mobile User Section -->
         @if (user()) {
           <div class="mobile-user-section border-(--nxt1-nav-border)] mt-auto border-t p-4">
-            <div class="mobile-user-info mb-4 flex items-center gap-3">
+            <!-- Switcher Title -->
+            @if (user()?.switcherTitle) {
               <div
-                class="mobile-user-avatar flex h-12 w-12 items-center justify-center overflow-hidden rounded-full"
+                class="mobile-user-switcher-title text-(--nxt1-nav-text-secondary)] mb-2 px-1 text-xs font-medium tracking-normal"
               >
-                <nxt1-avatar
-                  [src]="user()?.profileImg"
-                  [name]="user()?.name"
-                  [customSize]="48"
-                  [showSkeleton]="false"
-                  cssClass="nav-mobile-user-avatar"
-                />
+                {{ user()?.switcherTitle }}
               </div>
-              <div class="mobile-user-text flex flex-col gap-0.5">
-                <span class="mobile-user-name text-(--nxt1-nav-text)] text-base font-semibold">{{
-                  user()?.name
-                }}</span>
-                @if (user()?.email) {
-                  <span class="mobile-user-email text-(--nxt1-nav-text-secondary)] text-sm">{{
-                    user()?.email
+            }
+
+            <!-- User Row + Expand Arrow -->
+            <div class="mobile-user-row mb-4 flex w-full items-center gap-2">
+              <button
+                type="button"
+                class="mobile-user-info flex flex-1 items-center gap-3 rounded-lg bg-transparent p-0 text-left"
+                (click)="onUserInfoClick($event); closeMobileMenu()"
+                aria-label="View profile"
+              >
+                <div
+                  class="mobile-user-avatar flex h-12 w-12 items-center justify-center overflow-hidden rounded-full"
+                >
+                  <nxt1-avatar
+                    [src]="user()?.profileImg"
+                    [name]="user()?.name"
+                    [customSize]="48"
+                    [showSkeleton]="false"
+                    cssClass="nav-mobile-user-avatar"
+                  />
+                </div>
+                <div class="mobile-user-text flex flex-col gap-0.5">
+                  <span class="mobile-user-name text-(--nxt1-nav-text)] text-base font-semibold">{{
+                    user()?.name
                   }}</span>
-                }
-              </div>
+                  @if (user()?.sportLabel) {
+                    <span class="mobile-user-sport text-(--nxt1-nav-text-secondary)] text-sm">{{
+                      user()?.sportLabel
+                    }}</span>
+                  }
+                </div>
+              </button>
+
+              @if ((user()?.sportProfiles?.length ?? 0) > 0) {
+                <button
+                  type="button"
+                  class="mobile-user-expand flex h-8 w-8 items-center justify-center rounded-full transition-transform"
+                  [class.rotate-180]="sportSwitcherExpanded()"
+                  (click)="toggleSportSwitcher($event)"
+                  [attr.aria-expanded]="sportSwitcherExpanded()"
+                  aria-label="Show sports"
+                >
+                  <nxt1-icon name="chevronDown" [size]="16" />
+                </button>
+              }
             </div>
+
+            <!-- Expandable Sport/Team Profiles List -->
+            @if (sportSwitcherExpanded() && (user()?.sportProfiles?.length ?? 0) > 0) {
+              <div class="mobile-sport-list mb-4 flex flex-col gap-1">
+                @for (profile of user()!.sportProfiles; track profile.id) {
+                  <button
+                    type="button"
+                    class="mobile-sport-item flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors"
+                    [class.mobile-sport-item--active]="profile.isActive"
+                  >
+                    <nxt1-avatar
+                      [src]="profile.profileImg || user()!.profileImg"
+                      [name]="profile.sport"
+                      [initials]="getSportInitials(profile.sport)"
+                      [customSize]="28"
+                      [showSkeleton]="false"
+                    />
+                    <div class="flex flex-col">
+                      <span class="text-(--nxt1-nav-text)] text-sm font-medium">{{
+                        formatSportDisplay(profile.sport)
+                      }}</span>
+                      @if (profile.position) {
+                        <span class="text-(--nxt1-nav-text-secondary)] text-xs">{{
+                          profile.position
+                        }}</span>
+                      }
+                    </div>
+                    @if (profile.isActive) {
+                      <nxt1-icon
+                        name="checkmark"
+                        [size]="14"
+                        class="text-(--nxt1-color-primary)] ml-auto"
+                      />
+                    }
+                  </button>
+                }
+
+                <!-- Add Sport / Add Team Button -->
+                <button
+                  type="button"
+                  class="mobile-sport-item mobile-sport-item--add text-(--nxt1-color-primary)] flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm font-medium transition-colors"
+                  (click)="onAddSportButtonClick($event); closeMobileMenu()"
+                >
+                  <div
+                    class="flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-current"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="14"
+                      height="14"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.2"
+                      stroke-linecap="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M12 5v14" />
+                      <path d="M5 12h14" />
+                    </svg>
+                  </div>
+                  <span>{{ user()?.isTeamRole ? 'Add Team' : 'Add Sport' }}</span>
+                </button>
+              </div>
+            }
 
             <ul class="mobile-user-menu m-0 list-none p-0">
               @for (menuItem of userMenuItems(); track menuItem.id) {
@@ -702,6 +878,9 @@ export class NxtHeaderComponent implements OnDestroy {
   /** Emits when user clicks "Clear" on recent searches */
   @Output() clearRecentSearchesClick = new EventEmitter<void>();
 
+  /** Emits when "Add Sport" / "Add Team" is clicked in the user dropdown */
+  @Output() addSportClick = new EventEmitter<Event>();
+
   // ============================================
   // INTERNAL STATE
   // ============================================
@@ -714,6 +893,9 @@ export class NxtHeaderComponent implements OnDestroy {
 
   /** Whether the search results dropdown is open */
   readonly searchDropdownOpen = signal(false);
+
+  /** Whether the sport profiles switcher is expanded in the dropdown */
+  readonly sportSwitcherExpanded = signal(false);
 
   /** References to search dropdown components (one rendered at a time) */
   private readonly searchDropdowns = viewChildren(NxtSearchResultsDropdownComponent);
@@ -1119,6 +1301,7 @@ export class NxtHeaderComponent implements OnDestroy {
   toggleUserMenu(): void {
     this.activeDropdown.set(null);
     this.mobileMenuOpen.set(false);
+    this.sportSwitcherExpanded.set(false);
     this.userMenuOpen.update((open) => !open);
     this.haptics.impact('light');
   }
@@ -1129,6 +1312,7 @@ export class NxtHeaderComponent implements OnDestroy {
   toggleMobileMenu(): void {
     this.activeDropdown.set(null);
     this.userMenuOpen.set(false);
+    this.sportSwitcherExpanded.set(false);
     this.mobileMenuOpen.update((open) => !open);
     this.haptics.impact('light');
   }
@@ -1138,6 +1322,59 @@ export class NxtHeaderComponent implements OnDestroy {
    */
   closeMobileMenu(): void {
     this.mobileMenuOpen.set(false);
+  }
+
+  /**
+   * Handle user info header click — navigate to profile or team
+   */
+  onUserInfoClick(event: Event): void {
+    this.haptics.impact('light');
+    this.userMenuOpen.set(false);
+    this.mobileMenuOpen.set(false);
+    this.sportSwitcherExpanded.set(false);
+
+    const route = this.user()?.profileRoute;
+    if (route) {
+      this.router.navigate([route]);
+    }
+  }
+
+  /**
+   * Toggle the sport profiles switcher in the dropdown
+   */
+  toggleSportSwitcher(event: Event): void {
+    event.stopPropagation();
+    this.haptics.impact('light');
+    this.sportSwitcherExpanded.update((v) => !v);
+  }
+
+  /**
+   * Handle "Add Sport" / "Add Team" click in the dropdown
+   */
+  onAddSportButtonClick(event: Event): void {
+    event.stopPropagation();
+    this.haptics.impact('light');
+    this.userMenuOpen.set(false);
+    this.mobileMenuOpen.set(false);
+    this.sportSwitcherExpanded.set(false);
+    this.addSportClick.emit(event);
+  }
+
+  /**
+   * Format sport name for display in the dropdown
+   */
+  formatSportDisplay(sportName: string): string {
+    return formatSportDisplayName(sportName);
+  }
+
+  /**
+   * Build compact initials from a sport name for avatar fallbacks
+   */
+  getSportInitials(sportName: string): string {
+    const parts = sportName.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return 'SP';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
   }
 
   /**

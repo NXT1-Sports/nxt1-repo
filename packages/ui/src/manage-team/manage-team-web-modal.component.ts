@@ -62,12 +62,11 @@ import { NxtModalHeaderComponent } from '../components/overlay/modal-header.comp
         </button>
       </nxt1-modal-header>
 
-      <!-- Shell renders body only — header/footer suppressed via headless=true -->
+      <!-- Shell renders body only — header suppressed via headless=true, 2-col grid via webLayout=true -->
       <nxt1-manage-team-shell
         [headless]="true"
+        [webLayout]="true"
         [teamId]="teamId()"
-        [showTabs]="true"
-        [showProgress]="true"
         (close)="onShellClose()"
         (save)="onShellSave()"
       />

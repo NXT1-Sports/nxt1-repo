@@ -24,6 +24,7 @@ import { NxtQrCodeMobileComponent } from './qr-code-mobile.component';
     <nxt1-qr-code-mobile
       [url]="url"
       [displayName]="displayName"
+      [entityType]="entityType"
       (close)="onClose()"
       (action)="onAction($event)"
     />
@@ -55,6 +56,12 @@ export class NxtQrCodeModalComponent {
    * Set via Ionic componentProps.
    */
   @Input() displayName = '';
+
+  /**
+   * Entity type for contextual share text.
+   * Set via Ionic componentProps.
+   */
+  @Input() entityType: 'profile' | 'team' = 'profile';
 
   /**
    * Handle close request — dismisses the modal.

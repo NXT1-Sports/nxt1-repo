@@ -7,13 +7,7 @@
  * 100% portable - no platform dependencies.
  */
 
-import type {
-  NewsCategory,
-  NewsCategoryId,
-  NewsSortBy,
-  NewsDateRange,
-  XpRewardType,
-} from './news.types';
+import type { NewsCategory, NewsCategoryId, NewsSortBy, NewsDateRange } from './news.types';
 
 // ============================================
 // CATEGORY CONFIGURATION
@@ -32,7 +26,7 @@ export const NEWS_CATEGORIES: readonly NewsCategory[] = [
   },
   {
     id: 'recruiting',
-    label: 'Recruiting',
+    label: 'Discovery',
     icon: 'people-outline',
     color: 'var(--nxt1-color-feedback-info)',
   },
@@ -114,31 +108,6 @@ export const NEWS_CATEGORY_BG_COLORS: Record<NewsCategoryId, string> = {
 } as const;
 
 // ============================================
-// XP REWARDS CONFIGURATION
-// ============================================
-
-/**
- * XP rewards for different actions.
- */
-export const NEWS_XP_REWARDS: Record<XpRewardType, number> = {
-  'article-open': 5,
-  'article-half': 10,
-  'article-complete': 15,
-  'article-share': 20,
-  'daily-streak': 25,
-  milestone: 50,
-} as const;
-
-/**
- * Milestone thresholds for achievements.
- */
-export const NEWS_MILESTONES = {
-  ARTICLES_READ: [10, 25, 50, 100, 250, 500, 1000],
-  STREAK_DAYS: [3, 7, 14, 30, 60, 90, 180, 365],
-  XP_EARNED: [100, 500, 1000, 2500, 5000, 10000],
-} as const;
-
-// ============================================
 // SORT & FILTER OPTIONS
 // ============================================
 
@@ -192,8 +161,6 @@ export const NEWS_UI_CONFIG = {
   SEARCH_DEBOUNCE_MS: 300,
   /** Auto-refresh interval (ms) - 5 minutes */
   AUTO_REFRESH_INTERVAL_MS: 5 * 60 * 1000,
-  /** Reading progress update threshold (percentage points) */
-  PROGRESS_UPDATE_THRESHOLD: 10,
   /** Max characters for excerpt */
   EXCERPT_MAX_LENGTH: 150,
   /** Max lines for title clamp */
@@ -255,9 +222,8 @@ export const NEWS_EMPTY_STATES: Record<
   },
   saved: {
     icon: 'bookmark-outline',
-    title: 'No saved articles',
-    message: 'Bookmark articles to read them later, even offline.',
-    ctaLabel: 'Browse News',
+    title: 'Saved — Coming Soon',
+    message: 'Save your favorite articles for quick access. This feature is coming soon.',
   },
 } as const;
 
@@ -266,15 +232,18 @@ export const NEWS_EMPTY_STATES: Record<
 // ============================================
 
 /**
+ * Time-to-live for articles in Firestore (days).
+ * Articles are auto-deleted by Firestore TTL policy after this period.
+ * Backend queries also filter by expiresAt as a safety net.
+ */
+export const ARTICLE_TTL_DAYS = 14;
+
+/**
  * Cache keys for news data.
  */
 export const NEWS_CACHE_KEYS = {
   FEED_PREFIX: 'news:feed:',
   ARTICLE_PREFIX: 'news:article:',
-  BOOKMARKS: 'news:bookmarks',
-  READING_PROGRESS: 'news:progress',
-  READING_STATS: 'news:stats',
-  BADGES: 'news:badges',
 } as const;
 
 /**
@@ -285,10 +254,6 @@ export const NEWS_CACHE_TTL = {
   FEED: 5 * 60 * 1000,
   /** Article cache: 15 minutes */
   ARTICLE: 15 * 60 * 1000,
-  /** Reading progress: 1 hour (persists locally) */
-  PROGRESS: 60 * 60 * 1000,
-  /** Stats: 30 minutes */
-  STATS: 30 * 60 * 1000,
 } as const;
 
 // ============================================
@@ -303,33 +268,12 @@ export const NEWS_API_ENDPOINTS = {
   FEED: '/news',
   /** Get single article */
   ARTICLE: '/news/:id',
-  /** Toggle bookmark */
-  BOOKMARK: '/news/:id/bookmark',
-  /** Update reading progress */
-  PROGRESS: '/news/:id/progress',
-  /** Get reading stats */
-  STATS: '/news/stats',
   /** Generate news (AI endpoint) */
   GENERATE: '/news/generate',
   /** Get trending articles */
   TRENDING: '/news/trending',
   /** Search articles */
   SEARCH: '/news/search',
-} as const;
-
-// ============================================
-// AI SOURCE CONFIGURATION
-// ============================================
-
-/**
- * Default AI agent source for generated content.
- */
-export const NEWS_AI_SOURCE = {
-  id: 'agent-x',
-  name: 'NXT 1',
-  avatarUrl: 'assets/shared/logo/nxt1_icon.png',
-  type: 'ai-agent' as const,
-  isVerified: true,
 } as const;
 
 // ============================================
@@ -344,14 +288,6 @@ export const NEWS_ANIMATION_CONFIG = {
   CARD_SLIDE_DURATION: 300,
   /** Fade transition duration (ms) */
   FADE_DURATION: 200,
-  /** Bookmark heart animation duration (ms) */
-  BOOKMARK_POP_DURATION: 400,
-  /** Progress bar transition duration (ms) */
-  PROGRESS_TRANSITION: 150,
-  /** XP badge pulse duration (ms) */
-  XP_PULSE_DURATION: 500,
   /** Skeleton shimmer cycle duration (ms) */
   SKELETON_SHIMMER_DURATION: 1500,
-  /** Confetti celebration duration (ms) */
-  CONFETTI_DURATION: 3000,
 } as const;

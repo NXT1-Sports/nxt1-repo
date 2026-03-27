@@ -63,7 +63,7 @@ export const AGENT_X_MODES: readonly AgentXModeConfig[] = [
   },
   {
     id: 'recruiting',
-    label: 'Recruiting',
+    label: 'Discovery',
     description: 'College matching and recruiting guidance',
   },
   {

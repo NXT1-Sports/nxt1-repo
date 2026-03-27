@@ -15,3 +15,5 @@ runConfig:
 env:
   - variable: NODE_ENV
     value: 'production'
+  - variable: CRON_SECRET
+    secret: CRON_SECRET

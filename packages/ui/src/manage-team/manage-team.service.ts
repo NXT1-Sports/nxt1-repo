@@ -32,6 +32,7 @@ import { MANAGE_TEAM_TABS } from '@nxt1/core';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
+import { ManageTeamApiClient } from './manage-team-api.client';
 
 /**
  * Manage Team state management service.
@@ -42,6 +43,7 @@ export class ManageTeamService {
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ManageTeamService');
+  private readonly apiClient = inject(ManageTeamApiClient);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -225,11 +227,9 @@ export class ManageTeamService {
     this._teamId.set(teamId);
 
     try {
-      // TODO: Replace with actual API call when backend is ready
-      // const result = await this.api.getTeam(teamId);
-      // this._formData.set(result.formData);
-      // this._completion.set(result.completion);
-      // this._sections.set(result.sections);
+      const result = await this.apiClient.getTeamForEditing(teamId);
+      this._formData.set(result.formData);
+      this._completion.set(result.completion);
       this._dirtyFields.set(new Set());
 
       this.logger.info('Team loaded successfully', { teamId });

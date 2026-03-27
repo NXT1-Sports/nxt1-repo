@@ -27,19 +27,14 @@
  */
 
 import { Component, ChangeDetectionStrategy, input, output, computed, inject } from '@angular/core';
-import { IonIcon } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import { timeOutline } from 'ionicons/icons';
 import { type NewsArticle } from '@nxt1/core';
 import { NxtImageComponent } from '../components/image';
-import { NxtAvatarComponent } from '../components/avatar';
 import { HapticsService } from '../services/haptics/haptics.service';
 
-// Register icons
 @Component({
   selector: 'nxt1-news-article-card',
   standalone: true,
-  imports: [IonIcon, NxtImageComponent, NxtAvatarComponent],
+  imports: [NxtImageComponent],
   template: `
     <article
       class="news-card"
@@ -51,7 +46,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
       <!-- Hero Image Section -->
       <div class="news-card__image-wrapper">
         <nxt1-image
-          [src]="article().thumbnailUrl || article().heroImageUrl || ''"
+          [src]="article().imageUrl || ''"
           [alt]="article().title"
           class="news-card__image"
           fit="cover"
@@ -70,24 +65,20 @@ import { HapticsService } from '../services/haptics/haptics.service';
         <div class="news-card__meta">
           <!-- Source Pill -->
           <div class="news-card__source-pill">
-            <nxt1-avatar
-              [src]="article().source.avatarUrl"
-              [name]="article().source.name"
-              size="xs"
-            />
-            <span class="news-card__source-name">{{ article().source.name }}</span>
-            @if (article().source.isVerified) {
-              <ion-icon name="checkmark-circle" class="news-card__verified"></ion-icon>
+            @if (article().faviconUrl) {
+              <img
+                [src]="article().faviconUrl"
+                [alt]="article().source"
+                class="news-card__favicon"
+                width="16"
+                height="16"
+              />
             }
+            <span class="news-card__source-name">{{ article().source }}</span>
           </div>
 
-          <!-- Time & Reading Time -->
-          <div class="news-card__time-info">
-            <span class="news-card__time-ago">{{ timeAgo() }}</span>
-            <span class="news-card__separator">&middot;</span>
-            <ion-icon name="time-outline"></ion-icon>
-            <span>{{ article().readingTimeMinutes }} min</span>
-          </div>
+          <!-- Time Ago -->
+          <span class="news-card__time-ago">{{ timeAgo() }}</span>
         </div>
       </div>
     </article>
@@ -224,28 +215,17 @@ import { HapticsService } from '../services/haptics/haptics.service';
         line-height: 1;
       }
 
-      .news-card__verified {
-        font-size: 14px;
-        color: var(--nxt1-color-primary, #ccff00);
-        line-height: 1;
-        display: flex;
-        align-items: center;
+      .news-card__favicon {
+        width: 16px;
+        height: 16px;
+        border-radius: 3px;
+        object-fit: contain;
+        flex-shrink: 0;
       }
 
-      .news-card__time-info {
-        display: flex;
-        align-items: center;
-        gap: 4px;
+      .news-card__time-ago {
         font-size: 12px;
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
-      }
-
-      .news-card__time-info ion-icon {
-        font-size: 14px;
-      }
-
-      .news-card__separator {
-        margin: 0 2px;
       }
 
       /* ============================================
@@ -271,12 +251,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NewsArticleCardComponent {
-  constructor() {
-    addIcons({
-      timeOutline,
-    });
-  }
-
   private readonly haptics = inject(HapticsService);
 
   /** Article data to display */
@@ -306,7 +280,7 @@ export class NewsArticleCardComponent {
 
   protected readonly ariaLabel = computed(() => {
     const article = this.article();
-    return `${article.title}. ${article.excerpt}. Published ${this.timeAgo()}. ${article.readingTimeMinutes} minute read.`;
+    return `${article.title}. ${article.excerpt}. Published ${this.timeAgo()}. From ${article.source}.`;
   });
 
   // ============================================

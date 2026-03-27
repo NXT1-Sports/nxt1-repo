@@ -60,8 +60,9 @@ import {
   ProfileGenerationOverlayComponent,
   ProfileGenerationStateService,
 } from '@nxt1/ui/profile';
-import { TeamProfileShellWebComponent, TeamProfileService } from '@nxt1/ui/team-profile';
+import { TeamProfileService } from '@nxt1/ui/team-profile';
 import { EditProfileModalService } from '@nxt1/ui/edit-profile';
+import { ManageTeamModalService } from '@nxt1/ui/manage-team';
 import {
   NxtBottomSheetService,
   SHEET_PRESETS,
@@ -83,7 +84,6 @@ import type {
   ProfileTeamAffiliation,
   User,
   UserSummary,
-  TeamProfileTabId,
 } from '@nxt1/core';
 import type { ApiResponse } from '@nxt1/core/profile';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
@@ -97,7 +97,6 @@ import {
 import { clearHttpCache } from '../../core/infrastructure';
 import { EditProfileApiService } from '../../core/services/edit-profile-api.service';
 import { ProfileService as ApiProfileService } from './services/profile.service';
-import { TeamProfileApiService } from '../team/services/team-profile.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import { environment } from '../../../environments/environment';
@@ -120,71 +119,55 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
   providers: [ProfileService],
   imports: [
     ProfileShellWebComponent,
-    TeamProfileShellWebComponent,
     NxtCtaBannerComponent,
     RelatedAthletesComponent,
     ProfileGenerationOverlayComponent,
   ],
   template: `
-    @if (showTeamProfile()) {
-      <!-- Coach/Director own profile → Team Profile Shell (same pattern as mobile) -->
-      <nxt1-team-profile-shell-web
-        [teamSlug]="teamSlug()"
-        [isTeamAdmin]="true"
-        [skipInternalLoad]="true"
-        (backClick)="onBackClick()"
-        (tabChange)="onTeamTabChange($event)"
-        (shareClick)="onShare()"
-        (followClick)="onFollow()"
-        (qrCodeClick)="onQrCode()"
-      >
-      </nxt1-team-profile-shell-web>
-    } @else {
-      <nxt1-profile-shell-web
-        [currentUser]="userInfo()"
-        [profileUnicode]="profileUnicode()"
-        [isOwnProfile]="isOwnProfile()"
-        [skipInternalLoad]="true"
-        (avatarClick)="onAvatarClick()"
-        (backClick)="onBackClick()"
-        (tabChange)="onTabChange($event)"
-        (editProfileClick)="onEditProfile()"
-        (editTeamClick)="onEditTeam()"
-        (teamClick)="onTeamClick($event)"
-        (shareClick)="onShare()"
-        (followClick)="onFollow()"
-        (qrCodeClick)="onQrCode()"
-        (aiSummaryClick)="onAiSummary()"
-        (createPostClick)="onCreatePost()"
-        (retryClick)="onRetry()"
-      >
-        <!-- ═══ PROJECTED BELOW-FOLD CONTENT (inside shell scroll container) ═══ -->
-        @defer (on viewport) {
-          <nxt1-related-athletes
-            [athletes]="relatedAthletes()"
-            [sport]="relatedSport()"
-            [state]="relatedState()"
-            (athleteClick)="onRelatedAthleteClick($event)"
-            (seeAllClick)="onSeeAllRelated()"
-          />
-        } @placeholder {
-          <div style="height: 200px;"></div>
-        }
+    <nxt1-profile-shell-web
+      [currentUser]="userInfo()"
+      [profileUnicode]="profileUnicode()"
+      [isOwnProfile]="isOwnProfile()"
+      [skipInternalLoad]="true"
+      (avatarClick)="onAvatarClick()"
+      (backClick)="onBackClick()"
+      (tabChange)="onTabChange($event)"
+      (editProfileClick)="onEditProfile()"
+      (editTeamClick)="onEditTeam()"
+      (teamClick)="onTeamClick($event)"
+      (shareClick)="onShare()"
+      (followClick)="onFollow()"
+      (qrCodeClick)="onQrCode()"
+      (aiSummaryClick)="onAiSummary()"
+      (createPostClick)="onCreatePost()"
+      (retryClick)="onRetry()"
+    >
+      <!-- ═══ PROJECTED BELOW-FOLD CONTENT (inside shell scroll container) ═══ -->
+      @defer (on viewport) {
+        <nxt1-related-athletes
+          [athletes]="relatedAthletes()"
+          [sport]="relatedSport()"
+          [state]="relatedState()"
+          (athleteClick)="onRelatedAthleteClick($event)"
+          (seeAllClick)="onSeeAllRelated()"
+        />
+      } @placeholder {
+        <div style="height: 200px;"></div>
+      }
 
-        @if (!isLoggedIn()) {
-          <nxt1-cta-banner
-            variant="conversion"
-            badgeLabel="Agentic Profile"
-            title="This Profile Runs Itself."
-            subtitle="NXT1 profiles update stats, sync highlights, and surface recruiting signals automatically — so coaches always see the latest without athletes lifting a finger."
-            ctaLabel="Build Your Agentic Profile"
-            ctaRoute="/auth"
-            titleId="profile-cta-banner-title"
-            [avatarImages]="ctaAvatars"
-          />
-        }
-      </nxt1-profile-shell-web>
-    }
+      @if (!isLoggedIn()) {
+        <nxt1-cta-banner
+          variant="conversion"
+          badgeLabel="Agentic Profile"
+          title="This Profile Runs Itself."
+          subtitle="NXT1 profiles update stats, sync highlights, and surface recruiting signals automatically — so coaches always see the latest without athletes lifting a finger."
+          ctaLabel="Build Your Agentic Profile"
+          ctaRoute="/auth"
+          titleId="profile-cta-banner-title"
+          [avatarImages]="ctaAvatars"
+        />
+      }
+    </nxt1-profile-shell-web>
 
     @if (generation.isGenerating()) {
       <nxt1-profile-generation-overlay (dismissed)="onGenerationDismissed($event)" />
@@ -221,6 +204,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
   private readonly authModal = inject(AuthModalService);
   private readonly qrCode = inject(QrCodeService);
   private readonly editProfileModal = inject(EditProfileModalService);
+  private readonly manageTeamModal = inject(ManageTeamModalService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly platform = inject(NxtPlatformService);
   private readonly router = inject(Router);
@@ -247,7 +231,6 @@ export class ProfileComponent implements OnInit, OnDestroy {
    */
   private readonly profileService: ProfileService = inject(ProfileService);
   private readonly teamProfileService = inject(TeamProfileService);
-  private readonly teamApi = inject(TeamProfileApiService);
 
   private readonly platformId = inject(PLATFORM_ID);
   protected readonly generation = inject(ProfileGenerationStateService);
@@ -266,20 +249,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
   protected readonly isLoggedIn = computed(() => this.authFlow.isAuthenticated());
 
   /**
-   * Whether to show TeamProfileShell instead of the athlete ProfileShell.
-   * True when viewing own profile and the user has a coach/director role.
-   */
-  protected readonly showTeamProfile = computed(() => {
-    const fetchedProfile = this.fetchedProfile();
-    // Fall back to the cached auth user role so TeamProfileShellWebComponent
-    // mounts immediately on back-navigation (teamData is already cached)
-    // rather than waiting for getMe() to return and causing a profile skeleton flash.
-    const role = fetchedProfile?.role ?? this.authService.user()?.role;
-    return this.isOwnProfile() && !!role && isTeamRole(role);
-  });
-
-  /**
-   * Team slug extracted from the user's teamCode — passed to TeamProfileShellWebComponent.
+   * Team slug extracted from the user's teamCode — used for coach/director redirect.
    */
   protected readonly teamSlug = computed(() => {
     const profile = this.fetchedProfile();
@@ -504,17 +474,23 @@ export class ProfileComponent implements OnInit, OnDestroy {
     });
 
     // Handle mobile top-nav edit (pencil) button — delegated via ProfilePageActionsService
+    // Capture current counter so we only react to NEW taps, not stale values
+    // from a previous page (e.g. team → profile navigation).
+    let lastEditHandled = this.profilePageActions.editRequested();
     effect(() => {
       const count = this.profilePageActions.editRequested();
-      if (count > 0) {
+      if (count > lastEditHandled) {
+        lastEditHandled = count;
         void this.onEditProfile();
       }
     });
 
     // Handle mobile top-nav three-dot (more) button — delegated via ProfilePageActionsService
+    let lastMoreHandled = this.profilePageActions.moreRequested();
     effect(() => {
       const count = this.profilePageActions.moreRequested();
-      if (count > 0) {
+      if (count > lastMoreHandled) {
+        lastMoreHandled = count;
         void this.onProfileMoreMenu();
       }
     });
@@ -646,9 +622,16 @@ export class ProfileComponent implements OnInit, OnDestroy {
     const profilePageData = userToProfilePageData(profile, isOwn);
     this.profileService.loadFromExternalData(profilePageData, profile, isOwn);
 
-    // Role-aware: coach/director own profile → load team data into TeamProfileService
+    // Role-aware: coach/director own profile → redirect to canonical /team/:slug route.
+    // This ensures the URL bar shows the shareable team link and analytics
+    // correctly attribute team page views. replaceUrl avoids back-button loops.
     if (isOwn && isTeamRole(profile.role)) {
-      void this.loadTeamProfile(profile);
+      const slug = this.teamSlug();
+      if (slug) {
+        this.logger.info('Redirecting coach/director to team route', { slug, role: profile.role });
+        void this.router.navigate(['/team', slug], { replaceUrl: true });
+        return; // Skip sub-collection fetches — /team/:slug loads its own data
+      }
     }
 
     this.fetchRelatedAthletes(profile);
@@ -798,50 +781,6 @@ export class ProfileComponent implements OnInit, OnDestroy {
    * The backend handles all scoring (sport, state, position affinity)
    * and returns exactly 12 pre-ranked athletes.
    */
-
-  /**
-   * Load team profile data for coach/director own-profile view.
-   * Extracts team slug from user document → fetches via TeamProfileApiService
-   * → pushes into TeamProfileService for the team shell to render.
-   */
-  private async loadTeamProfile(profile: User): Promise<void> {
-    const slug =
-      profile.teamCode?.slug ?? profile.teamCode?.unicode ?? profile.coach?.managedTeamCodes?.[0];
-
-    if (!slug) {
-      this.logger.warn('Coach/director has no team slug', { userId: profile.id });
-      this.teamProfileService.setError('No team associated with this account');
-      return;
-    }
-
-    // Only show the team skeleton when there is no data already cached.
-    // If data exists, refresh silently (stale-while-revalidate) so navigating
-    // back to own profile does not flash a loading skeleton.
-    if (!this.teamProfileService.teamData()) {
-      this.teamProfileService.startLoading();
-    }
-
-    try {
-      const response = await this.teamApi.getTeamBySlug(slug).toPromise();
-      if (response?.success && response.data) {
-        this.teamProfileService.loadFromExternalData(response.data);
-        this.logger.info('Team profile loaded for own-profile view', {
-          slug,
-          teamName: response.data.team?.teamName,
-        });
-      } else {
-        this.teamProfileService.setError(response?.error ?? 'Failed to load team profile');
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load team profile';
-      this.teamProfileService.setError(message);
-    }
-  }
-
-  /** Handle tab change for the team profile shell */
-  protected onTeamTabChange(tab: TeamProfileTabId): void {
-    this.logger.debug('Team tab change', { tab });
-  }
 
   private fetchRelatedAthletes(profile: User): void {
     const activeSport = profile.sports?.[profile.activeSportIndex ?? 0] ?? profile.sports?.[0];
@@ -996,11 +935,24 @@ export class ProfileComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Handle edit team navigation — navigates to the manage-team page.
+   * Handle edit team — opens manage team modal (same pattern as mobile).
    */
-  protected onEditTeam(): void {
+  protected async onEditTeam(): Promise<void> {
     this.logger.info('Edit team clicked');
-    this.router.navigate(['/manage-team']);
+    const team = this.teamProfileService.team();
+    const result = await this.manageTeamModal.open({
+      teamId: team?.id ?? undefined,
+    });
+
+    if (result.saved) {
+      const slug = this.teamSlug();
+      if (slug) {
+        this.teamProfileService.startLoading();
+        this.teamProfileService.loadTeam(slug, true).catch((error) => {
+          this.logger.error('Failed to reload team after manage', { slug, error });
+        });
+      }
+    }
   }
 
   /**

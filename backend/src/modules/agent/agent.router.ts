@@ -36,12 +36,25 @@ import type { BaseAgent } from './agents/base.agent.js';
 import type { GuardrailRunner } from './guardrails/guardrail-runner.js';
 import { PlannerAgent } from './agents/planner.agent.js';
 import { isAgentYield, AgentYieldException } from './errors/agent-yield.error.js';
+import { SemanticCacheService } from './memory/semantic-cache.service.js';
+import { logger } from '../../utils/logger.js';
+
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+/**
+ * Maximum number of self-correction retries per task.
+ * When a coordinator crashes, the router feeds the error back to the agent
+ * with an augmented system message, giving it a chance to recover before
+ * cascading failure to downstream tasks.
+ */
+const TASK_MAX_RETRIES = 2;
 
 // ─── Router ─────────────────────────────────────────────────────────────────
 
 export class AgentRouter {
   private readonly planner: PlannerAgent;
   private readonly agents = new Map<AgentIdentifier, BaseAgent>();
+  private readonly semanticCache: SemanticCacheService;
 
   constructor(
     private readonly llm: OpenRouterService,
@@ -50,6 +63,7 @@ export class AgentRouter {
     private readonly guardrailRunner?: GuardrailRunner
   ) {
     this.planner = new PlannerAgent(llm);
+    this.semanticCache = new SemanticCacheService(llm);
   }
 
   /** Register a sub-agent so the router can delegate tasks to it. */
@@ -187,6 +201,44 @@ export class AgentRouter {
       }
     }
 
+    // ── Semantic Cache: check for near-identical recent answers ────────────
+    // This intercepts before the Planner fires, saving LLM tokens and latency.
+    // Only applies to non-resumed, non-direct-agent jobs.
+    // When a hit is found, the raw cached response is personalized for the
+    // current user via a fast micro-LLM pass (the "Synthesizer Pattern").
+    try {
+      const cacheHit = await this.semanticCache.check(intent);
+      if (cacheHit) {
+        logger.info('[AgentRouter] Semantic cache hit — personalizing for user', {
+          operationId,
+          score: cacheHit.score,
+          cachedIntent: cacheHit.cachedIntent.slice(0, 80),
+          userId,
+        });
+
+        this.emitUpdate(
+          onUpdate,
+          operationId,
+          'thinking',
+          'Found a cached answer — personalizing...'
+        );
+
+        // Fast personalizer: rewrites the cached summary for this user's
+        // name, sport, position, and role. Uses the `fast` tier (~300ms)
+        // instead of re-running the full DAG (~10-15s).
+        const personalized = await this.semanticCache.personalize(
+          cacheHit.result,
+          userContext,
+          intent
+        );
+
+        this.emitUpdate(onUpdate, operationId, 'completed', personalized.summary);
+        return personalized;
+      }
+    } catch {
+      // Cache check is best-effort — continue to the Planner on failure
+    }
+
     // ── Step 2: Plan ──────────────────────────────────────────────────────
     this.emitUpdate(onUpdate, operationId, 'thinking', 'Decomposing your request into tasks...');
 
@@ -221,9 +273,10 @@ export class AgentRouter {
 
     // ── Step 3: Execute tasks in dependency order ─────────────────────────
     const taskResults = new Map<string, AgentOperationResult>();
-    const mutableTasks = plan.tasks.map((t) => ({ ...t })) as Array<
-      AgentTask & { status: AgentTaskStatus }
-    >;
+    const mutableTasks = plan.tasks.map((t) => ({
+      ...t,
+      _lastError: undefined as string | undefined,
+    })) as Array<AgentTask & { status: AgentTaskStatus; _lastError?: string }>;
 
     while (this.hasPendingTasks(mutableTasks)) {
       // Find tasks whose dependencies are all completed
@@ -251,57 +304,100 @@ export class AgentRouter {
           { eventType: 'task_started', taskId: task.id }
         );
 
-        try {
-          const agent = this.agents.get(task.assignedAgent);
-          if (!agent) {
-            throw new Error(`No agent registered for "${task.assignedAgent}".`);
+        for (let attempt = 0; attempt <= TASK_MAX_RETRIES; attempt++) {
+          try {
+            const agent = this.agents.get(task.assignedAgent);
+            if (!agent) {
+              throw new Error(`No agent registered for "${task.assignedAgent}".`);
+            }
+
+            // Build the intent for this specific task, enriched with upstream results
+            // and the original job context (user profile, linked account URLs, etc.)
+            let taskIntent = this.buildTaskIntent(task, taskResults, enrichedIntent);
+
+            // On retry attempts, augment the intent with the previous error so the
+            // coordinator can self-correct (e.g. use a different tool or approach).
+            if (attempt > 0 && task._lastError) {
+              taskIntent +=
+                `\n\n[System Intervention — Retry ${attempt}/${TASK_MAX_RETRIES}]\n` +
+                `Your previous execution of this task failed with the following error:\n` +
+                `"${task._lastError}"\n` +
+                `Please formulate an alternative strategy to accomplish this task. ` +
+                `Use a different tool, adjust your parameters, or if the task is ` +
+                `truly impossible, explain why clearly.`;
+
+              logger.warn('[AgentRouter] Self-correction retry', {
+                taskId: task.id,
+                agent: task.assignedAgent,
+                attempt,
+                previousError: task._lastError,
+              });
+
+              this.emitUpdate(
+                onUpdate,
+                operationId,
+                'acting',
+                `Task ${task.id}: retrying (attempt ${attempt + 1}/${TASK_MAX_RETRIES + 1})...`,
+                { eventType: 'task_retry', taskId: task.id, attempt }
+              );
+            }
+
+            const toolDefs = this.toolRegistry.getDefinitions(agent.id);
+
+            const result = await agent.execute(
+              taskIntent,
+              context,
+              toolDefs,
+              this.llm,
+              this.toolRegistry,
+              this.guardrailRunner
+            );
+
+            taskResults.set(task.id, result);
+            task.status = 'completed' as AgentTaskStatus;
+            this.emitUpdate(
+              onUpdate,
+              operationId,
+              'acting',
+              `Task ${task.id} completed: ${result.summary}`
+            );
+            break; // Success — exit retry loop
+          } catch (err) {
+            // Attach DAG plan context to yield exceptions so the resume route
+            // can reconstruct the partial plan state and continue from here.
+            if (isAgentYield(err)) {
+              const yieldErr = err as AgentYieldException;
+              throw new AgentYieldException({
+                ...yieldErr.payload,
+                planContext: {
+                  currentTaskId: task.id,
+                  completedTaskResults: Object.fromEntries(
+                    [...taskResults.entries()].map(([k, v]) => [k, v])
+                  ),
+                  enrichedIntent,
+                },
+              });
+            }
+
+            const message = err instanceof Error ? err.message : 'Unknown error';
+
+            // Store the error for the next retry attempt's augmented prompt
+            task._lastError = message;
+
+            // If this was the last retry, cascade failure
+            if (attempt === TASK_MAX_RETRIES) {
+              task.status = 'failed' as AgentTaskStatus;
+              this.emitUpdate(
+                onUpdate,
+                operationId,
+                'acting',
+                `Task ${task.id} failed after ${TASK_MAX_RETRIES + 1} attempts: ${message}`
+              );
+
+              // Cascade failure to all downstream dependents
+              this.cascadeFailure(task.id, mutableTasks);
+            }
           }
-
-          // Build the intent for this specific task, enriched with upstream results
-          // and the original job context (user profile, linked account URLs, etc.)
-          const taskIntent = this.buildTaskIntent(task, taskResults, enrichedIntent);
-          const toolDefs = this.toolRegistry.getDefinitions(agent.id);
-
-          const result = await agent.execute(
-            taskIntent,
-            context,
-            toolDefs,
-            this.llm,
-            this.toolRegistry,
-            this.guardrailRunner
-          );
-
-          taskResults.set(task.id, result);
-          task.status = 'completed' as AgentTaskStatus;
-          this.emitUpdate(
-            onUpdate,
-            operationId,
-            'acting',
-            `Task ${task.id} completed: ${result.summary}`
-          );
-        } catch (err) {
-          // Attach DAG plan context to yield exceptions so the resume route
-          // can reconstruct the partial plan state and continue from here.
-          if (isAgentYield(err)) {
-            const yieldErr = err as AgentYieldException;
-            throw new AgentYieldException({
-              ...yieldErr.payload,
-              planContext: {
-                currentTaskId: task.id,
-                completedTaskResults: Object.fromEntries(
-                  [...taskResults.entries()].map(([k, v]) => [k, v])
-                ),
-                enrichedIntent,
-              },
-            });
-          }
-
-          task.status = 'failed' as AgentTaskStatus;
-          const message = err instanceof Error ? err.message : 'Unknown error';
-          this.emitUpdate(onUpdate, operationId, 'acting', `Task ${task.id} failed: ${message}`);
-
-          // Cascade failure to all downstream dependents (H7)
-          this.cascadeFailure(task.id, mutableTasks);
         }
       }
     }
@@ -312,7 +408,7 @@ export class AgentRouter {
     const summaries = [...taskResults.values()].map((r) => r.summary);
     const allSuggestions = [...taskResults.values()].flatMap((r) => r.suggestions ?? []);
 
-    return {
+    const aggregatedResult: AgentOperationResult = {
       summary: summaries.join('\n\n'),
       data: {
         plan,
@@ -320,6 +416,16 @@ export class AgentRouter {
       },
       suggestions: allSuggestions.length > 0 ? allSuggestions : undefined,
     };
+
+    // ── Semantic Cache: store the successful result for future cache hits ──
+    // Only cache if ALL tasks completed (no partial failures).
+    const allCompleted = mutableTasks.every((t) => t.status === 'completed');
+    if (allCompleted && taskResults.size > 0) {
+      // Fire-and-forget — never block the response for cache storage
+      this.semanticCache.store(intent, aggregatedResult).catch(() => {});
+    }
+
+    return aggregatedResult;
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────

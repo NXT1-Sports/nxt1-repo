@@ -77,20 +77,11 @@ import {
 } from '../../components/bottom-sheet';
 
 import { ProfileTimelineComponent } from '../profile-timeline.component';
-import { ProfileOffersComponent } from '../profile-offers.component';
-import { ProfileRankingsComponent } from '../rankings/profile-rankings.component';
-import { ProfileEventsComponent } from '../profile-events.component';
 import { ProfileSkeletonComponent } from '../profile-skeleton.component';
-import { NewsBoardComponent } from '../../components/news-board/news-board.component';
-import { ProfileScoutingComponent } from '../components/profile-scouting.component';
 import { ProfileOverviewComponent } from '../components/profile-overview.component';
 import { ProfileMobileHeroComponent } from '../components/profile-mobile-hero.component';
 import { ProfileVerificationBannerComponent } from '../components/profile-verification-banner.component';
-import { ScheduleBoardComponent } from '../../components/schedule-board';
-import { StatsDashboardComponent } from '../../components/stats-dashboard/stats-dashboard.component';
 import { ProfileContactComponent } from '../components/profile-contact.component';
-import { ProfileAcademicComponent } from '../components/profile-academic.component';
-import { ProfileMetricsComponent } from '../components/profile-metrics.component';
 import type { ProfileShellUser } from '../profile-shell.component';
 
 const TEAM_TYPE_LABELS: Readonly<Record<ProfileTeamType, string>> = {
@@ -127,20 +118,11 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
     NxtSectionNavWebComponent,
     NxtImageCarouselComponent,
     ProfileTimelineComponent,
-    ProfileOffersComponent,
-    ProfileRankingsComponent,
-    ProfileEventsComponent,
     ProfileSkeletonComponent,
-    NewsBoardComponent,
-    ProfileScoutingComponent,
     ProfileOverviewComponent,
     ProfileMobileHeroComponent,
     ProfileVerificationBannerComponent,
-    ScheduleBoardComponent,
-    StatsDashboardComponent,
     ProfileContactComponent,
-    ProfileAcademicComponent,
-    ProfileMetricsComponent,
   ],
   template: `
     <main class="profile-main">
@@ -197,7 +179,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                 <nxt1-option-scroller
                   [options]="tabOptions()"
                   [selectedId]="profile.activeTab()"
-                  [config]="{ scrollable: true, stretchToFill: false, showDivider: false }"
+                  [config]="{ scrollable: false, stretchToFill: true, showDivider: false }"
                   (selectionChange)="onTabChange($event)"
                 />
               </nav>
@@ -270,7 +252,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                   />
 
                   @switch (profile.activeTab()) {
-                    @case ('overview') {
+                    @case ('intel') {
                       <nxt1-profile-overview
                         [activeSideTab]="activeSideTab()"
                         (editProfileClick)="editProfileClick.emit()"
@@ -282,7 +264,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                       <nxt1-profile-timeline
                         [posts]="profile.filteredPosts()"
                         [unifiedFeed]="profile.unifiedTimeline()"
-                        [profileUser]="profile.user()"
                         [isLoading]="false"
                         [isLoadingMore]="profile.isLoadingMore()"
                         [isEmpty]="profile.isEmpty()"
@@ -305,122 +286,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                       />
                     }
 
-                    @case ('news') {
-                      <nxt1-news-board
-                        [items]="newsBoardItems()"
-                        [isLoading]="profile.isLoading()"
-                        [activeSection]="activeSideTab()"
-                        [entityName]="profile.user()?.firstName ?? 'Athlete'"
-                        [emptyCta]="profile.isOwnProfile() ? 'Add Articles' : null"
-                        (itemClick)="onNewsBoardItemClick($event)"
-                        (emptyCtaClick)="onAddNews()"
-                      />
-                    }
-
-                    @case ('videos') {
-                      <nxt1-profile-timeline
-                        [posts]="profile.videoPosts()"
-                        [profileUser]="profile.user()"
-                        [isLoading]="false"
-                        [isEmpty]="profile.videoPosts().length === 0"
-                        [isOwnProfile]="profile.isOwnProfile()"
-                        [showFilters]="false"
-                        [emptyIcon]="emptyState().icon"
-                        [emptyTitle]="emptyState().title"
-                        [emptyMessage]="emptyState().message"
-                        [emptyCta]="profile.isOwnProfile() ? (emptyState().ctaLabel ?? null) : null"
-                        (postClick)="onPostClick($event)"
-                        (reactClick)="onLikePost($event)"
-                        (shareClick)="onSharePost($event)"
-                        (emptyCtaClick)="onUploadVideo()"
-                      />
-                    }
-
-                    @case ('offers') {
-                      <nxt1-profile-offers
-                        [offers]="profile.offers()"
-                        [committedOffers]="profile.committedOffers()"
-                        [activeOffers]="profile.activeOffers()"
-                        [interestOffers]="profile.interestOffers()"
-                        [isEmpty]="!profile.hasRecruitingActivity()"
-                        [isOwnProfile]="profile.isOwnProfile()"
-                        [activeSection]="activeSideTab()"
-                        cardLayout="horizontal"
-                        (offerClick)="onOfferClick($event)"
-                        (addOfferClick)="onAddOffer()"
-                        (addCommitmentClick)="onAddOffer()"
-                      />
-                    }
-
-                    @case ('scout') {
-                      @if (activeSideTab() === 'scouting') {
-                        <nxt1-profile-scouting
-                          [isLoading]="profile.isLoading()"
-                          [emptyCta]="profile.isOwnProfile() ? 'Add Scout Report' : null"
-                          (reportClick)="onScoutReportClick($event)"
-                          (emptyCtaClick)="onAddScoutReport()"
-                        />
-                      } @else {
-                        <nxt1-profile-rankings (addRankingClick)="onAddRanking()" />
-                      }
-                    }
-
-                    @case ('metrics') {
-                      <nxt1-profile-metrics [activeSideTab]="activeSideTab()" />
-                    }
-
-                    @case ('stats') {
-                      <nxt1-stats-dashboard
-                        [gameLogs]="profile.gameLog()"
-                        [athleticStats]="profile.athleticStats()"
-                        [entityName]="profile.user()?.firstName ?? 'Athlete'"
-                        [showAddButton]="profile.isOwnProfile()"
-                        [activeSideTab]="activeSideTab()"
-                        [emptyMessage]="
-                          profile.isOwnProfile()
-                            ? 'Add your season stats to showcase your performance.'
-                            : 'No stats have been recorded yet.'
-                        "
-                        (addStats)="editProfileClick.emit()"
-                      />
-                    }
-                    @case ('academic') {
-                      <nxt1-profile-academic (editProfileClick)="editProfileClick.emit()" />
-                    }
-
-                    @case ('events') {
-                      <section class="madden-tab-section" aria-labelledby="events-heading">
-                        <h2 id="events-heading" class="sr-only">Events</h2>
-                        <nxt1-profile-events
-                          [events]="profile.events()"
-                          [visitEvents]="profile.visitEvents()"
-                          [campEvents]="profile.campEvents()"
-                          [generalEvents]="profile.generalEvents()"
-                          [isLoading]="profile.isLoading()"
-                          [isOwnProfile]="profile.isOwnProfile()"
-                          [activeSection]="activeSideTab()"
-                          [emptyCta]="profile.isOwnProfile() ? 'Add Event' : null"
-                          cardLayout="horizontal"
-                          (eventClick)="onEventClick($event)"
-                          (addEventClick)="onAddEvent()"
-                          (emptyCtaClick)="onAddEvent()"
-                        />
-                      </section>
-                    }
-
-                    @case ('schedule') {
-                      <nxt1-schedule-board
-                        [rows]="profileScheduleRows()"
-                        [showAddButton]="profile.isOwnProfile()"
-                        [emptyMessage]="
-                          profile.isOwnProfile()
-                            ? 'Add games and practices to show your full season schedule.'
-                            : 'No schedule items have been added yet.'
-                        "
-                      />
-                    }
-
-                    @case ('contact') {
+                    @case ('connect') {
                       <nxt1-profile-contact />
                     }
                   }
@@ -1594,12 +1460,10 @@ export class ProfileShellWebComponent implements OnInit {
     const user = this.profile.user();
     const labels = getOverviewSectionLabels(user);
     const sections: Record<string, SectionNavItem[]> = {
-      overview: [
+      intel: [
         { id: 'player-profile', label: labels.profile },
         { id: 'player-history', label: labels.history },
         { id: 'awards', label: 'Awards', badge: this.profile.awards().length || undefined },
-        { id: 'academic', label: 'Academic' },
-        { id: 'contact', label: 'Contact' },
       ],
       timeline: [
         {
@@ -1628,141 +1492,12 @@ export class ProfileShellWebComponent implements OnInit {
               ).length || undefined,
         },
       ],
-      videos: [
-        {
-          id: 'highlights',
-          label: 'Highlights',
-          badge: this.profile.videoPosts().length || undefined,
-        },
-        {
-          id: 'game-film',
-          label: 'Game Film',
-          badge: this.profile.videoPosts().length || undefined,
-        },
-        {
-          id: 'training',
-          label: 'Training',
-          badge: this.profile.videoPosts().length || undefined,
-        },
-      ],
-      offers: [
-        { id: 'timeline', label: 'Timeline' },
-        {
-          id: 'committed',
-          label: 'Commitment',
-          badge: this.profile.committedOffers().length || undefined,
-        },
-        {
-          id: 'all-offers',
-          label: 'Offers',
-          badge: this.profile.activeOffers().length || undefined,
-        },
-        {
-          id: 'interests',
-          label: 'Interests',
-          badge: this.profile.interestOffers().length || undefined,
-        },
-      ],
-      scout: [
-        {
-          id: 'rankings',
-          label: 'Rankings',
-          badge: this.profile.rankings().length || undefined,
-        },
-        {
-          id: 'scouting',
-          label: 'Scouting',
-          badge: this.profile.scoutReports().length || undefined,
-        },
-      ],
-      metrics:
-        this.profile.metrics().length > 0
-          ? this.profile.metrics().map((cat) => ({
-              id: cat.name.toLowerCase().replace(/\s+/g, '-'),
-              label: cat.name,
-            }))
-          : [
-              { id: 'combine', label: 'Combine Results' },
-              { id: 'measurables', label: 'Measurables' },
-            ],
-      stats: [
-        ...(this.hasSchoolGameLogs()
-          ? [
-              {
-                id: 'school-career',
-                label: 'Career',
-                group: this.schoolStatsTeamName(),
-              },
-              ...this.schoolSeasons().map((s) => ({
-                id: `school-season-${s}`,
-                label: s,
-                group: this.schoolStatsTeamName(),
-              })),
-            ]
-          : []),
-        ...(this.hasClubGameLogs()
-          ? [
-              {
-                id: 'club-career',
-                label: 'Career',
-                group: this.clubStatsTeamName(),
-              },
-              ...this.clubSeasons().map((s) => ({
-                id: `club-season-${s}`,
-                label: s,
-                group: this.clubStatsTeamName(),
-              })),
-            ]
-          : []),
-      ],
-      schedule: [
-        ...this.scheduleSeasons().map((s) => ({
-          id: `season-${s}`,
-          label: s,
-          group: this.scheduleTeamName(),
-        })),
-      ],
-      news: [
-        { id: 'all-news', label: 'All News', badge: this.newsBoardItems().length || undefined },
-        {
-          id: 'announcements',
-          label: 'Announcements',
-          badge:
-            this.newsBoardItems().filter((i) => (i.category as string) === 'announcement').length ||
-            undefined,
-        },
-        {
-          id: 'media-mentions',
-          label: 'Media Mentions',
-          badge:
-            this.newsBoardItems().filter((i) => (i.category as string) === 'media-mention')
-              .length || undefined,
-        },
-      ],
-      events: [
-        { id: 'timeline', label: 'Timeline' },
-        {
-          id: 'visits',
-          label: 'Visits',
-          badge: this.profile.visitEvents().length || undefined,
-        },
-        {
-          id: 'camps',
-          label: 'Camps',
-          badge: this.profile.campEvents().length || undefined,
-        },
-        {
-          id: 'events',
-          label: 'Events',
-          badge: this.profile.generalEvents().length || undefined,
-        },
-      ],
-      contact: [
+      connect: [
         { id: 'info', label: 'Contact Info' },
         { id: 'social', label: 'Social Media' },
       ],
     };
-    return sections[tab] ?? sections['timeline'];
+    return sections[tab] ?? sections['intel'];
   });
 
   /** Active side tab (first item by default) */
@@ -2077,70 +1812,10 @@ export class ProfileShellWebComponent implements OnInit {
     this.profile.gameLog().some((gl: ProfileSeasonGameLog) => gl.teamType === 'club')
   );
 
-  /** Extract unique season labels from a filtered set of game logs. */
-  private getUniqueSeasons(logs: readonly ProfileSeasonGameLog[]): readonly string[] {
-    const seen = new Set<string>();
-    const seasons: string[] = [];
-    for (const log of logs) {
-      const label = log.season?.trim();
-      if (label && !seen.has(label)) {
-        seen.add(label);
-        seasons.push(label);
-      }
-    }
-    return seasons;
-  }
-
-  /** Season labels for school game logs. */
-  private readonly schoolSeasons = computed<readonly string[]>(() => {
-    const schoolLogs = this.profile
-      .gameLog()
-      .filter((gl: ProfileSeasonGameLog) => gl.teamType === 'school');
-    return this.getUniqueSeasons(schoolLogs);
-  });
-
-  /** Display name for school stats sidebar group. */
-  private readonly schoolStatsTeamName = computed(() => {
-    const user = this.profile.user();
-    const schoolName = user?.school?.name?.trim();
-    if (schoolName) return schoolName;
-    const firstTeam = user?.teamAffiliations?.find((a) => a.name?.trim())?.name?.trim();
-    return firstTeam ?? user?.displayName?.trim() ?? 'School';
-  });
-
-  /** Season labels for club game logs. */
-  private readonly clubSeasons = computed<readonly string[]>(() => {
-    const clubLogs = this.profile
-      .gameLog()
-      .filter((gl: ProfileSeasonGameLog) => gl.teamType === 'club');
-    return this.getUniqueSeasons(clubLogs);
-  });
-
-  /** Display name for club stats sidebar group. */
-  private readonly clubStatsTeamName = computed(() => {
-    const user = this.profile.user();
-    const clubTeam = user?.teamAffiliations?.find(
-      (a) => a.type?.toLowerCase() === 'club' && a.name?.trim()
-    );
-    return clubTeam?.name?.trim() ?? 'Club';
-  });
-
   // ── News board items ──
 
   /** News articles from the dedicated news sub-collection (real API data). */
   protected readonly newsBoardItems = computed(() => this.profile.newsArticles());
-
-  /** Display name for schedule sidebar group. */
-  private readonly scheduleTeamName = computed(() => {
-    const user = this.profile.user();
-    const schoolName = user?.school?.name?.trim();
-    if (schoolName) return schoolName;
-    const firstTeamName = user?.teamAffiliations
-      ?.find((affiliation) => affiliation.name?.trim())
-      ?.name?.trim();
-    if (firstTeamName) return firstTeamName;
-    return user?.displayName?.trim() || 'Team';
-  });
 
   // ── Team affiliations ──
 

@@ -1,7 +1,7 @@
 /**
  * @fileoverview News API Adapter - Web Platform Implementation
  * @module @nxt1/web/features/news
- * @version 1.0.0
+ * @version 2.0.0
  *
  * Implements INewsApiAdapter for the web platform by wrapping the shared
  * NewsApiService. Provided via NEWS_API_ADAPTER token in news.routes.ts.
@@ -11,7 +11,7 @@ import { Injectable, inject } from '@angular/core';
 import { type NewsArticle, type NewsCategoryId, type NewsPagination } from '@nxt1/core';
 import { NewsApiService, type INewsApiAdapter } from '@nxt1/ui/news';
 
-@Injectable()
+@Injectable({ providedIn: 'root' })
 export class NewsApiAdapterService implements INewsApiAdapter {
   private readonly api = inject(NewsApiService);
 
@@ -20,15 +20,7 @@ export class NewsApiAdapterService implements INewsApiAdapter {
     page: number,
     limit: number
   ): Promise<{ data: NewsArticle[]; pagination: NewsPagination }> {
-    const isForYou = category === 'for-you';
-    const isSaved = category === 'saved';
-
-    const response = await this.api.getFeed({
-      categories: isForYou || isSaved ? undefined : [category],
-      bookmarkedOnly: isSaved ? true : undefined,
-      page,
-      limit,
-    });
+    const response = await this.api.getFeed({ page, limit });
 
     const data = (response.data ?? []) as NewsArticle[];
     const pagination: NewsPagination = response.pagination ?? {
@@ -42,13 +34,8 @@ export class NewsApiAdapterService implements INewsApiAdapter {
     return { data, pagination };
   }
 
-  async toggleBookmark(articleId: string): Promise<void> {
-    await this.api.toggleBookmark(articleId);
-  }
-
-  async getRelatedArticles(_articleId: string, _limit = 3): Promise<NewsArticle[]> {
-    // Backend does not yet expose a /related endpoint; return empty array.
-    // Wire up when the endpoint is available.
-    return [];
+  async getArticle(id: string): Promise<NewsArticle | null> {
+    const response = await this.api.getArticle(id);
+    return (response.data as NewsArticle) ?? null;
   }
 }

@@ -24,7 +24,11 @@ export type ManageTeamSectionId =
   | 'schedule'
   | 'stats'
   | 'staff'
-  | 'sponsors';
+  | 'sponsors'
+  | 'images'
+  | 'accounts'
+  | 'about'
+  | 'contact';
 
 /**
  * Tab identifiers for manage team navigation.
@@ -155,6 +159,7 @@ export interface TeamBasicInfo {
  */
 export interface TeamBranding {
   readonly logo?: string;
+  readonly galleryImages?: readonly string[];
   readonly primaryColor: string;
   readonly secondaryColor: string;
   readonly accentColor?: string;

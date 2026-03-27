@@ -121,7 +121,7 @@ export const AGENT_GOAL_CATEGORIES: readonly {
   label: string;
   icon: string;
 }[] = [
-  { id: 'recruiting', label: 'Recruiting', icon: 'search-outline' },
+  { id: 'recruiting', label: 'Discovery', icon: 'search-outline' },
   { id: 'analytics', label: 'Analytics', icon: 'stats-chart-outline' },
   { id: 'content', label: 'Content', icon: 'image-outline' },
   { id: 'communication', label: 'Communication', icon: 'mail-outline' },

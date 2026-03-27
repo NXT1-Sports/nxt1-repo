@@ -19,6 +19,14 @@ export const NEWS_ROUTES: Routes = [
       { provide: NEWS_API_ADAPTER, useExisting: NewsApiAdapterService },
     ],
   },
+  {
+    path: ':id',
+    loadComponent: () => import('./news-detail.component').then((m) => m.NewsDetailComponent),
+    providers: [
+      NewsApiAdapterService,
+      { provide: NEWS_API_ADAPTER, useExisting: NewsApiAdapterService },
+    ],
+  },
 ];
 
 export default NEWS_ROUTES;

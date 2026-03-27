@@ -29,11 +29,7 @@ import { SeoService } from '../../core/services/seo.service';
   standalone: true,
   imports: [NewsShellComponent],
   template: `
-    <nxt1-news-shell
-      (articleSelect)="onArticleSelect($event)"
-      (searchClick)="onSearchClick()"
-      (xpBadgeClick)="onXpBadgeClick()"
-    />
+    <nxt1-news-shell (articleSelect)="onArticleSelect($event)" (searchClick)="onSearchClick()" />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -54,15 +50,14 @@ export class NewsComponent implements OnInit {
   }
 
   /**
-   * Handle article selection for analytics/logging.
+   * Handle article selection — navigate to detail page.
    */
   protected onArticleSelect(article: NewsArticle): void {
     this.logger.debug('News article selected', {
       articleId: article.id,
-      category: article.category,
+      source: article.source,
     });
-    // In production: track analytics event
-    // this.analytics.track('news_article_view', { articleId: article.id, category: article.category });
+    this.router.navigate(['/news', article.id]);
   }
 
   /**
@@ -72,14 +67,5 @@ export class NewsComponent implements OnInit {
     this.logger.debug('News search clicked');
     // Future: Open search overlay or navigate to search page
     // this.router.navigate(['/news/search']);
-  }
-
-  /**
-   * Handle XP badge click - could show XP breakdown modal.
-   */
-  protected onXpBadgeClick(): void {
-    this.logger.debug('News XP badge clicked');
-    // Future: Show XP breakdown modal or navigate to XP page
-    // this.router.navigate(['/xp']);
   }
 }

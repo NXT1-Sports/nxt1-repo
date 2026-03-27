@@ -155,7 +155,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
     }
 
-    // Build overview
+    // Build overview (includes wallet fields for B2C UI fork)
     const overview: UsageOverview = {
       currentMeteredUsage: totalUsageCents,
       currentIncludedUsage: 0,
@@ -167,6 +167,10 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
         label: formatPeriodLabel(start, end),
       },
       currency: 'usd',
+      billingEntity: billingCtx.billingEntity,
+      paymentProvider: billingCtx.paymentProvider,
+      walletBalanceCents: billingCtx.walletBalanceCents ?? 0,
+      pendingHoldsCents: billingCtx.pendingHoldsCents ?? 0,
     };
 
     // Build chart data
@@ -388,6 +392,8 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       billingInfo: null,
       coupon: null,
       budgets,
+      billingEntity: billingCtx.billingEntity,
+      paymentProvider: billingCtx.paymentProvider,
     };
 
     return res.json({ success: true, data: dashboard });
@@ -414,12 +420,15 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
     const start = new Date(now.getFullYear(), now.getMonth(), 1);
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
-    const eventsSnap = await db
-      .collection(COLLECTIONS.USAGE_EVENTS)
-      .where('userId', '==', userId)
-      .where('createdAt', '>=', start.toISOString())
-      .where('createdAt', '<=', end.toISOString())
-      .get();
+    const [billingCtx, eventsSnap] = await Promise.all([
+      getOrCreateBillingContext(db, userId),
+      db
+        .collection(COLLECTIONS.USAGE_EVENTS)
+        .where('userId', '==', userId)
+        .where('createdAt', '>=', start.toISOString())
+        .where('createdAt', '<=', end.toISOString())
+        .get(),
+    ]);
 
     let totalUsageCents = 0;
     for (const doc of eventsSnap.docs) {
@@ -438,6 +447,10 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
         label: formatPeriodLabel(start, end),
       },
       currency: 'usd',
+      billingEntity: billingCtx.billingEntity,
+      paymentProvider: billingCtx.paymentProvider,
+      walletBalanceCents: billingCtx.walletBalanceCents ?? 0,
+      pendingHoldsCents: billingCtx.pendingHoldsCents ?? 0,
     };
 
     return res.json({ success: true, data: overview });

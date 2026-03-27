@@ -29,14 +29,14 @@ import type { VerificationScope } from '../models/user.model';
 // ============================================
 
 /**
- * Profile content tabs with display configuration.
+ * Profile content tabs — 3-tab Intelligence Dossier layout.
  * Order determines display order in tab bar.
  */
 export const PROFILE_TABS: readonly ProfileTab[] = [
   {
-    id: 'overview',
-    label: 'Overview',
-    icon: 'grid',
+    id: 'intel',
+    label: 'Intel',
+    icon: 'radar',
   },
   {
     id: 'timeline',
@@ -44,67 +44,17 @@ export const PROFILE_TABS: readonly ProfileTab[] = [
     icon: 'newspaper',
   },
   {
-    id: 'videos',
-    label: 'Videos',
-    icon: 'videocam',
-  },
-  {
-    id: 'offers',
-    label: 'Recruit',
-    icon: 'trophy',
-    visibleFor: ['athlete'],
-  },
-  {
-    id: 'scout',
-    label: 'Scout',
-    icon: 'clipboard',
-    visibleFor: ['athlete'],
-  },
-  {
-    id: 'news',
-    label: 'News',
-    icon: 'newspaper-outline',
-  },
-  {
-    id: 'metrics',
-    label: 'Metrics',
-    icon: 'barbell',
-    visibleFor: ['athlete'],
-  },
-  {
-    id: 'stats',
-    label: 'Stats',
-    icon: 'stats-chart',
-    visibleFor: ['athlete'],
-  },
-  {
-    id: 'academic',
-    label: 'Academic',
-    icon: 'school',
-    visibleFor: ['athlete'],
-  },
-  {
-    id: 'schedule',
-    label: 'Schedule',
-    icon: 'calendar-clear',
-  },
-  {
-    id: 'events',
-    label: 'Events',
-    icon: 'calendar',
-  },
-  {
-    id: 'contact',
-    label: 'Contact',
-    icon: 'mail',
+    id: 'connect',
+    label: 'Connect',
+    icon: 'paper-plane',
   },
 ] as const;
 
 /**
  * Default selected tab.
- * 'timeline' provides the best overview experience on first load.
+ * 'intel' provides the Agent X intelligence brief on first load.
  */
-export const PROFILE_DEFAULT_TAB: ProfileTabId = 'overview';
+export const PROFILE_DEFAULT_TAB: ProfileTabId = 'intel';
 
 // ============================================
 // ROLE-AWARE TAB HELPERS (Source of Truth)
@@ -113,22 +63,14 @@ export const PROFILE_DEFAULT_TAB: ProfileTabId = 'overview';
 /**
  * Returns profile tabs filtered for the given user.
  *
- * - Strips `contact` and `academic` from the tab bar (shown inline on overview).
- * - Respects `visibleFor` metadata: athlete-only tabs (offers, metrics, stats)
- *   are hidden for team managers; team-only tabs are hidden for athletes.
+ * With the consolidated 3-tab layout (Intel / Timeline / Connect),
+ * all tabs are visible to all roles. This function remains as the
+ * public API for consumers and future role-based filtering.
  *
  * @pure — no side effects, safe for computed().
  */
-export function getProfileTabsForUser(user: ProfileUser | null): readonly ProfileTab[] {
-  const roleCategory: 'athlete' | 'team' = user?.isTeamManager ? 'team' : 'athlete';
-
-  return PROFILE_TABS.filter((tab) => {
-    // Contact and academic are always shown inline on the overview tab
-    if (tab.id === 'contact' || tab.id === 'academic') return false;
-    // If no visibleFor constraint, tab is visible for all roles
-    if (!tab.visibleFor) return true;
-    return tab.visibleFor.includes(roleCategory);
-  });
+export function getProfileTabsForUser(_user: ProfileUser | null): readonly ProfileTab[] {
+  return PROFILE_TABS;
 }
 
 /**
@@ -148,21 +90,19 @@ export function getOverviewSectionLabels(user: ProfileUser | null): {
 
 /**
  * Tabs where the shared verification banner is hidden by default.
- * Override by providing a custom set via input if needed.
+ * With 3-tab layout, verification is contextual to Intel content.
  */
-export const PROFILE_VERIFICATION_HIDDEN_TABS: ReadonlySet<ProfileTabId> = new Set(['contact']);
+export const PROFILE_VERIFICATION_HIDDEN_TABS: ReadonlySet<ProfileTabId> = new Set(['connect']);
 
 // ── Verification scope lookup tables (module-level for zero allocation) ──
 
 const TAB_SCOPES: Readonly<Record<string, readonly VerificationScope[]>> = {
-  metrics: ['measurables'],
-  stats: ['stats'],
-  roster: ['stats'],
-  schedule: ['schedule'],
-  academic: ['academics'],
+  intel: ['measurables', 'stats', 'academics'],
+  timeline: [],
+  connect: ['recruiting'],
 };
 
-const OVERVIEW_SIDE_TAB_SCOPES: Readonly<Record<string, readonly VerificationScope[]>> = {
+const INTEL_SIDE_TAB_SCOPES: Readonly<Record<string, readonly VerificationScope[]>> = {
   'player-profile': ['measurables'],
   'player-info': ['measurables'],
   'player-history': ['recruiting'],
@@ -170,7 +110,7 @@ const OVERVIEW_SIDE_TAB_SCOPES: Readonly<Record<string, readonly VerificationSco
   academic: ['academics'],
 };
 
-const OFFERS_SIDE_TAB_SCOPES: Readonly<Record<string, readonly VerificationScope[]>> = {
+const CONNECT_SIDE_TAB_SCOPES: Readonly<Record<string, readonly VerificationScope[]>> = {
   timeline: ['recruiting'],
   committed: ['recruiting'],
   'all-offers': ['recruiting'],
@@ -191,12 +131,12 @@ export function getVerificationScopesForTab(
   tabId: string,
   sideTabId?: string
 ): readonly VerificationScope[] {
-  if (tabId === 'overview' && sideTabId) {
-    return OVERVIEW_SIDE_TAB_SCOPES[sideTabId] ?? EMPTY_SCOPES;
+  if (tabId === 'intel' && sideTabId) {
+    return INTEL_SIDE_TAB_SCOPES[sideTabId] ?? EMPTY_SCOPES;
   }
 
-  if (tabId === 'offers' && sideTabId) {
-    return OFFERS_SIDE_TAB_SCOPES[sideTabId] ?? EMPTY_SCOPES;
+  if (tabId === 'connect' && sideTabId) {
+    return CONNECT_SIDE_TAB_SCOPES[sideTabId] ?? EMPTY_SCOPES;
   }
 
   return TAB_SCOPES[tabId] ?? EMPTY_SCOPES;
@@ -500,10 +440,10 @@ export const PROFILE_EMPTY_STATES: Record<
     readonly ctaLabel?: string;
   }
 > = {
-  overview: {
-    title: 'Overview not available',
-    message: 'Player profile information will appear here once generated.',
-    icon: 'pie-chart-outline',
+  intel: {
+    title: 'Intel not available',
+    message: 'The Agent X intelligence brief will appear here once generated.',
+    icon: 'radar-outline',
   },
   timeline: {
     title: 'No updates yet',
@@ -511,63 +451,10 @@ export const PROFILE_EMPTY_STATES: Record<
     icon: 'newspaper-outline',
     ctaLabel: 'Add Update',
   },
-  news: {
-    title: 'No news yet',
-    message: 'News updates, announcements, and media mentions will appear here.',
-    icon: 'newspaper-outline',
-    ctaLabel: 'Create News Post',
-  },
-  videos: {
-    title: 'No videos yet',
-    message: 'Upload highlights and game footage to showcase your skills.',
-    icon: 'videocam-outline',
-    ctaLabel: 'Upload Video',
-  },
-  offers: {
-    title: 'No recruit activity yet',
-    message: 'Your recruiting journey is just getting started. Keep working!',
-    icon: 'trophy-outline',
-    ctaLabel: 'Add Recruit Update',
-  },
-  scout: {
-    title: 'No scout reports yet',
-    message: 'Scout reports and rankings will appear here as they become available.',
-    icon: 'clipboard-outline',
-  },
-  metrics: {
-    title: 'No metrics recorded',
-    message: 'Add your combine results and measurables to showcase your athleticism.',
-    icon: 'barbell-outline',
-    ctaLabel: 'Add Metrics',
-  },
-  stats: {
-    title: 'No stats recorded',
-    message: 'Add your athletic and academic stats to complete your profile.',
-    icon: 'stats-chart-outline',
-    ctaLabel: 'Add Stats',
-  },
-  academic: {
-    title: 'No academic info yet',
-    message: 'Add GPA, test scores, and school details to strengthen your profile.',
-    icon: 'school-outline',
-    ctaLabel: 'Add Academic Info',
-  },
-  events: {
-    title: 'No events scheduled',
-    message: 'Add upcoming games, camps, and showcases to your calendar.',
-    icon: 'calendar-outline',
-    ctaLabel: 'Add Event',
-  },
-  schedule: {
-    title: 'No schedule yet',
-    message: 'Add upcoming games, camps, and showcases to your schedule.',
-    icon: 'calendar-outline',
-    ctaLabel: 'Add Schedule Item',
-  },
-  contact: {
-    title: 'Contact info not set',
-    message: 'Add your contact information so coaches can reach you.',
-    icon: 'mail-outline',
+  connect: {
+    title: 'No contact info yet',
+    message: 'Add your contact details so coaches and scouts can reach you.',
+    icon: 'paper-plane-outline',
     ctaLabel: 'Add Contact Info',
   },
 } as const;

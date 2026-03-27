@@ -560,20 +560,6 @@ export class SettingsService {
             }
           }
 
-          // Update current plan display value
-          if (item.id === 'currentPlan' && item.type === 'navigation') {
-            const tierLabels: Record<string, string> = {
-              free: 'Free',
-              pro: 'Pro',
-              premium: 'Premium',
-              team: 'Team',
-            };
-            return {
-              ...item,
-              displayValue: tierLabels[subscription?.tier ?? 'free'] ?? 'Free',
-            };
-          }
-
           return item;
         }),
       }))

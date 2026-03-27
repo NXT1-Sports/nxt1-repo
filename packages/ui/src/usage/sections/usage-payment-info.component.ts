@@ -12,15 +12,14 @@ import { Component, ChangeDetectionStrategy, input, output, computed } from '@an
 import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
 import type { UsageBillingInfo, UsagePaymentMethod, UsageCoupon } from '@nxt1/core';
+import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 
 @Component({
   selector: 'nxt1-usage-payment-info',
   standalone: true,
   imports: [CommonModule, NxtIconComponent],
   template: `
-    <section class="payment-info">
-      <h2 class="section-heading">Payment information</h2>
-
+    <section class="payment-info" [attr.data-testid]="testIds.PAYMENT_INFO_SECTION">
       <div class="info-grid">
         <!-- Billing Information Card -->
         <div class="info-card">
@@ -29,7 +28,11 @@ import type { UsageBillingInfo, UsagePaymentMethod, UsageCoupon } from '@nxt1/co
               <nxt1-icon name="location-outline" className="card-icon" />
               <span>Billing information</span>
             </div>
-            <button class="edit-btn" (click)="editBilling.emit()">
+            <button
+              class="edit-btn"
+              [attr.data-testid]="testIds.PAYMENT_INFO_EDIT_BILLING"
+              (click)="editBilling.emit()"
+            >
               <nxt1-icon name="pencil" className="edit-icon" />
               Edit
             </button>
@@ -55,7 +58,11 @@ import type { UsageBillingInfo, UsagePaymentMethod, UsageCoupon } from '@nxt1/co
               <nxt1-icon name="card-outline" className="card-icon" />
               <span>Payment method</span>
             </div>
-            <button class="edit-btn" (click)="editPayment.emit()">
+            <button
+              class="edit-btn"
+              [attr.data-testid]="testIds.PAYMENT_INFO_EDIT_PAYMENT"
+              (click)="editPayment.emit()"
+            >
               <nxt1-icon name="pencil" className="edit-icon" />
               Edit
             </button>
@@ -100,7 +107,13 @@ import type { UsageBillingInfo, UsagePaymentMethod, UsageCoupon } from '@nxt1/co
               </div>
             } @else {
               <p class="empty-text">No coupon applied.</p>
-              <button class="redeem-btn" (click)="redeemCoupon.emit()">Redeem a coupon</button>
+              <button
+                class="redeem-btn"
+                [attr.data-testid]="testIds.PAYMENT_INFO_REDEEM_COUPON"
+                (click)="redeemCoupon.emit()"
+              >
+                Redeem a coupon
+              </button>
             }
           </div>
         </div>
@@ -112,7 +125,11 @@ import type { UsageBillingInfo, UsagePaymentMethod, UsageCoupon } from '@nxt1/co
               <nxt1-icon name="infoCircle" className="card-icon" />
               <span>Additional information</span>
             </div>
-            <button class="edit-btn" (click)="editAdditional.emit()">
+            <button
+              class="edit-btn"
+              [attr.data-testid]="testIds.PAYMENT_INFO_EDIT_ADDITIONAL"
+              (click)="editAdditional.emit()"
+            >
               <nxt1-icon name="pencil" className="edit-icon" />
               Edit
             </button>
@@ -318,6 +335,8 @@ import type { UsageBillingInfo, UsagePaymentMethod, UsageCoupon } from '@nxt1/co
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsagePaymentInfoComponent {
+  protected readonly testIds = USAGE_TEST_IDS;
+
   readonly billingInfo = input<UsageBillingInfo | null>(null);
   readonly paymentMethods = input<readonly UsagePaymentMethod[]>([]);
   readonly coupon = input<UsageCoupon | null>(null);

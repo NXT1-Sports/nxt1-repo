@@ -14,16 +14,21 @@ import { IonRippleEffect } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../../components/icon';
 import type { UsageSubscription } from '@nxt1/core';
 import { formatPrice } from '@nxt1/core';
+import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 
 @Component({
   selector: 'nxt1-usage-subscriptions',
   standalone: true,
   imports: [CommonModule, IonRippleEffect, NxtIconComponent],
   template: `
-    <section class="usage-subscriptions">
+    <section class="usage-subscriptions" [attr.data-testid]="testIds.SUBSCRIPTIONS_SECTION">
       <div class="section-header">
-        <h2 class="section-heading">Subscriptions</h2>
-        <button type="button" class="manage-link" (click)="manage.emit()">
+        <button
+          type="button"
+          class="manage-link"
+          [attr.data-testid]="testIds.SUBSCRIPTIONS_MANAGE"
+          (click)="manage.emit()"
+        >
           Manage subscriptions
         </button>
       </div>
@@ -151,6 +156,8 @@ import { formatPrice } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsageSubscriptionsComponent {
+  protected readonly testIds = USAGE_TEST_IDS;
+
   readonly subscriptions = input.required<readonly UsageSubscription[]>();
   readonly manage = output<void>();
 

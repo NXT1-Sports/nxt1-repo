@@ -7,13 +7,7 @@
  * 100% portable - no platform dependencies.
  */
 
-import type {
-  NewsArticle,
-  NewsCategory,
-  NewsCategoryId,
-  NewsFilter,
-  ReadingProgress,
-} from './news.types';
+import type { NewsArticle, NewsCategory, NewsCategoryId, NewsFilter } from './news.types';
 import { NEWS_CATEGORIES, NEWS_PAGINATION_DEFAULTS } from './news.constants';
 
 // ============================================
@@ -111,42 +105,24 @@ export function validateArticle(article: Partial<NewsArticle>): ValidationResult
     errors.push('Article content is required');
   }
 
-  if (!article.category) {
-    errors.push('Article category is required');
-  } else if (!isValidCategory(article.category)) {
-    errors.push(`Invalid article category: ${article.category}`);
-  }
-
-  // Source validation
-  if (!article.source) {
+  // Source validation (now a plain string)
+  if (!article.source || article.source.trim().length === 0) {
     errors.push('Article source is required');
-  } else {
-    if (!article.source.id || article.source.id.trim().length === 0) {
-      errors.push('Source ID is required');
-    }
-    if (!article.source.name || article.source.name.trim().length === 0) {
-      errors.push('Source name is required');
-    }
   }
 
-  // Reading time validation
-  if (article.readingTimeMinutes !== undefined) {
-    if (article.readingTimeMinutes < 0) {
-      errors.push('Reading time must be non-negative');
-    }
-    if (article.readingTimeMinutes > 120) {
-      errors.push('Reading time seems unrealistic (>120 minutes)');
-    }
+  // Source URL validation
+  if (!article.sourceUrl || article.sourceUrl.trim().length === 0) {
+    errors.push('Article source URL is required');
   }
 
-  // XP reward validation
-  if (article.xpReward !== undefined) {
-    if (article.xpReward < 0) {
-      errors.push('XP reward must be non-negative');
-    }
-    if (article.xpReward > 1000) {
-      errors.push('XP reward seems unrealistic (>1000)');
-    }
+  // Sport validation
+  if (!article.sport || article.sport.trim().length === 0) {
+    errors.push('Article sport is required');
+  }
+
+  // State validation
+  if (!article.state || article.state.trim().length === 0) {
+    errors.push('Article state is required');
   }
 
   // Timestamp validation
@@ -181,15 +157,6 @@ export function validateArticle(article: Partial<NewsArticle>): ValidationResult
 export function validateFilter(filter: Partial<NewsFilter>): ValidationResult {
   const errors: string[] = [];
 
-  // Categories validation
-  if (filter.categories) {
-    for (const category of filter.categories) {
-      if (!isValidCategory(category)) {
-        errors.push(`Invalid category in filter: ${category}`);
-      }
-    }
-  }
-
   // Pagination validation
   if (filter.page !== undefined) {
     if (filter.page < 1 || !Number.isInteger(filter.page)) {
@@ -221,56 +188,6 @@ export function validateFilter(filter: Partial<NewsFilter>): ValidationResult {
   // Search query validation
   if (filter.query !== undefined && filter.query.length > 200) {
     errors.push('Search query must be 200 characters or less');
-  }
-
-  return {
-    isValid: errors.length === 0,
-    errors,
-  };
-}
-
-// ============================================
-// READING PROGRESS VALIDATION
-// ============================================
-
-/**
- * Validate reading progress data.
- *
- * @param progress - Progress to validate
- * @returns Validation result
- */
-export function validateReadingProgress(progress: Partial<ReadingProgress>): ValidationResult {
-  const errors: string[] = [];
-
-  if (!progress.articleId || progress.articleId.trim().length === 0) {
-    errors.push('Article ID is required');
-  }
-
-  if (progress.progress !== undefined) {
-    if (progress.progress < 0 || progress.progress > 100) {
-      errors.push('Progress must be between 0 and 100');
-    }
-  }
-
-  if (progress.scrollDepth !== undefined) {
-    if (progress.scrollDepth < 0 || progress.scrollDepth > 100) {
-      errors.push('Scroll depth must be between 0 and 100');
-    }
-  }
-
-  if (progress.timeSpentSeconds !== undefined && progress.timeSpentSeconds < 0) {
-    errors.push('Time spent must be non-negative');
-  }
-
-  if (progress.xpEarned !== undefined && progress.xpEarned < 0) {
-    errors.push('XP earned must be non-negative');
-  }
-
-  if (progress.lastReadAt) {
-    const readDate = new Date(progress.lastReadAt);
-    if (isNaN(readDate.getTime())) {
-      errors.push('Invalid last read date format');
-    }
   }
 
   return {

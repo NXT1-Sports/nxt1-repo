@@ -13,15 +13,14 @@ import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
 import type { UsagePaymentHistoryRecord } from '@nxt1/core';
 import { formatPrice } from '@nxt1/core';
+import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 
 @Component({
   selector: 'nxt1-usage-payment-history',
   standalone: true,
   imports: [CommonModule, NxtIconComponent],
   template: `
-    <section class="payment-history">
-      <h2 class="section-heading">Payment history</h2>
-
+    <section class="payment-history" [attr.data-testid]="testIds.HISTORY_SECTION">
       <div class="table-container">
         <table class="history-table">
           <thead>
@@ -36,7 +35,7 @@ import { formatPrice } from '@nxt1/core';
           </thead>
           <tbody>
             @for (record of records(); track record.id) {
-              <tr class="history-row">
+              <tr class="history-row" [attr.data-testid]="testIds.HISTORY_ROW">
                 <td class="col-date">{{ record.dateLabel }}</td>
                 <td class="col-id">
                   <span class="id-text">{{ record.displayId }}</span>
@@ -60,6 +59,7 @@ import { formatPrice } from '@nxt1/core';
                       <button
                         class="icon-btn"
                         title="Download receipt"
+                        [attr.data-testid]="testIds.HISTORY_RECEIPT_BTN"
                         (click)="downloadReceipt.emit(record.id)"
                       >
                         <nxt1-icon name="receipt-outline" size="16" />
@@ -69,6 +69,7 @@ import { formatPrice } from '@nxt1/core';
                       <button
                         class="icon-btn"
                         title="Download invoice"
+                        [attr.data-testid]="testIds.HISTORY_INVOICE_BTN"
                         (click)="downloadInvoice.emit(record.id)"
                       >
                         <nxt1-icon name="document-text-outline" size="16" />
@@ -84,7 +85,13 @@ import { formatPrice } from '@nxt1/core';
 
       @if (hasMore()) {
         <div class="load-more">
-          <button class="load-more-btn" (click)="loadMore.emit()">Load more history</button>
+          <button
+            class="load-more-btn"
+            [attr.data-testid]="testIds.HISTORY_LOAD_MORE"
+            (click)="loadMore.emit()"
+          >
+            Load more history
+          </button>
         </div>
       }
     </section>
@@ -253,6 +260,8 @@ import { formatPrice } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsagePaymentHistoryComponent {
+  protected readonly testIds = USAGE_TEST_IDS;
+
   readonly records = input.required<readonly UsagePaymentHistoryRecord[]>();
   readonly hasMore = input<boolean>(false);
 

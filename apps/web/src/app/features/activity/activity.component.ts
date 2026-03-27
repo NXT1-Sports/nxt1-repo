@@ -18,19 +18,11 @@
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { ActivityShellComponent, type ActivityUser } from '@nxt1/ui/activity';
-import { ACTIVITY_TABS_ALERTS_ONLY } from '@nxt1/core';
 import { AgentXOperationChatComponent } from '@nxt1/ui/agent-x';
 import { NxtBottomSheetService, SHEET_PRESETS } from '@nxt1/ui/components/bottom-sheet';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
-import type {
-  ActivityTabId,
-  ActivityItem,
-  InboxEmailProvider,
-  AgentTaskActivityMetadata,
-  AnalyticsUserRole,
-} from '@nxt1/core';
-import { USER_ROLES } from '@nxt1/core';
+import type { ActivityItem, InboxEmailProvider, AgentTaskActivityMetadata } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 import { WebEmailConnectionService } from './services/email-connection.service';
@@ -43,10 +35,8 @@ import { EmailTokensService } from './services/email-tokens.service';
   template: `
     <nxt1-activity-shell
       [user]="userInfo()"
-      [tabs]="alertsOnlyTabs"
       [showHeader]="false"
       (avatarClick)="onAvatarClick()"
-      (tabChange)="onTabChange($event)"
       (itemNavigate)="onItemNavigate($event)"
       (connectProviderRequest)="onConnectProvider($event)"
     />
@@ -73,9 +63,6 @@ export class ActivityComponent implements OnInit {
   private readonly emailConnection = inject(WebEmailConnectionService);
   private readonly emailTokens = inject(EmailTokensService);
 
-  /** Desktop web shows alerts only — analytics has its own sidebar route */
-  protected readonly alertsOnlyTabs = ACTIVITY_TABS_ALERTS_ONLY;
-
   ngOnInit(): void {
     this.seo.updatePage({
       title: 'Activity',
@@ -93,18 +80,11 @@ export class ActivityComponent implements OnInit {
     const user = this.authService.user();
     if (!user) return null;
 
-    const rawRole = this.authService.userRole();
-    let analyticsRole: AnalyticsUserRole = 'athlete';
-    if (rawRole === USER_ROLES.COACH || rawRole === USER_ROLES.DIRECTOR) {
-      analyticsRole = 'coach';
-    }
-
     return {
       profileImg: user.profileImg ?? null,
       displayName: user.displayName,
       email: user.email,
       connectedEmails: this.emailTokens.connectedEmails(),
-      role: analyticsRole,
       uid: user.uid,
     };
   });
@@ -114,13 +94,6 @@ export class ActivityComponent implements OnInit {
    */
   protected onAvatarClick(): void {
     this.sidenavService.open();
-  }
-
-  /**
-   * Handle tab changes for analytics/logging.
-   */
-  protected onTabChange(tab: ActivityTabId): void {
-    this.logger.debug('Activity tab changed', { tab });
   }
 
   /**

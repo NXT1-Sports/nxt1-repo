@@ -120,8 +120,11 @@ import {
   DEFAULT_SOCIAL_LINKS,
   DEFAULT_SPORTS,
   formatSportDisplayName,
+  isTeamRole,
   normalizeSportKey,
+  buildUserDisplayContext,
 } from '@nxt1/core';
+import type { SidenavSportProfile, UserDisplayInput, UserDisplayFallback } from '@nxt1/core';
 
 // ============================================
 // NAVIGATION CONFIGURATION
@@ -201,12 +204,8 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
         activeIcon: 'compassFilled',
         route: '/explore',
       },
-      { id: 'analytics', label: 'Analytics', icon: 'barChart', route: '/analytics' },
+      { id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' },
     ],
-  },
-  {
-    id: 'footer',
-    items: [{ id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' }],
   },
   {
     id: 'follow-us',
@@ -262,7 +261,7 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
           { id: 'athlete-ai', label: 'AI for Athletes', icon: 'agent-x', route: '/ai-athletes' },
           {
             id: 'athlete-recruiting',
-            label: 'Recruiting',
+            label: 'Discovery',
             icon: 'graduationCap',
             route: '/recruiting-athletes',
           },
@@ -279,7 +278,6 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
             route: '/media-coverage',
           },
           { id: 'athlete-xp', label: 'XP', icon: 'sparkles', route: '/xp' },
-          { id: 'athlete-analytics', label: 'Analytics', icon: 'barChart', route: '/analytics' },
           { id: 'athlete-nil', label: 'NIL', icon: 'creditCard', route: '/nil' },
         ],
       },
@@ -305,10 +303,9 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
             icon: 'settings',
             route: '/team-management',
           },
-          { id: 'team-analytics', label: 'Analytics', icon: 'barChart', route: '/team-analytics' },
           {
             id: 'team-recruiting',
-            label: 'Recruiting',
+            label: 'Discovery',
             icon: 'graduationCap',
             route: '/team-recruiting',
           },
@@ -325,7 +322,7 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
           { id: 'scout-ai', label: 'AI For Scouts', icon: 'agent-x', route: '/ai-scouts' },
           {
             id: 'scout-recruiting',
-            label: 'Recruiting',
+            label: 'Discovery',
             icon: 'graduationCap',
             route: '/recruiting-scouts-colleges',
           },
@@ -352,7 +349,7 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
           },
           {
             id: 'parent-recruiting',
-            label: 'Recruiting',
+            label: 'Discovery',
             icon: 'graduationCap',
             route: '/parent-recruiting',
           },
@@ -538,6 +535,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
           [searchTrendingSearches]="headerTrendingSearches()"
           (navigate)="onHeaderNavigate($event)"
           (userMenuAction)="onUserMenuAction($event)"
+          (addSportClick)="onAddSportClick()"
           (notificationsClick)="onNotificationsClick()"
           (createClick)="onCreateClick()"
           (logoClick)="onLogoClick()"
@@ -593,6 +591,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
         --shell-bg: var(--nxt1-color-bg-primary);
         --shell-content-bg: var(--nxt1-color-bg-primary);
         --shell-content-padding-x: 0px;
+        --shell-content-padding-top: calc(var(--nxt1-spacing-4, 1rem) + 7px);
 
         /*
          * Fixed positioning takes the shell OUT of document flow.
@@ -665,7 +664,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
         scrollbar-gutter: stable;
         background: var(--shell-content-bg);
         min-height: 0; /* Critical for flex overflow scrolling */
-        padding-top: calc(var(--nxt1-spacing-4, 1rem) + 7px);
+        padding-top: var(--shell-content-padding-top);
         padding-inline: var(--shell-content-padding-x);
 
         /* Flex column so full-bleed pages (profile, explore) can stretch
@@ -746,6 +745,11 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
         .shell__main {
           flex: 1;
           min-height: 0;
+        }
+
+        /* No top gap on mobile — mobile nav bar provides the top boundary */
+        :host {
+          --shell-content-padding-top: 0px;
         }
 
         /* Footer padding when footer is present */
@@ -864,65 +868,60 @@ export class WebShellComponent {
     });
   });
 
-  /** Sidebar user data */
+  // ============================================
+  // USER DISPLAY CONTEXT (Single Source of Truth)
+  // ============================================
+
+  /**
+   * Centralized user display context — all 4 user data computeds
+   * (sidebar, mobileSidebar, header, mobileHeader) derive from this.
+   * Built by the pure `buildUserDisplayContext()` function in @nxt1/core.
+   */
+  private readonly _userDisplayContext = computed(() => {
+    const user = this.authFlow.user() as UserDisplayInput | null;
+    const firebaseUser = this.authFlow.firebaseUser();
+    const fallback: UserDisplayFallback | null = firebaseUser
+      ? { displayName: firebaseUser.displayName, email: firebaseUser.email }
+      : null;
+
+    return buildUserDisplayContext(user, fallback);
+  });
+
+  /** Sidebar user data — team-role aware */
   readonly sidebarUserData = computed<DesktopSidebarUserData | null>(() => {
     // Return null during auth initialization to prevent premature rendering
     if (!this.authFlow.isInitialized()) return null;
 
-    const user = this.authFlow.user() as {
-      displayName?: string;
-      email?: string;
-      profileImg?: string;
-      unicode?: string;
-    } | null;
-
-    // Fall back to firebaseUser if backend profile hasn't synced yet
-    const firebaseUser = this.authFlow.firebaseUser();
-
-    // Only return null when explicitly confirmed no user
-    if (!user && !firebaseUser) return null;
-
-    const name =
-      user?.displayName ||
-      user?.email?.split('@')[0] ||
-      firebaseUser?.displayName ||
-      firebaseUser?.email?.split('@')[0] ||
-      'User';
+    const ctx = this._userDisplayContext();
+    if (!ctx) return null;
 
     return {
-      name,
-      profileImg: user?.profileImg || undefined,
-      initials: this.getInitials(name),
-      handle: user?.unicode ? `@${user.unicode}` : undefined,
-      verified: false,
-      isPremium: false,
+      name: ctx.name,
+      profileImg: ctx.profileImg,
+      initials: ctx.initials,
+      handle: ctx.handle,
+      verified: ctx.verified,
+      isPremium: ctx.isPremium,
     };
   });
 
-  /** Mobile sidebar user data — includes sport profiles for the sport switcher */
+  /** Mobile sidebar user data — team-role aware, includes sport profiles for the sport switcher */
   readonly mobileSidebarUserData = computed<MobileSidebarUserData | null>(() => {
-    const baseData = this.sidebarUserData();
-    if (!baseData) return null;
-
-    const user = this.authFlow.user() as {
-      sports?: Array<{ sport: string; positions?: string[]; isPrimary?: boolean }>;
-      primarySport?: string;
-      isPremium?: boolean;
-      planTier?: string;
-    } | null;
-
-    const sportProfiles =
-      user?.sports?.map((s, i) => ({
-        id: `sport-${i}`,
-        sport: s.sport,
-        position: s.positions?.[0] ?? undefined,
-        isActive: s.isPrimary ?? false,
-      })) ?? [];
+    const ctx = this._userDisplayContext();
+    if (!ctx) return null;
 
     return {
-      ...baseData,
-      isPremium: user?.isPremium || user?.planTier === 'premium' || false,
-      sportProfiles,
+      name: ctx.name,
+      profileImg: ctx.profileImg,
+      initials: ctx.initials,
+      handle: ctx.handle,
+      verified: ctx.verified,
+      isPremium: ctx.isPremium,
+      sportLabel: ctx.sportLabel,
+      sportProfiles: ctx.sportProfiles as SidenavSportProfile[],
+      switcherTitle: ctx.switcherTitle,
+      isTeamRole: ctx.isTeamRole,
+      actionLabel: ctx.actionLabel,
     };
   });
 
@@ -933,7 +932,7 @@ export class WebShellComponent {
   /** Desktop header items (empty when using sidebar) */
   readonly headerItems = DESKTOP_HEADER_ITEMS;
 
-  /** User menu items */
+  /** User menu items (Settings, Help, etc. — profile navigation is handled by the user info header) */
   readonly userMenuItems = USER_MENU_ITEMS;
 
   /** Desktop header configuration - minimal mode with sidebar */
@@ -950,34 +949,26 @@ export class WebShellComponent {
     });
   });
 
-  /** Header user data */
+  /** Header user data — includes team/athlete context for the profile link in the dropdown */
   readonly headerUserData = computed<TopNavUserData | null>(() => {
     // Wait for auth to initialize before showing Sign In button
     // This prevents flash of "Sign In" during Firebase auth hydration
     if (!this.authFlow.isInitialized()) return null;
 
-    const user = this.authFlow.user() as {
-      displayName?: string;
-      email?: string;
-      profileImg?: string;
-    } | null;
-
-    // Fall back to firebaseUser if backend profile hasn't synced yet
-    const firebaseUser = this.authFlow.firebaseUser();
-
-    if (!user && !firebaseUser) return null;
+    const ctx = this._userDisplayContext();
+    if (!ctx) return null;
 
     return {
-      name:
-        user?.displayName ||
-        user?.email?.split('@')[0] ||
-        firebaseUser?.displayName ||
-        firebaseUser?.email?.split('@')[0] ||
-        'User',
-      email: user?.email || firebaseUser?.email || undefined,
-      profileImg: user?.profileImg || undefined,
-      verified: false,
-      roleBadge: undefined,
+      name: ctx.name,
+      email: ctx.email,
+      profileImg: ctx.profileImg,
+      verified: ctx.verified,
+      isPremium: ctx.isPremium,
+      sportLabel: ctx.sportLabel,
+      profileRoute: ctx.profileRoute,
+      switcherTitle: ctx.switcherTitle,
+      isTeamRole: ctx.isTeamRole,
+      sportProfiles: ctx.sportProfiles as SidenavSportProfile[],
     };
   });
 
@@ -1054,6 +1045,11 @@ export class WebShellComponent {
     return this._currentRoute().startsWith('/profile');
   });
 
+  /** Whether the current route is a team profile page (hides search/bell) */
+  private readonly _isOnTeamPage = computed(() => {
+    return this._currentRoute().startsWith('/team');
+  });
+
   /** Whether the current route is the activity page */
   private readonly _isOnActivityPage = computed(() => {
     return this._currentRoute().startsWith('/activity');
@@ -1070,17 +1066,18 @@ export class WebShellComponent {
     const onProfilePage = this._isOnProfilePage();
     const isOwnProfilePage = this._currentRoute() === '/profile';
     const onActivityPage = this._isOnActivityPage();
+    const onTeamPage = this._isOnTeamPage();
 
     return createMobileHeaderConfig({
       showBack: this._showMobileBack(),
       showLogo: true,
-      // Hide search & bell on profile/activity pages — top nav shows relevant actions instead
-      showSearch: !onProfilePage && !onActivityPage,
-      showNotifications: !onProfilePage && !onActivityPage,
+      // Hide search & bell on profile/team/activity pages — top nav shows relevant actions instead
+      showSearch: !onProfilePage && !onTeamPage && !onActivityPage,
+      showNotifications: !onProfilePage && !onTeamPage && !onActivityPage,
       notificationCount: this.badgeCount.totalUnread(),
       showSignIn, // Hidden until auth resolves, then show only if not logged in
-      showMore: onProfilePage,
-      showEdit: isOwnProfilePage,
+      showMore: onProfilePage || onTeamPage,
+      showEdit: isOwnProfilePage || this.profileActions.showEditButton(),
       showMarkAllRead: onActivityPage && this.activityService.totalUnread() > 0,
       showAvatar: false,
       sticky: true,
@@ -1096,28 +1093,13 @@ export class WebShellComponent {
     // This prevents flash of "Sign In" during Firebase auth hydration
     if (!this.authFlow.isInitialized()) return null;
 
-    const user = this.authFlow.user() as {
-      displayName?: string;
-      email?: string;
-      profileImg?: string;
-    } | null;
-
-    // Fall back to firebaseUser if backend profile hasn't synced yet
-    const firebaseUser = this.authFlow.firebaseUser();
-
-    if (!user && !firebaseUser) return null;
-
-    const name =
-      user?.displayName ||
-      user?.email?.split('@')[0] ||
-      firebaseUser?.displayName ||
-      firebaseUser?.email?.split('@')[0] ||
-      'User';
+    const ctx = this._userDisplayContext();
+    if (!ctx) return null;
 
     return {
-      name,
-      profileImg: user?.profileImg || undefined,
-      initials: this.getInitials(name),
+      name: ctx.name,
+      profileImg: ctx.profileImg,
+      initials: ctx.initials,
     };
   });
 
@@ -1127,10 +1109,24 @@ export class WebShellComponent {
 
   /**
    * Mobile sidebar sections — auth-aware, same as desktop but
-   * filtered to remove the "follow-us" section (social links) for mobile.
+   * filtered to remove the "follow-us" section and extended with
+   * Help Center and Settings after Usage.
    */
   readonly mobileSidebarSections = computed(() =>
-    this._baseSidebarSections().filter((s) => s.id !== 'follow-us')
+    this._baseSidebarSections()
+      .filter((s) => s.id !== 'follow-us')
+      .map((s) => {
+        if (s.id !== 'main') return s;
+        return {
+          ...s,
+          items: [
+            // Agent X and Explore are in the mobile footer — omit here
+            ...s.items.filter((item) => item.id !== 'agent' && item.id !== 'explore'),
+            { id: 'help-center', label: 'Help Center', icon: 'help', route: '/help-center' },
+            { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
+          ],
+        };
+      })
   );
 
   /** Mobile sidebar configuration */
@@ -1506,19 +1502,26 @@ export class WebShellComponent {
   onUserMenuAction(event: TopNavUserMenuEvent): void {
     const { item } = event;
 
+    // Navigation is handled by the header component via item.route.
+    // Only handle non-navigation actions here.
     switch (item.id) {
-      case 'profile':
-        this.router.navigate(['/profile']);
-        break;
-      case 'settings':
-        this.router.navigate(['/settings']);
-        break;
-      case 'help':
-        this.router.navigate(['/help']);
-        break;
       case 'logout':
         this.signOut();
         break;
+    }
+  }
+
+  /**
+   * Handle "Add Sport" / "Add Team" click from the header dropdown.
+   */
+  onAddSportClick(): void {
+    const user = this.authFlow.user() as { role?: string | null } | null;
+    const isTeam = user?.role ? isTeamRole(user.role) : false;
+
+    if (isTeam) {
+      this.router.navigate(['/settings'], { queryParams: { section: 'team' } });
+    } else {
+      this.router.navigate(['/settings'], { queryParams: { section: 'sport' } });
     }
   }
 

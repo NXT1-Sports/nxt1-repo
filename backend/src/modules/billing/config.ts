@@ -110,6 +110,11 @@ export function getStripePriceId(
 /**
  * Get unit cost for a feature in cents (for snapshot in usage events).
  * Delegates to @nxt1/core — single source of truth for pricing.
+ *
+ * NOTE: This is the **static fallback** used when no dynamic cost is provided.
+ * For AI-driven features, prefer passing `dynamicCostCents` from
+ * `resolveAICost()` in cost-resolver.service.ts so the billed amount
+ * reflects actual token usage instead of a fixed per-feature price.
  */
 export function getUnitCost(feature: UsageFeature): number {
   return getUnitCostByFeature(feature as UsageFeatureId);
@@ -124,6 +129,7 @@ export const COLLECTIONS = {
   PAYMENT_LOGS: 'paymentLogs',
   BILLING_CONTEXTS: 'billingContexts',
   TEAM_BUDGET_ALLOCATIONS: 'teamBudgetAllocations',
+  WALLET_HOLDS: 'walletHolds',
 } as const;
 
 /**

@@ -28,7 +28,7 @@ import { Component, ChangeDetectionStrategy, inject, output, signal, OnInit } fr
 import { CommonModule } from '@angular/common';
 import { IonContent, IonRefresher, IonRefresherContent, IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import { searchOutline, notificationsOutline, trophyOutline } from 'ionicons/icons';
+import { searchOutline, notificationsOutline } from 'ionicons/icons';
 import { type NewsArticle, NEWS_CATEGORIES, type NewsCategoryId } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { NewsService } from './news.service';
@@ -57,14 +57,9 @@ import { HapticsService } from '../services/haptics/haptics.service';
       <!-- Article Detail View -->
       <nxt1-news-article-detail
         [article]="newsService.selectedArticle()"
-        [readingProgress]="newsService.readingProgress()"
-        [xpEarned]="currentXpEarned()"
-        [relatedArticles]="relatedArticles()"
         (back)="onDetailBack()"
-        (bookmarkToggle)="onDetailBookmark()"
         (share)="onDetailShare()"
-        (progressUpdate)="onProgressUpdate($event)"
-        (relatedClick)="onRelatedArticleClick($event)"
+        (readFullStory)="onReadFullStory($event)"
       />
     } @else {
       <!-- Feed View -->
@@ -72,17 +67,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
         <!-- Header -->
         <nxt1-page-header title="News">
           <div headerActions class="news-shell__actions">
-            <!-- XP Badge -->
-            <button
-              type="button"
-              class="news-shell__xp-badge"
-              (click)="onXpBadgeClick()"
-              aria-label="View XP"
-            >
-              <ion-icon name="trophy-outline"></ion-icon>
-              <span>{{ newsService.totalXp() }}</span>
-            </button>
-
             <!-- Search -->
             <button
               type="button"
@@ -116,8 +100,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
             [hasMore]="newsService.hasMore()"
             [activeCategory]="newsService.activeCategory()"
             (articleClick)="onArticleClick($event)"
-            (bookmarkClick)="onBookmarkClick($event)"
-            (shareClick)="onShareClick($event)"
             (loadMore)="onLoadMore()"
             (retry)="onRetry()"
           />
@@ -151,41 +133,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
         display: flex;
         align-items: center;
         gap: 8px;
-      }
-
-      .news-shell__xp-badge {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 12px;
-        background: linear-gradient(
-          135deg,
-          rgba(204, 255, 0, 0.15) 0%,
-          rgba(204, 255, 0, 0.05) 100%
-        );
-        border: 1px solid rgba(204, 255, 0, 0.3);
-        border-radius: var(--nxt1-radius-full, 9999px);
-        cursor: pointer;
-        transition: all 0.15s ease;
-      }
-
-      .news-shell__xp-badge:hover {
-        background: linear-gradient(
-          135deg,
-          rgba(204, 255, 0, 0.25) 0%,
-          rgba(204, 255, 0, 0.1) 100%
-        );
-      }
-
-      .news-shell__xp-badge ion-icon {
-        font-size: 16px;
-        color: var(--nxt1-color-primary, #ccff00);
-      }
-
-      .news-shell__xp-badge span {
-        font-size: 13px;
-        font-weight: 700;
-        color: var(--nxt1-color-primary, #ccff00);
       }
 
       .news-shell__action-btn {
@@ -232,7 +179,6 @@ export class NewsShellComponent implements OnInit {
     addIcons({
       searchOutline,
       notificationsOutline,
-      trophyOutline,
     });
   }
 
@@ -245,20 +191,14 @@ export class NewsShellComponent implements OnInit {
   /** Whether to show detail view */
   readonly showDetail = signal(false);
 
-  /** Currently earned XP for selected article */
-  readonly currentXpEarned = signal(0);
-
-  /** Related articles for detail view */
-  readonly relatedArticles = signal<NewsArticle[]>([]);
-
   /** Emitted when an article is selected for external handling */
   readonly articleSelect = output<NewsArticle>();
 
   /** Emitted when search is clicked */
   readonly searchClick = output<void>();
 
-  /** Emitted when XP badge is clicked */
-  readonly xpBadgeClick = output<void>();
+  /** Emitted when "Read Full Story" is clicked (sourceUrl) */
+  readonly readFullStoryClick = output<string>();
 
   // ============================================
   // LIFECYCLE
@@ -280,18 +220,8 @@ export class NewsShellComponent implements OnInit {
   async onArticleClick(article: NewsArticle): Promise<void> {
     await this.haptics.impact('light');
     this.newsService.selectArticle(article);
-    this.currentXpEarned.set(0);
-    this.loadRelatedArticles(article);
     this.showDetail.set(true);
     this.articleSelect.emit(article);
-  }
-
-  async onBookmarkClick(article: NewsArticle): Promise<void> {
-    await this.newsService.toggleBookmark(article.id);
-  }
-
-  async onShareClick(article: NewsArticle): Promise<void> {
-    await this.newsService.shareArticle(article);
   }
 
   async onLoadMore(): Promise<void> {
@@ -317,13 +247,6 @@ export class NewsShellComponent implements OnInit {
     this.newsService.selectArticle(null);
   }
 
-  async onDetailBookmark(): Promise<void> {
-    const article = this.newsService.selectedArticle();
-    if (article) {
-      await this.newsService.toggleBookmark(article.id);
-    }
-  }
-
   async onDetailShare(): Promise<void> {
     const article = this.newsService.selectedArticle();
     if (article) {
@@ -331,23 +254,8 @@ export class NewsShellComponent implements OnInit {
     }
   }
 
-  onProgressUpdate(progress: number): void {
-    this.newsService.updateReadingProgress(progress);
-
-    // Calculate XP earned based on progress
-    const article = this.newsService.selectedArticle();
-    if (article) {
-      const xp = Math.floor((progress / 100) * article.xpReward);
-      this.currentXpEarned.set(xp);
-    }
-  }
-
-  async onRelatedArticleClick(article: NewsArticle): Promise<void> {
-    await this.haptics.impact('light');
-    this.newsService.selectArticle(article);
-    this.currentXpEarned.set(0);
-    this.loadRelatedArticles(article);
-    this.articleSelect.emit(article);
+  onReadFullStory(sourceUrl: string): void {
+    this.readFullStoryClick.emit(sourceUrl);
   }
 
   // ============================================
@@ -357,24 +265,5 @@ export class NewsShellComponent implements OnInit {
   async onSearchClick(): Promise<void> {
     await this.haptics.impact('light');
     this.searchClick.emit();
-  }
-
-  async onXpBadgeClick(): Promise<void> {
-    await this.haptics.impact('light');
-    this.xpBadgeClick.emit();
-  }
-
-  // ============================================
-  // HELPERS
-  // ============================================
-
-  private loadRelatedArticles(article: NewsArticle): void {
-    // Get articles from same category, excluding current
-    const related = this.newsService
-      .articles()
-      .filter((a) => a.category === article.category && a.id !== article.id)
-      .slice(0, 5);
-
-    this.relatedArticles.set(related);
   }
 }

@@ -72,9 +72,12 @@ import { provideBadgeBridge } from './core/services';
 // Web push notifications: FCM token management + foreground message handling
 import { provideWebPush } from './core/services/web-push.service';
 
-// News API base URL (uses environment.apiURL — same origin + /api/v1/staging in dev)
-import { NEWS_API_BASE_URL } from '@nxt1/ui/news';
+// News API adapter — wired at root so the shared NewsService
+// (providedIn: 'root') can resolve the token when it's first injected.
+import { NEWS_API_BASE_URL, NEWS_API_ADAPTER } from '@nxt1/ui/news';
+import { NewsApiAdapterService } from './features/news/services/news-api-adapter.service';
 import { TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui/team-profile';
+import { MANAGE_TEAM_API_BASE_URL } from '@nxt1/ui/manage-team';
 import { AGENT_X_API_BASE_URL, AGENT_X_AUTH_TOKEN_FACTORY } from '@nxt1/ui/agent-x';
 import { ACTIVITY_API_BASE_URL, ACTIVITY_API_ADAPTER } from '@nxt1/ui/activity';
 import { INVITE_API_BASE_URL } from '@nxt1/ui/invite';
@@ -269,8 +272,14 @@ export const appConfig: ApplicationConfig = {
     // so baseUrl + path = e.g. http://localhost:3000/api/v1/staging/news
     { provide: NEWS_API_BASE_URL, useFactory: () => environment.apiURL },
 
+    // News API adapter — root-level so shared NewsService resolves it
+    { provide: NEWS_API_ADAPTER, useExisting: NewsApiAdapterService },
+
     // Team Profile API base URL
     { provide: TEAM_PROFILE_API_BASE_URL, useFactory: () => environment.apiURL },
+
+    // Manage Team API base URL
+    { provide: MANAGE_TEAM_API_BASE_URL, useFactory: () => environment.apiURL },
 
     // Agent X API base URL
     { provide: AGENT_X_API_BASE_URL, useFactory: () => environment.apiURL },

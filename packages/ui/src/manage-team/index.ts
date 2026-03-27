@@ -42,6 +42,9 @@ export { ManageTeamWebModalComponent } from './manage-team-web-modal.component';
 // Service
 export { ManageTeamService } from './manage-team.service';
 
+// API Client
+export { ManageTeamApiClient, MANAGE_TEAM_API_BASE_URL } from './manage-team-api.client';
+
 // Landing Page (public marketing)
 export { NxtManageTeamLandingComponent } from './manage-team-landing.component';
 export { NxtManageTeamDashboardPreviewComponent } from './manage-team-dashboard-preview.component';

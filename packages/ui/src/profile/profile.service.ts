@@ -566,21 +566,10 @@ export class ProfileService {
 
   /** Tab badge counts */
   readonly tabBadges = computed(() => {
-    const offers = this.offers();
-    const events = this.events();
-
     return {
-      overview: 0,
+      intel: 0,
       timeline: this.allPosts().length,
-      news: this.newsPosts().length,
-      videos: this.videoPosts().length,
-      offers: offers.length,
-      metrics: 0,
-      stats: 0,
-      academic: 0,
-      events: events.length,
-      schedule: events.length,
-      contact: 0,
+      connect: 0,
     };
   });
 

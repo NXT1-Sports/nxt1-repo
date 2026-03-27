@@ -13,21 +13,25 @@ import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
 import type { UsageBudget } from '@nxt1/core';
 import { formatPrice } from '@nxt1/core';
+import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 
 @Component({
   selector: 'nxt1-usage-budgets',
   standalone: true,
   imports: [CommonModule, NxtIconComponent],
   template: `
-    <section class="budgets">
+    <section class="budgets" [attr.data-testid]="testIds.BUDGET_SECTION">
       <div class="section-header">
         <div>
-          <h2 class="section-heading">Budgets and alerts</h2>
           <p class="section-subtitle">
             Set spending limits and receive alerts when you approach or exceed them.
           </p>
         </div>
-        <button class="new-budget-btn" (click)="createBudget.emit()">
+        <button
+          class="new-budget-btn"
+          [attr.data-testid]="testIds.BUDGET_NEW_BTN"
+          (click)="createBudget.emit()"
+        >
           <nxt1-icon name="plus" size="16" />
           New budget
         </button>
@@ -45,7 +49,11 @@ import { formatPrice } from '@nxt1/core';
           </thead>
           <tbody>
             @for (budget of budgets(); track budget.id) {
-              <tr class="budget-row" (click)="editBudget.emit(budget.id)">
+              <tr
+                class="budget-row"
+                [attr.data-testid]="testIds.BUDGET_CARD"
+                (click)="editBudget.emit(budget.id)"
+              >
                 <td class="col-account">{{ budget.accountName }}</td>
                 <td class="col-product">{{ budget.productName }}</td>
                 <td class="col-stop">
@@ -259,6 +267,8 @@ import { formatPrice } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsageBudgetsComponent {
+  protected readonly testIds = USAGE_TEST_IDS;
+
   readonly budgets = input.required<readonly UsageBudget[]>();
 
   readonly createBudget = output<void>();

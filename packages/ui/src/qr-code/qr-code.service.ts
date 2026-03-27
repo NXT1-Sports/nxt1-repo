@@ -82,6 +82,7 @@ export class QrCodeService {
       componentProps: {
         url: config.url,
         displayName: config.displayName,
+        entityType: config.entityType ?? 'profile',
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,
@@ -111,6 +112,7 @@ export class QrCodeService {
           displayName: config.displayName,
           profileImg: config.profileImg ?? '',
           sport: config.sport ?? '',
+          entityType: config.entityType ?? 'profile',
           embedded: true,
         },
         size: 'lg',

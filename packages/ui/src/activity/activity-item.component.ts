@@ -30,7 +30,6 @@ import { Component, ChangeDetectionStrategy, input, output, computed } from '@an
 import { CommonModule } from '@angular/common';
 import { IonRippleEffect } from '@ionic/angular/standalone';
 import { type ActivityItem, ACTIVITY_TYPE_ICONS, ACTIVITY_TYPE_COLORS } from '@nxt1/core';
-import type { MessageActivityMetadata } from '@nxt1/core';
 import { NxtIconComponent } from '../components/icon';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-logo.constants';
 
@@ -45,7 +44,6 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
       [class.activity-item--unread]="!item().isRead"
       [class.activity-item--urgent]="item().priority === 'urgent'"
       [class.activity-item--high]="item().priority === 'high'"
-      [class.activity-item--message]="isMessage()"
       (click)="handleClick()"
       role="article"
       [attr.aria-label]="ariaLabel()"
@@ -101,10 +99,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
         </div>
 
         @if (item().body) {
-          <p
-            class="activity-item__body"
-            [class.activity-item__body--dimmed]="isMessage() && msgMeta()?.isOwnLastMessage"
-          >
+          <p class="activity-item__body">
             {{ item().body }}
           </p>
         }
@@ -116,25 +111,9 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
 
       <!-- Right: Actions & Indicators -->
       <div class="activity-item__trailing">
-        <!-- Message indicators: muted -->
-        @if (isMessage()) {
-          @if (msgMeta()?.isMuted) {
-            <nxt1-icon name="volumeMuteOutline" [size]="14" class="activity-item__mute-icon" />
-          }
-        }
-
-        <!-- Unread indicator: badge count for messages, dot for others -->
+        <!-- Unread indicator -->
         @if (!item().isRead) {
-          @if (isMessage() && (msgMeta()?.unreadCount ?? 0) > 1) {
-            <span
-              class="activity-item__unread-badge"
-              [class.activity-item__unread-badge--muted]="msgMeta()?.isMuted"
-            >
-              {{ msgMeta()?.unreadCount }}
-            </span>
-          } @else {
-            <div class="activity-item__unread-dot"></div>
-          }
+          <div class="activity-item__unread-dot"></div>
         }
 
         <!-- Media thumbnail (Twitter/X style) — replaces chevron when media attached -->
@@ -513,31 +492,22 @@ export class ActivityItemComponent {
   // COMPUTED PROPERTIES
   // ============================================
 
-  /** Whether this item is a message/conversation type */
-  protected readonly isMessage = computed(() => this.item().type === 'message');
-
   /** Whether this item is a social reaction type */
   protected readonly isReactionType = computed(() => {
     const type = this.item().type;
-    return type === 'follow' || type === 'like' || type === 'comment' || type === 'mention';
+    return type === 'like' || type === 'mention';
   });
 
   /** Whether to render source name under the body */
   protected readonly showSourceName = computed(() => {
-    return !this.isMessage() && !this.isReactionType() && !!this.item().source?.userName;
-  });
-
-  /** Message-specific metadata (only for type === 'message') */
-  protected readonly msgMeta = computed((): MessageActivityMetadata | null => {
-    if (this.item().type !== 'message') return null;
-    return (this.item().metadata as unknown as MessageActivityMetadata) ?? null;
+    return !this.isReactionType() && !!this.item().source?.userName;
   });
 
   /** Whether we should show avatar visual (image or sleek placeholder) */
   protected readonly showAvatarVisual = computed(() => {
     const source = this.item().source;
     // Keep avatars for direct person-driven items; alerts use semantic type icons.
-    const shouldUseAvatar = this.isMessage() || this.isReactionType();
+    const shouldUseAvatar = this.isReactionType();
     return (
       shouldUseAvatar &&
       !!(source?.userName || source?.teamName || source?.avatarUrl || source?.teamLogoUrl)

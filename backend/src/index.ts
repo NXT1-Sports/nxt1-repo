@@ -66,11 +66,13 @@ import videosRoutes from './routes/videos.routes.js';
 import leaderboardsRoutes from './routes/leaderboards.routes.js';
 import campsRoutes from './routes/camps.routes.js';
 import eventsRoutes from './routes/events.routes.js';
+import statsRoutes from './routes/stats.routes.js';
 // Programs (Organization search)
 import programsRoutes from './routes/programs.routes.js';
 // Billing routes
 import billingRoutes from './routes/billing.routes.js';
 import webhookRoutes, { webhookRawBodyMiddleware } from './routes/webhook.routes.js';
+import heliconeRoutes from './routes/helicone.routes.js';
 import usageRoutes from './routes/usage.routes.js';
 import iapRoutes from './routes/iap.routes.js';
 // Staging-only dev utilities
@@ -312,9 +314,12 @@ async function setupApplication() {
     { path: '/leaderboards', rateLimitType: 'search', handler: leaderboardsRoutes },
     { path: '/camps', rateLimitType: 'api', handler: campsRoutes },
     { path: '/events', rateLimitType: 'api', handler: eventsRoutes },
+    { path: '/stats', rateLimitType: 'api', handler: statsRoutes },
     // Billing routes with strict rate limiting
     { path: '/billing', rateLimitType: 'billing', handler: billingRoutes },
     { path: '/webhook', rateLimitType: 'billing', handler: webhookRoutes },
+    // Helicone cost reconciliation webhook
+    { path: '/helicone', rateLimitType: 'billing', handler: heliconeRoutes },
     // Usage dashboard routes
     { path: '/usage', rateLimitType: 'api', handler: usageRoutes },
     // Apple IAP wallet routes

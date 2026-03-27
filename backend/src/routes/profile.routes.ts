@@ -32,6 +32,12 @@ import type { UpdateSportProfileRequest, ProfileSearchParams } from '@nxt1/core'
 import { PROFILE_CACHE_KEYS } from '@nxt1/core';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { validationError, notFoundError, forbiddenError } from '@nxt1/core/errors';
+import type { FeedItemResponse } from '@nxt1/core/feed';
+import { createTimelineService } from '../services/timeline.service.js';
+import {
+  userProfileToFeedAuthor,
+  type UserProfile as PostsUserProfile,
+} from '../adapters/firestore-posts.adapter.js';
 
 const router: ExpressRouter = Router();
 
@@ -619,7 +625,8 @@ router.get(
 );
 
 /**
- * Get timeline posts from top-level Posts collection (filtered by userId).
+ * Get polymorphic timeline feed for a user profile.
+ * Assembles items from Posts, Events, and PlayerStats at read time.
  * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/timeline?sportId=football
  * GET /api/v1/auth/profile/:userId/timeline
  */
@@ -630,25 +637,63 @@ router.get(
     const { userId } = req.params as { userId: string };
     const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
     const sportId = req.query['sportId'] ? String(req.query['sportId']) : null;
+    const cursor = req.query['cursor'] ? String(req.query['cursor']) : undefined;
 
     const cache = getCacheService();
-    const cacheKey = `profile:sub:timeline:${userId}${sportId ? `:${sportId}` : ''}:${limit}`;
-    const hit = await cache.get<unknown[]>(cacheKey);
-    if (hit) {
-      markCacheHit(req, 'redis', cacheKey);
-      res.json({ success: true, data: hit });
-      return;
+    const cacheKey = `profile:sub:timeline:v2:${userId}${sportId ? `:${sportId}` : ''}:${limit}${cursor ? `:${cursor}` : ''}`;
+
+    // Only cache first page (no cursor)
+    if (!cursor) {
+      const hit = await cache.get<FeedItemResponse>(cacheKey);
+      if (hit) {
+        markCacheHit(req, 'redis', cacheKey);
+        res.json(hit);
+        return;
+      }
     }
 
     const db = req.firebase!.db;
-    let query = db.collection('Posts').where('userId', '==', userId) as FirebaseFirestore.Query;
-    if (sportId) query = query.where('sportId', '==', sportId);
-    query = query.orderBy('createdAt', 'desc').limit(limit);
 
-    const snap = await query.get();
-    const posts = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    await cache.set(cacheKey, posts, { ttl: CACHE_TTL.FEED });
-    res.json({ success: true, data: posts });
+    // Fetch user profile for author enrichment
+    const userDoc = await db.collection(USERS_COLLECTION).doc(userId).get();
+    if (!userDoc.exists) {
+      res.status(404).json({ success: false, error: 'User not found' });
+      return;
+    }
+    const userData = userDoc.data()!;
+    const authorProfile: PostsUserProfile = {
+      uid: userId,
+      displayName: (userData['displayName'] as string) || 'Unknown User',
+      firstName: userData['firstName'] as string | undefined,
+      lastName: userData['lastName'] as string | undefined,
+      photoURL: userData['photoURL'] as string | undefined,
+      role: userData['role'] as string | undefined,
+      sport: userData['sport'] as string | undefined,
+      position: userData['position'] as string | undefined,
+      schoolName: userData['schoolName'] as string | undefined,
+      schoolLogoUrl: userData['schoolLogoUrl'] as string | undefined,
+      isVerified: userData['isVerified'] as boolean | undefined,
+      verificationStatus: userData['verificationStatus'] as string | undefined,
+      profileCode: userData['profileCode'] as string | undefined,
+      classYear: userData['classYear'] as string | undefined,
+    };
+    const author = userProfileToFeedAuthor(authorProfile);
+
+    // Read-Time Assembly: concurrent fetch from Posts, Events, PlayerStats
+    const timelineService = createTimelineService(db);
+    const result = await timelineService.getProfileTimeline(userId, author, {
+      limit,
+      sportId: sportId ?? undefined,
+      viewerUserId: req.user?.uid,
+      cursor,
+    });
+
+    // Cache first page only
+    if (!cursor) {
+      await cache.set(cacheKey, result, { ttl: CACHE_TTL.FEED });
+    }
+
+    res.json(result);
   })
 );
 

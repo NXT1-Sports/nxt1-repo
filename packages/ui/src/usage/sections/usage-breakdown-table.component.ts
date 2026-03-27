@@ -14,20 +14,21 @@ import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
 import type { UsageBreakdownRow, UsageTimeframe } from '@nxt1/core';
 import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
+import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 
 @Component({
   selector: 'nxt1-usage-breakdown-table',
   standalone: true,
   imports: [CommonModule, NxtIconComponent],
   template: `
-    <section class="usage-breakdown">
+    <section class="usage-breakdown" [attr.data-testid]="testIds.BREAKDOWN_SECTION">
       <div class="section-header">
-        <h2 class="section-heading">Usage breakdown</h2>
         <div class="timeframe-select">
           <select
             [value]="timeframe()"
             (change)="onTimeframeChange($event)"
             class="timeframe-dropdown"
+            [attr.data-testid]="testIds.BREAKDOWN_TIMEFRAME_SELECT"
           >
             @for (opt of timeframeOptions; track opt.id) {
               <option [value]="opt.id">{{ opt.label }}</option>
@@ -56,6 +57,7 @@ import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
               <tr
                 class="day-row"
                 [class.day-row--expanded]="expandedRow() === row.date"
+                [attr.data-testid]="testIds.BREAKDOWN_ROW"
                 (click)="toggleRow.emit(row.date)"
               >
                 <td class="col-date">
@@ -276,6 +278,8 @@ import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsageBreakdownTableComponent {
+  protected readonly testIds = USAGE_TEST_IDS;
+
   readonly rows = input.required<readonly UsageBreakdownRow[]>();
   readonly expandedRow = input.required<string | null>();
   readonly periodLabel = input<string>('');

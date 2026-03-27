@@ -32,6 +32,15 @@ export interface MobileSidebarUserData extends DesktopSidebarUserData {
 
   /** Primary sport display label (shown below name) */
   readonly sportLabel?: string;
+
+  /** Section title: "Teams" for coaches/directors, "Sports" for athletes */
+  readonly switcherTitle?: string;
+
+  /** Whether this user is a team-management role (coach/director) */
+  readonly isTeamRole?: boolean;
+
+  /** CTA button text: "Add Team" for coaches, "Add Sport" for athletes */
+  readonly actionLabel?: string;
 }
 
 /**

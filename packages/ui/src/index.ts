@@ -1167,11 +1167,18 @@ export { NxtActivityCardComponent } from './components/activity-card';
 // ============================================
 export {
   // Components
-  FeedPostCardComponent,
   FeedSkeletonComponent,
   FeedEmptyStateComponent,
   FeedListComponent,
   FeedShellComponent,
+  // Polymorphic Smart Shell + Atomic Cards
+  FeedCardShellComponent,
+  FeedPostContentComponent,
+  FeedStatCardComponent,
+  FeedEventCardComponent,
+  FeedMetricsCardComponent,
+  FeedAwardCardComponent,
+  FeedNewsCardComponent,
   // Services
   FeedService,
   // Types
@@ -1197,19 +1204,13 @@ export {
   NewsCategoryFilterComponent,
   NewsSkeletonComponent,
   NewsEmptyStateComponent,
-  NewsBookmarkButtonComponent,
-  NewsReadingProgressComponent,
   // Services
   NewsService,
   NewsApiService,
   NEWS_API_BASE_URL,
-  // Mock Data (Development Only)
-  MOCK_NEWS_ARTICLES,
-  MOCK_READING_STATS,
-  getMockArticlesByCategory,
-  getMockArticleById,
-  getMockTrendingArticles,
+  NEWS_API_ADAPTER,
 } from './news';
+export type { INewsApiAdapter } from './news';
 
 // ============================================
 // HELP CENTER (Adaptive Design Architecture)

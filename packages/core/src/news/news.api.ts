@@ -11,15 +11,7 @@
  */
 
 import type { HttpAdapter } from '../api/http-adapter';
-import type {
-  NewsFeedResponse,
-  NewsArticleResponse,
-  NewsBookmarkResponse,
-  NewsProgressResponse,
-  NewsFilter,
-  ReadingProgress,
-  ReadingStats,
-} from './news.types';
+import type { NewsFeedResponse, NewsArticleResponse, NewsFilter } from './news.types';
 import { NEWS_API_ENDPOINTS, NEWS_PAGINATION_DEFAULTS } from './news.constants';
 import { createApiError, isNxtApiError } from '../errors';
 
@@ -49,8 +41,8 @@ export type NewsApi = ReturnType<typeof createNewsApi>;
  * const api = createNewsApi(capacitorHttpAdapter, API_URL);
  *
  * // Usage
- * const feed = await api.getFeed({ category: 'recruiting', limit: 20 });
- * await api.toggleBookmark('article-123');
+ * const feed = await api.getFeed({ sport: 'Football', limit: 20 });
+ * const article = await api.getArticle('article-123');
  * ```
  */
 export function createNewsApi(http: HttpAdapter, baseUrl: string) {
@@ -91,13 +83,10 @@ export function createNewsApi(http: HttpAdapter, baseUrl: string) {
     async getFeed(filter?: NewsFilter): Promise<NewsFeedResponse> {
       try {
         const url = buildUrl(NEWS_API_ENDPOINTS.FEED, {
-          categories: filter?.categories?.join(','),
-          tags: filter?.tags?.join(','),
-          sports: filter?.sports?.join(','),
+          sport: filter?.sport,
+          state: filter?.state,
           sortBy: filter?.sortBy,
           dateRange: filter?.dateRange,
-          bookmarkedOnly: filter?.bookmarkedOnly,
-          unreadOnly: filter?.unreadOnly,
           query: filter?.query,
           page: filter?.page ?? NEWS_PAGINATION_DEFAULTS.INITIAL_PAGE,
           limit: filter?.limit ?? NEWS_PAGINATION_DEFAULTS.LIMIT,
@@ -152,100 +141,6 @@ export function createNewsApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Toggle bookmark status for an article.
-     *
-     * @param articleId - Article to bookmark/unbookmark
-     * @returns Updated bookmark status
-     * @throws NxtApiError on failure
-     */
-    async toggleBookmark(articleId: string): Promise<NewsBookmarkResponse> {
-      try {
-        const path = replaceParams(NEWS_API_ENDPOINTS.BOOKMARK, { id: articleId });
-        const url = `${baseUrl}${path}`;
-
-        const response = await http.post<NewsBookmarkResponse>(url, {});
-
-        if (!response.success) {
-          throw createApiError('SRV_INTERNAL_ERROR', {
-            message: response.error ?? 'Failed to toggle bookmark',
-          });
-        }
-
-        return response;
-      } catch (error) {
-        if (isNxtApiError(error)) throw error;
-
-        throw createApiError('SRV_INTERNAL_ERROR', {
-          message: error instanceof Error ? error.message : 'Unknown error toggling bookmark',
-        });
-      }
-    },
-
-    /**
-     * Update reading progress for an article.
-     *
-     * @param articleId - Article being read
-     * @param progress - Reading progress data
-     * @returns Updated progress with any XP earned
-     * @throws NxtApiError on failure
-     */
-    async updateProgress(
-      articleId: string,
-      progress: Partial<ReadingProgress>
-    ): Promise<NewsProgressResponse> {
-      try {
-        const path = replaceParams(NEWS_API_ENDPOINTS.PROGRESS, { id: articleId });
-        const url = `${baseUrl}${path}`;
-
-        const response = await http.post<NewsProgressResponse>(url, progress);
-
-        if (!response.success) {
-          throw createApiError('SRV_INTERNAL_ERROR', {
-            message: response.error ?? 'Failed to update reading progress',
-          });
-        }
-
-        return response;
-      } catch (error) {
-        if (isNxtApiError(error)) throw error;
-
-        throw createApiError('SRV_INTERNAL_ERROR', {
-          message: error instanceof Error ? error.message : 'Unknown error updating progress',
-        });
-      }
-    },
-
-    /**
-     * Get user's reading statistics.
-     *
-     * @returns User reading stats
-     * @throws NxtApiError on failure
-     */
-    async getReadingStats(): Promise<{ success: boolean; data?: ReadingStats; error?: string }> {
-      try {
-        const url = `${baseUrl}${NEWS_API_ENDPOINTS.STATS}`;
-
-        const response = await http.get<{ success: boolean; data?: ReadingStats; error?: string }>(
-          url
-        );
-
-        if (!response.success) {
-          throw createApiError('SRV_INTERNAL_ERROR', {
-            message: response.error ?? 'Failed to fetch reading stats',
-          });
-        }
-
-        return response;
-      } catch (error) {
-        if (isNxtApiError(error)) throw error;
-
-        throw createApiError('SRV_INTERNAL_ERROR', {
-          message: error instanceof Error ? error.message : 'Unknown error fetching stats',
-        });
-      }
-    },
-
-    /**
      * Get trending articles.
      *
      * @param limit - Number of articles to fetch
@@ -286,7 +181,8 @@ export function createNewsApi(http: HttpAdapter, baseUrl: string) {
       try {
         const url = buildUrl(NEWS_API_ENDPOINTS.SEARCH, {
           query,
-          categories: filter?.categories?.join(','),
+          sport: filter?.sport,
+          state: filter?.state,
           sortBy: filter?.sortBy,
           page: filter?.page ?? NEWS_PAGINATION_DEFAULTS.INITIAL_PAGE,
           limit: filter?.limit ?? NEWS_PAGINATION_DEFAULTS.LIMIT,
@@ -306,44 +202,6 @@ export function createNewsApi(http: HttpAdapter, baseUrl: string) {
 
         throw createApiError('SRV_INTERNAL_ERROR', {
           message: error instanceof Error ? error.message : 'Unknown error searching articles',
-        });
-      }
-    },
-
-    /**
-     * Mark article as read.
-     *
-     * @param articleId - Article to mark as read
-     * @returns Success response
-     * @throws NxtApiError on failure
-     */
-    async markAsRead(
-      articleId: string
-    ): Promise<{ success: boolean; xpEarned?: number; error?: string }> {
-      try {
-        const path = replaceParams(NEWS_API_ENDPOINTS.PROGRESS, { id: articleId });
-        const url = `${baseUrl}${path}`;
-
-        const response = await http.post<{ success: boolean; xpEarned?: number; error?: string }>(
-          url,
-          {
-            isCompleted: true,
-            progress: 100,
-          }
-        );
-
-        if (!response.success) {
-          throw createApiError('SRV_INTERNAL_ERROR', {
-            message: response.error ?? 'Failed to mark article as read',
-          });
-        }
-
-        return response;
-      } catch (error) {
-        if (isNxtApiError(error)) throw error;
-
-        throw createApiError('SRV_INTERNAL_ERROR', {
-          message: error instanceof Error ? error.message : 'Unknown error marking as read',
         });
       }
     },

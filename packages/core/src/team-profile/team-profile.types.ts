@@ -26,20 +26,13 @@ export type { DataVerification } from '../models/user.model';
 /**
  * Team Profile tab identifiers for content sections.
  *
- * Tab order: Overview, Timeline, Videos, Roster, Schedule, Stats, News, Recruiting
- * - Timeline and Videos reuse ProfileTimelineComponent patterns
- * - Overview sub-sections: About, Staff, Team History, Quick Stats, Sponsors
- * - Roster sub-sections: split by class year
+ * Tab order: Intel, Timeline, Roster, Connect
+ * - Intel shows AI-generated team intelligence brief
+ * - Timeline shows posts and updates
+ * - Roster shows team members split by class year
+ * - Connect shows contact info, recruiting, and scheduling
  */
-export type TeamProfileTabId =
-  | 'overview'
-  | 'timeline'
-  | 'videos'
-  | 'roster'
-  | 'schedule'
-  | 'stats'
-  | 'news'
-  | 'recruiting';
+export type TeamProfileTabId = 'intel' | 'timeline' | 'roster' | 'connect';
 
 /**
  * Configuration for a team profile content tab.

@@ -66,6 +66,31 @@ export {
   type FeedCommentAuthor,
   type FeedComment,
   type FeedCommentsResponse,
+  // Polymorphic feed item types (2026 standard)
+  type FeedItemType,
+  type FeedItemBase,
+  type FeedItemPost,
+  type FeedItemEvent,
+  type FeedItemStat,
+  type FeedItemMetric,
+  type FeedItemOffer,
+  type FeedItemCommitment,
+  type FeedItemVisit,
+  type FeedItemCamp,
+  type FeedItemAward,
+  type FeedItemNews,
+  type FeedItemScoutReport,
+  type FeedItemAcademic,
+  type FeedItemSharedReference,
+  type FeedItem,
+  // Type guards
+  isFeedItemPost,
+  isFeedItemEvent,
+  isFeedItemStat,
+  isFeedItemSharedReference,
+  // Polymorphic response types
+  type FeedItemResponse,
+  type FeedPointer,
 } from './feed.types';
 
 // ============================================
@@ -117,4 +142,11 @@ export {
   teamToFeedAuthor,
   teamPostToFeedPost,
   teamPostsToFeedPosts,
+  // Polymorphic mappers (2026 standard)
+  feedPostToFeedItem,
+  eventDocToFeedItemEvent,
+  statDocToFeedItemStat,
+  profileOfferToFeedItemOffer,
+  profileEventToFeedItemVariant,
+  buildPolymorphicActivityFeed,
 } from './feed.mappers';

@@ -165,6 +165,66 @@ export class AgentQueueService {
     return this.redisUrl;
   }
 
+  // ─── Recurring Jobs ─────────────────────────────────────────────────────
+
+  /**
+   * Add a repeating (cron-based) job to the queue.
+   * Ownership metadata (userId, actionSummary) must be persisted by the
+   * caller to a durable store (Firestore) — this method is a pure BullMQ
+   * operation with no external side-effects.
+   *
+   * @param jobName - Unique name for this schedule (e.g. `recv:{userId}:{ts}`).
+   * @param cronExpression - Standard 5-field cron pattern.
+   * @param payload - The AgentJobPayload executed on each fire.
+   * @param environment - Which Firestore DB to use when the job runs.
+   * @returns The BullMQ repeatable job key used for future cancellation.
+   */
+  async enqueueRecurring(
+    jobName: string,
+    cronExpression: string,
+    payload: AgentJobPayload,
+    environment: 'staging' | 'production' = 'production'
+  ): Promise<string> {
+    const jobData: AgentQueueJobData = {
+      payload,
+      enqueuedAt: new Date().toISOString(),
+      environment,
+    };
+
+    // IMPORTANT: Do NOT set jobId on a repeatable job. BullMQ v5 auto-generates
+    // per-execution IDs. A fixed jobId causes every subsequent execution to
+    // collide with the previous one, resulting in skipped or stalled jobs.
+    await this.queue.add(jobName, jobData, {
+      repeat: { pattern: cronExpression },
+    });
+
+    // BullMQ derives a deterministic key from queue prefix + name + pattern.
+    // Retrieve it immediately after registration via the repeatables list.
+    const repeatables = await this.queue.getRepeatableJobs();
+    const match = repeatables.find((r) => r.name === jobName);
+    return match?.key ?? jobName;
+  }
+
+  /**
+   * Return all registered repeatable job definitions in this queue.
+   * Callers must filter by userId using their own Firestore metadata store.
+   */
+  async getAllRepeatableJobs() {
+    return this.queue.getRepeatableJobs();
+  }
+
+  /**
+   * Remove a recurring schedule by its BullMQ repeatable key.
+   * The caller is responsible for deleting the Firestore metadata document.
+   * @returns true if found and removed, false if the key was not registered.
+   */
+  async removeRecurringJob(key: string): Promise<boolean> {
+    const repeatables = await this.queue.getRepeatableJobs();
+    if (!repeatables.find((r) => r.key === key)) return false;
+    await this.queue.removeRepeatableByKey(key);
+    return true;
+  }
+
   /**
    * Graceful shutdown: close the queue.
    * Call this in your Express shutdown handler.

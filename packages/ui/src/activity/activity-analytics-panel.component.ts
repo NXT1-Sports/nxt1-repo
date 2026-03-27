@@ -71,11 +71,9 @@ import {
 } from 'ionicons/icons';
 import type { AnalyticsUserRole, AnalyticsPeriod } from '@nxt1/core';
 import { isTeamRole } from '@nxt1/core';
-import { APP_EVENTS } from '@nxt1/core/analytics';
 import { ACTIVITY_TEST_IDS } from '@nxt1/core/testing';
 import { AnalyticsDashboardService } from '../analytics-dashboard/analytics-dashboard.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
-import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { NxtTrackClickDirective } from '../services/breadcrumb/breadcrumb.service';
 
@@ -528,7 +526,6 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
 export class ActivityAnalyticsPanelComponent {
   protected readonly analytics = inject(AnalyticsDashboardService);
   private readonly logger = inject(NxtLoggingService).child('ActivityAnalyticsPanel');
-  private readonly analyticsTracker = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   protected readonly testIds = ACTIVITY_TEST_IDS;
@@ -840,7 +837,6 @@ export class ActivityAnalyticsPanelComponent {
       const uid = this.userId() ?? undefined;
       this.logger.info('Initializing analytics panel', { role, uid });
       this.breadcrumb.trackStateChange('analytics-panel:initializing', { role });
-      this.analyticsTracker?.trackEvent(APP_EVENTS.ANALYTICS_PANEL_VIEWED, { role });
       void this.analytics.initialize(role, uid);
     });
   }
@@ -856,7 +852,6 @@ export class ActivityAnalyticsPanelComponent {
 
   protected onRetry(): void {
     this.logger.info('Retrying analytics load');
-    this.analyticsTracker?.trackEvent(APP_EVENTS.ANALYTICS_RETRY);
     void this.analytics.loadReport(this.selectedPeriod(), true);
   }
 }

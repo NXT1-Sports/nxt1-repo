@@ -58,6 +58,7 @@ export {
   truncate,
   capitalize,
   titleCase,
+  normalizeName,
   slugify,
   buildTeamSlug,
   camelToTitle,

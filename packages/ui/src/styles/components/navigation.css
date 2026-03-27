@@ -1023,6 +1023,21 @@
   position: relative;
 }
 
+/* Clickable user info header — navigates to profile/team */
+.nxt1-desktop-nav .user-info.user-info--clickable {
+  width: 100%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: var(--nxt1-ui-radius-md, 8px);
+  transition: background-color 0.15s ease;
+  text-align: left;
+}
+
+.nxt1-desktop-nav .user-info.user-info--clickable:hover {
+  background: var(--nxt1-nav-hover-bg);
+}
+
 .nxt1-desktop-nav .user-info-text {
   display: flex;
   flex-direction: column;
@@ -1046,6 +1061,160 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.nxt1-desktop-nav .user-info-sport {
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
+  color: var(--nxt1-nav-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Switcher title above user info */
+.nxt1-desktop-nav .user-dropdown-title {
+  padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-4, 1rem) 0;
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
+  color: var(--nxt1-nav-text-secondary);
+  letter-spacing: 0.02em;
+}
+
+/* User info row — flex container with expand arrow */
+.nxt1-desktop-nav .user-info-row {
+  display: flex;
+  align-items: center;
+  padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-3, 0.75rem);
+}
+
+.nxt1-desktop-nav .user-info-row .user-info {
+  flex: 1;
+  min-width: 0;
+  padding: var(--nxt1-spacing-2, 0.5rem);
+}
+
+/* Expand arrow button */
+.nxt1-desktop-nav .user-info-expand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--nxt1-ui-radius-full, 9999px);
+  background: transparent;
+  color: var(--nxt1-nav-text-secondary);
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    background-color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.nxt1-desktop-nav .user-info-expand:hover {
+  background: var(--nxt1-nav-hover-bg);
+}
+
+.nxt1-desktop-nav .user-info-expand--open {
+  transform: rotate(180deg);
+}
+
+/* Premium badge (small, inside avatar area) */
+.nxt1-desktop-nav .premium-badge-sm {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  padding: 1px 4px;
+  background: linear-gradient(
+    135deg,
+    var(--nxt1-color-warning, #f59e0b),
+    var(--nxt1-color-warningLight, #fbbf24)
+  );
+  border-radius: var(--nxt1-ui-radius-sm, 4px);
+  font-size: 0.5rem;
+  font-weight: var(--nxt1-fontWeight-bold, 700);
+  color: var(--nxt1-ui-text-inverse, #000000);
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+}
+
+.nxt1-desktop-nav .user-info-avatar {
+  position: relative;
+}
+
+/* Sport profiles list */
+.nxt1-desktop-nav .user-sport-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 var(--nxt1-spacing-3, 0.75rem) var(--nxt1-spacing-2, 0.5rem);
+}
+
+.nxt1-desktop-nav .user-sport-item {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-2, 0.5rem);
+  width: 100%;
+  padding: var(--nxt1-spacing-2, 0.5rem);
+  border: none;
+  background: transparent;
+  border-radius: var(--nxt1-ui-radius-md, 8px);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  text-align: left;
+}
+
+.nxt1-desktop-nav .user-sport-item:hover {
+  background: var(--nxt1-nav-hover-bg);
+}
+
+.nxt1-desktop-nav .user-sport-item--active {
+  background: var(--nxt1-nav-hover-bg);
+}
+
+.nxt1-desktop-nav .user-sport-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.nxt1-desktop-nav .user-sport-name {
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
+  color: var(--nxt1-nav-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nxt1-desktop-nav .user-sport-position {
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
+  color: var(--nxt1-nav-text-secondary);
+}
+
+.nxt1-desktop-nav .user-sport-check {
+  color: var(--nxt1-color-primary, #6200ee);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* Add Sport / Add Team button */
+.nxt1-desktop-nav .user-sport-item--add {
+  color: var(--nxt1-color-primary, #6200ee);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
+}
+
+.nxt1-desktop-nav .user-sport-add-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--nxt1-ui-radius-full, 9999px);
+  border: 1.5px dashed currentColor;
+  flex-shrink: 0;
 }
 
 .nxt1-desktop-nav .user-info-role {

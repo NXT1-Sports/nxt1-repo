@@ -7,7 +7,7 @@
  *
  * ⭐ WEB ONLY — SSR-safe ⭐
  */
-import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, output, computed } from '@angular/core';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtPlatformIconComponent } from '../../components/platform-icon';
 import { getPlatformFaviconUrl } from '@nxt1/core/onboarding';
@@ -28,6 +28,11 @@ import { TeamProfileService } from '../team-profile.service';
           </div>
           <h3>Contact info not set</h3>
           <p>This team hasn't added contact information yet.</p>
+          @if (teamProfile.isTeamAdmin()) {
+            <button type="button" class="madden-cta-btn" (click)="manageTeam.emit()">
+              Add Contact Info
+            </button>
+          }
         </div>
       } @else {
         <div class="contact-social-row">
@@ -100,14 +105,14 @@ import { TeamProfileService } from '../team-profile.service';
             }
           </div>
 
-          <!-- RIGHT: Head Coach Contact -->
+          <!-- RIGHT: Primary Contact -->
           @if (teamProfile.headCoach(); as coach) {
             <div class="contact-social-col">
-              <h3 class="contact-section-title">Head Coach</h3>
+              <h3 class="contact-section-title">Primary Contact</h3>
               <div class="coach-card">
                 <div class="coach-card-header">
                   <span class="coach-card-avatar">
-                    <nxt1-icon name="person" [size]="18" />
+                    <nxt1-icon name="shield" [size]="18" />
                   </span>
                   <div class="coach-card-info">
                     <span class="coach-card-name">{{ coach.firstName }} {{ coach.lastName }}</span>
@@ -187,6 +192,24 @@ import { TeamProfileService } from '../team-profile.service';
         color: var(--m-text-2);
         margin: 0;
         max-width: 280px;
+      }
+      .madden-cta-btn {
+        margin-top: 12px;
+        padding: 10px 24px;
+        background: var(--nxt1-color-primary);
+        border: none;
+        border-radius: 9999px;
+        color: #000;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      .madden-cta-btn:hover {
+        filter: brightness(1.1);
+      }
+      .madden-cta-btn:active {
+        filter: brightness(0.95);
       }
 
       /* ─── CONTACT + SOCIAL SIDE-BY-SIDE ─── */
@@ -378,6 +401,9 @@ import { TeamProfileService } from '../team-profile.service';
 })
 export class TeamContactWebComponent {
   protected readonly teamProfile = inject(TeamProfileService);
+
+  /** Emitted when admin clicks a manage CTA button */
+  readonly manageTeam = output<void>();
 
   // ── Social Accounts ──
 

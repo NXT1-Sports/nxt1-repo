@@ -12,12 +12,10 @@
 // ============================================
 
 /**
- * Activity tab identifiers.
- * Each tab represents a filtered view of the activity feed.
- * - 'alerts' — Social and system alerts: likes, comments, follows, mentions, updates
- * - 'analytics' — Agent X performance stats and recruiting activity metrics
+ * Activity tab identifier.
+ * Currently only 'alerts' is used — a single unified notifications feed.
  */
-export type ActivityTabId = 'alerts' | 'analytics';
+export type ActivityTabId = 'alerts';
 
 /**
  * Configuration for an activity tab.
@@ -44,13 +42,8 @@ export interface ActivityTab {
  * Determines styling and behavior.
  */
 export type ActivityType =
-  | 'follow'
   | 'like'
-  | 'comment'
   | 'mention'
-  | 'message'
-  | 'offer'
-  | 'deal'
   | 'announcement'
   | 'milestone'
   | 'reminder'

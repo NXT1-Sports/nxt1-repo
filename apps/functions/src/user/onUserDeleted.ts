@@ -126,13 +126,6 @@ async function deleteQueryCollections(userId: string): Promise<Record<string, nu
     ),
     ['follows:followerId', db.collection('Follows').where('followerId', '==', userId)],
     ['follows:followingId', db.collection('Follows').where('followingId', '==', userId)],
-    [
-      'UserReadingProgress:docPrefix',
-      db
-        .collection('UserReadingProgress')
-        .where(admin.firestore.FieldPath.documentId(), '>=', `${userId}_`)
-        .where(admin.firestore.FieldPath.documentId(), '<=', `${userId}_\uf8ff`),
-    ],
   ];
 
   const results = await Promise.all(

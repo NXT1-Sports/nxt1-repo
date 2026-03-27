@@ -17,26 +17,12 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { appGuard } from '../middleware/auth.middleware.js';
 import { validateBody, validateQuery } from '../middleware/validation.middleware.js';
 import { FollowUserDto, UnfollowUserDto } from '../dtos/social.dto.js';
-import { sendFollowNotification } from '../services/notification.service.js';
-import { getUserById } from '../services/users.service.js';
 import { logger } from '../utils/logger.js';
 
 const router: ExpressRouter = Router();
 
 const FOLLOWS_COLLECTION = 'Follows';
 const USERS_COLLECTION = 'Users';
-
-/**
- * Returns a displayable name for a user fetched via users.service.
- * Falls back to 'Someone' for anonymous / missing users.
- */
-function getDisplayName(user: { [key: string]: unknown } | null): string {
-  if (!user) return 'Someone';
-  const first = (user['firstName'] as string | undefined) ?? '';
-  const last = (user['lastName'] as string | undefined) ?? '';
-  const full = `${first} ${last}`.trim();
-  return full || (user['displayName'] as string | undefined) || 'Someone';
-}
 
 // ============================================
 // FOLLOW / UNFOLLOW
@@ -95,23 +81,6 @@ router.post(
 
     // Send response immediately — transaction is committed, client is unblocked
     res.json({ success: true, data: { isFollowing: true } });
-
-    // Fire-and-forget: notify the followed user after response is sent
-    if (isNewFollow) {
-      void (async () => {
-        const follower = await getUserById(followerId, db);
-        const displayName = getDisplayName(follower);
-        await sendFollowNotification(db, {
-          targetType: 'user',
-          followerUserId: followerId,
-          followerName: displayName,
-          followerAvatarUrl: (follower?.['profilePictureUrl'] as string | undefined) ?? undefined,
-          targetUserId,
-        });
-      })().catch((err) =>
-        logger.error('[Follow] Failed to dispatch new_follower notification', { error: err })
-      );
-    }
   }
 );
 

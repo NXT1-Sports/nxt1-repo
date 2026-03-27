@@ -6,3 +6,4 @@
 export { ContextBuilder } from './context-builder.js';
 export { VectorMemoryService } from './vector.service.js';
 export { SessionMemoryService } from './session.service.js';
+export { SemanticCacheService } from './semantic-cache.service.js';

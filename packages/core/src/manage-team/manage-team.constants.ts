@@ -63,6 +63,30 @@ export const MANAGE_TEAM_SECTIONS: Record<
     icon: 'ribbon-outline',
     description: 'Team sponsors & partners',
   },
+  images: {
+    id: 'images',
+    title: 'Images',
+    icon: 'image-outline',
+    description: 'Team photos & media',
+  },
+  accounts: {
+    id: 'accounts',
+    title: 'Connected Accounts',
+    icon: 'link-outline',
+    description: 'Linked social & platform accounts',
+  },
+  about: {
+    id: 'about',
+    title: 'About Info',
+    icon: 'information-circle-outline',
+    description: 'Program, title & team details',
+  },
+  contact: {
+    id: 'contact',
+    title: 'Contact Info',
+    icon: 'mail-outline',
+    description: 'Email, phone & address',
+  },
 } as const;
 
 /**

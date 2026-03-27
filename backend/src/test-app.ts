@@ -30,6 +30,7 @@ import videosRoutes from './routes/videos.routes.js';
 import leaderboardsRoutes from './routes/leaderboards.routes.js';
 import campsRoutes from './routes/camps.routes.js';
 import eventsRoutes from './routes/events.routes.js';
+import statsRoutes from './routes/stats.routes.js';
 import programsRoutes from './routes/programs.routes.js';
 import billingRoutes from './routes/billing.routes.js';
 import webhookRoutes, { webhookRawBodyMiddleware } from './routes/webhook.routes.js';
@@ -177,6 +178,7 @@ const routeConfigs = [
   ['/leaderboards', leaderboardsRoutes],
   ['/camps', campsRoutes],
   ['/events', eventsRoutes],
+  ['/stats', statsRoutes],
   ['/billing', billingRoutes],
   ['/webhook', webhookRoutes],
   ['/usage', usageRoutes],

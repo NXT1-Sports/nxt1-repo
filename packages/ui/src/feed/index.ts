@@ -11,11 +11,21 @@
 // ============================================
 // COMPONENTS
 // ============================================
-export { FeedPostCardComponent } from './feed-post-card.component';
 export { FeedSkeletonComponent, type FeedSkeletonVariant } from './feed-skeleton.component';
 export { FeedEmptyStateComponent } from './feed-empty-state.component';
 export { FeedListComponent } from './feed-list.component';
 export { FeedShellComponent } from './feed-shell.component';
+
+// ============================================
+// POLYMORPHIC SMART SHELL + ATOMIC CARDS
+// ============================================
+export { FeedCardShellComponent } from './feed-card-shell.component';
+export { FeedPostContentComponent } from './feed-post-content.component';
+export { FeedStatCardComponent } from './feed-stat-card.component';
+export { FeedEventCardComponent } from './feed-event-card.component';
+export { FeedMetricsCardComponent } from './feed-metrics-card.component';
+export { FeedAwardCardComponent } from './feed-award-card.component';
+export { FeedNewsCardComponent } from './feed-news-card.component';
 
 // ============================================
 // SERVICES

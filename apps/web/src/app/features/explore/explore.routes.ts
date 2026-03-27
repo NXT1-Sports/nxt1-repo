@@ -7,12 +7,27 @@
  */
 
 import { Routes } from '@angular/router';
+import { NEWS_API_ADAPTER } from '@nxt1/ui/news';
+import { NewsApiAdapterService } from '../news/services/news-api-adapter.service';
+
+const newsProviders = [
+  NewsApiAdapterService,
+  { provide: NEWS_API_ADAPTER, useExisting: NewsApiAdapterService },
+];
 
 export const EXPLORE_ROUTES: Routes = [
   {
     path: '',
     loadComponent: () => import('./explore.component').then((m) => m.ExploreComponent),
-    title: 'Explore | NXT1',
+    // SeoService sets the full title dynamically (appends "| NXT1 Sports" automatically)
+    title: 'Explore',
+    providers: [...newsProviders],
+  },
+  {
+    path: ':tab',
+    loadComponent: () => import('./explore.component').then((m) => m.ExploreComponent),
+    // Title set dynamically per-tab by ExploreComponent.updateSeoForTab()
+    providers: [...newsProviders],
   },
 ];
 

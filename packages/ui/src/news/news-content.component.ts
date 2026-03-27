@@ -33,12 +33,8 @@
 
 import { Component, ChangeDetectionStrategy, inject, output, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import { searchOutline, trophyOutline, arrowBack } from 'ionicons/icons';
-import { type NewsArticle, type NewsCategoryId } from '@nxt1/core';
+import { type NewsArticle } from '@nxt1/core';
 import { NewsService } from './news.service';
-import { NewsCategoryFilterComponent } from './news-category-filter.component';
 import { NewsListComponent } from './news-list.component';
 import { NewsArticleDetailComponent } from './news-article-detail.component';
 import { HapticsService } from '../services/haptics/haptics.service';
@@ -47,54 +43,19 @@ import { HapticsService } from '../services/haptics/haptics.service';
 @Component({
   selector: 'nxt1-news-content',
   standalone: true,
-  imports: [
-    CommonModule,
-    IonIcon,
-    NewsCategoryFilterComponent,
-    NewsListComponent,
-    NewsArticleDetailComponent,
-  ],
+  imports: [CommonModule, NewsListComponent, NewsArticleDetailComponent],
   template: `
     @if (showDetail()) {
       <!-- Article Detail View -->
       <nxt1-news-article-detail
         [article]="newsService.selectedArticle()"
-        [readingProgress]="newsService.readingProgress()"
-        [xpEarned]="currentXpEarned()"
-        [relatedArticles]="relatedArticles()"
         (back)="onDetailBack()"
-        (bookmarkToggle)="onDetailBookmark()"
         (share)="onDetailShare()"
-        (progressUpdate)="onProgressUpdate($event)"
-        (relatedClick)="onRelatedArticleClick($event)"
+        (readFullStory)="onReadFullStory($event)"
       />
     } @else {
       <!-- Feed View -->
       <div class="news-content">
-        <!-- Top Bar: XP Badge + Search (compact, inline with category filter) -->
-        <div class="news-content__top-bar">
-          <!-- Category Sub-Filter -->
-          <div class="news-content__categories">
-            <nxt1-news-category-filter
-              [selectedId]="newsService.activeCategory()"
-              (selectionChange)="onCategoryChange($event)"
-            />
-          </div>
-
-          <!-- Actions (XP + Search) -->
-          <div class="news-content__actions">
-            <button
-              type="button"
-              class="news-content__xp-badge"
-              (click)="onXpBadgeClick()"
-              aria-label="View XP"
-            >
-              <ion-icon name="trophy-outline"></ion-icon>
-              <span>{{ newsService.totalXp() }} XP</span>
-            </button>
-          </div>
-        </div>
-
         <!-- Article List -->
         <div class="news-content__list">
           <nxt1-news-list
@@ -104,8 +65,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
             [hasMore]="newsService.hasMore()"
             [activeCategory]="newsService.activeCategory()"
             (articleClick)="onArticleClick($event)"
-            (bookmarkClick)="onBookmarkClick($event)"
-            (shareClick)="onShareClick($event)"
             (loadMore)="onLoadMore()"
             (retry)="onRetry()"
           />
@@ -132,71 +91,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
       }
 
       /* ============================================
-         TOP BAR (Category Filter + Actions)
-         ============================================ */
-
-      .news-content__top-bar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0 16px;
-        gap: 12px;
-        border-bottom: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-        background: var(--nxt1-color-bg-primary, #0a0a0a);
-        position: sticky;
-        top: 0;
-        z-index: 10;
-      }
-
-      .news-content__categories {
-        flex: 1;
-        min-width: 0;
-        overflow: hidden;
-      }
-
-      .news-content__actions {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-shrink: 0;
-      }
-
-      .news-content__xp-badge {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        padding: 6px 10px;
-        background: linear-gradient(
-          135deg,
-          rgba(204, 255, 0, 0.15) 0%,
-          rgba(204, 255, 0, 0.05) 100%
-        );
-        border: 1px solid rgba(204, 255, 0, 0.3);
-        border-radius: var(--nxt1-radius-full, 9999px);
-        cursor: pointer;
-        transition: all 0.15s ease;
-      }
-
-      .news-content__xp-badge:hover {
-        background: linear-gradient(
-          135deg,
-          rgba(204, 255, 0, 0.25) 0%,
-          rgba(204, 255, 0, 0.1) 100%
-        );
-      }
-
-      .news-content__xp-badge ion-icon {
-        font-size: 14px;
-        color: var(--nxt1-color-primary, #ccff00);
-      }
-
-      .news-content__xp-badge span {
-        font-size: 12px;
-        font-weight: 700;
-        color: var(--nxt1-color-primary, #ccff00);
-      }
-
-      /* ============================================
          ARTICLE LIST
          ============================================ */
 
@@ -210,14 +104,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NewsContentComponent implements OnInit {
-  constructor() {
-    addIcons({
-      searchOutline,
-      trophyOutline,
-      arrowBack,
-    });
-  }
-
   readonly newsService = inject(NewsService);
   private readonly haptics = inject(HapticsService);
 
@@ -228,11 +114,11 @@ export class NewsContentComponent implements OnInit {
   /** Emitted when an article is selected */
   readonly articleSelect = output<NewsArticle>();
 
-  /** Emitted when XP badge is clicked */
-  readonly xpBadgeClick = output<void>();
-
   /** Emitted when user triggers refresh (for parent to handle) */
   readonly refresh = output<void>();
+
+  /** Emitted when "Read Full Story" is clicked (sourceUrl) */
+  readonly readFullStoryClick = output<string>();
 
   // ============================================
   // INTERNAL STATE
@@ -240,12 +126,6 @@ export class NewsContentComponent implements OnInit {
 
   /** Whether showing article detail */
   readonly showDetail = signal(false);
-
-  /** XP earned from current article */
-  readonly currentXpEarned = signal(0);
-
-  /** Related articles for current detail view */
-  readonly relatedArticles = signal<NewsArticle[]>([]);
 
   // ============================================
   // LIFECYCLE
@@ -269,15 +149,6 @@ export class NewsContentComponent implements OnInit {
   }
 
   // ============================================
-  // CATEGORY HANDLING
-  // ============================================
-
-  async onCategoryChange(categoryId: NewsCategoryId): Promise<void> {
-    await this.haptics.impact('light');
-    await this.newsService.setCategory(categoryId);
-  }
-
-  // ============================================
   // ARTICLE INTERACTIONS
   // ============================================
 
@@ -286,20 +157,6 @@ export class NewsContentComponent implements OnInit {
     await this.newsService.selectArticle(article);
     this.showDetail.set(true);
     this.articleSelect.emit(article);
-
-    // Load related articles
-    // In production: this.relatedArticles.set(await this.newsService.getRelated(article.id));
-    this.relatedArticles.set([]);
-  }
-
-  async onBookmarkClick(article: NewsArticle): Promise<void> {
-    await this.haptics.impact('medium');
-    await this.newsService.toggleBookmark(article.id);
-  }
-
-  async onShareClick(article: NewsArticle): Promise<void> {
-    await this.haptics.impact('light');
-    await this.newsService.shareArticle(article);
   }
 
   // ============================================
@@ -310,35 +167,17 @@ export class NewsContentComponent implements OnInit {
     await this.haptics.impact('light');
     this.showDetail.set(false);
     this.newsService.selectArticle(null);
-    this.currentXpEarned.set(0);
-  }
-
-  async onDetailBookmark(): Promise<void> {
-    const article = this.newsService.selectedArticle();
-    if (article) {
-      await this.onBookmarkClick(article);
-    }
   }
 
   async onDetailShare(): Promise<void> {
     const article = this.newsService.selectedArticle();
     if (article) {
-      await this.onShareClick(article);
+      await this.newsService.shareArticle(article);
     }
   }
 
-  onProgressUpdate(progress: number): void {
-    this.newsService.updateReadingProgress(progress);
-
-    // Calculate XP based on progress
-    const article = this.newsService.selectedArticle();
-    if (article && progress >= 100) {
-      this.currentXpEarned.set(article.xpReward);
-    }
-  }
-
-  async onRelatedArticleClick(article: NewsArticle): Promise<void> {
-    await this.onArticleClick(article);
+  onReadFullStory(sourceUrl: string): void {
+    this.readFullStoryClick.emit(sourceUrl);
   }
 
   // ============================================
@@ -351,14 +190,5 @@ export class NewsContentComponent implements OnInit {
 
   async onRetry(): Promise<void> {
     await this.newsService.loadFeed();
-  }
-
-  // ============================================
-  // TOP BAR ACTIONS
-  // ============================================
-
-  async onXpBadgeClick(): Promise<void> {
-    await this.haptics.impact('light');
-    this.xpBadgeClick.emit();
   }
 }

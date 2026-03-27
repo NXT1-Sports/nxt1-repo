@@ -14,9 +14,7 @@ import type { ActivityTab, ActivityTabId, ActivityType, ActivityPriority } from 
 // ============================================
 
 /**
- * Available activity tabs with display configuration.
- * Order determines display order in tab bar.
- * 'All' tab shows combined feed from all categories.
+ * Single alerts tab — the activity page is a unified notifications feed.
  */
 export const ACTIVITY_TABS: readonly ActivityTab[] = [
   {
@@ -24,24 +22,15 @@ export const ACTIVITY_TABS: readonly ActivityTab[] = [
     label: 'Alerts',
     icon: 'heart-outline',
   },
-  {
-    id: 'analytics',
-    label: 'Analytics',
-    icon: 'bar-chart-outline',
-  },
 ] as const;
 
 /**
- * Alerts-only tabs for desktop web.
- * On desktop, analytics has its own dedicated sidebar route.
+ * @deprecated Use ACTIVITY_TABS directly. Kept for backward compatibility.
  */
-export const ACTIVITY_TABS_ALERTS_ONLY: readonly ActivityTab[] = [
-  ACTIVITY_TABS[0], // alerts
-] as const;
+export const ACTIVITY_TABS_ALERTS_ONLY: readonly ActivityTab[] = ACTIVITY_TABS;
 
 /**
- * Default selected tab.
- * 'all' provides the best overview experience on first load.
+ * Default (and only) tab.
  */
 export const ACTIVITY_DEFAULT_TAB: ActivityTabId = 'alerts';
 
@@ -53,13 +42,8 @@ export const ACTIVITY_DEFAULT_TAB: ActivityTabId = 'alerts';
  * Icon mapping for activity types.
  */
 export const ACTIVITY_TYPE_ICONS: Record<ActivityType, string> = {
-  follow: 'user',
   like: 'heart',
-  comment: 'chatBubble',
   mention: 'mail',
-  message: 'messages',
-  offer: 'trophy',
-  deal: 'receipt',
   announcement: 'notifications',
   milestone: 'ribbon',
   reminder: 'time',
@@ -73,13 +57,8 @@ export const ACTIVITY_TYPE_ICONS: Record<ActivityType, string> = {
  * Uses semantic design tokens from @nxt1/design-tokens.
  */
 export const ACTIVITY_TYPE_COLORS: Record<ActivityType, string> = {
-  follow: 'var(--nxt1-color-info)',
   like: 'var(--nxt1-color-error)',
-  comment: 'var(--nxt1-color-primary)',
   mention: 'var(--nxt1-color-warning)',
-  message: 'var(--nxt1-color-primary)',
-  offer: 'var(--nxt1-color-success)',
-  deal: 'var(--nxt1-color-warning)',
   announcement: 'var(--nxt1-color-info)',
   milestone: 'var(--nxt1-color-success)',
   reminder: 'var(--nxt1-color-warning)',
@@ -157,11 +136,6 @@ export const ACTIVITY_EMPTY_STATES: Record<
     title: 'No alerts yet',
     message: 'Agent X updates, follows, and notifications will appear here.',
     icon: 'bell',
-  },
-  analytics: {
-    title: 'No analytics yet',
-    message: 'Your recruiting stats and Agent X performance will appear here.',
-    icon: 'barChart',
   },
 } as const;
 

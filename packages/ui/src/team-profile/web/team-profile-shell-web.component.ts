@@ -39,7 +39,7 @@ import {
 } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';
-// NxtPageHeaderComponent removed — web team profile uses shell top nav on mobile and page header in wide layouts
+// NxtPageHeaderComponent not used — web team profile uses shell top nav on mobile and page header in wide layouts
 import { NxtRefresherComponent, type RefreshEvent } from '../../components/refresh-container';
 import {
   NxtOptionScrollerComponent,
@@ -64,13 +64,8 @@ import { TeamMobileHeroComponent } from './team-mobile-hero.component';
 import { TeamOverviewWebComponent } from './team-overview-web.component';
 import { TeamRosterWebComponent } from './team-roster-web.component';
 import { type ScheduleRow } from '@nxt1/core';
-import { ScheduleBoardComponent } from '../../components/schedule-board';
-import { StatsDashboardComponent } from '../../components/stats-dashboard/stats-dashboard.component';
-import { mapTeamStatsToGameLogs, formatSeasonLabel, buildSeasonRecordMap } from '@nxt1/core';
-import { NewsBoardComponent } from '../../components/news-board/news-board.component';
-import { TeamRecruitingWebComponent } from './team-recruiting-web.component';
+import { mapTeamStatsToGameLogs, buildSeasonRecordMap } from '@nxt1/core';
 import { TeamTimelineWebComponent } from './team-timeline-web.component';
-import { TeamVideosWebComponent } from './team-videos-web.component';
 import { TeamContactWebComponent } from './team-contact-web.component';
 import { ProfileVerificationBannerComponent } from '../../profile/components/profile-verification-banner.component';
 import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component';
@@ -91,12 +86,7 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
     TeamMobileHeroComponent,
     TeamOverviewWebComponent,
     TeamRosterWebComponent,
-    ScheduleBoardComponent,
-    StatsDashboardComponent,
     TeamTimelineWebComponent,
-    TeamVideosWebComponent,
-    NewsBoardComponent,
-    TeamRecruitingWebComponent,
     TeamContactWebComponent,
     ProfileVerificationBannerComponent,
     TeamProfileSkeletonComponent,
@@ -134,7 +124,11 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
               <!-- Desktop Header (extracted component) -->
               @if (teamProfile.team()) {
                 <div class="madden-header-top-pad hidden md:block">
-                  <nxt1-team-page-header (back)="backClick.emit()" />
+                  <nxt1-team-page-header
+                    [isTeamAdmin]="isTeamAdmin()"
+                    (back)="backClick.emit()"
+                    (manageTeam)="manageTeamClick.emit()"
+                  />
                 </div>
               }
 
@@ -150,7 +144,7 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
                 <nxt1-option-scroller
                   [options]="tabOptions()"
                   [selectedId]="teamProfile.activeTab()"
-                  [config]="{ scrollable: true, stretchToFill: false, showDivider: false }"
+                  [config]="{ scrollable: false, stretchToFill: true, showDivider: false }"
                   (selectionChange)="onTabChange($event)"
                 />
               </nav>
@@ -175,11 +169,14 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
                   />
 
                   @switch (teamProfile.activeTab()) {
-                    @case ('overview') {
+                    @case ('intel') {
                       @if (activeSideTab() === 'contact') {
-                        <nxt1-team-contact-web />
+                        <nxt1-team-contact-web (manageTeam)="manageTeamClick.emit()" />
                       } @else {
-                        <nxt1-team-overview-web [activeSideTab]="activeSideTab()" />
+                        <nxt1-team-overview-web
+                          [activeSideTab]="activeSideTab()"
+                          (manageTeam)="manageTeamClick.emit()"
+                        />
                       }
                     }
 
@@ -187,13 +184,7 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
                       <nxt1-team-timeline-web
                         [activeSection]="activeSideTab()"
                         (postClick)="onPostClick($event)"
-                      />
-                    }
-
-                    @case ('videos') {
-                      <nxt1-team-videos-web
-                        [activeSection]="activeSideTab()"
-                        (videoClick)="onPostClick($event)"
+                        (manageTeam)="manageTeamClick.emit()"
                       />
                     }
 
@@ -201,39 +192,12 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
                       <nxt1-team-roster-web
                         [activeSideTab]="activeSideTab()"
                         (memberClick)="onRosterMemberClick($event)"
+                        (manageTeam)="manageTeamClick.emit()"
                       />
                     }
 
-                    @case ('schedule') {
-                      <nxt1-schedule-board
-                        [rows]="teamScheduleRows()"
-                        [emptyMessage]="'Games, practices, and events will appear here.'"
-                      />
-                    }
-
-                    @case ('stats') {
-                      <nxt1-stats-dashboard
-                        [gameLogs]="teamStatsAsGameLogs()"
-                        [entityName]="teamProfile.team()?.teamName ?? 'Team'"
-                        [activeSideTab]="activeSideTab()"
-                        [emptyMessage]="'Team statistics will appear here once games are played.'"
-                      />
-                    }
-
-                    @case ('news') {
-                      <nxt1-news-board
-                        [items]="teamNewsBoardItems()"
-                        [activeSection]="activeSideTab()"
-                        [entityName]="teamProfile.team()?.teamName ?? 'Team'"
-                        (itemClick)="onNewsBoardItemClick($event)"
-                      />
-                    }
-
-                    @case ('recruiting') {
-                      <nxt1-team-recruiting-web
-                        [activeSection]="activeSideTab()"
-                        cardLayout="horizontal"
-                      />
+                    @case ('connect') {
+                      <nxt1-team-contact-web (manageTeam)="manageTeamClick.emit()" />
                     }
                   }
                 </section>
@@ -996,7 +960,7 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
           max-height: none;
           overflow-y: visible;
           overflow-x: hidden;
-          padding: 0 12px 24px;
+          padding: 0 12px 120px;
           align-items: stretch;
           scrollbar-gutter: auto;
           box-sizing: border-box;
@@ -1243,25 +1207,7 @@ export class TeamProfileShellWebComponent implements OnInit {
   /** Empty state for current tab */
   protected readonly emptyState = computed(() => {
     const tab = this.teamProfile.activeTab();
-    return TEAM_PROFILE_EMPTY_STATES[tab] || TEAM_PROFILE_EMPTY_STATES['overview'];
-  });
-
-  /** Stats sidebar items — per-season entries grouped under team name. */
-  private readonly statsSidebarItems = computed((): SectionNavItem[] => {
-    const allStats = this.teamProfile.stats();
-    if (allStats.length === 0) return [{ id: 'all', label: 'All Stats' }];
-
-    const rawSeasons = [...new Set(allStats.map((c) => c.season).filter(Boolean))] as string[];
-    rawSeasons.sort((a, b) => b.localeCompare(a));
-
-    if (rawSeasons.length === 0) return [{ id: 'all', label: 'All Stats' }];
-
-    const seasonItems: SectionNavItem[] = rawSeasons.map((s) => {
-      const label = formatSeasonLabel(s);
-      return { id: `school-season-${label}`, label };
-    });
-
-    return seasonItems;
+    return TEAM_PROFILE_EMPTY_STATES[tab] || TEAM_PROFILE_EMPTY_STATES['intel'];
   });
 
   /** Unique season labels derived from team schedule events (most recent first). */
@@ -1286,12 +1232,11 @@ export class TeamProfileShellWebComponent implements OnInit {
     const tab = this.teamProfile.activeTab();
 
     const sections: Record<string, SectionNavItem[]> = {
-      overview: [
+      intel: [
         { id: 'about', label: 'About' },
         { id: 'staff', label: 'Staff' },
         { id: 'team-history', label: 'Team History' },
         { id: 'sponsors', label: 'Sponsors' },
-        { id: 'contact', label: 'Contact' },
       ],
       timeline: [
         {
@@ -1320,14 +1265,6 @@ export class TeamProfileShellWebComponent implements OnInit {
               ).length || undefined,
         },
       ],
-      videos: [
-        { id: 'highlights', label: 'Highlights' },
-        {
-          id: 'all-videos',
-          label: 'All Videos',
-          badge: this.teamProfile.videoPosts().length || undefined,
-        },
-      ],
       roster: [
         { id: 'all', label: 'All', badge: this.teamProfile.rosterCount() || undefined },
         ...this.teamProfile.rosterClassYears().map((year) => ({
@@ -1335,59 +1272,13 @@ export class TeamProfileShellWebComponent implements OnInit {
           label: `Class of ${year}`,
         })),
       ],
-      schedule: [
-        ...this.scheduleSeasons().map((s) => ({
-          id: `season-${s}`,
-          label: s,
-        })),
-      ],
-      stats: this.statsSidebarItems(),
-      news: [
-        {
-          id: 'all-news',
-          label: 'All News',
-          badge: this.teamNewsBoardItems().length || undefined,
-        },
-        {
-          id: 'announcements',
-          label: 'Announcements',
-          badge:
-            this.teamNewsBoardItems().filter((i) => (i.category as string) === 'announcement')
-              .length || undefined,
-        },
-        {
-          id: 'media-mentions',
-          label: 'Media Mentions',
-          badge:
-            this.teamNewsBoardItems().filter((i) => (i.category as string) === 'media-mention')
-              .length || undefined,
-        },
-      ],
-      recruiting: [
-        {
-          id: 'timeline',
-          label: 'Timeline',
-          badge: this.teamProfile.recruitingActivity().length || undefined,
-        },
-        {
-          id: 'commitments',
-          label: 'Commitments',
-          badge:
-            this.teamProfile
-              .recruitingActivity()
-              .filter((a) => a.category === 'commitment-received').length || undefined,
-        },
-        {
-          id: 'offers',
-          label: 'Offers',
-          badge:
-            this.teamProfile.recruitingActivity().filter((a) => a.category === 'offer-sent')
-              .length || undefined,
-        },
+      connect: [
+        { id: 'contact', label: 'Contact' },
+        { id: 'social', label: 'Social Media' },
       ],
     };
 
-    return sections[tab] ?? sections['overview'];
+    return sections[tab] ?? sections['intel'];
   });
 
   /** Active side tab */
@@ -1471,6 +1362,7 @@ export class TeamProfileShellWebComponent implements OnInit {
     const isAdmin = this.isTeamAdmin();
     const actions: BottomSheetAction[] = isAdmin
       ? [
+          { label: 'Manage Team', role: 'secondary', icon: 'settings' },
           { label: 'Share Team', role: 'secondary', icon: 'share' },
           { label: 'QR Code', role: 'secondary', icon: 'qrCode' },
           { label: 'Copy Link', role: 'secondary', icon: 'link' },
@@ -1492,6 +1384,9 @@ export class TeamProfileShellWebComponent implements OnInit {
     if (!selected) return;
 
     switch (selected.label) {
+      case 'Manage Team':
+        this.manageTeamClick.emit();
+        break;
       case 'Share Team':
         this.shareClick.emit();
         break;

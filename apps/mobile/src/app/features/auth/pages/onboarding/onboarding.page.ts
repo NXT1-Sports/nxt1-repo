@@ -100,6 +100,7 @@ import {
   createEmptySportEntry,
 } from '@nxt1/core/api';
 import { AUTH_ROUTES, USER_ROLES } from '@nxt1/core/constants';
+import { normalizeName } from '@nxt1/core/helpers';
 import { STORAGE_KEYS } from '@nxt1/core/storage';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { createNativeStorageAdapter } from '../../../../core/infrastructure/native-storage.adapter';
@@ -1566,8 +1567,8 @@ export class OnboardingPage implements OnInit, OnDestroy {
 
       const profileData: OnboardingProfileData = {
         userType,
-        firstName: formData.profile?.firstName || '',
-        lastName: formData.profile?.lastName || '',
+        firstName: normalizeName(formData.profile?.firstName || ''),
+        lastName: normalizeName(formData.profile?.lastName || ''),
         profileImg: formData.profile?.profileImgs?.[0] || undefined,
         profileImgs: formData.profile?.profileImgs || undefined,
         bio: formData.profile?.bio,

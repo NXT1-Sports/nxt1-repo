@@ -65,6 +65,8 @@ const walletCacheKey = (userId: string): string => `billing:wallet:${userId}`;
  *   quantity: number
  *   jobId?: string (for idempotency)
  *   metadata?: object
+ *   dynamicCostCents?: number  (pre-calculated cost from resolveAICost)
+ *   rawProviderCostUsd?: number (raw OpenRouter cost for audit trail)
  * }
  */
 router.post(
@@ -73,7 +75,7 @@ router.post(
   validateBody(CreateUsageEventDto),
   async (req: Request, res: Response) => {
     try {
-      const { feature, quantity, jobId, metadata } = req.body;
+      const { feature, quantity, jobId, metadata, dynamicCostCents, rawProviderCostUsd } = req.body;
 
       // User is guaranteed by appGuard
       const userId = req.user!.uid;
@@ -88,8 +90,14 @@ router.post(
         throw new Error('Firebase context not available');
       }
 
+      // ── Determine cost ─────────────────────────────────────
+      // Dynamic cost (from resolveAICost) takes precedence over static lookup
+      const isDynamic = typeof dynamicCostCents === 'number' && dynamicCostCents > 0;
+      const costCents = isDynamic
+        ? dynamicCostCents * Number(quantity)
+        : getUnitCost(feature as UsageFeature) * Number(quantity);
+
       // ── Budget gate ─────────────────────────────────────────
-      const costCents = getUnitCost(feature as UsageFeature) * Number(quantity);
       const budgetResult = await checkBudget(db, userId, costCents, teamId);
 
       if (!budgetResult.allowed) {
@@ -114,6 +122,12 @@ router.post(
         stripePriceId: '', // Will be set by service
         jobId,
         metadata,
+        ...(isDynamic
+          ? {
+              dynamicCostCents: dynamicCostCents as number,
+              ...(typeof rawProviderCostUsd === 'number' ? { rawProviderCostUsd } : {}),
+            }
+          : {}),
       };
 
       const eventId = await recordUsageEvent(db, input, environment);

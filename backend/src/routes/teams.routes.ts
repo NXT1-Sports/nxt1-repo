@@ -31,7 +31,7 @@ import {
   type MapTeamProfileOptions,
 } from '../services/team-profile-mapper.service.js';
 import { logger } from '../utils/logger.js';
-import { dispatch, sendFollowNotification } from '../services/notification.service.js';
+import { dispatch } from '../services/notification.service.js';
 import { getUserById } from '../services/users.service.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
 import { performanceMiddleware, testPerformance } from '../middleware/performance.middleware.js';
@@ -845,46 +845,6 @@ router.post(
     logger.info('[Teams API] Team followed', { userId, teamId, isNewFollow });
 
     sendSuccess(res, { isFollowing: true });
-
-    // Fire-and-forget: notify team admins after response is sent
-    if (isNewFollow) {
-      void (async () => {
-        const [follower, teamDoc] = await Promise.all([
-          getUserById(userId, db),
-          db.collection(TEAMS_COLLECTION).doc(teamId).get(),
-        ]);
-
-        const followerName =
-          ((follower?.['firstName'] as string | undefined) ?? '').trim() ||
-          (follower?.['displayName'] as string | undefined) ||
-          'Someone';
-        const teamData = teamDoc.data();
-        const teamName = (teamData?.['teamName'] as string | undefined) ?? 'your team';
-        const adminIds: string[] = Array.isArray(teamData?.['adminIds'])
-          ? (teamData!['adminIds'] as string[])
-          : teamData?.['createdBy']
-            ? [teamData['createdBy'] as string]
-            : [];
-
-        // Exclude the follower from admin notifications (edge case: admin follows own team)
-        const recipientAdminIds = adminIds.filter((id) => id !== userId);
-
-        await sendFollowNotification(db, {
-          targetType: 'team',
-          followerUserId: userId,
-          followerName,
-          followerAvatarUrl: (follower?.['profilePictureUrl'] as string | undefined) ?? undefined,
-          teamId,
-          teamName,
-          adminIds: recipientAdminIds,
-        });
-      })().catch((err) =>
-        logger.error('[Teams API] Failed to dispatch team_new_follower notification', {
-          error: err,
-          teamId,
-        })
-      );
-    }
   })
 );
 

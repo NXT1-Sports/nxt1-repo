@@ -1,12 +1,13 @@
 /**
  * @fileoverview Manage Team Shell Component
  * @module @nxt1/ui/manage-team
- * @version 1.0.0
  *
- * Main container component for team management.
- * Can be placed as a page, in a modal, or bottom sheet.
+ * Matches Edit Profile's design system 1:1:
+ *   NxtListSectionComponent + NxtListRowComponent for iOS-style grouped lists,
+ *   plain scrollable div body, optional 2-column web layout via webLayout input.
  *
- * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
+ * No inline expanded sub-forms — tapping a row emits sectionAction for the
+ * parent or caller to open the appropriate edit sheet/modal.
  */
 
 import {
@@ -18,53 +19,15 @@ import {
   inject,
   OnInit,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import {
-  IonContent,
-  IonIcon,
-  IonRippleEffect,
-  IonSpinner,
-  IonHeader,
-  IonToolbar,
-  IonTitle,
-  IonButtons,
-  IonButton,
-} from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  closeOutline,
-  checkmarkOutline,
-  informationCircleOutline,
-  peopleOutline,
-  calendarOutline,
-  statsChartOutline,
-  personOutline,
-  ribbonOutline,
-  linkOutline,
-  chevronForwardOutline,
-  alertCircleOutline,
-} from 'ionicons/icons';
-import type {
-  ManageTeamSectionId,
-  ManageTeamFormData,
-  ManageTeamTabId,
-  RosterPlayer,
-  TeamScheduleEvent,
-  StaffMember,
-  TeamSponsor,
-} from '@nxt1/core';
-import { MANAGE_TEAM_TABS, getAllManageTeamSections } from '@nxt1/core';
+import { IonSpinner } from '@ionic/angular/standalone';
+import type { ManageTeamSectionId, ManageTeamFormData } from '@nxt1/core';
 import { ManageTeamService } from './manage-team.service';
 import { ManageTeamSkeletonComponent } from './manage-team-skeleton.component';
-import { InviteBottomSheetService } from '../invite/invite-bottom-sheet.service';
-import {
-  ManageTeamInfoSectionComponent,
-  ManageTeamRosterSectionComponent,
-  ManageTeamScheduleSectionComponent,
-  ManageTeamStatsSectionComponent,
-  ManageTeamStaffSectionComponent,
-  ManageTeamSponsorsSectionComponent,
-} from './sections';
+import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
+import { NxtIconComponent } from '../components/icon';
+import { NxtListSectionComponent } from '../components/list-section';
+import { NxtListRowComponent } from '../components/list-row';
+import { NxtMediaGalleryComponent } from '../components/media-gallery';
 
 /** Event emitted when shell requests close */
 export interface ManageTeamCloseEvent {
@@ -76,568 +39,361 @@ export interface ManageTeamCloseEvent {
   selector: 'nxt1-manage-team-shell',
   standalone: true,
   imports: [
-    CommonModule,
-    IonContent,
-    IonIcon,
-    IonRippleEffect,
     IonSpinner,
-    IonHeader,
-    IonToolbar,
-    IonTitle,
-    IonButtons,
-    IonButton,
     ManageTeamSkeletonComponent,
-    ManageTeamInfoSectionComponent,
-    ManageTeamRosterSectionComponent,
-    ManageTeamScheduleSectionComponent,
-    ManageTeamStatsSectionComponent,
-    ManageTeamStaffSectionComponent,
-    ManageTeamSponsorsSectionComponent,
+    NxtSheetHeaderComponent,
+    NxtIconComponent,
+    NxtListSectionComponent,
+    NxtListRowComponent,
+    NxtMediaGalleryComponent,
   ],
   template: `
     <!-- Header (suppressed when headless — web modal provides its own) -->
     @if (showHeader() && !headless()) {
-      <ion-header class="ion-no-border shell-header">
-        <ion-toolbar>
-          <ion-title>{{ title() }}</ion-title>
-          <ion-buttons slot="start">
-            <ion-button (click)="onClose(false)">
-              <ion-icon slot="icon-only" name="close-outline"></ion-icon>
-            </ion-button>
-          </ion-buttons>
-          <ion-buttons slot="end">
-            <ion-button
-              [disabled]="service.isSaving()"
-              (click)="onSave()"
-              color="primary"
-              fill="solid"
-              shape="round"
-            >
-              @if (service.isSaving()) {
-                <ion-spinner name="crescent" slot="start"></ion-spinner>
-              } @else {
-                <ion-icon slot="start" name="checkmark-outline"></ion-icon>
-              }
-              Save
-            </ion-button>
-          </ion-buttons>
-        </ion-toolbar>
-      </ion-header>
+      @if (!isModalMode()) {
+        <header class="nxt1-mt-header">
+          <button type="button" class="nxt1-header-btn" (click)="onClose(false)" aria-label="Close">
+            <nxt1-icon name="close" [size]="18" />
+          </button>
+          <h1 class="nxt1-header-title">{{ title() }}</h1>
+          <button
+            type="button"
+            class="nxt1-header-btn nxt1-header-save"
+            [class.nxt1-header-save--active]="service.hasUnsavedChanges()"
+            [disabled]="service.isSaving()"
+            (click)="onSave()"
+            aria-label="Save changes"
+          >
+            @if (service.isSaving()) {
+              <ion-spinner name="crescent" />
+            } @else {
+              <span>{{ service.hasUnsavedChanges() ? 'Save' : 'Done' }}</span>
+            }
+          </button>
+        </header>
+      } @else {
+        <nxt1-sheet-header
+          [title]="title()"
+          [showClose]="false"
+          [showBorder]="true"
+          (closeSheet)="onClose(false)"
+        >
+          <button
+            sheetHeaderAction
+            type="button"
+            class="nxt1-header-btn nxt1-header-save"
+            [class.nxt1-header-save--active]="service.hasUnsavedChanges()"
+            [disabled]="service.isSaving()"
+            (click)="onSave()"
+            aria-label="Save changes"
+          >
+            @if (service.isSaving()) {
+              <ion-spinner name="crescent" />
+            } @else {
+              <span>{{ service.hasUnsavedChanges() ? 'Save' : 'Done' }}</span>
+            }
+          </button>
+        </nxt1-sheet-header>
+      }
     }
 
-    <ion-content class="shell-content" [scrollY]="true">
-      <div class="shell-container" [class.shell-container--compact]="mode() === 'compact'">
-        <!-- Loading State -->
-        @if (service.isLoading()) {
-          <nxt1-manage-team-skeleton />
-        } @else {
-          <!-- Tab Navigation -->
-          @if (showTabs()) {
-            <div class="tab-navigation">
-              @for (tab of tabs; track tab.id) {
-                <button
-                  type="button"
-                  class="tab-btn"
-                  [class.tab-btn--active]="service.activeTab() === tab.id"
-                  (click)="service.setActiveTab(tab.id)"
-                >
-                  <ion-ripple-effect></ion-ripple-effect>
-                  <ion-icon [name]="tab.icon"></ion-icon>
-                  <span>{{ tab.label }}</span>
-                  @if (getTabBadgeCount(tab.id) > 0) {
-                    <span class="tab-badge">{{ getTabBadgeCount(tab.id) }}</span>
-                  }
-                </button>
-              }
-            </div>
-          }
-
-          <!-- Completion Progress -->
-          @if (showProgress() && service.completion()) {
-            <div class="completion-progress">
-              <div class="progress-header">
-                <span class="progress-label">Profile Completion</span>
-                <span class="progress-value">{{ service.completion()?.percentage ?? 0 }}%</span>
-              </div>
-              <div class="progress-bar">
-                <div
-                  class="progress-fill"
-                  [style.width.%]="service.completion()?.percentage ?? 0"
-                ></div>
-              </div>
-            </div>
-          }
-
-          <!-- Section Accordion -->
-          <div class="sections-container">
-            @for (section of visibleSections(); track section.id) {
-              <div
-                class="section-card"
-                [class.section-card--expanded]="service.expandedSection() === section.id"
-              >
-                <!-- Section Header -->
-                <button
-                  type="button"
-                  class="section-header"
-                  (click)="service.toggleSection(section.id)"
-                >
-                  <ion-ripple-effect></ion-ripple-effect>
-
-                  <div class="section-icon" [style.background]="getSectionColor(section.id)">
-                    <ion-icon [name]="section.icon"></ion-icon>
-                  </div>
-
-                  <div class="section-info">
-                    <h3 class="section-title">{{ section.title }}</h3>
-                    <span class="section-description">{{ section.description }}</span>
-                  </div>
-
-                  <div class="section-status">
-                    @if (getSectionStatus(section.id) === 'complete') {
-                      <ion-icon name="checkmark-outline" class="status-complete"></ion-icon>
-                    } @else if (getSectionStatus(section.id) === 'incomplete') {
-                      <ion-icon name="alert-circle-outline" class="status-incomplete"></ion-icon>
-                    }
-                    <ion-icon name="chevron-forward-outline" class="chevron"></ion-icon>
-                  </div>
-                </button>
-
-                <!-- Section Content -->
-                @if (service.expandedSection() === section.id) {
-                  <div class="section-content">
-                    @switch (section.id) {
-                      @case ('team-info') {
-                        <nxt1-manage-team-info-section (logoUpload)="onLogoUpload()" />
-                      }
-                      @case ('roster') {
-                        <nxt1-manage-team-roster-section
-                          [players]="service.roster()"
-                          (action)="onRosterAction($event)"
-                        />
-                      }
-                      @case ('schedule') {
-                        <nxt1-manage-team-schedule-section
-                          [events]="service.schedule()"
-                          (action)="onScheduleAction($event)"
-                        />
-                      }
-                      @case ('stats') {
-                        <nxt1-manage-team-stats-section
-                          [stats]="getTeamStats()"
-                          [statsIntegration]="getStatsIntegration()"
-                          (action)="onStatsAction($event)"
-                        />
-                      }
-                      @case ('staff') {
-                        <nxt1-manage-team-staff-section
-                          [staff]="service.staff()"
-                          (action)="onStaffAction($event)"
-                        />
-                      }
-                      @case ('sponsors') {
-                        <nxt1-manage-team-sponsors-section
-                          [sponsors]="service.sponsors()"
-                          (action)="onSponsorAction($event)"
-                        />
-                      }
-                    }
-                  </div>
-                }
-              </div>
-            }
+    <!-- Scrollable content area — plain div, safe inside NxtOverlayService -->
+    <div class="nxt1-mt-content">
+      @if (service.isLoading()) {
+        <nxt1-manage-team-skeleton />
+      } @else if (service.error()) {
+        <div class="nxt1-error-state">
+          <div class="nxt1-error-icon">
+            <nxt1-icon name="alertCircle" [size]="20" />
           </div>
+          <p class="nxt1-error-text">{{ service.error() }}</p>
+          <button type="button" class="nxt1-retry-btn" (click)="retryLoad()">Try Again</button>
+        </div>
+      } @else {
+        <div class="nxt1-mt-body">
+          <!-- Images (Media Gallery) -->
+          <nxt1-media-gallery
+            [images]="teamImages()"
+            [maxImages]="6"
+            (add)="emitAction('images', 'add')"
+            (remove)="onRemoveImage($event)"
+          />
 
-          <!-- Actions Footer (suppressed when headless — web modal provides its own save button) -->
-          @if (showFooter() && !headless()) {
-            <div class="actions-footer">
-              @if (mode() !== 'inline') {
-                <button type="button" class="cancel-btn" (click)="onClose(false)">
-                  <ion-ripple-effect></ion-ripple-effect>
-                  Cancel
-                </button>
-              }
-              <button
-                type="button"
-                class="save-btn"
-                [disabled]="service.isSaving()"
-                (click)="onSave()"
-              >
-                <ion-ripple-effect></ion-ripple-effect>
-                @if (service.isSaving()) {
-                  <ion-spinner name="crescent"></ion-spinner>
-                } @else {
-                  <ion-icon name="checkmark-outline"></ion-icon>
-                }
-                <span>Save Changes</span>
-              </button>
+          <!-- Connected team accounts -->
+          <nxt1-list-section header="Connected accounts">
+            <nxt1-list-row label="Accounts" (tap)="emitAction('accounts', 'manage')">
+              <span class="nxt1-list-value nxt1-list-placeholder">Connect accounts</span>
+            </nxt1-list-row>
+          </nxt1-list-section>
+
+          <!-- Two-column layout: About Info (left) | Staff + Contact + Roster + Stats (right) -->
+          <div class="nxt1-mt-sections" [class.nxt1-mt-two-col]="webLayout()">
+            <!-- About Info -->
+            <nxt1-list-section header="About Info">
+              <nxt1-list-row label="Title" (tap)="emitAction('about', 'editTitle')">
+                <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!teamName()">
+                  {{ teamName() || 'Add team name' }}
+                </span>
+              </nxt1-list-row>
+              <nxt1-list-row label="Mascot" (tap)="emitAction('about', 'editMascot')">
+                <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!mascot()">
+                  {{ mascot() || 'Add mascot' }}
+                </span>
+              </nxt1-list-row>
+              <nxt1-list-row label="Location" (tap)="emitAction('about', 'editLocation')">
+                <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!locationSummary()">
+                  {{ locationSummary() || 'Add location' }}
+                </span>
+              </nxt1-list-row>
+            </nxt1-list-section>
+
+            <!-- RIGHT column stacks -->
+            <div class="nxt1-mt-sections" [class.nxt1-mt-right-col]="webLayout()">
+              <!-- Roster & Staff -->
+              <nxt1-list-section header="Roster & Staff">
+                <nxt1-list-row label="Players" (tap)="emitAction('roster', 'invite')">
+                  <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!rosterSummary()">
+                    {{ rosterSummary() || 'Invite team' }}
+                  </span>
+                </nxt1-list-row>
+                <nxt1-list-row label="Staff" (tap)="emitAction('staff', 'manage')">
+                  <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!staffSummary()">
+                    {{ staffSummary() || 'Add staff' }}
+                  </span>
+                </nxt1-list-row>
+              </nxt1-list-section>
+
+              <!-- Contact Info -->
+              <nxt1-list-section header="Contact info">
+                <nxt1-list-row label="Email" (tap)="emitAction('contact', 'editEmail')">
+                  <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!emailSummary()">
+                    {{ emailSummary() || 'Add email' }}
+                  </span>
+                </nxt1-list-row>
+                <nxt1-list-row label="Phone" (tap)="emitAction('contact', 'editPhone')">
+                  <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!phoneSummary()">
+                    {{ phoneSummary() || 'Add phone number' }}
+                  </span>
+                </nxt1-list-row>
+              </nxt1-list-section>
+
+              <!-- Stats -->
+              <nxt1-list-section header="Stats">
+                <nxt1-list-row label="Record" (tap)="emitAction('stats', 'edit')">
+                  <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!statsSummary()">
+                    {{ statsSummary() || 'Add record' }}
+                  </span>
+                </nxt1-list-row>
+              </nxt1-list-section>
             </div>
-          }
-        }
-      </div>
-    </ion-content>
+          </div>
+        </div>
+      }
+    </div>
   `,
   styles: [
     `
       /* ============================================
-       MANAGE TEAM SHELL - 2026 Design Tokens
-       ============================================ */
+         MANAGE TEAM SHELL — Shared Design System
+         Token-for-token match with Edit Profile shell.
+         ============================================ */
 
       :host {
         display: flex;
         flex-direction: column;
         height: 100%;
-        background: var(--nxt1-color-background);
-      }
-
-      /* ============================================
-         HEADER
-         ============================================ */
-
-      .shell-header {
-        ion-toolbar {
-          --background: var(--nxt1-color-surface-100);
-          --border-color: var(--nxt1-color-border-subtle);
-          --padding-start: var(--nxt1-spacing-4);
-          --padding-end: var(--nxt1-spacing-4);
-        }
-
-        ion-title {
-          font-family: var(--nxt1-fontFamily-brand);
-          font-size: var(--nxt1-fontSize-lg);
-          font-weight: 600;
-        }
-
-        ion-button[fill='solid'] {
-          --background: var(--nxt1-color-secondary);
-          --background-hover: var(--nxt1-color-secondaryLight);
-          --border-radius: var(--nxt1-radius-full);
-          font-family: var(--nxt1-fontFamily-brand);
-          font-weight: 600;
-        }
-      }
-
-      /* ============================================
-         CONTENT
-         ============================================ */
-
-      .shell-content {
-        --background: var(--nxt1-color-background);
-      }
-
-      .shell-container {
-        padding: var(--nxt1-spacing-4);
-        max-width: 800px;
-        margin: 0 auto;
-      }
-
-      .shell-container--compact {
-        padding: var(--nxt1-spacing-3);
-      }
-
-      /* ============================================
-         TAB NAVIGATION
-         ============================================ */
-
-      .tab-navigation {
-        display: flex;
-        gap: var(--nxt1-spacing-2);
-        padding: var(--nxt1-spacing-2);
-        background: var(--nxt1-color-surface-100);
-        border-radius: var(--nxt1-radius-xl);
-        margin-bottom: var(--nxt1-spacing-4);
-        overflow-x: auto;
-        scrollbar-width: none;
-
-        &::-webkit-scrollbar {
-          display: none;
-        }
-      }
-
-      .tab-btn {
-        position: relative;
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-2);
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
-        background: transparent;
-        border: none;
-        border-radius: var(--nxt1-radius-lg);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: 500;
-        color: var(--nxt1-color-text-secondary);
-        cursor: pointer;
         overflow: hidden;
-        transition: all var(--nxt1-transition-fast);
-        white-space: nowrap;
-
-        ion-icon {
-          font-size: 18px;
-        }
-
-        &:hover,
-        &:focus-visible {
-          background: var(--nxt1-color-surface-200);
-          color: var(--nxt1-color-text-primary);
-        }
-
-        &.tab-btn--active {
-          background: var(--nxt1-color-primary);
-          color: var(--nxt1-color-text-onPrimary);
-
-          &:hover,
-          &:focus-visible {
-            background: var(--nxt1-color-primaryDark);
-            color: var(--nxt1-color-text-onPrimary);
-          }
-        }
-
-        .tab-badge {
-          background: var(--nxt1-color-surface-300);
-          padding: 2px 6px;
-          border-radius: var(--nxt1-radius-full);
-          font-size: var(--nxt1-fontSize-xs);
-          font-weight: 600;
-        }
-
-        &.tab-btn--active .tab-badge {
-          background: rgba(255, 255, 255, 0.2);
-        }
+        background: var(--nxt1-color-bg-primary);
+        color: var(--nxt1-color-text-primary);
       }
 
       /* ============================================
-         COMPLETION PROGRESS
+         HEADER (standalone page mode)
          ============================================ */
-
-      .completion-progress {
-        background: var(--nxt1-color-surface-100);
-        border-radius: var(--nxt1-radius-xl);
-        padding: var(--nxt1-spacing-4);
-        margin-bottom: var(--nxt1-spacing-4);
-      }
-
-      .progress-header {
-        display: flex;
+      .nxt1-mt-header {
+        display: grid;
+        grid-template-columns: var(--nxt1-spacing-10) 1fr auto;
         align-items: center;
-        justify-content: space-between;
-        margin-bottom: var(--nxt1-spacing-2);
+        gap: var(--nxt1-spacing-3);
+        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
+        border-bottom: 1px solid var(--nxt1-color-border-subtle);
+        background: var(--nxt1-color-surface-100);
       }
 
-      .progress-label {
+      .nxt1-header-title {
+        margin: 0;
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: 500;
+        font-size: var(--nxt1-fontSize-md);
+        font-weight: var(--nxt1-fontWeight-bold);
+        letter-spacing: var(--nxt1-letterSpacing-tight);
+        text-align: center;
+        color: var(--nxt1-color-text-primary);
+      }
+
+      /* ============================================
+         HEADER BUTTONS
+         ============================================ */
+      .nxt1-header-btn {
+        appearance: none;
+        -webkit-appearance: none;
+        border: none;
+        background: none;
+        padding: 0;
+        font: inherit;
         color: var(--nxt1-color-text-secondary);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: var(--nxt1-spacing-9);
+        border-radius: var(--nxt1-borderRadius-lg);
+        cursor: pointer;
+        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
+        -webkit-tap-highlight-color: transparent;
       }
 
-      .progress-value {
+      .nxt1-header-btn:active {
+        transform: scale(0.97);
+      }
+
+      .nxt1-header-save {
+        padding: 0 var(--nxt1-spacing-3);
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-sm);
-        font-weight: 700;
+        font-weight: var(--nxt1-fontWeight-bold);
+      }
+
+      .nxt1-header-save--active {
         color: var(--nxt1-color-primary);
       }
 
-      .progress-bar {
-        height: 8px;
-        background: var(--nxt1-color-surface-200);
-        border-radius: var(--nxt1-radius-full);
-        overflow: hidden;
+      .nxt1-header-save:disabled {
+        opacity: 0.5;
+        cursor: default;
       }
 
-      .progress-fill {
-        height: 100%;
-        background: linear-gradient(
-          90deg,
-          var(--nxt1-color-primary) 0%,
-          var(--nxt1-color-secondary) 100%
-        );
-        border-radius: var(--nxt1-radius-full);
-        transition: width var(--nxt1-transition-medium);
+      .nxt1-header-save ion-spinner {
+        width: var(--nxt1-spacing-4);
+        height: var(--nxt1-spacing-4);
+        --color: currentColor;
       }
 
       /* ============================================
-         SECTIONS
+         CONTENT AREA
          ============================================ */
+      .nxt1-mt-content {
+        flex: 1;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
 
-      .sections-container {
+      .nxt1-mt-body {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-3);
+        gap: var(--nxt1-spacing-5);
+        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-4)
+          calc(var(--nxt1-spacing-8) + env(safe-area-inset-bottom, 0px));
       }
 
-      .section-card {
-        background: var(--nxt1-color-surface-100);
-        border-radius: var(--nxt1-radius-xl);
-        border: 1px solid var(--nxt1-color-border-subtle);
+      /* ============================================
+         LIST ROW VALUES
+         ============================================ */
+      .nxt1-list-value {
+        font-size: var(--nxt1-fontSize-base);
+        font-weight: var(--nxt1-fontWeight-regular);
+        color: var(--nxt1-color-text-secondary);
         overflow: hidden;
-        transition: all var(--nxt1-transition-fast);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: right;
       }
 
-      .section-card--expanded {
-        border-color: var(--nxt1-color-primary);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      .nxt1-list-placeholder {
+        color: var(--nxt1-color-text-tertiary);
       }
 
-      .section-header {
-        position: relative;
+      /* ============================================
+         ERROR STATE
+         ============================================ */
+      .nxt1-error-state {
         display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-3);
-        width: 100%;
-        padding: var(--nxt1-spacing-4);
-        background: transparent;
-        border: none;
-        cursor: pointer;
-        overflow: hidden;
-        text-align: left;
-      }
-
-      .section-icon {
-        display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
-        width: 44px;
-        height: 44px;
-        border-radius: var(--nxt1-radius-lg);
-        flex-shrink: 0;
-
-        ion-icon {
-          font-size: 22px;
-          color: var(--nxt1-color-text-onPrimary);
-        }
+        gap: var(--nxt1-spacing-3);
+        min-height: var(--nxt1-spacing-60);
+        padding: var(--nxt1-spacing-6);
+        text-align: center;
       }
 
-      .section-info {
-        flex: 1;
-        min-width: 0;
-      }
-
-      .section-title {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
-        font-weight: 600;
-        color: var(--nxt1-color-text-primary);
-        margin: 0 0 2px;
-      }
-
-      .section-description {
-        font-size: var(--nxt1-fontSize-sm);
+      .nxt1-error-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: var(--nxt1-spacing-10);
+        height: var(--nxt1-spacing-10);
+        border-radius: var(--nxt1-borderRadius-full);
+        background: var(--nxt1-color-surface-200);
         color: var(--nxt1-color-text-secondary);
       }
 
-      .section-status {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-2);
-
-        .status-complete {
-          font-size: 20px;
-          color: var(--nxt1-color-success);
-        }
-
-        .status-incomplete {
-          font-size: 20px;
-          color: var(--nxt1-color-warning);
-        }
-
-        .chevron {
-          font-size: 20px;
-          color: var(--nxt1-color-text-tertiary);
-          transition: transform var(--nxt1-transition-fast);
-        }
+      .nxt1-error-text {
+        margin: 0;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        color: var(--nxt1-color-text-secondary);
+        line-height: var(--nxt1-lineHeight-normal);
       }
 
-      .section-card--expanded .chevron {
-        transform: rotate(90deg);
+      .nxt1-retry-btn {
+        appearance: none;
+        -webkit-appearance: none;
+        border: 1px solid var(--nxt1-color-border-default);
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-text-secondary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4);
+        border-radius: var(--nxt1-borderRadius-full);
+        cursor: pointer;
+        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
+        -webkit-tap-highlight-color: transparent;
       }
 
-      .section-content {
-        padding: 0 var(--nxt1-spacing-4) var(--nxt1-spacing-4);
-        border-top: 1px solid var(--nxt1-color-border-subtle);
-        animation: slideDown var(--nxt1-transition-fast) ease-out;
-      }
-
-      @keyframes slideDown {
-        from {
-          opacity: 0;
-          transform: translateY(-10px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
+      .nxt1-retry-btn:hover {
+        border-color: var(--nxt1-color-border-strong);
+        background: var(--nxt1-color-surface-200);
+        color: var(--nxt1-color-text-primary);
       }
 
       /* ============================================
-         ACTIONS FOOTER
+         SECTION LAYOUT (mobile: stacked; web: 2-col)
          ============================================ */
-
-      .actions-footer {
+      .nxt1-mt-sections {
         display: flex;
-        gap: var(--nxt1-spacing-3);
-        padding: var(--nxt1-spacing-4);
-        background: var(--nxt1-color-surface-100);
-        border-radius: var(--nxt1-radius-xl);
-        margin-top: var(--nxt1-spacing-4);
+        flex-direction: column;
+        gap: var(--nxt1-spacing-5);
       }
 
-      .cancel-btn {
-        position: relative;
-        flex: 1;
-        padding: var(--nxt1-spacing-4);
-        background: var(--nxt1-color-surface-200);
-        color: var(--nxt1-color-text-primary);
-        border: none;
-        border-radius: var(--nxt1-radius-lg);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
-        font-weight: 600;
-        cursor: pointer;
-        overflow: hidden;
-        transition: all var(--nxt1-transition-fast);
-
-        &:hover,
-        &:focus-visible {
-          background: var(--nxt1-color-surface-300);
-        }
+      .nxt1-mt-two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--nxt1-spacing-5);
+        align-items: start;
       }
 
-      .save-btn {
-        position: relative;
-        flex: 2;
+      .nxt1-mt-right-col {
         display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: var(--nxt1-spacing-2);
-        padding: var(--nxt1-spacing-4);
-        background: var(--nxt1-color-secondary);
-        color: var(--nxt1-color-text-onPrimary);
-        border: none;
-        border-radius: var(--nxt1-radius-lg);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
-        font-weight: 600;
-        cursor: pointer;
-        overflow: hidden;
-        transition: all var(--nxt1-transition-fast);
+        flex-direction: column;
+        gap: var(--nxt1-spacing-4);
+      }
 
-        ion-icon,
-        ion-spinner {
-          font-size: 20px;
-        }
-
-        &:hover:not(:disabled),
-        &:focus-visible:not(:disabled) {
-          background: var(--nxt1-color-secondaryLight);
-        }
-
-        &:disabled {
-          opacity: 0.7;
-          cursor: not-allowed;
-        }
-
-        &:active:not(:disabled) {
-          transform: scale(0.98);
+      /* ============================================
+         REDUCED MOTION
+         ============================================ */
+      @media (prefers-reduced-motion: reduce) {
+        .nxt1-header-btn {
+          transition: none;
         }
       }
     `,
@@ -645,34 +401,30 @@ export interface ManageTeamCloseEvent {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ManageTeamShellComponent implements OnInit {
-  constructor() {
-    addIcons({
-      closeOutline,
-      checkmarkOutline,
-      informationCircleOutline,
-      peopleOutline,
-      calendarOutline,
-      statsChartOutline,
-      personOutline,
-      ribbonOutline,
-      linkOutline,
-      chevronForwardOutline,
-      alertCircleOutline,
-    });
-  }
-
   readonly service = inject(ManageTeamService);
-  private readonly inviteSheet = inject(InviteBottomSheetService);
+
+  // ─── Inputs ────────────────────────────────────────────────────────────────
 
   /** Team ID to manage (null for new team) */
   readonly teamId = input<string | null>(null);
 
   /**
-   * When headless=true, the shell is hosted by the web overlay wrapper
-   * (ManageTeamWebModalComponent). The built-in ion-header and footer
-   * are suppressed — the wrapper provides its own modal chrome.
+   * When headless=true, the shell renders no header.
+   * The parent (ManageTeamWebModalComponent) provides its own header chrome.
    */
   readonly headless = input(false);
+
+  /**
+   * When true, renders sections in a 2-column grid layout.
+   * Intended for wide web modals where horizontal space is available.
+   */
+  readonly webLayout = input(false);
+
+  /**
+   * When true, renders a NxtSheetHeader instead of the standalone page header.
+   * Used by bottom sheet overlays on mobile.
+   */
+  readonly isModalMode = input(false);
 
   /** Display mode */
   readonly mode = input<'full' | 'compact' | 'inline'>('full');
@@ -683,14 +435,7 @@ export class ManageTeamShellComponent implements OnInit {
   /** Show header */
   readonly showHeader = input(true);
 
-  /** Show tab navigation */
-  readonly showTabs = input(true);
-
-  /** Show progress bar */
-  readonly showProgress = input(true);
-
-  /** Show footer actions */
-  readonly showFooter = input(true);
+  // ─── Outputs ───────────────────────────────────────────────────────────────
 
   /** Close event */
   readonly close = output<ManageTeamCloseEvent>();
@@ -698,76 +443,76 @@ export class ManageTeamShellComponent implements OnInit {
   /** Save event */
   readonly save = output<ManageTeamFormData>();
 
-  /** Section action event */
+  /** Section field action — caller opens the appropriate edit sheet */
   readonly sectionAction = output<{
     section: ManageTeamSectionId;
     action: string;
     data?: unknown;
   }>();
 
-  /** Available tabs */
-  readonly tabs = MANAGE_TEAM_TABS;
+  // ─── Computed row values ────────────────────────────────────────────────────
 
-  /** Sections config */
-  readonly sections = getAllManageTeamSections();
+  protected readonly teamName = computed(() => this.service.formData()?.basicInfo?.name ?? '');
+  protected readonly mascot = computed(() => this.service.formData()?.basicInfo?.mascot ?? '');
+  protected readonly sport = computed(() => this.service.formData()?.basicInfo?.sport ?? '');
 
-  /** Visible sections based on active tab */
-  readonly visibleSections = computed(() => {
-    const activeTab = this.service.activeTab();
-    if (activeTab === 'overview') return this.sections;
-    // Filter by matching section id to tab id
-    return this.sections.filter((s) => s.id.includes(activeTab));
+  protected readonly teamImages = computed(() => {
+    const branding = this.service.formData()?.branding;
+    if (branding?.galleryImages?.length) {
+      return branding.galleryImages;
+    }
+    const logo = branding?.logo;
+    return logo ? ([logo] as readonly string[]) : ([] as readonly string[]);
   });
 
+  protected readonly locationSummary = computed(() => {
+    const contact = this.service.formData()?.contact;
+    if (!contact) return '';
+    const parts = [contact.city, contact.state].filter(Boolean);
+    return parts.join(', ');
+  });
+
+  protected readonly emailSummary = computed(() => this.service.formData()?.contact?.email ?? '');
+  protected readonly phoneSummary = computed(() => this.service.formData()?.contact?.phone ?? '');
+
+  protected readonly rosterSummary = computed(() => {
+    const n = this.service.roster()?.length ?? 0;
+    if (!n) return '';
+    return n + ' player' + (n !== 1 ? 's' : '');
+  });
+
+  protected readonly statsSummary = computed(() => this.service.recordString() ?? '');
+
+  protected readonly staffSummary = computed(() => {
+    const n = this.service.staff()?.length ?? 0;
+    if (!n) return '';
+    return n + ' member' + (n !== 1 ? 's' : '');
+  });
+
+  // ─── Lifecycle ──────────────────────────────────────────────────────────────
+
   ngOnInit(): void {
-    // Handle teamId as both signal input and plain property (for Ionic modal componentProps)
     const teamIdValue = typeof this.teamId === 'function' ? this.teamId() : this.teamId;
     if (teamIdValue) {
       this.service.loadTeam(teamIdValue as string);
     }
   }
 
-  getSectionStatus(sectionId: ManageTeamSectionId): 'complete' | 'incomplete' | 'empty' {
-    const completion = this.service.completion();
-    if (!completion) return 'empty';
+  // ─── Actions ────────────────────────────────────────────────────────────────
 
-    const sectionCompletion = completion.sections.find((s) => s.sectionId === sectionId);
-    if (!sectionCompletion) return 'empty';
-
-    if (sectionCompletion.percentage >= 100) return 'complete';
-    if (sectionCompletion.percentage > 0) return 'incomplete';
-    return 'empty';
+  retryLoad(): void {
+    const teamIdValue = typeof this.teamId === 'function' ? this.teamId() : this.teamId;
+    if (teamIdValue) {
+      this.service.loadTeam(teamIdValue as string);
+    }
   }
 
-  getTabBadgeCount(tabId: ManageTeamTabId): number {
-    if (tabId === 'overview') return 0;
-
-    const completion = this.service.completion();
-    if (!completion) return 0;
-
-    const sectionCompletion = completion.sections.find((s) => s.sectionId.includes(tabId));
-    return sectionCompletion && sectionCompletion.percentage < 100 ? 1 : 0;
+  emitAction(section: ManageTeamSectionId, action: string): void {
+    this.sectionAction.emit({ section, action });
   }
 
-  getStatsIntegration(): null {
-    return null;
-  }
-
-  getTeamStats(): {
-    season?: string;
-    record?: { wins: number; losses: number; ties?: number };
-    pointsScored?: number;
-    pointsAllowed?: number;
-    rosterSize?: number;
-  } | null {
-    const formData = this.service.formData();
-    if (!formData) return null;
-
-    return {
-      season: formData.basicInfo?.season,
-      record: formData.record,
-      rosterSize: formData.roster?.length ?? 0,
-    };
+  onRemoveImage(index: number): void {
+    this.sectionAction.emit({ section: 'images', action: 'remove', data: index });
   }
 
   onClose(saved: boolean): void {
@@ -782,70 +527,14 @@ export class ManageTeamShellComponent implements OnInit {
     const formData = this.service.formData();
     if (formData) {
       this.save.emit(formData);
-      // In headless mode (web overlay), the wrapper handles close after save.
-      // Only auto-close in non-headless mode (bottom sheet / standalone page).
       if (!this.headless()) {
         this.onClose(true);
       }
     }
   }
 
-  getSectionColor(sectionId: ManageTeamSectionId): string {
-    const colors: Record<string, string> = {
-      'team-info': 'var(--nxt1-color-primary)',
-      roster: 'var(--nxt1-color-secondary)',
-      schedule: 'var(--nxt1-color-tertiary)',
-      stats: 'var(--nxt1-color-warning)',
-      staff: 'var(--nxt1-color-info)',
-      sponsors: 'var(--nxt1-color-success)',
-    };
-    return colors[sectionId] ?? 'var(--nxt1-color-primary)';
-  }
-
-  onLogoUpload(): void {
-    this.sectionAction.emit({ section: 'team-info', action: 'uploadLogo' });
-  }
-
-  onRosterAction(event: { action: string; playerId?: string; player?: RosterPlayer }): void {
-    if (event.action === 'invite') {
-      // Handle invite internally — open invite sheet with the team's context
-      const formData = this.service.formData();
-      void this.inviteSheet.open({
-        inviteType: 'team',
-        team: formData?.basicInfo
-          ? {
-              id: this.service.teamId() ?? '',
-              name: formData.basicInfo.name ?? '',
-              sport: formData.basicInfo.sport ?? '',
-              memberCount: formData.roster?.length ?? 0,
-            }
-          : undefined,
-      });
-      return;
-    }
-    this.sectionAction.emit({ section: 'roster', action: event.action, data: event });
-  }
-
-  onScheduleAction(event: { action: string; eventId?: string; event?: TeamScheduleEvent }): void {
-    this.sectionAction.emit({ section: 'schedule', action: event.action, data: event });
-  }
-
-  onStatsAction(event: { action: string }): void {
-    this.sectionAction.emit({ section: 'stats', action: event.action, data: event });
-  }
-
-  onStaffAction(event: { action: string; memberId?: string; member?: StaffMember }): void {
-    this.sectionAction.emit({ section: 'staff', action: event.action, data: event });
-  }
-
-  onSponsorAction(event: { action: string; sponsorId?: string; sponsor?: TeamSponsor }): void {
-    this.sectionAction.emit({ section: 'sponsors', action: event.action, data: event });
-  }
-
   /**
    * Public endpoint for the web modal wrapper to trigger save.
-   * The wrapper calls this so the actual API / analytics / haptics run
-   * inside the shell, then the shell emits `save` → wrapper closes overlay.
    */
   async requestSave(): Promise<void> {
     await this.onSave();

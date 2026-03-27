@@ -150,7 +150,6 @@ export const SETTINGS_BILLING_ITEMS: readonly SettingsItem[] = [
     description: 'View and upgrade your subscription',
     icon: 'star-outline',
     route: '/usage?section=overview',
-    displayValue: 'Free',
   },
   {
     id: 'paymentMethods',

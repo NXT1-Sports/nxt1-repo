@@ -341,7 +341,7 @@ function mapTeamCodeToTeam(teamCode: TeamCode, org?: OrgOverlay): TeamProfileTea
     state,
     location,
     logoUrl: logoUrl ?? undefined,
-    galleryImages: [], // TODO: Add gallery support
+    galleryImages: teamCode.galleryImages || [],
     description: teamCode.description,
     branding: {
       primaryColor: primaryColor ?? undefined,
@@ -359,16 +359,26 @@ function mapTeamCodeToTeam(teamCode: TeamCode, org?: OrgOverlay): TeamProfileTea
     division: teamCode.division,
     conference: teamCode.conference,
     seasonHistory: teamCode.seasonHistory,
-    social: teamCode.socialLinks
-      ? Object.entries(teamCode.socialLinks).map(
-          ([platform, url]) =>
+    social: teamCode.connectedSources?.length
+      ? teamCode.connectedSources.map(
+          (src) =>
             ({
-              platform,
-              url: url || '',
-              username: extractHandle(url || ''),
+              platform: src.platform,
+              url: src.profileUrl || '',
+              username: extractHandle(src.profileUrl || ''),
+              displayOrder: src.displayOrder,
             }) satisfies TeamProfileSocialLink
         )
-      : [],
+      : teamCode.socialLinks
+        ? Object.entries(teamCode.socialLinks).map(
+            ([platform, url]) =>
+              ({
+                platform,
+                url: url || '',
+                username: extractHandle(url || ''),
+              }) satisfies TeamProfileSocialLink
+          )
+        : [],
     contact: teamCode.contactInfo
       ? {
           email: teamCode.contactInfo.email,

@@ -21,8 +21,9 @@ import {
   computed,
   signal,
   OnInit,
+  PLATFORM_ID,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
   type ExploreTabId,
@@ -257,10 +258,7 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
                 />
               } @else if (explore.activeTab() === 'news' && !explore.hasQuery()) {
                 <!-- News Tab: Sports recruiting news -->
-                <nxt1-news-content
-                  (articleSelect)="onNewsArticleSelect($event)"
-                  (xpBadgeClick)="onXpBadgeClick()"
-                />
+                <nxt1-news-content (articleSelect)="onNewsArticleSelect($event)" />
               } @else if (explore.activeTab() === 'scout-reports' && !explore.hasQuery()) {
                 <!-- Scout Reports Tab -->
                 <nxt1-scout-reports-content
@@ -389,6 +387,7 @@ export class ExploreShellWebComponent implements OnInit {
   private readonly filterModal = inject(ExploreFilterModalService);
   private readonly haptics = inject(HapticsService);
   private readonly logger = inject(NxtLoggingService).child('ExploreShellWeb');
+  private readonly platformId = inject(PLATFORM_ID);
 
   // Inputs
   readonly user = input<ExploreUser | null>(null);
@@ -401,7 +400,6 @@ export class ExploreShellWebComponent implements OnInit {
   readonly postSelect = output<FeedPost>();
   readonly authorSelect = output<FeedAuthor>();
   readonly newsArticleSelect = output<{ id: string; title: string }>();
-  readonly xpBadgeClick = output<void>();
 
   // Local state
   protected readonly searchValue = signal('');
@@ -420,7 +418,7 @@ export class ExploreShellWebComponent implements OnInit {
 
   protected readonly tabOptions = computed<readonly SectionNavItem[]>(() => {
     const counts = this.explore.tabCounts();
-    const visibleTabIds: ExploreTabId[] = ['for-you', 'news'];
+    const visibleTabIds: ExploreTabId[] = ['news', 'for-you'];
 
     return visibleTabIds
       .map((tabId) => EXPLORE_TABS.find((tab) => tab.id === tabId))
@@ -534,6 +532,11 @@ export class ExploreShellWebComponent implements OnInit {
     await this.explore.switchTab(id);
     await this.ensureFeedLoadedForTab(id);
     this.tabChange.emit(id);
+
+    // Scroll to top when switching tabs
+    if (isPlatformBrowser(this.platformId)) {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
   }
 
   protected async onSectionTabChange(event: SectionNavChangeEvent): Promise<void> {
@@ -615,9 +618,5 @@ export class ExploreShellWebComponent implements OnInit {
   protected onNewsArticleSelect(article: { id: string; title: string }): void {
     this.logger.debug('News article selected', { id: article.id });
     this.newsArticleSelect.emit(article);
-  }
-
-  protected onXpBadgeClick(): void {
-    this.xpBadgeClick.emit();
   }
 }

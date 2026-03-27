@@ -36,7 +36,7 @@
  */
 
 import type { Firestore } from 'firebase-admin/firestore';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import type { DispatchNotificationInput, NotificationType } from '@nxt1/core';
 import {
   NOTIFICATION_COLLECTIONS,
@@ -47,6 +47,9 @@ import {
   resolveDeepLink,
 } from '@nxt1/core';
 import { logger } from '../utils/logger.js';
+
+/** 45-day TTL — Firestore auto-deletes expired docs when a TTL policy is enabled. */
+const NOTIFICATION_TTL_MS = 45 * 24 * 60 * 60 * 1000;
 
 // ============================================
 // TYPES
@@ -162,6 +165,7 @@ export async function dispatch(
             teamName: source.teamName ?? null,
           }
         : null,
+      expiresAt: Timestamp.fromMillis(Date.now() + NOTIFICATION_TTL_MS),
     });
   }
 
@@ -180,6 +184,7 @@ export async function dispatch(
     },
     status: 'pending',
     createdAt: now,
+    expiresAt: Timestamp.fromMillis(Date.now() + NOTIFICATION_TTL_MS),
   });
 
   await batch.commit();
@@ -232,79 +237,6 @@ export async function dispatchToMany(
 }
 
 // ============================================
-// FOLLOW NOTIFICATION HELPERS
-// ============================================
-
-export type SendFollowNotificationParams =
-  | {
-      followerUserId: string;
-      followerName: string;
-      followerAvatarUrl?: string;
-      targetType: 'user';
-      targetUserId: string;
-    }
-  | {
-      followerUserId: string;
-      followerName: string;
-      followerAvatarUrl?: string;
-      targetType: 'team';
-      teamId: string;
-      teamName: string;
-      adminIds: string[];
-    };
-
-/**
- * Send an FCM push notification when a user follows another user or a team.
- *
- * Reusable helper — covers both user-to-user and user-to-team follow events.
- * Uses the same `dispatch()` / `dispatchToMany()` pipeline, so notifications
- * reach both **mobile** (iOS/Android FCM tokens) and **web** (FCM web-push
- * subscriptions) via the `onNotificationCreatedV2` Cloud Function.
- *
- * Fire-and-forget: errors are logged but never thrown so the HTTP response
- * is never blocked.
- */
-export async function sendFollowNotification(
-  db: Firestore,
-  params: SendFollowNotificationParams
-): Promise<void> {
-  try {
-    if (params.targetType === 'user') {
-      await dispatch(db, {
-        userId: params.targetUserId,
-        type: 'new_follower',
-        title: `${params.followerName} started following you`,
-        body: 'Tap to view their profile',
-        source: {
-          userId: params.followerUserId,
-          userName: params.followerName,
-          avatarUrl: params.followerAvatarUrl,
-        },
-      });
-    } else {
-      if (params.adminIds.length === 0) return;
-      await dispatchToMany(db, params.adminIds, {
-        type: 'team_new_follower',
-        title: `${params.followerName} is now following ${params.teamName}`,
-        body: 'Tap to view their profile',
-        source: {
-          userId: params.followerUserId,
-          userName: params.followerName,
-          avatarUrl: params.followerAvatarUrl,
-          teamName: params.teamName,
-        },
-        data: { teamId: params.teamId },
-      });
-    }
-  } catch (err) {
-    logger.error('[sendFollowNotification] Failed to send follow notification', {
-      error: err,
-      targetType: params.targetType,
-    });
-  }
-}
-
-// ============================================
 // HELPERS
 // ============================================
 
@@ -327,6 +259,7 @@ function mapNotificationTypeToActivityType(type: NotificationType): string {
     visit_reminder: 'reminder',
     ai_task_complete: 'agent_task',
     agent_welcome: 'agent_task',
+    agent_action: 'agent_task',
     video_processed: 'agent_task',
     video_failed: 'agent_task',
     card_ready: 'agent_task',

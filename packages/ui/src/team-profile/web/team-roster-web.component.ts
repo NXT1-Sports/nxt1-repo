@@ -64,7 +64,7 @@ import { TeamProfileService } from '../team-profile.service';
                   />
                 } @else {
                   <div class="roster-card__placeholder">
-                    <nxt1-icon name="person" [size]="48" />
+                    <nxt1-icon name="shield" [size]="48" />
                   </div>
                 }
                 @if (member.views) {
@@ -108,10 +108,17 @@ import { TeamProfileService } from '../team-profile.service';
           }
         </div>
       } @else {
-        <div class="team-empty-state">
-          <nxt1-icon name="people" [size]="40" />
+        <div class="madden-empty">
+          <div class="madden-empty__icon" aria-hidden="true">
+            <nxt1-icon name="people" [size]="40" />
+          </div>
           <h3>No roster members</h3>
           <p>Athletes will appear here when they join the team.</p>
+          @if (teamProfile.isTeamAdmin()) {
+            <button type="button" class="madden-cta-btn" (click)="manageTeam.emit()">
+              Add Roster
+            </button>
+          }
         </div>
       }
     </div>
@@ -321,28 +328,56 @@ import { TeamProfileService } from '../team-profile.service';
       }
 
       /* ─── EMPTY STATE ─── */
-      .team-empty-state {
+      .madden-empty {
         display: flex;
         flex-direction: column;
         align-items: center;
+        justify-content: center;
         text-align: center;
-        padding: 48px 16px;
-        gap: 10px;
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
+        padding: 48px 24px;
+        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
       }
-
-      .team-empty-state h3 {
-        font-size: 15px;
+      .madden-empty h3 {
+        font-size: 16px;
         font-weight: 700;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.7));
-        margin: 4px 0 0;
+        color: var(--m-text);
+        margin: 16px 0 8px;
       }
-
-      .team-empty-state p {
-        font-size: 13px;
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
+      .madden-empty__icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 4px;
+        color: var(--m-text-2, rgba(255, 255, 255, 0.4));
+      }
+      .madden-empty p {
+        font-size: 14px;
+        color: var(--m-text-2);
         margin: 0;
-        max-width: 320px;
+        max-width: 280px;
+      }
+      .madden-cta-btn {
+        margin-top: 12px;
+        padding: 10px 24px;
+        background: var(--nxt1-color-primary);
+        border: none;
+        border-radius: 9999px;
+        color: #000;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      .madden-cta-btn:hover {
+        filter: brightness(1.1);
+      }
+      .madden-cta-btn:active {
+        filter: brightness(0.95);
       }
 
       /* ─── RESPONSIVE ─── */
@@ -377,6 +412,8 @@ export class TeamRosterWebComponent {
   // ============================================
 
   readonly memberClick = output<TeamProfileRosterMember>();
+
+  readonly manageTeam = output<void>();
 
   // ============================================
   // COMPUTED

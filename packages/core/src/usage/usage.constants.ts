@@ -49,7 +49,7 @@ export const USAGE_CATEGORY_CONFIGS: readonly UsageCategoryConfig[] = [
   },
   {
     id: 'recruiting',
-    label: 'Recruiting',
+    label: 'Discovery',
     icon: 'school-outline',
     color: 'var(--nxt1-color-secondary)',
   },
@@ -115,8 +115,15 @@ export interface UsageProductConfig {
   readonly description: string;
   readonly category: UsageProductCategory;
   readonly icon: string;
-  /** Price per unit in cents */
+  /** Price per unit in cents (used as static fallback when costType is 'static') */
   readonly unitPrice: number;
+  /**
+   * How this feature is priced:
+   * - `'static'`  — Fixed per-unit price from `unitPrice` (e.g. team page, email campaign).
+   * - `'dynamic'` — Cost calculated at runtime from actual AI token usage + margin.
+   *                  `unitPrice` serves as the display estimate / cap for UX purposes.
+   */
+  readonly costType: 'static' | 'dynamic';
   /** Whether this product is usage-based (variable qty) */
   readonly isUsageBased: boolean;
   /** Unit label (e.g. "per use", "per 5 views") */
@@ -132,6 +139,7 @@ export const USAGE_PRODUCT_CONFIGS: readonly UsageProductConfig[] = [
     category: 'media',
     icon: 'videocam-outline',
     unitPrice: 500,
+    costType: 'dynamic',
     isUsageBased: false,
     unitLabel: 'per highlight',
   },
@@ -142,6 +150,7 @@ export const USAGE_PRODUCT_CONFIGS: readonly UsageProductConfig[] = [
     category: 'media',
     icon: 'film-outline',
     unitPrice: 300,
+    costType: 'dynamic',
     isUsageBased: false,
     unitLabel: 'per graphic',
   },
@@ -152,6 +161,7 @@ export const USAGE_PRODUCT_CONFIGS: readonly UsageProductConfig[] = [
     category: 'media',
     icon: 'image-outline',
     unitPrice: 200,
+    costType: 'dynamic',
     isUsageBased: false,
     unitLabel: 'per graphic',
   },
@@ -162,6 +172,7 @@ export const USAGE_PRODUCT_CONFIGS: readonly UsageProductConfig[] = [
     category: 'media',
     icon: 'document-text-outline',
     unitPrice: 200,
+    costType: 'dynamic',
     isUsageBased: false,
     unitLabel: 'per graphic',
   },
@@ -172,6 +183,7 @@ export const USAGE_PRODUCT_CONFIGS: readonly UsageProductConfig[] = [
     category: 'media',
     icon: 'layers-outline',
     unitPrice: 100,
+    costType: 'dynamic',
     isUsageBased: false,
     unitLabel: 'per bundle',
   },
@@ -184,6 +196,7 @@ export const USAGE_PRODUCT_CONFIGS: readonly UsageProductConfig[] = [
     category: 'recruiting',
     icon: 'clipboard-outline',
     unitPrice: 300,
+    costType: 'dynamic',
     isUsageBased: false,
     unitLabel: 'per report',
   },
@@ -194,6 +207,7 @@ export const USAGE_PRODUCT_CONFIGS: readonly UsageProductConfig[] = [
     category: 'recruiting',
     icon: 'school-outline',
     unitPrice: 100,
+    costType: 'dynamic',
     isUsageBased: false,
     unitLabel: 'per match',
   },
@@ -204,6 +218,7 @@ export const USAGE_PRODUCT_CONFIGS: readonly UsageProductConfig[] = [
     category: 'recruiting',
     icon: 'map-outline',
     unitPrice: 100,
+    costType: 'dynamic',
     isUsageBased: false,
     unitLabel: 'per strategy',
   },
@@ -214,6 +229,7 @@ export const USAGE_PRODUCT_CONFIGS: readonly UsageProductConfig[] = [
     category: 'recruiting',
     icon: 'eye-outline',
     unitPrice: 100,
+    costType: 'static',
     isUsageBased: true,
     unitLabel: 'per 5 views',
   },
@@ -226,6 +242,7 @@ export const USAGE_PRODUCT_CONFIGS: readonly UsageProductConfig[] = [
     category: 'ai',
     icon: 'flash-outline',
     unitPrice: 100,
+    costType: 'dynamic',
     isUsageBased: true,
     unitLabel: 'per 5 actions',
   },
@@ -238,6 +255,7 @@ export const USAGE_PRODUCT_CONFIGS: readonly UsageProductConfig[] = [
     category: 'communication',
     icon: 'mail-outline',
     unitPrice: 200,
+    costType: 'dynamic',
     isUsageBased: false,
     unitLabel: 'per campaign',
   },
@@ -248,6 +266,7 @@ export const USAGE_PRODUCT_CONFIGS: readonly UsageProductConfig[] = [
     category: 'communication',
     icon: 'return-down-forward-outline',
     unitPrice: 100,
+    costType: 'dynamic',
     isUsageBased: false,
     unitLabel: 'per follow-up',
   },
@@ -260,6 +279,7 @@ export const USAGE_PRODUCT_CONFIGS: readonly UsageProductConfig[] = [
     category: 'profile',
     icon: 'color-palette-outline',
     unitPrice: 100,
+    costType: 'dynamic',
     isUsageBased: false,
     unitLabel: 'per asset',
   },
@@ -272,6 +292,7 @@ export const USAGE_PRODUCT_CONFIGS: readonly UsageProductConfig[] = [
     category: 'teams',
     icon: 'link-outline',
     unitPrice: 500,
+    costType: 'static',
     isUsageBased: false,
     unitLabel: 'per page',
   },

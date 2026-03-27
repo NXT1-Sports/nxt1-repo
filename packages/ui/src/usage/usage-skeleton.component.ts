@@ -20,7 +20,6 @@ import { CommonModule } from '@angular/common';
   standalone: true,
   imports: [CommonModule],
   template: `
-    <!-- Content Panel Skeleton (nav tabs render immediately via shell) -->
     <div class="skeleton-content" aria-hidden="true" role="presentation">
       <!-- Overview Cards (3 cards) -->
       <div class="skeleton-overview">
@@ -71,7 +70,8 @@ import { CommonModule } from '@angular/common';
 
       /* ==============================
        CONTENT PANEL SKELETON
-       (nav tabs render immediately via shell)
+       Rendered inside .content-wrapper which already has padding.
+       Option scroller tabs are always in DOM above — not skeletonized.
        ============================== */
 
       .skeleton-content {

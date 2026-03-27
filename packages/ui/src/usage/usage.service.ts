@@ -120,7 +120,34 @@ export class UsageService {
   readonly isLoadingMore = computed(() => this._isLoadingMore());
   readonly historyHasMore = computed(() => this._historyHasMore());
   readonly activeSection = computed(() => this._activeSection());
-  readonly sectionNavs = USAGE_SECTION_NAVS;
+
+  // ============================================
+  // BILLING MODEL SIGNALS (B2C vs B2B)
+  // ============================================
+
+  /** Whether this is a personal / individual wallet user (B2C) */
+  readonly isPersonal = computed(() => this._billingContext()?.billingEntity === 'individual');
+
+  /** Whether this is an org / team metered-billing user (B2B) */
+  readonly isOrg = computed(() => {
+    const entity = this._billingContext()?.billingEntity;
+    return entity === 'organization' || entity === 'team';
+  });
+
+  /** Dynamic section nav — hides org-only sections for personal users */
+  readonly sectionNavs = computed((): readonly UsageSectionNav[] => {
+    if (this.isPersonal()) {
+      // B2C: hide metered-usage chart, budgets, and payment-info
+      return USAGE_SECTION_NAVS.filter((n) => n.id !== 'metered-usage' && n.id !== 'payment-info');
+    }
+    return USAGE_SECTION_NAVS;
+  });
+
+  /** Wallet balance in cents (B2C only) */
+  readonly walletBalanceCents = computed(() => this._overview()?.walletBalanceCents ?? 0);
+
+  /** Pending holds in cents (B2C only) */
+  readonly pendingHoldsCents = computed(() => this._overview()?.pendingHoldsCents ?? 0);
 
   // ============================================
   // DERIVED COMPUTEDS
@@ -288,6 +315,7 @@ export class UsageService {
       const message = err instanceof Error ? err.message : 'Failed to load usage data';
       this._error.set(message);
       this.logger.error('Failed to load usage dashboard', err);
+      this.breadcrumb.trackStateChange('usage:error', { message });
     } finally {
       this._isLoading.set(false);
     }
@@ -312,6 +340,7 @@ export class UsageService {
       this.analytics?.trackEvent(APP_EVENTS.USAGE_HISTORY_LOADED_MORE, { page: nextPage });
     } catch (err) {
       this.logger.error('Failed to load more history', err);
+      this.breadcrumb.trackStateChange('usage:history-error', { page: this._historyPage() });
     } finally {
       this._isLoadingMore.set(false);
     }

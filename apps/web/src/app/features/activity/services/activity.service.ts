@@ -37,7 +37,6 @@ import {
   type ActivityTabId,
   type ActivityPagination,
   ACTIVITY_DEFAULT_TAB,
-  ACTIVITY_TABS,
   ACTIVITY_PAGINATION_DEFAULTS,
 } from '@nxt1/core';
 import { HapticsService } from '@nxt1/ui/services/haptics';
@@ -64,7 +63,6 @@ export class ActivityService {
   private readonly _activeTab = signal<ActivityTabId>(ACTIVITY_DEFAULT_TAB);
   private readonly _badges = signal<Record<ActivityTabId, number>>({
     alerts: 0,
-    analytics: 0,
   });
   private readonly _isLoading = signal(false);
   private readonly _isLoadingMore = signal(false);
@@ -106,11 +104,8 @@ export class ActivityService {
   /** Whether there are more items to load */
   readonly hasMore = computed(() => this._pagination()?.hasMore ?? false);
 
-  /** Total unread count across all tabs */
-  readonly totalUnread = computed(() => {
-    const badges = this._badges();
-    return Object.values(badges).reduce((sum, count) => sum + count, 0);
-  });
+  /** Total unread count */
+  readonly totalUnread = computed(() => this._badges()['alerts'] ?? 0);
 
   /** Badge count for current tab */
   readonly currentTabBadge = computed(() => {
@@ -118,16 +113,7 @@ export class ActivityService {
     return this._badges()[tab] ?? 0;
   });
 
-  /** Tabs with badge counts merged */
-  readonly tabsWithBadges = computed(() => {
-    const badges = this._badges();
-    return ACTIVITY_TABS.map((tab) => ({
-      ...tab,
-      badge: badges[tab.id] ?? 0,
-    }));
-  });
-
-  /** Unread items in current tab */
+  /** Unread items */
   readonly unreadItems = computed(() => {
     return this._items().filter((item) => !item.isRead);
   });

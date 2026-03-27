@@ -30,11 +30,7 @@ import type { NewsArticle } from '@nxt1/core';
       <ion-toolbar></ion-toolbar>
     </ion-header>
     <ion-content [fullscreen]="true">
-      <nxt1-news-shell
-        (articleSelect)="onArticleSelect($event)"
-        (searchClick)="onSearchClick()"
-        (xpBadgeClick)="onXpBadgeClick()"
-      />
+      <nxt1-news-shell (articleSelect)="onArticleSelect($event)" (searchClick)="onSearchClick()" />
     </ion-content>
   `,
   styles: [
@@ -78,10 +74,8 @@ export class NewsComponent {
   protected onArticleSelect(article: NewsArticle): void {
     this.logger.debug('News article selected', {
       articleId: article.id,
-      category: article.category,
+      source: article.source,
     });
-    // In production: track analytics event
-    // this.analytics.track('news_article_view', { articleId: article.id, category: article.category });
   }
 
   /**
@@ -91,14 +85,5 @@ export class NewsComponent {
     this.logger.debug('News search clicked');
     // Future: Navigate to search page using NavController
     // await this.navController.navigateForward('/news/search');
-  }
-
-  /**
-   * Handle XP badge click - could show XP breakdown modal.
-   */
-  protected async onXpBadgeClick(): Promise<void> {
-    this.logger.debug('News XP badge clicked');
-    // Future: Show XP breakdown modal or navigate to XP page
-    // await this.navController.navigateForward('/xp');
   }
 }

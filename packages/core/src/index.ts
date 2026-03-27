@@ -217,6 +217,11 @@ export {
   updateSidenavBadge,
   toggleSidenavSection,
   filterSidenavByRoles,
+  // User Display Context
+  type UserDisplayInput,
+  type UserDisplayFallback,
+  type UserDisplayContext,
+  buildUserDisplayContext,
 } from './models';
 
 // ============================================
@@ -268,6 +273,7 @@ export {
   truncate,
   capitalize,
   titleCase,
+  normalizeName,
   slugify,
   buildTeamSlug,
   camelToTitle,
@@ -672,10 +678,6 @@ export {
   // API Factory
   createActivityApi,
   type ActivityApi,
-  // Mapper (Conversation → ActivityItem)
-  conversationToActivityItem,
-  conversationsToActivityItems,
-  type MessageActivityMetadata,
 } from './activity';
 
 // ============================================
@@ -1157,6 +1159,29 @@ export {
   type FeedCommentAuthor,
   type FeedComment,
   type FeedCommentsResponse,
+  // Polymorphic feed item types (2026 standard)
+  type FeedItemType,
+  type FeedItemBase,
+  type FeedItemPost,
+  type FeedItemEvent,
+  type FeedItemStat,
+  type FeedItemMetric,
+  type FeedItemOffer,
+  type FeedItemCommitment,
+  type FeedItemVisit,
+  type FeedItemCamp,
+  type FeedItemAward,
+  type FeedItemNews,
+  type FeedItemScoutReport,
+  type FeedItemAcademic,
+  type FeedItemSharedReference,
+  type FeedItem,
+  isFeedItemPost,
+  isFeedItemEvent,
+  isFeedItemStat,
+  isFeedItemSharedReference,
+  type FeedItemResponse,
+  type FeedPointer,
   // Constants
   FEED_API_ENDPOINTS,
   FEED_PAGINATION_DEFAULTS,
@@ -1187,6 +1212,13 @@ export {
   profileOfferToFeedPost,
   profileEventToFeedPost,
   buildUnifiedActivityFeed,
+  // Polymorphic mappers (2026 standard)
+  feedPostToFeedItem,
+  eventDocToFeedItemEvent,
+  statDocToFeedItemStat,
+  profileOfferToFeedItemOffer,
+  profileEventToFeedItemVariant,
+  buildPolymorphicActivityFeed,
 } from './feed';
 
 // ============================================
@@ -1197,25 +1229,19 @@ export {
   // Types
   type NewsCategoryId,
   type NewsCategory,
-  type NewsSource,
   type NewsArticle,
-  type ReadingProgress,
-  type ReadingStats,
-  type XpRewardType,
   type NewsFilter,
   type NewsPagination,
   type NewsFeedResponse,
   type NewsArticleResponse,
-  type NewsBookmarkResponse,
-  type NewsProgressResponse,
   type NewsState,
   // Constants
   NEWS_CATEGORIES,
   NEWS_DEFAULT_CATEGORY,
-  NEWS_XP_REWARDS,
   NEWS_PAGINATION_DEFAULTS,
   NEWS_CACHE_KEYS,
   NEWS_CACHE_TTL,
+  ARTICLE_TTL_DAYS,
   NEWS_EMPTY_STATES,
   NEWS_API_ENDPOINTS,
   NEWS_UI_CONFIG,

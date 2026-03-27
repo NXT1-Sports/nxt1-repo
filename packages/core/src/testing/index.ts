@@ -597,6 +597,11 @@ export const USAGE_TEST_IDS = {
   OVERVIEW_INCLUDED_USAGE: 'usage-overview-included-usage',
   OVERVIEW_NEXT_PAYMENT: 'usage-overview-next-payment',
   OVERVIEW_PERIOD_LABEL: 'usage-overview-period-label',
+  OVERVIEW_WALLET_BALANCE: 'usage-overview-wallet-balance',
+  OVERVIEW_PENDING_HOLDS: 'usage-overview-pending-holds',
+  OVERVIEW_SPENT_THIS_MONTH: 'usage-overview-spent-this-month',
+  OVERVIEW_BUY_CREDITS: 'usage-overview-buy-credits',
+  OVERVIEW_VIEW_HISTORY: 'usage-overview-view-history',
 
   // Timeframe filter
   TIMEFRAME_SELECT: 'usage-timeframe-select',
@@ -604,8 +609,9 @@ export const USAGE_TEST_IDS = {
   // Chart section
   CHART_SECTION: 'usage-chart-section',
   CHART_CONTAINER: 'usage-chart-container',
+  CHART_VIEW_BREAKDOWN: 'usage-chart-view-breakdown',
 
-  // Product category tabs
+  // Product category tabs (legacy — removed, kept for backward compat tests)
   CATEGORY_TABS: 'usage-category-tabs',
   CATEGORY_TAB: 'usage-category-tab',
 
@@ -613,16 +619,20 @@ export const USAGE_TEST_IDS = {
   BREAKDOWN_SECTION: 'usage-breakdown-section',
   BREAKDOWN_ROW: 'usage-breakdown-row',
   BREAKDOWN_SEARCH: 'usage-breakdown-search',
+  BREAKDOWN_TIMEFRAME_SELECT: 'usage-breakdown-timeframe-select',
 
   // Payment history section
   HISTORY_SECTION: 'usage-history-section',
   HISTORY_ROW: 'usage-history-row',
   HISTORY_LOAD_MORE: 'usage-history-load-more',
+  HISTORY_RECEIPT_BTN: 'usage-history-receipt-btn',
+  HISTORY_INVOICE_BTN: 'usage-history-invoice-btn',
 
   // Budget section
   BUDGET_SECTION: 'usage-budget-section',
   BUDGET_CARD: 'usage-budget-card',
   BUDGET_EDIT_BUTTON: 'usage-budget-edit-button',
+  BUDGET_NEW_BTN: 'usage-budget-new-btn',
 
   // Payment methods section
   PAYMENT_METHODS_SECTION: 'usage-payment-methods-section',
@@ -633,6 +643,18 @@ export const USAGE_TEST_IDS = {
 
   // Billing info section
   BILLING_INFO_SECTION: 'usage-billing-info-section',
+  BILLING_INFO_EDIT: 'usage-billing-info-edit',
+
+  // Payment info section
+  PAYMENT_INFO_SECTION: 'usage-payment-info-section',
+  PAYMENT_INFO_EDIT_BILLING: 'usage-payment-info-edit-billing',
+  PAYMENT_INFO_EDIT_PAYMENT: 'usage-payment-info-edit-payment',
+  PAYMENT_INFO_EDIT_ADDITIONAL: 'usage-payment-info-edit-additional',
+  PAYMENT_INFO_REDEEM_COUPON: 'usage-payment-info-redeem-coupon',
+
+  // Subscriptions section
+  SUBSCRIPTIONS_SECTION: 'usage-subscriptions-section',
+  SUBSCRIPTIONS_MANAGE: 'usage-subscriptions-manage',
 
   // Coupon section
   COUPON_INPUT: 'usage-coupon-input',
@@ -641,6 +663,9 @@ export const USAGE_TEST_IDS = {
   // Section navigation
   SECTION_NAV: 'usage-section-nav',
   SECTION_NAV_ITEM: 'usage-section-nav-item',
+
+  // Shell-level
+  HELP_BTN: 'usage-help-btn',
 } as const;
 
 /**
@@ -674,6 +699,122 @@ export const AGENT_X_OPERATION_CHAT_TEST_IDS = {
 /**
  * All test IDs combined for easy import
  */
+// ============================================
+// NEWS / PULSE TEST IDS
+// ============================================
+
+export const NEWS_TEST_IDS = {
+  /** Feed list container */
+  LIST_CONTAINER: 'news-list-container',
+  /** Feed list component */
+  LIST: 'news-list',
+  /** Individual article card */
+  LIST_ITEM: 'news-list-item',
+  /** Article detail view */
+  ARTICLE_DETAIL: 'news-article-detail',
+  /** Back button in detail view */
+  ARTICLE_DETAIL_BACK: 'news-article-detail-back',
+  /** Share button in detail view */
+  ARTICLE_DETAIL_SHARE: 'news-article-detail-share',
+  /** Read full story link */
+  ARTICLE_DETAIL_READ_FULL: 'news-article-detail-read-full',
+  /** Skeleton loader */
+  SKELETON: 'news-skeleton',
+  /** Empty state */
+  EMPTY_STATE: 'news-empty-state',
+  /** Error state */
+  ERROR_STATE: 'news-error-state',
+  /** Load more trigger */
+  LOAD_MORE: 'news-load-more',
+  /** Retry button */
+  RETRY_BTN: 'news-retry',
+} as const;
+
+// ============================================
+// FEED CARD TEST IDS (Smart Shell + Atomic Cards)
+// ============================================
+
+export const FEED_CARD_TEST_IDS = {
+  /** Feed Card Shell */
+  SHELL_ARTICLE: 'feed-shell-article',
+  SHELL_AVATAR_BTN: 'feed-shell-avatar-btn',
+  SHELL_AUTHOR_INFO: 'feed-shell-author-info',
+  SHELL_TYPE_BADGE: 'feed-shell-type-badge',
+  SHELL_MENU_BTN: 'feed-shell-menu-btn',
+  SHELL_CONTENT: 'feed-shell-content',
+  SHELL_PINNED_BADGE: 'feed-shell-pinned-badge',
+  SHELL_STATS: 'feed-shell-stats',
+  SHELL_STAT_REACT: 'feed-shell-stat-react',
+  SHELL_STAT_REPOST: 'feed-shell-stat-repost',
+  SHELL_STAT_SHARES: 'feed-shell-stat-shares',
+  SHELL_STAT_VIEWS: 'feed-shell-stat-views',
+
+  /** Stat Card */
+  STAT_CARD: 'feed-stat-card',
+  STAT_HEADER: 'feed-stat-header',
+  STAT_RESULT: 'feed-stat-result',
+  STAT_GRID: 'feed-stat-grid',
+  STAT_CELL: 'feed-stat-cell',
+
+  /** Event Card */
+  EVENT_CARD: 'feed-event-card',
+  EVENT_STATUS_BADGE: 'feed-event-status-badge',
+  EVENT_MATCHUP: 'feed-event-matchup',
+  EVENT_RESULT: 'feed-event-result',
+  EVENT_VENUE: 'feed-event-venue',
+
+  /** Metrics Card */
+  METRICS_CARD: 'feed-metrics-card',
+  METRICS_HEADER: 'feed-metrics-header',
+  METRICS_GRID: 'feed-metrics-grid',
+  METRICS_CELL: 'feed-metrics-cell',
+
+  /** Award Card */
+  AWARD_CARD: 'feed-award-card',
+  AWARD_ICON: 'feed-award-icon',
+  AWARD_INFO: 'feed-award-info',
+
+  /** News Card */
+  NEWS_CARD: 'feed-news-card',
+  NEWS_IMAGE: 'feed-news-image',
+  NEWS_CATEGORY: 'feed-news-category',
+  NEWS_BODY: 'feed-news-body',
+  NEWS_HEADLINE: 'feed-news-headline',
+  NEWS_SOURCE: 'feed-news-source',
+
+  /** Post Content Card */
+  POST_MEDIA_CAROUSEL: 'feed-post-media-carousel',
+  POST_MEDIA_TRACK: 'feed-post-media-track',
+  POST_MEDIA_SLIDE: 'feed-post-media-slide',
+  POST_MEDIA_DOTS: 'feed-post-media-dots',
+  POST_MEDIA_DOT: 'feed-post-media-dot',
+  POST_TITLE: 'feed-post-title',
+  POST_CONTENT: 'feed-post-content',
+  POST_EXTERNAL: 'feed-post-external',
+  POST_TAGS: 'feed-post-tags',
+  POST_TAG: 'feed-post-tag',
+  POST_LOCATION: 'feed-post-location',
+} as const;
+
+// ============================================
+// PROFILE TIMELINE TEST IDS
+// ============================================
+
+export const PROFILE_TIMELINE_TEST_IDS = {
+  CONTAINER: 'profile-timeline',
+  FILTERS_NAV: 'profile-timeline-filters',
+  FILTER_TAB: 'profile-timeline-filter-tab',
+  FILTER_BADGE: 'profile-timeline-filter-badge',
+  LOADING: 'profile-timeline-loading',
+  ERROR: 'profile-timeline-error',
+  RETRY_BTN: 'profile-timeline-retry-btn',
+  EMPTY: 'profile-timeline-empty',
+  EMPTY_CTA: 'profile-timeline-empty-cta',
+  POSTS_PANEL: 'profile-timeline-posts',
+  LOAD_MORE: 'profile-timeline-load-more',
+  LOAD_MORE_BTN: 'profile-timeline-load-more-btn',
+} as const;
+
 export const TEST_IDS = {
   AUTH: AUTH_TEST_IDS,
   AUTH_PAGE: AUTH_PAGE_TEST_IDS,
@@ -689,6 +830,9 @@ export const TEST_IDS = {
   USAGE: USAGE_TEST_IDS,
   AGENT_X_ACTION_CARD: AGENT_X_ACTION_CARD_TEST_IDS,
   AGENT_X_OPERATION_CHAT: AGENT_X_OPERATION_CHAT_TEST_IDS,
+  NEWS: NEWS_TEST_IDS,
+  FEED_CARD: FEED_CARD_TEST_IDS,
+  PROFILE_TIMELINE: PROFILE_TIMELINE_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript

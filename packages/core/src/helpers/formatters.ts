@@ -191,6 +191,29 @@ export function titleCase(text: string): string {
 }
 
 /**
+ * Normalize a person's name to proper Title Case.
+ *
+ * - Trims and collapses whitespace
+ * - Capitalizes after spaces, hyphens, and apostrophes
+ * - Handles names like "O'Brien" → "O'Brien", "Mary-Jane" → "Mary-Jane"
+ *
+ * @example
+ * normalizeName('john doe')       // 'John Doe'
+ * normalizeName('JOHN DOE')       // 'John Doe'
+ * normalizeName("o'brien")        // "O'Brien"
+ * normalizeName('mary-jane')      // 'Mary-Jane'
+ * normalizeName('  john   doe  ') // 'John Doe'
+ */
+export function normalizeName(name: string): string {
+  if (!name) return '';
+  return name
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .replace(/(^|[\s\-'])([a-z])/g, (_, separator, char) => separator + char.toUpperCase());
+}
+
+/**
  * Convert to slug
  */
 export function slugify(text: string): string {

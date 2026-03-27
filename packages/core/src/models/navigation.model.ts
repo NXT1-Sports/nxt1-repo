@@ -678,6 +678,21 @@ export interface TopNavUserData {
 
   /** Whether user has premium subscription */
   isPremium?: boolean;
+
+  /** Sport label shown below the name (e.g. "High School Football", "Football · QB") */
+  sportLabel?: string;
+
+  /** Route to navigate when the user info section is clicked (e.g. "/profile" or "/team/slug") */
+  profileRoute?: string;
+
+  /** Section title above the user info (e.g. "Teams" or "Sports") */
+  switcherTitle?: string;
+
+  /** Whether this is a team role (coach/director) — affects avatar shape and add button label */
+  isTeamRole?: boolean;
+
+  /** Sport profiles for the switcher (same as mobile sidebar) */
+  sportProfiles?: SidenavSportProfile[];
 }
 
 /**
@@ -791,12 +806,6 @@ export const DEFAULT_TOP_NAV_ITEMS: TopNavItem[] = [
  * Default user menu items
  */
 export const DEFAULT_USER_MENU_ITEMS: TopNavUserMenuItem[] = [
-  {
-    id: 'profile',
-    label: 'My Profile',
-    icon: 'user',
-    route: '/profile',
-  },
   {
     id: 'settings',
     label: 'Settings',

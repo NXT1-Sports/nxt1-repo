@@ -27,9 +27,6 @@ export interface ManageTeamSheetOptions {
   /** Custom title */
   title?: string;
 
-  /** Show progress bar */
-  showProgress?: boolean;
-
   /** Breakpoints for sheet height */
   breakpoints?: number[];
 
@@ -74,9 +71,8 @@ export class ManageTeamBottomSheetService {
       teamId = null,
       initialSection,
       title = teamId ? 'Manage Team' : 'Create Team',
-      showProgress = true,
-      breakpoints = SHEET_PRESETS.TALL.breakpoints,
-      initialBreakpoint = SHEET_PRESETS.TALL.initialBreakpoint,
+      breakpoints = SHEET_PRESETS.FULL.breakpoints,
+      initialBreakpoint = SHEET_PRESETS.FULL.initialBreakpoint,
       cssClass = 'manage-team-sheet',
     } = options;
 
@@ -85,32 +81,17 @@ export class ManageTeamBottomSheetService {
       componentProps: {
         teamId,
         title,
-        showProgress,
+        isModalMode: true,
       },
       breakpoints,
       initialBreakpoint,
       cssClass,
-      handle: true,
-      handleBehavior: 'cycle',
+      handle: false,
       backdropDismiss: true,
       showBackdrop: true,
     });
 
     await this.activeModal.present();
-
-    // Expand initial section if specified
-    if (initialSection) {
-      // Access the component instance after presentation
-      const componentInstance = this.activeModal.querySelector('nxt1-manage-team-shell') as {
-        service?: { toggleSection?: (id: string) => void };
-      } | null;
-      if (componentInstance) {
-        const service = componentInstance.service;
-        if (service?.toggleSection) {
-          service.toggleSection(initialSection);
-        }
-      }
-    }
 
     // Wait for dismissal
     const { data } = await this.activeModal.onWillDismiss<ManageTeamCloseEvent>();

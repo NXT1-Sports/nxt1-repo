@@ -15,17 +15,8 @@ export type {
   // Category types
   NewsCategoryId,
   NewsCategory,
-  // Source types
-  NewsSource,
   // Article types
-  ArticleSportContext,
-  RelatedArticle,
   NewsArticle,
-  // Reading/Gamification types
-  ReadingProgress,
-  XpRewardType,
-  XpRewardEvent,
-  ReadingStats,
   // Filter types
   NewsSortBy,
   NewsDateRange,
@@ -34,8 +25,6 @@ export type {
   // API response types
   NewsFeedResponse,
   NewsArticleResponse,
-  NewsBookmarkResponse,
-  NewsProgressResponse,
   // State types
   NewsState,
   ArticleDetailState,
@@ -55,9 +44,6 @@ export {
   NEWS_DEFAULT_CATEGORY,
   NEWS_CATEGORY_COLORS,
   NEWS_CATEGORY_BG_COLORS,
-  // XP & Gamification
-  NEWS_XP_REWARDS,
-  NEWS_MILESTONES,
   // Sort & Filter
   NEWS_SORT_OPTIONS,
   NEWS_DATE_RANGES,
@@ -70,10 +56,10 @@ export {
   // Cache
   NEWS_CACHE_KEYS,
   NEWS_CACHE_TTL,
+  // TTL
+  ARTICLE_TTL_DAYS,
   // API
   NEWS_API_ENDPOINTS,
-  // AI Source
-  NEWS_AI_SOURCE,
   // Animations
   NEWS_ANIMATION_CONFIG,
 } from './news.constants';
@@ -94,7 +80,6 @@ export {
   validateCategory,
   validateArticle,
   validateFilter,
-  validateReadingProgress,
   // Utility functions
   sanitizeArticleContent,
   calculateReadingTime,

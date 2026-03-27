@@ -72,6 +72,7 @@ export class ApprovalGateService {
     toolInput: Record<string, unknown>;
     actionSummary: string;
     reasoning?: string;
+    threadId?: string;
   }): Promise<AgentApprovalRequest> {
     const policy = this.getApprovalPolicy(params.toolName);
 
@@ -109,14 +110,17 @@ export class ApprovalGateService {
     try {
       await dispatch(this.db, {
         userId: params.userId,
-        type: NOTIFICATION_TYPES.AI_NEEDS_APPROVAL,
+        type: NOTIFICATION_TYPES.AGENT_ACTION,
         title: 'Agent X needs your approval',
         body: params.actionSummary,
-        deepLink: `/agent-x/approvals/${request.id}`,
+        deepLink: params.threadId
+          ? `/agent-x?thread=${encodeURIComponent(params.threadId)}`
+          : '/agent-x',
         data: {
           approvalId: request.id,
           operationId: params.operationId,
           toolName: params.toolName,
+          ...(params.threadId ? { threadId: params.threadId } : {}),
         },
         source: { userName: 'Agent X' },
         priority: 'high',
