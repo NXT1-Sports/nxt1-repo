@@ -31,12 +31,17 @@ a configurable value stored in Firestore.
     → addWalletTopUp() → Firestore billingContexts.walletBalanceCents
 
 [User triggers AI job]
-    → checkBudget() / checkSufficientBalance()  ← gate before running
+    → estimateMaxCost() ← Gas-station pre-auth (worst-case estimate)
+    → checkBudget() / checkSufficientBalance()  ← gate before running using estimate
     → AI calls tagged with buildHeliconeHeaders({ jobId, userId, feature })
-    → job completes
-    → getJobCost(jobId) ← actual USD cost from Helicone
-    → calculateChargeAmount() ← actual_cost × multiplier
-    → deductFromWallet() / deductWallet() ← subtract from balance
+    → job completes / stream aborts
+    → (wallet is tentatively deducted based on pre-auth estimate)
+
+[Helicone async webhook]
+    → POST /api/v1/helicone/webhook (async)
+    → verify HMAC signature
+    → resolveAICost() ← applies margin to true cost (actual_cost × multiplier)
+    → true-up / true-down ledger adjustment (refund unused pre-auth)
 
 [Apple sends REFUND webhook]
     → POST /api/v1/iap/webhook
@@ -179,7 +184,46 @@ charge = $0.20 × 4.0 = $0.80 → 80 cents deducted from wallet
 
 ---
 
-### 5. `usage.service.ts`
+### 5. `cost-resolver.service.ts`
+
+**Purpose:** Bridges AI provider costs (OpenRouter / Helicone) to NXT1 business
+pricing. It takes actual raw `costUsd` from the provider, applies the business
+margin multiplier, and converts it to integer cents.
+
+| Function          | Signature                                       | Description                                                                                                                                                                               |
+| ----------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resolveAICost`   | `(db, actualCostUsd, feature) → CostResolution` | Main pricing function. Takes the raw provider wholesale cost, applies the configured `aiMarginMultiplier` (with feature overrides), and returns the final integer cents amount to charge. |
+| `estimateMaxCost` | `(feature, model?) → number (cents)`            | Gas-Station Pre-Auth: Provides a worst-case ceiling cost before the LLM fires, preventing over-spend on prepaid balances.                                                                 |
+
+---
+
+### 6. `platform-config.service.ts`
+
+**Purpose:** Dynamically cached platform configuration stored in Firestore.
+Allows changing pricing, multipliers, and model mappings without deploying code
+changes.
+
+| Function                | Signature                      | Description                                                                                                                                         |
+| ----------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getPlatformConfig`     | `(db) → PlatformBillingConfig` | Reads the config from the `platformConfig/billing` document, cached in memory (default 5-minute TTL). Fallbacks are hardcoded if the DB is missing. |
+| `invalidateConfigCache` | `() → void`                    | Clears the in-memory cache, forcing the next call to fetch the latest from Firestore.                                                               |
+
+---
+
+### 7. `helicone-webhook.service.ts`
+
+**Purpose:** Handles async cost reconciliation from Helicone's webhook
+callbacks. When an AI operation completes, Helicone sends the exact downstream
+cost. This service ensures users are automatically refunded if an AI request
+aborts early or errors out.
+
+| Function         | Signature              | Description                                                                                                                                                                                                       |
+| ---------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `processWebhook` | `(db, payload) → void` | Parses the Helicone request callback schema, calls `resolveAICost()` on the exact downstream `costUsd`, compares it against the initial pre-auth amount, and issues a "true-up" or "true-down" ledger adjustment. |
+
+---
+
+### 8. `usage.service.ts`
 
 **Purpose:** Creates and tracks `usageEvents` in Firestore. Every billable
 action generates a usage event that goes through a state machine
@@ -326,11 +370,9 @@ environment setup, price ID mapping, and retry policy.
 
 | Item                                                                  | Priority | Status         |
 | --------------------------------------------------------------------- | -------- | -------------- |
-| Wire `buildHeliconeHeaders()` into `telemetry.service.ts`             | P0       | ⚠️ Pending     |
 | Fill `HELICONE_API_KEY` in `.env`                                     | P0       | ⚠️ Pending     |
 | Create 5 Consumable products in App Store Connect                     | P0       | ⏳ Needs login |
 | Register webhook URL in App Store Connect                             | P0       | ⏳ Needs login |
 | Atomic batch: `deductFromWallet` + `createUsageEvent` + `recordSpend` | P1       | ❌ Not done    |
 | Stripe refund flow for Org users                                      | P2       | ❌ Not done    |
-| Auto-reset `currentPeriodSpend` on billing cycle start                | P2       | ❌ Not done    |
 | Low-balance push notification for Individual (< $1.00)                | P2       | ❌ Not done    |
