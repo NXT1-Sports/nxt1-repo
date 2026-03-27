@@ -5,12 +5,14 @@
  * Type-safe DTOs for billing and usage tracking endpoints using class-validator
  */
 
+import { Transform } from 'class-transformer';
 import {
   IsString,
   IsOptional,
   IsNotEmpty,
   IsEnum,
   IsInt,
+  IsNumber,
   IsObject,
   Min,
   Max,
@@ -198,4 +200,37 @@ export class IAPVerifyReceiptDto {
  */
 export interface AppleS2SNotificationDto {
   signedPayload: string;
+}
+
+// ============================================
+// WALLET CHECK QUERY DTO
+// ============================================
+
+export class WalletCheckQueryDto {
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? parseInt(value, 10) : value
+  )
+  @IsInt({ message: 'cents must be an integer' })
+  @Min(0, { message: 'cents must be non-negative' })
+  @Max(100_000_000, { message: 'cents cannot exceed $1,000,000' })
+  cents!: number;
+}
+
+// ============================================
+// UPDATE PRICING CONFIG DTO
+// ============================================
+
+export class UpdatePricingConfigDto {
+  @IsNumber(
+    { allowInfinity: false, allowNaN: false },
+    { message: 'defaultMultiplier must be a number' }
+  )
+  @Min(0.1, { message: 'defaultMultiplier must be at least 0.1' })
+  @Max(100, { message: 'defaultMultiplier cannot exceed 100' })
+  @IsOptional()
+  defaultMultiplier?: number;
+
+  @IsObject({ message: 'featureOverrides must be an object mapping feature names to multipliers' })
+  @IsOptional()
+  featureOverrides?: Record<string, number>;
 }

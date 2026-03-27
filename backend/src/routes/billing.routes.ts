@@ -8,6 +8,7 @@
 import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../middleware/auth.middleware.js';
 import { logger } from '../utils/logger.js';
+import { getCacheService } from '../services/cache.service.js';
 import {
   recordUsageEvent,
   getUserUsageEvents,
@@ -23,17 +24,36 @@ import {
   updateOrgBudget,
   updateTeamAllocation,
   getOrgTeamAllocations,
+  getWalletBalance,
+  checkSufficientBalance,
+  getPricingConfig,
+  updatePricingConfig,
+  type PricingConfig,
 } from '../modules/billing/index.js';
-import { validateBody } from '../middleware/validation.middleware.js';
+import { validateBody, validateQuery } from '../middleware/validation.middleware.js';
 import {
   CreateUsageEventDto,
   UpdateBudgetDto,
   UpdateTeamBudgetDto,
   UpdateOrganizationBudgetDto,
   UpdateTeamAllocationDto,
+  WalletCheckQueryDto,
+  UpdatePricingConfigDto,
 } from '../dtos/billing.dto.js';
 
 const router = Router();
+
+// ============================================
+// CACHE CONFIGURATION
+// ============================================
+
+const BILLING_CACHE_TTL = {
+  wallet: 60, // 60 seconds — balance display (not used for deduction gates)
+  pricing: 5 * 60, // 5 minutes  — pricing config rarely changes
+} as const;
+
+const PRICING_CACHE_KEY = 'billing:pricing:config';
+const walletCacheKey = (userId: string): string => `billing:wallet:${userId}`;
 
 /**
  * POST /api/v1/billing/usage
@@ -511,5 +531,165 @@ router.get('/budget/org/:orgId/allocations', appGuard, async (req: Request, res:
     });
   }
 });
+
+// ============================================
+// WALLET — Individual Prepaid Balance
+// ============================================
+
+/**
+ * GET /api/v1/billing/wallet
+ * Get the current user's prepaid wallet balance.
+ */
+router.get('/wallet', appGuard, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.uid;
+    const db = req.firebase?.db;
+    if (!db) throw new Error('Firebase context not available');
+
+    // Redis cache — display-only; deduction gates always bypass this
+    try {
+      const cached = await getCacheService().get<{ balanceCents: number }>(walletCacheKey(userId));
+      if (cached) {
+        return res.json({
+          success: true,
+          balanceCents: cached.balanceCents,
+          balanceUsd: (cached.balanceCents / 100).toFixed(2),
+        });
+      }
+    } catch {
+      /* cache unavailable, continue to Firestore */
+    }
+
+    const balanceCents = await getWalletBalance(db, userId);
+
+    try {
+      await getCacheService().set(
+        walletCacheKey(userId),
+        { balanceCents },
+        { ttl: BILLING_CACHE_TTL.wallet }
+      );
+    } catch {
+      /* cache unavailable */
+    }
+
+    return res.json({ success: true, balanceCents, balanceUsd: (balanceCents / 100).toFixed(2) });
+  } catch (error) {
+    logger.error('[GET /wallet] Failed to get wallet balance', { error });
+    return res.status(500).json({
+      error: 'Failed to get wallet balance',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * GET /api/v1/billing/wallet/check
+ * Check whether the user has sufficient balance for a given cost.
+ * Query params: ?cents=<number>
+ */
+// No Redis cache here — this is a financial gate called before every job; must always be fresh.
+router.get(
+  '/wallet/check',
+  appGuard,
+  validateQuery(WalletCheckQueryDto),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.uid;
+      const db = req.firebase?.db;
+      if (!db) throw new Error('Firebase context not available');
+
+      const { cents } = req.query as unknown as WalletCheckQueryDto;
+      const result = await checkSufficientBalance(db, userId, cents);
+      return res.json({ success: true, ...result });
+    } catch (error) {
+      logger.error('[GET /wallet/check] Failed to check balance', { error });
+      return res.status(500).json({
+        error: 'Failed to check balance',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+);
+
+// ============================================
+// PRICING CONFIG — Admin
+// IAP routes are at /api/v1/iap/ (see iap.routes.ts)
+// ============================================
+
+/**
+ * GET /api/v1/billing/pricing
+ * Get current pricing config (multiplier, feature overrides).
+ * Intended for admin use.
+ */
+router.get('/pricing', appGuard, async (req: Request, res: Response) => {
+  try {
+    const db = req.firebase?.db;
+    if (!db) throw new Error('Firebase context not available');
+
+    try {
+      const cached = await getCacheService().get<PricingConfig>(PRICING_CACHE_KEY);
+      if (cached) {
+        return res.json({ success: true, config: cached });
+      }
+    } catch {
+      /* cache unavailable */
+    }
+
+    const config = await getPricingConfig(db);
+
+    try {
+      await getCacheService().set(PRICING_CACHE_KEY, config, { ttl: BILLING_CACHE_TTL.pricing });
+    } catch {
+      /* cache unavailable */
+    }
+
+    return res.json({ success: true, config });
+  } catch (error) {
+    logger.error('[GET /pricing] Failed to get pricing config', { error });
+    return res.status(500).json({
+      error: 'Failed to get pricing config',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * PUT /api/v1/billing/pricing
+ * Update pricing config. Admin only.
+ * Body: { defaultMultiplier?: number, featureOverrides?: Record<string, number> }
+ */
+router.put(
+  '/pricing',
+  appGuard,
+  validateBody(UpdatePricingConfigDto),
+  async (req: Request, res: Response) => {
+    try {
+      const db = req.firebase?.db;
+      if (!db) throw new Error('Firebase context not available');
+
+      const { defaultMultiplier, featureOverrides } = req.body as UpdatePricingConfigDto;
+
+      await updatePricingConfig(db, {
+        ...(defaultMultiplier !== undefined ? { defaultMultiplier } : {}),
+        ...(featureOverrides !== undefined ? { featureOverrides } : {}),
+      });
+
+      // Bust Redis pricing cache so next GET picks up the new config immediately
+      try {
+        await getCacheService().del(PRICING_CACHE_KEY);
+      } catch {
+        /* cache unavailable */
+      }
+
+      return res.json({ success: true });
+    } catch (error) {
+      logger.error('[PUT /pricing] Failed to update pricing config', { error });
+      return res.status(500).json({
+        error: 'Failed to update pricing config',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+);
 
 export default router;
