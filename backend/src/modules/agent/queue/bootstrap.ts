@@ -50,6 +50,12 @@ import {
   WriteAthleteVideosTool,
   SearchKnowledgeBaseTool,
 } from '../tools/database/index.js';
+import {
+  GenerateScoutReportTool,
+  CompareAthletesTool,
+  AnalyzeRosterGapsTool,
+  BuildRecruitingBoardTool,
+} from '../tools/analytics/index.js';
 import { GenerateImageTool } from '../tools/media/index.js';
 import { WebSearchTool } from '../tools/integrations/web-search.tool.js';
 import { AskUserTool } from '../tools/comms/ask-user.tool.js';
@@ -180,6 +186,12 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteCalendarEventsTool(stagingDb));
   toolRegistry.register(new WriteAthleteVideosTool(stagingDb));
   toolRegistry.register(new GenerateImageTool(llm));
+
+  // ── Analytics / high-intent tools ──────────────────────────────────────
+  toolRegistry.register(new GenerateScoutReportTool(stagingDb));
+  toolRegistry.register(new CompareAthletesTool(stagingDb));
+  toolRegistry.register(new AnalyzeRosterGapsTool(stagingDb));
+  toolRegistry.register(new BuildRecruitingBoardTool(stagingDb));
 
   // ── 1a. Vector memory & knowledge tools ──────────────────────────────
   const vectorMemory = new VectorMemoryService(llm);
