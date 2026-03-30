@@ -104,6 +104,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
 
         <!-- Feed List -->
         <nxt1-feed-list
+          [polymorphicFeed]="feedService.polymorphicFeed()"
           [posts]="feedService.posts()"
           [isLoading]="feedService.isLoading()"
           [isLoadingMore]="feedService.isLoadingMore()"

@@ -93,7 +93,7 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
       @if (isLoading()) {
         <div class="feed-list__skeletons" data-testid="feed-list-skeletons">
           @for (i of skeletonArray; track i) {
-            <nxt1-feed-skeleton [variant]="i % 2 === 0 ? 'post-with-media' : 'post'" />
+            <nxt1-feed-skeleton variant="post-with-media" />
           }
         </div>
       }
@@ -125,7 +125,11 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
 
       <!-- Posts List -->
       @else {
-        <div class="feed-list__posts" data-testid="feed-list-posts">
+        <div
+          class="feed-list__posts"
+          [class.feed-list__posts--compact]="compactCards()"
+          data-testid="feed-list-posts"
+        >
           @for (item of effectiveFeed(); track item.id; let i = $index) {
             <div
               class="feed-list__post-wrapper"
@@ -142,7 +146,10 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
               >
                 @switch (item.feedType) {
                   @case ('POST') {
-                    <nxt1-feed-post-content [data]="asPost(item)" />
+                    <ng-container>
+                      <nxt1-feed-post-content feedShellLead [data]="asPost(item)" mode="media" />
+                      <nxt1-feed-post-content [data]="asPost(item)" mode="body" />
+                    </ng-container>
                   }
                   @case ('EVENT') {
                     <nxt1-feed-event-card [data]="asEvent(item).eventData" />
@@ -238,8 +245,16 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
          ============================================ */
 
       .feed-list__skeletons {
-        display: flex;
-        flex-direction: column;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px;
+      }
+
+      @media (max-width: 640px) {
+        .feed-list__skeletons {
+          grid-template-columns: 1fr;
+          gap: 0;
+        }
       }
 
       /* ============================================
@@ -317,6 +332,7 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
       .feed-list__posts {
         display: flex;
         flex-direction: column;
+        min-width: 0;
       }
 
       @media (min-width: 768px) {
@@ -325,10 +341,28 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
           grid-template-columns: repeat(3, 1fr);
           gap: 16px;
         }
+
+        .feed-list__posts--compact {
+          display: block;
+          column-count: 2;
+          column-gap: 16px;
+        }
+      }
+
+      .feed-list__post-wrapper {
+        min-width: 0;
       }
 
       .feed-list__post-wrapper {
         animation: feed-item-in 0.3s ease-out both;
+      }
+
+      .feed-list__posts--compact .feed-list__post-wrapper {
+        display: inline-block;
+        width: 100%;
+        margin-bottom: 16px;
+        break-inside: avoid;
+        page-break-inside: avoid;
       }
 
       @keyframes feed-item-in {

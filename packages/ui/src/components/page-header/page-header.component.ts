@@ -97,6 +97,8 @@ import {
   bookmarkOutline,
   filterOutline,
   optionsOutline,
+  funnel,
+  funnelOutline,
   refreshOutline,
   downloadOutline,
   cloudUploadOutline,
@@ -861,6 +863,8 @@ export class NxtPageHeaderComponent {
       // Settings
       settingsOutline,
       optionsOutline,
+      funnel,
+      funnelOutline,
 
       // Favorites/bookmarks
       heartOutline,

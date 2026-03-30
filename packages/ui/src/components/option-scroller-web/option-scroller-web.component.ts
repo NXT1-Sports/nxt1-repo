@@ -370,6 +370,9 @@ export class NxtOptionScrollerWebComponent {
   }
 
   private updateIndicator(): void {
+    // Always re-cache DOM elements — options array may have changed
+    this.cacheOptionElements();
+
     const idx = this.selectedIndex();
     if (idx < 0 || !this.optionElements.length) {
       this._indicatorWidth.set(0);

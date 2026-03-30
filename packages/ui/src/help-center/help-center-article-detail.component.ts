@@ -27,7 +27,6 @@ import {
   IonItem,
   IonIcon,
   IonChip,
-  IonButton,
 } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import {
@@ -44,6 +43,7 @@ import {
 } from 'ionicons/icons';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtIconComponent } from '../components/icon';
+import { NxtStateViewComponent } from '../components/state-view';
 import { HelpCenterService } from './help-center.service';
 import { HapticsService } from '../services/haptics/haptics.service';
 import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
@@ -60,9 +60,9 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
     IonItem,
     IonIcon,
     IonChip,
-    IonButton,
     NxtPageHeaderComponent,
     NxtIconComponent,
+    NxtStateViewComponent,
   ],
   template: `
     <nxt1-page-header title="Article" [showBack]="true" (backClick)="back.emit()" />
@@ -145,12 +145,14 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
         </div>
       } @else {
         <!-- Not Found -->
-        <div class="article-not-found">
-          <ion-icon name="document-text-outline" class="article-not-found__icon" />
-          <h2>Article not found</h2>
-          <p>The article you're looking for doesn't exist or has been removed.</p>
-          <ion-button fill="outline" (click)="back.emit()"> Go Back </ion-button>
-        </div>
+        <nxt1-state-view
+          variant="not-found"
+          title="Article not found"
+          message="The article you're looking for doesn't exist or has been removed."
+          actionLabel="Go Back"
+          (action)="back.emit()"
+          style="min-height: 60vh"
+        />
       }
     </ion-content>
   `,
@@ -385,36 +387,6 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
         text-align: center;
       }
 
-      /* Not Found */
-      .article-not-found {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        min-height: 60vh;
-        padding: var(--nxt1-spacing-xl, 32px);
-        text-align: center;
-      }
-
-      .article-not-found__icon {
-        font-size: 64px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.3));
-        margin-bottom: var(--nxt1-spacing-md, 16px);
-      }
-
-      .article-not-found h2 {
-        margin: 0 0 var(--nxt1-spacing-xs, 8px);
-        font-size: var(--nxt1-font-size-xl, 20px);
-        font-weight: 600;
-        color: var(--nxt1-color-text-primary, #ffffff);
-      }
-
-      .article-not-found p {
-        margin: 0 0 var(--nxt1-spacing-lg, 24px);
-        font-size: var(--nxt1-font-size-md, 15px);
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.6));
-      }
-
       /* Light Mode */
       :host-context(.light),
       :host-context([data-theme='light']) {
@@ -472,18 +444,6 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
         .article-updated {
           border-top-color: var(--nxt1-color-border-subtle, rgba(0, 0, 0, 0.06));
           color: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.4));
-        }
-
-        .article-not-found__icon {
-          color: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.3));
-        }
-
-        .article-not-found h2 {
-          color: var(--nxt1-color-text-primary, #000000);
-        }
-
-        .article-not-found p {
-          color: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.6));
         }
       }
     `,

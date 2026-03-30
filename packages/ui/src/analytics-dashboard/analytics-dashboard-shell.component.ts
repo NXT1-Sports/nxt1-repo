@@ -53,6 +53,7 @@ import {
   type OptionScrollerChangeEvent,
 } from '../components/option-scroller';
 import { NxtIconComponent } from '../components/icon';
+import { NxtStateViewComponent } from '../components/state-view';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { HapticsService } from '../services/haptics/haptics.service';
@@ -80,6 +81,7 @@ export interface AnalyticsUser {
     NxtRefresherComponent,
     NxtOptionScrollerComponent,
     NxtIconComponent,
+    NxtStateViewComponent,
     AnalyticsDashboardSkeletonComponent,
   ],
   template: `
@@ -132,34 +134,28 @@ export interface AnalyticsUser {
 
         <!-- Error State -->
         @else if (analytics.error()) {
-          <div class="analytics-error">
-            <div class="error-icon">
-              <nxt1-icon name="alert-circle-outline" size="64" />
-            </div>
-            <h3 class="error-title">Unable to Load Analytics</h3>
-            <p class="error-message">{{ analytics.error() }}</p>
-            <button class="error-retry" (click)="onRetry()">
-              <nxt1-icon name="refresh-outline" size="20" />
-              Try Again
-            </button>
-          </div>
+          <nxt1-state-view
+            variant="error"
+            title="Unable to Load Analytics"
+            [message]="analytics.error()"
+            actionLabel="Try Again"
+            actionIcon="refresh"
+            (action)="onRetry()"
+          />
         }
 
         <!-- Empty State -->
         @else if (analytics.isEmpty()) {
-          <div class="analytics-empty">
-            <div class="empty-icon">
-              <nxt1-icon name="analytics-outline" size="64" />
-            </div>
-            <h3 class="empty-title">No Analytics Data Yet</h3>
-            <p class="empty-message">
-              @if (analytics.isAthleteView()) {
-                Start building your profile to see engagement analytics
-              } @else {
-                Add athletes to your roster to see team analytics
-              }
-            </p>
-          </div>
+          <nxt1-state-view
+            variant="empty"
+            icon="analytics"
+            title="No Analytics Data Yet"
+            [message]="
+              analytics.isAthleteView()
+                ? 'Start building your profile to see engagement analytics'
+                : 'Add athletes to your roster to see team analytics'
+            "
+          />
         }
 
         <!-- Content Panels -->
@@ -667,102 +663,6 @@ export interface AnalyticsUser {
       }
 
       /* ============================================
-         ERROR STATE
-         ============================================ */
-
-      .analytics-error {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        text-align: center;
-        padding: var(--nxt1-spacing-8) var(--nxt1-spacing-4);
-        min-height: 300px;
-      }
-
-      .error-icon {
-        color: var(--nxt1-color-error);
-        margin-bottom: var(--nxt1-spacing-4);
-        opacity: 0.8;
-      }
-
-      .error-title {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-lg);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        color: var(--nxt1-color-text-primary);
-        margin: 0 0 var(--nxt1-spacing-2) 0;
-      }
-
-      .error-message {
-        font-family: var(--nxt1-fontFamily-system);
-        font-size: var(--nxt1-fontSize-sm);
-        color: var(--nxt1-color-text-secondary);
-        margin: 0 0 var(--nxt1-spacing-6) 0;
-        max-width: 280px;
-      }
-
-      .error-retry {
-        display: inline-flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-2);
-        background: var(--nxt1-color-surface-100);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        color: var(--nxt1-color-text-primary);
-        font-family: var(--nxt1-fontFamily-system);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-medium);
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-5);
-        border-radius: var(--nxt1-borderRadius-lg);
-        cursor: pointer;
-        transition:
-          background var(--nxt1-motion-duration-fast) var(--nxt1-motion-easing-inOut),
-          border-color var(--nxt1-motion-duration-fast) var(--nxt1-motion-easing-inOut);
-
-        &:hover {
-          background: var(--nxt1-color-surface-200);
-          border-color: var(--nxt1-color-border-default);
-        }
-      }
-
-      /* ============================================
-         EMPTY STATE
-         ============================================ */
-
-      .analytics-empty {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        text-align: center;
-        padding: var(--nxt1-spacing-8) var(--nxt1-spacing-4);
-        min-height: 300px;
-      }
-
-      .empty-icon {
-        color: var(--nxt1-color-text-tertiary);
-        margin-bottom: var(--nxt1-spacing-4);
-        opacity: 0.6;
-      }
-
-      .empty-title {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-lg);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        color: var(--nxt1-color-text-primary);
-        margin: 0 0 var(--nxt1-spacing-2) 0;
-      }
-
-      .empty-message {
-        font-family: var(--nxt1-fontFamily-system);
-        font-size: var(--nxt1-fontSize-sm);
-        color: var(--nxt1-color-text-secondary);
-        margin: 0;
-        max-width: 280px;
-        line-height: var(--nxt1-lineHeight-relaxed);
-      }
-
-      /* ============================================
          COMING SOON PLACEHOLDER
          ============================================ */
 
@@ -798,8 +698,7 @@ export interface AnalyticsUser {
       @media (prefers-reduced-motion: reduce) {
         .metric-card,
         .insight-action,
-        .recommendation-action,
-        .error-retry {
+        .recommendation-action {
           transition: none;
         }
       }

@@ -23,6 +23,7 @@ import { NxtImageComponent } from '../components/image';
 import { NxtIconComponent } from '../components/icon';
 
 const MAX_VISIBLE_TAGS = 5;
+type FeedPostContentMode = 'full' | 'media' | 'body';
 
 @Component({
   selector: 'nxt1-feed-post-content',
@@ -30,7 +31,7 @@ const MAX_VISIBLE_TAGS = 5;
   imports: [NxtImageComponent, NxtIconComponent],
   template: `
     <!-- Media Carousel -->
-    @if (hasMedia()) {
+    @if (showMedia()) {
       <div class="post-content__media" [attr.data-testid]="testIds.POST_MEDIA_CAROUSEL">
         <div
           class="post-content__media-track"
@@ -88,14 +89,14 @@ const MAX_VISIBLE_TAGS = 5;
     }
 
     <!-- Title -->
-    @if (data().title) {
+    @if (showBody() && data().title) {
       <h3 class="post-content__title" [attr.data-testid]="testIds.POST_TITLE">
         {{ data().title }}
       </h3>
     }
 
     <!-- Text Content -->
-    @if (data().content) {
+    @if (showBody() && data().content) {
       <p
         class="post-content__text"
         [attr.data-testid]="testIds.POST_CONTENT"
@@ -104,7 +105,7 @@ const MAX_VISIBLE_TAGS = 5;
     }
 
     <!-- External Source -->
-    @if (data().externalSource) {
+    @if (showBody() && data().externalSource) {
       <div class="post-content__external" [attr.data-testid]="testIds.POST_EXTERNAL">
         @if (data().externalSource!.logoUrl) {
           <img
@@ -120,7 +121,7 @@ const MAX_VISIBLE_TAGS = 5;
     }
 
     <!-- Tags -->
-    @if (hasTags()) {
+    @if (showBody() && hasTags()) {
       <div class="post-content__tags" [attr.data-testid]="testIds.POST_TAGS">
         @for (tag of visibleTags(); track tag.id) {
           <div class="post-content__tag" [attr.data-testid]="testIds.POST_TAG">
@@ -136,7 +137,7 @@ const MAX_VISIBLE_TAGS = 5;
     }
 
     <!-- Location -->
-    @if (data().location) {
+    @if (showBody() && data().location) {
       <div class="post-content__location" [attr.data-testid]="testIds.POST_LOCATION">
         <nxt1-icon name="location" [size]="14" />
         <span>{{ data().location }}</span>
@@ -306,12 +307,21 @@ const MAX_VISIBLE_TAGS = 5;
 })
 export class FeedPostContentComponent {
   readonly data = input.required<FeedItemPost>();
+  readonly mode = input<FeedPostContentMode>('full');
 
   private readonly sanitizer = inject(DomSanitizer);
   protected readonly testIds = FEED_CARD_TEST_IDS;
   protected readonly activeMediaIndex = signal(0);
 
   protected readonly hasMedia = computed(() => this.data().media.length > 0);
+  protected readonly showMedia = computed(() => {
+    const mode = this.mode();
+    return this.hasMedia() && (mode === 'full' || mode === 'media');
+  });
+  protected readonly showBody = computed(() => {
+    const mode = this.mode();
+    return mode === 'full' || mode === 'body';
+  });
 
   /**
    * Sanitized HTML content with hashtag/mention highlighting.

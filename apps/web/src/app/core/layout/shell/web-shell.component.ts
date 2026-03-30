@@ -67,6 +67,7 @@ import {
   NxtHeaderComponent,
   type TopNavItem,
   type TopNavUserData,
+  type TopNavUserMenuItem,
   type TopNavConfig,
   type TopNavSelectEvent,
   type TopNavUserMenuEvent,
@@ -108,9 +109,10 @@ import {
 import { AuthModalService } from '@nxt1/ui/auth';
 // ── Activity (for mark-all-read on /activity route) ──
 import { ActivityService } from '@nxt1/ui/activity';
-// ── Explore (for global search dropdown) ──
-import { ExploreService } from '@nxt1/ui/explore';
+// ── Explore (for global search dropdown + mobile filter) ──
+import { ExploreService, ExploreFilterModalService } from '@nxt1/ui/explore';
 import type { TopNavSearchSubmitEvent } from '@nxt1/ui/components/top-nav';
+
 // ── App-level imports ──
 import { AuthFlowService } from '../../../features/auth/services';
 import { BadgeCountService } from '../../services/badge-count.service';
@@ -134,7 +136,12 @@ import type { SidenavSportProfile, UserDisplayInput, UserDisplayFallback } from 
  * Desktop sidebar sections - Main navigation structure.
  * Matches YouTube/Twitter sectioned sidebar pattern.
  */
-const FOLLOW_US_ITEMS: readonly DesktopSidebarItem[] = DEFAULT_SOCIAL_LINKS.map((social) => ({
+/** Sidebar shows only the core social platforms (YouTube/TikTok live in the site footer). */
+const SIDEBAR_SOCIAL_PLATFORMS = new Set(['twitter', 'instagram', 'facebook']);
+
+const FOLLOW_US_ITEMS: readonly DesktopSidebarItem[] = DEFAULT_SOCIAL_LINKS.filter((s) =>
+  SIDEBAR_SOCIAL_PLATFORMS.has(s.id)
+).map((social) => ({
   id: `follow-${social.id}`,
   label: social.label,
   icon: social.icon,
@@ -204,7 +211,14 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
         activeIcon: 'compassFilled',
         route: '/explore',
       },
-      { id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' },
+    ],
+  },
+  {
+    id: 'account',
+    items: [
+      { id: 'usage', label: 'Billing & Usage', icon: 'creditCard', route: '/usage' },
+      { id: 'help', label: 'Help Center', icon: 'help', route: '/help-center' },
+      { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
     ],
   },
   {
@@ -215,7 +229,9 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
 ];
 
 /**
- * Logged-out variant — Full marketing sidebar with persona-based navigation.
+ * Logged-out variant — Streamlined sidebar for unauthenticated users.
+ * Persona-based navigation (Athletes, Programs, Sports) lives in the
+ * top header bar so the sidebar stays clean and focused.
  * Auth-required items (Settings) use `action` instead of direct navigation
  * so the web-shell can present the sign-in modal before routing.
  * Named WEB_* to avoid shadowing the @nxt1/ui LOGGED_OUT_SIDEBAR_SECTIONS export.
@@ -236,179 +252,6 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
     ],
   },
 
-  // ── Persona sections + Sports (expandable items with children) ──
-  {
-    id: 'personas',
-    items: [
-      {
-        id: 'persona-athletes',
-        label: 'For Athletes',
-        icon: 'athlete',
-        expanded: false,
-        children: [
-          {
-            id: 'athlete-platform',
-            label: 'Athlete Platform',
-            icon: 'athlete',
-            route: '/athletes',
-          },
-          {
-            id: 'athlete-profiles',
-            label: 'Super Profile',
-            icon: 'link',
-            route: '/super-profiles',
-          },
-          { id: 'athlete-ai', label: 'AI for Athletes', icon: 'agent-x', route: '/ai-athletes' },
-          {
-            id: 'athlete-recruiting',
-            label: 'Discovery',
-            icon: 'graduationCap',
-            route: '/recruiting-athletes',
-          },
-          {
-            id: 'athlete-content',
-            label: 'Content Creation',
-            icon: 'videocam',
-            route: '/content-creation-athletes',
-          },
-          {
-            id: 'athlete-media',
-            label: 'Media & Coverage',
-            icon: 'newspaper',
-            route: '/media-coverage',
-          },
-          { id: 'athlete-xp', label: 'XP', icon: 'sparkles', route: '/xp' },
-          { id: 'athlete-nil', label: 'NIL', icon: 'creditCard', route: '/nil' },
-        ],
-      },
-      {
-        id: 'persona-programs',
-        label: 'For Programs/Orgs',
-        icon: 'users',
-        expanded: false,
-        children: [
-          { id: 'team-platform', label: 'Team Platform', icon: 'users', route: '/team-platform' },
-          { id: 'team-ai', label: 'AI For Coaches', icon: 'agent-x', route: '/ai-coaches' },
-          { id: 'team-admin', label: 'Administration', icon: 'clipboard', route: '/team-admin' },
-          {
-            id: 'team-content',
-            label: 'Content Creation',
-            icon: 'videocam',
-            route: '/team-content',
-          },
-          { id: 'team-website', label: 'Team Website', icon: 'link', route: '/team-website' },
-          {
-            id: 'team-management',
-            label: 'Management',
-            icon: 'settings',
-            route: '/team-management',
-          },
-          {
-            id: 'team-recruiting',
-            label: 'Discovery',
-            icon: 'graduationCap',
-            route: '/team-recruiting',
-          },
-        ],
-      },
-      {
-        id: 'persona-colleges',
-        label: 'For Colleges/Scouts',
-        icon: 'search',
-        expanded: false,
-        children: [
-          { id: 'scout-platform', label: 'Scout Platform', icon: 'search', route: '/scouts' },
-          { id: 'scout-discover', label: 'Discover Athletes', icon: 'compass', route: '/explore' },
-          { id: 'scout-ai', label: 'AI For Scouts', icon: 'agent-x', route: '/ai-scouts' },
-          {
-            id: 'scout-recruiting',
-            label: 'Discovery',
-            icon: 'graduationCap',
-            route: '/recruiting-scouts-colleges',
-          },
-        ],
-      },
-      {
-        id: 'persona-parents',
-        label: 'For Parents',
-        icon: 'parent',
-        expanded: false,
-        children: [
-          { id: 'parent-platform', label: 'Parent Platform', icon: 'parent', route: '/parents' },
-          {
-            id: 'parent-content',
-            label: 'Content Creation',
-            icon: 'videocam',
-            route: '/parent-content',
-          },
-          {
-            id: 'parent-coverage',
-            label: 'Athlete Coverage',
-            icon: 'newspaper',
-            route: '/athlete-coverage',
-          },
-          {
-            id: 'parent-recruiting',
-            label: 'Discovery',
-            icon: 'graduationCap',
-            route: '/parent-recruiting',
-          },
-        ],
-      },
-      {
-        id: 'persona-businesses',
-        label: 'For Businesses',
-        icon: 'business',
-        expanded: false,
-        children: [
-          {
-            id: 'biz-advertising',
-            label: 'Advertising',
-            icon: 'star',
-            route: '/advertising',
-          },
-          {
-            id: 'biz-recruiting-services',
-            label: 'Recruiting Services',
-            icon: 'recruiting-service',
-            route: '/recruiting-services',
-          },
-          {
-            id: 'biz-whitelabel',
-            label: 'Whitelabel',
-            icon: 'colorPalette',
-            route: '/whitelabel',
-          },
-          {
-            id: 'biz-nil',
-            label: 'NIL',
-            icon: 'creditCard',
-            route: '/nil',
-          },
-          {
-            id: 'biz-partnerships',
-            label: 'Partnerships',
-            icon: 'handshake',
-            route: '/partnerships',
-          },
-        ],
-      },
-      {
-        id: 'sports',
-        label: 'Sports',
-        icon: 'trophy',
-        expanded: false,
-        children: SPORT_CHILD_ITEMS as DesktopSidebarItem[],
-      },
-    ],
-  },
-
-  // ── Footer (Usage) ──
-  {
-    id: 'footer',
-    items: [{ id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' }],
-  },
-
   // ── Follow Us ──
   {
     id: 'follow-us',
@@ -418,15 +261,78 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
 ];
 
 /**
- * Desktop header navigation items (empty - sidebar has main nav).
- * Header only shows: Search, Notifications, User Menu on desktop with sidebar.
+ * Desktop header navigation items — logged-out only.
+ * Shows Athletes, Programs, and Sports dropdowns in the top bar.
+ * When logged in, the header only shows: Search, Notifications, User Menu.
  */
-const DESKTOP_HEADER_ITEMS: TopNavItem[] = [];
+const LOGGED_OUT_HEADER_NAV_ITEMS: TopNavItem[] = [
+  {
+    id: 'nav-programs',
+    label: 'Programs',
+    icon: 'users',
+    children: [
+      { id: 'team-platform', label: 'Team Platform', icon: 'users', route: '/team-platform' },
+      { id: 'team-ai', label: 'AI For Coaches', icon: 'agent-x', route: '/ai-coaches' },
+      { id: 'team-admin', label: 'Administration', icon: 'clipboard', route: '/team-admin' },
+      { id: 'team-content', label: 'Content Creation', icon: 'videocam', route: '/team-content' },
+      { id: 'team-website', label: 'Team Website', icon: 'link', route: '/team-website' },
+      { id: 'team-management', label: 'Management', icon: 'settings', route: '/team-management' },
+      {
+        id: 'team-recruiting',
+        label: 'Discovery',
+        icon: 'graduationCap',
+        route: '/team-recruiting',
+      },
+    ],
+  },
+  {
+    id: 'nav-athletes',
+    label: 'Athletes',
+    icon: 'athlete',
+    children: [
+      { id: 'athlete-platform', label: 'Athlete Platform', icon: 'athlete', route: '/athletes' },
+      { id: 'athlete-profiles', label: 'Super Profile', icon: 'link', route: '/super-profiles' },
+      { id: 'athlete-ai', label: 'AI for Athletes', icon: 'agent-x', route: '/ai-athletes' },
+      {
+        id: 'athlete-recruiting',
+        label: 'Discovery',
+        icon: 'graduationCap',
+        route: '/recruiting-athletes',
+      },
+      {
+        id: 'athlete-content',
+        label: 'Content Creation',
+        icon: 'videocam',
+        route: '/content-creation-athletes',
+      },
+      {
+        id: 'athlete-media',
+        label: 'Media & Coverage',
+        icon: 'newspaper',
+        route: '/media-coverage',
+      },
+      { id: 'athlete-xp', label: 'XP', icon: 'sparkles', route: '/xp' },
+      { id: 'athlete-nil', label: 'NIL', icon: 'creditCard', route: '/nil' },
+    ],
+  },
+  {
+    id: 'nav-sports',
+    label: 'Sports',
+    icon: 'trophy',
+    children: SPORT_CHILD_ITEMS.map((sport) => ({
+      id: sport.id,
+      label: sport.label,
+      icon: sport.icon,
+      route: sport.route,
+    })),
+  },
+];
 
 /**
- * User menu dropdown items - shared across header and sidebar.
+ * User menu dropdown items — profile/account meta only.
+ * Navigation items (Usage, Settings, Help) live in the sidebar.
  */
-const USER_MENU_ITEMS = DEFAULT_USER_MENU_ITEMS;
+const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
 
 /**
  * Mobile footer tabs - same items as main sidebar section.
@@ -503,6 +409,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
         (editClick)="onMobileProfileEditClick()"
         (moreClick)="onMobileProfileMoreClick()"
         (markAllReadClick)="onMobileActivityMarkAllReadClick()"
+        (filterClick)="onMobileExploreFilterClick()"
         (userClick)="onMobileUserClick()"
       />
 
@@ -524,7 +431,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
       <div class="shell__main">
         <!-- DESKTOP: Header bar — CSS-hidden below 768px -->
         <nxt1-header
-          [items]="headerItems"
+          [items]="headerItems()"
           [user]="headerUserData()"
           [isAuthenticated]="topNavIsAuthenticated()"
           [userMenuItems]="userMenuItems"
@@ -564,8 +471,6 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
 
       <!-- MOBILE: Bottom Tab Bar — CSS-hidden at 768px+, auth-gated -->
       @if (showMobileFooter()) {
-        <!-- Background fill so nothing peeks below the floating pill -->
-        <div class="shell__footer-bg" aria-hidden="true"></div>
         <nxt1-mobile-footer
           [tabs]="footerTabs()"
           [activeTabId]="activeTabId()"
@@ -699,19 +604,6 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
         --nxt1-z-index-footer: 1000;
       }
 
-      /* Solid background fill that extends from screen bottom up to footer pill —
-         prevents the raw page bg from showing in the gap below the floating pill */
-      .shell__footer-bg {
-        display: none; /* desktop: hidden */
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        height: var(--nxt1-footer-bottom, 28px);
-        background: var(--nxt1-nav-bgSolid, rgb(22, 22, 22));
-        z-index: 999; /* just below footer (1000) */
-      }
-
       /* ============================================
          RESPONSIVE LAYOUT — 100% CSS-Driven
          ──────────────────────────────────────────
@@ -755,11 +647,6 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
         /* Footer padding when footer is present */
         .shell__content--has-footer {
           padding-bottom: var(--shell-footer-height);
-        }
-
-        /* Show footer background fill on mobile */
-        .shell__footer-bg {
-          display: block;
         }
       }
 
@@ -813,13 +700,10 @@ export class WebShellComponent {
   private readonly authModal = inject(AuthModalService);
   private readonly elementRef = inject(ElementRef);
   private readonly exploreService = inject(ExploreService);
+  private readonly exploreFilterModal = inject(ExploreFilterModalService);
 
   /** Debounce timer for search input */
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Releases top-nav hydration lock shortly after first client paint */
-  private topNavUnlockTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Releases Sign In button lock after auth hydration settles */
-  private signInButtonUnlockTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ============================================
   // SIDEBAR CONFIGURATION (Desktop/Tablet)
@@ -833,27 +717,15 @@ export class WebShellComponent {
   /** Desktop sidebar sections — computed from auth state */
   readonly sidebarSections = this._baseSidebarSections;
 
-  /**
-   * Hydration lock for Sign In button.
-   * Prevents flash during Firebase auth restoration (~100-300ms).
-   * Same pattern as topNavHydrationLocked but specifically for Sign In visibility.
-   */
-  private readonly _signInButtonLocked = signal(isPlatformBrowser(this.platformId));
-
   /** Sidebar configuration - responsive based on viewport */
   readonly sidebarConfig = computed<DesktopSidebarConfig>(() => {
     const viewport = this.platform.viewport();
     const isTablet =
       viewport.width >= SIDEBAR_BREAKPOINTS.MOBILE && viewport.width < SIDEBAR_BREAKPOINTS.DESKTOP;
 
-    // Only show Sign In when:
-    // 1. Auth initialized
-    // 2. Hydration lock released (300ms delay)
-    // 3. userData confirmed null
-    const showSignIn =
-      this.authFlow.isInitialized() &&
-      !this._signInButtonLocked() &&
-      this.sidebarUserData() === null;
+    // Show Sign In when auth is fully resolved and no user is present.
+    // isAuthReady() waits for Firebase to confirm — prevents premature "Sign In" flash.
+    const showSignIn = this.authFlow.isAuthReady() && !this.isAuthenticated();
 
     return createDesktopSidebarConfig({
       collapsed: isTablet || this._sidebarCollapsed(),
@@ -889,8 +761,8 @@ export class WebShellComponent {
 
   /** Sidebar user data — team-role aware */
   readonly sidebarUserData = computed<DesktopSidebarUserData | null>(() => {
-    // Return null during auth initialization to prevent premature rendering
-    if (!this.authFlow.isInitialized()) return null;
+    // Return null during auth resolution to prevent premature rendering
+    if (!this.authFlow.isAuthReady()) return null;
 
     const ctx = this._userDisplayContext();
     if (!ctx) return null;
@@ -929,8 +801,13 @@ export class WebShellComponent {
   // HEADER CONFIGURATION (Desktop - Minimal)
   // ============================================
 
-  /** Desktop header items (empty when using sidebar) */
-  readonly headerItems = DESKTOP_HEADER_ITEMS;
+  /** Desktop header items — auth-aware.
+   * Logged out: Athletes, Programs, Sports dropdowns.
+   * Logged in: empty (sidebar has main nav).
+   */
+  readonly headerItems = computed(() =>
+    this.authFlow.isAuthenticated() ? ([] as TopNavItem[]) : LOGGED_OUT_HEADER_NAV_ITEMS
+  );
 
   /** User menu items (Settings, Help, etc. — profile navigation is handled by the user info header) */
   readonly userMenuItems = USER_MENU_ITEMS;
@@ -940,7 +817,7 @@ export class WebShellComponent {
     return createTopNavConfig({
       variant: 'default',
       showLogo: false, // Sidebar has logo
-      showSearch: true,
+      showSearch: false,
       showNotifications: true,
       notificationCount: this.badgeCount.totalUnread(),
       sticky: true,
@@ -951,9 +828,9 @@ export class WebShellComponent {
 
   /** Header user data — includes team/athlete context for the profile link in the dropdown */
   readonly headerUserData = computed<TopNavUserData | null>(() => {
-    // Wait for auth to initialize before showing Sign In button
+    // Wait for auth to resolve before showing Sign In button
     // This prevents flash of "Sign In" during Firebase auth hydration
-    if (!this.authFlow.isInitialized()) return null;
+    if (!this.authFlow.isAuthReady()) return null;
 
     const ctx = this._userDisplayContext();
     if (!ctx) return null;
@@ -973,20 +850,11 @@ export class WebShellComponent {
   });
 
   /**
-   * Hydration lock for the desktop top-nav isAuthenticated input.
-   *
-   * Freezes the Sign In / user-menu toggle for ~300 ms after the first client
-   * paint while Firebase Auth and the SSR→client handover settle. This stops
-   * the brief "Sign In" button flash without touching user-data bindings
-   * (avatar, name) which are safe to update live.
+   * Stable isAuthenticated signal for desktop header.
+   * With TransferState, auth state is known synchronously on both
+   * server and client — no hydration lock needed.
    */
-  private readonly _topNavHydrationLocked = signal(isPlatformBrowser(this.platformId));
-  private readonly _frozenTopNavIsAuthenticated = signal(this.authFlow.isAuthenticated());
-
-  /** Stable isAuthenticated input for desktop header during hydration */
-  readonly topNavIsAuthenticated = computed(() =>
-    this._topNavHydrationLocked() ? this._frozenTopNavIsAuthenticated() : this.isAuthenticated()
-  );
+  readonly topNavIsAuthenticated = computed(() => this.isAuthenticated());
 
   // ============================================
   // HEADER SEARCH RESULTS (Global Search Dropdown)
@@ -1055,13 +923,58 @@ export class WebShellComponent {
     return this._currentRoute().startsWith('/activity');
   });
 
+  /** Whether the current route is the explore page */
+  private readonly _isOnExplorePage = computed(() => {
+    return this._currentRoute().startsWith('/explore');
+  });
+
+  /**
+   * Derives the display title for the mobile header from the current route.
+   * Shown in the header center when the user is authenticated (logo is hidden).
+   */
+  private readonly _mobilePageTitle = computed((): string => {
+    const route = this._currentRoute();
+    const userData = this.sidebarUserData();
+
+    // Own profile — show user's first name for a personal touch
+    if (route === '/profile' || route.startsWith('/profile?')) {
+      return userData?.name?.split(' ')[0] ?? 'Profile';
+    }
+
+    const MAP: ReadonlyArray<[string, string]> = [
+      ['/profile/', 'Profile'],
+      ['/agent', 'Agent X'],
+      ['/explore', 'Explore'],
+      ['/home', 'Home'],
+      ['/feed', 'Home'],
+      ['/activity', 'Activity'],
+      ['/messages', 'Messages'],
+      ['/settings', 'Settings'],
+      ['/usage', 'Billing & Usage'],
+      ['/help-center', 'Help Center'],
+      ['/news', 'News'],
+      ['/analytics', 'Analytics'],
+      ['/scout-reports', 'Scout Reports'],
+      ['/xp', 'My Progress'],
+      ['/invite', 'Invite Friends'],
+      ['/manage-team', 'My Team'],
+      ['/team/', 'Team'],
+      ['/pulse', 'Pulse'],
+      ['/rankings', 'Rankings'],
+      ['/colleges', 'Colleges'],
+      ['/create-post', 'Create Post'],
+    ];
+
+    for (const [prefix, label] of MAP) {
+      if (route.startsWith(prefix)) return label;
+    }
+    return '';
+  });
+
   /** Mobile header configuration — route-aware (back arrow on profile pages) */
   readonly mobileHeaderConfig = computed<MobileHeaderConfig>(() => {
-    // Only show Sign In after hydration lock released AND userData confirmed null
-    const showSignIn =
-      this.authFlow.isInitialized() &&
-      !this._signInButtonLocked() &&
-      this.mobileHeaderUserData() === null;
+    const isLoggedIn = this.isAuthenticated();
+    const showSignIn = this.authFlow.isAuthReady() && !isLoggedIn;
 
     const onProfilePage = this._isOnProfilePage();
     const isOwnProfilePage = this._currentRoute() === '/profile';
@@ -1070,7 +983,9 @@ export class WebShellComponent {
 
     return createMobileHeaderConfig({
       showBack: this._showMobileBack(),
-      showLogo: true,
+      // Logged-out: show brand logo. Logged-in: show page title instead.
+      showLogo: !isLoggedIn,
+      title: isLoggedIn ? this._mobilePageTitle() : undefined,
       // Hide search & bell on profile/team/activity pages — top nav shows relevant actions instead
       showSearch: !onProfilePage && !onTeamPage && !onActivityPage,
       showNotifications: !onProfilePage && !onTeamPage && !onActivityPage,
@@ -1079,7 +994,13 @@ export class WebShellComponent {
       showMore: onProfilePage || onTeamPage,
       showEdit: isOwnProfilePage || this.profileActions.showEditButton(),
       showMarkAllRead: onActivityPage && this.activityService.totalUnread() > 0,
-      showAvatar: false,
+      // Filter icon: visible on /explore for authenticated users (desktop sidebar handles desktop)
+      showFilter: isLoggedIn && this._isOnExplorePage(),
+      filterActiveCount: this._isOnExplorePage()
+        ? this.exploreService.getActiveFilterCount(this.exploreService.activeTab())
+        : 0,
+      // Avatar already lives in the mobile footer tab bar — hide it here
+      showAvatar: !isLoggedIn,
       sticky: true,
       hideOnScroll: false,
       bordered: true,
@@ -1089,9 +1010,9 @@ export class WebShellComponent {
 
   /** Mobile header user data */
   readonly mobileHeaderUserData = computed<MobileHeaderUserData | null>(() => {
-    // Wait for auth to initialize before showing Sign In button
+    // Wait for auth to resolve before showing Sign In button
     // This prevents flash of "Sign In" during Firebase auth hydration
-    if (!this.authFlow.isInitialized()) return null;
+    if (!this.authFlow.isAuthReady()) return null;
 
     const ctx = this._userDisplayContext();
     if (!ctx) return null;
@@ -1114,7 +1035,7 @@ export class WebShellComponent {
    */
   readonly mobileSidebarSections = computed(() =>
     this._baseSidebarSections()
-      .filter((s) => s.id !== 'follow-us')
+      .filter((s) => s.id !== 'follow-us' && s.id !== 'account')
       .map((s) => {
         if (s.id !== 'main') return s;
         return {
@@ -1122,6 +1043,7 @@ export class WebShellComponent {
           items: [
             // Agent X and Explore are in the mobile footer — omit here
             ...s.items.filter((item) => item.id !== 'agent' && item.id !== 'explore'),
+            { id: 'usage', label: 'Billing & Usage', icon: 'creditCard', route: '/usage' },
             { id: 'help-center', label: 'Help Center', icon: 'help', route: '/help-center' },
             { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
           ],
@@ -1131,11 +1053,7 @@ export class WebShellComponent {
 
   /** Mobile sidebar configuration */
   readonly mobileSidebarConfig = computed<MobileSidebarConfig>(() => {
-    // Only show Sign In after hydration lock released AND userData confirmed null
-    const showSignIn =
-      this.authFlow.isInitialized() &&
-      !this._signInButtonLocked() &&
-      this.sidebarUserData() === null;
+    const showSignIn = this.authFlow.isAuthReady() && !this.isAuthenticated();
 
     return createMobileSidebarConfig({
       showLogo: true,
@@ -1195,42 +1113,11 @@ export class WebShellComponent {
     this.setupRouteTracking();
     this.loadSidebarState();
 
-    // Freeze desktop top-nav auth UI briefly after hydration to avoid
-    // visible flicker while client auth handover settles.
-    afterNextRender(() => {
-      if (!isPlatformBrowser(this.platformId)) {
-        this._topNavHydrationLocked.set(false);
-        this._signInButtonLocked.set(false);
-        return;
-      }
-
-      this.topNavUnlockTimer = setTimeout(() => {
-        this._topNavHydrationLocked.set(false);
-        this.topNavUnlockTimer = null;
-      }, 300);
-
-      // Unlock Sign In button after 300ms to prevent flash during auth restore
-      this.signInButtonUnlockTimer = setTimeout(() => {
-        this._signInButtonLocked.set(false);
-        this.signInButtonUnlockTimer = null;
-      }, 300);
-    });
-
     // Clean up debounce timer on destroy to prevent memory leaks
     this.destroyRef.onDestroy(() => {
       if (this.searchDebounceTimer) {
         clearTimeout(this.searchDebounceTimer);
         this.searchDebounceTimer = null;
-      }
-
-      if (this.topNavUnlockTimer) {
-        clearTimeout(this.topNavUnlockTimer);
-        this.topNavUnlockTimer = null;
-      }
-
-      if (this.signInButtonUnlockTimer) {
-        clearTimeout(this.signInButtonUnlockTimer);
-        this.signInButtonUnlockTimer = null;
       }
     });
   }
@@ -1346,6 +1233,16 @@ export class WebShellComponent {
    */
   onMobileActivityMarkAllReadClick(): void {
     this.activityService.markAllRead();
+  }
+
+  async onMobileExploreFilterClick(): Promise<void> {
+    const tab = this.exploreService.activeTab();
+    const currentFilters = this.exploreService.getFiltersForTab(tab);
+    const result = await this.exploreFilterModal.open({ tab, currentFilters });
+    if (result.applied) {
+      this.exploreService.setFiltersForTab(tab, result.filters);
+      await this.exploreService.refresh();
+    }
   }
 
   // ============================================

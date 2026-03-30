@@ -34,29 +34,31 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
             <ion-ripple-effect></ion-ripple-effect>
             <div class="card-header">
               <span class="card-label">Wallet balance</span>
-              <button
-                type="button"
-                class="card-link card-link--cta"
-                [attr.data-testid]="testIds.OVERVIEW_BUY_CREDITS"
-                (click)="buyCredit.emit()"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
+              @if (!hideBuyCredits()) {
+                <button
+                  type="button"
+                  class="card-link card-link--cta"
+                  [attr.data-testid]="testIds.OVERVIEW_BUY_CREDITS"
+                  (click)="buyCredit.emit()"
                 >
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                </svg>
-                Buy Credits
-              </button>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                  Buy Credits
+                </button>
+              }
             </div>
             <div class="card-value" [class.card-value--low]="isLowBalance()">
               {{ walletBalance() }}
@@ -230,6 +232,9 @@ export class UsageOverviewComponent {
 
   /** Whether this is a personal / B2C wallet user */
   readonly isPersonal = input<boolean>(false);
+
+  /** Hide the Buy Credits button (e.g. on desktop web where it lives in the top nav) */
+  readonly hideBuyCredits = input<boolean>(false);
 
   /** Emitted when "Payment history" link is clicked */
   readonly viewPaymentHistory = output<void>();

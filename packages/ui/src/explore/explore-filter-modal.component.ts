@@ -12,13 +12,14 @@
 import {
   Component,
   ChangeDetectionStrategy,
+  Input,
   signal,
   computed,
   inject,
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonContent, IonLabel, IonRange, IonToggle } from '@ionic/angular/standalone';
+import { IonContent, IonLabel, IonRange } from '@ionic/angular/standalone';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtChipComponent } from '../components/chip';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet';
@@ -33,6 +34,7 @@ import {
   EXPLORE_FILTER_RADIUS_CONFIG,
   getExploreFilterClassYearOptions,
   EXPLORE_TAB_FILTER_FIELDS,
+  resolveStateToAbbreviation,
 } from '@nxt1/core';
 
 @Component({
@@ -43,7 +45,6 @@ import {
     IonContent,
     IonLabel,
     IonRange,
-    IonToggle,
     NxtChipComponent,
     NxtSheetHeaderComponent,
     NxtIconComponent,
@@ -170,19 +171,6 @@ import {
           </datalist>
         </section>
       }
-
-      @if (fields().verifiedOnly) {
-        <section class="filter-section row">
-          <div>
-            <h3>Verified Only</h3>
-            <p>Show only verified athletes, teams, or creators</p>
-          </div>
-          <ion-toggle
-            [checked]="draftFilters().verifiedOnly === true"
-            (ionChange)="toggleVerified($event)"
-          />
-        </section>
-      }
     </ion-content>
 
     <div class="filter-footer">
@@ -218,7 +206,7 @@ import {
         justify-content: center;
         border-radius: 999px;
         background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-on-primary);
+        color: var(--nxt1-color-on-primary, var(--nxt1-ui-text-inverse));
         font-size: 11px;
         font-weight: 700;
         padding: 0 5px;
@@ -292,17 +280,38 @@ import {
 
       .nxt1-filter-input {
         width: 100%;
-        border: 1px solid var(--nxt1-color-border);
-        background: var(--nxt1-color-surface-100);
-        color: var(--nxt1-color-text-primary);
-        border-radius: 10px;
-        min-height: 40px;
+        box-sizing: border-box;
+        appearance: none;
+        -webkit-appearance: none;
+        min-height: 44px;
         padding: 0 12px;
+        background: var(--nxt1-ui-bg-input);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-radius-md, 10px);
+        font-family: var(--nxt1-ui-font);
         font-size: 14px;
+        font-weight: 500;
+        color: var(--nxt1-color-text-primary);
+        -webkit-text-fill-color: var(--nxt1-color-text-primary);
+        transition:
+          border-color 0.15s ease,
+          background 0.15s ease;
+      }
+
+      .nxt1-filter-input::placeholder {
+        color: var(--nxt1-ui-text-placeholder);
+        -webkit-text-fill-color: var(--nxt1-ui-text-placeholder);
+        font-weight: 400;
+      }
+
+      .nxt1-filter-input:hover:not(:focus) {
+        background: var(--nxt1-ui-bg-input-hover);
+        border-color: var(--nxt1-color-border-default);
       }
 
       .nxt1-filter-input:focus {
         outline: none;
+        background: var(--nxt1-ui-bg-input-focus);
         border-color: var(--nxt1-color-primary);
       }
 
@@ -332,12 +341,16 @@ import {
         border: none;
         border-radius: var(--nxt1-radius-md, 10px);
         background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-on-primary);
+        color: var(--nxt1-color-on-primary, var(--nxt1-ui-text-inverse));
         font-size: 15px;
         font-weight: 700;
         cursor: pointer;
         -webkit-tap-highlight-color: transparent;
         transition: opacity 0.15s ease;
+      }
+
+      .filter-apply-btn nxt1-icon {
+        color: inherit;
       }
 
       .filter-apply-btn:active {
@@ -351,8 +364,8 @@ import {
 export class ExploreFilterModalComponent implements OnInit {
   private readonly modalCtrl = inject(ModalController);
 
-  activeTab: ExploreTabId = 'feed';
-  initialFilters: ExploreFilters = {};
+  @Input() activeTab: ExploreTabId = 'feed';
+  @Input() initialFilters: ExploreFilters = {};
 
   protected readonly sportOptions = EXPLORE_FILTER_SPORT_OPTIONS;
   protected readonly divisionOptions = EXPLORE_FILTER_DIVISION_OPTIONS;
@@ -380,7 +393,6 @@ export class ExploreFilterModalComponent implements OnInit {
     if (filters.position) count += 1;
     if (typeof filters.classYear === 'number') count += 1;
     if (typeof filters.radius === 'number') count += 1;
-    if (filters.verifiedOnly === true) count += 1;
 
     return count;
   });
@@ -452,27 +464,20 @@ export class ExploreFilterModalComponent implements OnInit {
     const value = (event.target as HTMLInputElement).value;
     this.draftFilters.update((current) => ({
       ...current,
-      state: value ? value.toUpperCase() : undefined,
-    }));
-  }
-
-  protected toggleVerified(event: Event): void {
-    const customEvent = event as CustomEvent<{ checked: boolean }>;
-    this.draftFilters.update((current) => ({
-      ...current,
-      verifiedOnly: customEvent.detail?.checked ? true : undefined,
+      state: value ? (resolveStateToAbbreviation(value) ?? value.toUpperCase()) : undefined,
     }));
   }
 
   private normalizeFilters(filters: ExploreFilters): ExploreFilters {
     return {
       ...(filters.sport?.trim() ? { sport: filters.sport.trim() } : {}),
-      ...(filters.state?.trim() ? { state: filters.state.trim().toUpperCase() } : {}),
+      ...(filters.state?.trim()
+        ? { state: resolveStateToAbbreviation(filters.state) ?? filters.state.trim().toUpperCase() }
+        : {}),
       ...(filters.division?.trim() ? { division: filters.division.trim() } : {}),
       ...(filters.position?.trim() ? { position: filters.position.trim() } : {}),
       ...(typeof filters.classYear === 'number' ? { classYear: filters.classYear } : {}),
       ...(typeof filters.radius === 'number' ? { radius: filters.radius } : {}),
-      ...(filters.verifiedOnly === true ? { verifiedOnly: true } : {}),
     };
   }
 }

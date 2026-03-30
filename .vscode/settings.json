@@ -23,5 +23,11 @@
     "**/node_modules": true,
     "**/dist": true,
     "**/.turbo": true
+  },
+  "files.exclude": {
+    "node_modules/@nxt1/web": true,
+    "node_modules/@nxt1/mobile": true,
+    "node_modules/@nxt1/functions": true,
+    "node_modules/@nxt1/backend": true
   }
 }

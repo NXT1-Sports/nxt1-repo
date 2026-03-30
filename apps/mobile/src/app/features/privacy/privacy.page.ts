@@ -1,46 +1,26 @@
 /**
  * @fileoverview Privacy Page - Mobile App
  * @module @nxt1/mobile/features/privacy
- * @version 1.0.0
+ * @version 2.0.0
  *
- * Embeds Termly-hosted Privacy Policy in WebView.
- * Content stays up-to-date without app redeployment.
+ * Thin wrapper that uses the shared PrivacyContentShellComponent from @nxt1/ui.
+ * Follows the standard mobile shell pattern with transparent ion-header spacer.
  */
 
-import { Component, ChangeDetectionStrategy, inject, CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
-import {
-  IonContent,
-  IonHeader,
-  IonToolbar,
-  IonTitle,
-  IonButtons,
-  IonBackButton,
-} from '@ionic/angular/standalone';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
-import { LEGAL_URLS } from '@nxt1/core';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { IonContent, IonHeader, IonToolbar, NavController } from '@ionic/angular/standalone';
+import { PrivacyContentShellComponent } from '@nxt1/ui';
 
 @Component({
   selector: 'app-privacy',
   standalone: true,
-  imports: [IonContent, IonHeader, IonToolbar, IonTitle, IonButtons, IonBackButton],
-  schemas: [CUSTOM_ELEMENTS_SCHEMA],
+  imports: [IonContent, IonHeader, IonToolbar, PrivacyContentShellComponent],
   template: `
-    <ion-header>
-      <ion-toolbar>
-        <ion-buttons slot="start">
-          <ion-back-button defaultHref="/settings"></ion-back-button>
-        </ion-buttons>
-        <ion-title>Privacy Policy</ion-title>
-      </ion-toolbar>
+    <ion-header class="ion-no-border" [translucent]="true">
+      <ion-toolbar></ion-toolbar>
     </ion-header>
-
     <ion-content [fullscreen]="true">
-      <iframe
-        [src]="termlyUrl"
-        class="h-full w-full border-0"
-        title="Privacy Policy"
-        sandbox="allow-scripts allow-same-origin"
-      ></iframe>
+      <nxt1-privacy-content-shell [showBack]="true" (back)="onBack()" />
     </ion-content>
   `,
   styles: [
@@ -49,22 +29,31 @@ import { LEGAL_URLS } from '@nxt1/core';
         display: block;
         height: 100%;
       }
-      iframe {
-        display: block;
-        width: 100%;
-        height: 100%;
-        border: none;
+      ion-header {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: -1;
+        --background: transparent;
+      }
+      ion-toolbar {
+        --background: transparent;
+        --min-height: 0;
+        --padding-top: 0;
+        --padding-bottom: 0;
+      }
+      ion-content {
+        --background: var(--nxt1-color-bg-primary, #0a0a0a);
       }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PrivacyPage {
-  private readonly sanitizer = inject(DomSanitizer);
+  private readonly nav = inject(NavController);
 
-  protected readonly termlyUrl: SafeResourceUrl;
-
-  constructor() {
-    this.termlyUrl = this.sanitizer.bypassSecurityTrustResourceUrl(LEGAL_URLS.PRIVACY);
+  protected onBack(): void {
+    this.nav.back();
   }
 }

@@ -25,7 +25,7 @@ import {
   OnInit,
   DestroyRef,
 } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { map, distinctUntilChanged } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
@@ -73,6 +73,7 @@ export class UsageComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly seo = inject(SeoService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly usage = inject(UsageService);
   private readonly destroyRef = inject(DestroyRef);
 

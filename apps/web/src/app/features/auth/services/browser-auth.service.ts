@@ -234,6 +234,8 @@ export class BrowserAuthService implements IAuthService {
         connectedSources: Array.isArray(profile.connectedSources)
           ? profile.connectedSources
           : undefined,
+        state: profile.location?.state ?? null,
+        city: profile.location?.city ?? null,
         createdAt:
           profile.createdAt instanceof Date
             ? profile.createdAt.toISOString()

@@ -720,6 +720,7 @@ export {
   EXPLORE_FILTER_SPORT_OPTIONS,
   EXPLORE_FILTER_DIVISION_OPTIONS,
   EXPLORE_FILTER_STATE_OPTIONS,
+  resolveStateToAbbreviation,
   EXPLORE_FILTER_RADIUS_CONFIG,
   EXPLORE_FILTER_CLASS_YEAR_SPAN,
   getExploreFilterClassYearOptions,
@@ -1259,6 +1260,7 @@ export {
   type NewsBoardCategory,
   type NewsBoardItem,
   mapNewsArticlesToBoardItems,
+  resolveNewsFaviconUrl,
 } from './news';
 
 // ============================================

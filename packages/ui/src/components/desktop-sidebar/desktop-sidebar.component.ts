@@ -46,10 +46,12 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { isPlatformBrowser, CommonModule } from '@angular/common';
 import { Router, RouterModule, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
+import { SUPPORT_CONFIG } from '@nxt1/core/constants';
 import { NxtLogoComponent } from '../logo';
 import { NxtIconComponent } from '../icon';
 import { NxtAvatarComponent } from '../avatar';
 import { NxtThemeSelectorComponent } from '../theme-selector';
+import { NxtBrowserService } from '../../services/browser';
 import { NxtThemeService } from '../../services/theme';
 import type {
   DesktopSidebarConfig,
@@ -118,7 +120,7 @@ import {
       }
 
       <!-- Skeleton Loading State -->
-      @if (!_isInitialized()) {
+      @if (sections().length === 0) {
         <nav class="sidebar__nav sidebar__nav--loading">
           <!-- Skeleton items to mimic navigation structure -->
           <div class="sidebar__skeleton-section">
@@ -340,15 +342,26 @@ import {
             </div>
           }
 
+          <!-- Workspace slot: host can project custom content (e.g. Agent X logs) -->
+          @if (!isCollapsed() || isHoverExpanded()) {
+            <div class="sidebar__workspace">
+              <ng-content select="[sidebar-workspace]" />
+            </div>
+          }
+
           <!-- Legal Footer (inside scrollable nav, below Follow Us) -->
           @if (!isCollapsed() || isHoverExpanded()) {
             <footer class="sidebar__legal">
               <nav class="sidebar__legal-links" aria-label="Legal">
-                <a routerLink="/about" class="sidebar__legal-link">About</a>
                 <a routerLink="/terms" class="sidebar__legal-link">Terms of Service</a>
                 <a routerLink="/privacy" class="sidebar__legal-link">Privacy Policy</a>
-                <a routerLink="/contact" class="sidebar__legal-link">Contact Us</a>
-                <a routerLink="/help-center" class="sidebar__legal-link">Help</a>
+                <a
+                  [href]="contactEmailHref"
+                  class="sidebar__legal-link"
+                  (click)="onContactEmailClick($event)"
+                >
+                  Contact Us
+                </a>
               </nav>
               <p class="sidebar__copyright">
                 &copy; {{ currentYear }} NXT1 Sports. All rights reserved.
@@ -596,6 +609,22 @@ import {
 
       .sidebar__section--last {
         margin-top: auto;
+      }
+
+      /* Projected workspace content (e.g. Agent X logs) */
+      .sidebar__workspace {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        border-top: 1px solid var(--sidebar-border);
+        margin-top: var(--nxt1-spacing-2, 0.5rem);
+        scrollbar-width: thin;
+        scrollbar-color: var(--sidebar-border) transparent;
+      }
+
+      .sidebar__workspace:empty {
+        display: none;
       }
 
       .sidebar__section-label {
@@ -1136,8 +1165,12 @@ export class NxtDesktopSidebarComponent {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly browser = inject(NxtBrowserService);
   protected readonly theme = inject(NxtThemeService);
   private readonly sidebarNav = viewChild<ElementRef<HTMLElement>>('sidebarNav');
+
+  /** Opens the desktop mail client for support. */
+  protected readonly contactEmailHref = `mailto:${SUPPORT_CONFIG.SUPPORT_EMAIL}`;
 
   /** Storage key for preserving nav scroll position. */
   private readonly navScrollStorageKey = 'nxt1_sidebar_nav_scroll_top';
@@ -1193,9 +1226,6 @@ export class NxtDesktopSidebarComponent {
   /** Tracks expanded state for collapsible sections by section ID */
   private readonly _expandedSections = signal<ReadonlySet<string>>(new Set<string>());
 
-  /** Internal flag to track if component has initialized (prevents flash during first render) */
-  protected readonly _isInitialized = signal(false);
-
   /** Computed: is collapsed (respects config and stored preference) */
   readonly isCollapsed = computed(() => this._isCollapsed());
 
@@ -1204,12 +1234,10 @@ export class NxtDesktopSidebarComponent {
 
   /**
    * Computed: whether to show sign-in button.
-   * Only show when component has initialized AND no user is present.
-   * This prevents flash of sign-in button during SSR/first render.
+   * Trusts the parent's `config().showSignIn` which is gated by `isAuthReady`.
+   * No internal timing hack needed — the auth service controls the flag.
    */
-  readonly showSignInButton = computed(
-    () => this._isInitialized() && !this.user() && this.config().showSignIn !== false
-  );
+  readonly showSignInButton = computed(() => !this.user() && this.config().showSignIn !== false);
 
   // ============================================
   // HOST BINDINGS
@@ -1247,12 +1275,6 @@ export class NxtDesktopSidebarComponent {
       this.loadCollapsedState();
       this.initializeNavScrollPersistence();
       this.restoreNavScrollPosition();
-
-      // Delay initialization flag to prevent flash of sign-in button
-      // This gives parent component time to set user data before showing UI
-      setTimeout(() => {
-        this._isInitialized.set(true);
-      }, 100);
     });
   }
 
@@ -1401,6 +1423,12 @@ export class NxtDesktopSidebarComponent {
     this.signInClick.emit(event);
   }
 
+  onContactEmailClick(event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    void this.openContactEmail();
+  }
+
   toggleTheme(event: Event): void {
     event.stopPropagation();
     if (this.theme.hasSportTheme()) {
@@ -1412,6 +1440,14 @@ export class NxtDesktopSidebarComponent {
   // ============================================
   // PRIVATE METHODS
   // ============================================
+
+  private async openContactEmail(): Promise<void> {
+    await this.browser.openMailto({
+      to: SUPPORT_CONFIG.SUPPORT_EMAIL,
+      subject: 'Support Request - NXT1 Sports',
+      body: ['Hi NXT1 Support Team,', '', 'I need help with:', '', 'My account email:'].join('\n'),
+    });
+  }
 
   /**
    * Initialize _expandedSections from section.expanded defaults.

@@ -109,10 +109,10 @@ export type NewsSkeletonVariant = 'card' | 'featured' | 'compact';
         border-radius: var(--nxt1-radius-sm, 4px);
       }
 
-      /* Hero Image */
+      /* Hero Image — compact height so multiple skeletons fit on screen */
       .news-skeleton__image {
         width: 100%;
-        aspect-ratio: 16 / 9;
+        height: 140px;
         border-radius: 0;
       }
 
@@ -180,7 +180,7 @@ export type NewsSkeletonVariant = 'card' | 'featured' | 'compact';
          ============================================ */
 
       .news-skeleton--featured .news-skeleton__image {
-        aspect-ratio: 2 / 1;
+        height: 180px;
       }
 
       .news-skeleton--featured .news-skeleton__content {

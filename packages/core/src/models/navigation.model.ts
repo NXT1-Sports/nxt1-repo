@@ -807,16 +807,16 @@ export const DEFAULT_TOP_NAV_ITEMS: TopNavItem[] = [
  */
 export const DEFAULT_USER_MENU_ITEMS: TopNavUserMenuItem[] = [
   {
+    id: 'help',
+    label: 'Help Center',
+    icon: 'help',
+    route: '/help-center',
+  },
+  {
     id: 'settings',
     label: 'Settings',
     icon: 'settings',
     route: '/settings',
-  },
-  {
-    id: 'help',
-    label: 'Help & Support',
-    icon: 'help',
-    route: '/help-center',
     divider: true,
   },
 ];
@@ -1338,16 +1338,16 @@ export const DEFAULT_SIDENAV_ITEMS: SidenavSection[] = [
         route: '/usage',
       },
       {
-        id: 'settings',
-        label: 'Settings',
-        icon: 'settings',
-        route: '/settings',
-      },
-      {
         id: 'help-center',
         label: 'Help Center',
         icon: 'help',
         route: '/help-center',
+      },
+      {
+        id: 'settings',
+        label: 'Settings',
+        icon: 'settings',
+        route: '/settings',
       },
     ],
   },

@@ -20,7 +20,16 @@
  * @see https://firebase.google.com/docs/reference/js/app.firebaseserverapp
  */
 
-import { Injectable, signal, computed, Optional, Inject, OnDestroy, inject } from '@angular/core';
+import {
+  Injectable,
+  signal,
+  computed,
+  Optional,
+  Inject,
+  OnDestroy,
+  inject,
+  TransferState,
+} from '@angular/core';
 import { FirebaseServerApp, initializeServerApp, FirebaseOptions } from 'firebase/app';
 import { Auth, getAuth, User as FirebaseUser } from 'firebase/auth';
 import { Firestore, getFirestore, doc, getDoc } from 'firebase/firestore';
@@ -32,7 +41,8 @@ import {
   SignInCredentials,
   SignUpCredentials,
 } from './auth.interface';
-import { SSR_AUTH_TOKEN, SSR_FIREBASE_CONFIG } from './ssr-tokens';
+import { SSR_AUTH_TOKEN, SSR_FIREBASE_CONFIG, AUTH_TRANSFER_STATE_KEY } from './ssr-tokens';
+import type { SerializedAuthUser, SerializedFirebaseUser } from './ssr-tokens';
 import type { UserRole } from '@nxt1/core';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ILogger } from '@nxt1/core/logging';
@@ -77,6 +87,7 @@ export class ServerAuthService implements IAuthService, OnDestroy {
   private firestore: Firestore | null = null;
 
   private readonly logger: ILogger = inject(NxtLoggingService).child('ServerAuthService');
+  private readonly transferState = inject(TransferState);
 
   // ============================================
   // STATE SIGNALS (Private Writable)
@@ -186,7 +197,61 @@ export class ServerAuthService implements IAuthService, OnDestroy {
     } finally {
       this._isLoading.set(false);
       this._isInitialized.set(true);
+
+      // Write auth state to TransferState so the browser's AuthFlowService
+      // can read it synchronously in its constructor — eliminating the
+      // "Sign In" flash during hydration.
+      this.writeTransferState();
     }
+  }
+
+  /**
+   * Serialize current auth state into TransferState.
+   * The browser reads this on first tick via AUTH_TRANSFER_STATE_KEY
+   * so that AuthFlowService boots with the correct user immediately.
+   */
+  private writeTransferState(): void {
+    const user = this._user();
+    const fbUser = this._firebaseUser();
+
+    const serializedUser: SerializedAuthUser | null = user
+      ? {
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName,
+          profileImg: user.profileImg,
+          role: user.role,
+          isPremium: user.isPremium,
+          hasCompletedOnboarding: user.hasCompletedOnboarding,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+          connectedEmails: user.connectedEmails,
+          selectedSports: user.selectedSports,
+          unicode: user.unicode,
+          username: user.username,
+        }
+      : null;
+
+    const serializedFbUser: SerializedFirebaseUser | null = fbUser
+      ? {
+          uid: fbUser.uid,
+          email: fbUser.email,
+          displayName: fbUser.displayName,
+          photoURL: fbUser.photoURL,
+          emailVerified: fbUser.emailVerified,
+          metadata: fbUser.metadata,
+        }
+      : null;
+
+    this.transferState.set(AUTH_TRANSFER_STATE_KEY, {
+      user: serializedUser,
+      firebaseUser: serializedFbUser,
+    });
+
+    this.logger.info('Auth state written to TransferState', {
+      hasUser: !!serializedUser,
+      uid: serializedUser?.uid,
+    });
   }
 
   // ============================================

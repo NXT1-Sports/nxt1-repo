@@ -13,6 +13,24 @@
 import type { NewsArticle } from './news.types';
 import type { NewsBoardItem } from './news-board.types';
 
+function buildGoogleFaviconUrl(sourceUrl: string): string | undefined {
+  try {
+    const hostname = new URL(sourceUrl).hostname;
+    if (!hostname) return undefined;
+    return `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
+  } catch {
+    return undefined;
+  }
+}
+
+export function resolveNewsFaviconUrl(
+  article: Pick<NewsArticle, 'sourceUrl' | 'faviconUrl'>
+): string | undefined {
+  const explicitFavicon = article.faviconUrl?.trim();
+  if (explicitFavicon) return explicitFavicon;
+  return buildGoogleFaviconUrl(article.sourceUrl);
+}
+
 // ============================================
 // NewsArticle → NewsBoardItem
 // ============================================
@@ -27,7 +45,7 @@ function mapArticleToBoardItem(article: NewsArticle): NewsBoardItem {
     excerpt: article.excerpt,
     imageUrl: article.imageUrl,
     sourceName: article.source,
-    faviconUrl: article.faviconUrl,
+    faviconUrl: resolveNewsFaviconUrl(article),
     category: 'news',
     publishedAt: article.publishedAt,
     viewCount: article.viewCount,

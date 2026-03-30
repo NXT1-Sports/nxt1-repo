@@ -748,6 +748,7 @@ export const FEED_CARD_TEST_IDS = {
   SHELL_STAT_REPOST: 'feed-shell-stat-repost',
   SHELL_STAT_SHARES: 'feed-shell-stat-shares',
   SHELL_STAT_VIEWS: 'feed-shell-stat-views',
+  SHELL_VIEW_PROFILE_BTN: 'feed-shell-view-profile-btn',
 
   /** Stat Card */
   STAT_CARD: 'feed-stat-card',

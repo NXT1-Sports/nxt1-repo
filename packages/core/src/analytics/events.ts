@@ -439,6 +439,8 @@ export const APP_EVENTS = {
   EXPLORE_VIEWED: 'explore_viewed',
   /** Explore tab switched (pulse, discover, feed, etc.) */
   EXPLORE_TAB_CHANGED: 'explore_tab_changed',
+  /** User's location detected via geolocation */
+  LOCATION_DETECTED: 'location_detected',
 
   // ============================================
   // COLLEGE RECRUITING EVENTS

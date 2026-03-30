@@ -65,6 +65,10 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
     >
       <ion-ripple-effect></ion-ripple-effect>
 
+      <div class="feed-shell__lead" (click)="handleContentClick($event)">
+        <ng-content select="[feedShellLead]" />
+      </div>
+
       <!-- Compact Meta Bar (when hideAuthor=true, e.g. on profile pages) -->
       @if (hideAuthor()) {
         <div class="feed-shell__meta-bar">
@@ -161,28 +165,34 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
           <span class="feed-shell__stat-count">{{
             formatCount(item().engagement.reactionCount)
           }}</span>
-          <span class="feed-shell__stat-label">REACT</span>
         </div>
         <div class="feed-shell__stat" [attr.data-testid]="testIds.SHELL_STAT_REPOST">
           <nxt1-icon name="repeat" [size]="14" />
           <span class="feed-shell__stat-count">{{
             formatCount(item().engagement.repostCount)
           }}</span>
-          <span class="feed-shell__stat-label">REPOST</span>
         </div>
         <div class="feed-shell__stat" [attr.data-testid]="testIds.SHELL_STAT_SHARES">
           <nxt1-icon name="share" [size]="14" />
           <span class="feed-shell__stat-count">{{
             formatCount(item().engagement.shareCount)
           }}</span>
-          <span class="feed-shell__stat-label">SHARES</span>
         </div>
         <div class="feed-shell__stat" [attr.data-testid]="testIds.SHELL_STAT_VIEWS">
           <nxt1-icon name="barChart" [size]="14" />
           <span class="feed-shell__stat-count">{{ formatCount(item().engagement.viewCount) }}</span>
-          <span class="feed-shell__stat-label">VIEWS</span>
         </div>
       </div>
+
+      <!-- View Profile CTA -->
+      <button
+        type="button"
+        class="feed-shell__view-profile"
+        (click)="handleAuthorClick($event)"
+        [attr.data-testid]="testIds.SHELL_VIEW_PROFILE_BTN"
+      >
+        View Profile
+      </button>
     </article>
   `,
   styles: [
@@ -200,6 +210,8 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
 
       .feed-shell {
         position: relative;
+        display: flex;
+        flex-direction: column;
         padding: 0;
         background: var(--shell-bg);
         -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
@@ -307,25 +319,33 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
       }
 
       .feed-shell__type-badge {
+        display: inline-flex;
+        align-items: center;
         flex-shrink: 0;
-        padding: 3px 10px;
+        padding: 4px 12px;
         border-radius: var(--nxt1-radius-full, 9999px);
-        background: rgba(212, 255, 0, 0.1);
-        border: 1px solid rgba(212, 255, 0, 0.2);
+        background: var(--nxt1-color-surface-elevated, rgba(255, 255, 255, 0.08));
+        border: 1px solid var(--nxt1-glass-border, rgba(255, 255, 255, 0.12));
 
         span {
           font-size: 10px;
           font-weight: 700;
           text-transform: uppercase;
-          letter-spacing: 0.04em;
+          letter-spacing: 0.05em;
           color: var(--shell-primary);
+          line-height: 1;
         }
       }
 
       .feed-shell__menu-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
         background: none;
         border: none;
-        padding: 6px;
+        padding: 0;
         cursor: pointer;
         color: var(--shell-text-secondary);
         border-radius: 50%;
@@ -368,9 +388,10 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
 
       .feed-shell__stat {
         display: flex;
-        flex-direction: column;
+        flex-direction: row;
         align-items: center;
-        gap: 2px;
+        justify-content: center;
+        gap: 4px;
         color: var(--shell-text-tertiary);
         font-variant-numeric: tabular-nums;
       }
@@ -381,11 +402,30 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
         color: var(--shell-text-primary);
       }
 
-      .feed-shell__stat-label {
-        font-size: 9px;
+      /* View Profile CTA */
+      .feed-shell__view-profile {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        padding: 10px 16px;
+        background: none;
+        border: none;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        color: var(--shell-primary);
+        font-size: 13px;
         font-weight: 600;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
+        letter-spacing: 0.02em;
+        cursor: pointer;
+        transition: background 0.15s ease;
+      }
+
+      .feed-shell__lead {
+        display: contents;
+      }
+
+      .feed-shell__view-profile:hover {
+        background: rgba(255, 255, 255, 0.04);
       }
     `,
   ],

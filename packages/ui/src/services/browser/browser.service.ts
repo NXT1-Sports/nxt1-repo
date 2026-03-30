@@ -581,35 +581,27 @@ export class NxtBrowserService {
       return { success: false, error: 'Not in browser environment' };
     }
 
-    await this.initialize();
-
     // Build mailto: URL with RFC 6068 encoding
     const params: string[] = [];
     if (options.subject) params.push(`subject=${encodeURIComponent(options.subject)}`);
     if (options.body) params.push(`body=${encodeURIComponent(options.body)}`);
     const mailto = `mailto:${options.to}${params.length ? '?' + params.join('&') : ''}`;
 
-    if (this.config.enableHaptics) {
-      await this.haptics.impact('light');
-    }
-
-    if (this.config.enableBreadcrumbs) {
-      void this.breadcrumbs.trackUserAction('email_compose', {
-        to: options.to,
-        hasSubject: !!options.subject,
-      });
-    }
-
     try {
-      // Use a programmatic anchor click — most reliable cross-browser/platform method
-      // for mailto: links without causing Angular router interference
-      const anchor = document.createElement('a');
-      anchor.href = mailto;
-      anchor.rel = 'noopener noreferrer';
-      // Don't set target="_blank" for mailto — some browsers ignore it
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
+      // Trigger mailto immediately to preserve the original user gesture.
+      // Browsers like Chrome can block protocol handlers if async work happens first.
+      window.location.href = mailto;
+
+      if (this.config.enableHaptics) {
+        void this.haptics.impact('light');
+      }
+
+      if (this.config.enableBreadcrumbs) {
+        void this.breadcrumbs.trackUserAction('email_compose', {
+          to: options.to,
+          hasSubject: !!options.subject,
+        });
+      }
 
       this.logger.debug('Email composer opened', { to: options.to });
       return { success: true, url: mailto };

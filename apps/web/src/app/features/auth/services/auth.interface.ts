@@ -46,6 +46,10 @@ export interface AppUser {
   selectedSports?: string[];
   /** Connected sources for the link drop step */
   connectedSources?: ConnectedSource[];
+  /** User's state from location profile */
+  state?: string | null;
+  /** User's city from location profile */
+  city?: string | null;
 }
 
 /**

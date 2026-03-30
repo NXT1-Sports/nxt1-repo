@@ -45,6 +45,7 @@ import {
 } from 'ionicons/icons';
 import { NxtPageHeaderComponent, type PageHeaderAction } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
+import { NxtStateViewComponent } from '../components/state-view';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { formatSportDisplayName } from '@nxt1/core';
@@ -79,6 +80,7 @@ export interface TeamData {
     IonSkeletonText,
     NxtPageHeaderComponent,
     NxtRefresherComponent,
+    NxtStateViewComponent,
   ],
   template: `
     <!-- Top Navigation Header -->
@@ -112,12 +114,13 @@ export interface TeamData {
 
         <!-- Error State -->
         @else if (error()) {
-          <div class="team-error">
-            <div class="error-icon">⚠️</div>
-            <h3>Failed to load team</h3>
-            <p>{{ error() }}</p>
-            <button class="retry-btn" (click)="onRetry()">Try Again</button>
-          </div>
+          <nxt1-state-view
+            variant="error"
+            title="Failed to load team"
+            [message]="error()"
+            actionLabel="Try Again"
+            (action)="onRetry()"
+          />
         }
 
         <!-- Team Content -->
@@ -259,32 +262,6 @@ export interface TeamData {
         width: 100%;
         height: 200px;
         border-radius: 8px;
-      }
-
-      /* Error State */
-      .team-error {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 60px 20px;
-        text-align: center;
-      }
-
-      .error-icon {
-        font-size: 48px;
-        margin-bottom: 16px;
-      }
-
-      .retry-btn {
-        margin-top: 16px;
-        padding: 12px 24px;
-        background: var(--ion-color-primary);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-weight: 600;
-        cursor: pointer;
       }
 
       /* Team Header */

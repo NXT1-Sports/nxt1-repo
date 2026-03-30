@@ -16,11 +16,16 @@ const newsProviders = [
 ];
 
 export const EXPLORE_ROUTES: Routes = [
+  // Bare /explore → redirect straight to Pulse
   {
     path: '',
-    loadComponent: () => import('./explore.component').then((m) => m.ExploreComponent),
-    // SeoService sets the full title dynamically (appends "| NXT1 Sports" automatically)
-    title: 'Explore',
+    redirectTo: 'pulse',
+    pathMatch: 'full',
+  },
+  // Pulse article detail — MUST come before :tab to avoid being swallowed by the generic matcher
+  {
+    path: 'pulse/:id',
+    loadComponent: () => import('../news/news-detail.component').then((m) => m.NewsDetailComponent),
     providers: [...newsProviders],
   },
   {

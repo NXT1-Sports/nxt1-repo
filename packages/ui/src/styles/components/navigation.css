@@ -1200,6 +1200,13 @@
   margin-left: auto;
 }
 
+/* Add section separator when add-sport list follows the profiles list */
+.nxt1-desktop-nav .user-sport-list--add {
+  padding-top: var(--nxt1-spacing-1, 0.25rem);
+  margin-top: 2px;
+  border-top: 1px solid var(--nxt1-nav-border, rgba(0, 0, 0, 0.08));
+}
+
 /* Add Sport / Add Team button */
 .nxt1-desktop-nav .user-sport-item--add {
   color: var(--nxt1-color-primary, #6200ee);

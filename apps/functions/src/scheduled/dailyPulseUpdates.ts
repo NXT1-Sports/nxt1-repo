@@ -125,8 +125,22 @@ async function callOpenRouter(
 
 // ─── Scraper Helper ──────────────────────────────────────────────────────────
 
-async function scrapeOgImage(url: string): Promise<string | undefined> {
+interface ScrapedMetadata {
+  imageUrl?: string;
+  faviconUrl?: string;
+}
+
+/**
+ * Scrapes og:image AND favicon from a source URL in a single HTTP request.
+ * Falls back to Google Favicon API if no favicon found in HTML.
+ */
+async function scrapeArticleMetadata(url: string): Promise<ScrapedMetadata> {
+  let faviconUrl: string | undefined;
+
   try {
+    const parsedUrl = new URL(url);
+    const origin = parsedUrl.origin;
+
     const response = await fetch(url, {
       headers: {
         'User-Agent':
@@ -134,28 +148,68 @@ async function scrapeOgImage(url: string): Promise<string | undefined> {
           'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 NXTPulseBot/1.0',
         Accept: 'text/html',
       },
-      // Timeout built-in requires AbortController in modern fetch, but we'll try this simple approach
     });
 
-    if (!response.ok) return undefined;
+    if (!response.ok) {
+      // Even if the page fails, we can still get favicon via Google API
+      faviconUrl = `https://www.google.com/s2/favicons?domain=${parsedUrl.hostname}&sz=64`;
+      return { faviconUrl };
+    }
 
     const html = await response.text();
     const $ = cheerio.load(html);
 
+    // --- Extract og:image ---
+    let imageUrl: string | undefined;
     const ogImage =
       $('meta[property="og:image"]').attr('content') ||
       $('meta[name="twitter:image"]').attr('content') ||
       $('link[rel="image_src"]').attr('href') ||
       $('meta[itemprop="image"]').attr('content');
 
-    // Return only if it's a valid http URL
     if (ogImage && ogImage.startsWith('http')) {
-      return ogImage;
+      imageUrl = ogImage;
     }
+
+    // --- Extract favicon ---
+    // Prefer standard favicon assets first, then touch icons as fallback.
+    const faviconHref =
+      $('link[rel="icon"]').attr('href') ||
+      $('link[rel="shortcut icon"]').attr('href') ||
+      $('link[rel="apple-touch-icon"]').attr('href');
+
+    if (faviconHref) {
+      // Resolve relative URLs to absolute
+      if (faviconHref.startsWith('http')) {
+        faviconUrl = faviconHref;
+      } else if (faviconHref.startsWith('//')) {
+        faviconUrl = `https:${faviconHref}`;
+      } else if (faviconHref.startsWith('/')) {
+        faviconUrl = `${origin}${faviconHref}`;
+      } else {
+        faviconUrl = `${origin}/${faviconHref}`;
+      }
+    }
+
+    // Fallback: Google Favicon API (extremely reliable)
+    if (!faviconUrl) {
+      faviconUrl = `https://www.google.com/s2/favicons?domain=${parsedUrl.hostname}&sz=64`;
+    }
+
+    return { imageUrl, faviconUrl };
   } catch (err) {
-    logger.warn('[Pulse] Failed to scrape og:image', { url, error: String(err) });
+    logger.warn('[Pulse] Failed to scrape article metadata', { url, error: String(err) });
+
+    // Best-effort fallback for favicon even on fetch failure
+    try {
+      const hostname = new URL(url).hostname;
+      faviconUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
+    } catch {
+      /* invalid URL, give up */
+    }
+
+    return { faviconUrl };
   }
-  return undefined;
 }
 
 // ─── Article Discovery ──────────────────────────────────────────────────────
@@ -248,6 +302,14 @@ async function discoverArticles(
 
 // ─── Summary Generation ─────────────────────────────────────────────────────
 
+/** Strip markdown code fences and normalize whitespace from AI HTML output. */
+function sanitizeHtmlContent(raw: string): string {
+  let html = raw.trim();
+  // Remove ```html ... ``` or ``` ... ``` wrappers
+  html = html.replace(/^```(?:html)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+  return html.trim();
+}
+
 function slugify(text: string): string {
   return text
     .toLowerCase()
@@ -260,12 +322,12 @@ async function generateSummary(
   apiKey: string,
   article: DiscoveredArticle
 ): Promise<ArticleWithContent> {
-  const [content, scrapedImage] = await Promise.all([
+  const [content, metadata] = await Promise.all([
     callOpenRouter(
       apiKey,
       SUMMARY_MODEL,
-      `You are a sports journalist writing for NXT1, a sports recruiting platform used by high school and college athletes, coaches, and scouts. Write in an engaging, informative style.`,
-      `Write a 3-5 paragraph article summary based on this news:
+      `You are a sports journalist writing for NXT1, a sports recruiting platform used by high school and college athletes, coaches, and scouts. Write in an engaging, informative style that is easy to read and well-structured.`,
+      `Write a well-structured article summary based on this news:
 
 Title: ${article.title}
 Source: ${article.source}
@@ -275,16 +337,24 @@ Sport: ${article.sport}
 
 Write the summary in your own words. Do NOT copy the original article verbatim. Focus on what matters to student-athletes, coaches, and recruiters. Include context about why this news matters for the recruiting landscape.
 
-Return ONLY the article text (plain text paragraphs). No title, no metadata, no markdown headers.`,
+FORMAT RULES:
+- Return clean HTML only (no markdown, no code fences).
+- Use <h2> tags for 2-3 section subtitles that break up the article naturally.
+- Wrap every paragraph in <p> tags.
+- Aim for 4-6 paragraphs grouped under the subtitles.
+- Keep subtitles short and compelling (3-6 words).
+- Do NOT include the article title — it is already displayed separately.
+- Do NOT include any metadata, source attribution, or author names.`,
       1024
     ),
-    scrapeOgImage(article.sourceUrl),
+    scrapeArticleMetadata(article.sourceUrl),
   ]);
 
   return {
     ...article,
-    imageUrl: scrapedImage || article.imageUrl,
-    content: content.trim(),
+    imageUrl: metadata.imageUrl || article.imageUrl,
+    faviconUrl: metadata.faviconUrl || article.faviconUrl,
+    content: sanitizeHtmlContent(content),
     slug: slugify(article.title),
   };
 }

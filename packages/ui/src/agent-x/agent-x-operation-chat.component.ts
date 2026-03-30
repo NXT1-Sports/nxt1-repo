@@ -92,6 +92,9 @@ interface OperationMessage {
 @Component({
   selector: 'nxt1-agent-x-operation-chat',
   standalone: true,
+  host: {
+    '[class.agent-x-operation-chat--embedded]': 'embedded',
+  },
   imports: [
     CommonModule,
     FormsModule,
@@ -102,19 +105,21 @@ interface OperationMessage {
     AgentXActionCardComponent,
   ],
   template: `
-    <!-- ═══ HEADER ═══ -->
-    <nxt1-sheet-header
-      [title]="headerTitle()"
-      [subtitle]="contextTypeLabel()"
-      [showAgentXIcon]="true"
-      iconShape="rounded"
-      closePosition="right"
-      [showBorder]="true"
-      (closeSheet)="dismiss()"
-    />
+    @if (!embedded) {
+      <!-- ═══ HEADER ═══ -->
+      <nxt1-sheet-header
+        [title]="headerTitle()"
+        [subtitle]="contextTypeLabel()"
+        [showAgentXIcon]="true"
+        iconShape="rounded"
+        closePosition="right"
+        [showBorder]="true"
+        (closeSheet)="dismiss()"
+      />
+    }
 
     <!-- ═══ MESSAGES ═══ -->
-    <div class="messages-area" #messagesArea>
+    <div class="messages-area" [class.messages-area--embedded]="embedded" #messagesArea>
       <!-- ═══ COORDINATOR WELCOME (commands only — operations skip straight to work) ═══ -->
       @if (showWelcome()) {
         <div class="msg-row msg-assistant">
@@ -238,14 +243,16 @@ interface OperationMessage {
               <nxt1-icon name="refresh" [size]="14" />
               Retry
             </button>
-            <button
-              type="button"
-              class="failure-banner__btn failure-banner__btn--dismiss"
-              [attr.data-testid]="failureTestIds.BTN_DISMISS"
-              (click)="dismiss()"
-            >
-              Dismiss
-            </button>
+            @if (!embedded) {
+              <button
+                type="button"
+                class="failure-banner__btn failure-banner__btn--dismiss"
+                [attr.data-testid]="failureTestIds.BTN_DISMISS"
+                (click)="dismiss()"
+              >
+                Dismiss
+              </button>
+            }
           </div>
         </div>
       }
@@ -308,6 +315,13 @@ interface OperationMessage {
         --op-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
       }
 
+      :host.agent-x-operation-chat--embedded {
+        min-height: 0;
+        border: 1px solid var(--op-border);
+        border-radius: var(--nxt1-radius-2xl, 20px);
+        background: transparent;
+      }
+
       /* ── MESSAGES ── */
       .messages-area {
         flex: 1;
@@ -319,6 +333,11 @@ interface OperationMessage {
         -webkit-overflow-scrolling: touch;
         /* Adjust for keyboard on mobile - no transition for instant response */
         max-height: calc(100vh - var(--keyboard-offset, 0px) - 200px);
+      }
+
+      .messages-area--embedded {
+        max-height: none;
+        min-height: 0;
       }
 
       .msg-row {
@@ -620,8 +639,11 @@ export class AgentXOperationChatComponent implements AfterViewInit {
   /** Coordinator description shown as the welcome message. */
   @Input() contextDescription = '';
 
+  /** When true, renders as a desktop-embedded panel instead of a dismissible sheet. */
+  @Input() embedded = false;
+
   /** Optional list of quick action suggestions shown as tappable chips. */
-  @Input() quickActions: OperationQuickAction[] = [];
+  @Input() quickActions: readonly OperationQuickAction[] = [];
 
   /** Optional initial message to auto-send when the sheet opens. */
   @Input() initialMessage = '';
@@ -934,6 +956,7 @@ export class AgentXOperationChatComponent implements AfterViewInit {
 
   /** Dismiss the bottom sheet. */
   async dismiss(): Promise<void> {
+    if (this.embedded) return;
     await this.modalCtrl.dismiss(undefined, 'close');
   }
 

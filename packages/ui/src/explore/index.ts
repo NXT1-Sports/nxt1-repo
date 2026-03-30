@@ -21,6 +21,7 @@ export { ExploreForYouComponent } from './explore-for-you.component';
 // WEB — Zero Ionic, SSR-optimized
 // ============================================
 export { ExploreShellWebComponent } from './web/explore-shell-web.component';
+export { ExploreSidebarWebComponent } from './web/explore-sidebar-web.component';
 export { ExploreListWebComponent } from './web/explore-list-web.component';
 export { ExploreItemWebComponent } from './web/explore-item-web.component';
 export { ExploreForYouWebComponent } from './web/explore-for-you-web.component';

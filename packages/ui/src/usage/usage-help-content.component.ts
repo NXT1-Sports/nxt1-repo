@@ -114,14 +114,9 @@ interface FaqItem {
     `
       :host {
         display: block;
-        height: 100%;
       }
 
       .help-scroll-content {
-        height: 100%;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
-        overscroll-behavior: contain;
         background: var(--nxt1-color-surface-200);
       }
 

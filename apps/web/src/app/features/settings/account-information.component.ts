@@ -5,9 +5,7 @@ import {
   inject,
   OnInit,
   signal,
-  PLATFORM_ID,
 } from '@angular/core';
-import { isPlatformBrowser } from '@angular/common';
 import { Router } from '@angular/router';
 import type { SettingsSection } from '@nxt1/core';
 import {
@@ -17,7 +15,9 @@ import {
   type SettingsCopyEvent,
 } from '@nxt1/ui/settings';
 import { NxtDesktopPageHeaderComponent } from '@nxt1/ui/components/desktop-page-header';
+import { NxtOverlayService } from '@nxt1/ui/components/overlay';
 import { NxtBottomSheetService, SHEET_PRESETS } from '@nxt1/ui/components/bottom-sheet';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
@@ -26,6 +26,7 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { AnalyticsAdapter } from '@nxt1/core/analytics';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
+import { SettingsConfirmModalComponent } from './settings-confirm-modal.component';
 
 @Component({
   selector: 'app-account-information',
@@ -66,6 +67,13 @@ import { SeoService } from '../../core/services';
         padding: var(--nxt1-spacing-6, 24px) var(--nxt1-spacing-4, 16px);
         max-width: 880px;
       }
+
+      @media (max-width: 768px) {
+        .account-information-page__container {
+          padding: var(--nxt1-spacing-4, 16px);
+          padding-bottom: calc(120px + env(safe-area-inset-bottom, 0));
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -73,14 +81,18 @@ import { SeoService } from '../../core/services';
 export class AccountInformationComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly router = inject(Router);
+  private readonly overlay = inject(NxtOverlayService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly platform = inject(NxtPlatformService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('AccountInformationComponent');
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly analytics: AnalyticsAdapter | null =
     inject(ANALYTICS_ADAPTER, { optional: true }) ?? null;
   private readonly seo = inject(SeoService);
-  private readonly platformId = inject(PLATFORM_ID);
+
+  /** Responsive: true on mobile viewport, false on desktop */
+  protected readonly isMobile = computed(() => this.platform.isMobile());
 
   protected readonly isDeleting = signal(false);
 
@@ -172,18 +184,14 @@ export class AccountInformationComponent implements OnInit {
       }
 
       case 'signOut': {
-        const confirm = await this.bottomSheet.show({
+        const confirmed = await this.confirm({
           title: 'Sign Out',
-          subtitle: 'Are you sure you want to sign out?',
-          ...SHEET_PRESETS.COMPACT,
-          actionsLayout: 'horizontal',
-          actions: [
-            { label: 'Cancel', role: 'cancel' },
-            { label: 'Sign Out', role: 'destructive' },
-          ],
+          message: 'Are you sure you want to sign out?',
+          confirmText: 'Sign Out',
+          icon: 'logout',
         });
 
-        if (!confirm.confirmed) return;
+        if (!confirmed) return;
 
         try {
           await this.authService.signOut();
@@ -196,18 +204,17 @@ export class AccountInformationComponent implements OnInit {
       }
 
       case 'deleteAccount': {
-        const confirm = await this.bottomSheet.show({
+        const confirmed = await this.confirm({
           title: 'Delete Account',
-          subtitle:
+          message:
             'This action cannot be undone. All your data will be permanently deleted. Are you sure you want to continue?',
+          confirmText: 'Delete My Account',
+          cancelText: 'Cancel',
           destructive: true,
-          actions: [
-            { label: 'Delete My Account', role: 'destructive' },
-            { label: 'Cancel', role: 'cancel' },
-          ],
+          icon: 'trash',
         });
 
-        if (!confirm.confirmed) return;
+        if (!confirmed) return;
 
         await this._executeDeleteAccount();
         return;
@@ -248,5 +255,77 @@ export class AccountInformationComponent implements OnInit {
     } finally {
       this.isDeleting.set(false);
     }
+  }
+
+  private async confirm(config: {
+    title: string;
+    message?: string;
+    confirmText?: string;
+    cancelText?: string;
+    destructive?: boolean;
+    icon?: string;
+  }): Promise<boolean> {
+    if (this.isMobile()) {
+      return this.openMobileConfirm(config);
+    }
+    return this.openDesktopConfirm(config);
+  }
+
+  private async openMobileConfirm(config: {
+    title: string;
+    message?: string;
+    confirmText?: string;
+    cancelText?: string;
+    destructive?: boolean;
+    icon?: string;
+  }): Promise<boolean> {
+    const result = await this.bottomSheet.show({
+      title: config.title,
+      subtitle: config.message,
+      ...SHEET_PRESETS.COMPACT,
+      actionsLayout: 'horizontal',
+      destructive: config.destructive,
+      actions: [
+        {
+          label: config.cancelText ?? 'Cancel',
+          role: 'cancel',
+        },
+        {
+          label: config.confirmText ?? 'Confirm',
+          role: config.destructive ? 'destructive' : 'primary',
+        },
+      ],
+    });
+
+    return result.confirmed;
+  }
+
+  private async openDesktopConfirm(config: {
+    title: string;
+    message?: string;
+    confirmText?: string;
+    cancelText?: string;
+    destructive?: boolean;
+    icon?: string;
+  }): Promise<boolean> {
+    const result = await this.overlay.open<SettingsConfirmModalComponent, { confirmed: boolean }>({
+      component: SettingsConfirmModalComponent,
+      inputs: {
+        title: config.title,
+        message: config.message ?? '',
+        confirmText: config.confirmText ?? 'Confirm',
+        cancelText: config.cancelText ?? 'Cancel',
+        destructive: config.destructive ?? false,
+        icon: config.icon,
+      },
+      size: 'sm',
+      backdropDismiss: true,
+      escDismiss: true,
+      showCloseButton: false,
+      ariaLabel: config.title,
+      panelClass: 'nxt1-settings-confirm-overlay',
+    }).closed;
+
+    return result.data?.confirmed === true;
   }
 }

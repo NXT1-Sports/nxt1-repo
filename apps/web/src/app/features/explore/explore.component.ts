@@ -15,9 +15,17 @@
  * - User context from AuthService
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  computed,
+  OnInit,
+  PLATFORM_ID,
+  viewChild,
+} from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
-import { Location } from '@angular/common';
+import { Location, isPlatformBrowser } from '@angular/common';
 import { ExploreShellWebComponent, type ExploreUser, ExploreService } from '@nxt1/ui/explore';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
@@ -26,6 +34,14 @@ import type { ExploreItem, ExploreTabId, ScoutReport, FeedPost, FeedAuthor } fro
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
+import {
+  createGeolocationService,
+  BrowserGeolocationAdapter,
+  CachedGeocodingAdapter,
+  NominatimGeocodingAdapter,
+  GEOLOCATION_DEFAULTS,
+} from '@nxt1/core';
+import { NxtToastService } from '@nxt1/ui/services/toast';
 
 /** Valid URL slugs that map to explore tab IDs */
 const VALID_TAB_SLUGS = new Set(['pulse', 'discover']);
@@ -35,6 +51,7 @@ const VALID_TAB_SLUGS = new Set(['pulse', 'discover']);
   imports: [ExploreShellWebComponent],
   template: `
     <nxt1-explore-shell-web
+      #shellRef
       [user]="userInfo()"
       (tabChange)="onTabChange($event)"
       (itemClick)="onItemClick($event)"
@@ -43,6 +60,7 @@ const VALID_TAB_SLUGS = new Set(['pulse', 'discover']);
       (postSelect)="onPostSelect($event)"
       (authorSelect)="onAuthorSelect($event)"
       (newsArticleSelect)="onNewsArticleSelect($event)"
+      (detectLocation)="onDetectLocation()"
     />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -57,13 +75,17 @@ export class ExploreComponent implements OnInit {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly seo = inject(SeoService);
   private readonly exploreService = inject(ExploreService);
+  private readonly platformId = inject(PLATFORM_ID);
+  private readonly toast = inject(NxtToastService);
+
+  private readonly shellRef = viewChild<ExploreShellWebComponent>('shellRef');
 
   ngOnInit(): void {
     const tabParam = this.route.snapshot.paramMap.get('tab');
 
-    // Reject unknown tab slugs — redirect to base /explore
+    // Reject unknown tab slugs — redirect to Pulse
     if (tabParam !== null && !VALID_TAB_SLUGS.has(tabParam)) {
-      void this.router.navigate(['/explore'], { replaceUrl: true });
+      void this.router.navigate(['/explore', 'pulse'], { replaceUrl: true });
       return;
     }
 
@@ -84,14 +106,14 @@ export class ExploreComponent implements OnInit {
   private updateSeoForTab(tab: ExploreTabId): void {
     if (tab === 'news') {
       this.seo.updatePage({
-        title: 'Pulse | Explore',
+        title: 'Pulse',
         description:
           'Stay updated with the real-time Pulse of NXT1. Discover sports news, latest highlights, recruiting updates, and daily briefings.',
         keywords: ['pulse', 'news', 'explore', 'briefing', 'recruiting updates', 'sports news'],
       });
     } else if (tab === 'for-you') {
       this.seo.updatePage({
-        title: 'Discover | Explore',
+        title: 'Discover',
         description:
           'Discover top athletic talent, personalized team updates, dynamic content, and scout reports tuned to your preferences.',
         keywords: ['discover', 'explore', 'athletes', 'teams', 'colleges', 'sports'],
@@ -118,6 +140,8 @@ export class ExploreComponent implements OnInit {
       displayName: user.displayName,
       followingCount: user.followingCount,
       followingIds: user.followingIds,
+      sport: user.selectedSports?.[0] ?? null,
+      state: user.state ?? null,
     };
   });
 
@@ -188,10 +212,48 @@ export class ExploreComponent implements OnInit {
   }
 
   /**
-   * Handle news article selection - navigate to article page.
+   * Handle news article selection - navigate to article detail nested under Explore.
+   * URL: /explore/pulse/:id — keeps user in the Explore context.
    */
   protected onNewsArticleSelect(article: { id: string; title: string }): void {
     this.logger.debug('News article selected', { id: article.id });
-    void this.router.navigate(['/news', article.id]);
+    void this.router.navigate(['/explore', 'pulse', article.id]);
+  }
+
+  /**
+   * Handle detect-location event from sidebar.
+   * Uses geolocation + reverse geocoding to get the user's state.
+   */
+  protected async onDetectLocation(): Promise<void> {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    this.logger.info('Detecting user location');
+    this.breadcrumb.trackUserAction('detect-location-started');
+
+    try {
+      const geoService = createGeolocationService(
+        new BrowserGeolocationAdapter(),
+        new CachedGeocodingAdapter(new NominatimGeocodingAdapter())
+      );
+      const result = await geoService.getCurrentLocation(GEOLOCATION_DEFAULTS.QUICK);
+
+      if (result.success && result.data?.address?.state) {
+        const state = result.data.address.state;
+        this.logger.info('Location detected', { state });
+
+        this.exploreService.applyDetectedState(state);
+        this.shellRef()?.completeDetectLocation(state);
+        this.analytics?.trackEvent(APP_EVENTS.LOCATION_DETECTED, { state, source: 'explore' });
+        this.toast.success(`Location set to ${state}`);
+      } else {
+        this.logger.warn('Location detected but no state found');
+        this.shellRef()?.completeDetectLocation(null);
+        this.toast.error('Could not determine your state. Please set it manually.');
+      }
+    } catch (err) {
+      this.logger.error('Failed to detect location', err);
+      this.shellRef()?.completeDetectLocation(null);
+      this.toast.error('Location detection failed. Please check your browser permissions.');
+    }
   }
 }

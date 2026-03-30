@@ -45,6 +45,7 @@ import {
   Injector,
   OnDestroy,
   runInInjectionContext,
+  TransferState,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
@@ -56,6 +57,8 @@ import { Subscription } from 'rxjs';
 import type { Auth as FirebaseAuthType, User as FirebaseUser } from '@angular/fire/auth';
 
 import { AuthApiService } from './auth-api.service';
+import { AUTH_TRANSFER_STATE_KEY } from './ssr-tokens';
+import type { TransferredAuthState } from './ssr-tokens';
 import { AuthErrorHandler } from '@nxt1/ui/services/auth-error';
 import { FileUploadService } from '../../../core/services';
 import { InviteApiService } from '@nxt1/ui/invite';
@@ -141,6 +144,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   private readonly authApi = inject(AuthApiService);
   private readonly authErrorHandler = inject(AuthErrorHandler);
   private readonly inviteApi = inject(InviteApiService);
+  private readonly transferState = inject(TransferState);
 
   /** Structured logger for auth operations */
   private readonly logger: ILogger = inject(NxtLoggingService).child('AuthFlowService');
@@ -160,6 +164,15 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   private authStateSubscription?: Subscription;
 
   /**
+   * Tracks whether Firebase Auth has ever emitted a non-null user in this session.
+   * Firebase's authState() observable always emits null first while it resolves
+   * the current session from the cookie — before confirming the real user.
+   * We use this flag to distinguish that "initial null" from a genuine sign-out,
+   * so we don't wipe the SSR-hydrated user on every page load.
+   */
+  private _firebaseAuthResolved = false;
+
+  /**
    * ⭐ Core Auth State Manager - Same pattern as mobile app ⭐
    *
    * Uses memory storage on server (SSR) and browser storage on client.
@@ -172,6 +185,21 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   // ============================================
   private readonly _state = signal<CoreAuthState>(INITIAL_AUTH_STATE);
 
+  /**
+   * Tracks whether auth resolution is complete and the UI can trust the auth state.
+   *
+   * Unlike `isInitialized` (which fires when the AuthStateManager reads localStorage),
+   * `isAuthReady` only becomes true when we have a **definitive** auth answer:
+   *  - TransferState hydrated a user (synchronous)
+   *  - localStorage restored a user (after authManager.initialize())
+   *  - Firebase Auth emitted its first real result (user or confirmed null)
+   *  - Server render with no user (synchronous)
+   *  - 5-second safety timeout
+   *
+   * Use this for "show Sign In" decisions — it prevents premature flash.
+   */
+  private readonly _isAuthReady = signal(false);
+
   // ============================================
   // PUBLIC COMPUTED SIGNALS (Read-only)
   // ============================================
@@ -180,6 +208,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   readonly isLoading = computed(() => this._state().isLoading);
   readonly error = computed(() => this._state().error);
   readonly isInitialized = computed(() => this._state().isInitialized);
+  readonly isAuthReady = computed(() => this._isAuthReady());
 
   readonly isAuthenticated = computed(() => this._state().user !== null);
 
@@ -257,6 +286,11 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    * Uses the same pattern as mobile app:
    * - Server (SSR): memory storage
    * - Browser: localStorage
+   *
+   * TransferState bridge (2026 best practice):
+   * On server, ServerAuthService writes the authenticated user to TransferState
+   * via APP_INITIALIZER. This method reads it so that the very first render
+   * (server AND client) reflects the correct authenticated state — no "Sign In" flash.
    */
   private initializeAuthManager(): void {
     // Use appropriate storage based on platform
@@ -271,11 +305,62 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       this._state.set(state);
     });
 
+    // ── TransferState hydration (server + browser) ─────────────────────────
+    // On server: reads what ServerAuthService.initialize() just wrote.
+    // On browser: reads the JSON serialized into the HTML by SSR.
+    // Either way, sets the user synchronously on the first tick.
+    const transferred = this.transferState.get<TransferredAuthState>(AUTH_TRANSFER_STATE_KEY, {
+      user: null,
+      firebaseUser: null,
+    });
+
+    if (transferred.user) {
+      const authUser: AuthUser = {
+        uid: transferred.user.uid,
+        email: transferred.user.email,
+        displayName: transferred.user.displayName,
+        profileImg: transferred.user.profileImg,
+        role: (transferred.user.role as UserRole) ?? 'athlete',
+        isPremium: transferred.user.isPremium,
+        hasCompletedOnboarding: transferred.user.hasCompletedOnboarding,
+        provider: 'email', // default for SSR transfer
+        emailVerified: transferred.firebaseUser?.emailVerified ?? true,
+        createdAt: transferred.user.createdAt,
+        updatedAt: transferred.user.updatedAt,
+        connectedEmails: transferred.user.connectedEmails as AuthUser['connectedEmails'],
+      };
+
+      // Set user synchronously so the first render is authenticated
+      void this.authManager.setUser(authUser);
+
+      if (transferred.firebaseUser) {
+        this.authManager.setFirebaseUser({
+          uid: transferred.firebaseUser.uid,
+          email: transferred.firebaseUser.email,
+          displayName: transferred.firebaseUser.displayName,
+          photoURL: transferred.firebaseUser.photoURL,
+          emailVerified: transferred.firebaseUser.emailVerified,
+          metadata: transferred.firebaseUser.metadata,
+        });
+      }
+
+      this.authManager.setLoading(false);
+      this.authManager.setInitialized(true);
+      this._isAuthReady.set(true); // TransferState user — trust the server's auth check
+
+      this.logger.info('Auth state hydrated from TransferState', {
+        uid: authUser.uid,
+        hasCompletedOnboarding: authUser.hasCompletedOnboarding,
+      });
+    }
+
     // Initialize manager and Firebase Auth
     if (this.platform.isBrowser()) {
       this.initializeOnBrowser();
-    } else {
-      // On server, mark as initialized with no user
+    } else if (!transferred.user) {
+      // Server can't see browser IndexedDB — "no cookie" ≠ "no user".
+      // Leave isAuthReady=false so SSR renders a neutral state (no Sign In flash).
+      // The client resolves the real auth state from Firebase after hydration.
       this.authManager.setLoading(false);
       this.authManager.setInitialized(true);
     }
@@ -293,11 +378,22 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         this.authManager.setLoading(false);
         this.authManager.setInitialized(true);
       }
+      if (!this._isAuthReady()) {
+        this.logger.warn('Force auth ready after timeout');
+        this._isAuthReady.set(true);
+      }
     }, 5000);
 
     try {
       // Initialize from storage (restore persisted state)
       await this.authManager.initialize();
+
+      // If localStorage had a valid user, trust it immediately.
+      // This prevents a blank/loading state when we already know the user is authenticated.
+      // Firebase will confirm (or invalidate) shortly via authState().
+      if (this.authManager.getState().user) {
+        this._isAuthReady.set(true);
+      }
 
       // Dynamically import the Auth token and inject it
       const { Auth } = await import('@angular/fire/auth');
@@ -308,11 +404,13 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       } else {
         this.authManager.setLoading(false);
         this.authManager.setInitialized(true);
+        this._isAuthReady.set(true);
       }
     } catch (err) {
       this.logger.error('Failed to initialize Firebase Auth', err);
       this.authManager.setLoading(false);
       this.authManager.setInitialized(true);
+      this._isAuthReady.set(true);
     } finally {
       clearTimeout(forceInitTimeout);
     }
@@ -335,10 +433,19 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     // This prevents the "Firebase API called outside injection context" warning
     runInInjectionContext(this.injector, () => {
       this.authStateSubscription = authState(this.firebaseAuth!).subscribe(async (firebaseUser) => {
-        this.authManager.setLoading(true);
+        // If we already have a user perfectly setup (SSR hydration), don't show loading spinner
+        // just to sync the token under the hood. Avoid the flash!
+        const isAlreadyHydrated = this._state().user !== null && this._state().isInitialized;
+        if (!isAlreadyHydrated) {
+          this.authManager.setLoading(true);
+        }
 
         try {
           if (firebaseUser) {
+            // Mark Firebase as having resolved at least once with a real user.
+            // Used below to distinguish genuine sign-out from initial null emission.
+            this._firebaseAuthResolved = true;
+
             // Set Firebase user info in manager
             this.authManager.setFirebaseUser({
               uid: firebaseUser.uid,
@@ -371,6 +478,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             await this.syncUserProfile(firebaseUser);
             this.authManager.setLoading(false);
             this.authManager.setInitialized(true);
+            this._isAuthReady.set(true);
 
             // Check onboarding status AFTER sync
             const completedOnboarding = this.hasCompletedOnboarding();
@@ -408,17 +516,32 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               this.logger.info('ℹ️ Staying on current page', { currentUrl, completedOnboarding });
             }
           } else {
+            // Firebase emits null in two situations:
+            // 1. Initial emission before it resolves the session from the cookie (not a real sign-out)
+            // 2. Genuine sign-out after a user was previously confirmed
+            // Only reset state for case 2 — if Firebase has already confirmed a user in this
+            // session, OR if there is no SSR-hydrated user to protect.
+            const isHydrated = this._state().user !== null && this._state().isInitialized;
+            if (!this._firebaseAuthResolved && isHydrated) {
+              this.logger.debug(
+                'Skipping initial Firebase null emission — keeping SSR-hydrated user'
+              );
+              return;
+            }
+
             // User is signed out - reset state
             await this.authManager.reset();
             // Make sure we mark as initialized even when no user
             this.authManager.setInitialized(true);
             this.authManager.setLoading(false);
+            this._isAuthReady.set(true);
           }
         } catch (err) {
           this.logger.error('Auth state sync failed', err);
           this.authManager.setError(err instanceof Error ? err.message : 'Authentication error');
           this.authManager.setLoading(false);
           this.authManager.setInitialized(true);
+          this._isAuthReady.set(true);
         }
       });
     });

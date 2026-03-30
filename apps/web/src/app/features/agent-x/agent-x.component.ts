@@ -77,6 +77,15 @@ import { SeoService } from '../../core/services';
         display: block;
         min-height: 100vh;
         background: var(--nxt1-color-bg-primary);
+        /* Pull up to negate shell__content padding-top — Agent X uses nav portal, no page header */
+        margin-top: calc(-1 * (var(--nxt1-spacing-4, 1rem) + 7px));
+      }
+
+      /* On mobile the shell content padding-top is 0 so don't pull up */
+      @media (max-width: 768px) {
+        :host {
+          margin-top: 0;
+        }
       }
 
       .auth-init-mask {

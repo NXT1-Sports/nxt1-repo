@@ -70,16 +70,20 @@ export type FeedSkeletonVariant = 'post' | 'post-with-media' | 'compact';
         --skeleton-bg: var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.06));
         --skeleton-shimmer: var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.12));
         --skeleton-border: var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.06));
+        --skeleton-surface: var(--nxt1-glass-bg, rgba(20, 20, 20, 0.88));
       }
 
       .feed-skeleton {
+        margin: 0 16px 12px;
         padding: 16px;
-        border-bottom: 1px solid var(--skeleton-border);
+        background: var(--skeleton-surface);
+        border: 1px solid var(--nxt1-glass-border, rgba(255, 255, 255, 0.12));
+        border-radius: var(--nxt1-radius-lg, 16px);
+        overflow: hidden;
 
         @media (min-width: 768px) {
+          margin: 0;
           padding: 20px 24px;
-          border-radius: var(--nxt1-radius-lg, 12px);
-          margin-bottom: 12px;
           border: 1px solid var(--skeleton-border);
         }
       }
@@ -166,7 +170,7 @@ export type FeedSkeletonVariant = 'post' | 'post-with-media' | 'compact';
          ============================================ */
 
       .feed-skeleton__media {
-        aspect-ratio: 16 / 9;
+        height: 160px;
         background: var(--skeleton-bg);
         border-radius: var(--nxt1-radius-lg, 12px);
         margin-bottom: 12px;
@@ -183,7 +187,7 @@ export type FeedSkeletonVariant = 'post' | 'post-with-media' | 'compact';
         align-items: center;
         gap: 24px;
         padding-top: 12px;
-        border-top: 1px solid var(--skeleton-border);
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
       }
 
       .feed-skeleton__action {

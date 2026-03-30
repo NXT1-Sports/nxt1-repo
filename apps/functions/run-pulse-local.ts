@@ -167,8 +167,22 @@ async function callOpenRouter(
 
 // ─── Scraper ────────────────────────────────────────────────────────────────
 
-async function scrapeOgImage(url: string): Promise<string | undefined> {
+interface ScrapedMetadata {
+  imageUrl?: string;
+  faviconUrl?: string;
+}
+
+/**
+ * Scrapes og:image AND favicon from a source URL in a single HTTP request.
+ * Falls back to Google Favicon API if no favicon found in HTML.
+ */
+async function scrapeArticleMetadata(url: string): Promise<ScrapedMetadata> {
+  let faviconUrl: string | undefined;
+
   try {
+    const parsedUrl = new URL(url);
+    const origin = parsedUrl.origin;
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
 
@@ -182,22 +196,61 @@ async function scrapeOgImage(url: string): Promise<string | undefined> {
     });
     clearTimeout(timeout);
 
-    if (!response.ok) return undefined;
+    if (!response.ok) {
+      faviconUrl = `https://www.google.com/s2/favicons?domain=${parsedUrl.hostname}&sz=64`;
+      return { faviconUrl };
+    }
 
     const html = await response.text();
     const $ = cheerio.load(html);
 
+    // --- Extract og:image ---
+    let imageUrl: string | undefined;
     const ogImage =
       $('meta[property="og:image"]').attr('content') ||
       $('meta[name="twitter:image"]').attr('content') ||
       $('link[rel="image_src"]').attr('href') ||
       $('meta[itemprop="image"]').attr('content');
 
-    if (ogImage && ogImage.startsWith('http')) return ogImage;
+    if (ogImage && ogImage.startsWith('http')) {
+      imageUrl = ogImage;
+    }
+
+    // --- Extract favicon ---
+    const faviconHref =
+      $('link[rel="icon"]').attr('href') ||
+      $('link[rel="shortcut icon"]').attr('href') ||
+      $('link[rel="apple-touch-icon"]').attr('href');
+
+    if (faviconHref) {
+      if (faviconHref.startsWith('http')) {
+        faviconUrl = faviconHref;
+      } else if (faviconHref.startsWith('//')) {
+        faviconUrl = `https:${faviconHref}`;
+      } else if (faviconHref.startsWith('/')) {
+        faviconUrl = `${origin}${faviconHref}`;
+      } else {
+        faviconUrl = `${origin}/${faviconHref}`;
+      }
+    }
+
+    // Fallback: Google Favicon API
+    if (!faviconUrl) {
+      faviconUrl = `https://www.google.com/s2/favicons?domain=${parsedUrl.hostname}&sz=64`;
+    }
+
+    return { imageUrl, faviconUrl };
   } catch {
-    // Silent fail — image scraping is best-effort
+    // Best-effort fallback for favicon even on fetch failure
+    try {
+      const hostname = new URL(url).hostname;
+      faviconUrl = `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
+    } catch {
+      /* invalid URL */
+    }
+
+    return { faviconUrl };
   }
-  return undefined;
 }
 
 // ─── Article Discovery ──────────────────────────────────────────────────────
@@ -305,7 +358,7 @@ async function generateSummary(
 ): Promise<ArticleWithContent> {
   console.log(`\n📝 [${index + 1}/${total}] Summarizing: ${article.title}`);
 
-  const [content, scrapedImage] = await Promise.all([
+  const [content, metadata] = await Promise.all([
     callOpenRouter(
       SUMMARY_MODEL,
       'You are a sports journalist writing for NXT1, a sports recruiting platform for high school athletes, coaches, and scouts. Write in an engaging, informative style.',
@@ -322,17 +375,22 @@ Write the summary in your own words. Do NOT copy the original article verbatim. 
 Return ONLY the article text (plain text paragraphs). No title, no metadata, no markdown headers.`,
       1024
     ),
-    scrapeOgImage(article.sourceUrl),
+    scrapeArticleMetadata(article.sourceUrl),
   ]);
 
-  const finalImage = scrapedImage || article.imageUrl;
+  const finalImage = metadata.imageUrl || article.imageUrl;
+  const finalFavicon = metadata.faviconUrl || article.faviconUrl;
   console.log(
     `  ${finalImage ? '🖼️  Image: ' + finalImage.slice(0, 80) + '...' : '⚠️  No image found'}`
+  );
+  console.log(
+    `  ${finalFavicon ? '🌐 Favicon: ' + finalFavicon.slice(0, 80) + '...' : '⚠️  No favicon found'}`
   );
 
   return {
     ...article,
     imageUrl: finalImage,
+    faviconUrl: finalFavicon,
     content: content.trim(),
     slug: slugify(article.title),
   };

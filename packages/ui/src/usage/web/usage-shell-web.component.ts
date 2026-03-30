@@ -33,16 +33,25 @@ import {
   inject,
   input,
   computed,
-  signal,
+  viewChild,
   OnInit,
+  AfterViewInit,
+  OnDestroy,
+  type TemplateRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
+import { NxtIconComponent } from '../../components/icon';
+import {
+  NxtSectionNavWebComponent,
+  type SectionNavChangeEvent,
+} from '../../components/section-nav-web';
 import {
   NxtOptionScrollerWebComponent,
   type OptionScrollerChangeEvent,
 } from '../../components/option-scroller-web';
 import { NxtRefresherComponent, type RefreshEvent } from '../../components/refresh-container';
+import { NxtOverlayService } from '../../components/overlay';
+import { NxtHeaderPortalService } from '../../services/header-portal';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import { UsageService, type UsageSection } from '../usage.service';
@@ -69,7 +78,8 @@ export type { UsageUser };
   standalone: true,
   imports: [
     CommonModule,
-    NxtDesktopPageHeaderComponent,
+    NxtIconComponent,
+    NxtSectionNavWebComponent,
     NxtOptionScrollerWebComponent,
     NxtRefresherComponent,
     UsageSkeletonComponent,
@@ -81,152 +91,156 @@ export type { UsageUser };
     UsagePaymentHistoryComponent,
     UsagePaymentInfoComponent,
     UsageBudgetsComponent,
-    UsageHelpContentComponent,
   ],
   template: `
+    <!-- Portal: center — "Billing & Usage" title + Buy Credits in top nav -->
+    <ng-template #centerPortalContent>
+      <div class="header-portal-usage">
+        <span class="header-portal-title">Billing & Usage</span>
+        <button type="button" class="header-portal-buy-btn" (click)="onBuyCredits()">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          <span>Buy Credits</span>
+        </button>
+      </div>
+    </ng-template>
+
+    <!-- Portal: right — help button, sits inline before the bell -->
+    <ng-template #rightPortalContent>
+      <button
+        type="button"
+        class="nav-action-btn help-action-btn"
+        aria-label="How billing works"
+        (click)="showHelpDialog()"
+      >
+        <nxt1-icon name="help-circle-outline" size="22" aria-hidden="true" />
+      </button>
+    </ng-template>
+
     <!-- SEO: Main content area with semantic structure -->
     <main class="usage-main" role="main">
       <!-- Pull-to-Refresh (gracefully noop without IonContent) -->
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
       <div class="usage-dashboard">
-        <!-- Desktop Page Header — hidden on mobile via CSS -->
-        <div class="desktop-header-wrap">
-          <nxt1-desktop-page-header
-            title="Billing & Usage"
-            subtitle="Manage your billing, usage, and payment details for your account."
-            actionLabel="How it works"
-            actionIcon="help-circle-outline"
-            (actionClick)="showHelpDialog()"
+        <!-- Mobile option scroller (hidden on desktop, visible ≤768px) -->
+        <div class="usage-mobile-scroller">
+          <nxt1-option-scroller-web
+            [options]="$any(svc.sectionNavs())"
+            [selectedId]="svc.activeSection()"
+            [stretchToFill]="true"
+            [showDivider]="true"
+            (selectionChange)="onMobileTabChange($event)"
           />
         </div>
 
-        <!-- Section Tab Scroller — ALWAYS in DOM (prevents re-mount indicator glitch) -->
-        <nxt1-option-scroller-web
-          [options]="$any(svc.sectionNavs())"
-          [selectedId]="svc.activeSection()"
-          [stretchToFill]="true"
-          [showDivider]="true"
-          ariaLabel="Billing sections"
-          [attr.data-testid]="testIds.SECTION_NAV"
-          (selectionChange)="onSectionNavChange($event)"
-        />
+        <!-- Two-column layout: Sidebar nav + Content (matches explore pattern) -->
+        <div class="dashboard-layout nxt1-section-layout">
+          <nxt1-section-nav-web
+            [items]="$any(svc.sectionNavs())"
+            [activeId]="svc.activeSection()"
+            ariaLabel="Billing sections"
+            [attr.data-testid]="testIds.SECTION_NAV"
+            (selectionChange)="onSectionNavChange($event)"
+          />
 
-        <!-- Content – padded with design tokens -->
-        <div class="content-wrapper">
-          @if (svc.error() && !hasData()) {
-            <nxt1-usage-error-state
-              [message]="svc.error() ?? 'Failed to load usage data'"
-              [attr.data-testid]="testIds.ERROR_STATE"
-              (retry)="svc.loadDashboard()"
-            />
-          } @else {
-            <section
-              class="section-content"
-              [attr.id]="'section-' + svc.activeSection()"
-              role="tabpanel"
-            >
-              @if (svc.isLoading() && !hasData()) {
-                <nxt1-usage-skeleton [attr.data-testid]="testIds.LOADING_SKELETON" />
-              } @else {
-                @switch (svc.activeSection()) {
-                  @case ('overview') {
-                    <nxt1-usage-overview
-                      [data]="svc.overview()"
-                      [isPersonal]="svc.isPersonal()"
-                      (viewPaymentHistory)="svc.setActiveSection('payment-history')"
-                      (buyCredit)="onBuyCredits()"
-                    />
+          <section class="section-content nxt1-section-content" role="tabpanel">
+            @if (svc.error() && !hasData()) {
+              <nxt1-usage-error-state
+                [message]="svc.error() ?? 'Failed to load usage data'"
+                [attr.data-testid]="testIds.ERROR_STATE"
+                (retry)="svc.loadDashboard()"
+              />
+            } @else if (svc.isLoading() && !hasData()) {
+              <nxt1-usage-skeleton [attr.data-testid]="testIds.LOADING_SKELETON" />
+            } @else {
+              @switch (svc.activeSection()) {
+                @case ('overview') {
+                  <nxt1-usage-overview
+                    [data]="svc.overview()"
+                    [isPersonal]="svc.isPersonal()"
+                    [hideBuyCredits]="true"
+                    (viewPaymentHistory)="svc.setActiveSection('payment-history')"
+                    (buyCredit)="onBuyCredits()"
+                  />
 
-                    @if (svc.subscriptions().length > 0) {
-                      <nxt1-usage-subscriptions
-                        [subscriptions]="svc.subscriptions()"
-                        (manage)="onManageSubscriptions()"
-                      />
-                    }
-
-                    @if (svc.isOrg()) {
-                      <nxt1-usage-budgets
-                        [budgets]="svc.budgets()"
-                        (createBudget)="onCreateBudget()"
-                        (editBudget)="onEditBudget($event)"
-                      />
-                    }
-                  }
-
-                  @case ('metered-usage') {
-                    <nxt1-usage-chart
-                      [chartData]="svc.chartData()"
-                      [timeframe]="svc.timeframe()"
-                      [yLabels]="svc.chartYLabels()"
-                      (timeframeChange)="svc.setTimeframe($event)"
-                      (viewBreakdown)="svc.setActiveSection('breakdown')"
+                  @if (svc.subscriptions().length > 0) {
+                    <nxt1-usage-subscriptions
+                      [subscriptions]="svc.subscriptions()"
+                      (manage)="onManageSubscriptions()"
                     />
                   }
 
-                  @case ('breakdown') {
-                    <nxt1-usage-breakdown-table
-                      [rows]="svc.filteredBreakdownRows()"
-                      [expandedRow]="svc.expandedBreakdownRow()"
-                      [periodLabel]="svc.periodLabel()"
-                      [timeframe]="svc.timeframe()"
-                      (toggleRow)="svc.toggleBreakdownRow($event)"
-                      (timeframeChange)="svc.setTimeframe($event)"
-                    />
-                  }
-
-                  @case ('payment-history') {
-                    <nxt1-usage-payment-history
-                      [records]="svc.filteredPaymentHistory()"
-                      [hasMore]="svc.historyHasMore()"
-                      (downloadReceipt)="onDownloadReceipt($event)"
-                      (downloadInvoice)="onDownloadInvoice($event)"
-                      (loadMore)="svc.loadMoreHistory()"
-                    />
-                  }
-
-                  @case ('payment-info') {
-                    <nxt1-usage-payment-info
-                      [billingInfo]="svc.billingInfo()"
-                      [paymentMethods]="svc.paymentMethods()"
-                      [coupon]="svc.coupon()"
-                      (editBilling)="onEditBilling()"
-                      (editPayment)="onEditPayment()"
-                      (redeemCoupon)="onRedeemCoupon()"
-                      (editAdditional)="onEditAdditional()"
+                  @if (svc.isOrg()) {
+                    <nxt1-usage-budgets
+                      [budgets]="svc.budgets()"
+                      (createBudget)="onCreateBudget()"
+                      (editBudget)="onEditBudget($event)"
                     />
                   }
                 }
+
+                @case ('metered-usage') {
+                  <nxt1-usage-chart
+                    [chartData]="svc.chartData()"
+                    [timeframe]="svc.timeframe()"
+                    [yLabels]="svc.chartYLabels()"
+                    (timeframeChange)="svc.setTimeframe($event)"
+                    (viewBreakdown)="svc.setActiveSection('breakdown')"
+                  />
+                }
+
+                @case ('breakdown') {
+                  <nxt1-usage-breakdown-table
+                    [rows]="svc.filteredBreakdownRows()"
+                    [expandedRow]="svc.expandedBreakdownRow()"
+                    [periodLabel]="svc.periodLabel()"
+                    [timeframe]="svc.timeframe()"
+                    (toggleRow)="svc.toggleBreakdownRow($event)"
+                    (timeframeChange)="svc.setTimeframe($event)"
+                  />
+                }
+
+                @case ('payment-history') {
+                  <nxt1-usage-payment-history
+                    [records]="svc.filteredPaymentHistory()"
+                    [hasMore]="svc.historyHasMore()"
+                    (downloadReceipt)="onDownloadReceipt($event)"
+                    (downloadInvoice)="onDownloadInvoice($event)"
+                    (loadMore)="svc.loadMoreHistory()"
+                  />
+                }
+
+                @case ('payment-info') {
+                  <nxt1-usage-payment-info
+                    [billingInfo]="svc.billingInfo()"
+                    [paymentMethods]="svc.paymentMethods()"
+                    [coupon]="svc.coupon()"
+                    (editBilling)="onEditBilling()"
+                    (editPayment)="onEditPayment()"
+                    (redeemCoupon)="onRedeemCoupon()"
+                    (editAdditional)="onEditAdditional()"
+                  />
+                }
               }
-            </section>
-          }
+            }
+          </section>
         </div>
       </div>
     </main>
-
-    <!-- Help Dialog (SSR-safe, no Ionic) -->
-    @if (showHelp()) {
-      <div class="dialog-backdrop" (click)="closeHelpDialog()"></div>
-      <dialog class="help-dialog" [open]="showHelp()">
-        <button type="button" class="dialog-close" (click)="closeHelpDialog()" aria-label="Close">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-        </button>
-        <nxt1-usage-help-content />
-      </dialog>
-    }
   `,
   styles: [
     `
@@ -240,8 +254,6 @@ export type { UsageUser };
         display: block;
         height: 100%;
         width: 100%;
-        /* Cancel shell top padding so option scroller sits flush under the nav bar */
-        margin-top: calc(-1 * var(--shell-content-padding-top, 0px));
       }
 
       .usage-main {
@@ -251,138 +263,137 @@ export type { UsageUser };
 
       .usage-dashboard {
         padding: 0;
+        padding-top: var(--nxt1-spacing-6, 24px);
         padding-bottom: var(--nxt1-spacing-16);
       }
 
       /* ==============================
-       DESKTOP HEADER — hide on mobile
+       HEADER PORTAL STYLES
+       Centered title teleported into top nav
        ============================== */
 
-      .desktop-header-wrap {
-        display: block;
+      .header-portal-usage {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        padding: 0 var(--nxt1-spacing-2, 8px);
+        position: relative;
       }
 
-      @media (max-width: 768px) {
-        .desktop-header-wrap {
-          display: none;
-        }
+      .header-portal-title {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+        user-select: none;
+        position: absolute;
+        left: var(--nxt1-spacing-2, 8px);
+      }
+
+      .header-portal-buy-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 6px 16px;
+        border-radius: var(--nxt1-borderRadius-lg, 0.5rem);
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1;
+        white-space: nowrap;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
+        border: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.06));
+        cursor: pointer;
+        transition: all 0.15s ease;
+        user-select: none;
+        margin: 0 auto;
+      }
+
+      .header-portal-buy-btn:hover {
+        color: var(--nxt1-color-text-primary, #ffffff);
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
+        border-color: rgba(255, 255, 255, 0.14);
+      }
+
+      .header-portal-buy-btn:active {
+        transform: scale(0.98);
       }
 
       /* ==============================
-       CONTENT WRAPPER — horizontal padding
-       Scroller stays edge-to-edge (no padding on .usage-dashboard)
+       TWO-COLUMN LAYOUT (matches explore pattern)
+       Left: sticky vertical section nav (180px)
+       Right: content panel
        ============================== */
 
-      .content-wrapper {
-        padding: var(--nxt1-spacing-5) var(--nxt1-spacing-4);
+      .dashboard-layout {
+        display: grid;
+        grid-template-columns: 180px 1fr;
+        gap: var(--nxt1-spacing-6, 24px);
+        align-items: start;
       }
-
-      @media (min-width: 769px) {
-        .content-wrapper {
-          padding: var(--nxt1-spacing-6) var(--nxt1-spacing-6);
-        }
-      }
-
-      /* ==============================
-       CONTENT PANEL
-       ============================== */
 
       .section-content {
         min-width: 0;
       }
 
-      /* ==============================
-       HELP DIALOG (SSR-safe)
-       ============================== */
-
-      .dialog-backdrop {
-        position: fixed;
-        inset: 0;
-        background: var(--nxt1-color-bg-overlay, rgba(0, 0, 0, 0.6));
-        backdrop-filter: blur(var(--nxt1-blur-sm, 4px));
-        -webkit-backdrop-filter: blur(var(--nxt1-blur-sm, 4px));
-        z-index: 1000;
-        animation: fadeIn var(--nxt1-duration-normal, 200ms) var(--nxt1-easing-out, ease-out);
+      /* Mobile option scroller — hidden on desktop */
+      .usage-mobile-scroller {
+        display: none;
       }
 
-      .help-dialog {
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        width: 560px;
-        max-width: 90vw;
-        max-height: 85vh;
-        background: var(--nxt1-color-surface-200, #1c1c1e);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        border-radius: var(--nxt1-radius-2xl, 24px);
-        box-shadow: var(--nxt1-shadow-2xl, 0 25px 50px -12px rgba(0, 0, 0, 0.5));
-        overflow: hidden;
-        z-index: 1001;
-        padding: 0;
-        margin: 0;
-        animation: slideUp var(--nxt1-duration-normal, 200ms) var(--nxt1-easing-out, ease-out);
-      }
-
-      .dialog-close {
-        position: absolute;
-        top: var(--nxt1-spacing-4);
-        right: var(--nxt1-spacing-4);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 32px;
-        height: 32px;
-        padding: 0;
-        color: var(--nxt1-color-text-secondary);
-        background: var(--nxt1-color-surface-100);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        border-radius: var(--nxt1-radius-full);
-        cursor: pointer;
-        transition: all var(--nxt1-duration-fast, 100ms) var(--nxt1-easing-out, ease-out);
-        z-index: 10;
-      }
-
-      .dialog-close:hover {
-        color: var(--nxt1-color-text-primary);
-        background: var(--nxt1-color-surface-200);
-      }
-
-      @keyframes fadeIn {
-        from {
-          opacity: 0;
+      @media (max-width: 768px) {
+        .usage-mobile-scroller {
+          display: block;
+          position: sticky;
+          top: 0;
+          z-index: 10;
+          background: var(--nxt1-color-bg-primary);
         }
-        to {
-          opacity: 1;
-        }
-      }
 
-      @keyframes slideUp {
-        from {
-          opacity: 0;
-          transform: translate(-50%, -45%);
+        .usage-main {
+          padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
         }
-        to {
-          opacity: 1;
-          transform: translate(-50%, -50%);
+
+        .usage-dashboard {
+          padding: 0 var(--nxt1-spacing-4, 16px);
+          padding-bottom: var(--nxt1-spacing-16);
+        }
+
+        .dashboard-layout {
+          display: block;
+          padding-top: var(--nxt1-spacing-4, 16px);
+        }
+
+        nxt1-section-nav-web {
+          display: none;
+        }
+
+        .header-portal-buy-btn span {
+          display: none;
+        }
+
+        .header-portal-buy-btn {
+          padding: 6px 10px;
+          min-width: 0;
         }
       }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class UsageShellWebComponent implements OnInit {
+export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy {
   protected readonly testIds = USAGE_TEST_IDS;
   protected readonly svc = inject(UsageService);
+  private readonly overlay = inject(NxtOverlayService);
+  private readonly headerPortal = inject(NxtHeaderPortalService);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
 
-  // ============================================
-  // STATE
-  // ============================================
-
-  /** Show help dialog signal */
-  protected readonly showHelp = signal(false);
+  // Template refs for header portal
+  private readonly centerPortalContent = viewChild<TemplateRef<unknown>>('centerPortalContent');
+  private readonly rightPortalContent = viewChild<TemplateRef<unknown>>('rightPortalContent');
 
   // ============================================
   // INPUTS
@@ -403,6 +414,17 @@ export class UsageShellWebComponent implements OnInit {
 
   ngOnInit(): void {
     this.svc.loadDashboard();
+  }
+
+  ngAfterViewInit(): void {
+    const centerTpl = this.centerPortalContent();
+    if (centerTpl) this.headerPortal.setCenterContent(centerTpl);
+    const rightTpl = this.rightPortalContent();
+    if (rightTpl) this.headerPortal.setRightContent(rightTpl);
+  }
+
+  ngOnDestroy(): void {
+    this.headerPortal.clearAll();
   }
 
   // ============================================
@@ -426,7 +448,11 @@ export class UsageShellWebComponent implements OnInit {
   // EVENT HANDLERS
   // ============================================
 
-  protected onSectionNavChange(event: OptionScrollerChangeEvent): void {
+  protected onSectionNavChange(event: SectionNavChangeEvent): void {
+    this.svc.setActiveSection(event.id as UsageSection);
+  }
+
+  protected onMobileTabChange(event: OptionScrollerChangeEvent): void {
     this.svc.setActiveSection(event.option.id as UsageSection);
   }
 
@@ -486,10 +512,12 @@ export class UsageShellWebComponent implements OnInit {
 
   protected showHelpDialog(): void {
     this.haptics.impact('light');
-    this.showHelp.set(true);
-  }
-
-  protected closeHelpDialog(): void {
-    this.showHelp.set(false);
+    this.overlay.open({
+      component: UsageHelpContentComponent,
+      size: 'lg',
+      showCloseButton: true,
+      backdropDismiss: true,
+      ariaLabel: 'How Billing Works',
+    });
   }
 }

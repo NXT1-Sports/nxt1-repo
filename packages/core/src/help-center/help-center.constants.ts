@@ -362,21 +362,21 @@ export const HELP_SEARCH_CONFIG = {
  */
 export const HELP_API_ENDPOINTS = {
   /** Get home/landing page data */
-  HOME: '/api/v1/help-center',
+  HOME: '/help-center',
   /** Get category detail */
-  CATEGORY: '/api/v1/help-center/categories/:id',
+  CATEGORY: '/help-center/categories/:id',
   /** Get single article */
-  ARTICLE: '/api/v1/help-center/articles/:slug',
+  ARTICLE: '/help-center/articles/:slug',
   /** Search endpoint */
-  SEARCH: '/api/v1/help-center/search',
+  SEARCH: '/help-center/search',
   /** Get FAQs */
-  FAQS: '/api/v1/help-center/faqs',
+  FAQS: '/help-center/faqs',
   /** Submit article feedback */
-  FEEDBACK: '/api/v1/help-center/articles/:id/feedback',
+  FEEDBACK: '/help-center/articles/:id/feedback',
   /** AI chat endpoint */
-  CHAT: '/api/v1/help-center/chat',
+  CHAT: '/help-center/chat',
   /** Submit support ticket */
-  SUPPORT: '/api/v1/help-center/support',
+  SUPPORT: '/help-center/support',
 } as const;
 
 // ============================================

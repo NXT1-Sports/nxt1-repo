@@ -76,6 +76,7 @@ import { AnalyticsDashboardService } from '../analytics-dashboard/analytics-dash
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { NxtTrackClickDirective } from '../services/breadcrumb/breadcrumb.service';
+import { NxtStateViewComponent } from '../components/state-view';
 
 const PERIOD_OPTS: { id: AnalyticsPeriod; label: string }[] = [
   { id: 'week', label: '7D' },
@@ -119,7 +120,7 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
 @Component({
   selector: 'nxt1-activity-analytics-panel',
   standalone: true,
-  imports: [CommonModule, IonIcon, IonSpinner, NxtTrackClickDirective],
+  imports: [CommonModule, IonIcon, IonSpinner, NxtTrackClickDirective, NxtStateViewComponent],
   template: `
     <div class="analytics-panel" [attr.data-testid]="testIds.ANALYTICS_PANEL">
       <!-- ── Period Selector ─────────────────── -->
@@ -155,22 +156,15 @@ function buildAreaPath(pts: { x: number; y: number }[], height: number): string 
 
       <!-- ── Error ──────────────────────────── -->
       @else if (analytics.error()) {
-        <div class="panel-error" [attr.data-testid]="testIds.ANALYTICS_ERROR">
-          <div class="panel-error__icon">
-            <ion-icon name="alert-circle-outline" />
-          </div>
-          <p class="panel-error__msg">{{ analytics.error() }}</p>
-          <button
-            type="button"
-            class="panel-error__retry"
-            (click)="onRetry()"
-            [attr.data-testid]="testIds.ANALYTICS_RETRY_BTN"
-            nxtTrackClick="analytics-retry"
-          >
-            <ion-icon name="refresh-outline" />
-            Try Again
-          </button>
-        </div>
+        <nxt1-state-view
+          variant="error"
+          title="Something went wrong"
+          [message]="analytics.error()"
+          actionLabel="Try Again"
+          actionIcon="refresh"
+          (action)="onRetry()"
+          [attr.data-testid]="testIds.ANALYTICS_ERROR"
+        />
       }
 
       <!-- ── Athlete / Parent View ──────────── -->

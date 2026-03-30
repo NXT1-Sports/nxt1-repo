@@ -38,6 +38,7 @@ import { EditProfileService } from './edit-profile.service';
 import { EditProfileSkeletonComponent } from './edit-profile-skeleton.component';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 import { NxtIconComponent, type IconName } from '../components/icon';
+import { NxtStateViewComponent } from '../components/state-view';
 import { NxtMediaGalleryComponent } from '../components/media-gallery';
 import { NxtListSectionComponent } from '../components/list-section';
 import { NxtListRowComponent } from '../components/list-row';
@@ -124,6 +125,7 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
     EditProfileSkeletonComponent,
     NxtSheetHeaderComponent,
     NxtIconComponent,
+    NxtStateViewComponent,
     NxtMediaGalleryComponent,
     NxtListSectionComponent,
     NxtListRowComponent,
@@ -185,13 +187,13 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
       @if (profile.isLoading()) {
         <nxt1-edit-profile-skeleton />
       } @else if (profile.error()) {
-        <div class="nxt1-error-state">
-          <div class="nxt1-error-icon">
-            <nxt1-icon name="alertCircle" [size]="20" />
-          </div>
-          <p class="nxt1-error-text">{{ profile.error() }}</p>
-          <button type="button" class="nxt1-retry-btn" (click)="loadProfile()">Try Again</button>
-        </div>
+        <nxt1-state-view
+          variant="error"
+          title="Something went wrong"
+          [message]="profile.error()"
+          actionLabel="Try Again"
+          (action)="loadProfile()"
+        />
       } @else if (profile.formData(); as form) {
         <div class="nxt1-edit-body">
           <!-- Media Gallery -->
@@ -635,61 +637,6 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
         width: var(--nxt1-spacing-4);
         height: var(--nxt1-spacing-4);
         --color: var(--nxt1-color-text-tertiary);
-      }
-
-      /* ============================================
-         ERROR STATE
-         ============================================ */
-      .nxt1-error-state {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: var(--nxt1-spacing-3);
-        min-height: var(--nxt1-spacing-60);
-        padding: var(--nxt1-spacing-6);
-        text-align: center;
-      }
-
-      .nxt1-error-icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: var(--nxt1-spacing-10);
-        height: var(--nxt1-spacing-10);
-        border-radius: var(--nxt1-borderRadius-full);
-        background: var(--nxt1-color-surface-200);
-        color: var(--nxt1-color-text-secondary);
-      }
-
-      .nxt1-error-text {
-        margin: 0;
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        color: var(--nxt1-color-text-secondary);
-        line-height: var(--nxt1-lineHeight-normal);
-      }
-
-      .nxt1-retry-btn {
-        appearance: none;
-        -webkit-appearance: none;
-        border: 1px solid var(--nxt1-color-border-default);
-        background: var(--nxt1-color-surface-100);
-        color: var(--nxt1-color-text-secondary);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4);
-        border-radius: var(--nxt1-borderRadius-full);
-        cursor: pointer;
-        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
-        -webkit-tap-highlight-color: transparent;
-      }
-
-      .nxt1-retry-btn:hover {
-        border-color: var(--nxt1-color-border-strong);
-        background: var(--nxt1-color-surface-200);
-        color: var(--nxt1-color-text-primary);
       }
 
       /* ============================================

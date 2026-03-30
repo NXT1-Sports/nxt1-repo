@@ -23,6 +23,10 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
   template: `
     <section class="usage-breakdown" [attr.data-testid]="testIds.BREAKDOWN_SECTION">
       <div class="section-header">
+        <p class="section-subtitle">
+          Usage for {{ periodLabel() }}. For license-based products, the price/unit is a prorated
+          portion of the monthly price.
+        </p>
         <div class="timeframe-select">
           <select
             [value]="timeframe()"
@@ -36,10 +40,6 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
           </select>
         </div>
       </div>
-      <p class="section-subtitle">
-        Usage for {{ periodLabel() }}. For license-based products, the price/unit is a prorated
-        portion of the monthly price.
-      </p>
 
       <!-- Table -->
       <div class="table-container">
@@ -125,10 +125,19 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 
       .section-header {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: space-between;
         gap: var(--nxt1-spacing-4);
-        margin-bottom: var(--nxt1-spacing-2);
+        margin-bottom: var(--nxt1-spacing-4);
+      }
+
+      .section-subtitle {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .timeframe-select {
+        flex-shrink: 0;
       }
 
       .timeframe-dropdown {
@@ -152,10 +161,10 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         }
       }
 
-      .section-subtitle {
+      .section-header .section-subtitle {
         font-size: var(--nxt1-fontSize-sm);
         color: var(--nxt1-color-text-secondary);
-        margin: 0 0 var(--nxt1-spacing-5) 0;
+        margin: 0;
         line-height: var(--nxt1-lineHeight-normal);
       }
 

@@ -1,0 +1,40 @@
+/**
+ * @fileoverview Section Layout — Shared two-column grid for desktop feature pages
+ * @module @nxt1/ui/styles/features/section-layout
+ * @version 1.0.0
+ *
+ * Standardized layout used by Settings, Billing & Usage, Help & Support,
+ * and any future feature page with a left section-nav + right content panel.
+ *
+ * Structure:
+ *   .nxt1-section-layout          — Two-column grid (desktop)
+ *     ├─ <nxt1-section-nav-web>   — Left sticky sidebar (180px)
+ *     └─ .nxt1-section-content    — Right content panel (1fr)
+ *
+ * Collapses to single-column at ≤768px.
+ *
+ * Prerequisites:
+ *   @import '@nxt1/design-tokens/css';
+ *   @import '@nxt1/ui/styles/base/variables';
+ */
+
+/* ── Two-column desktop grid ── */
+.nxt1-section-layout {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: var(--nxt1-spacing-6, 24px);
+  align-items: start;
+}
+
+/* ── Content panel — prevent overflow ── */
+.nxt1-section-content {
+  min-width: 0;
+}
+
+/* ── Collapse to single column on mobile/tablet ── */
+@media (max-width: 768px) {
+  .nxt1-section-layout {
+    grid-template-columns: 1fr;
+    gap: var(--nxt1-spacing-4, 16px);
+  }
+}

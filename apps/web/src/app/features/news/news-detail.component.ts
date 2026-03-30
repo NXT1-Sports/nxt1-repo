@@ -7,19 +7,53 @@
  * NewsArticleDetailComponent from @nxt1/ui.
  */
 
-import { Component, ChangeDetectionStrategy, inject, OnInit, computed } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  OnInit,
+  computed,
+  AfterViewInit,
+  OnDestroy,
+  viewChild,
+  type TemplateRef,
+} from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { Location } from '@angular/common';
 import { NewsArticleDetailComponent, NewsService } from '@nxt1/ui/news';
+import { NxtHeaderPortalService } from '@nxt1/ui/services/header-portal';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtStateViewComponent } from '@nxt1/ui/components/state-view';
 import { SeoService } from '../../core/services/seo.service';
 import type { NewsArticle } from '@nxt1/core';
 
 @Component({
   selector: 'app-news-detail',
   standalone: true,
-  imports: [NewsArticleDetailComponent],
+  imports: [NewsArticleDetailComponent, NxtStateViewComponent],
   template: `
+    <!-- Portal: Article detail view (Back to Discover) -->
+    <ng-template #portalContent>
+      <div class="header-portal-explore">
+        <button type="button" class="header-portal-back-btn" (click)="goBack()">
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 512 512"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="48"
+            aria-hidden="true"
+          >
+            <path d="M328 112L184 256l144 144" />
+          </svg>
+          <span>Back to Discover</span>
+        </button>
+      </div>
+    </ng-template>
+
     @if (isLoading()) {
       <div class="news-detail-loading">
         <div class="news-detail-loading__skeleton animate-pulse">
@@ -32,30 +66,13 @@ import type { NewsArticle } from '@nxt1/core';
         </div>
       </div>
     } @else if (error()) {
-      <div class="news-detail-error">
-        <div class="news-detail-error__content">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="48"
-            height="48"
-            viewBox="0 0 512 512"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="32"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path
-              d="M256 80c-8.66 0-16.58 7.36-16 16l8 216a8 8 0 008 8h0a8 8 0 008-8l8-216c.58-8.64-7.34-16-16-16z"
-              fill="currentColor"
-            />
-            <circle cx="256" cy="416" r="16" fill="currentColor" />
-          </svg>
-          <h2>Article not found</h2>
-          <p>{{ error() }}</p>
-          <button class="news-detail-error__btn" (click)="goBack()">Back to News</button>
-        </div>
-      </div>
+      <nxt1-state-view
+        variant="not-found"
+        title="Article not found"
+        [message]="error()"
+        actionLabel="Go Back"
+        (action)="goBack()"
+      />
     } @else if (article()) {
       <nxt1-news-article-detail
         [article]="article()"
@@ -70,6 +87,40 @@ import type { NewsArticle } from '@nxt1/core';
         display: block;
         min-height: 100vh;
         background: var(--nxt1-color-bg-primary, #0a0a0a);
+      }
+
+      /* HEADER PORTAL CSS */
+      .header-portal-explore {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        padding: 0 var(--nxt1-spacing-2, 8px);
+        position: relative;
+      }
+
+      .header-portal-back-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 14px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        border: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
+        color: var(--nxt1-color-text-primary, #ffffff);
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        white-space: nowrap;
+      }
+
+      .header-portal-back-btn:hover {
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        border-color: rgba(255, 255, 255, 0.14);
+      }
+
+      .header-portal-back-btn:active {
+        transform: scale(0.98);
       }
 
       .news-detail-loading {
@@ -110,42 +161,8 @@ import type { NewsArticle } from '@nxt1/core';
         width: 60%;
       }
 
-      .news-detail-error {
-        display: flex;
-        align-items: center;
-        justify-content: center;
+      nxt1-state-view {
         min-height: 60vh;
-        padding: 24px;
-      }
-      .news-detail-error__content {
-        text-align: center;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.6));
-      }
-      .news-detail-error__content svg {
-        margin-bottom: 16px;
-        opacity: 0.4;
-      }
-      .news-detail-error__content h2 {
-        font-size: 1.25rem;
-        font-weight: 600;
-        color: var(--nxt1-color-text-primary, #fff);
-        margin: 0 0 8px;
-      }
-      .news-detail-error__content p {
-        margin: 0 0 24px;
-      }
-      .news-detail-error__btn {
-        padding: 10px 24px;
-        border-radius: 12px;
-        border: none;
-        cursor: pointer;
-        background: var(--nxt1-color-brand, #6c63ff);
-        color: #fff;
-        font-weight: 600;
-        font-size: 0.875rem;
-      }
-      .news-detail-error__btn:hover {
-        opacity: 0.9;
       }
 
       .animate-pulse {
@@ -164,22 +181,36 @@ import type { NewsArticle } from '@nxt1/core';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class NewsDetailComponent implements OnInit {
+export class NewsDetailComponent implements OnInit, AfterViewInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly location = inject(Location);
   private readonly newsService = inject(NewsService);
   private readonly logger = inject(NxtLoggingService).child('NewsDetailComponent');
   private readonly seo = inject(SeoService);
+  private readonly headerPortal = inject(NxtHeaderPortalService);
+
+  private readonly portalContent = viewChild<TemplateRef<unknown>>('portalContent');
 
   protected readonly article = this.newsService.selectedArticle;
   protected readonly isLoading = this.newsService.isLoading;
   protected readonly error = this.newsService.error;
 
+  ngAfterViewInit(): void {
+    const tpl = this.portalContent();
+    if (tpl) {
+      this.headerPortal.setCenterContent(tpl);
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.headerPortal.clearCenterContent();
+  }
+
   async ngOnInit(): Promise<void> {
     const id = this.route.snapshot.paramMap.get('id');
     if (!id) {
-      this.router.navigate(['/news']);
+      this.router.navigate(['/pulse']);
       return;
     }
 
@@ -213,7 +244,7 @@ export class NewsDetailComponent implements OnInit {
       title: article.title,
       description:
         article.excerpt || `Read the latest on ${article.sport} news from ${article.source}`,
-      canonicalUrl: `https://nxt1sports.com/news/${article.id}`,
+      canonicalUrl: `https://nxt1sports.com/explore/pulse/${article.id}`,
       image: article.imageUrl || undefined,
     });
   }

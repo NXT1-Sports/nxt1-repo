@@ -9,7 +9,10 @@ import { readFileSync } from 'fs';
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-if (!OPENROUTER_API_KEY) { console.error('Missing OPENROUTER_API_KEY'); process.exit(1); }
+if (!OPENROUTER_API_KEY) {
+  console.error('Missing OPENROUTER_API_KEY');
+  process.exit(1);
+}
 
 const NEWS_COLLECTION = 'News';
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
@@ -143,31 +146,49 @@ async function discoverArticles() {
 }
 
 // ─── Summary Generation ─────────────────────────────────────────────────────
+
+/** Strip markdown code fences and normalize whitespace from AI HTML output. */
+function sanitizeHtmlContent(raw) {
+  let html = raw.trim();
+  html = html.replace(/^```(?:html)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+  return html.trim();
+}
+
 function slugify(text) {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 100);
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .slice(0, 100);
 }
 
 async function generateSummary(article) {
   const content = await callOpenRouter(
     SUMMARY_MODEL,
-    'You are a sports journalist writing for NXT1, a sports recruiting platform used by high school and college athletes, coaches, and scouts. Write in an engaging, informative style.',
-    `Write a 3-5 paragraph article summary based on this news:\n\nTitle: ${article.title}\nSource: ${article.source}\nURL: ${article.sourceUrl}\nExcerpt: ${article.excerpt}\nSport: ${article.sport}\n\nWrite the summary in your own words. Do NOT copy the original article verbatim. Focus on what matters to student-athletes, coaches, and recruiters. Include context about why this news matters for the recruiting landscape.\n\nReturn ONLY the article text (plain text paragraphs). No title, no metadata, no markdown headers.`,
+    'You are a sports journalist writing for NXT1, a sports recruiting platform used by high school and college athletes, coaches, and scouts. Write in an engaging, informative style that is easy to read and well-structured.',
+    `Write a well-structured article summary based on this news:\n\nTitle: ${article.title}\nSource: ${article.source}\nURL: ${article.sourceUrl}\nExcerpt: ${article.excerpt}\nSport: ${article.sport}\n\nWrite the summary in your own words. Do NOT copy the original article verbatim. Focus on what matters to student-athletes, coaches, and recruiters. Include context about why this news matters for the recruiting landscape.\n\nFORMAT RULES:\n- Return clean HTML only (no markdown, no code fences).\n- Use <h2> tags for 2-3 section subtitles that break up the article naturally.\n- Wrap every paragraph in <p> tags.\n- Aim for 4-6 paragraphs grouped under the subtitles.\n- Keep subtitles short and compelling (3-6 words).\n- Do NOT include the article title — it is already displayed separately.\n- Do NOT include any metadata, source attribution, or author names.`,
     1024
   );
-  return { ...article, content: content.trim(), slug: slugify(article.title) };
+  return { ...article, content: sanitizeHtmlContent(content), slug: slugify(article.title) };
 }
 
 // ─── Firestore Write ────────────────────────────────────────────────────────
 async function writeArticles(articles) {
   const now = new Date().toISOString();
-  const expiresAt = Timestamp.fromDate(new Date(Date.now() + ARTICLE_TTL_DAYS * 24 * 60 * 60 * 1000));
+  const expiresAt = Timestamp.fromDate(
+    new Date(Date.now() + ARTICLE_TTL_DAYS * 24 * 60 * 60 * 1000)
+  );
 
   // Dedup against existing
   const sourceUrls = articles.map((a) => a.sourceUrl);
   const existingUrls = new Set();
   for (let i = 0; i < sourceUrls.length; i += 30) {
     const chunk = sourceUrls.slice(i, i + 30);
-    const snap = await db.collection(NEWS_COLLECTION).where('sourceUrl', 'in', chunk).select().get();
+    const snap = await db
+      .collection(NEWS_COLLECTION)
+      .where('sourceUrl', 'in', chunk)
+      .select()
+      .get();
     for (const doc of snap.docs) {
       const data = doc.data();
       if (data.sourceUrl) existingUrls.add(data.sourceUrl);
@@ -175,7 +196,10 @@ async function writeArticles(articles) {
   }
 
   const newArticles = articles.filter((a) => !existingUrls.has(a.sourceUrl));
-  if (newArticles.length === 0) { console.log('   All articles already exist'); return 0; }
+  if (newArticles.length === 0) {
+    console.log('   All articles already exist');
+    return 0;
+  }
 
   const batch = db.batch();
   for (const article of newArticles) {
@@ -208,7 +232,10 @@ async function main() {
   const startMs = Date.now();
 
   const discovered = await discoverArticles();
-  if (discovered.length === 0) { console.log('No articles found.'); return; }
+  if (discovered.length === 0) {
+    console.log('No articles found.');
+    return;
+  }
 
   console.log('2. ✍️  Generating AI summaries (5 at a time)...');
   const withContent = [];
@@ -232,4 +259,7 @@ async function main() {
   console.log(`━━━ Done! ${written} articles in ${durationSec}s ━━━`);
 }
 
-main().catch((err) => { console.error('❌', err.message ?? err); process.exit(1); });
+main().catch((err) => {
+  console.error('❌', err.message ?? err);
+  process.exit(1);
+});
