@@ -25,11 +25,7 @@ import {
   type AnimationDirection,
 } from '@nxt1/ui';
 
-import type {
-  SportFormData,
-  LinkSourcesFormData,
-  LinkSourceEntry,
-} from '@nxt1/core/api';
+import type { SportFormData, LinkSourcesFormData, LinkSourceEntry } from '@nxt1/core/api';
 
 import type { ConnectedSource } from '@nxt1/core/models';
 
@@ -334,7 +330,7 @@ export class AddSportService {
         if (updateResponse.success) {
           this.logger.info('Connected sources updated', { count: newSources.length });
         } else {
-          this.logger.warn('Failed to update connected sources', updateResponse);
+          this.logger.warn('Failed to update connected sources', { error: updateResponse.error });
         }
       }
 
@@ -361,10 +357,7 @@ export class AddSportService {
   // PRIVATE HELPERS
   // ============================================
 
-  private async navigateToStep(
-    step: AddSportStep,
-    direction: AnimationDirection
-  ): Promise<void> {
+  private async navigateToStep(step: AddSportStep, direction: AnimationDirection): Promise<void> {
     const targetPath = `/add-sport/${step}`;
     const currentPath = this.location.path();
     if (currentPath === targetPath) return;
