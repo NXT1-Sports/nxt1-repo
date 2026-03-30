@@ -159,6 +159,7 @@ export class BrowserAuthService implements IAuthService {
         creationTime: user.metadata.creationTime,
         lastSignInTime: user.metadata.lastSignInTime,
       },
+      providerData: user.providerData.map((p) => ({ providerId: p.providerId })),
       getIdToken: () => user.getIdToken(),
     };
   }

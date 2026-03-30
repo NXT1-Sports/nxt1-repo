@@ -247,9 +247,22 @@ export class ManageTeamService {
    */
   async loadCurrentUserTeam(): Promise<void> {
     this.logger.info('Loading current user team');
-    // TODO: Fetch user's default team ID from API, then load it
-    // const { teamId } = await this.api.getCurrentUserTeam();
-    // await this.loadTeam(teamId);
+    this._isLoading.set(true);
+    this._error.set(null);
+    try {
+      const teams = await this.apiClient.getUserTeams();
+      if (teams.length === 0) {
+        this._error.set('No team found for this account');
+        return;
+      }
+      await this.loadTeam(teams[0].id);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load team';
+      this._error.set(message);
+      this.logger.error('Failed to load current user team', err);
+    } finally {
+      this._isLoading.set(false);
+    }
   }
 
   /**
@@ -341,8 +354,15 @@ export class ManageTeamService {
     this._error.set(null);
 
     try {
-      // TODO: Replace with actual API call when backend is ready
-      // await this.api.updateTeam(this._teamId()!, this._formData()!);
+      const formData = this._formData();
+      const teamId = this._teamId();
+      if (formData && teamId) {
+        await this.apiClient.updateTeamBasicInfo(teamId, {
+          teamName: formData.basicInfo.name,
+          teamType: formData.basicInfo.level,
+          sportName: formData.basicInfo.sport,
+        });
+      }
 
       // Clear dirty state
       this._dirtyFields.set(new Set());

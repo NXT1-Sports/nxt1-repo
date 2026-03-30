@@ -62,6 +62,7 @@ export interface FirebaseUserInfo {
     creationTime?: string;
     lastSignInTime?: string;
   };
+  providerData?: Array<{ providerId: string }>;
 }
 
 // ============================================

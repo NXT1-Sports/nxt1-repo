@@ -291,6 +291,7 @@ export class TeamProfileService {
     const existing = this._teamData();
     if (existing?.team?.id === teamId) {
       this.logger.debug('Team already hydrated, skipping reload', { teamId });
+      this._isLoading.set(false); // ensure loading clears (caller may have set it true)
       return;
     }
 
@@ -345,6 +346,7 @@ export class TeamProfileService {
     const existing = this._teamData();
     if (existing?.team?.slug === slug) {
       this.logger.debug('Team already hydrated, skipping reload', { slug });
+      this._isLoading.set(false); // ensure loading clears (caller may have set it true)
       return;
     }
 

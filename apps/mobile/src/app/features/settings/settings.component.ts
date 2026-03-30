@@ -139,18 +139,36 @@ export class SettingsComponent {
     // Access full profile from ProfileService for sports & connectedSources
     const profile = this.authService.profile();
 
+    // Firebase OAuth provider IDs → platform IDs used in the link drop step
+    const PROVIDER_ID_MAP: Record<string, string> = {
+      'google.com': 'google',
+      'apple.com': 'apple',
+    };
+
+    // Signed-in OAuth providers from Firebase Auth (mark as connected)
+    const firebaseUser = this.authService.firebaseUser();
+    const signinLinks = (firebaseUser?.providerData ?? [])
+      .filter((p) => PROVIDER_ID_MAP[p.providerId])
+      .map((p) => ({
+        platform: PROVIDER_ID_MAP[p.providerId]!,
+        connected: true,
+        connectionType: 'signin' as const,
+        scopeType: 'global' as const,
+      }));
+
     // Convert ConnectedSource[] → LinkSourcesFormData for the shared link drop step
-    const linkSourcesData: LinkSourcesFormData | null = profile?.connectedSources?.length
-      ? {
-          links: profile.connectedSources.map((src) => ({
-            platform: src.platform,
-            connected: true,
-            connectionType: 'link' as const,
-            url: src.profileUrl,
-            scopeType: src.scopeType ?? 'global',
-            scopeId: src.scopeId,
-          })),
-        }
+    const linkedSources = (profile?.connectedSources ?? []).map((src) => ({
+      platform: src.platform,
+      connected: true,
+      connectionType: 'link' as const,
+      url: src.profileUrl,
+      scopeType: src.scopeType ?? 'global',
+      scopeId: src.scopeId,
+    }));
+
+    const allLinks = [...linkedSources, ...signinLinks];
+    const linkSourcesData: LinkSourcesFormData | null = allLinks.length
+      ? { links: allLinks }
       : null;
 
     return {

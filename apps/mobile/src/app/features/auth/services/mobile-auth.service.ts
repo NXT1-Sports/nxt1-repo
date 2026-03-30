@@ -159,6 +159,7 @@ export class MobileAuthService implements OnDestroy {
         creationTime: firebaseUser.metadata?.creationTime,
         lastSignInTime: firebaseUser.metadata?.lastSignInTime,
       },
+      providerData: (firebaseUser.providerData ?? []).map((p) => ({ providerId: p.providerId })),
     });
 
     // Note: Token injection is handled per-request by CapacitorHttpAdapter's

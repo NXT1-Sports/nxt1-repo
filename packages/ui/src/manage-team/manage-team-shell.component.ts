@@ -525,7 +525,10 @@ export class ManageTeamShellComponent implements OnInit {
 
   async onSave(): Promise<void> {
     const formData = this.service.formData();
-    if (formData) {
+    if (!formData) return;
+
+    const success = await this.service.saveChanges();
+    if (success) {
       this.save.emit(formData);
       if (!this.headless()) {
         this.onClose(true);

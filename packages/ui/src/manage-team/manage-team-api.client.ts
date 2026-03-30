@@ -118,6 +118,51 @@ export class ManageTeamApiClient {
     }
   }
 
+  /**
+   * Fetch the current user's teams.
+   * GET /api/v1/teams/user/my-teams
+   */
+  async getUserTeams(): Promise<
+    Array<{ id: string; teamName: string; sport: string; slug?: string }>
+  > {
+    const url = `${this.baseUrl}/teams/user/my-teams`;
+    const response = await firstValueFrom(
+      this.http.get<
+        ApiResponse<{
+          teams: Array<{ id: string; teamName: string; sport: string; slug?: string }>;
+        }>
+      >(url)
+    );
+    if (!response.success || !response.data) {
+      throw new Error(response.error || 'Failed to fetch user teams');
+    }
+    return response.data.teams;
+  }
+
+  /**
+   * Update basic team info.
+   * PATCH /api/v1/teams/:id
+   */
+  async updateTeamBasicInfo(
+    teamId: string,
+    data: {
+      teamName?: string;
+      teamType?: string;
+      sportName?: string;
+      division?: string;
+      conference?: string;
+    }
+  ): Promise<void> {
+    if (!teamId) {
+      throw new Error('Team ID is required');
+    }
+    const url = `${this.baseUrl}/teams/${encodeURIComponent(teamId)}`;
+    const response = await firstValueFrom(this.http.patch<ApiResponse<unknown>>(url, data));
+    if (!response.success) {
+      throw new Error(response.error || 'Failed to update team');
+    }
+  }
+
   // ============================================
   // MAPPING: TeamProfilePageData → ManageTeamFormData
   // ============================================
