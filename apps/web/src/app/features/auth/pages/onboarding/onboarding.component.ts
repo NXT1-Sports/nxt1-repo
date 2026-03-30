@@ -91,6 +91,7 @@ import {
   type ReferralSourceData,
   type LinkSourcesFormData,
   type TeamSelectionFormData,
+  type PlatformScope,
   ONBOARDING_STEPS,
   AGENT_X_ONBOARDING_MESSAGES as _AGENT_X_ONBOARDING_MESSAGES,
   getAgentXMessage,
@@ -135,6 +136,7 @@ import {
   AuthErrorHandler,
   AuthApiService,
   OnboardingAnalyticsService,
+  BrowserAuthService,
 } from '../../services';
 import type { OnboardingProfileData } from '@nxt1/core/auth';
 import { SeoService } from '../../../../core/services';
@@ -259,6 +261,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             <!-- Step 3: Link Data Sources (Connected Accounts) -->
             @if (currentStep().id === 'link-sources' || currentStep().id === 'team-link-sources') {
               <nxt1-onboarding-link-drop-step
+                #linkSourcesStep
                 [linkSourcesData]="linkSourcesFormData()"
                 [selectedSports]="selectedSportNames()"
                 [role]="selectedRole()"
@@ -269,6 +272,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                     : 'athlete'
                 "
                 (linkSourcesChange)="onLinkSourcesChange($event)"
+                (signinTokenConnect)="onSigninTokenConnect($event)"
               />
             }
 
@@ -470,6 +474,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   private readonly profileGenerationState = inject(ProfileGenerationStateService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('Onboarding');
   private readonly http = inject(HttpClient);
+  private readonly browserAuth = inject(BrowserAuthService);
 
   /** Check if running on mobile (native or mobile web) */
   readonly isMobile = computed(() => this.platform.isMobile());
@@ -486,6 +491,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
   /** Reference to profile step for location callbacks */
   @ViewChild('profileStep') profileStepRef?: OnboardingProfileStepComponent;
+
+  /** Reference to link-sources step for markSigninConnected() callbacks */
+  @ViewChild('linkSourcesStep') linkSourcesStepRef?: OnboardingLinkDropStepComponent;
 
   // ============================================
   // SESSION PERSISTENCE (Platform-specific)
@@ -1274,6 +1282,68 @@ export class OnboardingComponent implements OnInit, OnDestroy {
    */
   onLinkSourcesChange(linkSourcesData: LinkSourcesFormData): void {
     this.machine.updateLinkSources(linkSourcesData);
+  }
+
+  /**
+   * Handle Google / Microsoft sign-in token connect from the link-sources step.
+   * Calls the backend connect endpoint, then marks the platform as connected in the UI.
+   */
+  async onSigninTokenConnect(event: {
+    platform: 'google' | 'microsoft';
+    accessToken: string;
+    refreshToken?: string;
+    scopeType: PlatformScope;
+    scopeId?: string;
+  }): Promise<void> {
+    const { platform, accessToken, refreshToken, scopeType, scopeId } = event;
+
+    const idToken = await this.browserAuth.getIdToken();
+    if (!idToken) {
+      this.toast.error('Not signed in. Please refresh and try again.');
+      return;
+    }
+
+    try {
+      const endpoint =
+        platform === 'google'
+          ? `${environment.apiURL}/auth/google/connect-gmail`
+          : `${environment.apiURL}/auth/microsoft/connect-mail`;
+
+      const body =
+        platform === 'google'
+          ? { accessToken }
+          : { accessToken, ...(refreshToken ? { refreshToken } : {}) };
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => response.statusText);
+        this.logger.warn(`[${platform} connect] Backend failed`, {
+          status: response.status,
+          errorText,
+        });
+        this.toast.error(
+          `Failed to connect ${platform === 'google' ? 'Google' : 'Microsoft'}: ${response.status}`
+        );
+        return;
+      }
+
+      const result = (await response.json()) as { success?: boolean; email?: string };
+      this.logger.info(`[${platform} connect] Success`, { email: result.email });
+
+      this.linkSourcesStepRef?.markSigninConnected(platform, scopeType, scopeId);
+      this.toast.success(`${platform === 'google' ? 'Google' : 'Microsoft'} connected!`);
+    } catch (err) {
+      this.logger.error(`[${platform} connect] Error`, err);
+      this.toast.error('Connection failed. Please try again.');
+    }
   }
 
   /**

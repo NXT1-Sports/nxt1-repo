@@ -88,7 +88,14 @@ export function provideBadgeBridge(): EnvironmentProviders {
 
           const startPolling = (): void => {
             stopPolling();
-            pollTimer = setInterval(() => {
+            pollTimer = setInterval(async () => {
+              // Guard: skip if no valid auth token (avoids 401 on expired sessions)
+              try {
+                const token = await authFlow.getIdToken();
+                if (!token) return;
+              } catch {
+                return;
+              }
               activityService.refreshBadges().catch(() => {
                 // Silent fail — will retry next interval
               });
@@ -142,11 +149,14 @@ export function provideBadgeBridge(): EnvironmentProviders {
 
           // Auth state watcher
           effect(() => {
+            const authReady = authFlow.isAuthReady();
             const authenticated = authFlow.isAuthenticated();
-            const initialized = authFlow.isInitialized();
             const user = authFlow.user();
-            isAuthed = authenticated && initialized;
-            if (authenticated && initialized && user) {
+            isAuthed = authReady && authenticated;
+            // Only fetch once Firebase has fully settled its auth state (isAuthReady).
+            // Using isInitialized() was too early — it fires on localStorage restore
+            // before Firebase confirms the session, causing a 401 race condition.
+            if (authReady && authenticated && user) {
               void fetchBadgesIfNeeded();
 
               // Start polling (only when tab is visible)

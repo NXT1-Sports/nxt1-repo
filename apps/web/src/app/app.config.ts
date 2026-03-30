@@ -104,6 +104,7 @@ import { providePerformance, getPerformance } from '@angular/fire/performance';
 
 // Auth service with injection token pattern
 import { AUTH_SERVICE, BrowserAuthService } from './features/auth';
+import { AuthFlowService } from './features/auth/services';
 
 // Settings persistence adapter (connects SettingsService → backend API)
 import { SETTINGS_PERSISTENCE_ADAPTER, APP_VERSION } from '@nxt1/ui/settings';
@@ -185,7 +186,7 @@ export const appConfig: ApplicationConfig = {
           redirectOnUnauthorized: true,
           unauthorizedRedirectPath: '/auth',
           // Skip 401 redirect for fire-and-forget background requests
-          skipPatterns: [/\/agent-x\//],
+          skipPatterns: [/\/agent-x\//, /\/activity\/badges/, /\/activity\/summary/],
         }),
         // HTTP response caching (LRU, TTL-based)
         httpCacheInterceptor({
@@ -284,13 +285,14 @@ export const appConfig: ApplicationConfig = {
     // Agent X API base URL
     { provide: AGENT_X_API_BASE_URL, useFactory: () => environment.apiURL },
 
-    // Agent X SSE auth token factory — provides a fresh Firebase ID token for
-    // the raw fetch() SSE connection (bypasses the Angular authInterceptor).
+    // Agent X SSE auth token factory — provides a Firebase ID token for the
+    // raw fetch() SSE connection (bypasses the Angular authInterceptor).
+    // Uses AuthFlowService.getIdToken() for cache-first token resolution,
+    // the same strategy as the auth interceptor to avoid race conditions.
     {
       provide: AGENT_X_AUTH_TOKEN_FACTORY,
-      useFactory: (auth: Auth) => () =>
-        auth.authStateReady().then(() => auth.currentUser?.getIdToken() ?? null),
-      deps: [Auth],
+      useFactory: (authFlow: AuthFlowService) => () => authFlow.getIdToken(),
+      deps: [AuthFlowService],
     },
 
     // Activity API base URL

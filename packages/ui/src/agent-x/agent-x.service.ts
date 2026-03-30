@@ -132,6 +132,10 @@ export class AgentXService {
 
   // Polling interval for active operations
   private operationsPollingInterval?: ReturnType<typeof setInterval>;
+
+  // Retry counter for loadDashboard() when auth token not yet available
+  private _dashboardRetryCount = 0;
+  private static readonly MAX_DASHBOARD_RETRIES = 4;
   private static readonly POLL_INTERVAL_MS = 10_000; // 10s when operations active
 
   // ============================================
@@ -812,6 +816,31 @@ export class AgentXService {
    */
   async loadDashboard(): Promise<void> {
     if (!isPlatformBrowser(this.platformId)) return;
+
+    // Guard: require a valid auth token before hitting the backend.
+    // This prevents a 401 race condition on page load when Firebase hasn't
+    // fully restored the auth session yet.
+    if (this.getAuthToken) {
+      const token = await this.getAuthToken().catch(() => null);
+      if (!token) {
+        // Schedule a retry with backoff to handle Firebase session restore race condition.
+        // Retries at ~1.5s, 3s, 4.5s, 6s — then give up silently.
+        if (this._dashboardRetryCount < AgentXService.MAX_DASHBOARD_RETRIES) {
+          const delay = 1500 * (this._dashboardRetryCount + 1);
+          this._dashboardRetryCount++;
+          this.logger.debug(
+            `loadDashboard: no auth token yet, retrying in ${delay}ms (attempt ${this._dashboardRetryCount})`
+          );
+          setTimeout(() => void this.loadDashboard(), delay);
+        } else {
+          this.logger.debug('loadDashboard: no auth token after max retries, giving up');
+          this._dashboardLoading.set(false);
+        }
+        return;
+      }
+    }
+    // Auth token acquired — reset retry counter for future manual refreshes
+    this._dashboardRetryCount = 0;
 
     // On first load: show skeleton. On background refresh (already loaded): update silently.
     const isRefresh = this._dashboardLoaded();

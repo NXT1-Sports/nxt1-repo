@@ -17,11 +17,17 @@
 
 import { inject, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { HttpInterceptorFn, HttpRequest, HttpHandlerFn, HttpEvent } from '@angular/common/http';
-import { Observable, from, switchMap } from 'rxjs';
-import { Auth } from '@angular/fire/auth';
+import {
+  HttpInterceptorFn,
+  HttpRequest,
+  HttpHandlerFn,
+  HttpEvent,
+  HttpErrorResponse,
+} from '@angular/common/http';
+import { Observable, from, switchMap, throwError } from 'rxjs';
 import { NxtLoggingService } from '@nxt1/ui/services';
 import { environment } from '../../../../environments/environment';
+import { AuthFlowService } from '../../../features/auth/services';
 
 /**
  * Endpoints that don't require authentication
@@ -71,7 +77,7 @@ export const authInterceptor: HttpInterceptorFn = (
   next: HttpHandlerFn
 ): Observable<HttpEvent<unknown>> => {
   const platformId = inject(PLATFORM_ID);
-  const auth = inject(Auth, { optional: true });
+  const authFlow = inject(AuthFlowService);
   const logger = inject(NxtLoggingService).child('AuthInterceptor');
 
   // SSR: Pass through without modification
@@ -94,21 +100,26 @@ export const authInterceptor: HttpInterceptorFn = (
     return next(req);
   }
 
-  // No auth instance - pass through
-  if (!auth) {
-    logger.warn('Firebase Auth not available');
-    return next(req);
-  }
-
-  // Wait for Firebase to restore auth state from persistence (IndexedDB),
-  // then get a fresh ID token. This fixes the race condition where
-  // auth.currentUser is null on initial page load even though the user
-  // is signed in (Firebase restores the session asynchronously).
-  return from(auth.authStateReady().then(() => auth.currentUser?.getIdToken() ?? null)).pipe(
+  // Use AuthFlowService.getIdToken() which reads from the auth cache first,
+  // then falls back to Firebase Auth. This avoids the race condition where
+  // auth.authStateReady() resolves but auth.currentUser is still null because
+  // Firebase hasn't confirmed the session from IndexedDB yet, while the app
+  // already knows the user is authenticated from the localStorage token cache.
+  return from(authFlow.getIdToken()).pipe(
     switchMap((token) => {
       if (!token) {
-        logger.debug('No user signed in, request may fail');
-        return next(req);
+        // No authenticated user — throw a synthetic 401 instead of sending
+        // an unauthenticated request (which the backend would reject anyway).
+        logger.debug('No user signed in — blocking request', { url: req.url });
+        return throwError(
+          () =>
+            new HttpErrorResponse({
+              status: 401,
+              statusText: 'Unauthorized',
+              url: req.url,
+              error: { code: 'AUTH_NOT_AUTHENTICATED', message: 'No authenticated user' },
+            })
+        );
       }
 
       // Clone request with Authorization header
