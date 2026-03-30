@@ -93,16 +93,18 @@ async function autoUnfollow() {
           console.log(`   ✅ Now on: ${currentUrl}`);
         } else {
           // Fallback: direct navigation
-          await page.evaluate((username) => {
-            window.location.href = `https://x.com/${username}/following`;
-          }, CONFIG.username);
+          await page.goto(`https://x.com/${CONFIG.username}/following`, {
+            waitUntil: 'domcontentloaded',
+            timeout: 30000,
+          });
           await page.waitForTimeout(3000);
         }
       } catch (e) {
         console.log('⚠️  Using fallback navigation...');
-        await page.evaluate((username) => {
-          window.location.href = `https://x.com/${username}/following`;
-        }, CONFIG.username);
+        await page.goto(`https://x.com/${CONFIG.username}/following`, {
+          waitUntil: 'domcontentloaded',
+          timeout: 30000,
+        });
         await page.waitForTimeout(3000);
       }
     }
@@ -114,9 +116,7 @@ async function autoUnfollow() {
     // Scroll to load older followers
     console.log(`\n📜 Scrolling ${CONFIG.scrollCount} times to load older followers...`);
     for (let i = 0; i < CONFIG.scrollCount; i++) {
-      await page.evaluate(() => {
-        window.scrollBy(0, 800);
-      });
+      await page.mouse.wheel(0, 800);
       await page.waitForTimeout(500);
 
       if ((i + 1) % 10 === 0) {
@@ -142,7 +142,7 @@ async function autoUnfollow() {
 
       if (buttons.length === 0) {
         console.log('   ⬆️  No buttons visible, scrolling up to find more...');
-        await page.evaluate(() => window.scrollBy(0, -600));
+        await page.mouse.wheel(0, -600);
         await page.waitForTimeout(2000);
         consecutiveEmptyScrolls++;
         continue;
@@ -189,7 +189,7 @@ async function autoUnfollow() {
           `   ⚠️  Error processing user: ${e instanceof Error ? e.message.split('\n')[0] : 'Unknown error'}`
         );
         // If we fail on a button, scrolling up might help clear the view
-        await page.evaluate(() => window.scrollBy(0, -100));
+        await page.mouse.wheel(0, -100);
       }
     }
 

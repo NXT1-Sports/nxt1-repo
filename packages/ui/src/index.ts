@@ -125,6 +125,7 @@ export {
   type HistoryTimelineEmptyConfig,
 } from './components/history-timeline';
 export { NotFoundComponent } from './components/not-found/not-found.component';
+export { NxtStateViewComponent } from './components/state-view';
 export {
   NxtImageComponent,
   type ImageFit,
@@ -689,6 +690,9 @@ export {
   type TopNavSearchSubmitEvent,
 } from './components/top-nav';
 
+// Header Portal Service (contextual center content)
+export { NxtHeaderPortalService } from './services/header-portal';
+
 // Re-export core types for convenience
 export {
   type TopNavIconName,
@@ -984,6 +988,8 @@ export { AuthErrorHandler, type AuthError, type AuthRecoveryAction } from './ser
 // ============================================
 export {
   NxtThemeService,
+  SSR_INITIAL_THEME,
+  SSR_INITIAL_SPORT_THEME,
   THEME_OPTIONS,
   SPORT_THEME_OPTIONS,
   type ThemePreference,

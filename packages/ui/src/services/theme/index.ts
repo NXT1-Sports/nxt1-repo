@@ -51,6 +51,7 @@
 
 import {
   Injectable,
+  InjectionToken,
   inject,
   signal,
   computed,
@@ -58,9 +59,11 @@ import {
   Injector,
   PLATFORM_ID,
   DestroyRef,
+  TransferState,
+  makeStateKey,
   afterNextRender,
 } from '@angular/core';
-import { isPlatformBrowser } from '@angular/common';
+import { isPlatformBrowser, DOCUMENT } from '@angular/common';
 
 // ============================================
 // TYPES
@@ -301,6 +304,39 @@ const THEME_BG_COLORS: Record<string, string> = {
 };
 
 // ============================================
+// SSR INJECTION TOKENS & TRANSFER STATE
+// ============================================
+
+/**
+ * Optional injection token for theme preference provided during SSR.
+ * The web server extracts this from a cookie and provides it
+ * so the server-rendered HTML already has the correct theme.
+ */
+export const SSR_INITIAL_THEME = new InjectionToken<string | undefined>('SSR_INITIAL_THEME');
+
+/**
+ * Optional injection token for sport theme provided during SSR.
+ */
+export const SSR_INITIAL_SPORT_THEME = new InjectionToken<string | undefined>(
+  'SSR_INITIAL_SPORT_THEME'
+);
+
+/** TransferState key for theme preference (SSR → client) */
+const THEME_TRANSFER_KEY = makeStateKey<string>('nxt1.theme.preference');
+
+/** TransferState key for sport theme (SSR → client) */
+const SPORT_THEME_TRANSFER_KEY = makeStateKey<string>('nxt1.theme.sport');
+
+/** Cookie name for theme preference */
+const THEME_COOKIE_NAME = 'nxt1-theme-preference';
+
+/** Cookie name for sport theme */
+const SPORT_COOKIE_NAME = 'nxt1-sport-theme';
+
+/** Cookie max age (1 year in seconds) */
+const COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
+
+// ============================================
 // SERVICE
 // ============================================
 
@@ -309,6 +345,14 @@ export class NxtThemeService {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly destroyRef = inject(DestroyRef);
   private readonly injector = inject(Injector);
+  private readonly transferState = inject(TransferState);
+  private readonly doc = inject(DOCUMENT);
+
+  /** SSR-provided theme preference (from cookie, optional) */
+  private readonly ssrTheme = inject(SSR_INITIAL_THEME, { optional: true });
+
+  /** SSR-provided sport theme (from cookie, optional) */
+  private readonly ssrSportTheme = inject(SSR_INITIAL_SPORT_THEME, { optional: true });
 
   /** Whether running in browser */
   private readonly isBrowser = isPlatformBrowser(this.platformId);
@@ -405,10 +449,19 @@ export class NxtThemeService {
   readonly hasSportTheme = computed(() => this._sportTheme() !== null);
 
   constructor() {
-    // Initialize after render (browser-only)
-    afterNextRender(() => {
-      this.initialize();
-    });
+    if (!this.isBrowser) {
+      // ── SERVER: Read from SSR injection tokens (provided from cookies) ──
+      this.initializeFromSsr();
+    } else if (this.transferState.hasKey(THEME_TRANSFER_KEY)) {
+      // ── CLIENT HYDRATION: Read TransferState synchronously before afterNextRender ──
+      // This ensures the first client render matches the server-rendered theme.
+      this.initializeFromTransferState();
+    } else {
+      // ── CLIENT (no TransferState): Defer to afterNextRender ──
+      afterNextRender(() => {
+        this.initialize();
+      });
+    }
   }
 
   // ============================================
@@ -430,12 +483,13 @@ export class NxtThemeService {
   }
 
   /**
-   * Toggle between light and dark mode.
-   * If currently on 'system', switches to the opposite of current effective theme.
+   * Cycle through theme preferences: system → light → dark → system.
+   * Preserves the 'system' option in the rotation so it is never lost.
    */
   toggle(): void {
-    const current = this.effectiveTheme();
-    this.setTheme(current === 'dark' ? 'light' : 'dark');
+    const pref = this._preference();
+    const next = pref === 'system' ? 'light' : pref === 'light' ? 'dark' : 'system';
+    this.setTheme(next);
   }
 
   /**
@@ -632,6 +686,103 @@ export class NxtThemeService {
   // ============================================
 
   /**
+   * Server-side initialization: read from injection tokens (cookies),
+   * set signals, apply theme to the server-rendered DOM, and write
+   * TransferState so the client can hydrate instantly.
+   */
+  private initializeFromSsr(): void {
+    const validThemes: string[] = ['light', 'dark', 'system'];
+    const validSports: readonly string[] = SPORT_THEME_OPTIONS.map((opt) => opt.id);
+
+    // Read SSR-provided theme preference
+    if (this.ssrTheme && validThemes.includes(this.ssrTheme)) {
+      this._preference.set(this.ssrTheme as ThemePreference);
+    } else {
+      this._preference.set('dark'); // Default matches loadPreference() default
+    }
+
+    // Read SSR-provided sport theme
+    if (this.ssrSportTheme && validSports.includes(this.ssrSportTheme)) {
+      this._sportTheme.set(this.ssrSportTheme as SportTheme);
+    }
+
+    // Apply theme to server-rendered HTML via DOCUMENT token (SSR-safe)
+    this.applyThemeToDocument();
+
+    // Write to TransferState so client hydration is instant
+    this.transferState.set(THEME_TRANSFER_KEY, this._preference());
+    const sport = this._sportTheme();
+    if (sport) {
+      this.transferState.set(SPORT_THEME_TRANSFER_KEY, sport);
+    }
+
+    this._initialized.set(true);
+  }
+
+  /**
+   * Client hydration initialization: read from TransferState synchronously
+   * so the first client render matches the server-rendered theme.
+   * Then schedule full browser initialization (listeners, matchMedia).
+   */
+  private initializeFromTransferState(): void {
+    const validThemes: string[] = ['light', 'dark', 'system'];
+    const validSports: readonly string[] = SPORT_THEME_OPTIONS.map((opt) => opt.id);
+
+    // Read themes from TransferState (synchronous, no DOM needed)
+    const transferred = this.transferState.get(THEME_TRANSFER_KEY, 'dark');
+    if (validThemes.includes(transferred)) {
+      this._preference.set(transferred as ThemePreference);
+    }
+
+    const transferredSport = this.transferState.get(SPORT_THEME_TRANSFER_KEY, '');
+    if (transferredSport && validSports.includes(transferredSport)) {
+      this._sportTheme.set(transferredSport as SportTheme);
+    }
+
+    this._initialized.set(true);
+
+    // Schedule full browser initialization (system preference detection, listeners)
+    afterNextRender(() => {
+      this.detectSystemPreference();
+      this.setupSystemPreferenceListener();
+
+      // localStorage may have been updated since SSR; reconcile
+      const localPref = this.loadPreference();
+      const localSport = this.loadSportTheme();
+      if (localPref !== this._preference()) {
+        this._preference.set(localPref);
+      }
+      if (localSport !== this._sportTheme()) {
+        this._sportTheme.set(localSport);
+      }
+
+      this.applyTheme('init');
+    });
+  }
+
+  /**
+   * Apply theme to the document element using DOCUMENT token (SSR-safe).
+   * Used on the server where `document` global may not be the right document.
+   */
+  private applyThemeToDocument(): void {
+    const effectiveTheme = this.effectiveTheme();
+    const sportTheme = this._sportTheme();
+    const activeTheme = this.activeTheme();
+
+    const docElement = this.doc?.documentElement;
+    if (!docElement) return;
+
+    docElement.setAttribute(THEME_ATTRIBUTE, activeTheme);
+    docElement.setAttribute(BASE_THEME_ATTRIBUTE, effectiveTheme);
+
+    const colorScheme = sportTheme ? 'dark' : effectiveTheme;
+    docElement.style.setProperty('color-scheme', colorScheme);
+
+    const bgColor = THEME_BG_COLORS[activeTheme] ?? THEME_BG_COLORS[effectiveTheme] ?? '#0a0a0a';
+    docElement.style.setProperty('background-color', bgColor);
+  }
+
+  /**
    * Initialize the theme service.
    * - Load saved preference
    * - Detect system preference
@@ -650,6 +801,12 @@ export class NxtThemeService {
 
     this._preference.set(savedPreference);
     this._sportTheme.set(savedSportTheme);
+
+    // Sync cookies from localStorage so SSR works on next page load
+    this.setCookie(THEME_COOKIE_NAME, savedPreference);
+    if (savedSportTheme) {
+      this.setCookie(SPORT_COOKIE_NAME, savedSportTheme);
+    }
 
     this.applyTheme('init');
     this.setupSystemPreferenceListener();
@@ -774,7 +931,7 @@ export class NxtThemeService {
   }
 
   /**
-   * Save preference to storage.
+   * Save preference to storage and cookie.
    */
   private savePreference(preference: ThemePreference): void {
     if (!this.isBrowser) return;
@@ -784,6 +941,9 @@ export class NxtThemeService {
     } catch {
       // Storage unavailable — preference won't persist
     }
+
+    // Also set cookie so SSR can read it on next page load
+    this.setCookie(THEME_COOKIE_NAME, preference);
   }
 
   /**
@@ -807,7 +967,7 @@ export class NxtThemeService {
   }
 
   /**
-   * Save sport theme to storage.
+   * Save sport theme to storage and cookie.
    */
   private saveSportTheme(sport: SportTheme): void {
     if (!this.isBrowser) return;
@@ -817,10 +977,13 @@ export class NxtThemeService {
     } catch {
       // Storage unavailable — sport theme won't persist
     }
+
+    // Also set cookie so SSR can read it on next page load
+    this.setCookie(SPORT_COOKIE_NAME, sport);
   }
 
   /**
-   * Clear sport theme from storage.
+   * Clear sport theme from storage and cookie.
    */
   private clearSportThemeStorage(): void {
     if (!this.isBrowser) return;
@@ -829,6 +992,26 @@ export class NxtThemeService {
       localStorage.removeItem(SPORT_STORAGE_KEY);
     } catch {
       // Storage unavailable — non-critical
+    }
+
+    // Clear sport theme cookie
+    this.setCookie(SPORT_COOKIE_NAME, '', 0);
+  }
+
+  /**
+   * Set a cookie with SameSite=Lax and Secure flag.
+   * @param name Cookie name
+   * @param value Cookie value
+   * @param maxAge Max age in seconds (default: COOKIE_MAX_AGE). Pass 0 to delete.
+   */
+  private setCookie(name: string, value: string, maxAge: number = COOKIE_MAX_AGE): void {
+    if (!this.isBrowser) return;
+
+    try {
+      const secure = location.protocol === 'https:' ? '; Secure' : '';
+      document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAge}; SameSite=Lax${secure}`;
+    } catch {
+      // Cookie access denied — non-critical
     }
   }
 

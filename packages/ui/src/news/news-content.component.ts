@@ -43,34 +43,24 @@ import { HapticsService } from '../services/haptics/haptics.service';
 @Component({
   selector: 'nxt1-news-content',
   standalone: true,
-  imports: [CommonModule, NewsListComponent, NewsArticleDetailComponent],
+  imports: [CommonModule, NewsListComponent],
   template: `
-    @if (showDetail()) {
-      <!-- Article Detail View -->
-      <nxt1-news-article-detail
-        [article]="newsService.selectedArticle()"
-        (back)="onDetailBack()"
-        (share)="onDetailShare()"
-        (readFullStory)="onReadFullStory($event)"
-      />
-    } @else {
-      <!-- Feed View -->
-      <div class="news-content">
-        <!-- Article List -->
-        <div class="news-content__list">
-          <nxt1-news-list
-            [articles]="newsService.articles()"
-            [isLoading]="newsService.isLoading()"
-            [error]="newsService.error()"
-            [hasMore]="newsService.hasMore()"
-            [activeCategory]="newsService.activeCategory()"
-            (articleClick)="onArticleClick($event)"
-            (loadMore)="onLoadMore()"
-            (retry)="onRetry()"
-          />
-        </div>
+    <!-- Feed View -->
+    <div class="news-content">
+      <!-- Article List -->
+      <div class="news-content__list">
+        <nxt1-news-list
+          [articles]="newsService.articles()"
+          [isLoading]="newsService.isLoading()"
+          [error]="newsService.error()"
+          [hasMore]="newsService.hasMore()"
+          [activeCategory]="newsService.activeCategory()"
+          (articleClick)="onArticleClick($event)"
+          (loadMore)="onLoadMore()"
+          (retry)="onRetry()"
+        />
       </div>
-    }
+    </div>
   `,
   styles: [
     `
@@ -81,13 +71,11 @@ import { HapticsService } from '../services/haptics/haptics.service';
 
       :host {
         display: block;
-        height: 100%;
       }
 
       .news-content {
         display: flex;
         flex-direction: column;
-        height: 100%;
       }
 
       /* ============================================
@@ -96,8 +84,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
 
       .news-content__list {
         flex: 1;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
       }
     `,
   ],
@@ -116,16 +102,6 @@ export class NewsContentComponent implements OnInit {
 
   /** Emitted when user triggers refresh (for parent to handle) */
   readonly refresh = output<void>();
-
-  /** Emitted when "Read Full Story" is clicked (sourceUrl) */
-  readonly readFullStoryClick = output<string>();
-
-  // ============================================
-  // INTERNAL STATE
-  // ============================================
-
-  /** Whether showing article detail */
-  readonly showDetail = signal(false);
 
   // ============================================
   // LIFECYCLE
@@ -155,29 +131,7 @@ export class NewsContentComponent implements OnInit {
   async onArticleClick(article: NewsArticle): Promise<void> {
     await this.haptics.impact('light');
     await this.newsService.selectArticle(article);
-    this.showDetail.set(true);
     this.articleSelect.emit(article);
-  }
-
-  // ============================================
-  // DETAIL VIEW HANDLERS
-  // ============================================
-
-  async onDetailBack(): Promise<void> {
-    await this.haptics.impact('light');
-    this.showDetail.set(false);
-    this.newsService.selectArticle(null);
-  }
-
-  async onDetailShare(): Promise<void> {
-    const article = this.newsService.selectedArticle();
-    if (article) {
-      await this.newsService.shareArticle(article);
-    }
-  }
-
-  onReadFullStory(sourceUrl: string): void {
-    this.readFullStoryClick.emit(sourceUrl);
   }
 
   // ============================================

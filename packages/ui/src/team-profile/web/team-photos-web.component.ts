@@ -12,12 +12,13 @@ import { Component, ChangeDetectionStrategy, inject, input, output, computed } f
 import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';
+import { NxtStateViewComponent } from '../../components/state-view';
 import { TeamProfileService } from '../team-profile.service';
 
 @Component({
   selector: 'nxt1-team-photos-web',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent, NxtImageComponent],
+  imports: [CommonModule, NxtIconComponent, NxtImageComponent, NxtStateViewComponent],
   template: `
     <div class="team-photos">
       <h2 class="team-section__title">Photos</h2>
@@ -39,11 +40,12 @@ import { TeamProfileService } from '../team-profile.service';
           }
         </div>
       } @else {
-        <div class="team-empty-state">
-          <nxt1-icon name="photo-library" [size]="40" />
-          <h3>No photos yet</h3>
-          <p>Team photos will appear here when posted.</p>
-        </div>
+        <nxt1-state-view
+          variant="empty"
+          icon="photo-library"
+          title="No photos yet"
+          message="Team photos will appear here when posted."
+        />
       }
     </div>
   `,
@@ -104,30 +106,6 @@ import { TeamProfileService } from '../team-profile.service';
         color: #fff;
         background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
         text-align: left;
-      }
-
-      .team-empty-state {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
-        padding: 48px 16px;
-        gap: 10px;
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-      }
-
-      .team-empty-state h3 {
-        font-size: 15px;
-        font-weight: 700;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.7));
-        margin: 4px 0 0;
-      }
-
-      .team-empty-state p {
-        font-size: 13px;
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-        margin: 0;
-        max-width: 320px;
       }
     `,
   ],

@@ -26,7 +26,7 @@
  */
 
 import { Component, ChangeDetectionStrategy, input, output, computed, inject } from '@angular/core';
-import { type NewsArticle } from '@nxt1/core';
+import { resolveNewsFaviconUrl, type NewsArticle } from '@nxt1/core';
 import { NxtImageComponent } from '../components/image';
 import { HapticsService } from '../services/haptics/haptics.service';
 
@@ -37,132 +37,95 @@ import { HapticsService } from '../services/haptics/haptics.service';
   template: `
     @if (article()) {
       <article class="article-detail">
-        <!-- Hero Section -->
-        <div class="article-detail__hero">
-          @if (article()!.imageUrl) {
-            <nxt1-image
-              [src]="article()!.imageUrl!"
-              [alt]="article()!.title"
-              class="article-detail__hero-image"
-              fit="cover"
-            />
-          }
+        <div class="article-detail__frame">
+          <section class="article-detail__intro">
+            <h1 class="article-detail__title">{{ article()!.title }}</h1>
 
-          <!-- Gradient Overlay -->
-          <div class="article-detail__hero-overlay"></div>
+            <p class="article-detail__excerpt">{{ article()!.excerpt }}</p>
 
-          <!-- Floating Back Button -->
-          <button
-            type="button"
-            class="article-detail__back-btn"
-            data-testid="news-article-detail-back"
-            (click)="onBackClick()"
-            aria-label="Go back"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 512 512"
-              fill="currentColor"
-            >
-              <path
-                d="M328 112L184 256l144 144"
-                fill="none"
-                stroke="currentColor"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="48"
-              />
-            </svg>
-          </button>
+            <div class="article-detail__meta-row">
+              <div class="article-detail__publisher">
+                @if (faviconUrl()) {
+                  <img
+                    [src]="faviconUrl()"
+                    [alt]="article()!.source"
+                    class="article-detail__favicon"
+                    width="22"
+                    height="22"
+                    loading="lazy"
+                  />
+                }
+                <span class="article-detail__source-name">{{ article()!.source }}</span>
+              </div>
 
-          <!-- Share Button -->
-          <div class="article-detail__hero-actions">
-            <button
-              type="button"
-              class="article-detail__action-btn"
-              data-testid="news-article-detail-share"
-              (click)="onShareClick()"
-              aria-label="Share article"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 512 512"
-                fill="currentColor"
-              >
-                <path
-                  d="M336 192h40a40 40 0 0140 40v192a40 40 0 01-40 40H136a40 40 0 01-40-40V232a40 40 0 0140-40h40M336 128l-80-80-80 80M256 321V48"
+              <div class="article-detail__published">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 512 512"
                   fill="none"
                   stroke="currentColor"
                   stroke-linecap="round"
                   stroke-linejoin="round"
                   stroke-width="32"
-                />
-              </svg>
-            </button>
-          </div>
-        </div>
-
-        <!-- Content Section -->
-        <div class="article-detail__content">
-          <!-- Title -->
-          <h1 class="article-detail__title">{{ article()!.title }}</h1>
-
-          <!-- Source + Date -->
-          <div class="article-detail__meta">
-            <div class="article-detail__source">
-              @if (article()!.faviconUrl) {
-                <img
-                  [src]="article()!.faviconUrl"
-                  [alt]="article()!.source"
-                  class="article-detail__favicon"
-                  width="24"
-                  height="24"
-                  loading="lazy"
-                />
-              }
-              <div class="article-detail__source-info">
-                <span class="article-detail__source-name">{{ article()!.source }}</span>
-                <span class="article-detail__date">{{ formattedDate() }}</span>
+                  aria-hidden="true"
+                >
+                  <circle cx="256" cy="256" r="192" />
+                  <path d="M256 128v144l96 64" />
+                </svg>
+                <span>{{ timeAgo() }}</span>
               </div>
             </div>
+          </section>
+
+          <div class="article-detail__hero">
+            @if (article()!.imageUrl) {
+              <nxt1-image
+                [src]="article()!.imageUrl!"
+                [alt]="article()!.title"
+                class="article-detail__hero-image"
+                fit="cover"
+              />
+            } @else {
+              <div class="article-detail__hero-placeholder" aria-hidden="true">
+                <span class="article-detail__hero-placeholder-wordmark">NXT1</span>
+              </div>
+            }
           </div>
 
-          <!-- Article Body (AI Summary) -->
-          <div class="article-detail__body" [innerHTML]="article()!.content"></div>
+          <div class="article-detail__content">
+            <div class="article-detail__body" [innerHTML]="article()!.content"></div>
 
-          <!-- Read Full Story CTA -->
-          <div class="article-detail__cta">
-            <a
-              [href]="article()!.sourceUrl"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="article-detail__cta-btn"
-              data-testid="news-article-detail-read-full"
-              (click)="onReadFullStoryClick()"
-            >
-              Read Full Story on {{ article()!.source }}
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="18"
-                height="18"
-                viewBox="0 0 512 512"
-                fill="none"
-                stroke="currentColor"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="40"
+            <div class="article-detail__cta">
+              <a
+                [href]="article()!.sourceUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="article-detail__cta-btn"
+                data-testid="news-article-detail-read-full"
+                (click)="onReadFullStoryClick()"
               >
-                <path
-                  d="M384 224v184a40 40 0 01-40 40H104a40 40 0 01-40-40V168a40 40 0 0140-40h167"
-                />
-                <path d="M336 64h112v112" />
-                <path d="M224 288L440 72" />
-              </svg>
-            </a>
+                Read Full Story on {{ article()!.source }}
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 512 512"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="40"
+                >
+                  <path
+                    d="M384 224v184a40 40 0 01-40 40H104a40 40 0 01-40-40V168a40 40 0 0140-40h167"
+                  />
+                  <path d="M336 64h112v112" />
+                  <path d="M224 288L440 72" />
+                </svg>
+              </a>
+            </div>
           </div>
         </div>
       </article>
@@ -182,6 +145,18 @@ import { HapticsService } from '../services/haptics/haptics.service';
 
       .article-detail {
         position: relative;
+        padding: 0 var(--nxt1-spacing-5) var(--nxt1-spacing-14);
+      }
+
+      .article-detail__frame {
+        width: min(100%, 1040px);
+        margin: 0 auto;
+      }
+
+      .article-detail__intro {
+        padding-top: var(--nxt1-spacing-2);
+        width: min(100%, 780px);
+        margin: 0 auto var(--nxt1-spacing-7);
       }
 
       /* ============================================
@@ -190,82 +165,50 @@ import { HapticsService } from '../services/haptics/haptics.service';
 
       .article-detail__hero {
         position: relative;
-        width: 100%;
-        aspect-ratio: 16 / 10;
+        width: min(100%, 780px);
+        margin: 0 auto;
+        aspect-ratio: 21 / 9;
+        min-height: 220px;
+        max-height: clamp(220px, 34vh, 380px);
         overflow: hidden;
         background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        border-radius: var(--nxt1-borderRadius-2xl);
+        box-shadow: var(--nxt1-shadow-2xl);
+      }
+
+      .article-detail__hero-placeholder {
+        width: 100%;
+        height: 100%;
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.05));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .article-detail__hero-placeholder-wordmark {
+        font-family: var(--nxt1-fontFamily-system);
+        font-size: var(--nxt1-fontSize-2xl);
+        font-weight: var(--nxt1-fontWeight-bold);
+        letter-spacing: var(--nxt1-letterSpacing-widest);
+        color: var(
+          --nxt1-color-text-disabled,
+          var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.15))
+        );
+        user-select: none;
       }
 
       .article-detail__hero-image {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      .article-detail__hero-image img {
         width: 100%;
         height: 100%;
         object-fit: cover;
-      }
-
-      .article-detail__hero-overlay {
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        height: 60%;
-        background: linear-gradient(
-          to top,
-          var(--nxt1-color-bg-primary, #0a0a0a) 0%,
-          transparent 100%
-        );
-      }
-
-      /* Back Button */
-      .article-detail__back-btn {
-        position: absolute;
-        top: calc(env(safe-area-inset-top, 0px) + 12px);
-        left: 12px;
-        width: 40px;
-        height: 40px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(0, 0, 0, 0.5);
-        backdrop-filter: blur(8px);
-        border: none;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        color: white;
-        cursor: pointer;
-        z-index: 10;
-        transition: background-color 0.15s ease;
-      }
-
-      .article-detail__back-btn:hover {
-        background: rgba(0, 0, 0, 0.7);
-      }
-
-      /* Hero Actions */
-      .article-detail__hero-actions {
-        position: absolute;
-        top: calc(env(safe-area-inset-top, 0px) + 12px);
-        right: 12px;
-        display: flex;
-        gap: 8px;
-        z-index: 10;
-      }
-
-      .article-detail__action-btn {
-        width: 40px;
-        height: 40px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(0, 0, 0, 0.5);
-        backdrop-filter: blur(8px);
-        border: none;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        color: white;
-        cursor: pointer;
-        transition: background-color 0.15s ease;
-      }
-
-      .article-detail__action-btn:hover {
-        background: rgba(0, 0, 0, 0.7);
+        object-position: center;
       }
 
       /* ============================================
@@ -273,92 +216,98 @@ import { HapticsService } from '../services/haptics/haptics.service';
          ============================================ */
 
       .article-detail__content {
-        padding: 24px 20px 48px;
-        max-width: 680px;
+        padding: var(--nxt1-spacing-7) 0 0;
+        max-width: 780px;
         margin: 0 auto;
       }
 
       /* Title */
       .article-detail__title {
-        margin: 0 0 20px;
-        font-size: 28px;
-        font-weight: 800;
-        line-height: 1.2;
-        color: var(--nxt1-color-text-primary, #fff);
+        margin: 0 0 var(--nxt1-spacing-3_5);
+        font-size: clamp(1.6rem, 3vw, 2.2rem);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-weight: var(--nxt1-fontWeight-bold);
+        line-height: var(--nxt1-lineHeight-tight);
+        letter-spacing: var(--nxt1-letterSpacing-tight);
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .article-detail__excerpt {
+        margin: 0 0 var(--nxt1-spacing-5);
+        font-size: clamp(0.95rem, 1.5vw, 1.1rem);
+        line-height: var(--nxt1-lineHeight-normal);
+        color: var(--nxt1-color-text-secondary);
       }
 
       /* Meta Info */
-      .article-detail__meta {
+      .article-detail__meta-row {
         display: flex;
         align-items: center;
-        gap: 16px;
-        margin-bottom: 24px;
-        padding-bottom: 24px;
-        border-bottom: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: var(--nxt1-spacing-4);
+        margin-bottom: var(--nxt1-spacing-4_5, 18px);
       }
 
-      .article-detail__source {
+      .article-detail__publisher {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: var(--nxt1-spacing-2_5);
       }
 
       .article-detail__favicon {
-        width: 24px;
-        height: 24px;
-        border-radius: 4px;
+        width: 22px;
+        height: 22px;
+        border-radius: var(--nxt1-borderRadius-sm);
         object-fit: contain;
         flex-shrink: 0;
       }
 
-      .article-detail__source-info {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      }
-
       .article-detail__source-name {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--nxt1-color-text-primary, #fff);
+        font-size: var(--nxt1-fontSize-base);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        color: var(--nxt1-color-text-primary);
       }
 
-      .article-detail__date {
-        font-size: 12px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+      .article-detail__published {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2);
+        font-size: var(--nxt1-fontSize-sm);
+        color: var(--nxt1-color-text-tertiary);
       }
 
       /* Article Body */
       .article-detail__body {
-        font-size: 17px;
-        line-height: 1.75;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.85));
+        font-size: var(--nxt1-fontSize-md);
+        line-height: var(--nxt1-lineHeight-relaxed);
+        color: var(--nxt1-color-text-secondary);
       }
 
       .article-detail__body p {
-        margin: 0 0 20px;
+        margin: 0 0 var(--nxt1-spacing-5);
       }
 
       .article-detail__body h2 {
-        font-size: 22px;
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary, #fff);
-        margin: 32px 0 16px;
+        font-size: var(--nxt1-fontSize-xl);
+        font-weight: var(--nxt1-fontWeight-bold);
+        color: var(--nxt1-color-text-primary);
+        margin: var(--nxt1-spacing-8) 0 var(--nxt1-spacing-4);
       }
 
       .article-detail__body ul,
       .article-detail__body ol {
-        margin: 0 0 20px;
-        padding-left: 24px;
+        margin: 0 0 var(--nxt1-spacing-5);
+        padding-left: var(--nxt1-spacing-6);
       }
 
       .article-detail__body li {
-        margin-bottom: 8px;
+        margin-bottom: var(--nxt1-spacing-2);
       }
 
       .article-detail__body strong {
-        font-weight: 600;
-        color: var(--nxt1-color-text-primary, #fff);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        color: var(--nxt1-color-text-primary);
       }
 
       /* ============================================
@@ -366,26 +315,26 @@ import { HapticsService } from '../services/haptics/haptics.service';
          ============================================ */
 
       .article-detail__cta {
-        margin-top: 40px;
-        padding-top: 32px;
-        border-top: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        margin-top: var(--nxt1-spacing-10);
+        padding-top: var(--nxt1-spacing-8);
+        border-top: 1px solid var(--nxt1-color-border-subtle);
         text-align: center;
       }
 
       .article-detail__cta-btn {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
-        padding: 14px 28px;
-        background: var(--nxt1-color-primary, #ccff00);
-        color: var(--nxt1-color-text-onPrimary, #000);
-        font-size: 15px;
-        font-weight: 700;
+        gap: var(--nxt1-spacing-2);
+        padding: var(--nxt1-spacing-3_5) var(--nxt1-spacing-7);
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-text-onPrimary);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-bold);
         text-decoration: none;
-        border-radius: var(--nxt1-radius-full, 9999px);
+        border-radius: var(--nxt1-borderRadius-full);
         transition:
-          opacity 0.15s ease,
-          transform 0.15s ease;
+          opacity var(--nxt1-duration-fast) ease,
+          transform var(--nxt1-duration-fast) ease;
       }
 
       .article-detail__cta-btn:hover {
@@ -402,16 +351,37 @@ import { HapticsService } from '../services/haptics/haptics.service';
          ============================================ */
 
       @media (max-width: 480px) {
+        .article-detail {
+          padding-inline: var(--nxt1-spacing-3_5);
+        }
+
+        .article-detail__hero {
+          aspect-ratio: 16 / 9;
+          min-height: 200px;
+          max-height: 260px;
+          border-radius: var(--nxt1-borderRadius-xl);
+        }
+
         .article-detail__title {
-          font-size: 24px;
+          font-size: var(--nxt1-fontSize-xl);
+        }
+
+        .article-detail__excerpt {
+          font-size: var(--nxt1-fontSize-sm);
         }
 
         .article-detail__body {
-          font-size: 16px;
+          font-size: var(--nxt1-fontSize-base);
         }
 
         .article-detail__content {
-          padding: 20px 16px 40px;
+          padding-top: var(--nxt1-spacing-5_5, 22px);
+        }
+      }
+
+      @media (min-width: 768px) {
+        .article-detail__hero {
+          max-height: 420px;
         }
       }
     `,
@@ -437,6 +407,11 @@ export class NewsArticleDetailComponent {
   // COMPUTED PROPERTIES
   // ============================================
 
+  protected readonly faviconUrl = computed(() => {
+    const art = this.article();
+    return art ? resolveNewsFaviconUrl(art) : undefined;
+  });
+
   protected readonly formattedDate = computed(() => {
     const art = this.article();
     if (!art) return '';
@@ -446,6 +421,25 @@ export class NewsArticleDetailComponent {
       day: 'numeric',
       year: 'numeric',
     });
+  });
+
+  protected readonly timeAgo = computed(() => {
+    const art = this.article();
+    if (!art) return '';
+
+    const date = new Date(art.publishedAt);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return 'Published just now';
+    if (diffMins < 60) return `Published ${diffMins} minutes ago`;
+    if (diffHours < 24) return `Published ${diffHours} hours ago`;
+    if (diffDays < 7) return `Published ${diffDays} days ago`;
+
+    return `Published ${this.formattedDate()}`;
   });
 
   // ============================================

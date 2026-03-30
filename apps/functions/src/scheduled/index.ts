@@ -11,4 +11,5 @@ export { subscriptionCheck } from './subscriptionCheck';
 export { monthlyBillingReset } from './monthlyBillingReset';
 export { agentDailyBriefings } from './runDailyBriefings';
 export { expireStaleWalletHolds } from './expireStaleHolds';
-export { dailyPulseUpdates } from './dailyPulseUpdates';
+// DISABLED: Temporarily disabled to stop OpenRouter charges (deepseek-r1 fallback billing)
+// export { dailyPulseUpdates } from './dailyPulseUpdates';

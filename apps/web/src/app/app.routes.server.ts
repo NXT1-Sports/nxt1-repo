@@ -168,6 +168,15 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
+    path: 'pulse',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'pulse/**',
+    renderMode: RenderMode.Server,
+  },
+  // Legacy /news redirect
+  {
     path: 'news',
     renderMode: RenderMode.Server,
   },

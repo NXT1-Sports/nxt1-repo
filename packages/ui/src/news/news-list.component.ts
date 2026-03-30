@@ -36,14 +36,13 @@
 
 import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon, IonSpinner } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import { alertCircleOutline, refreshOutline } from 'ionicons/icons';
+import { IonSpinner } from '@ionic/angular/standalone';
 import { type NewsArticle, type NewsCategoryId, NEWS_UI_CONFIG } from '@nxt1/core';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { NewsArticleCardComponent } from './news-article-card.component';
 import { NewsSkeletonComponent } from './news-skeleton.component';
 import { NewsEmptyStateComponent } from './news-empty-state.component';
+import { NxtStateViewComponent } from '../components/state-view';
 
 // Register icons
 @Component({
@@ -51,11 +50,11 @@ import { NewsEmptyStateComponent } from './news-empty-state.component';
   standalone: true,
   imports: [
     CommonModule,
-    IonIcon,
     IonSpinner,
     NewsArticleCardComponent,
     NewsSkeletonComponent,
     NewsEmptyStateComponent,
+    NxtStateViewComponent,
   ],
   template: `
     <div class="news-list" [attr.data-testid]="testIds.LIST_CONTAINER">
@@ -63,29 +62,22 @@ import { NewsEmptyStateComponent } from './news-empty-state.component';
       @if (isLoading()) {
         <div class="news-list__skeletons" [attr.data-testid]="testIds.SKELETON">
           @for (i of skeletonArray; track i) {
-            <nxt1-news-skeleton [variant]="i === 1 ? 'featured' : 'card'" />
+            <nxt1-news-skeleton variant="card" />
           }
         </div>
       }
 
       <!-- Error State -->
       @else if (error()) {
-        <div class="news-list__error" [attr.data-testid]="testIds.ERROR_STATE">
-          <div class="news-list__error-icon">
-            <ion-icon name="alert-circle-outline"></ion-icon>
-          </div>
-          <h3 class="news-list__error-title">Something went wrong</h3>
-          <p class="news-list__error-message">{{ error() }}</p>
-          <button
-            type="button"
-            class="news-list__error-action"
-            [attr.data-testid]="testIds.RETRY_BTN"
-            (click)="retry.emit()"
-          >
-            <ion-icon name="refresh-outline"></ion-icon>
-            <span>Try Again</span>
-          </button>
-        </div>
+        <nxt1-state-view
+          variant="error"
+          title="Something went wrong"
+          [message]="error()"
+          actionLabel="Try Again"
+          actionIcon="refresh"
+          (action)="retry.emit()"
+          [attr.data-testid]="testIds.ERROR_STATE"
+        />
       }
 
       <!-- Empty State -->
@@ -151,76 +143,15 @@ import { NewsEmptyStateComponent } from './news-empty-state.component';
          ============================================ */
 
       .news-list__skeletons {
-        display: flex;
-        flex-direction: column;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
         gap: 16px;
       }
 
-      /* ============================================
-         ERROR STATE
-         ============================================ */
-
-      .news-list__error {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        text-align: center;
-        padding: 48px 24px;
-        min-height: 300px;
-      }
-
-      .news-list__error-icon {
-        width: 64px;
-        height: 64px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: var(--nxt1-color-feedback-errorSubtle, rgba(239, 68, 68, 0.1));
-        border-radius: var(--nxt1-radius-full, 9999px);
-        margin-bottom: 16px;
-      }
-
-      .news-list__error-icon ion-icon {
-        font-size: 32px;
-        color: var(--nxt1-color-feedback-error, #ef4444);
-      }
-
-      .news-list__error-title {
-        margin: 0 0 8px;
-        font-size: 18px;
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary, #fff);
-      }
-
-      .news-list__error-message {
-        margin: 0 0 20px;
-        font-size: 14px;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        max-width: 280px;
-      }
-
-      .news-list__error-action {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 10px 20px;
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.05));
-        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-        border-radius: var(--nxt1-radius-full, 9999px);
-        font-size: 14px;
-        font-weight: 500;
-        color: var(--nxt1-color-text-primary, #fff);
-        cursor: pointer;
-        transition: background-color 0.15s ease;
-      }
-
-      .news-list__error-action:hover {
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
-      }
-
-      .news-list__error-action ion-icon {
-        font-size: 18px;
+      @media (max-width: 640px) {
+        .news-list__skeletons {
+          grid-template-columns: 1fr;
+        }
       }
 
       /* ============================================
@@ -228,9 +159,16 @@ import { NewsEmptyStateComponent } from './news-empty-state.component';
          ============================================ */
 
       .news-list__articles {
-        display: flex;
-        flex-direction: column;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
         gap: 16px;
+        min-width: 0;
+      }
+
+      @media (max-width: 640px) {
+        .news-list__articles {
+          grid-template-columns: 1fr;
+        }
       }
 
       /* Staggered fade-in animation */
@@ -295,12 +233,11 @@ import { NewsEmptyStateComponent } from './news-empty-state.component';
           display: grid;
           grid-template-columns: repeat(2, 1fr);
           gap: 20px;
+          align-items: stretch;
         }
-      }
 
-      @media (min-width: 1024px) {
-        .news-list__articles {
-          grid-template-columns: repeat(3, 1fr);
+        .news-list__article-wrapper {
+          min-width: 0;
         }
       }
 
@@ -317,10 +254,6 @@ import { NewsEmptyStateComponent } from './news-empty-state.component';
 })
 export class NewsListComponent {
   protected readonly testIds = TEST_IDS.NEWS;
-
-  constructor() {
-    addIcons({ alertCircleOutline, refreshOutline });
-  }
 
   /** Articles to display */
   readonly articles = input<NewsArticle[]>([]);

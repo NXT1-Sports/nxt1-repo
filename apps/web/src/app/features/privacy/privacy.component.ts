@@ -7,9 +7,19 @@
  * Content stays up-to-date without app redeployment.
  */
 
-import { Component, ChangeDetectionStrategy, OnInit, inject } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  OnInit,
+  OnDestroy,
+  AfterViewInit,
+  inject,
+  viewChild,
+  TemplateRef,
+} from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { LEGAL_URLS } from '@nxt1/core';
+import { NxtHeaderPortalService } from '@nxt1/ui/services/header-portal';
 import { SeoService } from '../../core/services/seo.service';
 
 @Component({
@@ -17,16 +27,16 @@ import { SeoService } from '../../core/services/seo.service';
   standalone: true,
   imports: [],
   template: `
-    <div class="flex h-screen w-full flex-col">
-      <!-- Header -->
-      <div class="border-b border-gray-200 bg-white px-6 py-4">
-        <h1 class="text-xl font-semibold text-gray-900">Privacy Policy</h1>
+    <ng-template #headerPortalContent>
+      <div class="portal-page-header">
+        <span class="portal-page-title">Privacy Policy</span>
       </div>
+    </ng-template>
 
-      <!-- Content -->
+    <div class="legal-embed-shell flex h-full w-full flex-col">
       <iframe
         [src]="termlyUrl"
-        class="h-full w-full flex-1 border-0"
+        class="legal-embed-frame h-full w-full flex-1 border-0"
         title="Privacy Policy"
         sandbox="allow-scripts allow-same-origin"
       ></iframe>
@@ -37,20 +47,55 @@ import { SeoService } from '../../core/services/seo.service';
       :host {
         display: block;
         width: 100%;
-        height: 100vh;
+        height: 100%;
+      }
+      .portal-page-header {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        min-width: 0;
+        padding: 0 var(--nxt1-spacing-2, 8px);
+      }
+      .portal-page-title {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+        user-select: none;
+      }
+      .legal-embed-shell {
+        min-height: 0;
+        background: #ffffff;
+        color-scheme: light;
+      }
+      .legal-embed-frame {
+        background: #ffffff;
+        color-scheme: light;
       }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PrivacyComponent implements OnInit {
+export class PrivacyComponent implements OnInit, AfterViewInit, OnDestroy {
   private readonly sanitizer = inject(DomSanitizer);
   private readonly seo = inject(SeoService);
+  private readonly headerPortal = inject(NxtHeaderPortalService);
+  private readonly headerPortalContent = viewChild<TemplateRef<unknown>>('headerPortalContent');
 
   protected readonly termlyUrl: SafeResourceUrl;
 
   constructor() {
     this.termlyUrl = this.sanitizer.bypassSecurityTrustResourceUrl(LEGAL_URLS.PRIVACY);
+  }
+
+  ngAfterViewInit(): void {
+    const tpl = this.headerPortalContent();
+    if (tpl) this.headerPortal.setCenterContent(tpl);
+  }
+
+  ngOnDestroy(): void {
+    this.headerPortal.clearAll();
   }
 
   ngOnInit(): void {

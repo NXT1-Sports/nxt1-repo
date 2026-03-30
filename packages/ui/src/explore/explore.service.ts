@@ -44,6 +44,7 @@ import {
   EXPLORE_SEARCH_CONFIG,
   EXPLORE_INITIAL_TAB_COUNTS,
   isFeedTab,
+  resolveStateToAbbreviation,
 } from '@nxt1/core';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
@@ -415,10 +416,61 @@ export class ExploreService {
     return count;
   }
 
+  /**
+   * Initialize default filters from user context.
+   * Called once when the shell loads with the user's sport and state.
+   * Applies to 'for-you' (Discover) and 'news' (Pulse) tabs.
+   * Skips if defaults were already applied this session.
+   */
+  initializeDefaultFilters(sport?: string | null, state?: string | null): void {
+    if (this._defaultFiltersInitialized) return;
+    if (!sport && !state) return;
+
+    const resolvedState = resolveStateToAbbreviation(state);
+    const defaults: ExploreFilters = {
+      ...(sport?.trim() ? { sport: sport.trim() } : {}),
+      ...(resolvedState ? { state: resolvedState } : {}),
+    };
+
+    this.setFiltersForTab('for-you', defaults);
+    this.setFiltersForTab('news', defaults);
+    this._defaultFiltersInitialized = true;
+    this._defaultFilterValues = {
+      ...(defaults.sport ? { sport: defaults.sport } : {}),
+      ...(defaults.state ? { state: defaults.state } : {}),
+    };
+
+    this.logger.info('Default filters initialized from user context', { sport, state });
+  }
+
+  /**
+   * Apply a detected location as a state filter on Discover & Pulse.
+   * Unlike initializeDefaultFilters, this always applies (even after init).
+   */
+  applyDetectedState(state: string): void {
+    if (!state?.trim()) return;
+
+    const normalizedState = resolveStateToAbbreviation(state) ?? state.trim().toUpperCase();
+
+    for (const tabId of ['for-you', 'news'] as const) {
+      const current = this.getFiltersForTab(tabId);
+      this.setFiltersForTab(tabId, { ...current, state: normalizedState });
+    }
+
+    this._defaultFiltersInitialized = true;
+    this.logger.info('Detected state applied to filters', { state: normalizedState });
+  }
+
+  private _defaultFiltersInitialized = false;
+  /** Auto-initialized defaults (from user profile) — excluded from active filter count */
+  private _defaultFilterValues: { sport?: string; state?: string } = {};
+
   private normalizeFilters(filters: ExploreFilters): ExploreFilters {
     return {
       ...(filters.sport?.trim() ? { sport: filters.sport.trim() } : {}),
-      ...(filters.state?.trim() ? { state: filters.state.trim().toUpperCase() } : {}),
+      ...(filters.state?.trim()
+        ? { state: resolveStateToAbbreviation(filters.state) ?? filters.state.trim().toUpperCase() }
+        : {}),
       ...(filters.division?.trim() ? { division: filters.division.trim() } : {}),
       ...(filters.position?.trim() ? { position: filters.position.trim() } : {}),
       ...(typeof filters.classYear === 'number' ? { classYear: filters.classYear } : {}),

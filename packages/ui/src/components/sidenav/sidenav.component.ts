@@ -59,7 +59,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { isPlatformBrowser } from '@angular/common';
-import { Router, NavigationEnd } from '@angular/router';
+import { Router, NavigationEnd, RouterLink } from '@angular/router';
 import { filter } from 'rxjs/operators';
 import {
   IonMenu,
@@ -97,6 +97,8 @@ import { formatSportDisplayName } from '@nxt1/core';
     IonToolbar,
     IonContent,
     IonMenuToggle,
+    // Angular Router
+    RouterLink,
     // Custom Components
     NxtIconComponent,
     NxtAvatarComponent,
@@ -498,6 +500,16 @@ import { formatSportDisplayName } from '@nxt1/core';
                 }
               </div>
             </div>
+
+            <nav class="nxt1-sidenav-footer__legal" aria-label="Legal">
+              <ion-menu-toggle [autoHide]="false">
+                <a routerLink="/terms" class="nxt1-sidenav-footer__legal-link">Terms of Service</a>
+              </ion-menu-toggle>
+              <span class="nxt1-sidenav-footer__legal-sep" aria-hidden="true">·</span>
+              <ion-menu-toggle [autoHide]="false">
+                <a routerLink="/privacy" class="nxt1-sidenav-footer__legal-link">Privacy Policy</a>
+              </ion-menu-toggle>
+            </nav>
 
             <div class="nxt1-sidenav-footer__meta">
               <span class="nxt1-sidenav-footer__copyright"
@@ -1281,10 +1293,40 @@ import { formatSportDisplayName } from '@nxt1/core';
         transform: scale(0.92);
       }
 
-      .nxt1-sidenav-footer__meta {
-        margin-top: 16px;
+      .nxt1-sidenav-footer__legal {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 6px;
+        margin-top: 12px;
         padding-top: 12px;
         border-top: 1px solid var(--nxt1-sidenav-border);
+        flex-wrap: wrap;
+      }
+
+      .nxt1-sidenav-footer__legal-link {
+        font-size: 11px;
+        color: var(--nxt1-sidenav-text-tertiary);
+        text-decoration: none;
+        transition: color 0.2s ease;
+      }
+
+      .nxt1-sidenav-footer__legal-link:hover,
+      .nxt1-sidenav-footer__legal-link:focus-visible {
+        color: var(--nxt1-color-primary, #a3e635);
+        text-decoration: underline;
+        outline: none;
+      }
+
+      .nxt1-sidenav-footer__legal-sep {
+        font-size: 11px;
+        color: var(--nxt1-sidenav-text-tertiary);
+        opacity: 0.5;
+        line-height: 1;
+      }
+
+      .nxt1-sidenav-footer__meta {
+        margin-top: 12px;
       }
 
       .nxt1-sidenav-footer__copyright {

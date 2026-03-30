@@ -354,8 +354,13 @@ export class NxtImageComponent implements OnChanges {
 
   ngOnChanges(changes: SimpleChanges): void {
     // Reset state when source changes
-    if (changes['src'] && this.src) {
-      this.state.set('loading');
+    if (changes['src']) {
+      if (this.src && this.src.trim() !== '') {
+        this.state.set('loading');
+      } else if (!this.fallback) {
+        // No src and no fallback — skip straight to error so the shimmer doesn't loop forever
+        this.state.set('error');
+      }
     }
   }
 

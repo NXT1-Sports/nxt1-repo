@@ -35,6 +35,7 @@ import {
   inject,
   signal,
   computed,
+  input,
   output,
 } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
@@ -51,7 +52,6 @@ import { AGENT_X_API_BASE_URL } from './agent-x-job.service';
 import { AgentXOperationChatComponent } from './agent-x-operation-chat.component';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { OperationLogEntry, OperationLogStatus, OperationsLogResponse } from '@nxt1/core';
-import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './fab/agent-x-logo.constants';
 
 // ============================================
 // INTERFACES (local, non-exported)
@@ -106,66 +106,38 @@ export const OPERATIONS_LOG_TEST_IDS = {
   selector: 'nxt1-agent-x-operations-log',
   imports: [NxtIconComponent, NxtSheetHeaderComponent],
   template: `
-    <!-- ═══ HEADER ═══ -->
-    <nxt1-sheet-header
-      title="Agent Logs"
-      subtitle="Operations"
-      icon="time"
-      iconShape="circle"
-      closePosition="right"
-      [showBorder]="false"
-      [testId]="testIds.HEADER"
-      [closeTestId]="testIds.CLOSE_BUTTON"
-      (closeSheet)="dismiss()"
-    />
+    @if (!embedded()) {
+      <!-- ═══ HEADER ═══ -->
+      <nxt1-sheet-header
+        title="Agent Logs"
+        subtitle="Operations"
+        icon="time"
+        iconShape="circle"
+        closePosition="right"
+        [showBorder]="false"
+        [testId]="testIds.HEADER"
+        [closeTestId]="testIds.CLOSE_BUTTON"
+        (closeSheet)="dismiss()"
+      />
 
-    <!-- ═══ SUMMARY BAR ═══ -->
-    <div class="log-summary" [attr.data-testid]="testIds.SUMMARY_BAR">
-      <div class="log-summary-stat">
-        <span class="log-summary-value">{{ totalCount() }}</span>
-        <span class="log-summary-label">Total</span>
+      <!-- ═══ FILTER CHIPS ═══ -->
+      <div class="log-filters">
+        @for (filter of statusFilters; track filter.id) {
+          <button
+            type="button"
+            class="log-filter-chip"
+            [attr.data-testid]="testIds.FILTER_CHIP"
+            [class.log-filter-chip--active]="activeFilter() === filter.id"
+            (click)="onFilterTap(filter.id)"
+          >
+            {{ filter.label }}
+            @if (filter.id !== 'all') {
+              <span class="log-filter-count">{{ getFilterCount(filter.id) }}</span>
+            }
+          </button>
+        }
       </div>
-      <div class="log-summary-divider"></div>
-      <div class="log-summary-stat">
-        <span class="log-summary-value log-summary-value--success">{{ completedCount() }}</span>
-        <span class="log-summary-label">Completed</span>
-      </div>
-      <div class="log-summary-divider"></div>
-      <div class="log-summary-stat">
-        <span class="log-summary-value log-summary-value--active">{{ activeCount() }}</span>
-        <span class="log-summary-label">Active</span>
-      </div>
-      @if (awaitingCount() > 0) {
-        <div class="log-summary-divider"></div>
-        <div class="log-summary-stat">
-          <span class="log-summary-value log-summary-value--awaiting">{{ awaitingCount() }}</span>
-          <span class="log-summary-label">Needs Input</span>
-        </div>
-      }
-      <div class="log-summary-divider"></div>
-      <div class="log-summary-stat">
-        <span class="log-summary-value log-summary-value--error">{{ failedCount() }}</span>
-        <span class="log-summary-label">Failed</span>
-      </div>
-    </div>
-
-    <!-- ═══ FILTER CHIPS ═══ -->
-    <div class="log-filters">
-      @for (filter of statusFilters; track filter.id) {
-        <button
-          type="button"
-          class="log-filter-chip"
-          [attr.data-testid]="testIds.FILTER_CHIP"
-          [class.log-filter-chip--active]="activeFilter() === filter.id"
-          (click)="onFilterTap(filter.id)"
-        >
-          {{ filter.label }}
-          @if (filter.id !== 'all') {
-            <span class="log-filter-count">{{ getFilterCount(filter.id) }}</span>
-          }
-        </button>
-      }
-    </div>
+    }
 
     <!-- ═══ OPERATIONS LIST ═══ -->
     <div class="log-scroll" [attr.data-testid]="testIds.SCROLL_CONTAINER">
@@ -220,62 +192,39 @@ export const OPERATIONS_LOG_TEST_IDS = {
                 [class.log-entry--awaiting]="entry.status === 'awaiting_input'"
                 (click)="onEntryTap(entry)"
               >
-                <!-- Status + Icon -->
-                <div
-                  class="log-entry-icon"
-                  [class.log-entry-icon--complete]="entry.status === 'complete'"
-                  [class.log-entry-icon--error]="entry.status === 'error'"
-                  [class.log-entry-icon--cancelled]="entry.status === 'cancelled'"
-                  [class.log-entry-icon--active]="entry.status === 'in-progress'"
-                  [class.log-entry-icon--awaiting]="entry.status === 'awaiting_input'"
+                <!-- Status indicator -->
+                <span
+                  class="log-entry-status"
+                  [class.log-entry-status--complete]="entry.status === 'complete'"
+                  [class.log-entry-status--error]="entry.status === 'error'"
+                  [class.log-entry-status--cancelled]="entry.status === 'cancelled'"
+                  [class.log-entry-status--active]="entry.status === 'in-progress'"
+                  [class.log-entry-status--awaiting]="entry.status === 'awaiting_input'"
                 >
-                  <svg
-                    class="agent-x-mark"
-                    width="22"
-                    height="22"
-                    viewBox="0 0 612 792"
-                    fill="currentColor"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    <path [attr.d]="agentXLogoPath" />
-                    <polygon [attr.points]="agentXLogoPolygon" />
-                  </svg>
-                </div>
+                  @switch (entry.status) {
+                    @case ('complete') {
+                      <nxt1-icon name="checkmarkCircle" [size]="14" />
+                    }
+                    @case ('error') {
+                      <nxt1-icon name="alertCircle" [size]="14" />
+                    }
+                    @case ('cancelled') {
+                      <nxt1-icon name="close" [size]="14" />
+                    }
+                    @case ('in-progress') {
+                      <span class="log-entry-spinner">
+                        <nxt1-icon name="refresh" [size]="14" />
+                      </span>
+                    }
+                    @case ('awaiting_input') {
+                      <nxt1-icon name="hand-left" [size]="14" />
+                    }
+                  }
+                </span>
 
                 <!-- Content -->
                 <div class="log-entry-content">
-                  <div class="log-entry-top">
-                    <h4 class="log-entry-title">{{ entry.title }}</h4>
-                    <span
-                      class="log-entry-status"
-                      [class.log-entry-status--complete]="entry.status === 'complete'"
-                      [class.log-entry-status--error]="entry.status === 'error'"
-                      [class.log-entry-status--cancelled]="entry.status === 'cancelled'"
-                      [class.log-entry-status--active]="entry.status === 'in-progress'"
-                      [class.log-entry-status--awaiting]="entry.status === 'awaiting_input'"
-                    >
-                      @switch (entry.status) {
-                        @case ('complete') {
-                          <nxt1-icon name="checkmarkCircle" [size]="12" />
-                        }
-                        @case ('error') {
-                          <nxt1-icon name="alertCircle" [size]="12" />
-                        }
-                        @case ('cancelled') {
-                          <nxt1-icon name="close" [size]="12" />
-                        }
-                        @case ('in-progress') {
-                          <span class="log-entry-spinner">
-                            <nxt1-icon name="refresh" [size]="12" />
-                          </span>
-                        }
-                        @case ('awaiting_input') {
-                          <nxt1-icon name="hand-left" [size]="12" />
-                        }
-                      }
-                    </span>
-                  </div>
-                  <p class="log-entry-summary">{{ entry.summary }}</p>
+                  <h4 class="log-entry-title">{{ entry.title }}</h4>
                   <div class="log-entry-meta">
                     <span class="log-entry-time">{{ formatTime(entry.timestamp) }}</span>
                     @if (entry.duration) {
@@ -369,63 +318,6 @@ export const OPERATIONS_LOG_TEST_IDS = {
         }
       }
 
-      /* ═══ SUMMARY BAR ═══ */
-      .log-summary {
-        display: flex;
-        align-items: center;
-        justify-content: space-around;
-        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
-        margin: 0 var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-3, 12px);
-        background: var(--log-surface);
-        border: 1px solid var(--log-border);
-        border-radius: var(--nxt1-radius-lg, 14px);
-        flex-shrink: 0;
-      }
-
-      .log-summary-stat {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 2px;
-      }
-
-      .log-summary-value {
-        font-size: 18px;
-        font-weight: 700;
-        color: var(--log-text-primary);
-        line-height: 1;
-      }
-
-      .log-summary-value--success {
-        color: var(--log-success);
-      }
-
-      .log-summary-value--active {
-        color: var(--log-primary);
-      }
-
-      .log-summary-value--error {
-        color: var(--log-error);
-      }
-
-      .log-summary-value--awaiting {
-        color: var(--log-warning);
-      }
-
-      .log-summary-label {
-        font-size: 11px;
-        font-weight: 500;
-        color: var(--log-text-muted);
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-      }
-
-      .log-summary-divider {
-        width: 1px;
-        height: 28px;
-        background: var(--log-border);
-      }
-
       /* ═══ FILTER CHIPS ═══ */
       .log-filters {
         display: flex;
@@ -509,10 +401,10 @@ export const OPERATIONS_LOG_TEST_IDS = {
       /* ═══ LOG ENTRY ═══ */
       .log-entry {
         display: flex;
-        align-items: flex-start;
-        gap: var(--nxt1-spacing-3, 12px);
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
         width: 100%;
-        padding: var(--nxt1-spacing-3, 12px);
+        padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-3, 12px);
         border: 1px solid var(--log-border);
         border-radius: var(--nxt1-radius-lg, 14px);
         background: var(--log-surface);
@@ -535,65 +427,17 @@ export const OPERATIONS_LOG_TEST_IDS = {
         border-color: color-mix(in srgb, var(--log-primary) 30%, var(--log-border));
       }
 
-      /* ── Entry Icon ── */
-      .log-entry-icon {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 34px;
-        height: 34px;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        flex-shrink: 0;
-        margin-top: 2px;
-        background: var(--log-primary-glow);
-        color: var(--log-primary);
-      }
-
-      .log-entry-icon--complete {
-        background: color-mix(in srgb, var(--log-success) 12%, transparent);
-        color: var(--log-success);
-      }
-
-      .log-entry-icon--error {
-        background: color-mix(in srgb, var(--log-error) 12%, transparent);
-        color: var(--log-error);
-      }
-
-      .log-entry-icon--cancelled {
-        background: color-mix(in srgb, var(--log-warning) 12%, transparent);
-        color: var(--log-warning);
-      }
-
-      .log-entry-icon--active {
-        background: var(--log-primary-glow);
-        color: var(--log-primary);
-      }
-
-      .log-entry-icon--awaiting {
-        background: color-mix(in srgb, var(--log-warning) 12%, transparent);
-        color: var(--log-warning);
-        animation: log-pulse-awaiting 2s ease-in-out infinite;
-      }
-
       /* ── Entry Content ── */
       .log-entry-content {
         flex: 1;
         min-width: 0;
       }
 
-      .log-entry-top {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: var(--nxt1-spacing-2, 8px);
-        margin-bottom: 4px;
-      }
-
       .log-entry-title {
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 600;
         color: var(--log-text-primary);
-        margin: 0;
+        margin: 0 0 2px;
         line-height: 1.3;
         white-space: nowrap;
         overflow: hidden;
@@ -631,18 +475,6 @@ export const OPERATIONS_LOG_TEST_IDS = {
       .log-entry-spinner {
         display: inline-flex;
         animation: log-spin 1.2s linear infinite;
-      }
-
-      .log-entry-summary {
-        font-size: 13px;
-        line-height: 1.4;
-        color: var(--log-text-secondary);
-        margin: 0 0 6px;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
       }
 
       .log-entry-meta {
@@ -831,10 +663,6 @@ export class AgentXOperationsLogComponent {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly haptics = inject(HapticsService);
 
-  /** Agent X SVG logo path data for inline icon rendering. */
-  protected readonly agentXLogoPath: string = AGENT_X_LOGO_PATH;
-  protected readonly agentXLogoPolygon: string = AGENT_X_LOGO_POLYGON;
-
   /** HttpClient for API calls. */
   private readonly http = inject(HttpClient);
 
@@ -849,6 +677,9 @@ export class AgentXOperationsLogComponent {
 
   /** Emitted when close button is tapped (for inline/web usage). */
   readonly closePanel = output<void>();
+
+  /** When true, hides the sheet header and filters (used when embedded in sidebar). */
+  readonly embedded = input(false);
 
   /** Test IDs for template binding. */
   protected readonly testIds = OPERATIONS_LOG_TEST_IDS;

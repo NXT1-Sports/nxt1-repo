@@ -192,8 +192,7 @@ export interface SettingsSectionToggleEvent {
         margin: 0;
         font-size: 13px;
         font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 0;
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
       }
 

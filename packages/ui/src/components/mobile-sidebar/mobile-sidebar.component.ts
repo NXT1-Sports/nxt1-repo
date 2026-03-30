@@ -111,8 +111,118 @@ import { formatSportDisplayName } from '@nxt1/core';
 
       <!-- Scrollable Content -->
       <nav class="mobile-sidebar__nav">
-        <!-- Sign In Prompt (unauthenticated) -->
-        @if (config().showSignIn !== false && !user()) {
+        <!-- Sign In / User Section — mutually exclusive -->
+        @if (user()) {
+          <!-- User Section (authenticated) — Sport Profile Switcher -->
+          @if (config().showUserSection !== false) {
+            <div class="mobile-sidebar__user">
+              <div class="mobile-sidebar__profile-row">
+                <button
+                  type="button"
+                  class="mobile-sidebar__user-btn"
+                  (click)="onUserClick($event)"
+                  aria-label="View profile"
+                >
+                  <div class="mobile-sidebar__avatar-wrap">
+                    <nxt1-avatar
+                      [src]="user()!.profileImg"
+                      [name]="user()!.name"
+                      [initials]="user()!.initials"
+                      size="md"
+                    />
+                    @if (user()!.isPremium) {
+                      <span class="mobile-sidebar__pro-badge">PRO</span>
+                    }
+                  </div>
+                  <div class="mobile-sidebar__user-info">
+                    <span class="mobile-sidebar__user-name">{{ user()!.name }}</span>
+                    <span class="mobile-sidebar__user-sport">{{ getUserSportLabel(user()!) }}</span>
+                  </div>
+                </button>
+
+                <!-- Expand Arrow for Sport Profiles -->
+                @if ((user()!.sportProfiles?.length ?? 0) > 0) {
+                  <button
+                    type="button"
+                    class="mobile-sidebar__expand-btn"
+                    [class.mobile-sidebar__expand-btn--open]="sportsExpanded()"
+                    (click)="toggleSportsExpanded($event)"
+                    [attr.aria-expanded]="sportsExpanded()"
+                    aria-label="Show sports"
+                  >
+                    <nxt1-icon name="chevronDown" [size]="18" />
+                  </button>
+                }
+              </div>
+
+              <!-- Expandable Sport Profiles List -->
+              @if (sportsExpanded() && (user()!.sportProfiles?.length ?? 0) > 0) {
+                <div class="mobile-sidebar__sport-list">
+                  @for (profile of user()!.sportProfiles; track profile.id) {
+                    <button
+                      type="button"
+                      class="mobile-sidebar__sport-item"
+                      [class.mobile-sidebar__sport-item--active]="profile.isActive"
+                      (click)="onSportProfileSelect(profile, $event)"
+                      [attr.aria-label]="'Switch to ' + formatSportDisplay(profile.sport)"
+                    >
+                      <nxt1-avatar
+                        [src]="profile.profileImg || user()!.profileImg"
+                        [name]="profile.sport"
+                        [initials]="getSportInitials(profile.sport)"
+                        [customSize]="28"
+                        [showSkeleton]="false"
+                      />
+                      <div class="mobile-sidebar__sport-info">
+                        <span class="mobile-sidebar__sport-name">{{
+                          formatSportDisplay(profile.sport)
+                        }}</span>
+                        @if (profile.position) {
+                          <span class="mobile-sidebar__sport-position">{{ profile.position }}</span>
+                        }
+                      </div>
+                      @if (profile.isActive) {
+                        <nxt1-icon
+                          name="checkmark"
+                          [size]="16"
+                          class="mobile-sidebar__sport-check"
+                        />
+                      }
+                    </button>
+                  }
+
+                  <!-- Add Sport Button -->
+                  <button
+                    type="button"
+                    class="mobile-sidebar__sport-item mobile-sidebar__sport-item--add"
+                    (click)="onAddSportClick($event)"
+                    [attr.aria-label]="user()!.actionLabel || 'Add Sport'"
+                  >
+                    <div class="mobile-sidebar__add-icon">
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="16"
+                        height="16"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.2"
+                        stroke-linecap="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M12 5v14" />
+                        <path d="M5 12h14" />
+                      </svg>
+                    </div>
+                    <span class="mobile-sidebar__sport-name">{{
+                      user()!.actionLabel || 'Add Sport'
+                    }}</span>
+                  </button>
+                </div>
+              }
+            </div>
+          }
+        } @else if (config().showSignIn) {
+          <!-- Sign In Prompt (unauthenticated) -->
           <div class="mobile-sidebar__signin">
             <a
               class="mobile-sidebar__signin-btn"
@@ -122,111 +232,6 @@ import { formatSportDisplayName } from '@nxt1/core';
             >
               Sign In
             </a>
-          </div>
-        }
-
-        <!-- User Section (authenticated) — Sport Profile Switcher -->
-        @if (config().showUserSection !== false && user()) {
-          <div class="mobile-sidebar__user">
-            <div class="mobile-sidebar__profile-row">
-              <button
-                type="button"
-                class="mobile-sidebar__user-btn"
-                (click)="onUserClick($event)"
-                aria-label="View profile"
-              >
-                <div class="mobile-sidebar__avatar-wrap">
-                  <nxt1-avatar
-                    [src]="user()!.profileImg"
-                    [name]="user()!.name"
-                    [initials]="user()!.initials"
-                    size="md"
-                  />
-                  @if (user()!.isPremium) {
-                    <span class="mobile-sidebar__pro-badge">PRO</span>
-                  }
-                </div>
-                <div class="mobile-sidebar__user-info">
-                  <span class="mobile-sidebar__user-name">{{ user()!.name }}</span>
-                  <span class="mobile-sidebar__user-sport">{{ getUserSportLabel(user()!) }}</span>
-                </div>
-              </button>
-
-              <!-- Expand Arrow for Sport Profiles -->
-              @if ((user()!.sportProfiles?.length ?? 0) > 0) {
-                <button
-                  type="button"
-                  class="mobile-sidebar__expand-btn"
-                  [class.mobile-sidebar__expand-btn--open]="sportsExpanded()"
-                  (click)="toggleSportsExpanded($event)"
-                  [attr.aria-expanded]="sportsExpanded()"
-                  aria-label="Show sports"
-                >
-                  <nxt1-icon name="chevronDown" [size]="18" />
-                </button>
-              }
-            </div>
-
-            <!-- Expandable Sport Profiles List -->
-            @if (sportsExpanded() && (user()!.sportProfiles?.length ?? 0) > 0) {
-              <div class="mobile-sidebar__sport-list">
-                @for (profile of user()!.sportProfiles; track profile.id) {
-                  <button
-                    type="button"
-                    class="mobile-sidebar__sport-item"
-                    [class.mobile-sidebar__sport-item--active]="profile.isActive"
-                    (click)="onSportProfileSelect(profile, $event)"
-                    [attr.aria-label]="'Switch to ' + formatSportDisplay(profile.sport)"
-                  >
-                    <nxt1-avatar
-                      [src]="profile.profileImg || user()!.profileImg"
-                      [name]="profile.sport"
-                      [initials]="getSportInitials(profile.sport)"
-                      [customSize]="28"
-                      [showSkeleton]="false"
-                    />
-                    <div class="mobile-sidebar__sport-info">
-                      <span class="mobile-sidebar__sport-name">{{
-                        formatSportDisplay(profile.sport)
-                      }}</span>
-                      @if (profile.position) {
-                        <span class="mobile-sidebar__sport-position">{{ profile.position }}</span>
-                      }
-                    </div>
-                    @if (profile.isActive) {
-                      <nxt1-icon name="checkmark" [size]="16" class="mobile-sidebar__sport-check" />
-                    }
-                  </button>
-                }
-
-                <!-- Add Sport Button -->
-                <button
-                  type="button"
-                  class="mobile-sidebar__sport-item mobile-sidebar__sport-item--add"
-                  (click)="onAddSportClick($event)"
-                  [attr.aria-label]="user()!.actionLabel || 'Add Sport'"
-                >
-                  <div class="mobile-sidebar__add-icon">
-                    <svg
-                      viewBox="0 0 24 24"
-                      width="16"
-                      height="16"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2.2"
-                      stroke-linecap="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M12 5v14" />
-                      <path d="M5 12h14" />
-                    </svg>
-                  </div>
-                  <span class="mobile-sidebar__sport-name">{{
-                    user()!.actionLabel || 'Add Sport'
-                  }}</span>
-                </button>
-              </div>
-            }
           </div>
         }
 
@@ -454,7 +459,6 @@ import { formatSportDisplayName } from '@nxt1/core';
         <!-- Legal Footer -->
         <footer class="mobile-sidebar__footer">
           <nav class="mobile-sidebar__legal" aria-label="Legal">
-            <a routerLink="/about" class="mobile-sidebar__legal-link" (click)="close()">About</a>
             <a routerLink="/terms" class="mobile-sidebar__legal-link" (click)="close()"
               >Terms of Service</a
             >
@@ -463,9 +467,6 @@ import { formatSportDisplayName } from '@nxt1/core';
             >
             <a routerLink="/contact" class="mobile-sidebar__legal-link" (click)="close()"
               >Contact Us</a
-            >
-            <a routerLink="/help-center" class="mobile-sidebar__legal-link" (click)="close()"
-              >Help</a
             >
           </nav>
           <p class="mobile-sidebar__copyright">

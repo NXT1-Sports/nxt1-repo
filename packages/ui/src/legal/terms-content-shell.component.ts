@@ -1,12 +1,14 @@
-import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { TERMS_CONTENT } from '@nxt1/core';
+import { NxtPageHeaderComponent } from '../components/page-header';
 
 @Component({
   selector: 'nxt1-terms-content-shell',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, NxtPageHeaderComponent],
   template: `
+    <nxt1-page-header title="Terms of Service" [showBack]="showBack()" (backClick)="back.emit()" />
     <div class="legal-content">
       <p class="last-updated">Last updated: {{ content.lastUpdated }}</p>
       <p class="intro">{{ content.intro }}</p>
@@ -100,5 +102,8 @@ import { TERMS_CONTENT } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TermsContentShellComponent {
+  readonly showBack = input(false);
+  readonly back = output<void>();
+
   protected readonly content = TERMS_CONTENT;
 }

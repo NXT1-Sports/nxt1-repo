@@ -267,7 +267,12 @@ export function createAuthStateManager(storage: StorageAdapter): AuthStateManage
     // ============================================
 
     async initialize(): Promise<void> {
-      updateState({ isLoading: true });
+      // If we already have a user (e.g. from TransferState hydration), perfectly maintain it
+      // but still fetch the token validity in the background
+      const isAlreadyHydrated = state.user !== null && state.isInitialized;
+      if (!isAlreadyHydrated) {
+        updateState({ isLoading: true });
+      }
 
       try {
         // Restore user profile from storage
@@ -285,7 +290,7 @@ export function createAuthStateManager(storage: StorageAdapter): AuthStateManage
           emitEvent('SESSION_EXPIRED');
         }
       } catch (error) {
-        console.error('[AuthStateManager] Initialize error:', error);
+        // Store error in state — consumers (auth-flow service) handle logging
         updateState({ error: 'Failed to restore auth state' });
       } finally {
         updateState({ isLoading: false, isInitialized: true });

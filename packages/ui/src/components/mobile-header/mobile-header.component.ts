@@ -80,7 +80,7 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
           </button>
         }
 
-        <!-- Center: Logo -->
+        <!-- Center: Logo (logged-out) or Page Title (logged-in) -->
         @if (config().showLogo !== false) {
           <button
             type="button"
@@ -90,6 +90,8 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
           >
             <nxt1-logo size="sm" variant="header" />
           </button>
+        } @else if (config().title) {
+          <h1 class="mobile-header__page-title">{{ config().title }}</h1>
         }
 
         <!-- Spacer -->
@@ -97,6 +99,26 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
 
         <!-- Right: Action Buttons -->
         <div class="mobile-header__actions">
+          <!-- Filter Button (explore page only) -->
+          @if (config().showFilter) {
+            <button
+              type="button"
+              class="mobile-header__action-btn mobile-header__filter-btn"
+              [class.mobile-header__filter-btn--active]="(config().filterActiveCount ?? 0) > 0"
+              [attr.aria-label]="
+                (config().filterActiveCount ?? 0) > 0
+                  ? 'Filters (' + config().filterActiveCount + ' active)'
+                  : 'Open filters'
+              "
+              (click)="onFilterClick($event)"
+            >
+              <nxt1-icon name="funnel" [size]="22" />
+              @if ((config().filterActiveCount ?? 0) > 0) {
+                <span class="mobile-header__filter-badge" aria-hidden="true"></span>
+              }
+            </button>
+          }
+
           <!-- Mark All Read Button (activity page only) -->
           @if (config().showMarkAllRead) {
             <button
@@ -133,34 +155,35 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
             </button>
           }
 
-          <!-- Sign In Button (unauthenticated) -->
-          @if (config().showSignIn !== false && !user()) {
+          <!-- Sign In / User Avatar — mutually exclusive -->
+          @if (user()) {
+            <!-- User Avatar (authenticated) -->
+            @if (config().showAvatar !== false) {
+              <button
+                type="button"
+                class="mobile-header__avatar-btn"
+                [attr.aria-label]="'User menu for ' + user()!.name"
+                (click)="onUserClick($event)"
+              >
+                @if (user()!.profileImg) {
+                  <img
+                    [src]="user()!.profileImg"
+                    [alt]="user()!.name"
+                    class="mobile-header__avatar-img"
+                    loading="lazy"
+                  />
+                } @else {
+                  <span class="mobile-header__avatar-initials">
+                    {{ user()!.initials || 'U' }}
+                  </span>
+                }
+              </button>
+            }
+          } @else if (config().showSignIn) {
+            <!-- Sign In Button (unauthenticated) -->
             <a class="mobile-header__signin-btn" routerLink="/auth" aria-label="Sign in">
               Sign In
             </a>
-          }
-
-          <!-- User Avatar (authenticated) -->
-          @if (config().showAvatar !== false && user()) {
-            <button
-              type="button"
-              class="mobile-header__avatar-btn"
-              [attr.aria-label]="'User menu for ' + user()!.name"
-              (click)="onUserClick($event)"
-            >
-              @if (user()!.profileImg) {
-                <img
-                  [src]="user()!.profileImg"
-                  [alt]="user()!.name"
-                  class="mobile-header__avatar-img"
-                  loading="lazy"
-                />
-              } @else {
-                <span class="mobile-header__avatar-initials">
-                  {{ user()!.initials || 'U' }}
-                </span>
-              }
-            </button>
           }
         </div>
       </div>
@@ -241,12 +264,35 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
          INNER CONTAINER
          ============================================ */
       .mobile-header__container {
+        position: relative;
         display: flex;
         align-items: center;
         width: 100%;
         height: 100%;
         padding: 0 var(--nxt1-spacing-2, 0.5rem);
         gap: var(--nxt1-spacing-1, 0.25rem);
+      }
+
+      /* ============================================
+         PAGE TITLE (authenticated view)
+         Absolutely centered like native iOS/Android nav bars
+         ============================================ */
+      .mobile-header__page-title {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        margin: 0;
+        font-size: var(--nxt1-fontSize-base, 1rem);
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
+        color: var(--mobile-header-text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        /* Ensure title never overlaps the left/right buttons */
+        max-width: calc(100% - 9rem);
+        pointer-events: none;
+        line-height: var(--nxt1-lineHeight-tight, 1.25);
+        letter-spacing: var(--nxt1-letterSpacing-tight, -0.02em);
       }
 
       /* ============================================
@@ -431,6 +477,29 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
       }
 
       /* ============================================
+         FILTER BUTTON ACTIVE STATE
+         ============================================ */
+      .mobile-header__filter-btn {
+        position: relative;
+      }
+
+      .mobile-header__filter-btn--active {
+        color: var(--nxt1-color-primary);
+      }
+
+      .mobile-header__filter-badge {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        width: 7px;
+        height: 7px;
+        background: var(--nxt1-color-primary);
+        border-radius: var(--nxt1-borderRadius-full, 9999px);
+        border: 1.5px solid var(--mobile-header-bg);
+        animation: nxt1-badge-pop 300ms cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      }
+
+      /* ============================================
          BADGE ANIMATION (shared keyframe)
          ============================================ */
       @keyframes nxt1-badge-pop {
@@ -509,6 +578,9 @@ export class NxtMobileHeaderComponent implements OnDestroy {
 
   /** Emitted when mark-all-read button is clicked */
   readonly markAllReadClick = output<Event>();
+
+  /** Emitted when filter button is clicked (explore page) */
+  readonly filterClick = output<Event>();
 
   /** Emitted when user avatar is clicked */
   readonly userClick = output<Event>();
@@ -595,6 +667,11 @@ export class NxtMobileHeaderComponent implements OnDestroy {
   onMarkAllReadClick(event: Event): void {
     this.haptics.impact('light');
     this.markAllReadClick.emit(event);
+  }
+
+  onFilterClick(event: Event): void {
+    this.haptics.impact('light');
+    this.filterClick.emit(event);
   }
 
   onUserClick(event: Event): void {

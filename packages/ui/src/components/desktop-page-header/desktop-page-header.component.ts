@@ -186,18 +186,32 @@ import { NxtBackButtonComponent } from '../back-button';
       .header-action-btn {
         display: flex;
         align-items: center;
-        gap: var(--nxt1-spacing-1-5);
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        padding: 0;
         color: var(--nxt1-color-text-secondary);
         background: var(--nxt1-color-surface-100);
-        border: thin solid var(--nxt1-color-border-subtle);
-        border-radius: var(--nxt1-radius-lg);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        border-radius: var(--nxt1-radius-full, 9999px);
         font-size: var(--nxt1-fontSize-sm);
         font-weight: var(--nxt1-fontWeight-medium);
         cursor: pointer;
         transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
-        white-space: nowrap;
         flex-shrink: 0;
+      }
+
+      .header-action-btn span {
+        /* Icon-only button — hide text label */
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
       }
 
       .header-action-btn:hover {
@@ -207,13 +221,12 @@ import { NxtBackButtonComponent } from '../back-button';
       }
 
       .header-action-btn:active {
-        transform: scale(0.98);
+        transform: scale(0.96);
       }
 
       .header-action-btn:focus-visible {
-        outline: var(--nxt1-spacing-0-5) solid
-          var(--nxt1-color-focus-ring, var(--nxt1-color-primary));
-        outline-offset: var(--nxt1-spacing-0-5);
+        outline: 2px solid var(--nxt1-color-focus-ring, var(--nxt1-color-primary));
+        outline-offset: 2px;
       }
 
       .header-action-btn svg {
@@ -233,13 +246,9 @@ import { NxtBackButtonComponent } from '../back-button';
           font-size: var(--nxt1-fontSize-sm);
         }
 
-        .header-action-btn span {
-          /* Hide label on very small screens, show icon only */
-          display: none;
-        }
-
         .header-action-btn {
-          padding: var(--nxt1-spacing-2);
+          width: 32px;
+          height: 32px;
         }
       }
 

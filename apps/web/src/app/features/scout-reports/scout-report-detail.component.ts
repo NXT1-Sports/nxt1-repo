@@ -34,6 +34,7 @@ import {
   type QuickStatItem,
 } from '@nxt1/ui/scout-reports';
 import { formatViewCount, formatGradYear, getRatingTier } from '@nxt1/core';
+import { NxtStateViewComponent } from '@nxt1/ui/components/state-view';
 import { AnalyticsService } from '../../core/services';
 import { SeoService } from '../../core/services/seo.service';
 
@@ -48,6 +49,7 @@ import { SeoService } from '../../core/services/seo.service';
     ScoutReportQuickStatsComponent,
     ScoutReportBookmarkButtonComponent,
     ScoutReportPremiumBadgeComponent,
+    NxtStateViewComponent,
   ],
   template: `
     <!-- Header -->
@@ -220,16 +222,13 @@ import { SeoService } from '../../core/services/seo.service';
         }
       } @else {
         <!-- Not Found -->
-        <div class="detail-not-found">
-          <svg viewBox="0 0 24 24" width="64" height="64" fill="currentColor" aria-hidden="true">
-            <path
-              d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"
-            />
-          </svg>
-          <h2>Report Not Found</h2>
-          <p>This scout report may have been removed or is no longer available.</p>
-          <a routerLink="/scout-reports" class="detail-browse-btn">Browse All Reports</a>
-        </div>
+        <nxt1-state-view
+          variant="not-found"
+          title="Report Not Found"
+          message="This scout report may have been removed or is no longer available."
+          actionLabel="Browse All Reports"
+          (action)="onBrowseReports()"
+        />
       }
     </main>
   `,
@@ -520,54 +519,6 @@ import { SeoService } from '../../core/services/seo.service';
         font-weight: 500;
         color: var(--nxt1-color-text-secondary);
       }
-
-      /* ============================================
-         NOT FOUND
-         ============================================ */
-
-      .detail-not-found {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: var(--nxt1-spacing-8, 32px);
-        text-align: center;
-        min-height: 400px;
-        color: var(--nxt1-color-text-tertiary);
-
-        svg {
-          margin-bottom: var(--nxt1-spacing-4, 16px);
-        }
-
-        h2 {
-          margin: 0 0 var(--nxt1-spacing-2, 8px);
-          color: var(--nxt1-color-text-primary);
-        }
-
-        p {
-          margin: 0 0 var(--nxt1-spacing-4, 16px);
-          color: var(--nxt1-color-text-secondary);
-        }
-      }
-
-      .detail-browse-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-4, 16px);
-        background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-text-onPrimary);
-        border-radius: var(--nxt1-radius-md, 8px);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-weight: 600;
-        text-decoration: none;
-        transition: background var(--nxt1-duration-fast, 150ms) ease;
-      }
-
-      .detail-browse-btn:hover {
-        background: var(--nxt1-color-primaryDark);
-        color: var(--nxt1-color-text-onPrimary);
-      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -719,5 +670,12 @@ export class ScoutReportDetailComponent implements OnInit {
         athlete_name: r.athlete.name,
       });
     }
+  }
+
+  /**
+   * Navigate to scout reports list.
+   */
+  protected onBrowseReports(): void {
+    void this.router.navigate(['/scout-reports']);
   }
 }

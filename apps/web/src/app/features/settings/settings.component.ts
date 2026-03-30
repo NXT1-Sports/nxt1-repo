@@ -32,13 +32,16 @@ import {
   type SettingsActionEvent,
   SettingsService,
 } from '@nxt1/ui/settings';
+import { NxtOverlayService } from '@nxt1/ui/components/overlay';
+import { NxtBottomSheetService, SHEET_PRESETS } from '@nxt1/ui/components/bottom-sheet';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtToastService } from '@nxt1/ui/services/toast';
-import { NxtBottomSheetService, SHEET_PRESETS } from '@nxt1/ui/components/bottom-sheet';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
-import type { SettingsUserInfo, SettingsSubscription } from '@nxt1/core';
+import type { SettingsUserInfo, SettingsSubscription, SettingsItem } from '@nxt1/core';
 import type { LinkSourcesFormData, OnboardingUserType } from '@nxt1/core/api';
+import { SettingsConfirmModalComponent } from './settings-confirm-modal.component';
 
 @Component({
   selector: 'app-settings',
@@ -63,11 +66,16 @@ import type { LinkSourcesFormData, OnboardingUserType } from '@nxt1/core/api';
 export class SettingsComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly settingsService = inject(SettingsService);
+  private readonly overlay = inject(NxtOverlayService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly platform = inject(NxtPlatformService);
   private readonly toast = inject(NxtToastService);
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('SettingsComponent');
   private readonly seo = inject(SeoService);
+
+  /** Responsive: true on mobile viewport, false on desktop */
+  protected readonly isMobile = computed(() => this.platform.isMobile());
 
   constructor() {
     // Reactively sync auth user → SettingsService whenever auth state changes
@@ -100,6 +108,52 @@ export class SettingsComponent implements OnInit {
       } else {
         this.settingsService.setUser(null);
       }
+    });
+
+    // Override account section items for desktop: show inline items instead of navigation to child route
+    effect(() => {
+      const email = this.authService.user()?.email?.trim() ?? '';
+      const inlineAccountItems: readonly SettingsItem[] = [
+        {
+          id: 'accountEmail',
+          section: 'account',
+          type: 'info',
+          label: 'Email',
+          description: 'Primary email used for sign in and account recovery',
+          icon: 'mail-outline',
+          value: email || 'No email available',
+          copyable: !!email,
+        },
+        {
+          id: 'accountChangePassword',
+          section: 'account',
+          type: 'action',
+          label: 'Change Password',
+          description: 'Send a secure password reset link to your email',
+          icon: 'lock-closed-outline',
+          action: 'changePassword',
+        },
+        {
+          id: 'accountSignOut',
+          section: 'account',
+          type: 'action',
+          label: 'Sign Out',
+          description: 'Sign out from your current session',
+          icon: 'logout',
+          action: 'signOut',
+        },
+        {
+          id: 'accountDelete',
+          section: 'account',
+          type: 'action',
+          label: 'Delete Account',
+          description: 'Permanently delete your account and all data',
+          icon: 'trash',
+          action: 'deleteAccount',
+          variant: 'danger',
+        },
+      ];
+      this.settingsService.overrideSectionItems('account', inlineAccountItems);
     });
   }
 
@@ -185,32 +239,36 @@ export class SettingsComponent implements OnInit {
 
     // Handle actions that need confirmation dialog
     if (event.requiresConfirmation) {
-      const result = await this.bottomSheet.show({
+      const confirmed = await this.confirm({
         title: 'Confirm Action',
-        subtitle: event.confirmationMessage,
-        actions: [
-          {
-            label: 'Confirm',
-            role: event.action === 'deleteAccount' ? 'destructive' : 'primary',
-          },
-          {
-            label: 'Cancel',
-            role: 'cancel',
-          },
-        ],
+        message: event.confirmationMessage,
+        confirmText: 'Confirm',
+        destructive: event.action === 'deleteAccount',
+        icon: event.action === 'deleteAccount' ? 'trash' : 'alert-circle-outline',
       });
 
-      if (!result.confirmed) {
+      if (!confirmed) {
         return;
       }
     }
 
     // Handle specific actions
     switch (event.action) {
-      case 'deleteAccount':
-        this.logger.info('Delete account confirmed');
-        // TODO: Implement actual account deletion
+      case 'changePassword': {
+        const email = this.authService.user()?.email?.trim();
+        if (!email) {
+          this.toast.error('No account email found. Please refresh and try again.');
+          return;
+        }
+        this.logger.info('Sending password reset email', { itemId: event.itemId });
+        const sent = await this.authService.sendPasswordResetEmail(email);
+        if (sent) {
+          this.toast.success(`Password reset link sent to ${email}`);
+        } else {
+          this.toast.error('Unable to send password reset email. Please try again.');
+        }
         break;
+      }
 
       default:
         this.logger.debug('Unhandled action', { action: event.action });
@@ -223,24 +281,14 @@ export class SettingsComponent implements OnInit {
   protected async onSignOut(): Promise<void> {
     this.logger.info('Sign out requested');
 
-    const result = await this.bottomSheet.show({
+    const confirmed = await this.confirm({
       title: 'Sign Out',
-      subtitle: 'Are you sure you want to sign out?',
-      ...SHEET_PRESETS.COMPACT,
-      actionsLayout: 'horizontal',
-      actions: [
-        {
-          label: 'Cancel',
-          role: 'cancel',
-        },
-        {
-          label: 'Sign Out',
-          role: 'destructive',
-        },
-      ],
+      message: 'Are you sure you want to sign out?',
+      confirmText: 'Sign Out',
+      icon: 'logout',
     });
 
-    if (result.confirmed) {
+    if (confirmed) {
       try {
         await this.authService.signOut();
         this.router.navigate(['/auth']);
@@ -256,21 +304,18 @@ export class SettingsComponent implements OnInit {
   protected async onDeleteAccount(): Promise<void> {
     this.logger.info('Delete account requested');
 
-    // Step 1: Warn the user
-    const confirm = await this.bottomSheet.show({
+    const confirmed = await this.confirm({
       title: 'Delete Account',
-      subtitle:
+      message:
         'This action cannot be undone. All your data will be permanently deleted. Are you sure you want to continue?',
+      confirmText: 'Delete My Account',
+      cancelText: 'Cancel',
       destructive: true,
-      actions: [
-        { label: 'Delete My Account', role: 'destructive' },
-        { label: 'Cancel', role: 'cancel' },
-      ],
+      icon: 'trash',
     });
 
-    if (!confirm.confirmed) return;
+    if (!confirmed) return;
 
-    // Delete directly
     const result = await this.authService.deleteAccount();
 
     if (result.success) {
@@ -280,5 +325,77 @@ export class SettingsComponent implements OnInit {
       this.logger.error('Account deletion failed', result.error);
       this.toast.error(`Failed to delete account: ${result.error ?? 'Unknown error'}`);
     }
+  }
+
+  private async confirm(config: {
+    title: string;
+    message?: string;
+    confirmText?: string;
+    cancelText?: string;
+    destructive?: boolean;
+    icon?: string;
+  }): Promise<boolean> {
+    if (this.isMobile()) {
+      return this.openMobileConfirm(config);
+    }
+    return this.openDesktopConfirm(config);
+  }
+
+  private async openMobileConfirm(config: {
+    title: string;
+    message?: string;
+    confirmText?: string;
+    cancelText?: string;
+    destructive?: boolean;
+    icon?: string;
+  }): Promise<boolean> {
+    const result = await this.bottomSheet.show({
+      title: config.title,
+      subtitle: config.message,
+      ...SHEET_PRESETS.COMPACT,
+      actionsLayout: 'horizontal',
+      destructive: config.destructive,
+      actions: [
+        {
+          label: config.cancelText ?? 'Cancel',
+          role: 'cancel',
+        },
+        {
+          label: config.confirmText ?? 'Confirm',
+          role: config.destructive ? 'destructive' : 'primary',
+        },
+      ],
+    });
+
+    return result.confirmed;
+  }
+
+  private async openDesktopConfirm(config: {
+    title: string;
+    message?: string;
+    confirmText?: string;
+    cancelText?: string;
+    destructive?: boolean;
+    icon?: string;
+  }): Promise<boolean> {
+    const result = await this.overlay.open<SettingsConfirmModalComponent, { confirmed: boolean }>({
+      component: SettingsConfirmModalComponent,
+      inputs: {
+        title: config.title,
+        message: config.message ?? '',
+        confirmText: config.confirmText ?? 'Confirm',
+        cancelText: config.cancelText ?? 'Cancel',
+        destructive: config.destructive ?? false,
+        icon: config.icon,
+      },
+      size: 'sm',
+      backdropDismiss: true,
+      escDismiss: true,
+      showCloseButton: false,
+      ariaLabel: config.title,
+      panelClass: 'nxt1-settings-confirm-overlay',
+    }).closed;
+
+    return result.data?.confirmed === true;
   }
 }

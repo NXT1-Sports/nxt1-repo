@@ -27,13 +27,19 @@ import {
   output,
   computed,
   signal,
+  effect,
   OnInit,
   viewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonContent, IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import { timeOutline, trendingUpOutline, chevronForwardOutline } from 'ionicons/icons';
+import {
+  timeOutline,
+  trendingUpOutline,
+  chevronForwardOutline,
+  locateOutline,
+} from 'ionicons/icons';
 import {
   type ExploreTabId,
   type ExploreItem,
@@ -53,6 +59,8 @@ import {
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { ExploreService } from './explore.service';
+import { ExploreFilterModalService } from './explore-filter-modal.service';
+import type { PageHeaderAction } from '../components/page-header';
 import { ExploreListComponent } from './explore-list.component';
 import { ExploreSkeletonComponent } from './explore-skeleton.component';
 import { ScoutReportsContentComponent } from '../scout-reports/scout-reports-content.component';
@@ -67,6 +75,10 @@ export interface ExploreUser {
   readonly displayName?: string | null;
   readonly followingCount?: number;
   readonly followingIds?: readonly string[];
+  /** User's active sport (for default feed filtering) */
+  readonly sport?: string | null;
+  /** User's state/location (for default feed filtering) */
+  readonly state?: string | null;
 }
 
 @Component({
@@ -88,7 +100,11 @@ export interface ExploreUser {
   template: `
     <!-- Professional Page Header with shared Top Nav search styling -->
     @if (!hideHeader()) {
-      <nxt1-page-header (menuClick)="onAvatarClick()">
+      <nxt1-page-header
+        (menuClick)="onAvatarClick()"
+        [actions]="headerActions()"
+        (actionClick)="onHeaderAction($event)"
+      >
         <div pageHeaderSlot="title" class="header-logo">
           <span class="header-title-text">Explore</span>
           <svg
@@ -121,6 +137,29 @@ export interface ExploreUser {
         [config]="{ scrollable: false, stretchToFill: true, centered: true, showDivider: true }"
         (selectionChange)="onTabChange($event)"
       />
+    }
+
+    <!-- Detect Location Prompt — shown when user has no state -->
+    @if (!user()?.state && !_detectedState()) {
+      <div class="detect-location-banner">
+        <div class="detect-location-text">
+          <span class="detect-location-heading">Set your location</span>
+          <span class="detect-location-sub">Get local news &amp; nearby athletes</span>
+        </div>
+        <button
+          type="button"
+          class="detect-location-btn"
+          [disabled]="detectingLocation()"
+          (click)="onDetectLocationClick()"
+        >
+          @if (detectingLocation()) {
+            <span class="detect-location-spinner"></span>
+          } @else {
+            <ion-icon name="locate-outline" />
+          }
+          {{ detectingLocation() ? 'Detecting…' : 'Detect' }}
+        </button>
+      </div>
     }
 
     <ion-content [fullscreen]="true" class="explore-content">
@@ -166,6 +205,7 @@ export interface ExploreUser {
           <!-- Discover Tab: Personalized posts feed -->
           @if (explore.activeTab() === 'for-you' && !explore.hasQuery()) {
             <nxt1-feed-list
+              [polymorphicFeed]="feedService.polymorphicFeed()"
               [posts]="feedService.posts()"
               [isLoading]="feedService.isLoading()"
               [isLoadingMore]="feedService.isLoadingMore()"
@@ -185,6 +225,7 @@ export interface ExploreUser {
           } @else if (explore.activeTab() === 'following' && !explore.hasQuery()) {
             <!-- Following Tab: Posts from followed users -->
             <nxt1-feed-list
+              [polymorphicFeed]="feedService.polymorphicFeed()"
               [posts]="feedService.posts()"
               [isLoading]="feedService.isLoading()"
               [isLoadingMore]="feedService.isLoadingMore()"
@@ -369,19 +410,90 @@ export interface ExploreUser {
         color: var(--nxt1-color-text-primary, #ffffff);
         transform: translateY(1px);
       }
+
+      /* Detect Location Banner */
+      .detect-location-banner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 0 var(--nxt1-spacing-4, 16px);
+        padding: 10px 14px;
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        border-radius: var(--nxt1-radius-lg, 12px);
+      }
+
+      .detect-location-text {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 0;
+      }
+
+      .detect-location-heading {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--nxt1-color-text-primary, #ffffff);
+      }
+
+      .detect-location-sub {
+        font-size: 11px;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+      }
+
+      .detect-location-btn {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-shrink: 0;
+        padding: 6px 12px;
+        border: 1px solid rgba(204, 255, 0, 0.2);
+        border-radius: var(--nxt1-borderRadius-md, 6px);
+        background: rgba(204, 255, 0, 0.08);
+        color: var(--nxt1-color-primary, #ccff00);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .detect-location-btn:disabled {
+        opacity: 0.6;
+      }
+
+      .detect-location-btn ion-icon {
+        font-size: 16px;
+      }
+
+      .detect-location-spinner {
+        width: 12px;
+        height: 12px;
+        border: 2px solid rgba(204, 255, 0, 0.3);
+        border-top-color: var(--nxt1-color-primary, #ccff00);
+        border-radius: 50%;
+        animation: spin 0.6s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExploreShellComponent implements OnInit {
   constructor() {
-    addIcons({ timeOutline, trendingUpOutline, chevronForwardOutline });
+    addIcons({ timeOutline, trendingUpOutline, chevronForwardOutline, locateOutline });
   }
 
   protected readonly explore = inject(ExploreService);
   protected readonly feedService = inject(FeedService);
   private readonly haptics = inject(HapticsService);
   private readonly logger = inject(NxtLoggingService).child('ExploreShell');
+  private readonly filterModal = inject(ExploreFilterModalService);
 
   // Inputs
   readonly user = input<ExploreUser | null>(null);
@@ -398,11 +510,18 @@ export class ExploreShellComponent implements OnInit {
   readonly postSelect = output<FeedPost>();
   readonly authorSelect = output<FeedAuthor>();
   readonly newsArticleSelect = output<{ id: string; title: string }>();
+  readonly detectLocation = output<void>();
 
   // Local state
   protected readonly searchValue = signal('');
+  protected readonly detectingLocation = signal(false);
+  readonly _detectedState = signal<string | null>(null);
 
   // Computed
+  protected readonly headerActions = computed<PageHeaderAction[]>(() => [
+    { id: 'filter', icon: 'funnel-outline', label: 'Filters' },
+  ]);
+
   protected readonly displayName = computed(() => this.user()?.displayName ?? 'User');
   protected readonly hasFollowingOption = computed(() => {
     const followingCount = this.user()?.followingCount ?? 0;
@@ -434,9 +553,45 @@ export class ExploreShellComponent implements OnInit {
     void this.ensureFeedLoadedForTab(this.explore.activeTab());
   }
 
+  /** Apply user's sport/state as default filters for Discover & Pulse */
+  private readonly _initDefaultFilters = effect(() => {
+    const u = this.user();
+    if (u) {
+      this.explore.initializeDefaultFilters(u.sport, u.state);
+    }
+  });
+
   protected onAvatarClick(): void {
     this.haptics.impact('light');
     this.avatarClick.emit();
+  }
+
+  protected onDetectLocationClick(): void {
+    this.detectingLocation.set(true);
+    this.haptics.impact('light');
+    this.detectLocation.emit();
+  }
+
+  protected async onHeaderAction(action: PageHeaderAction): Promise<void> {
+    if (action.id !== 'filter') return;
+    await this.haptics.impact('light');
+    const tab = this.explore.activeTab();
+    const result = await this.filterModal.open({
+      tab,
+      currentFilters: this.explore.getFiltersForTab(tab),
+    });
+    if (result.applied) {
+      this.explore.setFiltersForTab(tab, result.filters);
+      this.logger.info('Explore filters applied', { tab, filters: result.filters });
+    }
+  }
+
+  /** Called by parent wrapper after geolocation resolves */
+  completeDetectLocation(state: string | null): void {
+    this.detectingLocation.set(false);
+    if (state) {
+      this._detectedState.set(state);
+    }
   }
 
   protected onSearchFocus(): void {

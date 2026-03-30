@@ -540,7 +540,8 @@ export class InviteShellComponent implements OnInit {
     this.qrError.set(false);
 
     try {
-      const QRCode = await import('qrcode');
+      const QRCodeModule = await import('qrcode');
+      const QRCode = QRCodeModule.default || QRCodeModule;
       const dataUrl = await QRCode.toDataURL(url, {
         width: 166,
         margin: 1,

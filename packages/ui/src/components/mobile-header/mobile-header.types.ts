@@ -56,6 +56,18 @@ export interface MobileHeaderConfig {
 
   /** Whether to show mark-all-read button (e.g. on activity page) */
   readonly showMarkAllRead?: boolean;
+
+  /**
+   * Page title to display in the header center when `showLogo` is false.
+   * Used on authenticated routes to show the current screen name.
+   */
+  readonly title?: string;
+
+  /** Whether to show the filter icon button (e.g. on Explore page) */
+  readonly showFilter?: boolean;
+
+  /** Number of active filters — renders a green badge dot when > 0 */
+  readonly filterActiveCount?: number;
 }
 
 /**

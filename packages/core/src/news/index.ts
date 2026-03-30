@@ -95,4 +95,4 @@ export {
 
 export type { NewsBoardCategory, NewsBoardItem } from './news-board.types';
 
-export { mapNewsArticlesToBoardItems } from './news-board.helpers';
+export { mapNewsArticlesToBoardItems, resolveNewsFaviconUrl } from './news-board.helpers';

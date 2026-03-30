@@ -46,6 +46,7 @@ import {
   type InboxEmailProvider,
 } from '@nxt1/core';
 import { NxtIconComponent } from '../components/icon';
+import { NxtStateViewComponent } from '../components/state-view';
 import { ActivityItemComponent } from './activity-item.component';
 import { ActivitySkeletonComponent } from './activity-skeleton.component';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-logo.constants';
@@ -58,6 +59,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
     CommonModule,
     IonSpinner,
     NxtIconComponent,
+    NxtStateViewComponent,
     ActivityItemComponent,
     ActivitySkeletonComponent,
   ],
@@ -74,17 +76,14 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
 
       <!-- Error State -->
       @else if (error()) {
-        <div class="activity-list__error">
-          <div class="activity-list__error-icon">
-            <nxt1-icon name="alertCircle" [size]="36" />
-          </div>
-          <h3 class="activity-list__error-title">Something went wrong</h3>
-          <p class="activity-list__error-message">{{ error() }}</p>
-          <button type="button" class="activity-list__error-action" (click)="retry.emit()">
-            <nxt1-icon name="refresh" [size]="18" />
-            <span>Try Again</span>
-          </button>
-        </div>
+        <nxt1-state-view
+          variant="error"
+          title="Something went wrong"
+          [message]="error()"
+          actionLabel="Try Again"
+          actionIcon="refresh"
+          (action)="retry.emit()"
+        />
       }
 
       <!-- Empty State -->
@@ -373,71 +372,6 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
         font-size: 18px;
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
         flex-shrink: 0;
-      }
-
-      /* ============================================
-       ERROR STATE
-       ============================================ */
-
-      .activity-list__error {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 48px 24px;
-        text-align: center;
-      }
-
-      .activity-list__error-icon {
-        width: 80px;
-        height: 80px;
-        border-radius: 50%;
-        background: var(--nxt1-color-errorBg, rgba(239, 68, 68, 0.1));
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 20px;
-      }
-
-      .activity-list__error-icon nxt1-icon {
-        color: var(--nxt1-color-error, #ef4444);
-      }
-
-      .activity-list__error-title {
-        font-size: 18px;
-        font-weight: 600;
-        color: var(--nxt1-color-text-primary, #ffffff);
-        margin: 0 0 8px;
-      }
-
-      .activity-list__error-message {
-        font-size: 14px;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        margin: 0 0 20px;
-        max-width: 280px;
-      }
-
-      .activity-list__error-action {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 10px 24px;
-        border-radius: 20px;
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
-        border: 1px solid var(--nxt1-color-border-primary, rgba(204, 255, 0, 0.3));
-        color: var(--nxt1-color-text-primary, #ffffff);
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: background-color 0.15s ease;
-      }
-
-      .activity-list__error-action:hover {
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.1));
-      }
-
-      .activity-list__error-action nxt1-icon {
-        font-size: 18px;
       }
 
       /* ============================================

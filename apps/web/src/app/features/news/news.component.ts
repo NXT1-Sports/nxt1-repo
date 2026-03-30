@@ -44,7 +44,7 @@ export class NewsComponent implements OnInit {
       title: 'Sports News',
       description:
         'Stay current with sports intelligence, athlete stories, and college sports updates on NXT1.',
-      canonicalUrl: 'https://nxt1sports.com/news',
+      canonicalUrl: 'https://nxt1sports.com/pulse',
       keywords: ['sports intelligence news', 'college sports', 'athlete news', 'nxt1'],
     });
   }
@@ -57,7 +57,7 @@ export class NewsComponent implements OnInit {
       articleId: article.id,
       source: article.source,
     });
-    this.router.navigate(['/news', article.id]);
+    this.router.navigate(['/pulse', article.id]);
   }
 
   /**

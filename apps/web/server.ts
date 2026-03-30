@@ -31,6 +31,9 @@ import bootstrap from './src/main.server';
 // that cause module resolution issues in the dev server
 import { SSR_AUTH_TOKEN } from './src/app/features/auth/services/ssr-tokens';
 
+// Theme SSR tokens (defined in @nxt1/ui package, safe to import)
+import { SSR_INITIAL_THEME, SSR_INITIAL_SPORT_THEME } from '@nxt1/ui/services/theme';
+
 // ============================================
 // CONSTANTS
 // ============================================
@@ -43,21 +46,34 @@ const INDEX_HTML = join(__dirname, 'index.server.html');
 /** Cookie name for Firebase auth token */
 const AUTH_TOKEN_COOKIE = '__session';
 
+/** Cookie name for theme preference */
+const THEME_COOKIE = 'nxt1-theme-preference';
+
+/** Cookie name for sport theme */
+const SPORT_THEME_COOKIE = 'nxt1-sport-theme';
+
 /**
- * Extract auth token from request cookies
+ * Extract a cookie value by name from request headers
  */
-function extractAuthToken(req: Request): string | undefined {
+function extractCookie(req: Request, name: string): string | undefined {
   const cookieHeader = req.headers.cookie;
   if (!cookieHeader) return undefined;
 
   const cookies = cookieHeader.split(';');
   for (const cookie of cookies) {
-    const [name, value] = cookie.trim().split('=');
-    if (name === AUTH_TOKEN_COOKIE && value) {
-      return decodeURIComponent(value);
+    const [cookieName, cookieValue] = cookie.trim().split('=');
+    if (cookieName === name && cookieValue) {
+      return decodeURIComponent(cookieValue);
     }
   }
   return undefined;
+}
+
+/**
+ * Extract auth token from request cookies
+ */
+function extractAuthToken(req: Request): string | undefined {
+  return extractCookie(req, AUTH_TOKEN_COOKIE);
 }
 
 // ============================================
@@ -118,6 +134,10 @@ export function createServer(): express.Express {
     // Extract auth token from cookies for FirebaseServerApp
     const authToken = extractAuthToken(req);
 
+    // Extract theme preferences from cookies for flash-free SSR
+    const themePreference = extractCookie(req, THEME_COOKIE);
+    const sportTheme = extractCookie(req, SPORT_THEME_COOKIE);
+
     commonEngine
       .render({
         bootstrap,
@@ -131,6 +151,15 @@ export function createServer(): express.Express {
           {
             provide: SSR_AUTH_TOKEN,
             useValue: authToken,
+          },
+          // Provide theme preferences so NxtThemeService renders correct theme on server
+          {
+            provide: SSR_INITIAL_THEME,
+            useValue: themePreference,
+          },
+          {
+            provide: SSR_INITIAL_SPORT_THEME,
+            useValue: sportTheme,
           },
         ],
       })

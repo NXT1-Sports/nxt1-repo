@@ -83,7 +83,7 @@ export const EXPLORE_TABS: readonly ExploreTab[] = [
  * Default selected tab.
  * 'for-you' is the default so Explore lands on Discover first.
  */
-export const EXPLORE_DEFAULT_TAB: ExploreTabId = 'for-you';
+export const EXPLORE_DEFAULT_TAB: ExploreTabId = 'news';
 
 // ============================================
 // SORT OPTIONS
@@ -449,6 +449,25 @@ export const EXPLORE_FILTER_STATE_OPTIONS: readonly string[] = US_STATES.map(
 );
 
 /**
+ * Resolve a state string (full name like "Texas" or abbreviation like "TX")
+ * to a 2-letter uppercase abbreviation. Returns undefined if unresolved.
+ */
+export function resolveStateToAbbreviation(value: string | undefined | null): string | undefined {
+  if (!value?.trim()) return undefined;
+  const trimmed = value.trim();
+
+  // Already a valid 2-letter abbreviation?
+  const upper = trimmed.toUpperCase();
+  if (upper.length === 2 && US_STATES.some((s) => s.abbreviation === upper)) {
+    return upper;
+  }
+
+  // Try matching by full name (case-insensitive)
+  const byName = US_STATES.find((s) => s.name.toLowerCase() === trimmed.toLowerCase());
+  return byName?.abbreviation;
+}
+
+/**
  * Radius filter configuration.
  */
 export const EXPLORE_FILTER_RADIUS_CONFIG = {
@@ -484,7 +503,6 @@ export const EXPLORE_TAB_FILTER_FIELDS: Record<
     readonly position: boolean;
     readonly classYear: boolean;
     readonly radius: boolean;
-    readonly verifiedOnly: boolean;
   }
 > = {
   'for-you': {
@@ -494,7 +512,6 @@ export const EXPLORE_TAB_FILTER_FIELDS: Record<
     position: false,
     classYear: false,
     radius: false,
-    verifiedOnly: false,
   },
   feed: {
     sport: true,
@@ -503,7 +520,6 @@ export const EXPLORE_TAB_FILTER_FIELDS: Record<
     position: false,
     classYear: false,
     radius: false,
-    verifiedOnly: true,
   },
   following: {
     sport: true,
@@ -512,7 +528,6 @@ export const EXPLORE_TAB_FILTER_FIELDS: Record<
     position: false,
     classYear: false,
     radius: false,
-    verifiedOnly: true,
   },
   news: {
     sport: true,
@@ -521,7 +536,6 @@ export const EXPLORE_TAB_FILTER_FIELDS: Record<
     position: false,
     classYear: false,
     radius: false,
-    verifiedOnly: false,
   },
   colleges: {
     sport: true,
@@ -530,7 +544,6 @@ export const EXPLORE_TAB_FILTER_FIELDS: Record<
     position: false,
     classYear: false,
     radius: true,
-    verifiedOnly: false,
   },
   athletes: {
     sport: true,
@@ -539,7 +552,6 @@ export const EXPLORE_TAB_FILTER_FIELDS: Record<
     position: true,
     classYear: true,
     radius: true,
-    verifiedOnly: true,
   },
   teams: {
     sport: true,
@@ -548,7 +560,6 @@ export const EXPLORE_TAB_FILTER_FIELDS: Record<
     position: false,
     classYear: false,
     radius: true,
-    verifiedOnly: true,
   },
   videos: {
     sport: true,
@@ -557,7 +568,6 @@ export const EXPLORE_TAB_FILTER_FIELDS: Record<
     position: true,
     classYear: false,
     radius: false,
-    verifiedOnly: true,
   },
   leaderboards: {
     sport: true,
@@ -566,7 +576,6 @@ export const EXPLORE_TAB_FILTER_FIELDS: Record<
     position: true,
     classYear: true,
     radius: false,
-    verifiedOnly: false,
   },
   'scout-reports': {
     sport: true,
@@ -575,7 +584,6 @@ export const EXPLORE_TAB_FILTER_FIELDS: Record<
     position: true,
     classYear: true,
     radius: false,
-    verifiedOnly: true,
   },
   camps: {
     sport: true,
@@ -584,7 +592,6 @@ export const EXPLORE_TAB_FILTER_FIELDS: Record<
     position: false,
     classYear: true,
     radius: true,
-    verifiedOnly: false,
   },
   events: {
     sport: true,
@@ -593,6 +600,5 @@ export const EXPLORE_TAB_FILTER_FIELDS: Record<
     position: false,
     classYear: true,
     radius: true,
-    verifiedOnly: false,
   },
 } as const;

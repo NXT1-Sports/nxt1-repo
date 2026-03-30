@@ -34,12 +34,16 @@ import {
   output,
   computed,
   signal,
+  viewChild,
   OnInit,
+  AfterViewInit,
+  OnDestroy,
+  type TemplateRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonContent } from '@ionic/angular/standalone';
 import { NxtPageHeaderComponent, type PageHeaderAction } from '../components/page-header';
-import { NxtDesktopPageHeaderComponent } from '../components/desktop-page-header';
+import { NxtHeaderPortalService } from '../services/header-portal';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
@@ -57,6 +61,7 @@ import type {
 } from './settings-item.component';
 import { NxtSectionNavWebComponent } from '../components/section-nav-web';
 import type { SectionNavItem, SectionNavChangeEvent } from '../components/section-nav-web';
+import { NxtPlatformService } from '../services/platform';
 import { ConnectedAccountsModalService } from '../components/connected-sources';
 import type { SettingsSectionId, InboxEmailProvider } from '@nxt1/core';
 import { APP_VERSION } from './settings-version.token';
@@ -86,13 +91,19 @@ export interface SettingsUser {
     CommonModule,
     IonContent,
     NxtPageHeaderComponent,
-    NxtDesktopPageHeaderComponent,
     NxtSectionNavWebComponent,
     NxtRefresherComponent,
     SettingsSectionComponent,
     SettingsSkeletonComponent,
   ],
   template: `
+    <!-- Portal: center — "Settings" title in top nav (desktop only) -->
+    <ng-template #centerPortalContent>
+      <div class="header-portal-settings">
+        <span class="header-portal-title">Settings</span>
+      </div>
+    </ng-template>
+
     <!-- Professional Page Header with Back Button (hidden on desktop web) -->
     @if (showPageHeader()) {
       <nxt1-page-header
@@ -142,13 +153,7 @@ export interface SettingsUser {
     @if (!showPageHeader()) {
       <div class="settings-content-wrapper">
         <div class="settings-container">
-          <!-- Desktop Page Header -->
-          <nxt1-desktop-page-header
-            title="Settings"
-            subtitle="Manage your account preferences and configuration."
-          />
-
-          <div class="settings-layout settings-layout--desktop">
+          <div class="settings-layout settings-layout--desktop nxt1-section-layout">
             <nxt1-section-nav-web
               [items]="sectionNavItems()"
               [activeId]="activeSectionId()"
@@ -157,7 +162,7 @@ export interface SettingsUser {
             />
 
             <div
-              class="settings-content-panel"
+              class="settings-content-panel nxt1-section-content"
               [attr.id]="'section-' + activeSectionId()"
               role="tabpanel"
             >
@@ -230,19 +235,34 @@ export interface SettingsUser {
       .settings-container {
         min-height: 100%;
         padding: 0;
-        padding-bottom: calc(160px + env(safe-area-inset-bottom, 0));
-      }
-
-      .settings-layout {
-        display: block;
+        padding-bottom: var(--nxt1-spacing-16);
       }
 
       .settings-layout--desktop {
         display: grid;
-        grid-template-columns: 220px 1fr;
-        gap: var(--nxt1-spacing-8, 32px);
+        grid-template-columns: 180px 1fr;
+        gap: var(--nxt1-spacing-6, 24px);
         align-items: start;
-        padding-top: var(--nxt1-spacing-2, 8px);
+      }
+
+      /* Header portal styles (desktop only) */
+      .header-portal-settings {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        padding: 0 var(--nxt1-spacing-2, 8px);
+        position: relative;
+      }
+
+      .header-portal-title {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+        user-select: none;
+        position: absolute;
+        left: var(--nxt1-spacing-2, 8px);
       }
 
       .settings-content-panel {
@@ -297,20 +317,45 @@ export interface SettingsUser {
 
       @media (max-width: 768px) {
         .settings-layout--desktop {
-          grid-template-columns: 1fr;
-          gap: var(--nxt1-spacing-4, 16px);
+          display: block;
+        }
+
+        nxt1-section-nav-web {
+          display: none;
+        }
+
+        .settings-content-wrapper {
+          padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+        }
+
+        .settings-container {
+          padding: var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-4, 16px)
+            var(--nxt1-spacing-8, 32px);
+        }
+
+        .settings-footer {
+          padding: var(--nxt1-spacing-6, 24px) var(--nxt1-spacing-3, 12px);
+        }
+
+        .header-portal-settings {
+          display: none;
         }
       }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class SettingsShellComponent implements OnInit {
+export class SettingsShellComponent implements OnInit, AfterViewInit, OnDestroy {
   protected readonly settings = inject(SettingsService);
   private readonly toast = inject(NxtToastService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
   private readonly logger = inject(NxtLoggingService).child('SettingsShellComponent');
+  private readonly headerPortal = inject(NxtHeaderPortalService);
+  private readonly platform = inject(NxtPlatformService);
   private readonly _activeSection = signal<SettingsSectionId | null>(null);
+
+  // Template ref for header portal (desktop only)
+  private readonly centerPortalContent = viewChild<TemplateRef<unknown>>('centerPortalContent');
 
   // ============================================
   // INPUTS
@@ -382,6 +427,8 @@ export class SettingsShellComponent implements OnInit {
     return (sections[0]?.id ?? 'account') as SettingsSectionId;
   });
 
+  /** On mobile app (showPageHeader) or mobile web viewport: show ALL sections.
+   *  On desktop web: show only the active section (sidebar nav selects). */
   protected readonly visibleSections = computed(() => {
     const sections = this.settings.sections();
 
@@ -389,6 +436,12 @@ export class SettingsShellComponent implements OnInit {
       return sections;
     }
 
+    // Mobile web viewport — show all sections like the mobile app
+    if (this.platform.isMobile()) {
+      return sections;
+    }
+
+    // Desktop — filter to active section (sidebar nav controls)
     const activeSection = this.activeSectionId();
     return sections.filter((section) => section.id === activeSection);
   });
@@ -404,6 +457,18 @@ export class SettingsShellComponent implements OnInit {
   ngOnInit(): void {
     // Load settings data when component initializes
     this.settings.loadSettings();
+  }
+
+  ngAfterViewInit(): void {
+    // Only register portal content on desktop web (not mobile)
+    if (!this.showPageHeader()) {
+      const centerTpl = this.centerPortalContent();
+      if (centerTpl) this.headerPortal.setCenterContent(centerTpl);
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.headerPortal.clearAll();
   }
 
   // ============================================

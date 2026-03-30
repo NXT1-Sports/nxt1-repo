@@ -66,20 +66,6 @@ export const routes: Routes = [
       import('./features/profile/profile.component').then((m) => m.ProfileComponent),
   },
 
-  // Static Legal Pages (Public - for SEO)
-  {
-    path: 'about',
-    loadChildren: () => import('./features/about/about.routes').then((m) => m.ABOUT_ROUTES),
-  },
-  {
-    path: 'terms',
-    loadChildren: () => import('./features/terms/terms.routes').then((m) => m.TERMS_ROUTES),
-  },
-  {
-    path: 'privacy',
-    loadChildren: () => import('./features/privacy/privacy.routes').then((m) => m.PRIVACY_ROUTES),
-  },
-
   // Team Pages — redirects to shell-wrapped route
   // The actual team route lives inside WebShellComponent children
   // so it gets the sidebar, top nav, and full app shell.
@@ -163,10 +149,16 @@ export const routes: Routes = [
         loadChildren: () => import('./features/activity/activity.routes'),
       },
 
-      // News - Sports Recruiting News Feed
+      // Pulse - Sports Recruiting News Feed
+      {
+        path: 'pulse',
+        loadChildren: () => import('./features/news/news.routes'),
+      },
+
+      // Legacy /news redirect → /pulse
       {
         path: 'news',
-        loadChildren: () => import('./features/news/news.routes'),
+        redirectTo: 'pulse',
       },
 
       // Profile - User's own profile (authenticated view)
@@ -322,6 +314,21 @@ export const routes: Routes = [
         path: 'basketball',
         data: { sport: 'basketball' },
         loadChildren: () => import('./features/sport-landing/sport-landing.routes'),
+      },
+
+      // ---- Legal Pages (inside shell for consistent layout) ----
+      {
+        path: 'about',
+        loadChildren: () => import('./features/about/about.routes').then((m) => m.ABOUT_ROUTES),
+      },
+      {
+        path: 'terms',
+        loadChildren: () => import('./features/terms/terms.routes').then((m) => m.TERMS_ROUTES),
+      },
+      {
+        path: 'privacy',
+        loadChildren: () =>
+          import('./features/privacy/privacy.routes').then((m) => m.PRIVACY_ROUTES),
       },
     ],
   },

@@ -64,6 +64,7 @@
 
 /* Feature-specific styles */
 @import '@nxt1/ui/styles/auth';
+@import '@nxt1/ui/styles/features/section-layout';
 
 /* Navigation components (header, footer, mobile menu) */
 @import '@nxt1/ui/styles/components/navigation';

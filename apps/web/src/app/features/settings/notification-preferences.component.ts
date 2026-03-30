@@ -13,6 +13,7 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
+import { Router } from '@angular/router';
 import type { SettingsSection, SettingsPreferences, SettingsToggleItem } from '@nxt1/core';
 import { SETTINGS_PREFERENCES_ITEMS } from '@nxt1/core';
 import {
@@ -59,12 +60,20 @@ import { SeoService } from '../../core/services';
         padding: var(--nxt1-spacing-6, 24px) var(--nxt1-spacing-4, 16px);
         max-width: 880px;
       }
+
+      @media (max-width: 768px) {
+        .notification-preferences-page__container {
+          padding: var(--nxt1-spacing-4, 16px);
+          padding-bottom: calc(120px + env(safe-area-inset-bottom, 0));
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NotificationPreferencesComponent implements OnInit {
   private readonly settings = inject(SettingsService);
+  private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('NotificationPreferencesComponent');
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly analytics: AnalyticsAdapter | null =
@@ -134,5 +143,9 @@ export class NotificationPreferencesComponent implements OnInit {
       value: event.value,
     });
     this.settings.updatePreference(event.settingKey, event.value);
+  }
+
+  protected onBack(): void {
+    this.router.navigateByUrl('/settings');
   }
 }

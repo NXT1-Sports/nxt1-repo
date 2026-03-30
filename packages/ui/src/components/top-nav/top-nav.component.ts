@@ -68,6 +68,7 @@ import {
   type SearchDropdownResult,
 } from '../search-results-dropdown';
 import { NxtPlatformService } from '../../services/platform';
+import { NxtHeaderPortalService } from '../../services/header-portal';
 import { HapticsService } from '../../services/haptics';
 import type { ExploreItem, SidenavSportProfile } from '@nxt1/core';
 import type { TopNavItem, TopNavUserMenuItem, TopNavUserData, TopNavConfig } from '@nxt1/core';
@@ -180,6 +181,11 @@ import type {
                 (dismissClick)="closeSearchDropdown()"
                 (clearRecentClick)="clearRecentSearchesClick.emit()"
               />
+            </div>
+          } @else if (config().showLogo === false && headerPortal.centerContent()) {
+            <!-- Portal: Contextual page content (tabs, breadcrumbs, page title) -->
+            <div class="nav-center-portal flex w-full min-w-0 items-center justify-center">
+              <ng-container *ngTemplateOutlet="headerPortal.centerContent()!" />
             </div>
           } @else {
             <!-- Standard nav items when not in sidebar mode -->
@@ -339,6 +345,11 @@ import type {
             </div>
           }
 
+          <!-- Portal: Page-injected right-side action buttons (e.g. filter) -->
+          @if (headerPortal.rightContent()) {
+            <ng-container *ngTemplateOutlet="headerPortal.rightContent()!" />
+          }
+
           <!-- Notifications -->
           @if (showNotifications()) {
             <button
@@ -486,8 +497,12 @@ import type {
                         }
                       </button>
                     }
+                  </div>
+                }
 
-                    <!-- Add Sport / Add Team Button -->
+                <!-- Add Sport / Add Team — always visible when authenticated -->
+                @if (user()) {
+                  <div class="user-sport-list user-sport-list--add">
                     <button
                       type="button"
                       class="user-sport-item user-sport-item--add"
@@ -496,11 +511,11 @@ import type {
                       <div class="user-sport-add-icon">
                         <svg
                           viewBox="0 0 24 24"
-                          width="14"
-                          height="14"
+                          width="18"
+                          height="18"
                           fill="none"
                           stroke="currentColor"
-                          stroke-width="2.2"
+                          stroke-width="2"
                           stroke-linecap="round"
                           aria-hidden="true"
                         >
@@ -515,7 +530,9 @@ import type {
                   </div>
                 }
 
-                <div class="user-menu-divider"></div>
+                @if (userMenuItems().length > 0) {
+                  <div class="user-menu-divider"></div>
+                }
 
                 <!-- Menu Items -->
                 <ul class="user-menu-list m-0 list-none p-1">
@@ -805,6 +822,9 @@ export class NxtHeaderComponent implements OnDestroy {
   private readonly haptics = inject(HapticsService);
   private readonly elementRef = inject(ElementRef);
   private readonly destroy$ = new Subject<void>();
+
+  /** Portal service for contextual center content (injected by child pages) */
+  readonly headerPortal = inject(NxtHeaderPortalService);
 
   // ============================================
   // INPUTS

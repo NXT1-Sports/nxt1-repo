@@ -33,6 +33,7 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import {
   type FeedPost,
+  type FeedItem,
   type FeedAuthor,
   type FeedFilterType,
   type FeedFilter,
@@ -47,6 +48,7 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 // ⚠️ TEMPORARY: Mock data for development (remove when backend is ready)
 import { getMockFeedPosts, mockToggleLike, mockToggleBookmark } from './feed.mock-data';
+import { MOCK_POLYMORPHIC_FEED } from './feed.mock-polymorphic';
 
 /**
  * Feed state management service.
@@ -66,6 +68,7 @@ export class FeedService {
   // ============================================
 
   private readonly _posts = signal<FeedPost[]>([]);
+  private readonly _polymorphicFeed = signal<readonly FeedItem[]>([]);
   private readonly _activeFilter = signal<FeedFilterType>(FEED_DEFAULT_FILTER);
   private readonly _filters = signal<FeedFilter>({});
   private readonly _isLoading = signal(false);
@@ -83,6 +86,9 @@ export class FeedService {
 
   /** Current posts in feed */
   readonly posts = computed(() => this._posts());
+
+  /** Polymorphic feed demonstration */
+  readonly polymorphicFeed = computed(() => this._polymorphicFeed());
 
   /** Currently active filter type */
   readonly activeFilter = computed(() => this._activeFilter());
@@ -146,6 +152,12 @@ export class FeedService {
       // ⚠️ TEMPORARY: Using mock data
       // const response = await this.api.getFeed({ type: filter });
       const { posts, pagination } = getMockFeedPosts(1, FEED_PAGINATION_DEFAULTS.LIMIT, filter);
+
+      if (filter === 'for-you') {
+        this._polymorphicFeed.set(MOCK_POLYMORPHIC_FEED);
+      } else {
+        this._polymorphicFeed.set([]);
+      }
 
       // Simulate network delay for realistic UX
       await this.delay(800);
@@ -221,6 +233,12 @@ export class FeedService {
         FEED_PAGINATION_DEFAULTS.LIMIT,
         this._activeFilter()
       );
+
+      if (this._activeFilter() === 'for-you') {
+        this._polymorphicFeed.set(MOCK_POLYMORPHIC_FEED);
+      } else {
+        this._polymorphicFeed.set([]);
+      }
 
       // Simulate network delay
       await this.delay(600);

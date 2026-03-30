@@ -35,6 +35,8 @@ import {
   type SettingsPreferences,
   type SettingsConnectedProvider,
   type SettingsSection,
+  type SettingsItem,
+  type SettingsSectionId,
   type SettingsToggleItem,
   DEFAULT_SETTINGS_SECTIONS,
   DEFAULT_SETTINGS_PREFERENCES,
@@ -169,6 +171,16 @@ export class SettingsService {
   // ============================================
   // PUBLIC METHODS
   // ============================================
+
+  /**
+   * Override items for a specific section.
+   * Used by web wrapper to inline account items on desktop instead of navigating to child routes.
+   */
+  overrideSectionItems(sectionId: SettingsSectionId, items: readonly SettingsItem[]): void {
+    this._sections.update((sections) =>
+      sections.map((section) => (section.id === sectionId ? { ...section, items } : section))
+    );
+  }
 
   /**
    * Set user info from platform-specific auth service.
@@ -489,7 +501,7 @@ export class SettingsService {
     this.logger.debug('Report bug requested');
     this.breadcrumb.trackUserAction('report-bug');
     this.analytics?.trackEvent(APP_EVENTS.SETTINGS_REPORT_BUG);
-    await this.haptics.impact('light');
+    void this.haptics.impact('light');
 
     const result = await this.browser.openMailto({
       to: 'support@nxt1sports.com',
@@ -523,7 +535,7 @@ export class SettingsService {
     this.logger.debug('Contact support requested');
     this.breadcrumb.trackUserAction('contact-support');
     this.analytics?.trackEvent(APP_EVENTS.SETTINGS_CONTACT_SUPPORT);
-    await this.haptics.impact('light');
+    void this.haptics.impact('light');
 
     const result = await this.browser.openMailto({
       to: 'support@nxt1sports.com',

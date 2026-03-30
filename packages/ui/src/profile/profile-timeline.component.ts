@@ -51,6 +51,7 @@ import type { ContentCardItem } from '@nxt1/core';
 import { FEED_CARD_TEST_IDS, PROFILE_TIMELINE_TEST_IDS } from '@nxt1/core/testing';
 import { ProfileSkeletonComponent } from './profile-skeleton.component';
 import { NxtIconComponent } from '../components/icon';
+import { NxtStateViewComponent } from '../components/state-view';
 import { NxtActivityCardComponent } from '../components/activity-card';
 import { FeedCardShellComponent } from '../feed/feed-card-shell.component';
 import { FeedPostContentComponent } from '../feed/feed-post-content.component';
@@ -65,6 +66,7 @@ import { FeedNewsCardComponent } from '../feed/feed-news-card.component';
   standalone: true,
   imports: [
     NxtIconComponent,
+    NxtStateViewComponent,
     NxtActivityCardComponent,
     ProfileSkeletonComponent,
     FeedCardShellComponent,
@@ -137,38 +139,31 @@ import { FeedNewsCardComponent } from '../feed/feed-news-card.component';
 
       <!-- Error State -->
       @else if (error()) {
-        <div class="timeline-error" [attr.data-testid]="timelineTestIds.ERROR">
-          <nxt1-icon name="alertCircle" [size]="48" />
-          <h3>Something went wrong</h3>
-          <p>{{ error() }}</p>
-          <button
-            class="retry-btn"
-            [attr.data-testid]="timelineTestIds.RETRY_BTN"
-            (click)="retry.emit()"
-          >
-            Try Again
-          </button>
-        </div>
+        <nxt1-state-view
+          variant="error"
+          title="Something went wrong"
+          [message]="error()"
+          actionLabel="Try Again"
+          (action)="retry.emit()"
+          [attr.data-testid]="timelineTestIds.ERROR"
+        />
       }
 
       <!-- Filtered Empty State -->
       @else if (isFilteredEmpty()) {
-        <div class="timeline-empty" [attr.data-testid]="timelineTestIds.EMPTY">
-          <div class="empty-icon">
-            <nxt1-icon [name]="resolvedEmptyIcon()" [size]="36" />
-          </div>
-          <h3 class="empty-title">{{ resolvedEmptyTitle() }}</h3>
-          <p class="empty-message">{{ resolvedEmptyMessage() }}</p>
-          @if (isOwnProfile() && (!showFilters() || activeFilter() === 'all') && emptyCta()) {
-            <button
-              class="empty-cta"
-              [attr.data-testid]="timelineTestIds.EMPTY_CTA"
-              (click)="emptyCtaClick.emit()"
-            >
-              {{ emptyCta() }}
-            </button>
-          }
-        </div>
+        <nxt1-state-view
+          variant="empty"
+          [icon]="resolvedEmptyIcon()"
+          [title]="resolvedEmptyTitle()"
+          [message]="resolvedEmptyMessage()"
+          [actionLabel]="
+            isOwnProfile() && (!showFilters() || activeFilter() === 'all') && emptyCta()
+              ? emptyCta()!
+              : ''
+          "
+          (action)="emptyCtaClick.emit()"
+          [attr.data-testid]="timelineTestIds.EMPTY"
+        />
       }
 
       <!-- Posts List — Polymorphic Smart Shell + Atomic Cards -->
@@ -337,119 +332,6 @@ import { FeedNewsCardComponent } from '../feed/feed-news-card.component';
         font-size: 10px;
         font-weight: 700;
         font-variant-numeric: tabular-nums;
-      }
-
-      /* ============================================
-         ERROR STATE
-         ============================================ */
-
-      .timeline-error {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 48px 24px;
-        text-align: center;
-
-        nxt1-icon {
-          font-size: 48px;
-          color: var(--timeline-error);
-          margin-bottom: 16px;
-        }
-
-        h3 {
-          font-size: 18px;
-          font-weight: 600;
-          color: var(--timeline-text-primary);
-          margin: 0 0 8px;
-        }
-
-        p {
-          font-size: 14px;
-          color: var(--timeline-text-secondary);
-          margin: 0 0 20px;
-        }
-      }
-
-      .retry-btn {
-        padding: 10px 24px;
-        background: var(--timeline-surface);
-        border: 1px solid var(--timeline-border);
-        border-radius: var(--nxt1-radius-full, 9999px);
-        color: var(--timeline-text-primary);
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.2s ease;
-
-        &:hover {
-          background: var(--nxt1-color-surface-200);
-        }
-      }
-
-      /* ============================================
-         EMPTY STATE
-         ============================================ */
-
-      .timeline-empty {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 48px 24px;
-        text-align: center;
-      }
-
-      .empty-icon {
-        width: 80px;
-        height: 80px;
-        border-radius: 50%;
-        background: var(--timeline-surface);
-        border: 1px solid var(--timeline-border);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 4px;
-
-        nxt1-icon {
-          font-size: 40px;
-          color: var(--timeline-text-tertiary);
-        }
-      }
-
-      .empty-title {
-        font-size: 16px;
-        font-weight: 700;
-        color: var(--timeline-text-primary);
-        margin: 16px 0 8px;
-      }
-
-      .empty-message {
-        font-size: 14px;
-        line-height: 1.5;
-        color: var(--timeline-text-secondary);
-        margin: 0 0 24px;
-        max-width: 280px;
-      }
-
-      .empty-cta {
-        padding: 10px 24px;
-        background: var(--timeline-primary);
-        border: none;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        color: #000;
-        font-size: 14px;
-        font-weight: 700;
-        cursor: pointer;
-        transition: all 0.2s ease;
-
-        &:hover {
-          filter: brightness(1.1);
-        }
-
-        &:active {
-          transform: scale(0.97);
-        }
       }
 
       /* ============================================

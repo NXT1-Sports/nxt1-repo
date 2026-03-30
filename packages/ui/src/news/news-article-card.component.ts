@@ -27,7 +27,7 @@
  */
 
 import { Component, ChangeDetectionStrategy, input, output, computed, inject } from '@angular/core';
-import { type NewsArticle } from '@nxt1/core';
+import { resolveNewsFaviconUrl, type NewsArticle } from '@nxt1/core';
 import { NxtImageComponent } from '../components/image';
 import { HapticsService } from '../services/haptics/haptics.service';
 
@@ -45,12 +45,18 @@ import { HapticsService } from '../services/haptics/haptics.service';
     >
       <!-- Hero Image Section -->
       <div class="news-card__image-wrapper">
-        <nxt1-image
-          [src]="article().imageUrl || ''"
-          [alt]="article().title"
-          class="news-card__image"
-          fit="cover"
-        />
+        @if (article().imageUrl) {
+          <nxt1-image
+            [src]="article().imageUrl"
+            [alt]="article().title"
+            class="news-card__image"
+            fit="cover"
+          />
+        } @else {
+          <div class="news-card__image-placeholder" aria-hidden="true">
+            <span class="news-card__placeholder-wordmark">NXT1</span>
+          </div>
+        }
       </div>
 
       <!-- Content Section -->
@@ -65,9 +71,9 @@ import { HapticsService } from '../services/haptics/haptics.service';
         <div class="news-card__meta">
           <!-- Source Pill -->
           <div class="news-card__source-pill">
-            @if (article().faviconUrl) {
+            @if (faviconUrl()) {
               <img
-                [src]="article().faviconUrl"
+                [src]="faviconUrl()"
                 [alt]="article().source"
                 class="news-card__favicon"
                 width="16"
@@ -139,6 +145,30 @@ import { HapticsService } from '../services/haptics/haptics.service';
         width: 100%;
         height: 100%;
         object-fit: cover;
+      }
+
+      .news-card__image-placeholder {
+        width: 100%;
+        height: 100%;
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.05));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .news-card__placeholder-wordmark {
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        font-size: 22px;
+        font-weight: 800;
+        letter-spacing: 4px;
+        color: var(
+          --nxt1-color-text-disabled,
+          var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.15))
+        );
+        user-select: none;
       }
 
       /* ============================================
@@ -262,6 +292,8 @@ export class NewsArticleCardComponent {
   // ============================================
   // COMPUTED PROPERTIES
   // ============================================
+
+  protected readonly faviconUrl = computed(() => resolveNewsFaviconUrl(this.article()));
 
   protected readonly timeAgo = computed(() => {
     const date = new Date(this.article().publishedAt);

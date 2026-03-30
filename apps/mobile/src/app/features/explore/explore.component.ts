@@ -15,17 +15,28 @@
  * - User context from AuthFlowService
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, computed, viewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import {
   ExploreShellComponent,
   NxtSidenavService,
   NxtLoggingService,
+  NxtToastService,
   type ExploreUser,
+  ExploreService,
 } from '@nxt1/ui';
 import type { ExploreTabId, ExploreItem, ScoutReport, FeedPost, FeedAuthor } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
+import { ProfileService } from '../../core/services/profile.service';
+import {
+  createGeolocationService,
+  createCapacitorGeolocationAdapter,
+  CachedGeocodingAdapter,
+  NominatimGeocodingAdapter,
+  GEOLOCATION_DEFAULTS,
+} from '@nxt1/core';
+import { Geolocation } from '@capacitor/geolocation';
 
 @Component({
   selector: 'app-explore',
@@ -37,6 +48,7 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
     </ion-header>
     <ion-content [fullscreen]="true">
       <nxt1-explore-shell
+        #shellRef
         [user]="userInfo()"
         (avatarClick)="onAvatarClick()"
         (tabChange)="onTabChange($event)"
@@ -46,6 +58,7 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
         (postSelect)="onPostSelect($event)"
         (authorSelect)="onAuthorSelect($event)"
         (newsArticleSelect)="onNewsArticleSelect($event)"
+        (detectLocation)="onDetectLocation()"
       />
     </ion-content>
   `,
@@ -85,6 +98,11 @@ export class ExploreComponent {
   private readonly navController = inject(NavController);
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('ExploreComponent');
+  private readonly toast = inject(NxtToastService);
+  private readonly exploreService = inject(ExploreService);
+  private readonly profileService = inject(ProfileService);
+
+  private readonly shellRef = viewChild<ExploreShellComponent>('shellRef');
 
   /**
    * Transform auth user to ExploreUser interface.
@@ -96,6 +114,8 @@ export class ExploreComponent {
     return {
       profileImg: user.profileImg ?? null,
       displayName: user.displayName,
+      sport: this.profileService.primarySport()?.sport ?? null,
+      state: this.profileService.user()?.location?.state ?? null,
     };
   });
 
@@ -168,5 +188,38 @@ export class ExploreComponent {
   protected onNewsArticleSelect(article: { id: string; title: string }): void {
     this.logger.debug('News article selected', { id: article.id });
     this.navController.navigateForward(['/news', article.id]);
+  }
+
+  /**
+   * Handle detect-location event.
+   * Uses Capacitor geolocation + reverse geocoding to get the user's state.
+   */
+  protected async onDetectLocation(): Promise<void> {
+    this.logger.info('Detecting user location');
+
+    try {
+      const geoService = createGeolocationService(
+        createCapacitorGeolocationAdapter(Geolocation),
+        new CachedGeocodingAdapter(new NominatimGeocodingAdapter())
+      );
+      const result = await geoService.getCurrentLocation(GEOLOCATION_DEFAULTS.QUICK);
+
+      if (result.success && result.data?.address?.state) {
+        const state = result.data.address.state;
+        this.logger.info('Location detected', { state });
+
+        this.exploreService.applyDetectedState(state);
+        this.shellRef()?.completeDetectLocation(state);
+        this.toast.success(`Location set to ${state}`);
+      } else {
+        this.logger.warn('Location detected but no state found');
+        this.shellRef()?.completeDetectLocation(null);
+        this.toast.error('Could not determine your state. Please set it manually.');
+      }
+    } catch (err) {
+      this.logger.error('Failed to detect location', err);
+      this.shellRef()?.completeDetectLocation(null);
+      this.toast.error('Location detection failed. Please check permissions.');
+    }
   }
 }
