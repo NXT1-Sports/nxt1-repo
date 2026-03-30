@@ -208,6 +208,16 @@ export const routes: Routes = [
       import('./features/dev-settings/dev-settings.component').then((m) => m.DevSettingsComponent),
   },
 
+  // ============================================
+  // ADD SPORT WIZARD (standalone — has its own IonRouterOutlet for step transitions)
+  // ============================================
+  {
+    path: 'add-sport',
+    canActivate: [authGuard],
+    loadChildren: () =>
+      import('./features/add-sport/add-sport.routes').then((m) => m.ADD_SPORT_ROUTES),
+  },
+
   // 404 Not Found Page (catch-all route)
   {
     path: '**',

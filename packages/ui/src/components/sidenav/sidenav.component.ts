@@ -1441,6 +1441,9 @@ export class NxtSidenavComponent {
     event: Event;
   }>();
 
+  /** Emits when the "Add Sport" button is tapped */
+  readonly addSportClick = output<void>();
+
   // ============================================
   // INTERNAL STATE
   // ============================================
@@ -1853,12 +1856,12 @@ export class NxtSidenavComponent {
 
   /**
    * Handle add-sport quick action from the Sports panel.
-   * Routes to profile where sport management lives in the current mobile app flow.
+   * Emits `addSportClick` so the host app can navigate to the add-sport flow.
    */
   async onAddSportClick(event: Event): Promise<void> {
     event.stopPropagation();
     await this.triggerHaptic('light');
-    await this.router.navigate(['/profile']);
+    this.addSportClick.emit();
     await this.close();
   }
 
