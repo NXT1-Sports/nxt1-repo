@@ -37,7 +37,7 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
               @if (!hideBuyCredits()) {
                 <button
                   type="button"
-                  class="card-link card-link--cta"
+                  class="card-link card-link--cta buy-credits-btn"
                   [attr.data-testid]="testIds.OVERVIEW_BUY_CREDITS"
                   (click)="buyCredit.emit()"
                 >

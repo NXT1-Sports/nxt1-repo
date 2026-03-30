@@ -138,6 +138,7 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
               <nxt1-feed-card-shell
                 [item]="item"
                 [hideAuthor]="false"
+                [hideHeader]="item.feedType === 'POST'"
                 [showMenu]="showMenu()"
                 [compact]="compactCards()"
                 (authorClick)="handlePolyAuthorClick($event)"
@@ -146,10 +147,15 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
               >
                 @switch (item.feedType) {
                   @case ('POST') {
-                    <ng-container>
-                      <nxt1-feed-post-content feedShellLead [data]="asPost(item)" mode="media" />
-                      <nxt1-feed-post-content [data]="asPost(item)" mode="body" />
-                    </ng-container>
+                    <nxt1-feed-post-content
+                      [data]="asPost(item)"
+                      [author]="item.author"
+                      [createdAt]="item.createdAt"
+                      [showMenu]="showMenu()"
+                      (authorClick)="handlePolyAuthorClick($event)"
+                      (menuClick)="handlePolyMenuClick(i)"
+                      mode="full"
+                    />
                   }
                   @case ('EVENT') {
                     <nxt1-feed-event-card [data]="asEvent(item).eventData" />

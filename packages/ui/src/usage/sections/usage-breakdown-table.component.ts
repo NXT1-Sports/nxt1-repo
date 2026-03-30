@@ -23,10 +23,7 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
   template: `
     <section class="usage-breakdown" [attr.data-testid]="testIds.BREAKDOWN_SECTION">
       <div class="section-header">
-        <p class="section-subtitle">
-          Usage for {{ periodLabel() }}. For license-based products, the price/unit is a prorated
-          portion of the monthly price.
-        </p>
+        <p class="section-subtitle">Usage for {{ periodLabel() }}.</p>
         <div class="timeframe-select">
           <select
             [value]="timeframe()"

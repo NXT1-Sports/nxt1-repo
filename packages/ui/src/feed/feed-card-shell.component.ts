@@ -65,12 +65,13 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
     >
       <ion-ripple-effect></ion-ripple-effect>
 
+      <!-- Lead Media (full-bleed, sits above author) -->
       <div class="feed-shell__lead" (click)="handleContentClick($event)">
         <ng-content select="[feedShellLead]" />
       </div>
 
       <!-- Compact Meta Bar (when hideAuthor=true, e.g. on profile pages) -->
-      @if (hideAuthor()) {
+      @if (!hideHeader() && hideAuthor()) {
         <div class="feed-shell__meta-bar">
           <div class="feed-shell__meta-bar-left">
             @if (showTypeBadge()) {
@@ -94,8 +95,8 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
         </div>
       }
 
-      <!-- Full Header (Author Info + Type Badge) -->
-      @if (!hideAuthor()) {
+      <!-- Author Header (below media, above body content) -->
+      @if (!hideHeader() && !hideAuthor()) {
         <header class="feed-shell__header">
           <button
             type="button"
@@ -149,7 +150,7 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
         </div>
       }
 
-      <!-- Projected Payload Content -->
+      <!-- Projected Payload Content (title, body, tags, etc.) -->
       <div
         class="feed-shell__content"
         [attr.data-testid]="testIds.SHELL_CONTENT"
@@ -421,7 +422,8 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
       }
 
       .feed-shell__lead {
-        display: contents;
+        overflow: hidden;
+        padding: 0 16px;
       }
 
       .feed-shell__view-profile:hover {
@@ -442,6 +444,7 @@ export class FeedCardShellComponent {
   readonly item = input.required<FeedItem>();
   readonly showMenu = input(true);
   readonly hideAuthor = input(false);
+  readonly hideHeader = input(false);
   readonly compact = input(false);
 
   // ============================================

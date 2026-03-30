@@ -11,16 +11,18 @@ import {
   Component,
   ChangeDetectionStrategy,
   input,
+  output,
   computed,
   signal,
   inject,
   SecurityContext,
 } from '@angular/core';
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
-import type { FeedItemPost } from '@nxt1/core';
+import type { FeedItemPost, FeedAuthor } from '@nxt1/core';
 import { FEED_CARD_TEST_IDS } from '@nxt1/core/testing';
 import { NxtImageComponent } from '../components/image';
 import { NxtIconComponent } from '../components/icon';
+import { NxtAvatarComponent } from '../components/avatar';
 
 const MAX_VISIBLE_TAGS = 5;
 type FeedPostContentMode = 'full' | 'media' | 'body';
@@ -28,7 +30,7 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
 @Component({
   selector: 'nxt1-feed-post-content',
   standalone: true,
-  imports: [NxtImageComponent, NxtIconComponent],
+  imports: [NxtImageComponent, NxtIconComponent, NxtAvatarComponent],
   template: `
     <!-- Media Carousel -->
     @if (showMedia()) {
@@ -84,6 +86,36 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
               ></button>
             }
           </div>
+        }
+      </div>
+    }
+
+    <!-- Author Row (rendered between media and body when author is provided) -->
+    @if (author() && showBody()) {
+      <div class="post-content__author-row">
+        <button
+          type="button"
+          class="post-content__author-avatar-btn"
+          (click)="handleAuthorClick($event)"
+          [attr.aria-label]="'View ' + author()!.displayName + ' profile'"
+        >
+          <nxt1-avatar [src]="author()!.avatarUrl" [name]="author()!.displayName" size="md" />
+        </button>
+        <div class="post-content__author-info" (click)="handleAuthorClick($event)">
+          <span class="post-content__author-name">{{ author()!.displayName }}</span>
+          @if (createdAt()) {
+            <span class="post-content__author-time">{{ formatRelativeTime(createdAt()!) }}</span>
+          }
+        </div>
+        @if (showMenu()) {
+          <button
+            type="button"
+            class="post-content__menu-btn"
+            (click)="handleMenuClick($event)"
+            aria-label="Post options"
+          >
+            <nxt1-icon name="moreHorizontal" [size]="20" />
+          </button>
         }
       </div>
     }
@@ -224,6 +256,64 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
         transform: scale(1.3);
       }
 
+      /* Author Row */
+      .post-content__author-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 0 4px;
+      }
+
+      .post-content__author-avatar-btn {
+        background: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+
+      .post-content__author-info {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        cursor: pointer;
+      }
+
+      .post-content__author-name {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .post-content__author-time {
+        font-size: 12px;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+      }
+
+      .post-content__menu-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        background: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        border-radius: 50%;
+        transition: background 0.15s ease;
+        flex-shrink: 0;
+        &:hover {
+          background: rgba(255, 255, 255, 0.08);
+        }
+      }
+
       /* Title */
       .post-content__title {
         font-size: 16px;
@@ -308,6 +398,12 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
 export class FeedPostContentComponent {
   readonly data = input.required<FeedItemPost>();
   readonly mode = input<FeedPostContentMode>('full');
+  readonly author = input<FeedAuthor>();
+  readonly createdAt = input<string>();
+  readonly showMenu = input(false);
+
+  readonly authorClick = output<FeedAuthor>();
+  readonly menuClick = output<void>();
 
   private readonly sanitizer = inject(DomSanitizer);
   protected readonly testIds = FEED_CARD_TEST_IDS;
@@ -366,5 +462,32 @@ export class FeedPostContentComponent {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+  }
+
+  protected handleAuthorClick(event: Event): void {
+    event.stopPropagation();
+    const a = this.author();
+    if (a) this.authorClick.emit(a);
+  }
+
+  protected handleMenuClick(event: Event): void {
+    event.stopPropagation();
+    this.menuClick.emit();
+  }
+
+  protected formatRelativeTime(dateString: string): string {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m`;
+    if (diffHours < 24) return `${diffHours}h`;
+    if (diffDays < 7) return `${diffDays}d`;
+
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
 }

@@ -172,7 +172,6 @@ export type { UsageUser };
                   <nxt1-usage-overview
                     [data]="svc.overview()"
                     [isPersonal]="svc.isPersonal()"
-                    [hideBuyCredits]="true"
                     (viewPaymentHistory)="svc.setActiveSection('payment-history')"
                     (buyCredit)="onBuyCredits()"
                   />
@@ -341,6 +340,13 @@ export type { UsageUser };
       /* Mobile option scroller — hidden on desktop */
       .usage-mobile-scroller {
         display: none;
+      }
+
+      /* Hide "Buy Credits" button in overview on desktop as it's in the top nav */
+      @media (min-width: 769px) {
+        ::ng-deep .buy-credits-btn {
+          display: none !important;
+        }
       }
 
       @media (max-width: 768px) {
