@@ -10,7 +10,7 @@
  * Express request context.
  */
 
-import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import type { AgentDashboardGoal, ShellWeeklyPlaybookItem, ShellBriefingInsight } from '@nxt1/core';
 import { getShellContentForRole } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
@@ -204,7 +204,7 @@ export class AgentGenerationService {
           { role: 'user', content: prompt },
         ],
         {
-          tier: 'balanced',
+          tier: 'fast',
           maxTokens: 2048,
           temperature: 0.7,
           jsonMode: true,
@@ -440,7 +440,7 @@ export class AgentGenerationService {
           { role: 'user', content: promptLines },
         ],
         {
-          tier: 'balanced',
+          tier: 'fast',
           maxTokens: 1024,
           temperature: 0.7,
           jsonMode: true,
@@ -533,12 +533,36 @@ export class AgentGenerationService {
   async generateDailyContent(uid: string): Promise<void> {
     // Check if user has goals before generating
     const userDoc = await this.db.collection('Users').doc(uid).get();
-    const agentGoals = (userDoc.data()?.['agentGoals'] ?? []) as AgentDashboardGoal[];
+    const userData = userDoc.data() ?? {};
+    const agentGoals = (userData['agentGoals'] ?? []) as AgentDashboardGoal[];
 
     if (agentGoals.length === 0) {
       logger.info('Skipping daily content generation — no goals set', { userId: uid });
       return;
     }
+
+    // Dedup guard: skip if already generated within the last 20 hours
+    // Prevents Cloud Scheduler retries from billing duplicate LLM calls
+    const lastGeneratedAt = userData['agentLastGeneratedAt'] as Timestamp | undefined;
+    if (lastGeneratedAt) {
+      const hoursSinceLast = (Date.now() - lastGeneratedAt.toMillis()) / (1000 * 60 * 60);
+      if (hoursSinceLast < 20) {
+        logger.info('Skipping daily content generation — already generated recently', {
+          userId: uid,
+          hoursSinceLast: Math.round(hoursSinceLast),
+        });
+        return;
+      }
+    }
+
+    // Stamp before generating so concurrent retries also bail out
+    await this.db
+      .collection('Users')
+      .doc(uid)
+      .update({ agentLastGeneratedAt: FieldValue.serverTimestamp() })
+      .catch(() => {
+        /* non-critical */
+      });
 
     // Generate both in parallel — briefing and playbook are independent
     const [playbookResult, briefingResult] = await Promise.allSettled([
