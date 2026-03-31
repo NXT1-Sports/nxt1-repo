@@ -16,6 +16,7 @@ import { logger } from '../utils/logger.js';
 import type { UserPreferences, NotificationPreferences } from '@nxt1/core';
 import { auth as prodAuth } from '../utils/firebase.js';
 import { cancelActiveSubscriptionsForUser } from '../modules/billing/index.js';
+import { invalidateProfileCaches } from './profile.routes.js';
 
 const router: ExpressRouter = Router();
 
@@ -399,6 +400,12 @@ router.delete(
     const userRef = db.collection(USERS_COLLECTION).doc(userId);
 
     try {
+      // Fetch user data before deletion so we have identifiers for cache invalidation
+      const userSnap = await userRef.get();
+      const userData = userSnap.exists ? userSnap.data() : undefined;
+      const username = userData?.['username'] as string | undefined;
+      const unicode = userData?.['unicode'] as string | null | undefined;
+
       for (const environment of ['staging', 'production'] as const) {
         try {
           await cancelActiveSubscriptionsForUser(db, userId, environment);
@@ -411,43 +418,94 @@ router.delete(
         }
       }
 
-      await getCacheService().del(buildPrefsCacheKey(userId));
+      // Delete all user files from Firebase Storage (avatars, cover photos, thumbs, etc.)
+      try {
+        const bucket = req.firebase!.storage.bucket();
+        const [files] = await bucket.getFiles({ prefix: `users/${userId}/` });
+        if (files.length > 0) {
+          await Promise.all(files.map((f) => f.delete()));
+          logger.debug('[Settings] User storage files deleted', { userId, count: files.length });
+        }
+      } catch (storageError) {
+        logger.warn('[Settings] Could not delete user storage files', {
+          userId,
+          error: storageError instanceof Error ? storageError.message : String(storageError),
+        });
+      }
+
+      // Invalidate all user-related caches
+      try {
+        const cache = getCacheService();
+        await Promise.all([
+          cache.del(buildPrefsCacheKey(userId)),
+          invalidateProfileCaches(userId, username, unicode),
+          cache.del(`profile:sub:followers:${userId}`),
+          cache.del(`profile:sub:following:${userId}`),
+          cache.delByPrefix(`profile:sub:timeline:v2:${userId}:`),
+          cache.delByPrefix(`profile:sub:stats:${userId}:`),
+          cache.delByPrefix(`profile:sub:gamelogs:${userId}:`),
+          cache.delByPrefix(`profile:sub:metrics:${userId}:`),
+          cache.delByPrefix(`profile:sub:news:${userId}:`),
+          cache.delByPrefix(`profile:sub:rankings:${userId}:`),
+          cache.delByPrefix(`profile:sub:scout-reports:${userId}:`),
+        ]);
+        logger.debug('[Settings] All user caches invalidated', { userId });
+      } catch (cacheError) {
+        logger.warn('[Settings] Could not fully invalidate user caches', {
+          userId,
+          error: cacheError instanceof Error ? cacheError.message : String(cacheError),
+        });
+      }
 
       // Delete all RosterEntry records for this user
-      const rosterEntriesSnap = await db
-        .collection('RosterEntries')
-        .where('userId', '==', userId)
-        .get();
-      if (!rosterEntriesSnap.empty) {
-        const rosterBatch = db.batch();
-        for (const doc of rosterEntriesSnap.docs) {
-          rosterBatch.delete(doc.ref);
+      try {
+        const rosterEntriesSnap = await db
+          .collection('RosterEntries')
+          .where('userId', '==', userId)
+          .get();
+        if (!rosterEntriesSnap.empty) {
+          const rosterBatch = db.batch();
+          for (const doc of rosterEntriesSnap.docs) {
+            rosterBatch.delete(doc.ref);
+          }
+          await rosterBatch.commit();
+          logger.debug('[Settings] Deleted roster entries', {
+            userId,
+            count: rosterEntriesSnap.size,
+          });
         }
-        await rosterBatch.commit();
-        logger.debug('[Settings] Deleted roster entries', {
+      } catch (rosterError) {
+        logger.warn('[Settings] Could not delete roster entries', {
           userId,
-          count: rosterEntriesSnap.size,
+          error: rosterError instanceof Error ? rosterError.message : String(rosterError),
         });
       }
 
       // Remove user from all Teams they are a member of
-      const teamsSnap = await db
-        .collection('Teams')
-        .where('memberIds', 'array-contains', userId)
-        .get();
-      if (!teamsSnap.empty) {
-        for (const teamDoc of teamsSnap.docs) {
-          const teamData = teamDoc.data();
-          const updatedMembers = ((teamData['members'] as Record<string, unknown>[]) ?? []).filter(
-            (m) => m['id'] !== userId
-          );
-          await teamDoc.ref.update({
-            memberIds: FieldValue.arrayRemove(userId),
-            members: updatedMembers,
-            updatedAt: new Date().toISOString(),
-          });
+      try {
+        const teamsSnap = await db
+          .collection('Teams')
+          .where('memberIds', 'array-contains', userId)
+          .get();
+        if (!teamsSnap.empty) {
+          for (const teamDoc of teamsSnap.docs) {
+            const teamData = teamDoc.data();
+            const updatedMembers = (
+              (teamData['members'] as Record<string, unknown>[]) ?? []
+            ).filter((m) => m['id'] !== userId);
+            await teamDoc.ref.update({
+              memberIds: FieldValue.arrayRemove(userId),
+              members: updatedMembers,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+          logger.debug('[Settings] Removed from teams', { userId, count: teamsSnap.size });
         }
-        logger.debug('[Settings] Removed from teams', { userId, count: teamsSnap.size });
+      } catch (teamsError) {
+        logger.warn('[Settings] Could not remove user from teams', {
+          userId,
+          error: teamsError instanceof Error ? teamsError.message : String(teamsError),
+        });
       }
 
       await userRef.delete();

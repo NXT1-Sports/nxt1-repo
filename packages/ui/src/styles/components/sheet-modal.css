@@ -43,6 +43,11 @@
   --max-width: 100%;
 }
 
+.nxt1-sheet-modal .modal-wrapper,
+.nxt1-sheet-modal .ion-overlay-wrapper {
+  bottom: calc(50px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
 .nxt1-sheet-modal::part(content) {
   background: var(--nxt1-color-bg-primary);
 }

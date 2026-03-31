@@ -616,11 +616,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
                     unicode: undefined as string | undefined,
                     teamName,
                     sport: sportsRaw?.find((s) => s.team?.name)?.sport,
-                    logoUrl:
-                      sportTeam?.logoUrl ??
-                      sportTeam?.logo ??
-                      rawTopTeam?.logoUrl ??
-                      null,
+                    logoUrl: sportTeam?.logoUrl ?? sportTeam?.logo ?? rawTopTeam?.logoUrl ?? null,
                   };
                 })(),
             managedTeamCodes: user.coach?.managedTeamCodes ?? null,
@@ -1089,31 +1085,19 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       // Set flag to prevent auth state listener from racing with user setup (via core state manager)
       this.authManager.setSignupInProgress(true);
 
+      let isNewlyCreated = false;
+
       try {
-        // ALWAYS try to sync existing user first (Firebase isNewUser can be unreliable)
-        this.logger.debug('📡 Attempting to sync existing user profile');
-        await this.syncUserProfile(result.user);
-        this.logger.info('✅ User profile sync successful - existing user');
-
-        // Check if user needs onboarding
-        const currentUser = this.user();
-        const needsOnboarding = !currentUser?.hasCompletedOnboarding;
-
-        if (needsOnboarding) {
-          this.logger.info('🚀 Navigating to onboarding (existing user, incomplete)');
-          await this.navigateForward(AUTH_ROUTES.ONBOARDING);
-        } else {
-          this.logger.info('🏠 User already completed onboarding, navigating to /home');
-          await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
-        }
-      } catch (syncError: unknown) {
-        const errorObj = syncError as { message?: string };
-        this.logger.warn('❌ User sync failed, attempting to create new user', {
-          error: errorObj?.message,
-        });
-
         try {
-          // User doesn't exist in backend, create new user
+          this.logger.debug('📡 Attempting to sync existing user profile');
+          await this.syncUserProfile(result.user);
+          this.logger.info('✅ User profile sync successful - existing user');
+        } catch (syncError: unknown) {
+          const errorObj = syncError as { message?: string };
+          this.logger.warn('❌ User sync failed, attempting to create new user', {
+            error: errorObj?.message,
+          });
+
           this.logger.debug('📝 Creating new user via OAuth', {
             uid: result.user.uid,
             email: result.user.email!,
@@ -1128,17 +1112,34 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             referralId: referralId || undefined,
           });
 
-          this.logger.info('✅ New user created successfully (OAuth)', { createResult });
+          if (createResult.success) {
+            this.logger.info('✅ New user created successfully (OAuth)');
+            isNewlyCreated = true;
+          } else {
+            this.logger.warn(
+              '⚠️ createUser returned failure, user already exists — retrying sync',
+              {
+                code: (createResult as { error?: { code?: string } }).error?.code,
+              }
+            );
+          }
 
-          // Sync the newly created user to local state
+          // Sync profile regardless of whether we just created or it already existed
           await this.syncUserProfile(result.user);
+        }
 
-          // Navigate to onboarding for new users
-          this.logger.info('🚀 Navigating to onboarding (new user)');
+        // Step 2: Navigate — outside the sync/create try/catch so nav errors propagate cleanly
+        const currentUser = this.user();
+        const needsOnboarding = isNewlyCreated || !currentUser?.hasCompletedOnboarding;
+
+        if (needsOnboarding) {
+          this.logger.info(
+            `🚀 Navigating to onboarding (${isNewlyCreated ? 'new user' : 'existing user, incomplete'})`
+          );
           await this.navigateForward(AUTH_ROUTES.ONBOARDING);
-        } catch (createError: unknown) {
-          this.logger.error('❌ Failed to create new user', createError);
-          throw createError; // Re-throw to be handled by outer catch
+        } else {
+          this.logger.info('🏠 User already completed onboarding, navigating to /home');
+          await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
         }
       } finally {
         // Always clear flag to prevent state leaks (via core state manager)

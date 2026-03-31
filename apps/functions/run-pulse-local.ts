@@ -17,40 +17,26 @@ import * as cheerio from 'cheerio';
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 
-const OPENROUTER_API_KEY =
-  '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';
+// ─── Credentials from environment (NEVER hardcode secrets) ──────────────────
+// Create a .env.local file or set these in your shell before running:
+//   export OPENROUTER_API_KEY=sk-or-v1-...
+//   export STAGING_FIREBASE_CLIENT_EMAIL=firebase-adminsdk-fbsvc@...
+//   export STAGING_FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n..."
+//   export STAGING_FIREBASE_STORAGE_BUCKET=nxt-1-staging-v2.firebasestorage.app
+const OPENROUTER_API_KEY = process.env['OPENROUTER_API_KEY'] ?? '';
+if (!OPENROUTER_API_KEY) throw new Error('Missing OPENROUTER_API_KEY env var');
 
-const STAGING_PROJECT_ID = 'nxt-1-staging-v2';
-const STAGING_CLIENT_EMAIL = 'firebase-adminsdk-fbsvc@nxt-1-staging-v2.iam.gserviceaccount.com';
-const STAGING_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
-MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDEhB4WPgixmn6L
-EEmgW9QljJunxmRc4Z8oTL8i28UIP88kT4K0mkFFPWyBHiAAFT/HXQwEjylJs3oP
-rS5d6PJtKE8PeakTvi2Gh8pepxWr4FerbmRg7xgSi80S2evfEcJhXxbUpah+0osY
-9hp5k+bEcVSc11C5RHiCiAZGPKA0v2kIOef3lzqRFAAXtlm/U9fdWxXqzcJ+5koJ
-V/eUxIym+jpCVBweOmce9jXYArCpcODAdiY2lu8Ls2Y90QQkxwdqDlB7ySxwDtGM
-B27V2UWoYVimG6t6mUcMs3MItr5wVunYxzh6Mc+sQn2My6FW1x8LYwGqe1qAMxue
-+ReEOYk/AgMBAAECggEABhReR+rgYvo4Gv5EgNkGbaj1cdHR7guu3FTPfvkUleY/
-dsyc6xBwn39AeZggflAp+nV29zcknFqYlp6RdidMRLNACucFI465ItXVnWsG4Rve
-KngOU+9hq8U2cXRbdzm57UA/WRHM7it+USXf+M3qED6/UuDYZvrmzYb+xrJ+dFM/
-uvE6KK7P8NQQqnPUsG+HAyuYbGR8X0MhM/as2Kiy3UdaTTHx3s1kqakCqcLtXKb3
-4ed3LRrIyucaMc6/5sp0FvDVdkm5zo8q4estfrUb9YvQyaShYXd7+jZ9cCHWRf/H
-aFyFsnxTQImrYoTm4BXMiOQLOEgWpzgUe4D5ZgzA4QKBgQDs9eonGs91FRkXIjDk
-uvc/Wtsc6Jz4pPQ6rM1P8AYQ0itjh8Br386i9o4I4tSBvhZhW54VDwCu1zGypQT6
-G4bfixFAchrzQI11soOI8gwwFlMNKjctqM+3umRjSLDVTQkm/IzYCAj+Ru7Dyzm0
-6/MWiUi5C48Cw0mUZdm639ixHwKBgQDUTkrQ+PDazh0w/YocaMb6x/6agGcclgPu
-RMGaiHSNoyiqV01qErNMlEcNvHn9OXgaJXqO97zmiLzoMnea+2FAgX/yijGGnMo4
-a/lFbEd53hhak+SdX4kb9F9kxfxjwsS2qHf8cabMnXYUQ3WXMOnjradenN0zBPq8
-3+wsmH2D4QKBgB/2a8cqjqE0X1YHfqDbt04Ma1HS7pl7ZpYjiO4naioKr1+ViBcE
-8VJ5/16jehamFU68lO4yP91VmZaHO8ygueidUY5n1crKAkrF8YgfXhV+bWVxNFAs
-XRhjQ/dAbtnWsk1X84eQTeY+myY922LUEM4RZoXPUVMGFH633k6esxPxAoGAJiAd
-LWPXFOP4uAh/2dQzD2wE28f9PFPwRsSQI+knTRwkvFpLK6ZKDpF+JQhYu9GrML7U
-QIJaqOebTPNrKSjFcSkQSgTpGexkIDe7nuzv9QGeS/3NCznRzHRZASbQyTV7z/V2
-/p2GP65zOvZWUp1VEy7nJIV076mQQYTQy71ipOECgYBqL33hYsKd6Xsys4q3zC9m
-HjBE15OA/3d7u7tfScppGee0fQgL+UAVh6r36cp9stcdAh1BennHmvd6aruxyoWg
-DagJNDZQYe9sSivE64oebeaN3IC4dE3yodx/m5qtBbJ+EDYwcHlaFOecgTsoeJCt
-gGWk7Etp+QKSbylxlscw4A==
------END PRIVATE KEY-----`;
-const STAGING_STORAGE_BUCKET = 'nxt-1-staging-v2.firebasestorage.app';
+const STAGING_PROJECT_ID = process.env['STAGING_FIREBASE_PROJECT_ID'] ?? 'nxt-1-staging-v2';
+const STAGING_CLIENT_EMAIL = process.env['STAGING_FIREBASE_CLIENT_EMAIL'] ?? '';
+const STAGING_PRIVATE_KEY = (process.env['STAGING_FIREBASE_PRIVATE_KEY'] ?? '').replace(
+  /\\n/g,
+  '\n'
+);
+const STAGING_STORAGE_BUCKET =
+  process.env['STAGING_FIREBASE_STORAGE_BUCKET'] ?? 'nxt-1-staging-v2.firebasestorage.app';
+if (!STAGING_CLIENT_EMAIL || !STAGING_PRIVATE_KEY) {
+  throw new Error('Missing STAGING_FIREBASE_CLIENT_EMAIL or STAGING_FIREBASE_PRIVATE_KEY env vars');
+}
 
 // ─── Demo Parameters ────────────────────────────────────────────────────────
 

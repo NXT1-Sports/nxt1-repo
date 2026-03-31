@@ -19,6 +19,7 @@ import { Injectable, inject, signal, computed } from '@angular/core';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { ProfileService } from '../../profile/services/profile.service';
 import {
   Auth,
   User as FirebaseUser,
@@ -67,6 +68,7 @@ export class BrowserAuthService implements IAuthService {
   private readonly authCookie = inject(AuthCookieService);
   private readonly http = inject(HttpClient);
   private readonly logger: ILogger = inject(NxtLoggingService).child('BrowserAuthService');
+  private readonly profileService = inject(ProfileService);
 
   // ============================================
   // STATE SIGNALS (Private Writable)
@@ -76,6 +78,7 @@ export class BrowserAuthService implements IAuthService {
   private readonly _isLoading = signal(true);
   private readonly _error = signal<string | null>(null);
   private readonly _isInitialized = signal(false);
+  private _isDeletingAccount = false;
 
   // ============================================
   // PUBLIC COMPUTED SIGNALS (Read-only)
@@ -104,6 +107,7 @@ export class BrowserAuthService implements IAuthService {
    */
   private initAuthStateListener(): void {
     onAuthStateChanged(this.firebaseAuth, async (firebaseUser) => {
+      if (this._isDeletingAccount) return;
       this._isLoading.set(true);
 
       try {
@@ -301,34 +305,37 @@ export class BrowserAuthService implements IAuthService {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(this.firebaseAuth, provider);
 
-      // Check if this is a new user
-      // @ts-expect-error additionalUserInfo is on the result
-      const isNewUser = result._tokenResponse?.isNewUser ?? false;
-
-      if (isNewUser) {
-        await this.authApi.createUser({
+      try {
+        const profile = await this.authApi.getUserProfile(result.user.uid);
+        const completed =
+          profile.onboardingCompleted === true ||
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (profile as any).completeSignUp === true;
+        await this.router.navigate([completed ? '/home' : '/auth/onboarding'], {
+          replaceUrl: true,
+        });
+      } catch {
+        const createResult = await this.authApi.createUser({
           uid: result.user.uid,
           email: result.user.email!,
         });
-        await this.router.navigate(['/auth/onboarding']);
-      } else {
-        // Fetch real profile to get onboardingCompleted — do NOT rely on
-        // this.hasCompletedOnboarding() here because syncUserProfile() via
-        // onAuthStateChanged may not have finished yet (race condition).
-        let completed = false;
-        try {
-          const profile = await this.authApi.getUserProfile(result.user.uid);
-          completed =
-            profile.onboardingCompleted === true ||
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (profile as any).completeSignUp === true;
-        } catch {
-          // If backend is unreachable, fall back to local signal (best effort)
-          completed = this.hasCompletedOnboarding();
-        }
 
-        const redirectPath = completed ? '/home' : '/auth/onboarding';
-        await this.router.navigate([redirectPath], { replaceUrl: true });
+        if (!createResult.success) {
+          try {
+            const retryProfile = await this.authApi.getUserProfile(result.user.uid);
+            const completed =
+              retryProfile.onboardingCompleted === true ||
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              (retryProfile as any).completeSignUp === true;
+            await this.router.navigate([completed ? '/home' : '/auth/onboarding'], {
+              replaceUrl: true,
+            });
+          } catch {
+            await this.router.navigate(['/auth/onboarding'], { replaceUrl: true });
+          }
+        } else {
+          await this.router.navigate(['/auth/onboarding'], { replaceUrl: true });
+        }
       }
 
       return true;
@@ -476,17 +483,16 @@ export class BrowserAuthService implements IAuthService {
     }
 
     const userId = firebaseUser.uid;
+    const deletedUser = this._user();
     this.logger.info('Starting account deletion', { userId });
 
+    // ---- Step 1: Backend API ----
+    let backendSuccess = false;
+    let backendError: string | undefined;
     try {
-      // Step 1: Get fresh token
       const token = await firebaseUser.getIdToken();
-      this.logger.debug('Got ID token for deletion');
-
-      // Step 2: Call backend API to delete everything
-      // Use native fetch with ABSOLUTE URL to backend server
       const apiUrl = `${environment.apiURL}/settings/account`;
-      this.logger.debug('Calling DELETE with absolute URL', { apiUrl });
+      this.logger.debug('Calling DELETE', { apiUrl });
 
       const fetchResponse = await fetch(apiUrl, {
         method: 'DELETE',
@@ -500,9 +506,7 @@ export class BrowserAuthService implements IAuthService {
 
       this.logger.info('Fetch response received', {
         status: fetchResponse.status,
-        statusText: fetchResponse.statusText,
         ok: fetchResponse.ok,
-        headers: Object.fromEntries(fetchResponse.headers.entries()),
       });
 
       if (!fetchResponse.ok) {
@@ -515,62 +519,88 @@ export class BrowserAuthService implements IAuthService {
       }
 
       const responseText = await fetchResponse.text();
-      this.logger.info('Response body (text)', { responseText });
+      this.logger.info('Response body', { responseText });
 
       let response: { success: boolean; data: { deleted: boolean } };
       try {
         response = JSON.parse(responseText);
-        this.logger.info('Response parsed', { response });
-      } catch (parseError) {
-        this.logger.error('Failed to parse response JSON', {
-          responseText,
-          parseError,
-        });
+      } catch {
         throw new Error('Invalid response format');
       }
 
-      if (!response.success) {
-        throw new Error('Backend returned success=false');
+      if (!response.success) throw new Error('Backend returned success=false');
+
+      backendSuccess = true;
+      this.logger.info('Backend deletion successful');
+    } catch (err) {
+      backendError = getErrorMessage(err);
+      this.logger.error('Backend deletion failed', {
+        error: err,
+        message: backendError,
+        status: (err as any)?.status,
+      });
+    }
+
+    // ---- Step 2: Clear profile cache (always) ----
+    // Runs even if backend failed — stale data must never be served.
+    try {
+      this.profileService.invalidateCache(
+        userId,
+        deletedUser?.username ?? undefined,
+        deletedUser?.unicode
+      );
+      this.logger.debug('Profile cache invalidated', { userId });
+    } catch (cacheErr) {
+      this.logger.warn('Could not clear profile cache', {
+        error: cacheErr instanceof Error ? cacheErr.message : String(cacheErr),
+      });
+    }
+
+    // Removes all nxt1_* and nxt1:* keys so stale auth/profile/onboarding data
+    try {
+      // Collect keys first — modifying storage while iterating is unsafe.
+      const localKeys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('nxt1_') || k.startsWith('nxt1:'))) localKeys.push(k);
       }
+      localKeys.forEach((k) => localStorage.removeItem(k));
 
-      this.logger.info('Backend deletion successful', { response });
+      const sessionKeys: string[] = [];
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const k = sessionStorage.key(i);
+        if (k && (k.startsWith('nxt1_') || k.startsWith('nxt1:') || k === 'chunk_error_count'))
+          sessionKeys.push(k);
+      }
+      sessionKeys.forEach((k) => sessionStorage.removeItem(k));
 
-      // Step 3: Clear local auth state
-      // Backend has already deleted the Firebase Auth user via Admin SDK
-      // So signOut() may fail - we handle it gracefully
-      this.logger.debug('Clearing local state');
+      this.logger.debug('Storage cleared', {
+        localKeys: localKeys.length,
+        sessionKeys: sessionKeys.length,
+      });
+    } catch (storageErr) {
+      this.logger.warn('Could not clear storage', {
+        error: storageErr instanceof Error ? storageErr.message : String(storageErr),
+      });
+    }
 
+    // ---- Step 3: Clear auth state and navigate away ----
+    this._isDeletingAccount = true;
+    try {
+      this.authCookie.clearAuthCookie();
       this._user.set(null);
       this._firebaseUser.set(null);
-      this.authCookie.clearAuthCookie();
+      await this.router.navigate(['/auth'], { replaceUrl: true });
 
-      // Step 4: Try to sign out from Firebase (may fail if user already deleted)
       try {
-        this.logger.debug('Attempting Firebase signOut');
         await signOut(this.firebaseAuth);
-        this.logger.debug('Firebase signOut completed');
-      } catch (signOutError) {
-        // This is expected - backend deleted the user, so signOut may fail
-        this.logger.info('Firebase signOut skipped (user already deleted by backend)', {
-          error: signOutError instanceof Error ? signOutError.message : String(signOutError),
-        });
+      } catch {
+        // Ignore — state is already cleared above.
       }
-
-      this.logger.info('Account deletion completed successfully');
-      return { success: true };
-    } catch (err) {
-      // This catches ONLY HTTP errors from the delete API call
-      const message = getErrorMessage(err);
-
-      this.logger.error('Account deletion failed at API call', {
-        error: err,
-        message,
-        status: (err as any)?.status,
-        errorName: (err as any)?.name,
-        errorCode: (err as any)?.code,
-      });
-
-      return { success: false, error: message };
+    } finally {
+      this._isDeletingAccount = false;
     }
+
+    return { success: backendSuccess, error: backendError };
   }
 }

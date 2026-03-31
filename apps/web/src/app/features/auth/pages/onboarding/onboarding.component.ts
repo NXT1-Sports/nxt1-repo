@@ -136,8 +136,8 @@ import {
   AuthErrorHandler,
   AuthApiService,
   OnboardingAnalyticsService,
-  BrowserAuthService,
 } from '../../services';
+import { AUTH_SERVICE, type IAuthService } from '../../services/auth.interface';
 import type { OnboardingProfileData } from '@nxt1/core/auth';
 import { SeoService } from '../../../../core/services';
 import { ProfileGenerationStateService } from '@nxt1/ui/profile';
@@ -474,7 +474,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   private readonly profileGenerationState = inject(ProfileGenerationStateService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('Onboarding');
   private readonly http = inject(HttpClient);
-  private readonly browserAuth = inject(BrowserAuthService);
+  private readonly browserAuth = inject(AUTH_SERVICE) as IAuthService;
 
   /** Check if running on mobile (native or mobile web) */
   readonly isMobile = computed(() => this.platform.isMobile());

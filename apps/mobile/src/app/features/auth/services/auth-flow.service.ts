@@ -67,6 +67,7 @@ import type { CrashlyticsAdapter, CrashUser } from '@nxt1/core/crashlytics';
 import { GLOBAL_CRASHLYTICS } from '@nxt1/ui';
 import { CapacitorHttpAdapter } from '../../../core/infrastructure';
 import { ProfileService, FcmRegistrationService } from '../../../core/services';
+import { BiometricService } from './biometric.service';
 import { AuthApiService } from './auth-api.service';
 import { FirebaseAuthService } from './firebase-auth.service';
 import { environment } from '../../../../environments/environment';
@@ -108,6 +109,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   private readonly authApi = inject(AuthApiService);
   private readonly firebaseAuth = inject(FirebaseAuthService);
   private readonly fcmRegistration = inject(FcmRegistrationService);
+  private readonly biometricService = inject(BiometricService);
   private readonly inviteApi = inject(InviteApiService);
 
   /**
@@ -1066,44 +1068,86 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       return { success: false, error: 'Not authenticated' };
     }
 
+    // Step 1 — Backend deletion (determines success/failure return value)
+    let backendError: string | undefined;
     try {
       this.logger.debug('Calling delete account API');
-
-      // Call backend: deletes Firestore data, cache, and Firebase Auth user via Admin SDK
       await this.httpAdapter.delete(`${environment.apiUrl}/settings/account`);
-
-      this.logger.debug('Delete account API success, clearing local state');
-
-      // Backend has already deleted the Firebase Auth user via Admin SDK
-      // Clear local state first, then attempt signOut (may fail if user deleted)
-      await this.profileService.clear();
-      this.analytics.clearUser();
-      await this.crashlytics.clearUser();
-      await this.authManager.reset();
-      this.httpAdapter.setTokenProvider(null);
-
-      // Try to sign out (may fail since user is already deleted on backend)
-      try {
-        await this.firebaseAuth.signOut();
-      } catch (signOutError) {
-        // Ignore signOut errors - user is already deleted on backend
-        this.logger.debug('SignOut error ignored (expected if user already deleted)', {
-          error: signOutError,
-        });
-      }
-
-      this.logger.info('Account deleted successfully');
-      return { success: true };
+      this.logger.debug('Delete account API success');
     } catch (err) {
-      // Use unified error parser from @nxt1/core
       const message = getErrorMessage(err);
-
       this.logger.error('Account deletion failed', {
         error: err,
         message,
         status: (err as any)?.status,
       });
-      return { success: false, error: message };
+      backendError = message;
     }
+
+    // Step 2 — Profile & analytics (always runs)
+    try {
+      await this.profileService.clear();
+      this.analytics.clearUser();
+      await this.crashlytics.clearUser();
+    } catch (profileError) {
+      this.logger.warn('Profile/analytics clear failed during account deletion', {
+        error: profileError,
+      });
+    }
+
+    // Step 3 — Auth state & token provider (always runs)
+    try {
+      await this.authManager.reset();
+      this.httpAdapter.setTokenProvider(null);
+    } catch (authError) {
+      this.logger.warn('Auth state reset failed during account deletion', { error: authError });
+    }
+
+    // Step 4 — Biometric enrollment (always runs — prevents stale Face ID on next user)
+    try {
+      await this.biometricService.clearEnrollment();
+    } catch (bioError) {
+      this.logger.warn('Biometric clear failed during account deletion', { error: bioError });
+    }
+
+    // Step 5 — FCM token unregister (always runs — stops push to deleted account)
+    try {
+      await this.fcmRegistration.unregisterToken();
+    } catch (fcmError) {
+      this.logger.warn('FCM unregister failed during account deletion', { error: fcmError });
+    }
+
+    // Step 6 — Preferences cleanup: onboarding, referral, invite keys (always runs)
+    try {
+      const { Preferences } = await import('@capacitor/preferences');
+      const keysToRemove = [
+        'nxt1_onboarding_session',
+        'nxt1_onboarding_step',
+        'nxt1_onboarding_form_data',
+        'nxt1_onboarding_selected_role',
+        'nxt1_onboarding_completed',
+        PENDING_REFERRAL_KEY,
+        'nxt1:invite_team_joined',
+      ];
+      await Promise.all(keysToRemove.map((key) => Preferences.remove({ key })));
+    } catch (prefsError) {
+      this.logger.warn('Preferences cleanup failed during account deletion', { error: prefsError });
+    }
+
+    // Step 7 — Firebase sign out (always runs — purges local IndexedDB/SQLite session)
+    try {
+      await this.firebaseAuth.signOut();
+    } catch (signOutError) {
+      this.logger.debug('SignOut error ignored (expected if user already deleted on backend)', {
+        error: signOutError,
+      });
+    }
+
+    if (backendError) {
+      return { success: false, error: backendError };
+    }
+
+    this.logger.info('Account deleted successfully');
+    return { success: true };
   }
 }
