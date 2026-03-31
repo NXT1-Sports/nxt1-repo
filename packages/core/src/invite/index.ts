@@ -13,6 +13,7 @@ export type {
   InviteRecipient,
   InviteItem,
   InviteXpTier,
+  InviteRewardTier,
   InviteStats,
   InviteAchievement,
   InviteTeam,

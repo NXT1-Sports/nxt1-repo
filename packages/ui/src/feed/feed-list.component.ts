@@ -30,8 +30,19 @@
  * ```
  */
 
-import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  input,
+  output,
+  computed,
+  inject,
+  NgZone,
+  PLATFORM_ID,
+} from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { IonSpinner, IonInfiniteScroll, IonInfiniteScrollContent } from '@ionic/angular/standalone';
+import { ScrollingModule } from '@angular/cdk/scrolling';
 import { NxtIconComponent } from '../components/icon';
 import { NxtActivityCardComponent } from '../components/activity-card';
 import {
@@ -51,6 +62,7 @@ import {
   type FeedItemNews,
   type ContentCardItem,
   FEED_UI_CONFIG,
+  FEED_PAGINATION_DEFAULTS,
   feedOfferToContentCard,
   feedCommitmentToContentCard,
   feedVisitToContentCard,
@@ -77,6 +89,7 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
     IonSpinner,
     IonInfiniteScroll,
     IonInfiniteScrollContent,
+    ScrollingModule,
     FeedCardShellComponent,
     FeedPostContentComponent,
     FeedStatCardComponent,
@@ -125,77 +138,76 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
 
       <!-- Posts List -->
       @else {
-        <div
-          class="feed-list__posts"
-          [class.feed-list__posts--compact]="compactCards()"
+        <cdk-virtual-scroll-viewport
+          [itemSize]="estimatedItemHeight"
+          class="feed-list__viewport"
           data-testid="feed-list-posts"
+          (scrolledIndexChange)="onScrollIndexChange($event)"
         >
-          @for (item of effectiveFeed(); track item.id; let i = $index) {
-            <div
-              class="feed-list__post-wrapper"
-              [style.animation-delay]="i * animationDelay + 'ms'"
+          <div
+            class="feed-list__post-wrapper"
+            *cdkVirtualFor="let item of effectiveFeed(); trackBy: trackById"
+          >
+            <nxt1-feed-card-shell
+              [item]="item"
+              [hideAuthor]="false"
+              [hideHeader]="item.feedType === 'POST'"
+              [showMenu]="showMenu()"
+              [compact]="compactCards()"
+              (authorClick)="handlePolyAuthorClick($event)"
+              (contentClick)="handlePolyContentClick(effectiveFeed().indexOf(item))"
+              (menuClick)="handlePolyMenuClick(effectiveFeed().indexOf(item))"
             >
-              <nxt1-feed-card-shell
-                [item]="item"
-                [hideAuthor]="false"
-                [hideHeader]="item.feedType === 'POST'"
-                [showMenu]="showMenu()"
-                [compact]="compactCards()"
-                (authorClick)="handlePolyAuthorClick($event)"
-                (contentClick)="handlePolyContentClick(i)"
-                (menuClick)="handlePolyMenuClick(i)"
-              >
-                @switch (item.feedType) {
-                  @case ('POST') {
-                    <nxt1-feed-post-content
-                      [data]="asPost(item)"
-                      [author]="item.author"
-                      [createdAt]="item.createdAt"
-                      [showMenu]="showMenu()"
-                      (authorClick)="handlePolyAuthorClick($event)"
-                      (menuClick)="handlePolyMenuClick(i)"
-                      mode="full"
-                    />
-                  }
-                  @case ('EVENT') {
-                    <nxt1-feed-event-card [data]="asEvent(item).eventData" />
-                  }
-                  @case ('STAT') {
-                    <nxt1-feed-stat-card [data]="asStat(item).statData" />
-                  }
-                  @case ('METRIC') {
-                    <nxt1-feed-metrics-card [data]="asMetric(item).metricsData" />
-                  }
-                  @case ('OFFER') {
-                    <nxt1-activity-card [item]="toOfferCard(asOffer(item))" />
-                  }
-                  @case ('COMMITMENT') {
-                    <nxt1-activity-card [item]="toCommitmentCard(asCommitment(item))" />
-                  }
-                  @case ('VISIT') {
-                    <nxt1-activity-card [item]="toVisitCard(asVisit(item))" />
-                  }
-                  @case ('CAMP') {
-                    <nxt1-activity-card [item]="toCampCard(asCamp(item))" />
-                  }
-                  @case ('AWARD') {
-                    <nxt1-feed-award-card [data]="asAward(item).awardData" />
-                  }
-                  @case ('NEWS') {
-                    <nxt1-feed-news-card [data]="asNews(item).newsData" />
-                  }
-                  @default {
-                    @if (asFallbackContent(item); as content) {
-                      <p class="feed-fallback-text">{{ content }}</p>
-                    }
+              @switch (item.feedType) {
+                @case ('POST') {
+                  <nxt1-feed-post-content
+                    [data]="asPost(item)"
+                    [author]="item.author"
+                    [createdAt]="item.createdAt"
+                    [showMenu]="showMenu()"
+                    (authorClick)="handlePolyAuthorClick($event)"
+                    (menuClick)="handlePolyMenuClick(effectiveFeed().indexOf(item))"
+                    mode="full"
+                  />
+                }
+                @case ('EVENT') {
+                  <nxt1-feed-event-card [data]="asEvent(item).eventData" />
+                }
+                @case ('STAT') {
+                  <nxt1-feed-stat-card [data]="asStat(item).statData" />
+                }
+                @case ('METRIC') {
+                  <nxt1-feed-metrics-card [data]="asMetric(item).metricsData" />
+                }
+                @case ('OFFER') {
+                  <nxt1-activity-card [item]="toOfferCard(asOffer(item))" />
+                }
+                @case ('COMMITMENT') {
+                  <nxt1-activity-card [item]="toCommitmentCard(asCommitment(item))" />
+                }
+                @case ('VISIT') {
+                  <nxt1-activity-card [item]="toVisitCard(asVisit(item))" />
+                }
+                @case ('CAMP') {
+                  <nxt1-activity-card [item]="toCampCard(asCamp(item))" />
+                }
+                @case ('AWARD') {
+                  <nxt1-feed-award-card [data]="asAward(item).awardData" />
+                }
+                @case ('NEWS') {
+                  <nxt1-feed-news-card [data]="asNews(item).newsData" />
+                }
+                @default {
+                  @if (asFallbackContent(item); as content) {
+                    <p class="feed-fallback-text">{{ content }}</p>
                   }
                 }
-              </nxt1-feed-card-shell>
-            </div>
-          }
-        </div>
+              }
+            </nxt1-feed-card-shell>
+          </div>
+        </cdk-virtual-scroll-viewport>
 
-        <!-- Infinite Scroll -->
+        <!-- Infinite Scroll (triggered by virtual scroll nearing end) -->
         @if (hasMore()) {
           <ion-infinite-scroll
             (ionInfinite)="onInfiniteScroll($event)"
@@ -244,6 +256,17 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
       .feed-list {
         min-height: 400px;
         padding-top: 16px;
+      }
+
+      /* ============================================
+         VIRTUAL SCROLL VIEWPORT
+         ============================================ */
+
+      .feed-list__viewport {
+        height: calc(100vh - 120px);
+        width: 100%;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
       }
 
       /* ============================================
@@ -332,43 +355,17 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
       }
 
       /* ============================================
-         POSTS LIST
+         POSTS LIST (inside virtual viewport)
          ============================================ */
-
-      .feed-list__posts {
-        display: flex;
-        flex-direction: column;
-        min-width: 0;
-      }
-
-      @media (min-width: 768px) {
-        .feed-list__posts {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 16px;
-        }
-
-        .feed-list__posts--compact {
-          display: block;
-          column-count: 2;
-          column-gap: 16px;
-        }
-      }
 
       .feed-list__post-wrapper {
         min-width: 0;
+        content-visibility: auto;
+        contain-intrinsic-size: auto 500px;
       }
 
       .feed-list__post-wrapper {
         animation: feed-item-in 0.3s ease-out both;
-      }
-
-      .feed-list__posts--compact .feed-list__post-wrapper {
-        display: inline-block;
-        width: 100%;
-        margin-bottom: 16px;
-        break-inside: avoid;
-        page-break-inside: avoid;
       }
 
       @keyframes feed-item-in {
@@ -438,7 +435,7 @@ export class FeedListComponent {
   readonly isEmpty = input(false);
   readonly error = input<string | null>(null);
   readonly hasMore = input(false);
-  readonly filterType = input<FeedFilterType>('for-you');
+  readonly filterType = input<FeedFilterType>('trending');
   readonly showMenu = input(true);
   readonly compactCards = input(false);
 
@@ -469,6 +466,13 @@ export class FeedListComponent {
   protected readonly animationDelay = FEED_UI_CONFIG.ITEM_ANIMATION_DELAY;
   protected readonly testIds = FEED_CARD_TEST_IDS;
 
+  /**
+   * Estimated height per feed item for CDK virtual scroll.
+   * 500px matches the contain-intrinsic-size on post wrappers.
+   * CDK uses this for scroll calculations; actual items render at natural height.
+   */
+  protected readonly estimatedItemHeight = 500;
+
   // ============================================
   // BRIDGE — Prefer polymorphicFeed; auto-convert legacy posts if needed
   // ============================================
@@ -488,11 +492,34 @@ export class FeedListComponent {
   // METHODS
   // ============================================
 
+  private readonly ngZone = inject(NgZone);
+
+  /** Track function for CDK virtual scroll */
+  protected trackById(_index: number, item: FeedItem): string {
+    return item.id;
+  }
+
+  /** Trigger loadMore when scrolling near the end of the list */
+  protected onScrollIndexChange(index: number): void {
+    const feed = this.effectiveFeed();
+    const threshold = FEED_PAGINATION_DEFAULTS.PREFETCH_THRESHOLD;
+    if (
+      feed.length > 0 &&
+      index >= feed.length - threshold &&
+      this.hasMore() &&
+      !this.isLoadingMore()
+    ) {
+      this.loadMore.emit();
+    }
+  }
+
   protected onInfiniteScroll(event: CustomEvent): void {
     this.loadMore.emit();
-    setTimeout(() => {
-      (event.target as HTMLIonInfiniteScrollElement)?.complete();
-    }, 500);
+    this.ngZone.runOutsideAngular(() => {
+      setTimeout(() => {
+        (event.target as HTMLIonInfiniteScrollElement)?.complete();
+      }, 500);
+    });
   }
 
   // ============================================

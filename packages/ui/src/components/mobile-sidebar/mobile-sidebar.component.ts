@@ -53,6 +53,8 @@ import { NxtAvatarComponent } from '../avatar';
 import { NxtThemeSelectorComponent } from '../theme-selector';
 import { NxtThemeService } from '../../services/theme';
 import { HapticsService } from '../../services/haptics';
+import { NxtBrowserService } from '../../services/browser';
+import { SUPPORT_CONFIG } from '@nxt1/core/constants';
 import type {
   MobileSidebarConfig,
   MobileSidebarItem,
@@ -116,6 +118,10 @@ import { formatSportDisplayName } from '@nxt1/core';
           <!-- User Section (authenticated) — Sport Profile Switcher -->
           @if (config().showUserSection !== false) {
             <div class="mobile-sidebar__user">
+              <!-- Switcher title: "Teams" / "Sports" / "Profiles" -->
+              @if (getSwitcherTitle(user()!)) {
+                <span class="mobile-sidebar__switcher-label">{{ getSwitcherTitle(user()!) }}</span>
+              }
               <div class="mobile-sidebar__profile-row">
                 <button
                   type="button"
@@ -128,6 +134,7 @@ import { formatSportDisplayName } from '@nxt1/core';
                       [src]="user()!.profileImg"
                       [name]="user()!.name"
                       [initials]="user()!.initials"
+                      [isTeamRole]="user()!.isTeamRole"
                       size="md"
                     />
                     @if (user()!.isPremium) {
@@ -140,15 +147,17 @@ import { formatSportDisplayName } from '@nxt1/core';
                   </div>
                 </button>
 
-                <!-- Expand Arrow for Sport Profiles -->
-                @if ((user()!.sportProfiles?.length ?? 0) > 0) {
+                <!-- Expand Arrow for Sport Profiles / Add Action -->
+                @if ((user()!.sportProfiles?.length ?? 0) > 0 || user()!.actionLabel) {
                   <button
                     type="button"
                     class="mobile-sidebar__expand-btn"
                     [class.mobile-sidebar__expand-btn--open]="sportsExpanded()"
                     (click)="toggleSportsExpanded($event)"
                     [attr.aria-expanded]="sportsExpanded()"
-                    aria-label="Show sports"
+                    [attr.aria-label]="
+                      'Show ' + (getSwitcherTitle(user()!) || 'options').toLowerCase()
+                    "
                   >
                     <nxt1-icon name="chevronDown" [size]="18" />
                   </button>
@@ -156,7 +165,10 @@ import { formatSportDisplayName } from '@nxt1/core';
               </div>
 
               <!-- Expandable Sport Profiles List -->
-              @if (sportsExpanded() && (user()!.sportProfiles?.length ?? 0) > 0) {
+              @if (
+                sportsExpanded() &&
+                ((user()!.sportProfiles?.length ?? 0) > 0 || user()!.actionLabel)
+              ) {
                 <div class="mobile-sidebar__sport-list">
                   @for (profile of user()!.sportProfiles; track profile.id) {
                     <button
@@ -169,7 +181,8 @@ import { formatSportDisplayName } from '@nxt1/core';
                       <nxt1-avatar
                         [src]="profile.profileImg || user()!.profileImg"
                         [name]="profile.sport"
-                        [initials]="getSportInitials(profile.sport)"
+                        [isTeamRole]="user()!.isTeamRole ?? false"
+                        [initials]="user()!.isTeamRole ? '' : getSportInitials(profile.sport)"
                         [customSize]="28"
                         [showSkeleton]="false"
                       />
@@ -465,7 +478,10 @@ import { formatSportDisplayName } from '@nxt1/core';
             <a routerLink="/privacy" class="mobile-sidebar__legal-link" (click)="close()"
               >Privacy Policy</a
             >
-            <a routerLink="/contact" class="mobile-sidebar__legal-link" (click)="close()"
+            <a
+              [href]="contactEmailHref"
+              class="mobile-sidebar__legal-link"
+              (click)="onContactClick($event)"
               >Contact Us</a
             >
           </nav>
@@ -678,6 +694,14 @@ import { formatSportDisplayName } from '@nxt1/core';
       .mobile-sidebar__user {
         padding: var(--nxt1-spacing-3, 0.75rem) var(--nxt1-spacing-4, 1rem);
         border-bottom: 1px solid var(--mobile-sidebar-border);
+      }
+
+      .mobile-sidebar__switcher-label {
+        display: block;
+        padding: 0 var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-1, 0.25rem);
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--mobile-sidebar-text-secondary, rgba(255, 255, 255, 0.5));
       }
 
       .mobile-sidebar__profile-row {
@@ -1197,6 +1221,10 @@ export class NxtMobileSidebarComponent implements OnDestroy {
   /** Current year for copyright */
   protected readonly currentYear = new Date().getFullYear();
 
+  /** Opens the mail client for support. */
+  protected readonly contactEmailHref = `mailto:${SUPPORT_CONFIG.SUPPORT_EMAIL}`;
+  private readonly browser = inject(NxtBrowserService);
+
   // ============================================
   // INPUTS
   // ============================================
@@ -1246,7 +1274,7 @@ export class NxtMobileSidebarComponent implements OnDestroy {
   private readonly _expandedItems = signal<ReadonlySet<string>>(new Set<string>());
 
   /** Whether sport profiles dropdown is expanded */
-  readonly sportsExpanded = signal(false);
+  readonly sportsExpanded = signal(true);
 
   /** Internal open state (synced with input) */
   readonly isOpen = computed(() => this.open());
@@ -1300,6 +1328,18 @@ export class NxtMobileSidebarComponent implements OnDestroy {
   close(): void {
     this.haptics.impact('light');
     this.closeRequest.emit();
+  }
+
+  /** Handle contact link click — opens mail client and closes sidebar. */
+  onContactClick(event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.close();
+    void this.browser.openMailto({
+      to: SUPPORT_CONFIG.SUPPORT_EMAIL,
+      subject: 'Support Request - NXT1 Sports',
+      body: ['Hi NXT1 Support Team,', '', 'I need help with:', '', 'My account email:'].join('\n'),
+    });
   }
 
   /**
@@ -1462,7 +1502,16 @@ export class NxtMobileSidebarComponent implements OnDestroy {
       return formatSportDisplayName(profile.sport);
     }
     if (userData.handle) return userData.handle;
-    return 'Athlete';
+    return userData.isTeamRole ? 'Director' : 'Athlete';
+  }
+
+  /**
+   * Get the section title above the profile card: "Teams", "Sports", or "Profiles".
+   */
+  getSwitcherTitle(userData: MobileSidebarUserData): string {
+    if (userData.switcherTitle) return userData.switcherTitle;
+    if (userData.isTeamRole) return 'Teams';
+    return (userData.sportProfiles?.length ?? 0) > 0 ? 'Sports' : 'Profiles';
   }
 
   /**

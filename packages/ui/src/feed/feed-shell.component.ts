@@ -9,18 +9,16 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  *
  * Features:
- * - Feed filter tabs (For You, Following, etc.)
+ * - Feed filter tabs (Trending, Sports, Offers, Highlights)
  * - Pull-to-refresh with haptic feedback
  * - Post feed with all states
  * - New posts banner
- * - Floating action button
  *
  * @example
  * ```html
  * <nxt1-feed-shell
  *   (postSelect)="onPostSelect($event)"
  *   (authorSelect)="onAuthorSelect($event)"
- *   (createPost)="onCreatePost()"
  * />
  * ```
  */
@@ -34,13 +32,7 @@ import {
   ElementRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import {
-  IonContent,
-  IonRefresher,
-  IonRefresherContent,
-  IonFab,
-  IonFabButton,
-} from '@ionic/angular/standalone';
+import { IonContent, IonRefresher, IonRefresherContent } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../components/icon';
 import {
   type FeedPost,
@@ -67,8 +59,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
     IonRefresher,
     IonRefresherContent,
     NxtIconComponent,
-    IonFab,
-    IonFabButton,
     NxtOptionScrollerComponent,
     FeedListComponent,
   ],
@@ -117,20 +107,12 @@ import { HapticsService } from '../services/haptics/haptics.service';
           (reactClick)="onLikeClick($event)"
           (repostClick)="onRepostClick($event)"
           (shareClick)="onShareClick($event)"
-          (bookmarkClick)="onBookmarkClick($event)"
           (menuClick)="onMenuClick($event)"
           (loadMore)="onLoadMore()"
           (retry)="onRetry()"
           (emptyCta)="onEmptyCta()"
         />
       </ion-content>
-
-      <!-- Floating Action Button (Create Post) -->
-      <ion-fab slot="fixed" vertical="bottom" horizontal="end">
-        <ion-fab-button (click)="onCreatePostClick()" aria-label="Create post">
-          <nxt1-icon name="plus" [size]="24" />
-        </ion-fab-button>
-      </ion-fab>
     </div>
   `,
   styles: [
@@ -278,7 +260,6 @@ export class FeedShellComponent implements OnInit {
 
   readonly postSelect = output<FeedPost>();
   readonly authorSelect = output<FeedAuthor>();
-  readonly createPost = output<void>();
   readonly commentOpen = output<FeedPost>();
   readonly menuOpen = output<FeedPost>();
   readonly explorePeople = output<void>();
@@ -354,10 +335,6 @@ export class FeedShellComponent implements OnInit {
     await this.feedService.sharePost(post);
   }
 
-  protected async onBookmarkClick(post: FeedPost): Promise<void> {
-    await this.feedService.toggleBookmark(post);
-  }
-
   protected onMenuClick(post: FeedPost): void {
     this.menuOpen.emit(post);
   }
@@ -371,16 +348,6 @@ export class FeedShellComponent implements OnInit {
   }
 
   protected onEmptyCta(): void {
-    const filter = this.feedService.activeFilter();
-    if (filter === 'following') {
-      this.explorePeople.emit();
-    } else if (filter === 'highlights') {
-      this.createPost.emit();
-    }
-  }
-
-  protected async onCreatePostClick(): Promise<void> {
-    await this.haptics.impact('medium');
-    this.createPost.emit();
+    // Feed empty state — redirect to explore or agent-x in future
   }
 }

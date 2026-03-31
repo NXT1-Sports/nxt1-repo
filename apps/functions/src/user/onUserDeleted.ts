@@ -23,7 +23,6 @@ const BATCH_SIZE = 250;
 
 const SINGLETON_COLLECTIONS = [
   'user_analytics',
-  'notification_preferences',
   'FcmTokens',
   'Subscriptions',
   'UserEntitlements',

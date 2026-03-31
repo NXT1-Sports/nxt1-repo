@@ -136,10 +136,8 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
       (editTeamClick)="onEditTeam()"
       (teamClick)="onTeamClick($event)"
       (shareClick)="onShare()"
-      (followClick)="onFollow()"
       (qrCodeClick)="onQrCode()"
       (aiSummaryClick)="onAiSummary()"
-      (createPostClick)="onCreatePost()"
       (retryClick)="onRetry()"
     >
       <!-- ═══ PROJECTED BELOW-FOLD CONTENT (inside shell scroll container) ═══ -->
@@ -739,26 +737,6 @@ export class ProfileComponent implements OnInit, OnDestroy {
         }
       );
 
-    // Fire follow-check separately so it resolves quickly and is NOT blocked by
-    // slower secondary API calls (stats, videos, etc). This prevents a race
-    // condition where a late-arriving followCheck response would override the
-    // user's optimistic follow toggle.
-    if (!isOwn && this.authFlow.isAuthenticated()) {
-      this.http
-        .get<{ success: boolean; data: { isFollowing: boolean } }>(
-          `${environment.apiURL}/follow/check?targetUserId=${profile.id}`
-        )
-        .pipe(
-          first(),
-          catchError(() => of({ success: false as const, data: { isFollowing: false } })),
-          takeUntilDestroyed(this.destroyRef)
-        )
-        .subscribe((followCheck) => {
-          if (followCheck.success) {
-            this.profileService.setFollowState(followCheck.data?.isFollowing ?? false);
-          }
-        });
-    }
     this.seo.updateForProfile(meta);
 
     this.logger.info('Profile SEO updated', {
@@ -1084,55 +1062,6 @@ export class ProfileComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Handle follow button — requires authentication.
-   * Logged-out users see the "Sign in to continue" modal first.
-   */
-  protected async onFollow(): Promise<void> {
-    if (!this.authFlow.isAuthenticated()) {
-      const result = await this.authModal.presentSignInToContinue('follow athletes', {
-        onGoogle: () => this.authFlow.signInWithGoogle(),
-        onApple: () => this.authFlow.signInWithApple(),
-        onEmailAuth: async (mode, data) =>
-          mode === 'login'
-            ? this.authFlow.signInWithEmail(data)
-            : this.authFlow.signUpWithEmail(data),
-      });
-      if (!result.authenticated) return;
-    }
-
-    // Authenticated — proceed with follow
-    this.logger.info('Follow clicked', { unicode: this.profileUnicode() });
-
-    const wasFollowing = this.profileService.followStats()?.isFollowing ?? false;
-    const profileUserId = this.fetchedProfile()?.id;
-    if (!profileUserId) return;
-
-    // Optimistic update
-    void this.profileService.toggleFollow();
-
-    try {
-      if (!wasFollowing) {
-        await this.http
-          .post(`${environment.apiURL}/follow`, { targetUserId: profileUserId })
-          .pipe(first())
-          .toPromise();
-      } else {
-        await this.http
-          .delete(`${environment.apiURL}/follow`, {
-            params: { targetUserId: profileUserId },
-          })
-          .pipe(first())
-          .toPromise();
-      }
-      this.toast.success(!wasFollowing ? 'Following!' : 'Unfollowed');
-    } catch {
-      // Rollback optimistic update
-      void this.profileService.toggleFollow();
-      this.toast.error('Could not update follow status. Please try again.');
-    }
-  }
-
-  /**
    * Handle share profile.
    */
   protected async onShare(): Promise<void> {
@@ -1232,14 +1161,6 @@ export class ProfileComponent implements OnInit, OnDestroy {
       default:
         break;
     }
-  }
-
-  /**
-   * Handle create post navigation.
-   */
-  protected onCreatePost(): void {
-    this.logger.info('Create post clicked');
-    this.router.navigate(['/post/create']);
   }
 
   /**

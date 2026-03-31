@@ -29,7 +29,6 @@ import { Type } from 'class-transformer';
 
 export enum PostVisibility {
   PUBLIC = 'public',
-  FOLLOWERS = 'followers',
   TEAM_ONLY = 'team-only',
   PRIVATE = 'private',
 }

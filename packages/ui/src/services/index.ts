@@ -129,3 +129,13 @@ export {
   NxtTrackFormDirective,
   NxtTrackVisibleDirective,
 } from './breadcrumb';
+
+// Media Service (2026 Global Cross-Platform Save-to-Device)
+export {
+  NxtMediaService,
+  type MediaImageFormat,
+  type SaveImageOptions,
+  type SaveImageResult,
+  type ShareImageOptions,
+  type ShareImageResult,
+} from './media';

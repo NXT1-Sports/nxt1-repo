@@ -43,7 +43,12 @@ import type { ApiResponse } from '../profile/profile.api';
  * Supported file categories for uploads
  * Backend enforces different rules per category
  */
-export type FileCategory = 'profile-photo' | 'cover-photo' | 'document' | 'video-thumbnail';
+export type FileCategory =
+  | 'profile-photo'
+  | 'cover-photo'
+  | 'document'
+  | 'video-thumbnail'
+  | 'highlight-video';
 
 /**
  * File metadata for upload
@@ -140,6 +145,11 @@ export const FILE_UPLOAD_RULES = {
     maxSize: 2 * 1024 * 1024, // 2MB
     allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
     maxDimensions: { width: 1920, height: 1080 },
+  },
+  'highlight-video': {
+    maxSize: 500 * 1024 * 1024, // 500MB
+    allowedTypes: ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-msvideo'],
+    maxDimensions: null,
   },
 } as const;
 

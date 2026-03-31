@@ -190,7 +190,6 @@ export const MOCK_FEED_POSTS: FeedPost[] = [
       isLiked: false,
       isBookmarked: false,
       isReposted: false,
-      isFollowingAuthor: true,
       isReacted: false,
       reactionType: null,
     },
@@ -224,7 +223,6 @@ export const MOCK_FEED_POSTS: FeedPost[] = [
       isLiked: true,
       isBookmarked: false,
       isReposted: false,
-      isFollowingAuthor: false,
       isReacted: true,
       reactionType: 'like',
     },
@@ -266,7 +264,6 @@ export const MOCK_FEED_POSTS: FeedPost[] = [
       isLiked: false,
       isBookmarked: true,
       isReposted: false,
-      isFollowingAuthor: true,
       isReacted: false,
       reactionType: null,
     },
@@ -299,7 +296,6 @@ export const MOCK_FEED_POSTS: FeedPost[] = [
       isLiked: false,
       isBookmarked: false,
       isReposted: false,
-      isFollowingAuthor: false,
       isReacted: false,
       reactionType: null,
     },
@@ -332,7 +328,6 @@ export const MOCK_FEED_POSTS: FeedPost[] = [
       isLiked: true,
       isBookmarked: false,
       isReposted: false,
-      isFollowingAuthor: true,
       isReacted: true,
       reactionType: 'like',
     },
@@ -372,7 +367,6 @@ export const MOCK_FEED_POSTS: FeedPost[] = [
       isLiked: false,
       isBookmarked: false,
       isReposted: false,
-      isFollowingAuthor: true,
       isReacted: false,
       reactionType: null,
     },
@@ -405,7 +399,6 @@ export const MOCK_FEED_POSTS: FeedPost[] = [
       isLiked: false,
       isBookmarked: false,
       isReposted: false,
-      isFollowingAuthor: false,
       isReacted: false,
       reactionType: null,
     },
@@ -439,7 +432,6 @@ export const MOCK_FEED_POSTS: FeedPost[] = [
       isLiked: true,
       isBookmarked: false,
       isReposted: false,
-      isFollowingAuthor: false,
       isReacted: true,
       reactionType: 'celebrate',
     },
@@ -470,8 +462,6 @@ export function getMockFeedPosts(
     filteredPosts = filteredPosts.filter((p) => p.type === 'offer' || p.type === 'commitment');
   } else if (filterType === 'highlights') {
     filteredPosts = filteredPosts.filter((p) => p.type === 'video' || p.type === 'highlight');
-  } else if (filterType === 'following') {
-    filteredPosts = filteredPosts.filter((p) => p.userEngagement.isFollowingAuthor);
   }
 
   const total = filteredPosts.length;

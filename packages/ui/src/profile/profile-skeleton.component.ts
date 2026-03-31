@@ -62,7 +62,6 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
               <div class="sk-hero__identity">
                 <div class="sk-hero__name skeleton-animate"></div>
                 <div class="sk-hero__meta skeleton-animate"></div>
-                <div class="sk-hero__follow skeleton-animate"></div>
                 <!-- Stats: Class, Height, Weight, Location -->
                 <div class="sk-hero__stats">
                   @for (i of [1, 2, 3, 4]; track i) {
@@ -153,8 +152,8 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
               <div class="sk-split">
                 <!-- ═══ LEFT COLUMN ═══ -->
                 <div class="sk-left">
-                  <!-- Page Header: Back + Identity(Name+Subtitle) + Edit Profile / Follow Button (desktop only) -->
-                  <!-- mirrors: nxt1-entity-page-header → back, identity(name + subline), trailing(edit-btn or follow-btn) -->
+                  <!-- Page Header: Back + Identity(Name+Subtitle) + Edit Profile Button (desktop only) -->
+                  <!-- mirrors: nxt1-entity-page-header → back, identity(name + subline), trailing(edit-btn) -->
                   <div class="sk-page-header">
                     <div class="sk-ph-row">
                       <!-- Back button -->
@@ -164,7 +163,7 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
                         <div class="sk-ph-name skeleton-animate"></div>
                         <div class="sk-ph-subtitle skeleton-animate"></div>
                       </div>
-                      <!-- Trailing: Edit Profile button (own profile) or Follow button -->
+                      <!-- Trailing: Edit Profile button (own profile) -->
                       <div class="sk-ph-trailing">
                         <div class="sk-ph-edit skeleton-animate"></div>
                       </div>
@@ -172,7 +171,7 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
                   </div>
 
                   <!-- Mobile Hero (mobile only) -->
-                  <!-- mirrors: .madden-mobile-hero → grid(148px, 1fr) carousel | identity(name, meta, follow, stats) -->
+                  <!-- mirrors: .madden-mobile-hero → grid(148px, 1fr) carousel | identity(name, meta, stats) -->
                   <div class="sk-mobile-hero">
                     <!-- Left: Player image carousel -->
                     <div class="sk-mh-carousel skeleton-animate"></div>
@@ -180,7 +179,6 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
                     <div class="sk-mh-identity">
                       <div class="sk-mh-name skeleton-animate"></div>
                       <div class="sk-mh-meta skeleton-animate"></div>
-                      <div class="sk-mh-follow skeleton-animate"></div>
                       <!-- Stats rows: Class, Height, Weight, Location -->
                       <div class="sk-mh-stats">
                         @for (i of [1, 2, 3, 4]; track i) {
@@ -493,14 +491,6 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
         width: 100px;
         max-width: 100%;
         border-radius: 4px;
-      }
-
-      /* mirrors: .madden-mobile-hero__follow-btn { padding:7px 16px; border-radius:8px; margin-top:6px } */
-      .sk-hero__follow {
-        height: 34px;
-        width: 88px;
-        border-radius: var(--nxt1-radius-md, 8px);
-        margin-top: 6px;
       }
 
       /* mirrors: .madden-mobile-hero__stats { display:flex; flex-direction:column; margin-top:8px } */
@@ -1377,14 +1367,6 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
           width: 80px;
           max-width: 100%;
           border-radius: 4px;
-        }
-
-        /* mirrors: .madden-mobile-hero__follow-btn { padding:7px 16px; border-radius:8px; margin-top:6px } */
-        .sk-mh-follow {
-          height: 34px;
-          width: 88px;
-          border-radius: var(--nxt1-radius-md, 8px);
-          margin-top: 6px;
         }
 
         /* mirrors: .madden-mobile-hero__stats { display:flex; flex-direction:column; margin-top:8px } */

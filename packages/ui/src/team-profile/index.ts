@@ -17,7 +17,6 @@ export { TeamRecruitingWebComponent } from './web';
 export { TeamContactWebComponent } from './web';
 export {
   MOCK_TEAM,
-  MOCK_TEAM_FOLLOW_STATS,
   MOCK_TEAM_QUICK_STATS,
   MOCK_TEAM_ROSTER,
   MOCK_TEAM_SCHEDULE,

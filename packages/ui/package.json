@@ -44,6 +44,7 @@
     "@nxt1/design-tokens": "*"
   },
   "peerDependencies": {
+    "@angular/cdk": "^21.0.0",
     "@angular/common": "^21.0.0",
     "@angular/core": "^21.0.0",
     "@angular/forms": "^21.0.0",
@@ -70,11 +71,15 @@
     "@capacitor/haptics": {
       "optional": true
     },
+    "@angular/cdk": {
+      "optional": true
+    },
     "capacitor-native-biometric": {
       "optional": true
     }
   },
   "devDependencies": {
+    "@angular/cdk": "^21.1.4",
     "@angular/common": "^21.1.4",
     "@angular/compiler": "^21.1.4",
     "@angular/compiler-cli": "^21.1.4",

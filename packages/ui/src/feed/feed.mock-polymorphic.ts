@@ -66,7 +66,6 @@ function buildBase(id: string, author: FeedAuthor, offsetMs: number) {
       isLiked: false,
       isBookmarked: false,
       isReposted: false,
-      isFollowingAuthor: true,
       isReacted: false,
       reactionType: null,
     },

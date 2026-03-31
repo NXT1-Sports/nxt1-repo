@@ -15,6 +15,8 @@ import { addIcons } from 'ionicons';
 import { download, downloadOutline, share, shareOutline, checkmark } from 'ionicons/icons';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
+import { NxtMediaService } from '../services/media/media.service';
+import { NxtLoggingService } from '../services/logging/logging.service';
 
 @Component({
   selector: 'nxt1-invite-qr-code',
@@ -248,6 +250,8 @@ export class InviteQrCodeComponent {
 
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
+  private readonly media = inject(NxtMediaService);
+  private readonly logger = inject(NxtLoggingService).child('InviteQrCodeComponent');
 
   readonly qrDataUrl = input<string | undefined>();
   readonly referralCode = input<string | undefined>();
@@ -255,19 +259,45 @@ export class InviteQrCodeComponent {
   protected saved = signal(false);
 
   protected async onSave(): Promise<void> {
+    const data = this.qrDataUrl();
+    if (!data) return;
+
     await this.haptics.impact('light');
 
-    // TODO: Implement actual save to photos
-    this.saved.set(true);
-    this.toast.success('QR code saved to photos!');
+    const result = await this.media.saveImage({
+      data,
+      fileName: `nxt1-invite-qr-${this.referralCode() ?? 'code'}`,
+      format: 'png',
+      album: 'NXT1',
+    });
 
-    setTimeout(() => this.saved.set(false), 2000);
+    if (result.success) {
+      this.saved.set(true);
+      this.toast.success('QR code saved to photos!');
+      setTimeout(() => this.saved.set(false), 2000);
+    } else {
+      this.logger.error('Save QR failed', undefined, { error: result.error });
+      this.toast.error(result.error ?? 'Failed to save QR code');
+    }
   }
 
   protected async onShare(): Promise<void> {
+    const data = this.qrDataUrl();
+    if (!data) return;
+
     await this.haptics.impact('medium');
 
-    // TODO: Implement native share
-    this.toast.info('Share feature coming soon!');
+    const result = await this.media.shareImage({
+      data,
+      title: 'Join me on NXT1',
+      text: 'Scan this QR code to join NXT1!',
+      fileName: `nxt1-invite-qr-${this.referralCode() ?? 'code'}`,
+      format: 'png',
+    });
+
+    if (!result.success) {
+      this.logger.error('Share QR failed', undefined, { error: result.error });
+      this.toast.error(result.error ?? 'Failed to share QR code');
+    }
   }
 }

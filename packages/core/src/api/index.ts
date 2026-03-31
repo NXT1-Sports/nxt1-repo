@@ -64,7 +64,6 @@ export {
   type UpdateProfileRequest,
   type UpdateSportProfileRequest,
   type ProfileSearchParams,
-  type FollowResponse,
   type ProfileAnalytics,
 } from '../profile/profile.api';
 

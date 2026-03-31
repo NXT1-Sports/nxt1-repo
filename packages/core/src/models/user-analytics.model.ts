@@ -63,7 +63,7 @@ export interface ViewEvent extends AnalyticsEventBase {
 }
 
 export interface EngagementEvent extends AnalyticsEventBase {
-  type: 'follow' | 'unfollow' | 'share' | 'reaction' | 'comment' | 'repost';
+  type: 'share' | 'reaction' | 'comment' | 'repost';
   actorId: string;
   contentId?: string;
   reactionType?: string;
@@ -158,9 +158,6 @@ export interface DailyAnalyticsDoc {
   videoWatchTimeSeconds: number;
   postViews: number;
   cardViews: number;
-  newFollowers: number;
-  unfollows: number;
-  netFollowerChange: number;
   shares: number;
   reactions: number;
   comments: number;
@@ -202,7 +199,6 @@ export interface PeriodAnalytics {
   videoWatchTimeSeconds: number;
   postViews: number;
   cardViews: number;
-  newFollowers: number;
   shares: number;
   reactions: number;
   comments: number;
@@ -213,7 +209,6 @@ export interface PeriodAnalytics {
   emailClickRate: number;
   profileViewsTrend: TrendData;
   videoViewsTrend: TrendData;
-  followersTrend: TrendData;
   engagementTrend: TrendData;
 }
 
@@ -261,8 +256,6 @@ export interface UserAnalyticsDoc {
 export interface UserCounters {
   profileViews: number;
   videoViews: number;
-  followersCount: number;
-  followingCount: number;
   postsCount: number;
   sharesCount: number;
   _lastSyncedAt?: Date | string;
@@ -380,9 +373,6 @@ export function createEmptyDailyAnalytics(userId: string, date: string): DailyAn
     videoWatchTimeSeconds: 0,
     postViews: 0,
     cardViews: 0,
-    newFollowers: 0,
-    unfollows: 0,
-    netFollowerChange: 0,
     shares: 0,
     reactions: 0,
     comments: 0,
@@ -408,8 +398,6 @@ export function createEmptyUserCounters(): UserCounters {
   return {
     profileViews: 0,
     videoViews: 0,
-    followersCount: 0,
-    followingCount: 0,
     postsCount: 0,
     sharesCount: 0,
   };
@@ -437,7 +425,7 @@ export function isViewEvent(event: AnalyticsEvent): event is ViewEvent {
 }
 
 export function isEngagementEvent(event: AnalyticsEvent): event is EngagementEvent {
-  return ['follow', 'unfollow', 'share', 'reaction', 'comment', 'repost'].includes(event.type);
+  return ['share', 'reaction', 'comment', 'repost'].includes(event.type);
 }
 
 export function isCampaignEvent(event: AnalyticsEvent): event is CampaignEvent {

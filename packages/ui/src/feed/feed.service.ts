@@ -30,7 +30,8 @@
  * ```
  */
 
-import { Injectable, inject, signal, computed } from '@angular/core';
+import { Injectable, inject, signal, computed, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import {
   type FeedPost,
   type FeedItem,
@@ -41,14 +42,13 @@ import {
   FEED_DEFAULT_FILTER,
   FEED_PAGINATION_DEFAULTS,
 } from '@nxt1/core';
-import { FIREBASE_EVENTS, type AnalyticsAdapter } from '@nxt1/core/analytics';
+import { APP_EVENTS, FIREBASE_EVENTS, type AnalyticsAdapter } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
+import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
-// ⚠️ TEMPORARY: Mock data for development (remove when backend is ready)
-import { getMockFeedPosts, mockToggleLike, mockToggleBookmark } from './feed.mock-data';
-import { MOCK_POLYMORPHIC_FEED } from './feed.mock-polymorphic';
+import { FEED_API } from './feed-api.token';
 
 /**
  * Feed state management service.
@@ -56,12 +56,13 @@ import { MOCK_POLYMORPHIC_FEED } from './feed.mock-polymorphic';
  */
 @Injectable({ providedIn: 'root' })
 export class FeedService {
-  // ⚠️ TEMPORARY: API service commented out - using mock data
-  // private readonly api = inject(FeedApiService);
+  private readonly api = inject(FEED_API, { optional: true });
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('FeedService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly platformId = inject(PLATFORM_ID);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -141,6 +142,7 @@ export class FeedService {
     const filter = filterType ?? this._activeFilter();
 
     this.logger.info('Loading feed', { filter });
+    this.breadcrumb.trackStateChange('feed:loading', { filter });
 
     this._isLoading.set(true);
     this._error.set(null);
@@ -149,27 +151,49 @@ export class FeedService {
     this._newPostsCount.set(0);
 
     try {
-      // ⚠️ TEMPORARY: Using mock data
-      // const response = await this.api.getFeed({ type: filter });
-      const { posts, pagination } = getMockFeedPosts(1, FEED_PAGINATION_DEFAULTS.LIMIT, filter);
-
-      if (filter === 'for-you') {
-        this._polymorphicFeed.set(MOCK_POLYMORPHIC_FEED);
-      } else {
+      if (!this.api) {
+        this.logger.warn('FEED_API not provided — no feed data available');
+        this._posts.set([]);
         this._polymorphicFeed.set([]);
+        this._pagination.set(null);
+        return;
       }
 
-      // Simulate network delay for realistic UX
-      await this.delay(800);
+      const response = await this.api.getFeed(
+        { type: filter },
+        FEED_PAGINATION_DEFAULTS.INITIAL_PAGE,
+        FEED_PAGINATION_DEFAULTS.LIMIT
+      );
 
-      this._posts.set(posts);
-      this._pagination.set(pagination);
-
-      this.logger.info('Feed loaded', { count: posts.length, hasMore: pagination.hasMore });
+      if (response.success) {
+        this._posts.set([...(response.data ?? [])]);
+        this._pagination.set(response.pagination);
+        // Polymorphic feed (FeedItem[]) requires a dedicated endpoint — clear for now
+        this._polymorphicFeed.set([]);
+        this.logger.info('Feed loaded', {
+          count: response.data?.length ?? 0,
+          hasMore: response.pagination?.hasMore,
+        });
+        this.breadcrumb.trackStateChange('feed:loaded', {
+          count: response.data?.length ?? 0,
+          filter,
+        });
+        this.analytics?.trackEvent(APP_EVENTS.HOME_FEED_VIEWED, {
+          filter,
+          count: response.data?.length ?? 0,
+        });
+      } else {
+        this._error.set(response.error ?? 'Failed to load feed');
+        this.logger.warn('Feed API returned error', { error: response.error });
+        this.breadcrumb.trackStateChange('feed:error', { error: response.error });
+        this.analytics?.trackEvent(APP_EVENTS.HOME_FEED_ERROR, { error: response.error, filter });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load feed';
       this._error.set(message);
       this.logger.error('Failed to load feed', err);
+      this.breadcrumb.trackStateChange('feed:error', { error: message });
+      this.analytics?.trackEvent(APP_EVENTS.HOME_FEED_ERROR, { error: message, filter });
     } finally {
       this._isLoading.set(false);
     }
@@ -180,7 +204,7 @@ export class FeedService {
    */
   async loadMore(): Promise<void> {
     const pagination = this._pagination();
-    if (!pagination?.hasMore || this._isLoadingMore()) {
+    if (!pagination?.hasMore || this._isLoadingMore() || !this.api) {
       return;
     }
 
@@ -191,24 +215,27 @@ export class FeedService {
     try {
       const nextPage = pagination.page + 1;
 
-      // ⚠️ TEMPORARY: Using mock data
-      // const response = await this.api.getFeed(
-      //   { type: this._activeFilter() },
-      //   nextPage
-      // );
-      const { posts, pagination: newPagination } = getMockFeedPosts(
+      const response = await this.api.getFeed(
+        { type: this._activeFilter() },
         nextPage,
-        FEED_PAGINATION_DEFAULTS.LIMIT,
-        this._activeFilter()
+        FEED_PAGINATION_DEFAULTS.LIMIT
       );
 
-      // Simulate network delay
-      await this.delay(500);
-
-      this._posts.update((current) => [...current, ...posts]);
-      this._pagination.set(newPagination);
-
-      this.logger.info('More posts loaded', { count: posts.length, page: nextPage });
+      if (response.success) {
+        this._posts.update((current) => [...current, ...(response.data ?? [])]);
+        this._pagination.set(response.pagination);
+        this.logger.info('More posts loaded', {
+          count: response.data?.length ?? 0,
+          page: nextPage,
+        });
+        this.analytics?.trackEvent(APP_EVENTS.HOME_FEED_LOAD_MORE, {
+          page: nextPage,
+          count: response.data?.length ?? 0,
+        });
+      } else {
+        this.toast.error('Failed to load more posts');
+        this.logger.warn('Load more API returned error', { error: response.error });
+      }
     } catch (err) {
       this.toast.error('Failed to load more posts');
       this.logger.error('Failed to load more', err);
@@ -227,30 +254,36 @@ export class FeedService {
     await this.haptics.impact('light');
 
     try {
-      // ⚠️ TEMPORARY: Using mock data
-      const { posts, pagination } = getMockFeedPosts(
-        1,
-        FEED_PAGINATION_DEFAULTS.LIMIT,
-        this._activeFilter()
-      );
-
-      if (this._activeFilter() === 'for-you') {
-        this._polymorphicFeed.set(MOCK_POLYMORPHIC_FEED);
-      } else {
-        this._polymorphicFeed.set([]);
+      if (!this.api) {
+        this.logger.warn('FEED_API not provided — cannot refresh');
+        return;
       }
 
-      // Simulate network delay
-      await this.delay(600);
+      const filter = this._activeFilter();
+      const response = await this.api.getFeed(
+        { type: filter },
+        FEED_PAGINATION_DEFAULTS.INITIAL_PAGE,
+        FEED_PAGINATION_DEFAULTS.LIMIT
+      );
 
-      this._posts.set(posts);
-      this._pagination.set(pagination);
-      this._hasNewPosts.set(false);
-      this._newPostsCount.set(0);
-      this._error.set(null);
+      if (response.success) {
+        this._posts.set([...(response.data ?? [])]);
+        this._pagination.set(response.pagination);
+        this._polymorphicFeed.set([]);
+        this._hasNewPosts.set(false);
+        this._newPostsCount.set(0);
+        this._error.set(null);
 
-      await this.haptics.notification('success');
-      this.logger.info('Feed refreshed');
+        await this.haptics.notification('success');
+        this.logger.info('Feed refreshed', { count: response.data?.length ?? 0 });
+        this.breadcrumb.trackStateChange('feed:refreshed', { count: response.data?.length ?? 0 });
+        this.analytics?.trackEvent(APP_EVENTS.HOME_FEED_REFRESHED, {
+          count: response.data?.length ?? 0,
+        });
+      } else {
+        this.toast.error(response.error ?? 'Failed to refresh feed');
+        this.logger.warn('Refresh API returned error', { error: response.error });
+      }
     } catch (err) {
       this.toast.error('Failed to refresh feed');
       this.logger.error('Failed to refresh', err);
@@ -268,6 +301,7 @@ export class FeedService {
     }
 
     await this.haptics.impact('light');
+    this.analytics?.trackEvent(APP_EVENTS.HOME_FEED_FILTER_CHANGED, { filter: filterType });
     await this.loadFeed(filterType);
   }
 
@@ -280,50 +314,53 @@ export class FeedService {
    */
   async toggleLike(post: FeedPost): Promise<void> {
     const wasLiked = post.userEngagement.isLiked;
+    const previous = this._posts();
 
     // Optimistic update
-    this._posts.update((posts) => posts.map((p) => (p.id === post.id ? mockToggleLike(p) : p)));
+    this._posts.update((posts) =>
+      posts.map((p) =>
+        p.id === post.id
+          ? {
+              ...p,
+              engagement: {
+                ...p.engagement,
+                likeCount: p.engagement.likeCount + (wasLiked ? -1 : 1),
+              },
+              userEngagement: {
+                ...p.userEngagement,
+                isLiked: !wasLiked,
+              },
+            }
+          : p
+      )
+    );
 
     await this.haptics.impact(wasLiked ? 'light' : 'medium');
 
     try {
-      // ⚠️ TEMPORARY: Using mock - would call API
-      // await this.api.toggleLike(post.id);
+      if (this.api) {
+        const response = await this.api.toggleLike(post.id);
+        if (!response.success) {
+          this._posts.set(previous); // Rollback
+          this.toast.error('Failed to update like');
+          this.logger.warn('toggleLike API returned error', {
+            postId: post.id,
+            error: response.error,
+          });
+          return;
+        }
+      }
 
       this.logger.info('Like toggled', { postId: post.id, liked: !wasLiked });
+      this.analytics?.trackEvent(APP_EVENTS.HOME_FEED_POST_LIKED, {
+        postId: post.id,
+        liked: !wasLiked,
+      });
     } catch (err) {
       // Rollback on error
-      this._posts.update((posts) => posts.map((p) => (p.id === post.id ? post : p)));
+      this._posts.set(previous);
       this.toast.error('Failed to update like');
-      this.logger.error('Failed to toggle like', err);
-    }
-  }
-
-  /**
-   * Toggle bookmark on a post (optimistic update).
-   */
-  async toggleBookmark(post: FeedPost): Promise<void> {
-    const wasBookmarked = post.userEngagement.isBookmarked;
-
-    // Optimistic update
-    this._posts.update((posts) => posts.map((p) => (p.id === post.id ? mockToggleBookmark(p) : p)));
-
-    await this.haptics.impact('light');
-
-    if (!wasBookmarked) {
-      this.toast.success('Post saved');
-    }
-
-    try {
-      // ⚠️ TEMPORARY: Using mock - would call API
-      // await this.api.toggleBookmark(post.id);
-
-      this.logger.info('Bookmark toggled', { postId: post.id, bookmarked: !wasBookmarked });
-    } catch (err) {
-      // Rollback on error
-      this._posts.update((posts) => posts.map((p) => (p.id === post.id ? post : p)));
-      this.toast.error('Failed to save post');
-      this.logger.error('Failed to toggle bookmark', err);
+      this.logger.error('Failed to toggle like', err, { postId: post.id });
     }
   }
 
@@ -333,8 +370,8 @@ export class FeedService {
   async sharePost(post: FeedPost): Promise<void> {
     await this.haptics.impact('medium');
 
-    // Use Web Share API if available
-    if (typeof navigator !== 'undefined' && navigator.share) {
+    // Use Web Share API if available (SSR-safe platform check)
+    if (isPlatformBrowser(this.platformId) && navigator.share) {
       try {
         await navigator.share({
           title: `${post.author.displayName} on NXT1`,
@@ -348,11 +385,11 @@ export class FeedService {
         // User cancelled or share failed
         this.logger.warn('Share cancelled or failed', { error: err });
       }
-    } else {
+    } else if (isPlatformBrowser(this.platformId)) {
       // Fallback: copy link
       const shareUrl = `https://nxt1sports.com/post/${post.id}`;
       try {
-        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        if (navigator.clipboard?.writeText) {
           await navigator.clipboard.writeText(shareUrl);
         }
         this.toast.info('Link copied to clipboard');
@@ -412,8 +449,4 @@ export class FeedService {
   // ============================================
   // HELPERS
   // ============================================
-
-  private delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
 }

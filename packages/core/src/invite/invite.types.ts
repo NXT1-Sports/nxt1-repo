@@ -50,8 +50,6 @@ export interface InviteChannelConfig {
   readonly isNative: boolean;
   /** Platform availability */
   readonly platforms: readonly ('web' | 'ios' | 'android')[];
-  /** XP reward for using this channel */
-  readonly xpReward: number;
   /** Description text */
   readonly description?: string;
 }
@@ -127,8 +125,8 @@ export interface InviteItem {
   readonly message?: string;
   /** Referral code */
   readonly referralCode: string;
-  /** XP earned for this invite (reserved for future use) */
-  readonly xpEarned?: number;
+  /** Agent X wallet credits earned for this invite (in cents). */
+  readonly creditsEarned?: number;
   /** Creation timestamp */
   readonly createdAt: string;
   /** Last update timestamp */
@@ -142,20 +140,22 @@ export interface InviteItem {
 // ============================================
 
 /**
- * XP reward tier based on invite performance.
+ * Reward tier based on invite performance.
+ * @deprecated XP system not active — tiers retained for future use.
  */
-export interface InviteXpTier {
+export interface InviteRewardTier {
   /** Tier name */
   readonly name: string;
   /** Minimum invites to reach tier */
   readonly minInvites: number;
-  /** XP multiplier for this tier */
-  readonly multiplier: number;
   /** Badge icon */
   readonly badgeIcon: string;
   /** Badge color */
   readonly badgeColor: string;
 }
+
+/** @deprecated Alias for backwards compatibility. */
+export type InviteXpTier = InviteRewardTier;
 
 /**
  * User's invite statistics.
@@ -193,8 +193,8 @@ export interface InviteAchievement {
   readonly icon: string;
   /** Badge color */
   readonly color: string;
-  /** XP reward */
-  readonly xpReward: number;
+  /** Wallet credit reward (cents). */
+  readonly creditReward?: number;
   /** Whether user has earned this */
   readonly isEarned: boolean;
   /** Progress (0-100) if not earned */
@@ -269,8 +269,8 @@ export interface SendInviteResponse {
   readonly success: boolean;
   /** Created invites */
   readonly invites: readonly InviteItem[];
-  /** Total XP earned (reserved for future use) */
-  readonly xpEarned?: number;
+  /** Agent X wallet credits earned for this batch (in cents). */
+  readonly creditsEarned?: number;
   /** New achievements unlocked */
   readonly newAchievements?: readonly InviteAchievement[];
   /** Error message (if failed) */

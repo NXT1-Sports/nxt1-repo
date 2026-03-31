@@ -20,7 +20,6 @@ export default defineConfig({
     'src/geolocation/index.ts', // Geolocation helpers
     'src/crashlytics/index.ts', // Firebase Crashlytics adapter
     'src/feed/index.ts', // Feed types and interfaces
-    'src/create-post/index.ts', // Create post types and interfaces
     'src/onboarding/index.ts', // Onboarding navigation and link-drop types
     'src/performance/index.ts', // Performance tracing abstraction
     'src/ai/index.ts', // AI definitions

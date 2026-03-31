@@ -22,6 +22,7 @@ import {
   OnboardingAgentXTypewriterComponent,
   NxtLogoComponent,
 } from '@nxt1/ui';
+import { TEST_IDS } from '@nxt1/core/testing';
 
 import { AddSportService } from '../add-sport.service';
 
@@ -45,7 +46,7 @@ import { AddSportService } from '../add-sport.service';
         [mobileFooterPadding]="true"
         (backClick)="addSport.onBack()"
       >
-        <div authContent class="nxt1-add-sport-step">
+        <div authContent class="nxt1-add-sport-step" [attr.data-testid]="testIds.STEP_LINK_SOURCES">
           <div class="nxt1-add-sport-logo">
             <nxt1-logo size="sm" variant="auth" />
           </div>
@@ -88,6 +89,7 @@ import { AddSportService } from '../add-sport.service';
 })
 export class AddSportLinkSourcesStepPage implements OnDestroy {
   protected readonly addSport = inject(AddSportService);
+  protected readonly testIds = TEST_IDS.ADD_SPORT;
 
   private readonly linkStepRef = viewChild<OnboardingLinkDropStepComponent>('linkSourcesStep');
   private readonly typewriterRef = viewChild(OnboardingAgentXTypewriterComponent);

@@ -25,6 +25,7 @@ import { logger } from '../utils/logger.js';
 import { INVITE_UI_CONFIG } from '@nxt1/core';
 import type { InviteType, InviteChannel, InviteStatus } from '@nxt1/core';
 import { invalidateTeamProfileCache } from '../services/cache.service.js';
+import { creditReferralReward } from '../modules/billing/wallet.service.js';
 
 const router = Router();
 
@@ -853,6 +854,29 @@ router.post(
       }
 
       await batch.commit();
+
+      // ── Credit referral reward to the inviter's Agent X wallet ──
+      if (inviterId) {
+        try {
+          const rewardResult = await creditReferralReward(db, inviterId, userId);
+          if (rewardResult.success) {
+            logger.info('[POST /invite/accept] Referral reward credited', {
+              referrerId: inviterId,
+              newUserId: userId,
+              amountCents: 500,
+              newBalanceCents: rewardResult.newBalanceCents,
+            });
+          }
+        } catch (rewardErr) {
+          // Non-blocking — invite acceptance should still succeed even if
+          // the wallet credit fails. The idempotent design allows retry.
+          logger.warn('[POST /invite/accept] Referral reward failed (non-blocking)', {
+            referrerId: inviterId,
+            newUserId: userId,
+            error: rewardErr instanceof Error ? rewardErr.message : String(rewardErr),
+          });
+        }
+      }
 
       // ── Team join (outside the batch; uses its own Firestore operations) ──
       if (teamCode) {

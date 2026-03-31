@@ -200,7 +200,6 @@ export {
   type InteractionDoc,
   type ScoutReportGrade,
   type ScoutReportDoc,
-  type FollowDoc,
   type UserSportDoc,
   // Private sub-collections
   type XpEntryDoc,
@@ -241,7 +240,6 @@ export {
   type UploadVideoRequest,
   type UploadVideoResponse,
   type CreateProfileCardRequest,
-  type CreatePostRequest,
   type FeedQuery,
   type FeedResponse,
 } from './media.model';
@@ -372,6 +370,8 @@ export {
   updateTabBadge,
   setTabDisabled,
   isMainPageRoute,
+  buildDynamicFooterTabs,
+  type FooterTabContext,
   // Desktop Top Nav Types
   type TopNavIconName,
   type TopNavItem,

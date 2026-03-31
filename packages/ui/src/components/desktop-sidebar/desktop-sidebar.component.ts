@@ -435,6 +435,7 @@ import {
                   [src]="user()!.profileImg"
                   [name]="user()!.name"
                   [initials]="user()!.initials"
+                  [isTeamRole]="user()!.isTeamRole"
                   [size]="isCollapsed() && !isHoverExpanded() ? 'sm' : 'md'"
                   [badge]="user()!.verified ? 'verified' : undefined"
                 />

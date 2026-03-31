@@ -22,6 +22,7 @@ import {
   signal,
   effect,
   AfterViewInit,
+  NgZone,
   OnInit,
   OnDestroy,
   ElementRef,
@@ -42,6 +43,7 @@ import {
   EXPLORE_TABS,
   isFeedTab,
 } from '@nxt1/core';
+import { TEST_IDS } from '@nxt1/core/testing';
 import {
   NxtOptionScrollerComponent,
   type OptionScrollerItem,
@@ -99,7 +101,7 @@ import { ExploreSidebarWebComponent } from './explore-sidebar-web.component';
 
     <!-- SEO: Main content area with semantic structure -->
     @if (!explore.isSearchFocused() || explore.hasQuery()) {
-      <div class="explore-mobile-tab-scroller">
+      <div class="explore-mobile-tab-scroller" [attr.data-testid]="testIds.TAB_SCROLLER">
         <nxt1-option-scroller
           [options]="tabOptions()"
           [selectedId]="explore.activeTab()"
@@ -113,19 +115,24 @@ import { ExploreSidebarWebComponent } from './explore-sidebar-web.component';
       <div class="explore-dashboard">
         <!-- Search Suggestions Overlay -->
         @if (explore.isSearchFocused() && !explore.hasQuery()) {
-          <section class="search-suggestions px-4 py-4" aria-labelledby="suggestions-heading">
+          <section
+            class="search-suggestions px-4 py-4"
+            aria-labelledby="suggestions-heading"
+            [attr.data-testid]="testIds.SUGGESTIONS_SECTION"
+          >
             <h2 id="suggestions-heading" class="sr-only">Search Suggestions</h2>
 
             <!-- Recent Searches -->
             @if (explore.recentSearches().length > 0) {
-              <div class="mb-6">
+              <div class="mb-6" [attr.data-testid]="testIds.RECENT_SEARCHES">
                 <h3 class="text-text-tertiary mb-3 text-xs font-semibold uppercase tracking-wider">
                   Recent
                 </h3>
-                @for (search of explore.recentSearches(); track search) {
+                @for (search of explore.recentSearches(); track search; let i = $index) {
                   <button
                     type="button"
                     class="bg-surface-100 hover:bg-surface-200 mb-2 flex w-full items-center gap-3 rounded-xl p-3 text-left transition-all active:scale-[0.98]"
+                    [attr.data-testid]="testIds.SUGGESTION_ITEM + '-recent-' + i"
                     (click)="onSuggestionClick(search)"
                   >
                     <!-- Time Icon -->
@@ -167,14 +174,15 @@ import { ExploreSidebarWebComponent } from './explore-sidebar-web.component';
 
             <!-- Trending Searches -->
             @if (explore.trendingSearches().length > 0) {
-              <div>
+              <div [attr.data-testid]="testIds.TRENDING_SEARCHES">
                 <h3 class="text-text-tertiary mb-3 text-xs font-semibold uppercase tracking-wider">
                   Trending
                 </h3>
-                @for (search of explore.trendingSearches(); track search) {
+                @for (search of explore.trendingSearches(); track search; let i = $index) {
                   <button
                     type="button"
                     class="bg-surface-100 hover:bg-surface-200 mb-2 flex w-full items-center gap-3 rounded-xl p-3 text-left transition-all active:scale-[0.98]"
+                    [attr.data-testid]="testIds.SUGGESTION_ITEM + '-trending-' + i"
                     (click)="onSuggestionClick(search)"
                   >
                     <!-- Trending Icon -->
@@ -221,8 +229,9 @@ import { ExploreSidebarWebComponent } from './explore-sidebar-web.component';
           <div class="explore-layout">
             <section class="explore-section-content" role="tabpanel">
               <!-- Discover Tab: Personalized posts feed -->
-              @if (explore.activeTab() === 'for-you' && !explore.hasQuery()) {
+              @if (explore.activeTab() === 'feed' && !explore.hasQuery()) {
                 <nxt1-feed-list
+                  [attr.data-testid]="testIds.FEED_PANEL"
                   [polymorphicFeed]="feedService.polymorphicFeed()"
                   [posts]="feedService.posts()"
                   [isLoading]="feedService.isLoading()"
@@ -231,43 +240,25 @@ import { ExploreSidebarWebComponent } from './explore-sidebar-web.component';
                   [error]="feedService.error()"
                   [hasMore]="feedService.hasMore()"
                   [compactCards]="true"
-                  [filterType]="'for-you'"
+                  [filterType]="'trending'"
                   (postClick)="onPostSelect($event)"
                   (authorClick)="onAuthorSelect($event)"
                   (reactClick)="onLikeClick($event)"
                   (repostClick)="onCommentClick($event)"
                   (shareClick)="onShareClick($event)"
-                  (bookmarkClick)="onBookmarkClick($event)"
-                  (loadMore)="onFeedLoadMore()"
-                  (retry)="onFeedRetry()"
-                />
-              } @else if (explore.activeTab() === 'following' && !explore.hasQuery()) {
-                <!-- Following Tab: Posts from followed users -->
-                <nxt1-feed-list
-                  [polymorphicFeed]="feedService.polymorphicFeed()"
-                  [posts]="feedService.posts()"
-                  [isLoading]="feedService.isLoading()"
-                  [isLoadingMore]="feedService.isLoadingMore()"
-                  [isEmpty]="feedService.isEmpty()"
-                  [error]="feedService.error()"
-                  [hasMore]="feedService.hasMore()"
-                  [compactCards]="true"
-                  [filterType]="'following'"
-                  (postClick)="onPostSelect($event)"
-                  (authorClick)="onAuthorSelect($event)"
-                  (reactClick)="onLikeClick($event)"
-                  (repostClick)="onCommentClick($event)"
-                  (shareClick)="onShareClick($event)"
-                  (bookmarkClick)="onBookmarkClick($event)"
                   (loadMore)="onFeedLoadMore()"
                   (retry)="onFeedRetry()"
                 />
               } @else if (explore.activeTab() === 'news' && !explore.hasQuery()) {
                 <!-- News Tab: Sports recruiting news -->
-                <nxt1-news-content (articleSelect)="onNewsArticleSelect($event)" />
+                <nxt1-news-content
+                  [attr.data-testid]="testIds.NEWS_PANEL"
+                  (articleSelect)="onNewsArticleSelect($event)"
+                />
               } @else if (explore.activeTab() === 'scout-reports' && !explore.hasQuery()) {
                 <!-- Scout Reports Tab -->
                 <nxt1-scout-reports-content
+                  [attr.data-testid]="testIds.SCOUT_REPORTS_PANEL"
                   (reportSelect)="onScoutReportSelect($event)"
                   (openFilters)="onScoutReportFiltersOpen()"
                 />
@@ -524,6 +515,7 @@ export class ExploreShellWebComponent implements OnInit, AfterViewInit, OnDestro
   readonly detectLocation = output<void>();
 
   // Local state
+  protected readonly testIds = TEST_IDS.EXPLORE;
   protected readonly searchValue = signal('');
   protected readonly searchPlaceholder = 'AI Search';
   protected readonly _detectingLocation = signal(false);
@@ -550,22 +542,16 @@ export class ExploreShellWebComponent implements OnInit, AfterViewInit, OnDestro
     showDivider: true,
   } as const;
 
-  protected readonly hasFollowingOption = computed(() => {
-    const followingCount = this.user()?.followingCount ?? 0;
-    const followingIdsCount = this.user()?.followingIds?.length ?? 0;
-    return followingCount > 0 || followingIdsCount > 0;
-  });
-
   protected readonly tabOptions = computed<OptionScrollerItem[]>(() => {
     const counts = this.explore.tabCounts();
-    const visibleTabIds: ExploreTabId[] = ['news', 'for-you'];
+    const visibleTabIds: ExploreTabId[] = ['feed', 'news'];
 
     return visibleTabIds
       .map((tabId) => EXPLORE_TABS.find((tab) => tab.id === tabId))
       .filter((tab): tab is (typeof EXPLORE_TABS)[number] => tab !== undefined)
       .map((tab) => ({
         id: tab.id,
-        label: tab.id === 'news' ? 'Pulse' : tab.id === 'for-you' ? 'Discover' : tab.label,
+        label: tab.id === 'news' ? 'Pulse' : tab.id === 'feed' ? 'Feed' : tab.label,
         badge: counts[tab.id] > 0 ? counts[tab.id] : undefined,
       }));
   });
@@ -574,9 +560,9 @@ export class ExploreShellWebComponent implements OnInit, AfterViewInit, OnDestro
     this.logger.info('Explore shell (web) initialized');
 
     const activeTab = this.explore.activeTab();
-    const isAllowedTab = activeTab === 'for-you' || activeTab === 'news';
+    const isAllowedTab = activeTab === 'feed' || activeTab === 'news';
     if (!isAllowedTab) {
-      void this.explore.switchTab('for-you');
+      void this.explore.switchTab('feed');
     }
     void this.ensureFeedLoadedForTab(this.explore.activeTab());
   }
@@ -626,12 +612,16 @@ export class ExploreShellWebComponent implements OnInit, AfterViewInit, OnDestro
     this.explore.setSearchFocused(true);
   }
 
+  private readonly ngZone = inject(NgZone);
+
   protected onSearchBlur(): void {
-    setTimeout(() => {
-      if (!this.searchValue()) {
-        this.explore.setSearchFocused(false);
-      }
-    }, 200);
+    this.ngZone.runOutsideAngular(() => {
+      setTimeout(() => {
+        if (!this.searchValue()) {
+          this.explore.setSearchFocused(false);
+        }
+      }, 200);
+    });
   }
 
   protected onSearchInput(event: Event): void {
@@ -766,11 +756,6 @@ export class ExploreShellWebComponent implements OnInit, AfterViewInit, OnDestro
     await this.feedService.sharePost(post);
   }
 
-  protected async onBookmarkClick(post: FeedPost): Promise<void> {
-    await this.haptics.impact('light');
-    await this.feedService.toggleBookmark(post);
-  }
-
   protected async onFeedLoadMore(): Promise<void> {
     await this.feedService.loadMore();
   }
@@ -783,9 +768,7 @@ export class ExploreShellWebComponent implements OnInit, AfterViewInit, OnDestro
   }
 
   private getFeedFilterType(tab: ExploreTabId): FeedFilterType | null {
-    if (tab === 'for-you') return 'for-you';
-    if (tab === 'feed') return 'for-you';
-    if (tab === 'following') return 'following';
+    if (tab === 'feed') return 'trending';
     return null;
   }
 

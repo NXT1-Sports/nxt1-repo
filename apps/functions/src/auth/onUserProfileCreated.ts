@@ -4,7 +4,7 @@
  *
  * Triggered when a new user document is created in Firestore.
  * - Creates user_analytics document
- * - Creates notification_preferences document
+ * - Initializes notification preferences on the Users document itself
  */
 
 import * as admin from 'firebase-admin';
@@ -39,29 +39,24 @@ export const onUserProfileCreatedV2 = onDocumentCreated('users/{userId}', async 
       lastActive: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Initialize notification preferences (global + per-category)
-    await db
-      .collection('notification_preferences')
-      .doc(userId)
-      .set({
-        userId,
-        push: true,
-        email: true,
-        sms: false,
-        marketing: false,
-        weeklyDigest: true,
-        // Per-category granular preferences (used by onNotificationCreated)
-        categories: {
-          social: { push: true, email: false, sms: false },
-          recruiting: { push: true, email: true, sms: false },
-          team: { push: true, email: true, sms: false },
-          content: { push: true, email: false, sms: false },
-          system: { push: true, email: true, sms: false },
-          billing: { push: true, email: true, sms: false },
-          marketing: { push: false, email: false, sms: false },
-        },
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+    // Initialize notification preferences on the Users document
+    // This is the canonical source of truth checked by onNotificationCreated,
+    // processEmailQueue, and all other dispatch logic.
+    const userRef = db.collection('Users').doc(userId);
+    const userDoc = await userRef.get();
+    if (userDoc.exists) {
+      const existingPrefs = userDoc.data()?.['preferences']?.['notifications'];
+      if (!existingPrefs) {
+        await userRef.update({
+          'preferences.notifications': {
+            push: true,
+            email: true,
+            sms: false,
+            marketing: true,
+          },
+        });
+      }
+    }
 
     logger.info('User initialization complete', { userId });
   } catch (error) {

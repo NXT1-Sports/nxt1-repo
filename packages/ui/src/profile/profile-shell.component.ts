@@ -200,7 +200,7 @@ export interface ProfileShellUser {
           <!-- Mobile Hero: Carousel + Identity + Stats -->
           <nxt1-profile-mobile-hero
             [isOwnProfile]="profile.isOwnProfile()"
-            (followClick)="onFollowToggle()"
+            (messageClick)="menuClick.emit()"
           />
 
           <!-- Tab Bar (Overview, Timeline, Videos, News, Recruit …) -->
@@ -264,7 +264,6 @@ export interface ProfileShellUser {
                   (shareClick)="onSharePost($event)"
                   (menuClick)="onPostMenu($event)"
                   (loadMore)="onLoadMore()"
-                  (emptyCtaClick)="onCreatePost()"
                 />
               }
 
@@ -597,8 +596,6 @@ export class ProfileShellComponent implements OnInit {
   readonly qrCodeClick = output<void>();
   readonly aiSummaryClick = output<void>();
   readonly agentXClick = output<void>();
-  readonly createPostClick = output<void>();
-  readonly followClick = output<void>();
   readonly retryClick = output<void>();
   readonly refreshRequest = output<void>();
 
@@ -792,10 +789,6 @@ export class ProfileShellComponent implements OnInit {
     this.retryClick.emit();
   }
 
-  protected onFollowToggle(): void {
-    this.followClick.emit();
-  }
-
   // Post actions
   protected onPostClick(post: ProfilePost): void {
     this.logger.debug('Post click', { postId: post.id });
@@ -826,10 +819,6 @@ export class ProfileShellComponent implements OnInit {
 
   protected onLoadMore(): void {
     this.profile.loadMorePosts();
-  }
-
-  protected onCreatePost(): void {
-    this.createPostClick.emit();
   }
 
   protected onUploadVideo(): void {

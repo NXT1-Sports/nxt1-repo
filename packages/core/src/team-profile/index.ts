@@ -48,8 +48,6 @@ export {
   // Recruiting types
   type TeamProfileRecruitingCategory,
   type TeamProfileRecruitingActivity,
-  // Social types
-  type TeamProfileFollowStats,
   // Analytics types
   type TeamProfileQuickStats,
   // Content types

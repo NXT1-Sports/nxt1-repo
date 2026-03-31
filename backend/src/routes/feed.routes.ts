@@ -124,7 +124,6 @@ async function enrichPostsWithMetadata(
         isLiked,
         isBookmarked: false,
         isReposted: false,
-        isFollowingAuthor: false,
       });
     })
   );

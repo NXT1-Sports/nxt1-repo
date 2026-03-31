@@ -202,14 +202,6 @@ export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
     ariaLabel: 'Explore athletes and teams',
   },
   {
-    id: 'create-post',
-    label: 'Create',
-    icon: 'plusCircle',
-    iconActive: 'plusCircleFilled',
-    route: '/post/create',
-    ariaLabel: 'Create a new post',
-  },
-  {
     id: 'ai',
     label: 'Agent X',
     icon: 'bolt',
@@ -260,14 +252,6 @@ export const CENTERED_CREATE_FOOTER_TABS: FooterTabItem[] = [
     iconActive: 'messagesFilled',
     route: '/messages',
     ariaLabel: 'View your messages',
-  },
-  {
-    id: 'create-post',
-    label: 'Create',
-    icon: 'plusCircle',
-    iconActive: 'plusCircleFilled',
-    route: '/post/create',
-    ariaLabel: 'Create a new post',
   },
   {
     id: 'activity',
@@ -384,6 +368,62 @@ export const AGENT_X_LEFT_FOOTER_TABS: FooterTabItem[] = [
     ariaLabel: 'View your profile',
   },
 ];
+
+/**
+ * Role-aware footer tab context — minimal subset to avoid circular imports.
+ * Matches the shape produced by `buildUserDisplayContext()`.
+ */
+export interface FooterTabContext {
+  /** Whether this user is a team-management role (coach/director) */
+  readonly isTeamRole: boolean;
+  /** Route for the profile/team tab (e.g. "/profile" or "/team/slug") */
+  readonly profileRoute: string;
+}
+
+/**
+ * Build role-aware footer tabs from the user's display context.
+ *
+ * - Athletes (default / logged-out): rightmost tab = "Profile" (user icon, /profile)
+ * - Coaches/Directors (isTeamRole): rightmost tab = "Team" (shield icon, context route)
+ *
+ * Pure function — 100% portable, zero framework dependencies.
+ *
+ * @param context User display context (null = logged-out default)
+ * @returns Footer tabs with the correct rightmost identity tab
+ */
+export function buildDynamicFooterTabs(
+  context: FooterTabContext | null | undefined
+): FooterTabItem[] {
+  // Shared tabs (everything except the rightmost identity tab)
+  const sharedTabs = AGENT_X_LEFT_FOOTER_TABS.filter((tab) => tab.id !== 'profile');
+
+  if (context?.isTeamRole) {
+    return [
+      ...sharedTabs,
+      {
+        id: 'profile',
+        label: 'Team',
+        icon: 'shield',
+        iconActive: 'shield',
+        route: context.profileRoute || '/profile',
+        ariaLabel: 'View your team',
+      },
+    ];
+  }
+
+  // Athlete or logged-out default
+  return [
+    ...sharedTabs,
+    {
+      id: 'profile',
+      label: 'Profile',
+      icon: 'user',
+      iconActive: 'userFilled',
+      route: context?.profileRoute || '/profile',
+      ariaLabel: 'View your profile',
+    },
+  ];
+}
 
 /**
  * Footer height values (matches design tokens)
@@ -690,6 +730,9 @@ export interface TopNavUserData {
 
   /** Whether this is a team role (coach/director) — affects avatar shape and add button label */
   isTeamRole?: boolean;
+
+  /** CTA button text: "Add Team" for coaches, "Add Sport" for athletes */
+  actionLabel?: string;
 
   /** Sport profiles for the switcher (same as mobile sidebar) */
   sportProfiles?: SidenavSportProfile[];
@@ -1136,6 +1179,15 @@ export interface SidenavUserData {
 
   /** User ID for navigation */
   userId?: string;
+
+  /** Whether this user is a team-management role (coach/director) */
+  isTeamRole?: boolean;
+
+  /** Section title: "Teams" for coaches/directors, "Sports" for athletes */
+  switcherTitle?: string;
+
+  /** CTA button text: "Add Team" for coaches, "Add Sport" for athletes */
+  actionLabel?: string;
 
   /** Available sport profiles for multi-sport athletes */
   sportProfiles?: SidenavSportProfile[];

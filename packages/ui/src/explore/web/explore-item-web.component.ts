@@ -22,6 +22,7 @@ import {
   type ExploreTeamItem,
   formatSportDisplayName,
 } from '@nxt1/core';
+import { TEST_IDS } from '@nxt1/core/testing';
 import { NxtAvatarComponent } from '../../components/avatar';
 import { NxtIconComponent } from '../../components/icon';
 import { HapticsService } from '../../services/haptics/haptics.service';
@@ -50,6 +51,7 @@ const ICON_PATHS = {
       [class.explore-item--team]="item().type === 'teams'"
       (click)="handleClick()"
       role="article"
+      [attr.data-testid]="testIds.LIST_ITEM"
       [attr.aria-label]="item().name"
     >
       <!-- College Item -->
@@ -329,6 +331,7 @@ const ICON_PATHS = {
 export class ExploreItemWebComponent {
   private readonly haptics = inject(HapticsService);
 
+  protected readonly testIds = TEST_IDS.EXPLORE;
   protected readonly formatSportDisplayName = formatSportDisplayName;
 
   // ============================================

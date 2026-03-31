@@ -361,10 +361,10 @@ export interface SettingsCopyEvent {
 
       /* Toggle styling */
       .settings-item__toggle {
-        --track-background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.12));
+        --track-background: rgba(255, 255, 255, 0.22);
         --track-background-checked: var(--nxt1-color-primary, #ccff00);
         --handle-background: #ffffff;
-        --handle-background-checked: #000000;
+        --handle-background-checked: #1a1a1a;
         padding: 0;
       }
 

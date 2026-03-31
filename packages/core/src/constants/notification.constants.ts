@@ -53,7 +53,6 @@ export type NotificationCategory =
 
 export const NOTIFICATION_TYPES = {
   // Social interactions
-  NEW_FOLLOWER: 'new_follower',
   POST_LIKE: 'post_like',
   POST_MENTION: 'post_mention',
   POST_SHARE: 'post_share',
@@ -63,12 +62,9 @@ export const NOTIFICATION_TYPES = {
   // Recruiting
   COLLEGE_VIEW: 'college_view',
   COACH_VIEW: 'coach_view',
-  NEW_OFFER: 'new_offer',
-  OFFER_UPDATE: 'offer_update',
   CAMP_REMINDER: 'camp_reminder',
   VISIT_REMINDER: 'visit_reminder',
   RECRUITING_UPDATE: 'recruiting_update',
-  MESSAGE_FROM_COACH: 'message_from_coach',
 
   // Team
   TEAM_INVITE: 'team_invite',
@@ -77,7 +73,6 @@ export const NOTIFICATION_TYPES = {
   TEAM_MEMBER_LEFT: 'team_member_left',
   TEAM_ANNOUNCEMENT: 'team_announcement',
   TEAM_EVENT: 'team_event',
-  TEAM_NEW_FOLLOWER: 'team_new_follower',
 
   // Content
   VIDEO_PROCESSED: 'video_processed',
@@ -155,7 +150,6 @@ export type NotificationStatus = (typeof NOTIFICATION_STATUSES)[keyof typeof NOT
  */
 export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCategory> = {
   // Social
-  new_follower: 'social',
   post_like: 'social',
   post_mention: 'social',
   post_share: 'social',
@@ -165,12 +159,9 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   // Recruiting
   college_view: 'recruiting',
   coach_view: 'recruiting',
-  new_offer: 'recruiting',
-  offer_update: 'recruiting',
   camp_reminder: 'recruiting',
   visit_reminder: 'recruiting',
   recruiting_update: 'recruiting',
-  message_from_coach: 'recruiting',
 
   // Team
   team_invite: 'team',
@@ -179,7 +170,6 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   team_member_left: 'team',
   team_announcement: 'team',
   team_event: 'team',
-  team_new_follower: 'team',
 
   // Content / Agent
   video_processed: 'content',
@@ -268,7 +258,6 @@ import type { ActivityTabId } from '../activity/activity.types';
  */
 export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   // Social → alerts
-  new_follower: 'alerts',
   post_like: 'alerts',
   post_mention: 'alerts',
   post_share: 'alerts',
@@ -278,12 +267,9 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   // Recruiting → alerts
   college_view: 'alerts',
   coach_view: 'alerts',
-  new_offer: 'alerts',
-  offer_update: 'alerts',
   camp_reminder: 'alerts',
   visit_reminder: 'alerts',
   recruiting_update: 'alerts',
-  message_from_coach: 'alerts',
 
   // Team → alerts
   team_invite: 'alerts',
@@ -292,7 +278,6 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   team_member_left: 'alerts',
   team_announcement: 'alerts',
   team_event: 'alerts',
-  team_new_follower: 'alerts',
 
   // Content / Agent → alerts
   video_processed: 'alerts',
@@ -341,7 +326,6 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
  */
 export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> = {
   // Social
-  new_follower: '/profile/{sourceUserId}',
   post_like: '/post/{entityId}',
   post_mention: '/post/{entityId}',
   post_share: '/post/{entityId}',
@@ -351,12 +335,9 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   // Recruiting
   college_view: '/analytics',
   coach_view: '/analytics',
-  new_offer: '/activity?tab=inbox',
-  offer_update: '/activity?tab=inbox',
   camp_reminder: '/activity?tab=inbox',
   visit_reminder: '/activity?tab=inbox',
   recruiting_update: '/activity?tab=inbox',
-  message_from_coach: '/messages/{entityId}',
 
   // Team
   team_invite: '/activity?tab=inbox',
@@ -365,7 +346,6 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   team_member_left: '/manage-team',
   team_announcement: '/team/{teamId}',
   team_event: '/team/{teamId}',
-  team_new_follower: '/team/{teamId}',
 
   // Content / Agent — all route into the chat thread
   video_processed: '/agent-x?thread={sessionId}',
@@ -393,7 +373,7 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
 
   // Marketing
   feature_announcement: '/activity?tab=alerts',
-  weekly_digest: '/activity?tab=alerts',
+  weekly_digest: '/agent-x',
   special_offer: '/activity?tab=alerts',
 } as const;
 
@@ -461,12 +441,7 @@ export function getNotificationCategory(type: NotificationType): NotificationCat
  * Check if a notification type is high priority
  */
 export function isHighPriorityNotification(type: NotificationType): boolean {
-  const highPriorityTypes: NotificationType[] = [
-    'new_offer',
-    'message_from_coach',
-    'security_alert',
-    'payment_failed',
-  ];
+  const highPriorityTypes: NotificationType[] = ['security_alert', 'payment_failed'];
   return highPriorityTypes.includes(type);
 }
 

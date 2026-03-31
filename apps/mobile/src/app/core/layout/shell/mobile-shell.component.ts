@@ -88,6 +88,7 @@ import {
   type SidenavConfig,
   type SidenavSection,
   type SidenavUserData,
+  type SidenavSportProfile,
   type SocialLink,
   type SidenavToggleEvent,
   AGENT_X_LEFT_FOOTER_TABS,
@@ -98,6 +99,7 @@ import {
   findTabByRoute,
   updateTabBadge,
   isMainPageRoute,
+  buildDynamicFooterTabs,
   SIDENAV_WIDTHS,
   SIDENAV_ANIMATION,
 } from '@nxt1/ui';
@@ -277,12 +279,21 @@ export class MobileShellComponent implements OnInit, OnDestroy {
 
   /**
    * Tab configuration with reactive badge count for notifications.
-   * Uses computed signal to update footer badges when unread counts change.
+   * Uses buildDynamicFooterTabs() to render role-aware tabs:
+   * - Athletes: "Profile" tab with user icon
+   * - Coaches/Directors: "Team" tab with shield icon
    */
   readonly tabs = computed<FooterTabItem[]>(() => {
+    const profile = this.profileService.user();
+    const isTeam = profile?.role ? isTeamRole(profile.role) : false;
+    const teamSlug = profile?.teamCode?.slug ?? profile?.coach?.managedTeamCodes?.[0] ?? undefined;
+    const ctx = isTeam
+      ? { isTeamRole: true, profileRoute: teamSlug ? `/team/${teamSlug}` : '/profile' }
+      : { isTeamRole: false, profileRoute: '/profile' };
+    const baseTabs = buildDynamicFooterTabs(ctx);
     const activityUnreadCount = this.activityService.totalUnread();
     return updateTabBadge(
-      AGENT_X_LEFT_FOOTER_TABS,
+      baseTabs,
       'activity',
       activityUnreadCount > 0 ? activityUnreadCount : undefined
     );
@@ -367,18 +378,44 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       const primarySport = sports.find((s) => s.order === 0) ?? sports[0];
       const primarySportName = this.resolveSportName(primarySport);
       const position = primarySport?.positions?.[0] ?? '';
-      const displayName = `${profile.firstName} ${profile.lastName}`.trim();
-      // Coach/Director roles: use team logo instead of user profile photo
-      const profileImg =
-        isTeamRole(profile.role) && profile.teamCode?.logoUrl
-          ? profile.teamCode.logoUrl
-          : profile.profileImgs?.[0] || authUser?.profileImg || undefined;
+      const personalName = `${profile.firstName} ${profile.lastName}`.trim();
+
+      // Coach/Director roles: resolve team name and logo from available sources
+      let displayName = personalName;
+      let profileImg: string | undefined;
+
+      if (isTeamRole(profile.role)) {
+        // Sport team data may include team info not in the normalized type
+        const sportTeam = (primarySport as unknown as Record<string, unknown> | undefined)?.[
+          'team'
+        ] as Record<string, unknown> | undefined;
+        // Raw Firestore top-level team field (not on User interface)
+        const rawTeam = (profile as unknown as Record<string, unknown>)['team'] as
+          | Record<string, unknown>
+          | undefined;
+
+        // Team name: teamCode → sports[].team → raw Firestore team field → personal name
+        const teamName =
+          (profile.teamCode?.teamName as string | undefined) ??
+          (sportTeam?.['name'] as string | undefined) ??
+          (rawTeam?.['name'] as string | undefined);
+        displayName = teamName || personalName;
+
+        // Team logo: teamCode → sports[].team → raw Firestore team field → undefined (shield fallback)
+        profileImg =
+          profile.teamCode?.logoUrl ??
+          (sportTeam?.['logoUrl'] as string | undefined) ??
+          (rawTeam?.['logoUrl'] as string | undefined) ??
+          undefined;
+      } else {
+        profileImg = profile.profileImgs?.[0] || authUser?.profileImg || undefined;
+      }
 
       const subtitle = primarySportName
         ? position
           ? `${primarySportName} • ${position}`
           : primarySportName
-        : position || 'Athlete';
+        : position || (isTeamRole(profile.role) ? 'Coach' : 'Athlete');
 
       return {
         name: displayName || 'User',
@@ -387,18 +424,52 @@ export class MobileShellComponent implements OnInit, OnDestroy {
         initials: this.getInitials(displayName || profile.email || 'U'),
         verified: false,
         isPremium: this.profileService.isPremium(),
+        isTeamRole: isTeamRole(profile.role),
+        switcherTitle: isTeamRole(profile.role) ? 'Teams' : 'Sports',
+        actionLabel: isTeamRole(profile.role) ? 'Add Team' : 'Add Sport',
         userId: profile.id,
-        sportProfiles: sports.map((s, index: number) => {
-          const sportName = this.resolveSportName(s) || s.positions?.[0] || `Sport ${index + 1}`;
-          return {
-            id: `${profile.id}-${sportName.toLowerCase().replace(/\s+/g, '-')}`,
-            sport: sportName,
-            sportIcon: this.getSportIcon(s.sport),
-            position: s.positions?.[0] ?? undefined,
-            isActive: s.order === 0, // Primary sport has order === 0
-            classYear: undefined, // TODO: Get from backend profile
-          };
-        }),
+        // Team roles: show each sport as a team card (team name + sport label)
+        // Athletes: show sport profiles for switching between sports.
+        sportProfiles: isTeamRole(profile.role)
+          ? (() => {
+              const teamProfiles: SidenavSportProfile[] = [];
+              // Primary sport from teamCode
+              if (primarySportName) {
+                teamProfiles.push({
+                  id: 'team-primary',
+                  sport: displayName,
+                  position: primarySportName,
+                  isActive: true,
+                  profileImg,
+                });
+              }
+              // Additional sports added via Add Team wizard
+              sports.forEach((s, index: number) => {
+                const sName = this.resolveSportName(s);
+                if (sName && sName !== primarySportName) {
+                  teamProfiles.push({
+                    id: `team-sport-${index}`,
+                    sport: displayName,
+                    position: sName,
+                    isActive: false,
+                    profileImg,
+                  });
+                }
+              });
+              return teamProfiles;
+            })()
+          : sports.map((s, index: number) => {
+              const sportName =
+                this.resolveSportName(s) || s.positions?.[0] || `Sport ${index + 1}`;
+              return {
+                id: `${profile.id}-${sportName.toLowerCase().replace(/\s+/g, '-')}`,
+                sport: sportName,
+                sportIcon: this.getSportIcon(s.sport),
+                position: s.positions?.[0] ?? undefined,
+                isActive: s.order === 0,
+                classYear: undefined,
+              };
+            }),
         activeSportProfileId: primarySportName
           ? `${profile.id}-${primarySportName.toLowerCase().replace(/\s+/g, '-')}`
           : undefined,
@@ -415,6 +486,8 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       initials: this.getInitials(authUser.displayName || authUser.email || 'U'),
       verified: authUser.emailVerified,
       isPremium: authUser.isPremium,
+      isTeamRole: isTeamRole(authUser.role),
+      actionLabel: isTeamRole(authUser.role) ? 'Add Team' : 'Add Sport',
       userId: authUser.uid,
       sportProfiles: [], // AuthUser doesn't have sports data
       activeSportProfileId: undefined,

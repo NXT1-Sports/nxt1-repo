@@ -164,6 +164,8 @@ export {
   CENTERED_CREATE_FOOTER_TABS,
   AGENT_X_CENTER_FOOTER_TABS,
   AGENT_X_LEFT_FOOTER_TABS,
+  type FooterTabContext,
+  buildDynamicFooterTabs,
   FOOTER_HEIGHTS,
   FOOTER_ANIMATION,
   MAIN_PAGE_ROUTES,
@@ -592,55 +594,6 @@ export {
 } from './errors';
 
 // ============================================
-// CREATE POST (Post Creation & Publishing)
-// ============================================
-
-export {
-  // Types
-  type PostType,
-  type PostPrivacy,
-  type UploadStatus,
-  type CreatePostStatus,
-  type MediaType,
-  type PostMedia,
-  type PostPoll,
-  type PollOption,
-  type PostLocation,
-  type TaggableUser,
-  type PostDraft,
-  type CreatePostState,
-  type CreatePostRequest,
-  type CreatePostResponse,
-  type MediaUploadRequest,
-  type MediaUploadResponse,
-  type PostXpBreakdown,
-  type XpRewardTier,
-  type PostValidationResult,
-  type PostValidationError,
-  type PrivacyOption,
-  // Constants
-  POST_MAX_CHARACTERS,
-  POST_MAX_MEDIA,
-  POST_MAX_TAGS,
-  POST_TYPE_OPTIONS,
-  PRIVACY_OPTIONS,
-  XP_REWARD_TIERS,
-  XP_BONUSES,
-  CREATE_POST_API_ENDPOINTS,
-  CREATE_POST_UI_CONFIG,
-  // API Factory
-  createCreatePostApi,
-  type CreatePostApi,
-  // Validation
-  validatePost,
-  validatePostContent,
-  validatePostMedia,
-  validateMediaItem,
-  validatePoll,
-  getRemainingCharacters,
-} from './create-post';
-
-// ============================================
 // ACTIVITY (Notifications & Activity Feed)
 // ============================================
 
@@ -781,7 +734,6 @@ export {
   type UpdateProfileRequest,
   type UpdateSportProfileRequest,
   type ProfileSearchParams,
-  type FollowResponse,
   type ProfileAnalytics,
   type ProfileSeasonGameLog,
   // Verification helpers
@@ -828,7 +780,6 @@ export {
   type TeamProfileStaffMember,
   type TeamProfileRecruitingActivity,
   type TeamProfileRecruitingCategory,
-  type TeamProfileFollowStats,
   type TeamProfileQuickStats,
   type TeamProfilePostType,
   type TeamProfilePost,

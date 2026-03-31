@@ -6,9 +6,19 @@
  * 100% portable - works on web, mobile, and backend.
  */
 
-import type { CreatePostRequest } from '../create-post';
 import type { ValidationResult, ValidationError } from './schemas';
 import { POST_LIMITS, COMMENT_LIMITS } from '../constants/posts.constants';
+
+// Minimal local type for post creation validation (backend-owned full type)
+interface CreatePostRequest {
+  content?: string;
+  type?: string;
+  privacy?: string;
+  mediaIds?: unknown[];
+  taggedUserIds?: unknown[];
+  poll?: { question?: string; options?: unknown[]; durationHours?: number };
+  scheduledFor?: string;
+}
 
 // ============================================
 // VALIDATION FUNCTIONS

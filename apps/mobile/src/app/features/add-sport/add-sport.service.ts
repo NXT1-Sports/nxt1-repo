@@ -22,6 +22,8 @@ import {
   HapticsService,
   NxtToastService,
   NxtLoggingService,
+  NxtBreadcrumbService,
+  ANALYTICS_ADAPTER,
   type AnimationDirection,
 } from '@nxt1/ui';
 
@@ -29,8 +31,10 @@ import type { SportFormData, LinkSourcesFormData, LinkSourceEntry } from '@nxt1/
 
 import type { ConnectedSource } from '@nxt1/core/models';
 
-import { USER_ROLES } from '@nxt1/core/constants';
+import { DEFAULT_SPORTS, isTeamRole, type SportCell } from '@nxt1/core/constants';
 import type { OnboardingUserType } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import { mapToConnectedSources, mergeConnectedSources } from '@nxt1/core/profile';
 
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 import { ProfileApiService } from '../../core/services/profile-api.service';
@@ -52,24 +56,8 @@ interface QuickAddLinkTarget {
 
 const STEPS: AddSportStep[] = ['sport', 'link-sources'];
 
-/**
- * Maps connected LinkSourceEntry items to the ConnectedSource model
- * expected by the profile update endpoint.
- */
-function mapToConnectedSources(entries: LinkSourceEntry[]): ConnectedSource[] {
-  return entries
-    .filter((e) => e.connected && e.url?.trim())
-    .map((e) => ({
-      platform: e.platform,
-      profileUrl: e.url ?? '',
-      scopeType: e.scopeType,
-      scopeId: e.scopeId,
-    }));
-}
-
-/** Stable deduplication key for a connected source */
-function sourceKey(s: ConnectedSource): string {
-  return `${s.platform}|${s.scopeType ?? 'global'}|${s.scopeId ?? ''}`;
+function normalizeSportName(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
 @Injectable()
@@ -86,6 +74,8 @@ export class AddSportService {
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('AddSport');
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   // ============================================
   // WRITABLE SIGNALS
@@ -137,6 +127,32 @@ export class AddSportService {
     return data?.sports?.map((s) => s.sport).filter(Boolean) ?? [];
   });
 
+  /** Sports/teams already associated with the current user profile */
+  readonly existingSportNames = computed<string[]>(() => {
+    const user = this.profileService.user() as {
+      sports?: Array<{ sport?: string | null }>;
+      teamCode?: { sport?: string | null } | null;
+    } | null;
+    if (!user) return [];
+
+    const fromSports = Array.isArray(user.sports)
+      ? user.sports.map((s) => s?.sport).filter((s): s is string => typeof s === 'string')
+      : [];
+    const fromTeam = user.teamCode?.sport ? [user.teamCode.sport] : [];
+
+    return Array.from(
+      new Set([...fromSports, ...fromTeam].map((name) => normalizeSportName(name)).filter(Boolean))
+    );
+  });
+
+  /** Available sports list with already-owned sports removed */
+  readonly availableSports = computed<SportCell[]>(() => {
+    const taken = new Set(this.existingSportNames());
+    return (DEFAULT_SPORTS as SportCell[]).filter(
+      (sport) => !taken.has(normalizeSportName(sport.name))
+    );
+  });
+
   /** Whether the sport step has a valid sport selected */
   readonly isSportStepValid = computed(() => {
     const data = this._sportFormData();
@@ -155,11 +171,19 @@ export class AddSportService {
     return (user?.role as OnboardingUserType | null) ?? null;
   });
 
-  /** Link scope based on user role */
-  readonly linkScope = computed<'athlete' | 'team'>(() => {
-    const role = this.selectedRole();
-    return role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR ? 'team' : 'athlete';
+  /** Whether the user has a team-management role (coach / director) */
+  readonly isTeamRoleUser = computed(() => {
+    const role = this.profileService.user()?.role;
+    return role ? isTeamRole(role) : false;
   });
+
+  /** Link scope based on user role */
+  readonly linkScope = computed<'athlete' | 'team'>(() =>
+    this.isTeamRoleUser() ? 'team' : 'athlete'
+  );
+
+  /** Page title adapts per role */
+  readonly pageTitle = computed(() => (this.isTeamRoleUser() ? 'Add Team' : 'Add Sport'));
 
   // ============================================
   // LIFECYCLE
@@ -175,6 +199,10 @@ export class AddSportService {
     this._quickAddLinkValue.set('');
     this.linkSourcesStepRef = null;
     this.logger.info('AddSportService initialized');
+    this.breadcrumb.trackStateChange('add-sport:opened');
+    this.analytics?.trackEvent(APP_EVENTS.ADD_SPORT_WIZARD_OPENED, {
+      role: this.selectedRole() ?? 'unknown',
+    });
   }
 
   destroy(): void {
@@ -230,10 +258,21 @@ export class AddSportService {
     await this.haptics.impact('medium');
 
     if (this.currentStep() === 'sport') {
+      const selected = normalizeSportName(this._sportFormData()?.sports?.[0]?.sport);
+      if (selected && this.existingSportNames().includes(selected)) {
+        const label = this.isTeamRoleUser() ? 'team' : 'sport';
+        this.toast.error(`You already have this ${label}. Please choose a different one.`);
+        return;
+      }
       // Advance to link-sources step
       this._currentStepIndex.set(1);
       this._contentReady.set(false);
       this._footerVisible.set(false);
+      this.breadcrumb.trackStateChange('add-sport:step-changed', { step: 'link-sources' });
+      this.analytics?.trackEvent(APP_EVENTS.ADD_SPORT_STEP_CHANGED, {
+        step: 'link-sources',
+        direction: 'forward',
+      });
       await this.navigateToStep('link-sources', 'forward');
       return;
     }
@@ -262,6 +301,11 @@ export class AddSportService {
     this._currentStepIndex.set(0);
     this._contentReady.set(false);
     this._footerVisible.set(false);
+    this.breadcrumb.trackStateChange('add-sport:step-changed', { step: 'sport' });
+    this.analytics?.trackEvent(APP_EVENTS.ADD_SPORT_STEP_CHANGED, {
+      step: 'sport',
+      direction: 'backward',
+    });
     await this.navigateToStep('sport', 'backward');
   }
 
@@ -286,7 +330,16 @@ export class AddSportService {
       return;
     }
 
+    const selected = normalizeSportName(primarySport.sport);
+    if (selected && this.existingSportNames().includes(selected)) {
+      const label = this.isTeamRoleUser() ? 'team' : 'sport';
+      this.toast.error(`You already have this ${label}. Please choose a different one.`);
+      return;
+    }
+
     this._isLoading.set(true);
+    this.breadcrumb.trackStateChange('add-sport:saving', { sport: primarySport.sport });
+
     try {
       // 1. Add the new sport to the user's profile
       const sportResponse = await this.profileApi.addSport(uid, {
@@ -308,20 +361,9 @@ export class AddSportService {
       const newSources = mapToConnectedSources(connectedEntries);
 
       if (newSources.length > 0) {
-        // Merge with existing connected sources to avoid overwriting
         const existingUser = this.profileService.user();
         const existingSources: ConnectedSource[] = existingUser?.connectedSources ?? [];
-
-        // Deduplicate by platform+scopeType+scopeId
-        const sourcesMap = new Map<string, ConnectedSource>();
-        for (const s of existingSources) {
-          sourcesMap.set(sourceKey(s), s);
-        }
-        for (const s of newSources) {
-          sourcesMap.set(sourceKey(s), s);
-        }
-
-        const mergedSources = Array.from(sourcesMap.values());
+        const mergedSources = mergeConnectedSources(existingSources, newSources);
 
         const updateResponse = await this.profileApi.updateProfile(uid, {
           connectedSources: mergedSources,
@@ -341,12 +383,22 @@ export class AddSportService {
         this.logger.warn('Profile refresh failed', { error: err });
       }
 
+      this.analytics?.trackEvent(APP_EVENTS.PROFILE_SPORT_ADDED, {
+        sport: primarySport.sport,
+        role: this.selectedRole() ?? 'unknown',
+      });
+      this.analytics?.trackEvent(APP_EVENTS.ADD_SPORT_WIZARD_COMPLETED, {
+        sport: primarySport.sport,
+        connectedSourcesCount: newSources.length,
+      });
+      this.breadcrumb.trackStateChange('add-sport:completed', { sport: primarySport.sport });
       this.toast.success(`${primarySport.sport} added to your profile!`);
 
       // Navigate back to main app
       await this.navController.navigateRoot('/', { animated: true, animationDirection: 'back' });
     } catch (err) {
       this.logger.error('AddSport save error', err);
+      this.breadcrumb.trackStateChange('add-sport:error');
       this.toast.error('Something went wrong. Please try again.');
     } finally {
       this._isLoading.set(false);

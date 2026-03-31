@@ -482,19 +482,6 @@ export interface CreateProfileCardRequest {
   customization?: ProfileCard['customization'];
 }
 
-export interface CreatePostRequest {
-  userId: string;
-  type: PostType;
-  title: string;
-  description?: string;
-  sportIndex: number;
-  mediaUrl?: string;
-  attachedData?: PostAttachment[];
-  tags?: string[];
-  mentions?: PostMention[];
-  isPublic?: boolean;
-}
-
 export interface FeedQuery {
   /** Filter by user ID */
   userId?: string;

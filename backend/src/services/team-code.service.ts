@@ -10,7 +10,7 @@
  * - Bulk operations
  */
 
-import type { Firestore, FieldValue as FieldValueType } from 'firebase-admin/firestore';
+import type { Firestore, FieldValue as FieldValueType, WriteBatch } from 'firebase-admin/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
 import {
   TeamCode,
@@ -399,9 +399,20 @@ export function generateMemberUnicode(teamUnicode: string, role: ROLE): string {
 }
 
 /**
- * Create a new TeamCode
+ * Create a new TeamCode.
+ *
+ * @param db        Firestore instance
+ * @param input     Team creation payload
+ * @param externalBatch  Optional WriteBatch — when provided, the new Team doc
+ *                       is queued onto this batch instead of being committed
+ *                       immediately. The caller is responsible for committing.
+ *                       A synthetic TeamCode is returned (not yet persisted).
  */
-export async function createTeamCode(db: Firestore, input: CreateTeamCodeInput): Promise<TeamCode> {
+export async function createTeamCode(
+  db: Firestore,
+  input: CreateTeamCodeInput,
+  externalBatch?: WriteBatch
+): Promise<TeamCode> {
   // Validate team name
   if (!input.teamName?.trim()) {
     throw validationError([
@@ -490,7 +501,32 @@ export async function createTeamCode(db: Firestore, input: CreateTeamCodeInput):
     conference: input.conference ?? '',
   };
 
-  const docRef = await db.collection('Teams').add(teamData);
+  const docRef = db.collection('Teams').doc();
+
+  if (externalBatch) {
+    // Add to caller's batch — caller is responsible for committing
+    externalBatch.set(docRef, teamData);
+    logger.info('Team queued in batch', { teamId: docRef.id, teamCode: input.teamCode });
+
+    // Return synthetic TeamCode (doc not yet committed)
+    return {
+      id: docRef.id,
+      teamCode: teamData.teamCode as string,
+      teamName: teamData.teamName as string,
+      teamType: teamData.teamType as string,
+      sport: teamData.sport as string,
+      slug,
+      athleteMember: 0,
+      panelMember: 0,
+      isActive: true,
+      members: teamData.members as TeamMember[],
+      memberIds: teamData.memberIds as string[],
+      unicode,
+      createdAt: new Date(),
+    } as TeamCode;
+  }
+
+  await docRef.set(teamData);
   const doc = await docRef.get();
 
   const team = docToTeamCode(doc);

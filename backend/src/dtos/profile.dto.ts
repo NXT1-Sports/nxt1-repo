@@ -195,7 +195,7 @@ export class PreferencesDto {
   privacy?: {
     showEmail?: boolean;
     showPhone?: boolean;
-    profileVisibility?: 'public' | 'private' | 'followers';
+    profileVisibility?: 'public' | 'private';
   };
 }
 

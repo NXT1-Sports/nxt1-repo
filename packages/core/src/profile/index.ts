@@ -29,8 +29,6 @@ export {
   type ProfileAward,
   type ProfileCoachContact,
   type ProfileUser,
-  // Social types
-  type ProfileFollowStats,
   // Analytics types
   type ProfileQuickStats,
   type ProfileStatItem,
@@ -122,6 +120,15 @@ export {
 } from './profile.constants';
 
 // ============================================
+// CONNECTED SOURCES HELPERS
+// ============================================
+export {
+  mapToConnectedSources,
+  connectedSourceKey,
+  mergeConnectedSources,
+} from './connected-sources.helpers';
+
+// ============================================
 // PROFILE SCHEDULE HELPERS
 // ============================================
 export {
@@ -145,6 +152,5 @@ export {
   type UpdateProfileRequest,
   type UpdateSportProfileRequest,
   type ProfileSearchParams,
-  type FollowResponse,
   type ProfileAnalytics,
 } from './profile.api';

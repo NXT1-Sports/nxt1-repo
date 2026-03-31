@@ -134,12 +134,6 @@ export interface ProfileSearchParams {
   limit?: number;
 }
 
-export interface FollowResponse {
-  success: boolean;
-  isFollowing: boolean;
-  followersCount: number;
-}
-
 export interface ProfileAnalytics {
   profileViews: number;
   videoViews: number;
@@ -230,63 +224,6 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
     async searchProfiles(params: ProfileSearchParams): Promise<PaginatedResponse<UserSummary>> {
       return http.get<PaginatedResponse<UserSummary>>(`${baseUrl}/auth/profile/search`, {
         params: params as Record<string, string | number | boolean>,
-      });
-    },
-
-    /**
-     * Follow a user
-     */
-    async follow(_userId: string, targetUserId: string): Promise<FollowResponse> {
-      // Backend reads followerId from JWT (req.user.uid) — only targetUserId needed in body.
-      return http.post<FollowResponse>(`${baseUrl}/follow`, { targetUserId });
-    },
-
-    /**
-     * Unfollow a user
-     */
-    async unfollow(_userId: string, targetUserId: string): Promise<FollowResponse> {
-      // Embed targetUserId directly in URL — guarantees it arrives in req.query regardless
-      // of how the HTTP adapter serialises the params config option.
-      return http.delete<FollowResponse>(
-        `${baseUrl}/follow?targetUserId=${encodeURIComponent(targetUserId)}`
-      );
-    },
-
-    /**
-     * Check if the current authenticated user is following a target user
-     */
-    async checkFollow(
-      targetUserId: string
-    ): Promise<{ success: boolean; data: { isFollowing: boolean } }> {
-      return http.get<{ success: boolean; data: { isFollowing: boolean } }>(
-        `${baseUrl}/follow/check`,
-        { params: { targetUserId } }
-      );
-    },
-
-    /**
-     * Get followers
-     */
-    async getFollowers(
-      userId: string,
-      page: number = 1,
-      limit: number = 20
-    ): Promise<PaginatedResponse<UserSummary>> {
-      return http.get<PaginatedResponse<UserSummary>>(`${baseUrl}/follow/followers/${userId}`, {
-        params: { page, limit },
-      });
-    },
-
-    /**
-     * Get following
-     */
-    async getFollowing(
-      userId: string,
-      page: number = 1,
-      limit: number = 20
-    ): Promise<PaginatedResponse<UserSummary>> {
-      return http.get<PaginatedResponse<UserSummary>>(`${baseUrl}/follow/following/${userId}`, {
-        params: { page, limit },
       });
     },
 

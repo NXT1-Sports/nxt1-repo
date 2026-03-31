@@ -165,44 +165,6 @@ export class TeamProfileApiClient {
   }
 
   /**
-   * Follow a team
-   * POST /api/v1/teams/:id/follow
-   */
-  async followTeam(teamId: string): Promise<ApiResponse<{ isFollowing: boolean }>> {
-    const url = `${this.baseUrl}/teams/${encodeURIComponent(teamId)}/follow`;
-    try {
-      const response = await firstValueFrom(
-        this.http.post<ApiResponse<{ isFollowing: boolean }>>(url, {})
-      );
-      this.logger.debug('Team followed', { teamId });
-      return response;
-    } catch (error) {
-      const apiError = this.handleError(error);
-      this.logger.error('Failed to follow team', error, { teamId, status: apiError.status });
-      throw apiError;
-    }
-  }
-
-  /**
-   * Unfollow a team
-   * DELETE /api/v1/teams/:id/follow
-   */
-  async unfollowTeam(teamId: string): Promise<ApiResponse<{ isFollowing: boolean }>> {
-    const url = `${this.baseUrl}/teams/${encodeURIComponent(teamId)}/follow`;
-    try {
-      const response = await firstValueFrom(
-        this.http.delete<ApiResponse<{ isFollowing: boolean }>>(url)
-      );
-      this.logger.debug('Team unfollowed', { teamId });
-      return response;
-    } catch (error) {
-      const apiError = this.handleError(error);
-      this.logger.error('Failed to unfollow team', error, { teamId, status: apiError.status });
-      throw apiError;
-    }
-  }
-
-  /**
    * Handle API errors
    */
   private handleError(error: unknown): TeamProfileApiError {

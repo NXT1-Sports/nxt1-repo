@@ -56,51 +56,6 @@ export { ProfilePageActionsService } from './profile-page-actions.service';
  * Performance monitoring service for Firebase Performance.
  * Use the `trace()` method to wrap any async operation for automatic tracing.
  *
- * @example Basic Usage
- * ```typescript
- * import { PerformanceService } from '@nxt1/web/core/services';
- * import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
- *
- * @Injectable()
- * export class PostService {
- *   private readonly performance = inject(PerformanceService);
- *   private readonly api = inject(CreatePostApiService);
- *
- *   async createPost(data: CreatePostRequest) {
- *     return this.performance.trace(
- *       TRACE_NAMES.POST_CREATE,
- *       () => this.api.createPost(data),
- *       {
- *         attributes: {
- *           [ATTRIBUTE_NAMES.FEATURE_NAME]: 'create_post',
- *           post_type: data.type,
- *         },
- *         onSuccess: async (result, trace) => {
- *           await trace.putMetric('xp_earned', result.xpEarned?.totalXp || 0);
- *         }
- *       }
- *     );
- *   }
- * }
- * ```
- *
- * @example Component Usage
- * ```typescript
- * export class CreatePostComponent {
- *   private readonly performance = inject(PerformanceService);
- *   private readonly api = inject(CreatePostApiService);
- *
- *   async handleSubmit(data: CreatePostRequest) {
- *     // Trace the operation
- *     const result = await this.performance.trace(
- *       'post_create',
- *       () => this.api.createPost(data)
- *     );
- *     return result;
- *   }
- * }
- * ```
- *
  * @see {@link https://firebase.google.com/docs/perf-mon Firebase Performance}
  * @see {@link ../../../../../../docs/FIREBASE-PERFORMANCE-USAGE-GUIDE.md Usage Guide}
  */
@@ -125,3 +80,18 @@ export { BadgeCountService } from './badge-count.service';
  * Register in app.config.ts: `provideBadgeBridge()`
  */
 export { provideBadgeBridge } from './badge-bridge.initializer';
+
+// ============================================
+// FEED API SERVICE
+// ============================================
+
+/**
+ * Angular adapter for the pure TypeScript Feed API factory.
+ * Wraps createFeedApi with HttpClient and Firebase Performance tracing.
+ *
+ * Wired at root via `{ provide: FEED_API, useExisting: FeedApiService }`
+ * so the shared FeedService (from @nxt1/ui/feed) resolves it.
+ *
+ * @see {@link ./feed-api.service.ts}
+ */
+export { FeedApiService, FEED_API_BASE_URL } from './feed-api.service';

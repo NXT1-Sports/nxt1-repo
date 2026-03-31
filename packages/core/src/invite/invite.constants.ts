@@ -10,7 +10,7 @@
 import type {
   InviteChannel,
   InviteChannelConfig,
-  InviteXpTier,
+  InviteRewardTier,
   InviteAchievement,
   InviteType,
 } from './invite.types';
@@ -31,7 +31,6 @@ export const INVITE_CHANNELS: readonly InviteChannelConfig[] = [
     color: 'var(--nxt1-color-success)',
     isNative: true,
     platforms: ['ios', 'android'],
-    xpReward: 25,
     description: 'Send via text message',
   },
   {
@@ -41,7 +40,6 @@ export const INVITE_CHANNELS: readonly InviteChannelConfig[] = [
     color: '#25D366',
     isNative: true,
     platforms: ['ios', 'android', 'web'],
-    xpReward: 25,
     description: 'Share via WhatsApp',
   },
   {
@@ -51,7 +49,6 @@ export const INVITE_CHANNELS: readonly InviteChannelConfig[] = [
     color: '#E4405F',
     isNative: true,
     platforms: ['ios', 'android'],
-    xpReward: 30,
     description: 'Share to Stories or DM',
   },
   {
@@ -61,7 +58,6 @@ export const INVITE_CHANNELS: readonly InviteChannelConfig[] = [
     color: '#000000',
     isNative: true,
     platforms: ['ios', 'android', 'web'],
-    xpReward: 30,
     description: 'Tweet or DM',
   },
   {
@@ -71,7 +67,6 @@ export const INVITE_CHANNELS: readonly InviteChannelConfig[] = [
     color: '#0084FF',
     isNative: true,
     platforms: ['ios', 'android', 'web'],
-    xpReward: 25,
     description: 'Send via Messenger',
   },
   {
@@ -81,7 +76,6 @@ export const INVITE_CHANNELS: readonly InviteChannelConfig[] = [
     color: 'var(--nxt1-color-primary)',
     isNative: true,
     platforms: ['ios', 'android', 'web'],
-    xpReward: 20,
     description: 'Send email invite',
   },
   {
@@ -91,7 +85,6 @@ export const INVITE_CHANNELS: readonly InviteChannelConfig[] = [
     color: 'var(--nxt1-color-text-secondary)',
     isNative: false,
     platforms: ['ios', 'android', 'web'],
-    xpReward: 10,
     description: 'Copy to clipboard',
   },
   {
@@ -101,7 +94,6 @@ export const INVITE_CHANNELS: readonly InviteChannelConfig[] = [
     color: 'var(--nxt1-color-text-primary)',
     isNative: false,
     platforms: ['ios', 'android', 'web'],
-    xpReward: 15,
     description: 'Show scannable code',
   },
   {
@@ -111,7 +103,6 @@ export const INVITE_CHANNELS: readonly InviteChannelConfig[] = [
     color: 'var(--nxt1-color-info)',
     isNative: true,
     platforms: ['ios', 'android'],
-    xpReward: 20,
     description: 'Pick from contacts',
   },
   {
@@ -121,7 +112,6 @@ export const INVITE_CHANNELS: readonly InviteChannelConfig[] = [
     color: 'var(--nxt1-color-primary)',
     isNative: true,
     platforms: ['ios'],
-    xpReward: 25,
     description: 'Share nearby',
   },
 ] as const;
@@ -132,46 +122,41 @@ export const INVITE_CHANNELS: readonly InviteChannelConfig[] = [
 export const INVITE_DEFAULT_CHANNEL: InviteChannel = 'copy_link';
 
 // ============================================
-// XP TIERS CONFIGURATION
+// REWARD TIERS CONFIGURATION
 // ============================================
 
 /**
- * XP tiers for invite rewards.
- * Higher tiers = better multipliers.
+ * Reward tiers for invite milestones.
+ * @deprecated XP system not active — tiers retained for future use.
  */
-export const INVITE_XP_TIERS: readonly InviteXpTier[] = [
+export const INVITE_XP_TIERS: readonly InviteRewardTier[] = [
   {
     name: 'Rookie',
     minInvites: 0,
-    multiplier: 1.0,
     badgeIcon: 'star-outline',
     badgeColor: 'var(--nxt1-color-text-tertiary)',
   },
   {
     name: 'Connector',
     minInvites: 5,
-    multiplier: 1.25,
     badgeIcon: 'star-half',
     badgeColor: '#CD7F32', // Bronze
   },
   {
     name: 'Networker',
     minInvites: 15,
-    multiplier: 1.5,
     badgeIcon: 'star',
     badgeColor: '#C0C0C0', // Silver
   },
   {
     name: 'Ambassador',
     minInvites: 30,
-    multiplier: 1.75,
     badgeIcon: 'trophy',
     badgeColor: '#FFD700', // Gold
   },
   {
     name: 'Legend',
     minInvites: 50,
-    multiplier: 2.0,
     badgeIcon: 'diamond',
     badgeColor: '#B9F2FF', // Diamond
   },
@@ -195,7 +180,6 @@ export const INVITE_ACHIEVEMENTS: readonly Omit<
     description: 'Send your first invite',
     icon: 'rocket',
     color: 'var(--nxt1-color-primary)',
-    xpReward: 50,
   },
   {
     id: 'social_butterfly',
@@ -203,7 +187,6 @@ export const INVITE_ACHIEVEMENTS: readonly Omit<
     description: 'Use 3 different invite channels',
     icon: 'share-social',
     color: 'var(--nxt1-color-info)',
-    xpReward: 100,
   },
   {
     id: 'team_builder',
@@ -211,7 +194,6 @@ export const INVITE_ACHIEVEMENTS: readonly Omit<
     description: 'Invite 5 teammates',
     icon: 'people',
     color: 'var(--nxt1-color-success)',
-    xpReward: 150,
   },
   {
     id: 'streak_master',
@@ -219,7 +201,6 @@ export const INVITE_ACHIEVEMENTS: readonly Omit<
     description: 'Maintain a 7-day invite streak',
     icon: 'flame',
     color: '#FF6B35',
-    xpReward: 200,
   },
   {
     id: 'influencer',
@@ -227,7 +208,6 @@ export const INVITE_ACHIEVEMENTS: readonly Omit<
     description: 'Have 10 invites accepted',
     icon: 'megaphone',
     color: 'var(--nxt1-color-warning)',
-    xpReward: 250,
   },
   {
     id: 'ambassador',
@@ -235,7 +215,6 @@ export const INVITE_ACHIEVEMENTS: readonly Omit<
     description: 'Invite 25 people who join',
     icon: 'ribbon',
     color: '#FFD700',
-    xpReward: 500,
   },
   {
     id: 'viral',
@@ -243,7 +222,6 @@ export const INVITE_ACHIEVEMENTS: readonly Omit<
     description: 'Share via all social platforms',
     icon: 'trending-up',
     color: '#E4405F',
-    xpReward: 150,
   },
   {
     id: 'qr_master',
@@ -251,7 +229,6 @@ export const INVITE_ACHIEVEMENTS: readonly Omit<
     description: 'Have 5 people join via QR code',
     icon: 'qr-code',
     color: 'var(--nxt1-color-text-primary)',
-    xpReward: 100,
   },
 ] as const;
 

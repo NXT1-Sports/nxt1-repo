@@ -43,7 +43,6 @@ export enum PostType {
 
 export enum PostVisibility {
   PUBLIC = 'public',
-  FOLLOWERS = 'followers',
   TEAM = 'team',
   PRIVATE = 'private',
 }

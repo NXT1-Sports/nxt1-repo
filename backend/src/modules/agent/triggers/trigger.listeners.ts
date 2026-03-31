@@ -67,32 +67,6 @@ export async function onProfileView(data: {
 }
 
 /**
- * Called when a new follower is recorded.
- * Wired to: Firestore onCreate('follows/{followId}')
- */
-export async function onNewFollower(data: {
-  followedUserId: string;
-  followerName: string;
-  followerId: string;
-}): Promise<void> {
-  const event: AgentTriggerEvent = {
-    id: `nf_${Date.now()}`,
-    type: 'new_follower',
-    userId: data.followedUserId,
-    intent: '',
-    eventData: {
-      followerName: data.followerName,
-      followerId: data.followerId,
-    },
-    origin: 'database_event',
-    priority: 'normal',
-    createdAt: new Date().toISOString(),
-  };
-
-  await getTriggerService().processTrigger(event);
-}
-
-/**
  * Called when a coach replies to a recruiting email.
  * Wired to: Gmail webhook / polling service
  */

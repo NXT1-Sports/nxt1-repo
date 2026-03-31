@@ -23,12 +23,14 @@ import { AGENT_CONTEXT_PREFIX } from '../modules/agent/memory/context-builder.js
 import { validateBody } from '../middleware/validation.middleware.js';
 import { UpdateProfileDto, UploadProfileImageDto } from '../dtos/profile.dto.js';
 import { createRosterEntryService } from '../services/roster-entry.service.js';
+import * as teamCodeService from '../services/team-code.service.js';
 import { createOrganizationService } from '../services/organization.service.js';
 import { createProfileHydrationService } from '../services/profile-hydration.service.js';
 
 // Shared types and constants from @nxt1/core
 import type { User, UserSummary, SportProfile } from '@nxt1/core';
 import type { UpdateSportProfileRequest, ProfileSearchParams } from '@nxt1/core';
+import { RosterEntryStatus, RosterRole } from '@nxt1/core/models';
 import { PROFILE_CACHE_KEYS } from '@nxt1/core';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { validationError, notFoundError, forbiddenError } from '@nxt1/core/errors';
@@ -949,76 +951,6 @@ router.get(
 );
 
 /**
- * Get followers from the user's followers sub-collection.
- * GET /api/v1/auth/profile/:userId/followers
- */
-router.get(
-  '/:userId/followers',
-  optionalAuth,
-  asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { userId } = req.params as { userId: string };
-    const limit = Math.min(100, parseInt(String(req.query['limit'] ?? '50'), 10));
-
-    const cache = getCacheService();
-    const cacheKey = `profile:sub:followers:${userId}`;
-    const hit = await cache.get<unknown[]>(cacheKey);
-    if (hit) {
-      markCacheHit(req, 'redis', cacheKey);
-      res.json({ success: true, data: hit });
-      return;
-    }
-
-    const db = req.firebase!.db;
-    const snap = await db
-      .collection(USERS_COLLECTION)
-      .doc(userId)
-      .collection('Followers')
-      .orderBy('followedAt', 'desc')
-      .limit(limit)
-      .get();
-
-    const followers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    await cache.set(cacheKey, followers, { ttl: CACHE_TTL.FOLLOWERS });
-    res.json({ success: true, data: followers });
-  })
-);
-
-/**
- * Get following from the user's following sub-collection.
- * GET /api/v1/auth/profile/:userId/following
- */
-router.get(
-  '/:userId/following',
-  optionalAuth,
-  asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { userId } = req.params as { userId: string };
-    const limit = Math.min(100, parseInt(String(req.query['limit'] ?? '50'), 10));
-
-    const cache = getCacheService();
-    const cacheKey = `profile:sub:following:${userId}`;
-    const hit = await cache.get<unknown[]>(cacheKey);
-    if (hit) {
-      markCacheHit(req, 'redis', cacheKey);
-      res.json({ success: true, data: hit });
-      return;
-    }
-
-    const db = req.firebase!.db;
-    const snap = await db
-      .collection(USERS_COLLECTION)
-      .doc(userId)
-      .collection('following')
-      .orderBy('followedAt', 'desc')
-      .limit(limit)
-      .get();
-
-    const following = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    await cache.set(cacheKey, following, { ttl: CACHE_TTL.FOLLOWERS });
-    res.json({ success: true, data: following });
-  })
-);
-
-/**
  * Get video highlights from the user's videos sub-collection.
  * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/videos?sportId=football
  * GET /api/v1/auth/profile/:userId/videos
@@ -1520,6 +1452,21 @@ router.put(
 );
 
 /**
+ * Generate a unique team code (6 characters alphanumeric).
+ * Used when a Team Role user adds a new sport, creating a new team.
+ */
+async function generateUniqueTeamCode(db: Firestore): Promise<string> {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const candidate = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const { team } = await teamCodeService.getTeamCodeByCode(db, candidate, false);
+    if (!team) {
+      return candidate;
+    }
+  }
+  return `${Date.now().toString(36).slice(-6)}`.toUpperCase();
+}
+
+/**
  * Add a new sport to the profile.
  * POST /api/v1/auth/profile/:userId/sport
  * Requires authentication. Users can only update their own profiles.
@@ -1563,6 +1510,166 @@ router.post(
       order: existingSports.length,
     } as SportProfile;
 
+    const userRole = currentData['role'] as string | undefined;
+    const isTeamRoleUser = userRole === 'coach' || userRole === 'director';
+
+    if (isTeamRoleUser) {
+      // ──────────────────────────────────────────────────────────────────
+      // COACH / DIRECTOR: Atomic batch — Team + RosterEntry + managedTeamCodes
+      // Do NOT write to user.sports[] — the ProfileHydrationService synthesizes
+      // sport entries at read-time from the RosterEntry associations.
+      // ──────────────────────────────────────────────────────────────────
+
+      // Look up existing Organization/Team to inherit branding
+      const rosterEntries = await db
+        .collection('RosterEntries')
+        .where('userId', '==', userId)
+        .limit(1)
+        .get();
+
+      let inheritedTeamName = '';
+      let inheritedTeamType = 'club';
+      let inheritedOrgId = '';
+
+      if (!rosterEntries.empty) {
+        const entryData = rosterEntries.docs[0].data();
+        inheritedOrgId = entryData['organizationId'] || '';
+        if (entryData['teamId']) {
+          const primaryTeamDoc = await db.collection('Teams').doc(entryData['teamId']).get();
+          if (primaryTeamDoc.exists) {
+            inheritedTeamName = primaryTeamDoc.data()?.['teamName'] || '';
+            inheritedTeamType = primaryTeamDoc.data()?.['teamType'] || 'club';
+            inheritedOrgId = inheritedOrgId || primaryTeamDoc.data()?.['organizationId'] || '';
+          }
+        }
+      } else {
+        // Fallback to legacy teamCode on user document if they are from v1
+        const teamCodeObj = currentData['teamCode'] as any;
+        if (teamCodeObj?.teamName) {
+          inheritedTeamName = teamCodeObj.teamName;
+          inheritedTeamType = teamCodeObj.teamType || 'club';
+          inheritedOrgId = teamCodeObj.organizationId || '';
+        }
+      }
+
+      if (!inheritedTeamName) {
+        // Coach/Director has no primary team yet — cannot create a sport team.
+        // Return an error instead of falling through to the athlete path.
+        logger.warn('[Profile] Coach/Director has no primary team — cannot add sport', { userId });
+        sendError(
+          res,
+          validationError([
+            {
+              field: 'sport',
+              message: 'No primary team found. Complete onboarding first.',
+              rule: 'required',
+            },
+          ])
+        );
+        return;
+      }
+
+      try {
+        const batch = db.batch();
+        const candidateCode = await generateUniqueTeamCode(db);
+
+        // 1. Queue Team creation in the batch
+        const team = await teamCodeService.createTeamCode(
+          db,
+          {
+            teamCode: candidateCode,
+            teamName: inheritedTeamName,
+            teamType: inheritedTeamType as
+              | 'high-school'
+              | 'club'
+              | 'college'
+              | 'middle-school'
+              | 'juco'
+              | 'organization',
+            sport: newSport.sport as string,
+            createdBy: userId,
+            creatorRole: userRole as any,
+            creatorName:
+              `${currentData['firstName'] || ''} ${currentData['lastName'] || ''}`.trim(),
+            creatorEmail: currentData['email'] || '',
+            creatorPhoneNumber: currentData['phoneNumber'] || '',
+          },
+          batch
+        );
+
+        // 2. Link Team back to the Organization (if one exists)
+        if (inheritedOrgId) {
+          batch.update(db.collection('Teams').doc(team.id!), {
+            organizationId: inheritedOrgId,
+            isClaimed: true,
+          });
+        }
+
+        // 3. Queue RosterEntry creation in the batch (also increments athleteMember atomically)
+        const rosterEntryService = createRosterEntryService(db);
+        await rosterEntryService.createRosterEntry(
+          {
+            userId,
+            teamId: team.id!,
+            organizationId: inheritedOrgId,
+            role: userRole === 'director' ? RosterRole.OWNER : RosterRole.HEAD_COACH,
+            status: RosterEntryStatus.ACTIVE,
+            firstName: (currentData['firstName'] as string) || '',
+            lastName: (currentData['lastName'] as string) || '',
+            email: (currentData['email'] as string) || '',
+            phoneNumber: (currentData['phoneNumber'] as string) || '',
+            profileImg: (currentData['profileImg'] as string) || undefined,
+          },
+          batch
+        );
+
+        // 4. Append team slug to coach.managedTeamCodes (lightweight routing cache)
+        const coachData = (currentData['coach'] as any) || {};
+        const currentManaged: string[] = Array.isArray(coachData.managedTeamCodes)
+          ? coachData.managedTeamCodes
+          : [];
+        const newSlug = team.slug ?? team.unicode ?? team.id;
+        if (newSlug && !currentManaged.includes(newSlug)) {
+          batch.update(userRef, {
+            'coach.managedTeamCodes': FieldValue.arrayUnion(newSlug),
+            updatedAt: new Date().toISOString(),
+          });
+        }
+
+        // 5. Commit everything atomically — all or nothing
+        await batch.commit();
+        logger.info('[Profile] Atomic sport+team+roster created for coach/director', {
+          userId,
+          teamId: team.id,
+          sport: newSport.sport,
+        });
+
+        // Invalidate caches and return success
+        const currentUsername = currentData['username'] as string | undefined;
+        const currentUnicode = currentData['unicode'] as string | null | undefined;
+        await invalidateProfileCaches(userId, currentUsername, currentUnicode);
+
+        res.status(201).json({ success: true, data: { sport: newSport.sport, teamId: team.id } });
+        return;
+      } catch (err) {
+        logger.error('[Profile] Atomic team creation failed for added sport', {
+          error: err,
+          userId,
+        });
+        sendError(
+          res,
+          validationError([
+            { field: 'sport', message: 'Failed to create team for this sport', rule: 'server' },
+          ])
+        );
+        return;
+      }
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // ATHLETE / INDEPENDENT: Write sport directly to user.sports[]
+    // Athletes own their physical sport profile (stats, positions, etc.)
+    // ──────────────────────────────────────────────────────────────────
     await userRef.update({
       sports: FieldValue.arrayUnion(newSport),
       updatedAt: new Date().toISOString(),

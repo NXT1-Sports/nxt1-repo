@@ -185,17 +185,37 @@ function buildTeamContext(
   // Sport label below name
   const sportLabel = sport ? formatSportDisplayName(sport) : undefined;
 
-  // Build sport profiles for the switcher
-  const sportProfiles: SidenavSportProfile[] = teamCode
-    ? [
-        {
-          id: slug || 'team-primary',
-          sport: sport || 'Team',
-          profileImg: logoUrl || undefined,
-          isActive: true,
-        },
-      ]
-    : [];
+  // Build sport profiles for the Teams switcher.
+  // Primary sport comes from teamCode; additional sports (added via add-sport wizard)
+  // come from user.sports[]. Both share the same team logo as the avatar fallback.
+  // For team roles, sport profiles use: sport → team name, position → sport label.
+  const primaryProfile: SidenavSportProfile | null = sport
+    ? {
+        id: 'team-primary',
+        sport: name,
+        position: formatSportDisplayName(sport),
+        isActive: true,
+        profileImg,
+      }
+    : null;
+
+  // Exclude any sport that matches the primary teamCode sport to avoid duplicates
+  const primarySportNorm = sport?.trim().toLowerCase();
+  const additionalProfiles: SidenavSportProfile[] =
+    user.sports
+      ?.filter((s) => s.sport?.trim().toLowerCase() !== primarySportNorm)
+      .map((s, i) => ({
+        id: `team-sport-${i}`,
+        sport: name,
+        position: formatSportDisplayName(s.sport),
+        isActive: false,
+        profileImg,
+      })) ?? [];
+
+  const sportProfiles: SidenavSportProfile[] = [
+    ...(primaryProfile ? [primaryProfile] : []),
+    ...additionalProfiles,
+  ];
 
   return {
     name,

@@ -31,7 +31,6 @@ export {
 
 // Posts validation
 export {
-  validateCreatePost,
   validateComment,
   sanitizeContent,
   extractHashtags,

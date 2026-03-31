@@ -5,22 +5,22 @@
  * Enriches raw User documents with LIVE Organization data fetched at
  * request time, eliminating stale denormalized team snapshots.
  *
- * Architecture:
- * 1. User doc contains sports[].team with a snapshot from signup (potentially stale)
- * 2. RosterEntries link Users → Teams → Organizations relationally
- * 3. This service overlays LIVE Organization branding (logo, colors, name)
- *    onto the User's sport team data before returning to the frontend
+ * Architecture (v3.1 — Pure Relational):
+ * 1. Athletes store physical sports[] (stats, positions, etc.) in their User doc.
+ *    RosterEntries + Team + Org data are OVERLAID onto those physical entries.
+ * 2. Coaches/Directors do NOT store physical sports[]. Their sport dropdown is
+ *    SYNTHESIZED entirely from active RosterEntries at read-time (JIT).
+ * 3. This service handles both: overlay (Athletes) and synthesis (Coaches).
  *
  * Data flow:
- *   User.sports[i].sport (e.g. "Football")
- *        ↓ match via Team.sport
  *   RosterEntry.teamId → Team.sport, Team.organizationId
  *        ↓
  *   Organization.logoUrl, primaryColor, secondaryColor, name, location, mascot
  *        ↓
- *   User.sports[i].team = { ...snapshot, ...liveOrgData }
+ *   If physical sport exists → overlay team branding onto User.sports[i].team
+ *   If no physical sport   → synthesize a new SportProfile from the roster data
  *
- * @version 3.0.0
+ * @version 3.1.0
  */
 
 import type { Firestore } from 'firebase-admin/firestore';
@@ -75,12 +75,13 @@ export class ProfileHydrationService {
    * For each active RosterEntry the user has:
    * 1. Fetches the Team doc to get sportName + organizationId
    * 2. Fetches the Organization doc to get live branding
-   * 3. Overlays live data onto User.sports[].team (matched by sportName)
+   * 3. For Athletes: overlays live data onto existing User.sports[].team
+   * 4. For Coaches: synthesizes entirely new SportProfile entries from rosters
    *
    * Returns a new User object — the original is not mutated.
    */
   async hydrateUser(user: User): Promise<User> {
-    if (!user.id || !user.sports?.length) {
+    if (!user.id) {
       return user;
     }
 
@@ -128,7 +129,19 @@ export class ProfileHydrationService {
     );
 
     // Build teamId → { sport, organizationId, teamType } map
-    const teamMap = new Map<string, { sport: string; organizationId: string; teamType: string }>();
+    const teamMap = new Map<
+      string,
+      {
+        sport: string;
+        organizationId: string;
+        teamType: string;
+        teamName: string;
+        logoUrl?: string;
+        primaryColor?: string;
+        secondaryColor?: string;
+        mascot?: string;
+      }
+    >();
     for (const doc of teamDocs) {
       if (doc.exists) {
         const data = doc.data()!;
@@ -136,6 +149,13 @@ export class ProfileHydrationService {
           sport: (data['sport'] as string) ?? (data['sportName'] as string) ?? '',
           organizationId: (data['organizationId'] as string) ?? '',
           teamType: (data['teamType'] as string) ?? 'high-school',
+          teamName: (data['teamName'] as string) ?? '',
+          logoUrl: (data['logoUrl'] as string) ?? (data['teamLogoImg'] as string) ?? undefined,
+          primaryColor:
+            (data['primaryColor'] as string) ?? (data['teamColor1'] as string) ?? undefined,
+          secondaryColor:
+            (data['secondaryColor'] as string) ?? (data['teamColor2'] as string) ?? undefined,
+          mascot: (data['mascot'] as string) ?? undefined,
         });
       }
     }
@@ -154,14 +174,13 @@ export class ProfileHydrationService {
       }
     }
 
-    // 4. Assemble resolved team data
+    // 4. Assemble resolved team data (uses Org data when available, falls back to Team doc)
     const resolved: ResolvedTeamData[] = [];
     for (const entry of rosterEntries) {
       const team = teamMap.get(entry.teamId);
       if (!team || !team.sport) continue;
 
       const org = orgMap.get(team.organizationId);
-      if (!org) continue;
 
       resolved.push({
         sport: team.sport,
@@ -169,12 +188,12 @@ export class ProfileHydrationService {
         organizationId: team.organizationId,
         teamType: team.teamType,
         org: {
-          name: org.name,
-          logoUrl: org.logoUrl,
-          primaryColor: org.primaryColor,
-          secondaryColor: org.secondaryColor,
-          mascot: org.mascot,
-          location: org.location
+          name: org?.name ?? team.teamName,
+          logoUrl: org?.logoUrl ?? team.logoUrl,
+          primaryColor: org?.primaryColor ?? team.primaryColor,
+          secondaryColor: org?.secondaryColor ?? team.secondaryColor,
+          mascot: org?.mascot ?? team.mascot,
+          location: org?.location
             ? { city: org.location.city, state: org.location.state }
             : undefined,
         },
@@ -194,7 +213,7 @@ export class ProfileHydrationService {
    * Returns a new User object (does not mutate the original).
    */
   private overlayTeamData(user: User, resolvedTeams: ResolvedTeamData[]): User {
-    if (!user.sports?.length) return user;
+    const existingSports: SportProfile[] = user.sports ?? [];
 
     // Group resolved teams by sport name (lowercased)
     const bySport = new Map<string, ResolvedTeamData[]>();
@@ -204,11 +223,16 @@ export class ProfileHydrationService {
       bySport.get(key)!.push(rt);
     }
 
-    const hydratedSports: SportProfile[] = user.sports.map((sport) => {
+    // Track which sports were matched to physical entries
+    const matchedSportKeys = new Set<string>();
+
+    const hydratedSports: SportProfile[] = existingSports.map((sport) => {
       const sportKey = (sport.sport ?? '').toLowerCase();
       const matches = bySport.get(sportKey);
 
       if (!matches?.length) return sport;
+
+      matchedSportKeys.add(sportKey);
 
       // Primary team: first match (usually school/org team)
       const primaryMatch = matches[0]!;
@@ -244,6 +268,45 @@ export class ProfileHydrationService {
 
       return result;
     });
+
+    // Synthesize SportProfiles for roster associations with no physical sport entry.
+    // This is the key architecture shift: Coaches/Directors do NOT store physical
+    // sports[] in the database — their sport dropdown is built purely from RosterEntries.
+    for (const [sportKey, matches] of bySport) {
+      if (matchedSportKeys.has(sportKey)) continue;
+
+      const primaryMatch = matches[0]!;
+      const synthesized: SportProfile = {
+        sport: primaryMatch.sport,
+        order: hydratedSports.length,
+        team: {
+          name: primaryMatch.org.name,
+          type: primaryMatch.teamType as TeamType,
+          logoUrl: primaryMatch.org.logoUrl,
+          primaryColor: primaryMatch.org.primaryColor,
+          secondaryColor: primaryMatch.org.secondaryColor,
+          mascot: primaryMatch.org.mascot,
+          organizationId: primaryMatch.organizationId,
+          teamId: primaryMatch.teamId,
+        },
+      } as SportProfile;
+
+      if (matches.length > 1) {
+        const clubMatch = matches[1]!;
+        synthesized.clubTeam = {
+          name: clubMatch.org.name,
+          type: clubMatch.teamType as TeamType,
+          logoUrl: clubMatch.org.logoUrl,
+          primaryColor: clubMatch.org.primaryColor,
+          secondaryColor: clubMatch.org.secondaryColor,
+          mascot: clubMatch.org.mascot,
+          organizationId: clubMatch.organizationId,
+          teamId: clubMatch.teamId,
+        };
+      }
+
+      hydratedSports.push(synthesized);
+    }
 
     return { ...user, sports: hydratedSports };
   }

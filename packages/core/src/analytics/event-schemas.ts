@@ -167,12 +167,6 @@ export interface PostCreatedEvent extends BaseEventProperties {
 // ENGAGEMENT EVENTS
 // ============================================
 
-export interface UserFollowedEvent extends BaseEventProperties {
-  followed_user_id: string;
-  followed_user_type?: ViewerType;
-  source: TrafficSource;
-}
-
 export interface ReactionAddedEvent extends BaseEventProperties {
   content_id: string;
   content_type: ContentType;
@@ -317,7 +311,6 @@ export interface EventPayloadMap {
   post_created: PostCreatedEvent;
 
   // Engagement
-  user_followed: UserFollowedEvent;
   reaction_added: ReactionAddedEvent;
   comment_added: CommentAddedEvent;
 

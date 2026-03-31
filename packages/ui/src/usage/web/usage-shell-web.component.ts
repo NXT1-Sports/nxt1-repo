@@ -51,6 +51,7 @@ import {
 } from '../../components/option-scroller-web';
 import { NxtRefresherComponent, type RefreshEvent } from '../../components/refresh-container';
 import { NxtOverlayService } from '../../components/overlay';
+import { AgentXBriefingPanelComponent } from '../../agent-x/agent-x-briefing-panel.component';
 import { NxtHeaderPortalService } from '../../services/header-portal';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
@@ -507,9 +508,18 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
     // Open additional info form/bottom sheet
   }
 
-  protected onBuyCredits(): void {
-    this.haptics.impact('light');
-    // Navigate to credit purchase flow
+  protected async onBuyCredits(): Promise<void> {
+    await this.haptics.impact('light');
+    const ref = this.overlay.open<AgentXBriefingPanelComponent>({
+      component: AgentXBriefingPanelComponent,
+      inputs: { panel: 'budget', presentation: 'modal', required: false },
+      size: 'full',
+      backdropDismiss: true,
+      escDismiss: true,
+      ariaLabel: 'Agent budget controls',
+      panelClass: 'agent-x-briefing-badge-modal',
+    });
+    await ref.closed;
   }
 
   // ============================================

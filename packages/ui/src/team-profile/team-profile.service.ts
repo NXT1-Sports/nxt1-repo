@@ -71,9 +71,6 @@ export class TeamProfileService {
   /** Core team data */
   readonly team = computed(() => this._teamData()?.team ?? null);
 
-  /** Follow statistics */
-  readonly followStats = computed(() => this._teamData()?.followStats ?? null);
-
   /** Quick stats/analytics */
   readonly quickStats = computed(() => this._teamData()?.quickStats ?? null);
 
@@ -416,44 +413,6 @@ export class TeamProfileService {
   setRosterSort(sort: string): void {
     this.logger.debug('Roster sort changed', { sort });
     this._rosterSort.set(sort);
-  }
-
-  /**
-   * Toggle follow status.
-   */
-  async toggleFollow(): Promise<void> {
-    const followStats = this.followStats();
-    const data = this._teamData();
-    if (!followStats || !data) return;
-
-    const newIsFollowing = !followStats.isFollowing;
-    const teamId = data.team?.id || 'unknown';
-    this.logger.info('Toggling team follow', { isFollowing: newIsFollowing, teamId });
-
-    // Optimistic update
-    this._teamData.set({
-      ...data,
-      followStats: {
-        ...followStats,
-        isFollowing: newIsFollowing,
-        followersCount: followStats.followersCount + (newIsFollowing ? 1 : -1),
-      },
-    });
-
-    try {
-      if (newIsFollowing) {
-        await this.apiClient.followTeam(teamId);
-      } else {
-        await this.apiClient.unfollowTeam(teamId);
-      }
-      this.logger.info(newIsFollowing ? 'Team followed' : 'Team unfollowed', { teamId });
-    } catch (err) {
-      // Rollback on error
-      this._teamData.set(data);
-      this.logger.error('Failed to toggle team follow', {
-        error: (err as TeamProfileApiError).message,
-      });
-    }
   }
 
   /**

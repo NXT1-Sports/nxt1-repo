@@ -167,18 +167,14 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
                     class="profile-avatar-wrapper"
                     [class.profile-avatar-wrapper--active]="isActiveTab(tab)"
                   >
-                    @if (!profileAvatarSrc() && profileAvatarIsTeam()) {
-                      <!-- Team role with no logo: show shield icon instead of initials -->
-                      <nxt1-icon name="shield" [size]="26" class="team-shield-icon" />
-                    } @else {
-                      <nxt1-avatar
-                        [src]="profileAvatarSrc()"
-                        [name]="profileAvatarName()"
-                        [customSize]="28"
-                        [showSkeleton]="false"
-                        cssClass="footer-profile-avatar"
-                      />
-                    }
+                    <nxt1-avatar
+                      [src]="profileAvatarSrc()"
+                      [name]="profileAvatarName()"
+                      [isTeamRole]="profileAvatarIsTeam()"
+                      [customSize]="32"
+                      [showSkeleton]="false"
+                      cssClass="footer-profile-avatar"
+                    />
                   </div>
                 } @else {
                   <nxt1-icon [name]="tab.icon" [size]="24" class="tab-icon" />
@@ -512,8 +508,8 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
 
       /* Profile Avatar (Instagram-style) */
       .profile-avatar-wrapper {
-        width: 31px;
-        height: 31px;
+        width: 36px;
+        height: 36px;
         border-radius: 50%;
         display: flex;
         align-items: center;
@@ -992,8 +988,8 @@ export class NxtMobileFooterComponent {
   }
 
   /** Whether a tab should be emphasized as the centered primary create action */
-  isCenteredCreateTab(tab: FooterTabItem): boolean {
-    return this.isCenteredCreateVariant() && tab.id === 'create-post';
+  isCenteredCreateTab(_tab: FooterTabItem): boolean {
+    return false;
   }
 
   isAgentXTab(tab: FooterTabItem): boolean {

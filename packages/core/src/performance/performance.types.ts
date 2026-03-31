@@ -233,6 +233,13 @@ export const TRACE_NAMES = {
 
   // Data loading traces
   FEED_LOAD: 'feed_load',
+  FEED_USER_LOAD: 'feed_user_load',
+  FEED_TEAM_LOAD: 'feed_team_load',
+  FEED_TRENDING_LOAD: 'feed_trending_load',
+  FEED_POST_LOAD: 'feed_post_load',
+  FEED_LIKE_TOGGLE: 'feed_like_toggle',
+  FEED_SHARE: 'feed_share',
+  FEED_REPORT: 'feed_report',
   PROFILE_LOAD: 'profile_load',
   TEAM_LOAD: 'team_load',
   COLLEGE_LIST_LOAD: 'college_list_load',
@@ -267,7 +274,6 @@ export const TRACE_NAMES = {
   PROFILE_VIEW_TRACK: 'profile_view_track',
 
   // Post traces
-  POST_CREATE: 'post_create',
   DRAFT_LOAD: 'draft_load',
   DRAFT_SAVE: 'draft_save',
   DRAFT_DELETE: 'draft_delete',
@@ -367,6 +373,14 @@ export const TRACE_NAMES = {
   NEWS_SEARCH: 'news_search',
   NEWS_LOAD_MORE: 'news_load_more',
   NEWS_USER_LOAD: 'news_user_load',
+
+  // Invite traces
+  INVITE_STATS_LOAD: 'invite_stats_load',
+  INVITE_HISTORY_LOAD: 'invite_history_load',
+  INVITE_LINK_GENERATE: 'invite_link_generate',
+  INVITE_SEND: 'invite_send',
+  INVITE_SEND_BULK: 'invite_send_bulk',
+  INVITE_ACCEPT: 'invite_accept',
 } as const;
 
 export type TraceName = (typeof TRACE_NAMES)[keyof typeof TRACE_NAMES];

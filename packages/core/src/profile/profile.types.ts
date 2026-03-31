@@ -327,24 +327,6 @@ export interface ProfileUser {
 }
 
 // ============================================
-// FOLLOW/SOCIAL TYPES
-// ============================================
-
-/**
- * Follow statistics for a profile.
- */
-export interface ProfileFollowStats {
-  /** Total follower count */
-  readonly followersCount: number;
-  /** Total following count */
-  readonly followingCount: number;
-  /** Whether current user is following this profile */
-  readonly isFollowing: boolean;
-  /** Whether current user is followed by this profile */
-  readonly isFollowedBy: boolean;
-}
-
-// ============================================
 // ANALYTICS/STATS TYPES
 // ============================================
 
@@ -996,8 +978,6 @@ export interface ProfilePageData {
 
   readonly aboutMe: string | undefined;
 
-  /** Follow stats */
-  readonly followStats: ProfileFollowStats;
   /** Quick stats/analytics */
   readonly quickStats: ProfileQuickStats;
   /** Athletic stats by category */

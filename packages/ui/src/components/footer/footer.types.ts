@@ -31,6 +31,8 @@ export {
   updateTabBadge,
   setTabDisabled,
   isMainPageRoute,
+  buildDynamicFooterTabs,
+  type FooterTabContext,
 } from '@nxt1/core';
 
 // Re-export the base event type from core

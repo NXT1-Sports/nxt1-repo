@@ -16,7 +16,7 @@
  * @version 3.0.0
  */
 
-import type { Firestore } from 'firebase-admin/firestore';
+import type { Firestore, WriteBatch } from 'firebase-admin/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
 import {
   RosterEntry,
@@ -113,10 +113,20 @@ export class RosterEntryService {
   }
 
   /**
-   * Create a roster entry (user joins team)
-   * This is the NEW way of joining teams!
+   * Create a roster entry (user joins team).
+   *
+   * The RosterEntry creation and parent Team `athleteMember` counter increment
+   * are always written atomically:
+   *  - If `externalBatch` is provided, both ops are queued onto it (caller commits).
+   *  - Otherwise an internal WriteBatch is used and committed here.
+   *
+   * @param input          Roster entry payload
+   * @param externalBatch  Optional WriteBatch for cross-service atomicity
    */
-  async createRosterEntry(input: CreateRosterEntryInput): Promise<RosterEntry> {
+  async createRosterEntry(
+    input: CreateRosterEntryInput,
+    externalBatch?: WriteBatch
+  ): Promise<RosterEntry> {
     logger.info('[RosterEntryService] Creating roster entry', {
       userId: input.userId,
       teamId: input.teamId,
@@ -157,22 +167,56 @@ export class RosterEntryService {
       classOf: input.classOf ?? null,
     };
 
-    const docRef = await this.db.collection(this.COLLECTION).add(entryData);
-    const doc = await docRef.get();
+    const docRef = this.db.collection(this.COLLECTION).doc();
+    const teamRef = this.db.collection('Teams').doc(input.teamId);
 
-    // Increment athlete member counter on the parent Team document
-    await this.db
-      .collection('Teams')
-      .doc(input.teamId)
-      .update({
-        athleteMember: FieldValue.increment(1),
-      });
+    if (externalBatch) {
+      // Add to caller's batch — caller is responsible for committing
+      externalBatch.set(docRef, entryData);
+      externalBatch.update(teamRef, { athleteMember: FieldValue.increment(1) });
+
+      logger.info('[RosterEntryService] Roster entry queued in batch', { entryId: docRef.id });
+
+      // Invalidate caches
+      await this.invalidateCaches(input.userId, input.teamId, input.organizationId);
+
+      // Return synthetic entry (doc not yet committed)
+      return {
+        id: docRef.id,
+        userId: entryData.userId,
+        teamId: entryData.teamId,
+        organizationId: entryData.organizationId,
+        role: entryData.role,
+        status: entryData.status ?? RosterEntryStatus.PENDING,
+        jerseyNumber: entryData.jerseyNumber ?? undefined,
+        positions: entryData.positions ?? [],
+        primaryPosition: entryData.primaryPosition ?? undefined,
+        season: entryData.season ?? undefined,
+        invitedBy: entryData.invitedBy ?? undefined,
+        joinedAt: new Date(),
+        updatedAt: new Date(),
+        firstName: entryData.firstName ?? '',
+        lastName: entryData.lastName ?? '',
+        email: entryData.email ?? '',
+        phoneNumber: entryData.phoneNumber ?? '',
+        profileImg: entryData.profileImg ?? undefined,
+        classOf: entryData.classOf ?? undefined,
+      } as RosterEntry;
+    }
+
+    // No external batch — use internal batch for atomicity (fixes race condition)
+    const batch = this.db.batch();
+    batch.set(docRef, entryData);
+    batch.update(teamRef, { athleteMember: FieldValue.increment(1) });
+    await batch.commit();
 
     logger.info('[RosterEntryService] Roster entry created', { entryId: docRef.id });
 
     // Invalidate caches
     await this.invalidateCaches(input.userId, input.teamId, input.organizationId);
 
+    // Read back the committed document
+    const doc = await docRef.get();
     return docToRosterEntry(doc);
   }
 

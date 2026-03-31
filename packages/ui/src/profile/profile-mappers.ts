@@ -388,12 +388,6 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
   return {
     user: profileUser,
     aboutMe: profileUser.aboutMe ?? '',
-    followStats: {
-      followersCount: counters?.followersCount ?? 0,
-      followingCount: counters?.followingCount ?? 0,
-      isFollowing: false,
-      isFollowedBy: false,
-    },
     quickStats: {
       profileViews: counters?.profileViews ?? 0,
       videoViews: counters?.videoViews ?? 0,

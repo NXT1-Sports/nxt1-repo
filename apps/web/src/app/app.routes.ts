@@ -337,16 +337,10 @@ export const routes: Routes = [
   // SPECIAL ROUTES (Outside Shell)
   // ============================================
 
-  // Create Post (modal-style, outside main shell for focused experience)
+  // Add Sport / Add Team wizard (full-page, outside shell — mirrors mobile /add-sport)
   {
-    path: 'post/create',
-    loadChildren: () => import('./features/create-post/create-post.routes'),
-  },
-  // Legacy create-post URL redirect
-  {
-    path: 'create-post',
-    redirectTo: 'post/create',
-    pathMatch: 'full',
+    path: 'add-sport',
+    loadChildren: () => import('./features/add-sport/add-sport.routes'),
   },
 
   // Invite Link Landing Page

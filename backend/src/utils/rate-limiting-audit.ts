@@ -103,8 +103,6 @@ export const ROUTE_COVERAGE = {
       '/api/v1/staging/users',
       '/api/v1/locations',
       '/api/v1/staging/locations',
-      '/api/v1/follow',
-      '/api/v1/staging/follow',
       '/api/v1/teams',
       '/api/v1/staging/teams',
       '/api/v1/camps',

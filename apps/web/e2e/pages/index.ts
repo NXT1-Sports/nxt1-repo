@@ -23,6 +23,12 @@ export { SettingsPage, AccountInformationPage } from './settings.page';
 // Activity pages
 export { ActivityPage } from './activity.page';
 
+// Invite pages
+export { InvitePage } from './invite.page';
+
+// Add Sport page
+export { AddSportPage } from './add-sport.page';
+
 // Add additional page exports here as features are developed:
 // export * from './profile';
 // export * from './onboarding';

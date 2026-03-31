@@ -485,8 +485,6 @@ export interface FeedUserEngagement {
   readonly isBookmarked: boolean;
   /** Whether current user has reposted */
   readonly isReposted: boolean;
-  /** Whether current user follows author */
-  readonly isFollowingAuthor: boolean;
 }
 
 // ============================================
@@ -572,13 +570,7 @@ export interface FeedPost {
 /**
  * Feed filter options.
  */
-export type FeedFilterType =
-  | 'for-you'
-  | 'following'
-  | 'sports'
-  | 'offers'
-  | 'highlights'
-  | 'trending';
+export type FeedFilterType = 'trending' | 'sports' | 'offers' | 'highlights';
 
 /**
  * Feed filter configuration.

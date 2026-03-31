@@ -32,7 +32,6 @@ export const POSTS_COLLECTIONS = {
  */
 export enum PostVisibility {
   PUBLIC = 'PUBLIC',
-  FOLLOWERS = 'FOLLOWERS',
   TEAM = 'TEAM',
   PRIVATE = 'PRIVATE',
 }
@@ -40,7 +39,7 @@ export enum PostVisibility {
 /**
  * Post visibility type (lowercase for frontend)
  */
-export type PostVisibilityType = 'public' | 'followers' | 'team' | 'private';
+export type PostVisibilityType = 'public' | 'team' | 'private';
 
 /**
  * Convert PostVisibility enum to lowercase type

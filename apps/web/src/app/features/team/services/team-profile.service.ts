@@ -118,26 +118,6 @@ export class TeamProfileApiService {
   }
 
   /**
-   * Follow a team.
-   */
-  followTeam(
-    userId: string,
-    teamId: string
-  ): Observable<TeamProfileApiResponse<{ isFollowing: boolean; followersCount: number }>> {
-    return from(this.api.followTeam(userId, teamId));
-  }
-
-  /**
-   * Unfollow a team.
-   */
-  unfollowTeam(
-    userId: string,
-    teamId: string
-  ): Observable<TeamProfileApiResponse<{ isFollowing: boolean; followersCount: number }>> {
-    return from(this.api.unfollowTeam(userId, teamId));
-  }
-
-  /**
    * Track a page view.
    */
   trackPageView(teamId: string, viewerId?: string): Observable<TeamProfileApiResponse<void>> {

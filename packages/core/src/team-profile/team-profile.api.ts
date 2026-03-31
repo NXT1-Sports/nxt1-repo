@@ -109,32 +109,6 @@ export function createTeamProfileApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Follow a team.
-     */
-    async followTeam(
-      userId: string,
-      teamId: string
-    ): Promise<TeamProfileApiResponse<{ isFollowing: boolean; followersCount: number }>> {
-      return http.post<TeamProfileApiResponse<{ isFollowing: boolean; followersCount: number }>>(
-        `${endpoint}/${teamId}/follow`,
-        { userId }
-      );
-    },
-
-    /**
-     * Unfollow a team.
-     */
-    async unfollowTeam(
-      userId: string,
-      teamId: string
-    ): Promise<TeamProfileApiResponse<{ isFollowing: boolean; followersCount: number }>> {
-      return http.delete<TeamProfileApiResponse<{ isFollowing: boolean; followersCount: number }>>(
-        `${endpoint}/${teamId}/follow`,
-        { params: { userId } }
-      );
-    },
-
-    /**
      * Get team roster.
      */
     async getRoster(

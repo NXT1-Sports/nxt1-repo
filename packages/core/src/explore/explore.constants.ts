@@ -24,10 +24,10 @@ import { DEFAULT_SPORTS, formatSportDisplayName } from '../constants/sport.const
  * Feed tab IDs — content tabs that replaced the standalone /home route.
  * Used to distinguish feed-style tabs from discovery/search tabs.
  */
-export const EXPLORE_FEED_TAB_IDS: readonly ExploreTabId[] = ['feed', 'following', 'news'] as const;
+export const EXPLORE_FEED_TAB_IDS: readonly ExploreTabId[] = ['feed', 'news'] as const;
 
 /**
- * Check whether a tab ID is a feed-style tab (feed, following, news)
+ * Check whether a tab ID is a feed-style tab (feed, news)
  * as opposed to a discovery/search tab (colleges, athletes, etc.).
  */
 export function isFeedTab(tabId: ExploreTabId): boolean {
@@ -42,25 +42,15 @@ export function isFeedTab(tabId: ExploreTabId): boolean {
  * that displays personalized content from all categories without
  * pre-selecting any single content section.
  *
- * Feed tabs (Feed, Following, News) appear second — they replaced
+ * Feed tabs (Feed, News) appear second — they replaced
  * the former standalone /home page (2026 strategy: everything lives
  * under /explore).
  */
 export const EXPLORE_TABS: readonly ExploreTab[] = [
   {
-    id: 'for-you',
-    label: 'For You',
-    icon: 'sparkles-outline',
-  },
-  {
     id: 'feed',
     label: 'Feed',
     icon: 'home-outline',
-  },
-  {
-    id: 'following',
-    label: 'Following',
-    icon: 'people-outline',
   },
   {
     id: 'news',
@@ -81,9 +71,9 @@ export const EXPLORE_TABS: readonly ExploreTab[] = [
 
 /**
  * Default selected tab.
- * 'for-you' is the default so Explore lands on Discover first.
+ * 'feed' is the default so Explore lands on the main feed.
  */
-export const EXPLORE_DEFAULT_TAB: ExploreTabId = 'news';
+export const EXPLORE_DEFAULT_TAB: ExploreTabId = 'feed';
 
 // ============================================
 // SORT OPTIONS
@@ -93,9 +83,7 @@ export const EXPLORE_DEFAULT_TAB: ExploreTabId = 'news';
  * Available sort options per tab.
  */
 export const EXPLORE_SORT_OPTIONS: Record<ExploreTabId, readonly ExploreSortOption[]> = {
-  'for-you': ['relevance', 'popular'],
   feed: ['relevance', 'recent', 'popular'],
-  following: ['recent', 'popular'],
   news: ['recent', 'popular', 'relevance'],
   colleges: ['relevance', 'alphabetical', 'rating', 'distance'],
   athletes: ['relevance', 'recent', 'popular', 'alphabetical'],
@@ -111,9 +99,7 @@ export const EXPLORE_SORT_OPTIONS: Record<ExploreTabId, readonly ExploreSortOpti
  * Default sort option per tab.
  */
 export const EXPLORE_DEFAULT_SORT: Record<ExploreTabId, ExploreSortOption> = {
-  'for-you': 'popular',
   feed: 'relevance',
-  following: 'recent',
   news: 'recent',
   colleges: 'relevance',
   athletes: 'relevance',
@@ -210,20 +196,10 @@ export const EXPLORE_EMPTY_STATES: Record<
     readonly icon: string;
   }
 > = {
-  'for-you': {
-    title: 'Personalizing your experience',
-    message: 'Discover athletes, colleges, teams, camps, and more all in one place',
-    icon: 'sparkles-outline',
-  },
   feed: {
     title: 'Your feed is empty',
     message: 'Follow athletes, teams, and coaches to build your personalized feed',
     icon: 'home-outline',
-  },
-  following: {
-    title: 'No posts from people you follow',
-    message: 'Follow athletes, teams, and coaches to see their latest content here',
-    icon: 'people-outline',
   },
   news: {
     title: 'No news yet',
@@ -282,17 +258,9 @@ export const EXPLORE_INITIAL_STATES: Record<
     readonly message: string;
   }
 > = {
-  'for-you': {
-    title: 'Discover Everything',
-    message: 'Your personalized hub for athletes, colleges, teams, camps, and more',
-  },
   feed: {
     title: 'Your Feed',
     message: 'Personalized content from athletes, teams, and coaches you care about',
-  },
-  following: {
-    title: 'Following',
-    message: 'Posts from people you follow appear here',
   },
   news: {
     title: 'News',
@@ -341,29 +309,29 @@ export const EXPLORE_INITIAL_STATES: Record<
  */
 export const EXPLORE_API_ENDPOINTS = {
   /** Search endpoint */
-  search: '/api/v1/explore/search',
+  search: '/explore/search',
   /** Suggestions endpoint */
-  suggestions: '/api/v1/explore/suggestions',
+  suggestions: '/explore/suggestions',
   /** Trending endpoint */
-  trending: '/api/v1/explore/trending',
+  trending: '/explore/trending',
   /** Tab counts endpoint */
-  counts: '/api/v1/explore/counts',
+  counts: '/explore/counts',
   /** College detail */
-  collegeDetail: '/api/v1/colleges',
+  collegeDetail: '/colleges',
   /** Athlete detail */
-  athleteDetail: '/api/v1/athletes',
+  athleteDetail: '/athletes',
   /** Team detail */
-  teamDetail: '/api/v1/teams',
+  teamDetail: '/teams',
   /** Video detail */
-  videoDetail: '/api/v1/videos',
+  videoDetail: '/videos',
   /** Leaderboard detail */
-  leaderboardDetail: '/api/v1/leaderboards',
+  leaderboardDetail: '/leaderboards',
   /** Scout report detail */
-  scoutReportDetail: '/api/v1/scout-reports',
+  scoutReportDetail: '/scout-reports',
   /** Camp detail */
-  campDetail: '/api/v1/camps',
+  campDetail: '/camps',
   /** Event detail */
-  eventDetail: '/api/v1/events',
+  eventDetail: '/events',
 } as const;
 
 // ============================================
@@ -394,7 +362,6 @@ export const EXPLORE_UI_CONFIG = {
 export const EXPLORE_INITIAL_TAB_COUNTS: ExploreTabCounts = {
   'for-you': 0,
   feed: 0,
-  following: 0,
   news: 0,
   colleges: 0,
   athletes: 0,
@@ -505,23 +472,7 @@ export const EXPLORE_TAB_FILTER_FIELDS: Record<
     readonly radius: boolean;
   }
 > = {
-  'for-you': {
-    sport: true,
-    state: true,
-    division: false,
-    position: false,
-    classYear: false,
-    radius: false,
-  },
   feed: {
-    sport: true,
-    state: true,
-    division: false,
-    position: false,
-    classYear: false,
-    radius: false,
-  },
-  following: {
     sport: true,
     state: true,
     division: false,

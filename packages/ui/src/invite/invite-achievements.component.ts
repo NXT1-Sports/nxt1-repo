@@ -11,6 +11,7 @@
 
 import { Component, ChangeDetectionStrategy, input, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { INVITE_TEST_IDS } from '@nxt1/core/testing';
 import { IonIcon } from '@ionic/angular/standalone';
 import type { InviteAchievement } from '@nxt1/core';
 
@@ -19,7 +20,7 @@ import type { InviteAchievement } from '@nxt1/core';
   standalone: true,
   imports: [CommonModule, IonIcon],
   template: `
-    <div class="achievements-container">
+    <div class="achievements-container" [attr.data-testid]="testIds.ACHIEVEMENTS">
       <!-- Earned Badges Row -->
       @if (earnedAchievements().length > 0) {
         <div class="achievements-earned">
@@ -33,7 +34,9 @@ import type { InviteAchievement } from '@nxt1/core';
                 <ion-icon [name]="achievement.icon"></ion-icon>
               </div>
               <span class="achievement-badge__name">{{ achievement.name }}</span>
-              <span class="achievement-badge__xp">+{{ achievement.xpReward }} XP</span>
+              @if (achievement.creditReward) {
+                <span class="achievement-badge__xp">+{{ achievement.creditReward }}¢</span>
+              }
             </div>
           }
         </div>
@@ -68,7 +71,9 @@ import type { InviteAchievement } from '@nxt1/core';
                   ></div>
                 </div>
               </div>
-              <span class="achievement-progress-item__xp">+{{ achievement.xpReward }}</span>
+              @if (achievement.creditReward) {
+                <span class="achievement-progress-item__xp">+{{ achievement.creditReward }}¢</span>
+              }
             </div>
           }
         </div>
@@ -371,6 +376,8 @@ import type { InviteAchievement } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InviteAchievementsComponent {
+  protected readonly testIds = INVITE_TEST_IDS;
+
   readonly achievements = input<InviteAchievement[]>([]);
   readonly showAll = input<boolean>(false);
 

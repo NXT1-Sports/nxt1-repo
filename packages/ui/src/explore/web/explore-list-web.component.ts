@@ -27,6 +27,7 @@ import {
 } from '@angular/core';
 import { isPlatformBrowser, CommonModule } from '@angular/common';
 import { type ExploreItem, type ExploreTabId, EXPLORE_EMPTY_STATES } from '@nxt1/core';
+import { TEST_IDS } from '@nxt1/core/testing';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import { ExploreSkeletonComponent } from '../explore-skeleton.component';
 import { ExploreItemWebComponent } from './explore-item-web.component';
@@ -64,7 +65,7 @@ const STATE_ICON_PATHS: Record<string, string> = {
   template: `
     <!-- Loading State -->
     @if (isLoading()) {
-      <div class="explore-list__loading">
+      <div class="explore-list__loading" [attr.data-testid]="testIds.LOADING_SKELETON">
         @for (i of skeletonArray; track i) {
           <nxt1-explore-skeleton />
         }
@@ -73,7 +74,7 @@ const STATE_ICON_PATHS: Record<string, string> = {
 
     <!-- Error State -->
     @else if (error()) {
-      <div class="explore-list__error">
+      <div class="explore-list__error" [attr.data-testid]="testIds.ERROR_STATE">
         <div class="state-icon state-icon--error">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <path [attr.d]="stateIconPaths['alert-circle']" />
@@ -92,7 +93,7 @@ const STATE_ICON_PATHS: Record<string, string> = {
 
     <!-- Empty State (after search) -->
     @else if (isEmpty() && hasQuery()) {
-      <div class="explore-list__empty">
+      <div class="explore-list__empty" [attr.data-testid]="testIds.EMPTY_STATE">
         <div class="state-icon">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
             <path [attr.d]="stateIconPaths['search']" />
@@ -105,15 +106,15 @@ const STATE_ICON_PATHS: Record<string, string> = {
 
     <!-- Results List -->
     @else {
-      <div class="explore-list__results">
+      <div class="explore-list__results" [attr.data-testid]="testIds.LIST_CONTAINER">
         @for (item of items(); track item.id) {
-          <nxt1-explore-item-web [item]="item" (itemClick)="onItemClick($event)" />
+          <nxt1-explore-item-web [item]="item" [attr.data-testid]="testIds.LIST_ITEM + '-' + item.id" (itemClick)="onItemClick($event)" />
         }
       </div>
 
       <!-- Infinite Scroll Sentinel -->
       @if (hasMore()) {
-        <div #scrollSentinel class="scroll-sentinel" aria-hidden="true"></div>
+        <div #scrollSentinel class="scroll-sentinel" [attr.data-testid]="testIds.LOAD_MORE_TRIGGER" aria-hidden="true"></div>
       }
 
       <!-- Loading More Indicator -->
@@ -262,6 +263,8 @@ export class ExploreListWebComponent {
 
   private readonly scrollSentinel = viewChild<ElementRef<HTMLElement>>('scrollSentinel');
   private intersectionObserver?: IntersectionObserver;
+
+  protected readonly testIds = TEST_IDS.EXPLORE;
 
   // ============================================
   // INPUTS

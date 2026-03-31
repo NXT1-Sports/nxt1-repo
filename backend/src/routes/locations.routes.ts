@@ -2,7 +2,7 @@
  * @fileoverview Locations Routes
  * @module @nxt1/backend/routes/locations
  *
- * Location search routes for create-post location tagging feature.
+ * Location search routes 
  * Matches CREATE_POST_API_ENDPOINTS.SEARCH_LOCATIONS
  */
 

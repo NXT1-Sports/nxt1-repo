@@ -882,8 +882,16 @@ router.post(
     }
 
     if (sports.length > 0) {
-      updateData.sports = sports;
-      updateData.activeSportIndex = 0;
+      // Only write physical sports[] to the database for Athletes (they own stats, positions, etc.)
+      // Coaches/Directors do NOT get physical sports[] — their sport dropdown is
+      // synthesized at read-time by ProfileHydrationService from RosterEntries.
+      const onboardRole = updateData.role as string;
+      const isTeamRoleOnboard =
+        onboardRole === 'coach' || onboardRole === 'director' || onboardRole === 'recruiter';
+      if (!isTeamRoleOnboard) {
+        updateData.sports = sports;
+        updateData.activeSportIndex = 0;
+      }
     }
 
     // V2: Build location object
@@ -1160,25 +1168,31 @@ router.post(
             const teamCode = await generateUniqueTeamCode(db);
             const teamName = program.name.trim();
 
-            const team = await teamCodeService.createTeamCode(db, {
-              teamCode,
-              teamName,
-              teamType: program.teamType,
-              sport: sportName,
-              createdBy: userId,
-              // Pass the creator's role so athletes get role: 'Athlete' in team.members,
-              // not the default 'Administrative' fallback.
-              creatorRole: role as 'athlete' | 'coach' | 'director' | 'media',
-              creatorName,
-              creatorEmail,
-              creatorPhoneNumber,
-            });
+            // Atomic batch: Team creation + org linking + RosterEntry in one commit
+            const teamBatch = db.batch();
+
+            const team = await teamCodeService.createTeamCode(
+              db,
+              {
+                teamCode,
+                teamName,
+                teamType: program.teamType,
+                sport: sportName,
+                createdBy: userId,
+                creatorRole: role as 'athlete' | 'coach' | 'director' | 'media',
+                creatorName,
+                creatorEmail,
+                creatorPhoneNumber,
+              },
+              teamBatch
+            );
 
             if (!team.id) {
               throw new Error('Created team is missing an id');
             }
 
-            await db.collection('Teams').doc(team.id).update({
+            // Link back to org within the same batch
+            teamBatch.update(db.collection('Teams').doc(team.id), {
               organizationId: program.organizationId,
               isClaimed: false,
               source: 'user_generated',
@@ -1188,6 +1202,36 @@ router.post(
               createdAt: new Date().toISOString(),
             });
 
+            // Queue RosterEntry in the same batch (atomically increments athleteMember)
+            const rosterRole =
+              role === 'director'
+                ? RosterRole.OWNER
+                : role === 'coach'
+                  ? RosterRole.HEAD_COACH
+                  : RosterRole.ATHLETE;
+            const rosterStatus =
+              role === 'director' ? RosterEntryStatus.ACTIVE : RosterEntryStatus.PENDING;
+
+            await rosterEntryService.createRosterEntry(
+              {
+                userId,
+                teamId: team.id,
+                organizationId: program.organizationId,
+                role: rosterRole,
+                status: rosterStatus,
+                firstName: updateData.firstName ?? currentUser?.firstName ?? '',
+                lastName: updateData.lastName ?? currentUser?.lastName ?? '',
+                email: creatorEmail ?? '',
+                profileImg: updateData.profileImgs?.[0] ?? currentUser?.profileImgs?.[0] ?? '',
+                classOf: updateData.classOf ?? currentUser?.classOf,
+              },
+              teamBatch
+            );
+
+            // Commit Team + Org link + RosterEntry + counter atomically
+            await teamBatch.commit();
+
+            // Best-effort: increment org team count (separate, non-critical)
             await organizationService.incrementTeamCount(program.organizationId).catch(() => {
               logger.warn('[POST /profile/onboarding] Failed to increment org team count', {
                 organizationId: program.organizationId,
@@ -1196,12 +1240,11 @@ router.post(
 
             teamId = team.id;
             createdTeamIds.push(team.id);
-            // slug is now written by createTeamCode at creation time; use it directly
             const teamSlug = team.slug ?? team.unicode ?? team.id ?? '';
             if (teamSlug && !coachTeamUnicodes.includes(teamSlug)) {
               coachTeamUnicodes.push(teamSlug);
             }
-            logger.info('[POST /profile/onboarding] Created ghost sport team', {
+            logger.info('[POST /profile/onboarding] Atomic team+roster created', {
               teamId,
               slug: teamSlug,
               organizationId: program.organizationId,
@@ -1209,35 +1252,40 @@ router.post(
             });
           }
 
-          const rosterRole =
-            role === 'director'
-              ? RosterRole.OWNER
-              : role === 'coach'
-                ? RosterRole.HEAD_COACH
-                : RosterRole.ATHLETE;
+          // For existing teams (not newly created), still create a RosterEntry
+          if (!createdTeamIds.includes(teamId)) {
+            const rosterRole =
+              role === 'director'
+                ? RosterRole.OWNER
+                : role === 'coach'
+                  ? RosterRole.HEAD_COACH
+                  : RosterRole.ATHLETE;
+            const rosterStatus =
+              role === 'director' ? RosterEntryStatus.ACTIVE : RosterEntryStatus.PENDING;
 
-          const rosterStatus =
-            role === 'director' ? RosterEntryStatus.ACTIVE : RosterEntryStatus.PENDING;
-
-          try {
-            await rosterEntryService.createRosterEntry({
-              userId,
-              teamId,
-              organizationId: program.organizationId,
-              role: rosterRole,
-              status: rosterStatus,
-              firstName: updateData.firstName ?? currentUser?.firstName ?? '',
-              lastName: updateData.lastName ?? currentUser?.lastName ?? '',
-              email: creatorEmail ?? '',
-              profileImg: updateData.profileImgs?.[0] ?? currentUser?.profileImgs?.[0] ?? '',
-              classOf: updateData.classOf ?? currentUser?.classOf,
-            });
-          } catch (err) {
-            logger.warn('[POST /profile/onboarding] Failed to create roster entry', {
-              userId,
-              teamId,
-              error: err,
-            });
+            try {
+              await rosterEntryService.createRosterEntry({
+                userId,
+                teamId,
+                organizationId: program.organizationId,
+                role: rosterRole,
+                status: rosterStatus,
+                firstName: updateData.firstName ?? currentUser?.firstName ?? '',
+                lastName: updateData.lastName ?? currentUser?.lastName ?? '',
+                email: creatorEmail ?? '',
+                profileImg: updateData.profileImgs?.[0] ?? currentUser?.profileImgs?.[0] ?? '',
+                classOf: updateData.classOf ?? currentUser?.classOf,
+              });
+            } catch (err) {
+              logger.warn(
+                '[POST /profile/onboarding] Failed to create roster entry for existing team',
+                {
+                  userId,
+                  teamId,
+                  error: err,
+                }
+              );
+            }
           }
 
           // Track the resolved sport→team→org mapping for backfilling User.sports[].team

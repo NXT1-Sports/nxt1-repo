@@ -129,7 +129,6 @@ import { environment } from '../../../environments/environment';
           (backClick)="onBackClick()"
           (tabChange)="onTeamTabChange($event)"
           (shareClick)="onTeamShare()"
-          (followClick)="onFollow()"
           (qrCodeClick)="onTeamQrCode()"
           (manageTeamClick)="onManageTeam()"
           (rosterMemberClick)="onRosterMemberClick($event)"
@@ -150,10 +149,8 @@ import { environment } from '../../../environments/environment';
           (teamClick)="onTeamClick($event)"
           (shareClick)="onShare()"
           (copyLinkClick)="onCopyLink()"
-          (followClick)="onFollow()"
           (qrCodeClick)="onQrCode()"
           (aiSummaryClick)="onAiSummary()"
-          (createPostClick)="onCreatePost()"
           (refreshRequest)="onRefreshRequest()"
         />
 
@@ -418,20 +415,6 @@ export class ProfileComponent {
               this.fetchSubCollections(profile.id, sportId).catch((err) => {
                 this.logger.error('Failed to fetch sub-collections', err, { userId: profile.id });
               });
-              // Initialize isFollowing state — run separately so it doesn't block
-              // sub-collection loading and cannot race with optimistic follow toggles.
-              if (!isOwn && this.authService.isAuthenticated()) {
-                this.profileApiService
-                  .checkFollow(profile.id)
-                  .then((res) => {
-                    if (res.success) {
-                      this.uiProfileService.setFollowState(res.data?.isFollowing ?? false);
-                    }
-                  })
-                  .catch(() => {
-                    /* silent — follow state defaults to false */
-                  });
-              }
             }
           } else {
             this.uiProfileService.setError(response.error ?? 'Failed to load profile');
@@ -886,47 +869,6 @@ export class ProfileComponent {
   }
 
   /**
-   * Handle follow button tap.
-   */
-  protected async onFollow(): Promise<void> {
-    if (!this.authService.isAuthenticated()) {
-      this.toast.info('Sign in to follow');
-      void this.navController.navigateForward('/auth');
-      return;
-    }
-
-    // Team follow when viewing team profile
-    if (this.showTeamProfile()) {
-      await this.teamProfile.toggleFollow();
-      const isFollowing = this.teamProfile.followStats()?.isFollowing;
-      this.toast.success(isFollowing ? 'Following!' : 'Unfollowed');
-      return;
-    }
-
-    // User (athlete/parent/coach) profile follow
-    const currentUserId = this.authService.user()?.uid;
-    const profileUserId = this.fetchedProfile()?.id;
-    if (!currentUserId || !profileUserId) return;
-
-    const wasFollowing = this.uiProfileService.followStats()?.isFollowing ?? false;
-    // Optimistic update
-    void this.uiProfileService.toggleFollow();
-
-    try {
-      if (!wasFollowing) {
-        await this.profileApiService.follow(currentUserId, profileUserId);
-      } else {
-        await this.profileApiService.unfollow(currentUserId, profileUserId);
-      }
-      this.toast.success(!wasFollowing ? 'Following!' : 'Unfollowed');
-    } catch {
-      // Rollback optimistic update
-      void this.uiProfileService.toggleFollow();
-      this.toast.error('Could not update follow status. Please try again.');
-    }
-  }
-
-  /**
    * Handle QR code tap — open QR code modal/sheet.
    */
   protected async onQrCode(): Promise<void> {
@@ -953,13 +895,6 @@ export class ProfileComponent {
     void this.navController.navigateForward('/agent-x', {
       queryParams: { action: 'ai-summary', profileId: this.fetchedProfile()?.id },
     });
-  }
-
-  /**
-   * Handle create post tap.
-   */
-  protected onCreatePost(): void {
-    void this.navController.navigateForward('/post/create');
   }
 
   /**

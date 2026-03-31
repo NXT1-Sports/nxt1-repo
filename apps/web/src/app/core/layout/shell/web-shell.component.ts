@@ -81,6 +81,7 @@ import {
   type FooterScrollToTopEvent,
   type FooterConfig,
   AGENT_X_LEFT_FOOTER_TABS,
+  buildDynamicFooterTabs,
   updateTabBadge,
   createFooterConfig,
   findTabByRoute,
@@ -113,6 +114,9 @@ import { ActivityService } from '@nxt1/ui/activity';
 import { ExploreService, ExploreFilterModalService } from '@nxt1/ui/explore';
 import type { TopNavSearchSubmitEvent } from '@nxt1/ui/components/top-nav';
 
+// ── Invite ──
+import { InviteShellComponent } from '@nxt1/ui/invite';
+import { NxtOverlayService } from '@nxt1/ui/components/overlay';
 // ── App-level imports ──
 import { AuthFlowService } from '../../../features/auth/services';
 import { BadgeCountService } from '../../services/badge-count.service';
@@ -210,6 +214,12 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
         icon: 'compass',
         activeIcon: 'compassFilled',
         route: '/explore',
+      },
+      {
+        id: 'invite-team',
+        label: 'Invite team',
+        icon: 'plusCircle',
+        action: 'invite-team',
       },
     ],
   },
@@ -333,11 +343,6 @@ const LOGGED_OUT_HEADER_NAV_ITEMS: TopNavItem[] = [
  * Navigation items (Usage, Settings, Help) live in the sidebar.
  */
 const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
-
-/**
- * Mobile footer tabs - same items as main sidebar section.
- */
-const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
 
 @Component({
   selector: 'app-web-shell',
@@ -477,6 +482,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
           [config]="footerConfig()"
           [profileAvatarSrc]="sidebarUserData()?.profileImg"
           [profileAvatarName]="sidebarUserData()?.name"
+          [profileAvatarIsTeam]="headerUserData()?.isTeamRole ?? false"
           (tabSelect)="onTabSelect($event)"
           (scrollToTop)="onScrollToTop($event)"
         />
@@ -695,6 +701,7 @@ export class WebShellComponent {
   private readonly scrollService = inject(NxtScrollService);
   private readonly badgeCount = inject(BadgeCountService);
   private readonly profileActions = inject(ProfilePageActionsService);
+  private readonly inviteOverlay = inject(NxtOverlayService);
   private readonly notificationState = inject(NxtNotificationStateService);
   private readonly activityService = inject(ActivityService);
   private readonly authModal = inject(AuthModalService);
@@ -774,6 +781,7 @@ export class WebShellComponent {
       handle: ctx.handle,
       verified: ctx.verified,
       isPremium: ctx.isPremium,
+      isTeamRole: ctx.isTeamRole,
     };
   });
 
@@ -845,6 +853,7 @@ export class WebShellComponent {
       profileRoute: ctx.profileRoute,
       switcherTitle: ctx.switcherTitle,
       isTeamRole: ctx.isTeamRole,
+      actionLabel: ctx.actionLabel,
       sportProfiles: ctx.sportProfiles as SidenavSportProfile[],
     };
   });
@@ -878,16 +887,18 @@ export class WebShellComponent {
 
   /**
    * Mobile footer tabs with reactive badge count.
+   * Uses buildDynamicFooterTabs() to render role-aware tabs:
+   * - Athletes: "Profile" tab with user icon
+   * - Coaches/Directors: "Team" tab with shield icon
+   *
    * Streams unread count from BadgeCountService so the red dot
    * appears/disappears in real-time as notifications are read.
    */
   readonly footerTabs = computed<FooterTabItem[]>(() => {
+    const ctx = this._userDisplayContext();
+    const baseTabs = buildDynamicFooterTabs(ctx);
     const unreadCount = this.badgeCount.activityBadge();
-    return updateTabBadge(
-      MOBILE_FOOTER_TABS,
-      'activity',
-      unreadCount > 0 ? unreadCount : undefined
-    );
+    return updateTabBadge(baseTabs, 'activity', unreadCount > 0 ? unreadCount : undefined);
   });
 
   /** Mobile footer configuration */
@@ -904,8 +915,18 @@ export class WebShellComponent {
   /** Whether the current route should show a back arrow instead of hamburger */
   private readonly _showMobileBack = computed(() => {
     const route = this._currentRoute();
-    // Back arrow only for other people's profiles (/profile/:param) or team pages (/team/:slug)
-    return route.startsWith('/profile/') || route.startsWith('/team/');
+    // Own team page → hamburger (same pattern as own profile)
+    if (route.startsWith('/team/') && this.profileActions.isOwnPage()) {
+      return false;
+    }
+    // Back arrow for other people's profiles, team pages, and legal/info pages
+    return (
+      route.startsWith('/profile/') ||
+      route.startsWith('/team/') ||
+      route.startsWith('/terms') ||
+      route.startsWith('/privacy') ||
+      route.startsWith('/about')
+    );
   });
 
   /** Whether the current route is any profile page (hides search/bell) */
@@ -962,7 +983,9 @@ export class WebShellComponent {
       ['/pulse', 'Pulse'],
       ['/rankings', 'Rankings'],
       ['/colleges', 'Colleges'],
-      ['/create-post', 'Create Post'],
+      ['/terms', 'Terms of Use'],
+      ['/privacy', 'Privacy Policy'],
+      ['/about', 'About'],
     ];
 
     for (const [prefix, label] of MAP) {
@@ -1142,6 +1165,18 @@ export class WebShellComponent {
       return;
     }
 
+    // Handle invite-team action
+    if (item.action === 'invite-team') {
+      const authUser = this.authFlow.user() as { role?: string | null } | null;
+      void this.inviteOverlay.open({
+        component: InviteShellComponent,
+        inputs: { isModal: true, user: { role: authUser?.role ?? undefined } },
+        size: 'lg',
+        backdropDismiss: true,
+      });
+      return;
+    }
+
     // Auth-gated sidebar items — show sign-in modal for logged-out users
     if (item.action === 'settings' && item.route) {
       const authenticated = await this.requireAuthentication(`access ${item.label.toLowerCase()}`);
@@ -1261,6 +1296,18 @@ export class WebShellComponent {
       return;
     }
 
+    // Handle invite-team action
+    if (item.action === 'invite-team') {
+      const authUser = this.authFlow.user() as { role?: string | null } | null;
+      void this.inviteOverlay.open({
+        component: InviteShellComponent,
+        inputs: { isModal: true, user: { role: authUser?.role ?? undefined } },
+        size: 'lg',
+        backdropDismiss: true,
+      });
+      return;
+    }
+
     // Auth-gated sidebar items — show sign-in modal for logged-out users
     if (item.action === 'settings' && item.route) {
       const authenticated = await this.requireAuthentication(`access ${item.label.toLowerCase()}`);
@@ -1292,11 +1339,11 @@ export class WebShellComponent {
 
   /**
    * Handle mobile sidebar "Add Sport" click.
-   * Navigates to edit-profile or profile page where sport management lives.
+   * Navigates to the Add Sport / Add Team wizard.
    */
   onMobileSidebarAddSport(): void {
     this.logger.debug('Add sport clicked from mobile sidebar');
-    this.router.navigate(['/profile']);
+    void this.router.navigate(['/add-sport']);
   }
 
   // ============================================
@@ -1410,16 +1457,10 @@ export class WebShellComponent {
 
   /**
    * Handle "Add Sport" / "Add Team" click from the header dropdown.
+   * Navigates to the post-onboarding Add Sport / Add Team wizard.
    */
   onAddSportClick(): void {
-    const user = this.authFlow.user() as { role?: string | null } | null;
-    const isTeam = user?.role ? isTeamRole(user.role) : false;
-
-    if (isTeam) {
-      this.router.navigate(['/settings'], { queryParams: { section: 'team' } });
-    } else {
-      this.router.navigate(['/settings'], { queryParams: { section: 'sport' } });
-    }
+    void this.router.navigate(['/add-sport']);
   }
 
   /**

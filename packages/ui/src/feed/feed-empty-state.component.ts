@@ -137,7 +137,7 @@ export class FeedEmptyStateComponent {
   // INPUTS
   // ============================================
 
-  readonly filterType = input<FeedFilterType>('for-you');
+  readonly filterType = input<FeedFilterType>('trending');
   readonly customTitle = input<string | undefined>(undefined);
   readonly customMessage = input<string | undefined>(undefined);
   readonly customCta = input<string | undefined>(undefined);

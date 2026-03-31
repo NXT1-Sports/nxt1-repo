@@ -17,8 +17,9 @@ import type {
   FeedAuthorRole,
   FeedVerificationStatus,
 } from '@nxt1/core/feed';
-import type { PostType } from '@nxt1/core/create-post';
 import type { PostVisibility } from '@nxt1/core/constants';
+
+type PostType = string;
 
 // ============================================
 // FIRESTORE DOCUMENT TYPES
@@ -196,7 +197,6 @@ export function firestorePostToFeedPost(
     isLiked?: boolean;
     isBookmarked?: boolean;
     isReposted?: boolean;
-    isFollowingAuthor?: boolean;
   }
 ): FeedPost {
   return {
@@ -224,7 +224,7 @@ export function firestorePostToFeedPost(
       isLiked: userEngagement?.isLiked || false,
       isBookmarked: userEngagement?.isBookmarked || false,
       isReposted: userEngagement?.isReposted || false,
-      isFollowingAuthor: userEngagement?.isFollowingAuthor || false,
+      isFollowingAuthor: false,
     },
     mentions: doc.mentions,
     hashtags: doc.hashtags,
@@ -282,7 +282,6 @@ function mapPostTypeToFeedType(type: PostType): FeedPostType {
 function mapPostVisibilityToFeedVisibility(visibility: PostVisibility): FeedPostVisibility {
   const mapping: Record<string, FeedPostVisibility> = {
     PUBLIC: 'public',
-    FOLLOWERS: 'followers',
     TEAM: 'team',
     PRIVATE: 'private',
   };
@@ -307,7 +306,6 @@ export async function batchConvertPosts(
         isLiked?: boolean;
         isBookmarked?: boolean;
         isReposted?: boolean;
-        isFollowingAuthor?: boolean;
       }
     | undefined
   >

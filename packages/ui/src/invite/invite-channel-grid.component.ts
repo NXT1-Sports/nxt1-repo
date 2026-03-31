@@ -11,6 +11,7 @@
 
 import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { INVITE_TEST_IDS } from '@nxt1/core/testing';
 import { IonIcon, IonRippleEffect } from '@ionic/angular/standalone';
 import type { InviteChannelConfig } from '@nxt1/core';
 
@@ -23,6 +24,7 @@ type GridVariant = 'primary' | 'social';
   template: `
     <div
       class="channel-grid"
+      [attr.data-testid]="testIds.CHANNEL_GRID"
       [class.channel-grid--primary]="variant() === 'primary'"
       [class.channel-grid--social]="variant() === 'social'"
     >
@@ -30,6 +32,7 @@ type GridVariant = 'primary' | 'social';
         <button
           type="button"
           class="channel-item"
+          [attr.data-testid]="testIds.CHANNEL_ITEM"
           [class.channel-item--primary]="variant() === 'primary'"
           [class.channel-item--social]="variant() === 'social'"
           (click)="onSelect(channel)"
@@ -45,10 +48,6 @@ type GridVariant = 'primary' | 'social';
           </div>
 
           <span class="channel-item__label">{{ channel.label }}</span>
-
-          @if (variant() === 'primary' && channel.xpReward > 0) {
-            <span class="channel-item__xp">+{{ channel.xpReward }} XP</span>
-          }
         </button>
       }
     </div>
@@ -211,6 +210,8 @@ type GridVariant = 'primary' | 'social';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InviteChannelGridComponent {
+  protected readonly testIds = INVITE_TEST_IDS;
+
   readonly channels = input<InviteChannelConfig[]>([]);
   readonly variant = input<GridVariant>('primary');
 

@@ -66,7 +66,7 @@ export type PostType =
   | 'image'
   | 'video';
 
-export type PostVisibilityType = 'public' | 'followers' | 'private';
+export type PostVisibilityType = 'public' | 'private';
 
 /**
  * Top-level Firestore document: posts/{postId}
@@ -349,29 +349,6 @@ export interface ScoutReportDoc extends FirestoreDoc {
   isPublic: boolean;
   /** Whether the athlete has viewed this report. */
   athleteViewed: boolean;
-}
-
-// ============================================
-// FOLLOWS (Follow Relationships)
-// ============================================
-
-/**
- * Top-level Firestore document: follows/{followerId}_{followingId}
- *
- * Document ID convention: `${followerId}_${followingId}` — guarantees
- * global uniqueness and avoids duplicate edges.
- *
- * Both `followerId` and `followingId` are indexed, enabling:
- *   - "all followers of userId X": where('followingId', '==', X)
- *   - "all users userId X follows": where('followerId', '==', X)
- *
- * Queryable by:  followerId, followingId, createdAt
- */
-export interface FollowDoc extends FirestoreDoc {
-  /** UID of the user who is following. */
-  followerId: string;
-  /** UID of the user being followed. */
-  followingId: string;
 }
 
 // ============================================

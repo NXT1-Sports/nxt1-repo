@@ -93,8 +93,8 @@ export class ExploreComponent implements OnInit {
       void this.exploreService.switchTab('news');
       this.updateSeoForTab('news');
     } else if (tabParam === 'discover') {
-      void this.exploreService.switchTab('for-you');
-      this.updateSeoForTab('for-you');
+      void this.exploreService.switchTab('feed');
+      this.updateSeoForTab('feed');
     } else {
       this.updateSeoForTab(this.exploreService.activeTab());
     }
@@ -111,7 +111,7 @@ export class ExploreComponent implements OnInit {
           'Stay updated with the real-time Pulse of NXT1. Discover sports news, latest highlights, recruiting updates, and daily briefings.',
         keywords: ['pulse', 'news', 'explore', 'briefing', 'recruiting updates', 'sports news'],
       });
-    } else if (tab === 'for-you') {
+    } else if (tab === 'feed') {
       this.seo.updatePage({
         title: 'Discover',
         description:
@@ -138,8 +138,6 @@ export class ExploreComponent implements OnInit {
     return {
       profileImg: user.profileImg ?? null,
       displayName: user.displayName,
-      followingCount: user.followingCount,
-      followingIds: user.followingIds,
       sport: user.selectedSports?.[0] ?? null,
       state: user.state ?? null,
     };
@@ -183,7 +181,7 @@ export class ExploreComponent implements OnInit {
 
     if (tab === 'news') {
       this.location.replaceState('/explore/pulse');
-    } else if (tab === 'for-you') {
+    } else if (tab === 'feed') {
       this.location.replaceState('/explore/discover');
     } else {
       this.location.replaceState('/explore');

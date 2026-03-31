@@ -20,7 +20,6 @@
  * - API data fetching → TeamProfileService bridge
  * - Ionic navigation (NavController)
  * - Native share via ShareService
- * - Follow with auth guard
  *
  * Routes:
  * - /team/:slug — View team by slug
@@ -48,6 +47,9 @@ import {
   NxtPageHeaderComponent,
   NxtIconComponent,
   NxtBottomSheetService,
+  NxtSidenavService,
+  SHEET_PRESETS,
+  type BottomSheetAction,
 } from '@nxt1/ui';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from '@nxt1/core';
@@ -74,13 +76,17 @@ import { TeamProfileApiService } from '../../core/services/team-profile-api.serv
       <ion-toolbar></ion-toolbar>
     </ion-header>
 
-    <!-- Fullscreen content: starts at top-0 behind transparent header -->
-    <ion-content [fullscreen]="true">
-      <!-- Page header as first block inside content (matches profile-shell.component.ts) -->
-      <nxt1-page-header [showBack]="true" (backClick)="onBackClick()">
-        <!-- Title: team name + NXT1 brand logo (mirrors "Profile" + logo in profile-shell) -->
+    <!-- Outer content: overflow visible (non-scrolling), matches profile pattern -->
+    <ion-content [fullscreen]="true" class="team-outer-content">
+      <!-- Fixed page header (outside scrolling area — mirrors profile-shell.component.ts) -->
+      <nxt1-page-header
+        [showBack]="!isTeamAdmin()"
+        (backClick)="onBackClick()"
+        (menuClick)="onMenuClick()"
+      >
+        <!-- Title: "Team" + NXT1 brand logo (mirrors "Profile" + logo in profile-shell) -->
         <div pageHeaderSlot="title" class="header-logo">
-          <span class="header-title-text">{{ teamTitle() }}</span>
+          <span class="header-title-text">Team</span>
           <svg
             class="header-brand-logo"
             viewBox="0 0 612 792"
@@ -124,20 +130,21 @@ import { TeamProfileApiService } from '../../core/services/team-profile-api.serv
         </div>
       </nxt1-page-header>
 
-      <!-- Team profile shell — renders below the page header inside the scroll area -->
-      <nxt1-team-profile-shell-web
-        [teamSlug]="teamSlug()"
-        [isTeamAdmin]="isTeamAdmin()"
-        [skipInternalLoad]="true"
-        (backClick)="onBackClick()"
-        (tabChange)="onTabChange($event)"
-        (shareClick)="onShare()"
-        (followClick)="onFollow()"
-        (qrCodeClick)="onQrCode()"
-        (manageTeamClick)="onManageTeam()"
-        (rosterMemberClick)="onRosterMemberClick($event)"
-        (postClick)="onPostClick($event)"
-      />
+      <!-- Inner scrollable content (mirrors profile-shell ion-content pattern) -->
+      <ion-content [fullscreen]="true" class="team-scroll-content">
+        <nxt1-team-profile-shell-web
+          [teamSlug]="teamSlug()"
+          [isTeamAdmin]="isTeamAdmin()"
+          [skipInternalLoad]="true"
+          (backClick)="onBackClick()"
+          (tabChange)="onTabChange($event)"
+          (shareClick)="onShare()"
+          (qrCodeClick)="onQrCode()"
+          (manageTeamClick)="onManageTeam()"
+          (rosterMemberClick)="onRosterMemberClick($event)"
+          (postClick)="onPostClick($event)"
+        />
+      </ion-content>
     </ion-content>
   `,
   styles: `
@@ -162,12 +169,17 @@ import { TeamProfileApiService } from '../../core/services/team-profile-api.serv
       --padding-bottom: 0;
     }
 
-    /* Fullscreen content with visible overflow (same as profile.component.ts) */
-    ion-content {
+    /* Fullscreen content — outer container is non-scrolling (overflow visible) */
+    ion-content.team-outer-content {
       --background: var(--nxt1-color-bg-primary, #0a0a0a);
     }
-    ion-content::part(scroll) {
+    ion-content.team-outer-content::part(scroll) {
       overflow: visible;
+    }
+
+    /* Inner content — the real scrolling container */
+    ion-content.team-scroll-content {
+      --background: var(--nxt1-color-bg-primary, #0a0a0a);
     }
 
     /* Header logo: team name + brand logo (matches profile-shell.component.ts) */
@@ -247,6 +259,7 @@ export class TeamPage {
   private readonly logger = inject(NxtLoggingService).child('TeamPage');
   private readonly destroyRef = inject(DestroyRef);
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly sidenavService = inject(NxtSidenavService);
 
   // ============================================
   // STATE
@@ -354,46 +367,50 @@ export class TeamPage {
     this.navController.back();
   }
 
-  protected async onMoreMenu(): Promise<void> {
-    const team = this.teamProfile.team();
-    const isAdmin = this.isTeamAdmin();
-    const isFollowing = this.teamProfile.followStats()?.isFollowing ?? false;
+  protected onMenuClick(): void {
+    this.sidenavService.open();
+  }
 
-    await this.bottomSheet.show({
-      title: team?.teamName ?? 'Team Options',
-      actions: [
-        {
-          label: 'Share Team',
-          role: 'secondary',
-          icon: 'share-social-outline',
-          handler: () => this.onShare(),
-        },
-        {
-          label: 'QR Code',
-          role: 'secondary',
-          icon: 'qr-code-outline',
-          handler: () => this.onQrCode(),
-        },
-        ...(isAdmin
-          ? [
-              {
-                label: 'Manage Team',
-                role: 'secondary' as const,
-                icon: 'pencil-outline',
-                handler: () => this.onManageTeam(),
-              },
-            ]
-          : [
-              {
-                label: isFollowing ? 'Unfollow' : 'Follow Team',
-                role: 'secondary' as const,
-                icon: 'people-outline',
-                handler: () => this.onFollow(),
-              },
-            ]),
-        { label: 'Cancel', role: 'cancel' as const },
-      ],
+  protected async onMoreMenu(): Promise<void> {
+    const isAdmin = this.isTeamAdmin();
+    const actions: BottomSheetAction[] = isAdmin
+      ? [
+          { label: 'Manage Team', role: 'secondary', icon: 'settings' },
+          { label: 'Share Team', role: 'secondary', icon: 'share' },
+          { label: 'QR Code', role: 'secondary', icon: 'qrCode' },
+          { label: 'Copy Link', role: 'secondary', icon: 'link' },
+        ]
+      : [
+          { label: 'Share Team', role: 'secondary', icon: 'share' },
+          { label: 'Copy Link', role: 'secondary', icon: 'link' },
+          { label: 'Report', role: 'destructive', icon: 'flag' },
+        ];
+
+    const result = await this.bottomSheet.show<BottomSheetAction>({
+      actions,
+      showClose: false,
+      backdropDismiss: true,
+      ...SHEET_PRESETS.COMPACT,
     });
+
+    const selected = result?.data as BottomSheetAction | undefined;
+    if (!selected) return;
+
+    switch (selected.label) {
+      case 'Manage Team':
+        await this.onManageTeam();
+        break;
+      case 'Share Team':
+      case 'Copy Link':
+        await this.onShare();
+        break;
+      case 'QR Code':
+        await this.onQrCode();
+        break;
+      case 'Report':
+        this.logger.info('Report team requested');
+        break;
+    }
   }
 
   protected onTabChange(tab: TeamProfileTabId): void {
@@ -422,18 +439,6 @@ export class TeamPage {
     if (result.completed) {
       this.logger.info('Team shared', { slug: team.slug, method: result.activityType });
     }
-  }
-
-  protected async onFollow(): Promise<void> {
-    if (!this.authService.isAuthenticated()) {
-      this.toast.info('Sign in to follow teams');
-      void this.navController.navigateForward('/auth');
-      return;
-    }
-
-    await this.teamProfile.toggleFollow();
-    const isFollowing = this.teamProfile.followStats()?.isFollowing;
-    this.toast.success(isFollowing ? 'Following!' : 'Unfollowed');
   }
 
   protected async onQrCode(): Promise<void> {

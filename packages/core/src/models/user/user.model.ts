@@ -101,8 +101,6 @@ export interface UserPreferences {
 export interface UserCounters {
   profileViews: number;
   videoViews: number;
-  followersCount: number;
-  followingCount: number;
   postsCount: number;
   sharesCount: number;
   /** Number of highlight videos */

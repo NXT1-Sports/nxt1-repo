@@ -155,7 +155,6 @@ async function searchAthletes(
         classYear: data['classYear'] || undefined,
         location: data['location'] || data['state'] || undefined,
         team: data['team']?.name || data['highSchool'] || undefined,
-        followers: data['followersCount'] || 0,
         videoCount: data['videoCount'] || 0,
         commitment: data['commitment']
           ? {

@@ -338,50 +338,6 @@ export class ProfileApiService {
   }
 
   // ============================================
-  // FOLLOW
-  // ============================================
-
-  /**
-   * Follow a user
-   * @param userId - Current user's ID
-   * @param targetUserId - User to follow
-   */
-  async follow(userId: string, targetUserId: string) {
-    return this.api.follow(userId, targetUserId);
-  }
-
-  /**
-   * Unfollow a user
-   * @param userId - Current user's ID
-   * @param targetUserId - User to unfollow
-   */
-  async unfollow(userId: string, targetUserId: string) {
-    return this.api.unfollow(userId, targetUserId);
-  }
-
-  /**
-   * Check if the current authenticated user is following a target user
-   * @param targetUserId - User to check follow status for
-   */
-  async checkFollow(targetUserId: string) {
-    return this.api.checkFollow(targetUserId);
-  }
-
-  /**
-   * Get followers list
-   */
-  async getFollowers(userId: string, page?: number, limit?: number) {
-    return this.api.getFollowers(userId, page, limit);
-  }
-
-  /**
-   * Get following list
-   */
-  async getFollowing(userId: string, page?: number, limit?: number) {
-    return this.api.getFollowing(userId, page, limit);
-  }
-
-  // ============================================
   // ANALYTICS
   // ============================================
 

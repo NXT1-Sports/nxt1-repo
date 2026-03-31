@@ -596,7 +596,33 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
                   sport: user.teamCode.sport,
                   logoUrl: user.teamCode.logoUrl ?? user.teamCode.teamLogoImg ?? null,
                 }
-              : null,
+              : (() => {
+                  // Legacy fallback: some Firestore docs store team info in
+                  // `sports[].team` or a top-level `team` field instead of `teamCode`.
+                  const sportsRaw = Array.isArray(user.sports)
+                    ? user.sports
+                    : user.sports
+                      ? (Object.values(user.sports) as typeof user.sports)
+                      : undefined;
+                  const sportTeam = sportsRaw?.find((s) => s.team?.name)?.team;
+                  const rawTopTeam = (user as unknown as Record<string, unknown>)['team'] as
+                    | { name?: string; logoUrl?: string; logo?: string | null }
+                    | undefined;
+                  const teamName = sportTeam?.name ?? rawTopTeam?.name;
+                  if (!teamName) return null;
+                  const slug = user.coach?.managedTeamCodes?.[0];
+                  return {
+                    slug,
+                    unicode: undefined as string | undefined,
+                    teamName,
+                    sport: sportsRaw?.find((s) => s.team?.name)?.sport,
+                    logoUrl:
+                      sportTeam?.logoUrl ??
+                      sportTeam?.logo ??
+                      rawTopTeam?.logoUrl ??
+                      null,
+                  };
+                })(),
             managedTeamCodes: user.coach?.managedTeamCodes ?? null,
             // Normalise: Firestore dot-notation writes can convert sports array
             // to a plain map {"0": {...}}. Convert back before array methods.

@@ -58,18 +58,12 @@ import { getVerification, normalizeWeightDisplay, isFemaleGender } from '@nxt1/c
         @if (!isOwnProfile()) {
           <button
             type="button"
-            class="madden-mobile-hero__follow-btn"
-            [class.madden-mobile-hero__follow-btn--following]="profile.followStats()?.isFollowing"
-            [attr.aria-label]="
-              profile.followStats()?.isFollowing ? 'Unfollow athlete' : 'Follow athlete'
-            "
-            (click)="followClick.emit()"
+            class="madden-mobile-hero__msg-btn"
+            aria-label="Message athlete"
+            (click)="messageClick.emit()"
           >
-            <nxt1-icon
-              [name]="profile.followStats()?.isFollowing ? 'checkmark' : 'plus'"
-              [size]="13"
-            />
-            {{ profile.followStats()?.isFollowing ? 'Following' : 'Follow' }}
+            <nxt1-icon name="chatbubble-outline" [size]="13" />
+            Message
           </button>
         }
         <!-- Mobile hero stats (Class, Height, Weight, Location) -->
@@ -398,8 +392,8 @@ export class ProfileMobileHeroComponent {
   /** Whether viewing own profile */
   readonly isOwnProfile = input(false);
 
-  /** Emitted when Follow button is tapped */
-  readonly followClick = output<void>();
+  /** Emitted when Message button is tapped */
+  readonly messageClick = output<void>();
 
   // ── Display computeds ──
 

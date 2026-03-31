@@ -371,17 +371,8 @@ export interface TeamProfileRecruitingActivity {
 }
 
 // ============================================
-// FOLLOW/SOCIAL TYPES
+// FOLLOW STATS TYPES
 // ============================================
-
-/**
- * Follow statistics for a team profile.
- */
-export interface TeamProfileFollowStats {
-  readonly followersCount: number;
-  readonly followingCount?: number;
-  readonly isFollowing: boolean;
-}
 
 // ============================================
 // ANALYTICS/QUICK STATS TYPES
@@ -458,8 +449,6 @@ export interface TeamProfileHeaderAction {
 export interface TeamProfilePageData {
   /** Core team data */
   readonly team: TeamProfileTeam;
-  /** Follow stats */
-  readonly followStats: TeamProfileFollowStats;
   /** Quick stats/analytics */
   readonly quickStats: TeamProfileQuickStats;
   /** Roster members */

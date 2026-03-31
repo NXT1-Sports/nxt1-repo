@@ -263,7 +263,7 @@ export const MOCK_POLL_DRAFT: PostDraft = {
   id: 'draft-4',
   content: '',
   type: 'poll',
-  privacy: 'followers',
+  privacy: 'public',
   media: [],
   taggedUsers: [],
   poll: {

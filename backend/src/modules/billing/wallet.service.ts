@@ -302,3 +302,114 @@ export async function refundWallet(
     };
   }
 }
+
+// ============================================
+// REFERRAL REWARDS
+// ============================================
+
+/** Amount credited to the referrer's wallet when a new user signs up (in cents). */
+export const REFERRAL_REWARD_CENTS = 500; // $5.00
+
+/**
+ * Credit a referral reward to the referring user's Agent X wallet.
+ *
+ * Uses `referralRewards` collection for idempotency — each (referrerId, newUserId)
+ * pair can only be rewarded once. Safe to call multiple times for the same pair.
+ *
+ * @param db        Firestore instance
+ * @param referrerId  The UID of the user who sent the invite
+ * @param newUserId   The UID of the newly signed-up user
+ * @param amountCents Reward amount in cents (defaults to REFERRAL_REWARD_CENTS)
+ */
+export async function creditReferralReward(
+  db: Firestore,
+  referrerId: string,
+  newUserId: string,
+  amountCents: number = REFERRAL_REWARD_CENTS
+): Promise<WalletTopUpResult> {
+  if (amountCents <= 0) {
+    return { success: false, newBalanceCents: 0, error: 'Amount must be positive' };
+  }
+
+  if (referrerId === newUserId) {
+    return { success: false, newBalanceCents: 0, error: 'Cannot reward self-referral' };
+  }
+
+  // Idempotency key: one reward per (referrer, newUser) pair
+  const idempotencyKey = `referral_${referrerId}_${newUserId}`;
+  const rewardRef = db.collection('referralRewards').doc(idempotencyKey);
+  const walletRef = await getWalletRef(db, referrerId);
+
+  try {
+    const result = await db.runTransaction(async (tx) => {
+      // Check idempotency — already rewarded?
+      const rewardSnap = await tx.get(rewardRef);
+      if (rewardSnap.exists) {
+        const walletSnap = await tx.get(walletRef);
+        const currentBalance = walletSnap.exists
+          ? ((walletSnap.data() as Wallet).balanceCents ?? 0)
+          : 0;
+        return { alreadyProcessed: true, newBalanceCents: currentBalance };
+      }
+
+      const walletSnap = await tx.get(walletRef);
+      const ts = FieldValue.serverTimestamp();
+      const currentBalance = walletSnap.exists
+        ? ((walletSnap.data() as Wallet).balanceCents ?? 0)
+        : 0;
+
+      if (!walletSnap.exists) {
+        tx.set(walletRef, {
+          userId: referrerId,
+          balanceCents: amountCents,
+          createdAt: ts,
+          updatedAt: ts,
+        });
+      } else {
+        tx.update(walletRef, {
+          balanceCents: FieldValue.increment(amountCents),
+          updatedAt: ts,
+        });
+      }
+
+      // Record the reward for idempotency and audit
+      tx.set(rewardRef, {
+        referrerId,
+        newUserId,
+        amountCents,
+        processedAt: ts,
+        type: 'referral_reward',
+      });
+
+      return { alreadyProcessed: false, newBalanceCents: currentBalance + amountCents };
+    });
+
+    if (result.alreadyProcessed) {
+      logger.info('[wallet] Referral reward already processed (idempotent)', {
+        referrerId,
+        newUserId,
+      });
+    } else {
+      logger.info('[wallet] Referral reward credited', {
+        referrerId,
+        newUserId,
+        amountCents,
+        newBalanceCents: result.newBalanceCents,
+      });
+    }
+
+    return { success: true, newBalanceCents: result.newBalanceCents };
+  } catch (error) {
+    logger.error('[wallet] Referral reward failed', {
+      referrerId,
+      newUserId,
+      amountCents,
+      error,
+    });
+    return {
+      success: false,
+      newBalanceCents: 0,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}

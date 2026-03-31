@@ -46,6 +46,7 @@ import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header
 import { NxtSheetFooterComponent } from '../components/bottom-sheet/sheet-footer.component';
 import { NxtLogoComponent } from '../components/logo/logo.component';
 import { NxtIconComponent } from '../components/icon/icon.component';
+import { INVITE_TEST_IDS } from '@nxt1/core/testing';
 
 /**
  * User info for personalization.
@@ -97,7 +98,11 @@ const INVITE_COPY = {
     NxtIconComponent,
   ],
   template: `
-    <div class="invite-shell" [class.invite-shell--modal]="isModal()">
+    <div
+      class="invite-shell"
+      [class.invite-shell--modal]="isModal()"
+      [attr.data-testid]="testIds.SHELL"
+    >
       <!-- ── HEADER ── -->
       <nxt1-sheet-header
         [title]="headerTitle()"
@@ -109,16 +114,16 @@ const INVITE_COPY = {
 
       <!-- ── SCROLLABLE CONTENT ── -->
       <div class="invite-content">
-        <div class="invite-body">
+        <div class="invite-body" [class.invite-body--modal]="isModal()">
           <!-- QR CODE: shared across both variants -->
-          <div class="invite-qr-section">
+          <div class="invite-qr-section" [attr.data-testid]="testIds.QR_SECTION">
             <div class="invite-qr-card">
               @if (qrLoading()) {
-                <div class="invite-qr-skeleton">
+                <div class="invite-qr-skeleton" [attr.data-testid]="testIds.QR_LOADING">
                   <ion-spinner name="crescent" class="invite-qr-spinner" />
                 </div>
               } @else if (qrError()) {
-                <div class="invite-qr-error">
+                <div class="invite-qr-error" [attr.data-testid]="testIds.QR_ERROR">
                   <nxt1-icon name="alertCircle" [size]="24" />
                   <span>Could not generate QR code</span>
                 </div>
@@ -128,6 +133,7 @@ const INVITE_COPY = {
                   class="invite-qr-canvas"
                   alt="NXT1 invite QR code"
                   role="img"
+                  [attr.data-testid]="testIds.QR_IMAGE"
                 />
               }
               <div class="invite-qr-logo" aria-hidden="true">
@@ -137,22 +143,30 @@ const INVITE_COPY = {
             <p class="invite-qr-label">Scan to join NXT1</p>
           </div>
 
-          <div class="invite-explainer" role="note" aria-label="How invites work">
-            <p class="invite-explainer__title">How it works</p>
-            <p class="invite-explainer__body">{{ howItWorksText() }}</p>
-          </div>
-
-          @if (showValueCard()) {
-            <div class="invite-value-card">
-              <div class="invite-value-card__icon" aria-hidden="true">
-                <nxt1-icon name="gift" [size]="24" />
-              </div>
-              <div class="invite-value-card__text">
-                <p class="invite-value-card__title">{{ currentCopy().title }}</p>
-                <p class="invite-value-card__subtitle">{{ currentCopy().subtitle }}</p>
-              </div>
+          <!-- RIGHT COLUMN: cards -->
+          <div class="invite-body__right">
+            <div
+              class="invite-explainer"
+              role="note"
+              aria-label="How invites work"
+              [attr.data-testid]="testIds.EXPLAINER"
+            >
+              <p class="invite-explainer__title">How it works</p>
+              <p class="invite-explainer__body">{{ howItWorksText() }}</p>
             </div>
-          }
+
+            @if (showValueCard()) {
+              <div class="invite-value-card" [attr.data-testid]="testIds.VALUE_CARD">
+                <div class="invite-value-card__icon" aria-hidden="true">
+                  <nxt1-icon name="gift" [size]="24" />
+                </div>
+                <div class="invite-value-card__text">
+                  <p class="invite-value-card__title">{{ currentCopy().title }}</p>
+                  <p class="invite-value-card__subtitle">{{ currentCopy().subtitle }}</p>
+                </div>
+              </div>
+            }
+          </div>
         </div>
       </div>
 
@@ -390,12 +404,48 @@ const INVITE_COPY = {
         line-height: 1.45;
       }
 
+      /* ── RIGHT COLUMN (modal two-column layout) ── */
+
+      .invite-body__right {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-4, 16px);
+        width: 100%;
+      }
+
       /* ── RESPONSIVE ── */
 
       @media (min-width: 640px) {
         .invite-body {
           padding: var(--nxt1-spacing-6, 24px);
           padding-bottom: var(--nxt1-spacing-8, 32px);
+        }
+      }
+
+      /* ── MODAL TWO-COLUMN LAYOUT (desktop only) ── */
+
+      @media (min-width: 600px) {
+        .invite-body--modal {
+          flex-direction: row;
+          align-items: flex-start;
+          gap: var(--nxt1-spacing-6, 24px);
+          max-width: 100%;
+          padding: var(--nxt1-spacing-5, 20px) var(--nxt1-spacing-6, 24px) 0;
+        }
+
+        .invite-body--modal .invite-qr-section {
+          flex: 0 0 auto;
+          width: 200px;
+        }
+
+        .invite-body--modal .invite-body__right {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .invite-body--modal .invite-qr-card {
+          width: 164px;
+          height: 164px;
         }
       }
     `,
@@ -408,6 +458,8 @@ export class InviteShellComponent implements OnInit {
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('InviteShellComponent');
   private readonly platformId = inject(PLATFORM_ID);
+
+  protected readonly testIds = INVITE_TEST_IDS;
 
   constructor() {
     // Re-generate whenever the invite URL becomes available (handles async load)

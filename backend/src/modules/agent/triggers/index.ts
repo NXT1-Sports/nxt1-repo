@@ -6,7 +6,6 @@
 export { AgentTriggerService } from './trigger.service.js';
 export {
   onProfileView,
-  onNewFollower,
   onCoachReply,
   runDailyBriefings,
   runWeeklyRecaps,

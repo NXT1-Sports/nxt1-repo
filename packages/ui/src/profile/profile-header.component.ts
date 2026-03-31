@@ -11,7 +11,6 @@ import { Component, ChangeDetectionStrategy, input, output, computed, inject } f
 import { CommonModule } from '@angular/common';
 import type {
   ProfileUser,
-  ProfileFollowStats,
   ProfilePinnedVideo,
   ProfileQuickStats,
   PlayerCardData,
@@ -339,22 +338,6 @@ import { ProfileService } from './profile.service';
       <!-- ═══ ACTION BUTTONS ═══ -->
       @if (!isOwnProfile()) {
         <div class="mc-actions">
-          <button
-            class="mc-btn mc-btn-follow"
-            [class.mc-btn-following]="followStats()?.isFollowing"
-            [disabled]="isFollowLoading()"
-            (click)="followToggle.emit()"
-          >
-            @if (isFollowLoading()) {
-              <span class="mc-spinner" aria-hidden="true"></span>
-            } @else if (followStats()?.isFollowing) {
-              <nxt1-icon name="checkmark" [size]="18" />
-              <span>Following</span>
-            } @else {
-              <nxt1-icon name="plus" [size]="18" />
-              <span>Follow</span>
-            }
-          </button>
           <button class="mc-btn mc-btn-msg" (click)="messageClick.emit()">
             <span>Message</span>
           </button>
@@ -970,33 +953,6 @@ import { ProfileService } from './profile.service';
         border: none;
         transition: all 0.25s ease;
       }
-      .mc-btn-follow {
-        flex: 1;
-        max-width: 160px;
-        background: var(--card-accent);
-        color: #000;
-      }
-      .mc-btn-follow:hover:not(:disabled) {
-        filter: brightness(1.05);
-        box-shadow: 0 0 18px color-mix(in srgb, var(--card-accent) 40%, transparent);
-      }
-      .mc-btn-follow:active:not(:disabled) {
-        transform: scale(0.97);
-      }
-      .mc-btn-follow:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-      }
-      .mc-btn-following {
-        background: var(--card-surface);
-        color: var(--card-text);
-        border: 1px solid var(--card-border);
-      }
-      .mc-btn-following:hover:not(:disabled) {
-        background: #ff4444 !important;
-        color: #fff !important;
-        border-color: transparent !important;
-      }
       .mc-btn-msg {
         background: var(--card-surface);
         color: var(--card-text);
@@ -1156,19 +1112,14 @@ export class ProfileHeaderComponent {
 
   // ─── INPUTS ───
   readonly user = input<ProfileUser | null>(null);
-  readonly followStats = input<ProfileFollowStats | null>(null);
   readonly pinnedVideo = input<ProfilePinnedVideo | null>(null);
   readonly quickStats = input<ProfileQuickStats | null>(null);
   readonly playerCard = input<PlayerCardData | null>(null);
   readonly isOwnProfile = input(false);
   readonly canEdit = input(false);
-  readonly isFollowLoading = input(false);
   readonly hasTeam = input(false);
 
   // ─── OUTPUTS ───
-  readonly followToggle = output<void>();
-  readonly followersClick = output<void>();
-  readonly followingClick = output<void>();
   readonly editProfile = output<void>();
   readonly editBanner = output<void>();
   readonly editAvatar = output<void>();

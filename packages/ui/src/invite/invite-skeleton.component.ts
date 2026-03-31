@@ -11,13 +11,14 @@
 
 import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { INVITE_TEST_IDS } from '@nxt1/core/testing';
 
 @Component({
   selector: 'nxt1-invite-skeleton',
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="invite-skeleton">
+    <div class="invite-skeleton" [attr.data-testid]="testIds.LOADING_SKELETON">
       <!-- Stats Card Skeleton -->
       <div class="skeleton-stats-card">
         <div class="skeleton-stats-card__main">
@@ -344,4 +345,6 @@ import { CommonModule } from '@angular/common';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class InviteSkeletonComponent {}
+export class InviteSkeletonComponent {
+  protected readonly testIds = INVITE_TEST_IDS;
+}

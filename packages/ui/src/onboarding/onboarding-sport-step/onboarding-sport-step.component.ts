@@ -139,7 +139,7 @@ type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
       <div class="nxt1-sport-step" data-testid="onboarding-sport-step">
         <!-- Description -->
         <p class="nxt1-step-description">
-          {{ stepPrompt() }}
+          {{ promptOverride() ?? stepPrompt() }}
           @if (showMaxHint()) {
             <span class="nxt1-max-hint">Choose up to {{ maxSports() }}.</span>
           }
@@ -431,6 +431,9 @@ export class OnboardingSportStepComponent {
 
   /** Current selected onboarding role (used for role-specific prompt/copy) */
   readonly role = input<OnboardingUserType | null>(null);
+
+  /** Override the auto-generated step prompt text (e.g. for post-onboarding add-sport context) */
+  readonly promptOverride = input<string | null>(null);
 
   /** Maximum number of sports allowed */
   readonly maxSports = input<number>(DEFAULT_MAX_SPORTS);

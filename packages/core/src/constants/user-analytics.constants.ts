@@ -27,8 +27,6 @@ export const ANALYTICS_EVENT_TYPES = {
   CARD_VIEW: 'card_view',
 
   // Engagement events
-  FOLLOW: 'follow',
-  UNFOLLOW: 'unfollow',
   SHARE: 'share',
   REACTION: 'reaction',
   COMMENT: 'comment',

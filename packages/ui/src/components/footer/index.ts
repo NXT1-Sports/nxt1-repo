@@ -44,4 +44,6 @@ export {
   updateTabBadge,
   setTabDisabled,
   isMainPageRoute,
+  buildDynamicFooterTabs,
+  type FooterTabContext,
 } from './footer.types';

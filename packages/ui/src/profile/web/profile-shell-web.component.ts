@@ -163,7 +163,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                   [playerCard]="null"
                   [showFollowAction]="!isOwnProfile()"
                   (back)="backClick.emit()"
-                  (follow)="followClick.emit()"
                   (editProfile)="editProfileClick.emit()"
                 />
               </div>
@@ -171,7 +170,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
               <!-- Mobile hero: profile summary -->
               <nxt1-profile-mobile-hero
                 [isOwnProfile]="isOwnProfile()"
-                (followClick)="followClick.emit()"
+                (messageClick)="menuClick.emit()"
               />
 
               <!-- TOP TAB BAR -->
@@ -282,7 +281,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                         (shareClick)="onSharePost($event)"
                         (menuClick)="onPostMenu($event)"
                         (loadMore)="onLoadMore()"
-                        (emptyCtaClick)="onCreatePost()"
                       />
                     }
 
@@ -1361,11 +1359,9 @@ export class ProfileShellWebComponent implements OnInit {
   readonly editProfileClick = output<void>();
   readonly teamClick = output<ProfileTeamAffiliation>();
   readonly shareClick = output<void>();
-  readonly followClick = output<void>();
   readonly menuClick = output<void>();
   readonly qrCodeClick = output<void>();
   readonly aiSummaryClick = output<void>();
-  readonly createPostClick = output<void>();
   readonly retryClick = output<void>();
 
   // ============================================
@@ -1606,18 +1602,6 @@ export class ProfileShellWebComponent implements OnInit {
   }
 
   // Header actions
-  protected onFollowToggle(): void {
-    this.profile.toggleFollow();
-  }
-
-  protected onFollowersClick(): void {
-    this.logger.debug('Followers click');
-  }
-
-  protected onFollowingClick(): void {
-    this.logger.debug('Following click');
-  }
-
   protected onEditProfile(): void {
     this.editProfileClick.emit();
   }
@@ -1678,10 +1662,6 @@ export class ProfileShellWebComponent implements OnInit {
 
   protected onLoadMore(): void {
     this.profile.loadMorePosts();
-  }
-
-  protected onCreatePost(): void {
-    this.createPostClick.emit();
   }
 
   protected onUploadVideo(): void {

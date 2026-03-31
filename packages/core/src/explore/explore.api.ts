@@ -31,6 +31,7 @@ import {
   EXPLORE_PAGINATION_DEFAULTS,
   EXPLORE_INITIAL_TAB_COUNTS,
 } from './explore.constants';
+import { createApiError } from '../errors/error.factory';
 
 /**
  * Generic API response wrapper.
@@ -82,18 +83,10 @@ export function createExploreApi(http: HttpAdapter, baseUrl: string) {
       const response = await http.get<ApiResponse<ExploreSearchResponse<T>>>(url);
 
       if (!response.success || !response.data) {
-        return {
-          success: false,
-          items: [],
-          pagination: {
-            page: 1,
-            limit: EXPLORE_PAGINATION_DEFAULTS.pageSize,
-            total: 0,
-            totalPages: 0,
-            hasMore: false,
-          },
-          error: response.error ?? 'Failed to search',
-        };
+        throw createApiError('SRV_INTERNAL_ERROR', {
+          message: response.error ?? 'Failed to search',
+          details: { query: query.query, tab: query.tab },
+        });
       }
 
       return response.data;

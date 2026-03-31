@@ -393,6 +393,7 @@ import type {
                   <nxt1-avatar
                     [src]="user()?.profileImg"
                     [name]="user()?.name"
+                    [isTeamRole]="user()?.isTeamRole"
                     [customSize]="32"
                     [showSkeleton]="false"
                     cssClass="nav-user-avatar"
@@ -437,6 +438,7 @@ import type {
                       <nxt1-avatar
                         [src]="user()?.profileImg"
                         [name]="user()?.name"
+                        [isTeamRole]="user()?.isTeamRole"
                         [customSize]="40"
                         [showSkeleton]="false"
                         cssClass="nav-user-avatar-lg"
@@ -480,7 +482,8 @@ import type {
                         <nxt1-avatar
                           [src]="profile.profileImg || user()!.profileImg"
                           [name]="profile.sport"
-                          [initials]="getSportInitials(profile.sport)"
+                          [isTeamRole]="user()!.isTeamRole ?? false"
+                          [initials]="user()!.isTeamRole ? '' : getSportInitials(profile.sport)"
                           [customSize]="28"
                           [showSkeleton]="false"
                         />
@@ -524,7 +527,7 @@ import type {
                         </svg>
                       </div>
                       <span class="user-sport-name">{{
-                        user()?.isTeamRole ? 'Add Team' : 'Add Sport'
+                        user()?.actionLabel || (user()?.isTeamRole ? 'Add Team' : 'Add Sport')
                       }}</span>
                     </button>
                   </div>
@@ -644,6 +647,7 @@ import type {
                   <nxt1-avatar
                     [src]="user()?.profileImg"
                     [name]="user()?.name"
+                    [isTeamRole]="user()?.isTeamRole"
                     [customSize]="48"
                     [showSkeleton]="false"
                     cssClass="nav-mobile-user-avatar"
@@ -687,7 +691,8 @@ import type {
                     <nxt1-avatar
                       [src]="profile.profileImg || user()!.profileImg"
                       [name]="profile.sport"
-                      [initials]="getSportInitials(profile.sport)"
+                      [isTeamRole]="user()!.isTeamRole ?? false"
+                      [initials]="user()!.isTeamRole ? '' : getSportInitials(profile.sport)"
                       [customSize]="28"
                       [showSkeleton]="false"
                     />
@@ -734,7 +739,9 @@ import type {
                       <path d="M5 12h14" />
                     </svg>
                   </div>
-                  <span>{{ user()?.isTeamRole ? 'Add Team' : 'Add Sport' }}</span>
+                  <span>{{
+                    user()?.actionLabel || (user()?.isTeamRole ? 'Add Team' : 'Add Sport')
+                  }}</span>
                 </button>
               </div>
             }

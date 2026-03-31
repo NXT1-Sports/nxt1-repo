@@ -36,9 +36,10 @@ export const dailyDigest = onSchedule(
       // Get users who want weekly digest (on Mondays only)
       const dayOfWeek = new Date().getDay();
       if (dayOfWeek === 1) {
+        // Query Users who have email notifications enabled
         const usersWantingDigest = await db
-          .collection('notification_preferences')
-          .where('weeklyDigest', '==', true)
+          .collection('Users')
+          .where('preferences.notifications.email', '==', true)
           .get();
 
         logger.info('Users wanting weekly digest', { count: usersWantingDigest.size });
@@ -46,7 +47,9 @@ export const dailyDigest = onSchedule(
         for (const doc of usersWantingDigest.docs) {
           await db.collection('email_queue').add({
             type: 'weekly_digest',
+            emailType: 'digest',
             userId: doc.id,
+            to: doc.data()['email'] as string | undefined,
             status: 'pending',
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
           });

@@ -41,6 +41,7 @@ export class ProfilePageActionsService {
 
   private readonly _showEdit = signal(false);
   private readonly _showMore = signal(false);
+  private readonly _isOwnPage = signal(false);
 
   /** True when the current page wants the pencil button visible */
   readonly showEditButton = this._showEdit.asReadonly();
@@ -48,15 +49,20 @@ export class ProfilePageActionsService {
   /** True when the current page wants the three-dot button visible */
   readonly showMoreButton = this._showMore.asReadonly();
 
+  /** True when the user is viewing their own page (e.g. own team) — shows hamburger instead of back arrow */
+  readonly isOwnPage = this._isOwnPage.asReadonly();
+
   /** Called by page components (e.g. TeamComponent) to configure mobile action buttons */
-  setMobileActions(options: { showEdit: boolean; showMore: boolean }): void {
+  setMobileActions(options: { showEdit: boolean; showMore: boolean; isOwnPage?: boolean }): void {
     this._showEdit.set(options.showEdit);
     this._showMore.set(options.showMore);
+    if (options.isOwnPage !== undefined) this._isOwnPage.set(options.isOwnPage);
   }
 
   /** Called on destroy to reset buttons when leaving the page */
   clearMobileActions(): void {
     this._showEdit.set(false);
     this._showMore.set(false);
+    this._isOwnPage.set(false);
   }
 }

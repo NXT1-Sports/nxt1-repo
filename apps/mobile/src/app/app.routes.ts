@@ -69,20 +69,6 @@ export const routes: Routes = [
           import('./features/explore/explore.routes').then((m) => m.EXPLORE_ROUTES),
       },
 
-      // Create Post - Inside shell for shared footer + navigation consistency
-      {
-        path: 'post/create',
-        loadChildren: () =>
-          import('./features/create-post/create-post.routes').then((m) => m.CREATE_POST_ROUTES),
-      },
-
-      // Legacy create-post URL redirect
-      {
-        path: 'create-post',
-        redirectTo: 'post/create',
-        pathMatch: 'full',
-      },
-
       // Agent X Tab - AI Assistant
       {
         path: 'agent',
@@ -156,6 +142,12 @@ export const routes: Routes = [
         path: 'help-center',
         loadChildren: () =>
           import('./features/help-center/help-center.routes').then((m) => m.HELP_CENTER_ROUTES),
+      },
+
+      // Invite - Invite friends & team members
+      {
+        path: 'invite',
+        loadChildren: () => import('./features/invite/invite.routes').then((m) => m.INVITE_ROUTES),
       },
 
       // About - Company information

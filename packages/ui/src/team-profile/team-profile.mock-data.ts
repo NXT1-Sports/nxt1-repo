@@ -11,7 +11,6 @@
 
 import type {
   TeamProfileTeam,
-  TeamProfileFollowStats,
   TeamProfileQuickStats,
   TeamProfileRosterMember,
   TeamProfileScheduleEvent,
@@ -164,16 +163,6 @@ export const MOCK_TEAM: TeamProfileTeam = {
   packageId: 'team_premium',
   createdAt: '2024-01-15T00:00:00.000Z',
   updatedAt: '2025-03-01T00:00:00.000Z',
-};
-
-// ============================================
-// FOLLOW STATS
-// ============================================
-
-export const MOCK_TEAM_FOLLOW_STATS: TeamProfileFollowStats = {
-  followersCount: 1247,
-  followingCount: 164,
-  isFollowing: false,
 };
 
 // ============================================
@@ -588,7 +577,6 @@ export const MOCK_TEAM_POSTS: readonly TeamProfilePost[] = [
 
 export const MOCK_TEAM_PROFILE_PAGE_DATA: TeamProfilePageData = {
   team: MOCK_TEAM,
-  followStats: MOCK_TEAM_FOLLOW_STATS,
   quickStats: MOCK_TEAM_QUICK_STATS,
   roster: MOCK_TEAM_ROSTER,
   schedule: MOCK_TEAM_SCHEDULE,

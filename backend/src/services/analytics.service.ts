@@ -6,7 +6,7 @@
  * Uses MongoDB-style aggregation where possible, Firestore queries elsewhere.
  *
  * Data sources:
- * - Users/{uid}          — profile stats (followersCount, followingCount)
+ * - Users/{uid}          — profile stats
  * - Videos               — videos created by user (views, likes, createdAt)
  * - Posts                — posts created by user (stats.views, stats.likes)
  * - users/{uid}/activity — activity feed items (profile view events)
@@ -199,7 +199,6 @@ function buildAthleteOverviewCards(
   activityItems: Array<Record<string, unknown>>
 ): AthleteAnalyticsReport['overview'] {
   const totalVideoViews = videos.reduce((acc, v) => acc + (Number(v['views']) || 0), 0);
-  const followers = Number(profile['followersCount']) || 0;
   const profileViews = activityItems.filter((i) => i['type'] === 'profile_view').length;
   const coachViews = activityItems.filter(
     (i) => i['type'] === 'profile_view' && i['viewerRole'] === 'coach'
@@ -230,14 +229,6 @@ function buildAthleteOverviewCards(
       icon: 'videocam-outline',
       variant: 'default',
     },
-    followers: {
-      id: 'followers',
-      label: 'Followers',
-      value: followers,
-      displayValue: formatValue(followers),
-      icon: 'people-outline',
-      variant: 'default',
-    },
     engagementRate: {
       id: 'engagementRate',
       label: 'Engagement Rate',
@@ -263,6 +254,14 @@ function buildAthleteOverviewCards(
       displayValue: formatValue(coachViews),
       icon: 'school-outline',
       variant: coachViews > 0 ? 'highlight' : 'default',
+    },
+    followers: {
+      id: 'followers',
+      label: 'Followers',
+      value: 0,
+      displayValue: formatValue(0),
+      icon: 'people-outline',
+      variant: 'default',
     },
   };
 }
@@ -469,7 +468,6 @@ function buildRecruitingMilestones(
 function buildAthleteInsights(
   _profile: Record<string, unknown>,
   videos: Array<Record<string, unknown>>,
-  followers: number,
   profileScore: number
 ): readonly AnalyticsInsight[] {
   const insights: AnalyticsInsight[] = [];
@@ -501,21 +499,6 @@ function buildAthleteInsights(
       icon: 'videocam-outline',
       action: 'Upload Video',
       actionRoute: '/post/create',
-    });
-  }
-
-  // Low followers insight
-  if (followers < 10) {
-    insights.push({
-      id: 'build-network',
-      title: 'Build Your Network',
-      description:
-        'Connect with teammates, coaches, and other athletes to grow your recruiting reach.',
-      category: 'engagement',
-      priority: 'medium',
-      icon: 'people-outline',
-      action: 'Find Connections',
-      actionRoute: '/explore',
     });
   }
 
@@ -590,7 +573,6 @@ export async function buildAthleteReport(
   });
 
   const safeProfile = profile ?? {};
-  const followers = Number(safeProfile['followersCount']) || 0;
   const profileScore = computeProfileScore(safeProfile);
   const hasViews = activityItems.some((i) => i['type'] === 'profile_view');
   const hasCoachView = activityItems.some(
@@ -627,7 +609,7 @@ export async function buildAthleteReport(
       campAttendance: 0,
       collegeVisits: 0,
     },
-    insights: buildAthleteInsights(safeProfile, allVideos, followers, profileScore),
+    insights: buildAthleteInsights(safeProfile, allVideos, profileScore),
     recommendations: buildAthleteRecommendations(safeProfile, allVideos),
   };
 }

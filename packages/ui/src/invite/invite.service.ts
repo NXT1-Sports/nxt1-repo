@@ -38,10 +38,13 @@ import {
   INVITE_CHANNELS,
   INVITE_UI_CONFIG,
 } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtPlatformService } from '../services/platform';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
+import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { InviteApiService } from './invite-api.service';
 
 /**
@@ -55,6 +58,8 @@ export class InviteService {
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('InviteService');
   private readonly platform = inject(NxtPlatformService);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -179,6 +184,8 @@ export class InviteService {
     this._error.set(null);
 
     this.logger.debug('Initializing invite service');
+    this.breadcrumb.trackStateChange('invite:initializing');
+    this.analytics?.trackEvent(APP_EVENTS.INVITE_VIEWED);
 
     try {
       // Load all data in parallel
@@ -189,6 +196,7 @@ export class InviteService {
       const message = err instanceof Error ? err.message : 'Failed to initialize';
       this._error.set(message);
       this.logger.error('Failed to initialize invite service', err);
+      this.breadcrumb.trackStateChange('invite:error', { reason: message });
     } finally {
       this._isLoading.set(false);
     }
@@ -203,6 +211,7 @@ export class InviteService {
     try {
       const stats = await this.api.getStats();
       this._stats.set(stats);
+      this.logger.info('Invite stats loaded', { sent: stats.totalSent, accepted: stats.accepted });
     } catch (err) {
       this.logger.error('Failed to load invite stats', err);
     } finally {
@@ -219,6 +228,7 @@ export class InviteService {
     try {
       const response = await this.api.getHistory();
       this._history.set(response.items as InviteItem[]);
+      this.logger.info('Invite history loaded', { count: response.items.length });
     } catch (err) {
       this.logger.error('Failed to load invite history', err);
     } finally {
@@ -236,6 +246,11 @@ export class InviteService {
       const teamCode = this._selectedTeam()?.teamCode;
       const link = await this.api.generateLink(type, teamId, teamCode);
       this._inviteLink.set(link);
+      this.logger.info('Invite link generated', { type, teamId: teamId ?? 'none' });
+      this.analytics?.trackEvent(APP_EVENTS.INVITE_LINK_GENERATED, {
+        type,
+        teamId: teamId ?? 'none',
+      });
     } catch (err) {
       this.logger.error('Failed to load invite link', err);
     }
@@ -265,6 +280,7 @@ export class InviteService {
     this._selectedTeam.set(team);
     if (team) {
       this._inviteType.set('team');
+      this.analytics?.trackEvent(APP_EVENTS.INVITE_TEAM_SELECTED, { teamId: team.id });
     }
   }
 
@@ -280,6 +296,7 @@ export class InviteService {
     if (!current.find((r) => r.id === recipient.id)) {
       this._selectedRecipients.set([...current, recipient]);
       this.haptics.impact('light');
+      this.analytics?.trackEvent(APP_EVENTS.INVITE_RECIPIENT_ADDED, { recipientId: recipient.id });
     }
   }
 
@@ -322,6 +339,8 @@ export class InviteService {
     await this.haptics.impact('medium');
 
     this.logger.debug('Sharing via channel', { channel });
+    this.breadcrumb.trackStateChange('invite:sharing', { channel });
+    this.analytics?.trackEvent(APP_EVENTS.INVITE_CHANNEL_SELECTED, { channel });
 
     try {
       const recipients = this._selectedRecipients();
@@ -343,6 +362,14 @@ export class InviteService {
 
       await this.haptics.notification('success');
       this.toast.success('Invite shared!');
+      this.analytics?.trackEvent(APP_EVENTS.INVITE_SENT, {
+        channel,
+        type,
+        recipientCount: String(recipients.length),
+        teamId: teamId ?? 'none',
+      });
+      this.breadcrumb.trackStateChange('invite:sent', { channel, type });
+      this.analytics?.trackEvent(APP_EVENTS.INVITE_CELEBRATION_SHOWN);
 
       // Hide celebration after animation
       setTimeout(() => {
@@ -367,10 +394,13 @@ export class InviteService {
     const link = this._inviteLink();
     if (!link) return;
 
+    if (!this.platform.isBrowser()) return;
+
     try {
       await navigator.clipboard.writeText(link.url);
       await this.haptics.impact('light');
       this.toast.success('Link copied!');
+      this.analytics?.trackEvent(APP_EVENTS.INVITE_LINK_COPIED);
     } catch {
       // Fallback for older browsers
       const textarea = document.createElement('textarea');

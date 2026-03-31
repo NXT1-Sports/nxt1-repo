@@ -200,6 +200,8 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
     `
       :host {
         display: block;
+        content-visibility: auto;
+        contain-intrinsic-size: auto 500px;
         --shell-bg: var(--nxt1-glass-bg, rgba(20, 20, 20, 0.88));
         --shell-bg-hover: var(--nxt1-glass-bgSolid, rgba(20, 20, 20, 0.95));
         --shell-border: var(--nxt1-glass-border, rgba(255, 255, 255, 0.12));

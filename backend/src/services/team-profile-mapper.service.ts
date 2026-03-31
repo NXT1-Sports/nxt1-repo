@@ -15,7 +15,6 @@ import type {
   TeamProfileSocialLink,
   TeamProfileRosterMember,
   TeamProfileStaffMember,
-  TeamProfileFollowStats,
   TeamProfileQuickStats,
   TeamProfilePost,
   TeamProfilePostType,
@@ -642,43 +641,6 @@ function extractHandle(url: string): string | undefined {
 }
 
 /**
- * Generate follow stats by reading real Firestore data.
- * - followersCount: read from Teams/{teamId}.followersCount
- * - isFollowing: check follows/{userId}_{teamId} doc existence
- */
-async function generateFollowStats(
-  teamId: string | undefined,
-  userId: string | undefined,
-  firestore?: FirebaseFirestore.Firestore
-): Promise<TeamProfileFollowStats> {
-  const defaultStats: TeamProfileFollowStats = {
-    followersCount: 0,
-    followingCount: 0,
-    isFollowing: false,
-  };
-
-  if (!teamId || !firestore) return defaultStats;
-
-  try {
-    const [teamDoc, followDoc] = await Promise.all([
-      firestore.collection('Teams').doc(teamId).get(),
-      userId
-        ? firestore.collection('Follows').doc(`${userId}_${teamId}`).get()
-        : Promise.resolve(null),
-    ]);
-
-    return {
-      followersCount: (teamDoc.data()?.['followersCount'] as number | undefined) ?? 0,
-      followingCount: 0,
-      isFollowing: followDoc?.exists ?? false,
-    };
-  } catch (err) {
-    logger.warn('[team-profile-mapper] Failed to fetch follow stats', { teamId, userId, err });
-    return defaultStats;
-  }
-}
-
-/**
  * Fetch team schedule events from the Events collection
  */
 async function fetchTeamSchedule(
@@ -1040,7 +1002,6 @@ export async function mapTeamCodeToProfile(
   });
 
   // Stats
-  const followStats = await generateFollowStats(teamCode.id, userId, firestore);
   const quickStats = generateQuickStats(teamCode);
 
   // Permissions
@@ -1069,7 +1030,6 @@ export async function mapTeamCodeToProfile(
     team,
     roster,
     staff,
-    followStats,
     quickStats: finalQuickStats,
     schedule,
     stats: (teamCode.statsCategories ?? []) as TeamProfileStatsCategory[],
@@ -1079,6 +1039,10 @@ export async function mapTeamCodeToProfile(
     isTeamAdmin,
     isMember,
     canEdit,
+    followStats: {
+      followersCount: 0,
+      isFollowing: false,
+    },
   };
 }
 

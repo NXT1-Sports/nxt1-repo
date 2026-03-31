@@ -77,7 +77,6 @@ const NEWS_COL = 'News';
 const VIDEOS_COL = 'Videos'; // Top-level (ownerType: 'user' | 'team')
 const RECRUITING_COL = 'Recruiting'; // Top-level (ownerType: 'user' | 'team')
 const ROSTER_ENTRIES_COL = 'RosterEntries';
-const FOLLOWS_COL = 'Follows'; // Top-level (not subcollections!)
 const REAL_USER_IDS = ['6kjm7AJieFNWYkmTp2HOmYp4r8E3', '05naPoH3KWZftqsdZr7IVwxLHqo2'];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1541,112 +1540,6 @@ async function seedRosterEntries(
   console.log(`  ✅ Seeded ${entryIds.length} roster entries`);
 }
 
-async function seedFollowerRelationships(members: TeamMember[]): Promise<void> {
-  console.log(`\n  💫 Seeding follower/following relationships (top-level Follows collection)...`);
-
-  const athletes = members.filter((m) => m.role === 'Athlete');
-  const staff = members.filter((m) => m.role !== 'Athlete');
-  let followCount = 0;
-  const batch = db.batch();
-
-  // Each athlete follows:
-  // 1. All coaches/staff (for updates)
-  // 2. 3-5 random teammates (for social connection)
-  for (const athlete of athletes) {
-    // Follow all staff members
-    for (const staffMember of staff) {
-      const docId = `${athlete.id}_${staffMember.id}`;
-      const followRef = db.collection(FOLLOWS_COL).doc(docId);
-
-      batch.set(followRef, {
-        id: docId,
-        followerId: athlete.id,
-        followingId: staffMember.id,
-        followerType: 'user',
-        followingType: 'user',
-        source: 'team_member',
-        createdAt: Timestamp.now(),
-      });
-
-      followCount++;
-    }
-
-    // Follow 3-5 random teammates
-    const numTeammatesToFollow = Math.floor(Math.random() * 3) + 3;
-    const shuffledAthletes = [...athletes]
-      .filter((a) => a.id !== athlete.id)
-      .sort(() => Math.random() - 0.5)
-      .slice(0, numTeammatesToFollow);
-
-    for (const teammate of shuffledAthletes) {
-      const docId = `${athlete.id}_${teammate.id}`;
-      const followRef = db.collection(FOLLOWS_COL).doc(docId);
-
-      batch.set(followRef, {
-        id: docId,
-        followerId: athlete.id,
-        followingId: teammate.id,
-        followerType: 'user',
-        followingType: 'user',
-        source: 'team_member',
-        createdAt: Timestamp.now(),
-      });
-
-      followCount++;
-    }
-  }
-
-  await batch.commit();
-  console.log(`    ✓ Seeded ${followCount} follow relationships (top-level Follows collection)`);
-}
-
-// ─── DELETE FOLLOWER RELATIONSHIPS ────────────────────────────────────────────
-async function deleteFollowerRelationships(members: TeamMember[]): Promise<void> {
-  console.log(
-    `\n  🗑️  Deleting follower/following relationships (top-level Follows collection)...`
-  );
-  let deleteCount = 0;
-
-  // Query Follows collection where followerId OR followingId matches team members
-  const memberIds = members.map((m) => m.id);
-
-  for (const memberId of memberIds) {
-    // Delete where this user is the follower
-    const followingSnap = await db
-      .collection(FOLLOWS_COL)
-      .where('followerId', '==', memberId)
-      .where('source', '==', 'team_member')
-      .get();
-
-    if (!followingSnap.empty) {
-      const batch = db.batch();
-      followingSnap.docs.forEach((doc) => {
-        batch.delete(doc.ref);
-        deleteCount++;
-      });
-      await batch.commit();
-    }
-
-    // Delete where this user is being followed
-    const followersSnap = await db
-      .collection(FOLLOWS_COL)
-      .where('followingId', '==', memberId)
-      .where('source', '==', 'team_member')
-      .get();
-
-    if (!followersSnap.empty) {
-      const batch = db.batch();
-      followersSnap.docs.forEach((doc) => {
-        batch.delete(doc.ref);
-        deleteCount++;
-      });
-      await batch.commit();
-    }
-  }
-
-  console.log(`    ✓ Deleted ${deleteCount} follow relationships (top-level Follows collection)`);
-}
-
 // ─── SEED ─────────────────────────────────────────────────────────────────────
 async function runSeed(teamId: string | null): Promise<void> {
   console.log(`[seed-team] Seeding team on project="${projectId}"\n`);
@@ -1782,9 +1675,6 @@ Notable achievements: Northern Conference Champions 2024-2025, National Youth Ch
   // Seed RosterEntries (CRITICAL: junction table for user-team relationships)
   await seedRosterEntries(finalTeamId, members, sportName);
 
-  // Seed follower/following relationships between team members
-  await seedFollowerRelationships(members);
-
   // Seed team posts
   await seedTeamPosts(finalTeamId, REAL_USER_IDS[0]);
 
@@ -1856,11 +1746,6 @@ async function runDelete(teamId: string): Promise<void> {
     email: '',
     phoneNumber: '',
   }));
-
-  // Delete follower/following relationships first
-  if (members.length > 0) {
-    await deleteFollowerRelationships(members);
-  }
 
   // Delete roster entries
   await deleteRosterEntries(teamId);

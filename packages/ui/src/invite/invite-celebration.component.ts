@@ -19,6 +19,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { INVITE_TEST_IDS } from '@nxt1/core/testing';
 import { IonIcon, IonRippleEffect } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { sparkles, trophy, close, checkmarkCircle } from 'ionicons/icons';
@@ -29,7 +30,7 @@ import type { InviteAchievement } from '@nxt1/core';
   standalone: true,
   imports: [CommonModule, IonIcon, IonRippleEffect],
   template: `
-    <div class="celebration-overlay" (click)="onDismiss()">
+    <div class="celebration-overlay" [attr.data-testid]="testIds.CELEBRATION" (click)="onDismiss()">
       <!-- Confetti Canvas -->
       <canvas #confettiCanvas class="celebration-confetti"></canvas>
 
@@ -44,11 +45,11 @@ import type { InviteAchievement } from '@nxt1/core';
           </div>
         </div>
 
-        <!-- XP Display -->
+        <!-- Credits Display -->
         <div class="celebration-xp">
           <span class="celebration-xp__plus">+</span>
-          <span class="celebration-xp__value">{{ xpEarned() }}</span>
-          <span class="celebration-xp__label">XP</span>
+          <span class="celebration-xp__value">{{ creditsEarned() }}</span>
+          <span class="celebration-xp__label">¢</span>
         </div>
 
         <h2 class="celebration-title">Invite Sent!</h2>
@@ -64,7 +65,9 @@ import type { InviteAchievement } from '@nxt1/core';
               <span class="celebration-achievement__label">Achievement Unlocked!</span>
               <span class="celebration-achievement__name">{{ achievement()!.name }}</span>
             </div>
-            <span class="celebration-achievement__xp">+{{ achievement()!.xpReward }} XP</span>
+            @if (achievement()!.creditReward) {
+              <span class="celebration-achievement__xp">+{{ achievement()!.creditReward }}¢</span>
+            }
           </div>
         }
 
@@ -376,7 +379,9 @@ import type { InviteAchievement } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InviteCelebrationComponent {
-  readonly xpEarned = input<number>(0);
+  protected readonly testIds = INVITE_TEST_IDS;
+
+  readonly creditsEarned = input<number>(0);
   readonly achievement = input<InviteAchievement | null>(null);
 
   readonly dismiss = output<void>();

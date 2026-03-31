@@ -33,7 +33,6 @@ import {
   buildBasketballRecruitingActivities,
   buildPosts,
   buildNewsArticles,
-  buildFollows,
   buildRankings,
   buildScoutReports,
   buildVideos,
@@ -112,7 +111,6 @@ router.post(
 
     const posts = buildPosts(userId);
     const newsArticles = buildNewsArticles(userId);
-    const follows = buildFollows(userId);
     const rankings = buildRankings(userId);
     const scoutReports = buildScoutReports(userId);
     const videos = buildVideos(userId);
@@ -323,30 +321,7 @@ router.post(
     }
 
     /*
-    // 6. Follows — sub-collections only (no top-level Follows collection needed)
-    for (const follow of follows) {
-      // users/{uid}/followers/{followerId} — who follows this user
-      if (follow.followingId === userId) {
-        const followerRef = userRef.collection('Followers').doc(follow.followerId);
-        ops.push((b) =>
-          b.set(followerRef, {
-            userId: follow.followerId,
-            followedAt: follow.createdAt,
-          })
-        );
-      }
-
-      // users/{uid}/following/{followingId} — who this user follows
-      if (follow.followerId === userId) {
-        const followingRef = userRef.collection('following').doc(follow.followingId);
-        ops.push((b) =>
-          b.set(followingRef, {
-            userId: follow.followingId,
-            followedAt: follow.createdAt,
-          })
-        );
-      }
-    }
+    // 6. Follows — REMOVED (follower ecosystem purged)
     */
 
     // 7. Rankings — top-level Rankings/{rankingId} collection
@@ -372,14 +347,10 @@ router.post(
     // 8. Update User doc: denormalized sports summary + counters only
     // recentPosts is NO LONGER embedded — timeline data lives in the
     // users/{uid}/timeline sub-collection per SUB-COLLECTIONS ARCHITECTURE in user.model.ts
-    const followersCount = follows.filter((f) => f.followingId === userId).length;
-    const followingCount = follows.filter((f) => f.followerId === userId).length;
 
     ops.push((b) =>
       b.update(userRef, {
         sports: updatedSports,
-        '_counters.followersCount': followersCount,
-        '_counters.followingCount': followingCount,
         '_counters.postsCount': posts.length,
         updatedAt: now,
       })
@@ -407,7 +378,6 @@ router.post(
       },
       posts: posts.length,
       news: newsArticles.length,
-      follows: follows.length,
       rankings: rankings.length,
       scoutReports: scoutReports.length,
       videos: videos.length,
@@ -432,7 +402,6 @@ router.post(
           },
           posts: posts.length,
           news: newsArticles.length,
-          follows: follows.length,
           rankings: rankings.length,
           scoutReports: scoutReports.length,
           videos: videos.length,

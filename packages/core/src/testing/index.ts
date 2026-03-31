@@ -816,6 +816,129 @@ export const PROFILE_TIMELINE_TEST_IDS = {
   LOAD_MORE_BTN: 'profile-timeline-load-more-btn',
 } as const;
 
+// ============================================
+// EXPLORE / DISCOVER TEST IDS
+// ============================================
+
+export const EXPLORE_TEST_IDS = {
+  // Shell
+  SHELL: 'explore-shell',
+  SEARCH_INPUT: 'explore-search-input',
+  TAB_SCROLLER: 'explore-tab-scroller',
+  TAB_BUTTON: 'explore-tab', // suffixed with -{tabId}
+
+  // Lists & Items
+  LIST_CONTAINER: 'explore-list-container',
+  LIST_ITEM: 'explore-list-item', // suffixed with -{id}
+  ITEM_NAME: 'explore-item-name',
+  ITEM_IMAGE: 'explore-item-image',
+
+  // States
+  LOADING_SKELETON: 'explore-loading-skeleton',
+  EMPTY_STATE: 'explore-empty-state',
+  ERROR_STATE: 'explore-error-state',
+  LOAD_MORE_TRIGGER: 'explore-load-more-trigger',
+
+  // Search Suggestions
+  SUGGESTIONS_SECTION: 'explore-suggestions-section',
+  RECENT_SEARCHES: 'explore-recent-searches',
+  TRENDING_SEARCHES: 'explore-trending-searches',
+  SUGGESTION_ITEM: 'explore-suggestion-item', // suffixed with -{index}
+
+  // Sidebar / Filters
+  SIDEBAR: 'explore-sidebar',
+  FILTER_SPORT: 'explore-filter-sport',
+  FILTER_STATE: 'explore-filter-state',
+  FILTER_DIVISION: 'explore-filter-division',
+  FILTER_APPLY_BTN: 'explore-filter-apply',
+  FILTER_CLEAR_BTN: 'explore-filter-clear',
+  DETECT_LOCATION_BTN: 'explore-detect-location',
+
+  // Content Panels
+  FEED_PANEL: 'explore-feed-panel',
+  NEWS_PANEL: 'explore-news-panel',
+  SCOUT_REPORTS_PANEL: 'explore-scout-reports-panel',
+} as const;
+
+// ============================================
+// INVITE TEST IDS
+// ============================================
+
+export const INVITE_TEST_IDS = {
+  /** Invite shell container */
+  SHELL: 'invite-shell',
+  /** QR code section */
+  QR_SECTION: 'invite-qr-section',
+  /** QR code image */
+  QR_IMAGE: 'invite-qr-image',
+  /** QR loading spinner */
+  QR_LOADING: 'invite-qr-loading',
+  /** QR error state */
+  QR_ERROR: 'invite-qr-error',
+  /** Value proposition card */
+  VALUE_CARD: 'invite-value-card',
+  /** How it works explainer */
+  EXPLAINER: 'invite-explainer',
+  /** Invite CTA / share button */
+  INVITE_CTA: 'invite-cta',
+  /** Stats card container */
+  STATS_CARD: 'invite-stats-card',
+  /** Stats sent count */
+  STATS_SENT: 'invite-stats-sent',
+  /** Stats joined count */
+  STATS_JOINED: 'invite-stats-joined',
+  /** Stats conversion rate */
+  STATS_RATE: 'invite-stats-rate',
+  /** Stats streak */
+  STATS_STREAK: 'invite-stats-streak',
+  /** Channel grid container */
+  CHANNEL_GRID: 'invite-channel-grid',
+  /** Individual channel button */
+  CHANNEL_ITEM: 'invite-channel-item',
+  /** Achievements container */
+  ACHIEVEMENTS: 'invite-achievements',
+  /** Celebration overlay */
+  CELEBRATION: 'invite-celebration',
+  /** Skeleton loading */
+  LOADING_SKELETON: 'invite-loading-skeleton',
+  /** Error state */
+  ERROR_STATE: 'invite-error-state',
+  /** Empty state */
+  EMPTY_STATE: 'invite-empty-state',
+} as const;
+
+// ============================================
+// ADD SPORT TEST IDS
+// Used by: AddSportComponent (web), AddSportShellComponent (mobile)
+// ============================================
+
+export const ADD_SPORT_TEST_IDS = {
+  /** Page / shell container */
+  SHELL: 'add-sport-shell',
+  /** Page title heading */
+  TITLE: 'add-sport-title',
+  /** Step content wrapper */
+  STEP_CONTENT: 'add-sport-step-content',
+  /** Sport selection step */
+  STEP_SPORT: 'add-sport-step-sport',
+  /** Connected accounts step */
+  STEP_LINK_SOURCES: 'add-sport-step-link-sources',
+  /** Desktop footer / navigation buttons area */
+  DESKTOP_FOOTER: 'add-sport-desktop-footer',
+  /** Mobile footer area */
+  MOBILE_FOOTER: 'add-sport-mobile-footer',
+  /** Quick-add link form (mobile) */
+  QUICK_ADD_FORM: 'add-sport-quick-add-form',
+  /** Quick-add link input */
+  QUICK_ADD_INPUT: 'add-sport-quick-add-input',
+  /** Quick-add submit button */
+  QUICK_ADD_SUBMIT: 'add-sport-quick-add-submit',
+  /** Loading state overlay */
+  LOADING: 'add-sport-loading',
+  /** Error state */
+  ERROR_STATE: 'add-sport-error-state',
+} as const;
+
 export const TEST_IDS = {
   AUTH: AUTH_TEST_IDS,
   AUTH_PAGE: AUTH_PAGE_TEST_IDS,
@@ -834,6 +957,9 @@ export const TEST_IDS = {
   NEWS: NEWS_TEST_IDS,
   FEED_CARD: FEED_CARD_TEST_IDS,
   PROFILE_TIMELINE: PROFILE_TIMELINE_TEST_IDS,
+  EXPLORE: EXPLORE_TEST_IDS,
+  INVITE: INVITE_TEST_IDS,
+  ADD_SPORT: ADD_SPORT_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript

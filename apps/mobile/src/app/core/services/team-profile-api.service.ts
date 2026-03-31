@@ -95,26 +95,6 @@ export class TeamProfileApiService {
   }
 
   /**
-   * Follow a team.
-   */
-  async followTeam(
-    userId: string,
-    teamId: string
-  ): Promise<TeamProfileApiResponse<{ isFollowing: boolean; followersCount: number }>> {
-    return this.api.followTeam(userId, teamId);
-  }
-
-  /**
-   * Unfollow a team.
-   */
-  async unfollowTeam(
-    userId: string,
-    teamId: string
-  ): Promise<TeamProfileApiResponse<{ isFollowing: boolean; followersCount: number }>> {
-    return this.api.unfollowTeam(userId, teamId);
-  }
-
-  /**
    * Track a page view.
    */
   async trackPageView(teamId: string, viewerId?: string): Promise<TeamProfileApiResponse<void>> {

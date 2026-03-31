@@ -30,9 +30,7 @@ import {
   PROFILE_DEFAULT_TAB,
   profileUserToFeedAuthor,
   buildUnifiedActivityFeed,
-  parseApiError,
 } from '@nxt1/core';
-import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { type RankingSource } from './rankings/profile-rankings.component';
@@ -137,9 +135,6 @@ export class ProfileService {
 
   /** Profile user data */
   readonly user = computed(() => this._profileData()?.user ?? null);
-
-  /** Follow statistics */
-  readonly followStats = computed(() => this._profileData()?.followStats ?? null);
 
   /** Quick stats/analytics */
   readonly quickStats = computed(() => this._profileData()?.quickStats ?? null);
@@ -878,47 +873,6 @@ export class ProfileService {
     this.logger.warn(
       'loadMorePosts() called — platform shell should implement pagination via the API service.'
     );
-  }
-
-  /**
-   * Toggle follow status.
-   */
-  async toggleFollow(): Promise<void> {
-    const followStats = this.followStats();
-    const data = this._profileData();
-    if (!followStats || !data) return;
-
-    const newIsFollowing = !followStats.isFollowing;
-    const profileUserId = data.user?.uid || 'unknown';
-    this.logger.info('Toggling follow', { isFollowing: newIsFollowing, userId: profileUserId });
-
-    // Optimistic update
-    this._profileData.set({
-      ...data,
-      followStats: {
-        ...followStats,
-        isFollowing: newIsFollowing,
-        followersCount: followStats.followersCount + (newIsFollowing ? 1 : -1),
-      },
-    });
-
-    this.logger.info(newIsFollowing ? 'User followed' : 'User unfollowed', {
-      followed_user_id: profileUserId,
-      event: newIsFollowing ? APP_EVENTS.USER_FOLLOWED : APP_EVENTS.USER_UNFOLLOWED,
-    });
-  }
-
-  /**
-   * Set the isFollowing state from an external check (e.g. GET /follow/check).
-   * Does not affect followersCount — only updates the follow relationship status.
-   */
-  setFollowState(isFollowing: boolean): void {
-    const data = this._profileData();
-    if (!data) return;
-    this._profileData.set({
-      ...data,
-      followStats: { ...data.followStats, isFollowing },
-    });
   }
 
   /**

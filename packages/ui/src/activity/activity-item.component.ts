@@ -31,13 +31,14 @@ import { CommonModule } from '@angular/common';
 import { IonRippleEffect } from '@ionic/angular/standalone';
 import { type ActivityItem, ACTIVITY_TYPE_ICONS, ACTIVITY_TYPE_COLORS } from '@nxt1/core';
 import { NxtIconComponent } from '../components/icon';
+import { NxtTrackClickDirective } from '../services/breadcrumb/breadcrumb.service';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-logo.constants';
 
 // Register all icons
 @Component({
   selector: 'nxt1-activity-item',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent, IonRippleEffect],
+  imports: [CommonModule, NxtIconComponent, NxtTrackClickDirective, IonRippleEffect],
   template: `
     <div
       class="activity-item"
@@ -45,6 +46,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
       [class.activity-item--urgent]="item().priority === 'urgent'"
       [class.activity-item--high]="item().priority === 'high'"
       (click)="handleClick()"
+      nxtTrackClick="activity-item-clicked"
       role="article"
       [attr.aria-label]="ariaLabel()"
     >
@@ -133,6 +135,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
             class="activity-item__action"
             [class.activity-item__action--primary]="item().action?.variant === 'primary'"
             (click)="handleActionClick($event)"
+            nxtTrackClick="activity-item-action-clicked"
           >
             @if (item().action?.icon) {
               <nxt1-icon [name]="item().action?.icon ?? ''" [size]="16" />

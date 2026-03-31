@@ -13,6 +13,7 @@
 import { Component, ChangeDetectionStrategy, OnInit, OnDestroy, inject } from '@angular/core';
 import { IonRouterOutlet } from '@ionic/angular/standalone';
 import { OnboardingButtonMobileComponent } from '@nxt1/ui';
+import { TEST_IDS } from '@nxt1/core/testing';
 import { AddSportService } from './add-sport.service';
 
 @Component({
@@ -28,10 +29,12 @@ import { AddSportService } from './add-sport.service';
     <div
       class="nxt1-add-sport-footer"
       [class.nxt1-add-sport-footer--visible]="addSport.footerVisible()"
+      [attr.data-testid]="testIds.MOBILE_FOOTER"
     >
       @if (addSport.isLinkSourcesStep()) {
         <form
           class="nxt1-link-quick-add"
+          [attr.data-testid]="testIds.QUICK_ADD_FORM"
           (submit)="addSport.onQuickLinkSubmit($event)"
         >
           <input
@@ -43,12 +46,14 @@ import { AddSportService } from './add-sport.service';
             spellcheck="false"
             [value]="addSport.quickAddLinkValue()"
             placeholder="Add any link here"
+            [attr.data-testid]="testIds.QUICK_ADD_INPUT"
             (input)="addSport.onQuickLinkInput($event)"
           />
           <button
             type="submit"
             class="nxt1-link-quick-add__btn"
             [disabled]="!addSport.canSubmitQuickLink()"
+            [attr.data-testid]="testIds.QUICK_ADD_SUBMIT"
             aria-label="Add link"
           >
             +
@@ -157,6 +162,7 @@ import { AddSportService } from './add-sport.service';
 })
 export class AddSportShellComponent implements OnInit, OnDestroy {
   protected readonly addSport = inject(AddSportService);
+  protected readonly testIds = TEST_IDS.ADD_SPORT;
 
   ngOnInit(): void {
     this.addSport.initialize();

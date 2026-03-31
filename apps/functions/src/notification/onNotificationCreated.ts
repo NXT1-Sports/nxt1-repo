@@ -30,14 +30,21 @@ interface TokenData {
 }
 
 /**
- * Category-aware notification preferences stored in `notification_preferences/{userId}`.
- * The schema supports both the legacy flat format and the new category-level format.
+ * Notification preferences stored on the User document at
+ * `Users/{userId}.preferences.notifications`.
+ *
+ * This is the canonical source of truth — the legacy
+ * `notification_preferences/{userId}` collection is deprecated.
  */
-interface NotificationPreferences {
-  /** Global push kill-switch (legacy + current) */
+interface UserNotificationPreferences {
+  /** Global push kill-switch */
   push?: boolean;
-  /** Per-category granular preferences (2026 schema) */
-  categories?: Record<string, { push?: boolean; email?: boolean; sms?: boolean }>;
+  /** Global email kill-switch */
+  email?: boolean;
+  /** SMS opt-in (reserved) */
+  sms?: boolean;
+  /** Marketing/promotional email opt-in */
+  marketing?: boolean;
 }
 
 /**
@@ -86,25 +93,19 @@ export const onNotificationCreatedV2 = onDocumentCreated(
       const tokens = tokenObjects.map((t) => (typeof t === 'string' ? t : t.token));
 
       // ─── 2. Check notification preferences ────────────────────────
-      const prefsDoc = await db.collection('notification_preferences').doc(userId).get();
-      if (prefsDoc.exists) {
-        const prefs = prefsDoc.data() as NotificationPreferences;
+      // Read from the canonical Users document (not legacy notification_preferences)
+      const userDoc = await db.collection('Users').doc(userId).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        const prefs = userData?.['preferences']?.['notifications'] as
+          | UserNotificationPreferences
+          | undefined;
 
-        // Global kill-switch
-        if (prefs.push === false) {
+        // Global push kill-switch
+        if (prefs?.push === false) {
           logger.info('Push disabled globally for user', { userId });
           await updateStatus(notificationId, 'skipped', 'Push disabled globally');
           return;
-        }
-
-        // Per-category opt-out (if categories are configured)
-        if (category && prefs.categories) {
-          const categoryPref = prefs.categories[category];
-          if (categoryPref && categoryPref.push === false) {
-            logger.info('Push disabled for category', { userId, category });
-            await updateStatus(notificationId, 'skipped', `Category "${category}" disabled`);
-            return;
-          }
         }
       }
 

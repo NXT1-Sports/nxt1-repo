@@ -415,6 +415,8 @@ export {
   updateTabBadge,
   setTabDisabled,
   isMainPageRoute,
+  buildDynamicFooterTabs,
+  type FooterTabContext,
 } from './components/footer';
 
 // ============================================
@@ -510,34 +512,6 @@ export {
 } from './agent-x/onboarding';
 
 // ============================================
-// CREATE POST (Post Creation - Shared Web & Mobile)
-// ============================================
-export {
-  // Components
-  CreatePostSkeletonComponent,
-  CreatePostXpIndicatorComponent,
-  CreatePostPrivacySelectorComponent,
-  CreatePostMediaPickerComponent,
-  CreatePostEditorComponent,
-  CreatePostToolbarComponent,
-  CreatePostPreviewComponent,
-  CreatePostProgressComponent,
-  CreatePostShellComponent,
-  // Services
-  CreatePostService,
-  CreatePostApiService,
-  // Types
-  type UploadingFile,
-  type CreatePostServiceState,
-  // Mock data (dev only)
-  MOCK_CURRENT_USER,
-  MOCK_TAGGABLE_USERS,
-  MOCK_LOCATIONS,
-  MOCK_MEDIA_ITEMS,
-  MOCK_XP_PREVIEW,
-} from './create-post';
-
-// ============================================
 // ACTIVITY (Notifications - Shared Web & Mobile)
 // ============================================
 export {
@@ -595,12 +569,10 @@ export {
   ExploreShellComponent,
   ExploreListComponent,
   ExploreItemComponent,
-  ExploreForYouComponent,
   // Web (Zero Ionic)
   ExploreShellWebComponent,
   ExploreListWebComponent,
   ExploreItemWebComponent,
-  ExploreForYouWebComponent,
   // Shared
   ExploreSkeletonComponent,
   ExploreFilterModalComponent,
@@ -958,6 +930,18 @@ export {
   NxtTrackFormDirective,
   NxtTrackVisibleDirective,
 } from './services/breadcrumb';
+
+// ============================================
+// MEDIA SERVICE (Global Save-to-Device)
+// ============================================
+export {
+  NxtMediaService,
+  type MediaImageFormat,
+  type SaveImageOptions,
+  type SaveImageResult,
+  type ShareImageOptions,
+  type ShareImageResult,
+} from './services/media';
 
 // ============================================
 // INFRASTRUCTURE - Error Handling

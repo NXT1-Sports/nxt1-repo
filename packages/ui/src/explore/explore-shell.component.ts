@@ -28,6 +28,7 @@ import {
   computed,
   signal,
   effect,
+  NgZone,
   OnInit,
   viewChild,
 } from '@angular/core';
@@ -73,8 +74,6 @@ import { FeedService } from '../feed/feed.service';
 export interface ExploreUser {
   readonly profileImg?: string | null;
   readonly displayName?: string | null;
-  readonly followingCount?: number;
-  readonly followingIds?: readonly string[];
   /** User's active sport (for default feed filtering) */
   readonly sport?: string | null;
   /** User's state/location (for default feed filtering) */
@@ -203,7 +202,7 @@ export interface ExploreUser {
         <!-- Main Content -->
         @if (!explore.isSearchFocused() || explore.hasQuery()) {
           <!-- Discover Tab: Personalized posts feed -->
-          @if (explore.activeTab() === 'for-you' && !explore.hasQuery()) {
+          @if (explore.activeTab() === 'feed' && !explore.hasQuery()) {
             <nxt1-feed-list
               [polymorphicFeed]="feedService.polymorphicFeed()"
               [posts]="feedService.posts()"
@@ -212,33 +211,12 @@ export interface ExploreUser {
               [isEmpty]="feedService.isEmpty()"
               [error]="feedService.error()"
               [hasMore]="feedService.hasMore()"
-              [filterType]="'for-you'"
+              [filterType]="'trending'"
               (postClick)="onPostSelect($event)"
               (authorClick)="onAuthorSelect($event)"
               (reactClick)="onLikeClick($event)"
               (repostClick)="onCommentClick($event)"
               (shareClick)="onShareClick($event)"
-              (bookmarkClick)="onBookmarkClick($event)"
-              (loadMore)="onFeedLoadMore()"
-              (retry)="onFeedRetry()"
-            />
-          } @else if (explore.activeTab() === 'following' && !explore.hasQuery()) {
-            <!-- Following Tab: Posts from followed users -->
-            <nxt1-feed-list
-              [polymorphicFeed]="feedService.polymorphicFeed()"
-              [posts]="feedService.posts()"
-              [isLoading]="feedService.isLoading()"
-              [isLoadingMore]="feedService.isLoadingMore()"
-              [isEmpty]="feedService.isEmpty()"
-              [error]="feedService.error()"
-              [hasMore]="feedService.hasMore()"
-              [filterType]="'following'"
-              (postClick)="onPostSelect($event)"
-              (authorClick)="onAuthorSelect($event)"
-              (reactClick)="onLikeClick($event)"
-              (repostClick)="onCommentClick($event)"
-              (shareClick)="onShareClick($event)"
-              (bookmarkClick)="onBookmarkClick($event)"
               (loadMore)="onFeedLoadMore()"
               (retry)="onFeedRetry()"
             />
@@ -523,22 +501,16 @@ export class ExploreShellComponent implements OnInit {
   ]);
 
   protected readonly displayName = computed(() => this.user()?.displayName ?? 'User');
-  protected readonly hasFollowingOption = computed(() => {
-    const followingCount = this.user()?.followingCount ?? 0;
-    const followingIdsCount = this.user()?.followingIds?.length ?? 0;
-    return followingCount > 0 || followingIdsCount > 0;
-  });
-
   protected readonly tabOptions = computed((): OptionScrollerItem[] => {
     const counts = this.explore.tabCounts();
-    const visibleTabIds: ExploreTabId[] = ['news', 'for-you'];
+    const visibleTabIds: ExploreTabId[] = ['feed', 'news'];
 
     return visibleTabIds
       .map((tabId) => EXPLORE_TABS.find((tab) => tab.id === tabId))
       .filter((tab): tab is (typeof EXPLORE_TABS)[number] => tab !== undefined)
       .map((tab) => ({
         id: tab.id,
-        label: tab.id === 'news' ? 'Pulse' : tab.id === 'for-you' ? 'Discover' : tab.label,
+        label: tab.id === 'news' ? 'Pulse' : tab.id === 'feed' ? 'Feed' : tab.label,
         badge: counts[tab.id] > 0 ? counts[tab.id] : undefined,
       }));
   });
@@ -546,9 +518,9 @@ export class ExploreShellComponent implements OnInit {
   ngOnInit(): void {
     this.logger.info('Explore shell initialized');
     const activeTab = this.explore.activeTab();
-    const isAllowedTab = activeTab === 'for-you' || activeTab === 'news';
+    const isAllowedTab = activeTab === 'feed' || activeTab === 'news';
     if (!isAllowedTab) {
-      void this.explore.switchTab('for-you');
+      void this.explore.switchTab('feed');
     }
     void this.ensureFeedLoadedForTab(this.explore.activeTab());
   }
@@ -598,12 +570,16 @@ export class ExploreShellComponent implements OnInit {
     this.explore.setSearchFocused(true);
   }
 
+  private readonly ngZone = inject(NgZone);
+
   protected onSearchBlur(): void {
-    setTimeout(() => {
-      if (!this.searchValue()) {
-        this.explore.setSearchFocused(false);
-      }
-    }, 200);
+    this.ngZone.runOutsideAngular(() => {
+      setTimeout(() => {
+        if (!this.searchValue()) {
+          this.explore.setSearchFocused(false);
+        }
+      }, 200);
+    });
   }
 
   /** Handle search bar input from NxtSearchBarComponent */
@@ -740,11 +716,6 @@ export class ExploreShellComponent implements OnInit {
     await this.feedService.sharePost(post);
   }
 
-  protected async onBookmarkClick(post: FeedPost): Promise<void> {
-    await this.haptics.impact('light');
-    await this.feedService.toggleBookmark(post);
-  }
-
   protected async onFeedLoadMore(): Promise<void> {
     await this.feedService.loadMore();
   }
@@ -757,9 +728,7 @@ export class ExploreShellComponent implements OnInit {
   }
 
   private getFeedFilterType(tab: ExploreTabId): FeedFilterType | null {
-    if (tab === 'for-you') return 'for-you';
-    if (tab === 'feed') return 'for-you';
-    if (tab === 'following') return 'following';
+    if (tab === 'feed') return 'trending';
     return null;
   }
 

@@ -42,7 +42,7 @@ export interface DesktopSidebarItem {
   readonly hidden?: boolean;
 
   /** Custom click handler (instead of navigation) */
-  readonly action?: 'create' | 'settings' | 'help' | 'logout' | 'custom';
+  readonly action?: 'create' | 'settings' | 'help' | 'logout' | 'custom' | 'invite-team';
 
   /** Aria label override */
   readonly ariaLabel?: string;
@@ -98,6 +98,9 @@ export interface DesktopSidebarUserData {
 
   /** Whether user is premium */
   readonly isPremium?: boolean;
+
+  /** Whether this user is a team-management role (coach/director) */
+  readonly isTeamRole?: boolean;
 }
 
 /**

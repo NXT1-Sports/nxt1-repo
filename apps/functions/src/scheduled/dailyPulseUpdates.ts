@@ -161,14 +161,43 @@ async function scrapeArticleMetadata(url: string): Promise<ScrapedMetadata> {
 
     // --- Extract og:image ---
     let imageUrl: string | undefined;
-    const ogImage =
-      $('meta[property="og:image"]').attr('content') ||
-      $('meta[name="twitter:image"]').attr('content') ||
-      $('link[rel="image_src"]').attr('href') ||
-      $('meta[itemprop="image"]').attr('content');
+    
+    // First try to find a real semantic image in the article body (filters out most header logos)
+    let bodyImage =
+      $('article img').first().attr('src') ||
+      $('figure img').first().attr('src') ||
+      $('.article-content img').first().attr('src');
+      
+    if (bodyImage) {
+      if (bodyImage.startsWith('//')) bodyImage = `https:${bodyImage}`;
+      else if (bodyImage.startsWith('/')) bodyImage = `${origin}${bodyImage}`;
+      else if (!bodyImage.startsWith('http')) bodyImage = `${origin}/${bodyImage}`;
+      
+      // Basic heuristic to avoid header/footer logos that might sneak in
+      if (!bodyImage.toLowerCase().includes('logo') && !bodyImage.toLowerCase().includes('spinner')) {
+        imageUrl = bodyImage;
+      }
+    }
 
-    if (ogImage && ogImage.startsWith('http')) {
-      imageUrl = ogImage;
+    if (!imageUrl) {
+      const ogImage =
+        $('meta[property="og:image"]').attr('content') ||
+        $('meta[name="twitter:image"]').attr('content') ||
+        $('link[rel="image_src"]').attr('href') ||
+        $('meta[itemprop="image"]').attr('content');
+
+      if (ogImage && ogImage.startsWith('http')) {
+        // Prevent known generic fallback logos from being used
+        const lowerOg = ogImage.toLowerCase();
+        const isGenericLogo = 
+          lowerOg.includes('default') || 
+          lowerOg.includes('logo') || 
+          lowerOg.includes('placeholder');
+          
+        if (!isGenericLogo) {
+          imageUrl = ogImage;
+        }
+      }
     }
 
     // --- Extract favicon ---
@@ -230,6 +259,7 @@ For each article return a JSON object with these fields:
 - excerpt: 2-3 sentence summary  
 - source: publisher name (e.g. "MaxPreps", "247Sports", "Rivals", "On3", "VYPE")
 - sourceUrl: the full real URL to the article
+- imageUrl: The primary hero image URL of the article (must be a valid photograph of the subject, NOT a generic site logo). Return null if not found.
 - sport: "${sport}"
 - state: "${state}"
 - author: author name if known, or null
@@ -352,7 +382,7 @@ FORMAT RULES:
 
   return {
     ...article,
-    imageUrl: metadata.imageUrl || article.imageUrl,
+    imageUrl: article.imageUrl || metadata.imageUrl,
     faviconUrl: metadata.faviconUrl || article.faviconUrl,
     content: sanitizeHtmlContent(content),
     slug: slugify(article.title),

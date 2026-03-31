@@ -246,15 +246,12 @@ export async function dispatchToMany(
  */
 function mapNotificationTypeToActivityType(type: NotificationType): string {
   const map: Partial<Record<NotificationType, string>> = {
-    new_follower: 'follow',
-    team_new_follower: 'follow',
     post_like: 'like',
     post_mention: 'mention',
-    message_from_coach: 'message',
-    new_offer: 'offer',
     special_offer: 'deal',
     team_announcement: 'announcement',
     feature_announcement: 'announcement',
+    weekly_digest: 'agent_task',
     camp_reminder: 'reminder',
     visit_reminder: 'reminder',
     ai_task_complete: 'agent_task',

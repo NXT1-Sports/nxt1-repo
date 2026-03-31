@@ -37,10 +37,6 @@ export class NotificationPreferencesDto {
 
   @IsBoolean()
   @IsOptional()
-  newFollowers?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
   postLikes?: boolean;
 
   @IsBoolean()
@@ -112,7 +108,6 @@ export enum ProfileVisibility {
 
 export enum MessagePrivacy {
   EVERYONE = 'everyone',
-  FOLLOWERS = 'followers',
   TEAMMATES = 'teammates',
   NO_ONE = 'no-one',
 }

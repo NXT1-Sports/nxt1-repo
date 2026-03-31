@@ -99,7 +99,7 @@ function msToSeconds(ms: number): number {
  * - COLLEGES/DIVISIONS/SPORTS: Static data, rarely changes → EXTENDED_TTL (24 hours)
  * - RANKINGS/LEADERBOARDS: Semi-static → LONG_TTL (1 hour)
  * - SEARCH/TRENDING: Semi-static → MEDIUM_TTL (15 minutes)
- * - PROFILES/FOLLOWERS: User data, can change → MEDIUM_TTL (15 minutes)
+ * - PROFILES: User data, can change → MEDIUM_TTL (15 minutes)
  * - FEED/POSTS/COMMENTS: Fast-changing → SHORT_TTL (1 minute)
  */
 export const CACHE_TTL = {
@@ -116,7 +116,6 @@ export const CACHE_TTL = {
 
   // Dynamic user data
   PROFILES: msToSeconds(CACHE_CONFIG.MEDIUM_TTL),
-  FOLLOWERS: msToSeconds(CACHE_CONFIG.DEFAULT_TTL),
 
   // Fast-changing content
   FEED: msToSeconds(CACHE_CONFIG.SHORT_TTL * 2),

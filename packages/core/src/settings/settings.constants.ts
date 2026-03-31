@@ -132,7 +132,7 @@ export const SETTINGS_PREFERENCES_ITEMS: readonly SettingsItem[] = [
     label: 'Marketing & Promotions',
     description: 'Receive news and promotional content',
     icon: 'gift-outline',
-    value: false,
+    value: true,
     settingKey: 'marketingEmails',
   },
 ] as const;

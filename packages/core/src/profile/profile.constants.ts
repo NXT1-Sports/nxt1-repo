@@ -386,12 +386,6 @@ export const PROFILE_QUICK_STATS_CONFIG = {
  */
 export const PROFILE_OWN_HEADER_ACTIONS: readonly ProfileHeaderAction[] = [
   {
-    id: 'create-post',
-    label: 'Create Post',
-    icon: 'add-circle',
-    primary: true,
-  },
-  {
     id: 'qr-code',
     label: 'QR Code',
     icon: 'qr-code',

@@ -18,24 +18,19 @@ import type { FeedFilterType, FeedPostType, FeedPostTagType } from './feed.types
  */
 export const FEED_API_ENDPOINTS = {
   /** Main feed endpoint */
-  FEED: '/api/v1/feed',
+  FEED: '/feed',
   /** Single post endpoint */
-  POST: '/api/v1/feed/posts/:id',
-  /** Post actions (like, bookmark, etc) */
-  POST_LIKE: '/api/v1/feed/posts/:id/like',
-  POST_BOOKMARK: '/api/v1/feed/posts/:id/bookmark',
-  POST_SHARE: '/api/v1/feed/posts/:id/share',
-  POST_REPORT: '/api/v1/feed/posts/:id/report',
-  /** Comments */
-  COMMENTS: '/api/v1/feed/posts/:id/comments',
-  COMMENT: '/api/v1/feed/posts/:postId/comments/:commentId',
-  COMMENT_LIKE: '/api/v1/feed/posts/:postId/comments/:commentId/like',
+  POST: '/feed/posts/:id',
+  /** Post actions (like, etc) */
+  POST_LIKE: '/feed/posts/:id/like',
+  POST_SHARE: '/feed/posts/:id/share',
+  POST_REPORT: '/feed/posts/:id/report',
   /** Trending/discover */
-  TRENDING: '/api/v1/feed/trending',
-  DISCOVER: '/api/v1/feed/discover',
+  TRENDING: '/feed/trending',
+  DISCOVER: '/feed/discover',
   /** User-specific feeds */
-  USER_FEED: '/api/v1/feed/users/:uid',
-  TEAM_FEED: '/api/v1/feed/teams/:teamCode',
+  USER_FEED: '/feed/users/:uid',
+  TEAM_FEED: '/feed/teams/:teamCode',
 } as const;
 
 // ============================================
@@ -81,18 +76,11 @@ export interface FeedFilterOption {
  */
 export const FEED_FILTER_OPTIONS: readonly FeedFilterOption[] = [
   {
-    id: 'for-you',
-    label: 'For You',
-    icon: 'sparkles',
+    id: 'trending',
+    label: 'Trending',
+    icon: 'trendingUp',
     requiresAuth: false,
-    description: 'Personalized content based on your interests',
-  },
-  {
-    id: 'following',
-    label: 'Following',
-    icon: 'users',
-    requiresAuth: true,
-    description: 'Posts from athletes and teams you follow',
+    description: "What's popular right now",
   },
   {
     id: 'sports',
@@ -115,19 +103,12 @@ export const FEED_FILTER_OPTIONS: readonly FeedFilterOption[] = [
     requiresAuth: false,
     description: 'Top video highlights and clips',
   },
-  {
-    id: 'trending',
-    label: 'Trending',
-    icon: 'trendingUp',
-    requiresAuth: false,
-    description: "What's popular right now",
-  },
 ] as const;
 
 /**
  * Default feed filter.
  */
-export const FEED_DEFAULT_FILTER: FeedFilterType = 'for-you';
+export const FEED_DEFAULT_FILTER: FeedFilterType = 'trending';
 
 // ============================================
 // POST TYPE CONFIGURATION
@@ -253,16 +234,6 @@ export const FEED_EMPTY_STATES: Record<
   FeedFilterType,
   { title: string; message: string; cta?: string }
 > = {
-  'for-you': {
-    title: 'Your feed is empty',
-    message: 'Follow athletes, coaches, and teams to see their posts here.',
-    cta: 'Discover Athletes',
-  },
-  following: {
-    title: 'No posts from people you follow',
-    message: "When the people you follow share updates, you'll see them here.",
-    cta: 'Find People to Follow',
-  },
   sports: {
     title: 'No posts in this sport',
     message: "There aren't any recent posts for this sport yet.",

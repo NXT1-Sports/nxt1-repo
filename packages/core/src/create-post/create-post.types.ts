@@ -28,7 +28,7 @@ export type PostType =
 /**
  * Privacy level for post visibility.
  */
-export type PostPrivacy = 'public' | 'followers' | 'team' | 'coaches' | 'private';
+export type PostPrivacy = 'public' | 'team' | 'coaches' | 'private';
 
 /**
  * Media type for attachments.

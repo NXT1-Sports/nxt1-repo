@@ -2,7 +2,7 @@
  * @fileoverview Social & Activity Data Transfer Objects (DTOs)
  * @module @nxt1/backend/dtos/social
  *
- * DTOs for follow, feed, activity, and social interaction endpoints
+ * DTOs for feed, activity, and social interaction endpoints
  */
 
 import {
@@ -16,22 +16,6 @@ import {
   Min,
   Max,
 } from 'class-validator';
-
-// ============================================
-// FOLLOW DTOs
-// ============================================
-
-export class FollowUserDto {
-  @IsString()
-  @IsNotEmpty()
-  targetUserId!: string;
-}
-
-export class UnfollowUserDto {
-  @IsString()
-  @IsNotEmpty()
-  targetUserId!: string;
-}
 
 // ============================================
 // ACTIVITY DTOs
@@ -84,7 +68,7 @@ export class SharePostDto {
   @IsOptional()
   message?: string;
 
-  @IsEnum(['public', 'followers', 'team', 'private'])
+  @IsEnum(['public', 'team', 'private'])
   @IsOptional()
   visibility?: string;
 }

@@ -66,7 +66,7 @@ const DEFAULT_VALIDATION_OPTIONS: ValidationOptions = {
  * @example
  * ```typescript
  * import { validateRequest } from './middleware/validation.middleware';
- * import { CreatePostDto } from './dtos/create-post.dto';
+ * import { MyDto } from './dtos/my.dto';
  *
  * router.post('/posts',
  *   validateRequest(CreatePostDto, 'body'),

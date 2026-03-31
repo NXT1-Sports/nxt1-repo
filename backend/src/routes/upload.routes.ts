@@ -560,96 +560,168 @@ router.post(
 /**
  * POST /upload/highlight-video
  *
- * Upload highlight video.
+ * Get a presigned upload URL for highlight video.
+ * Videos are uploaded directly to Firebase Storage from the client,
+ * bypassing the Express memory limit. Backend validates metadata,
+ * generates a signed URL, and returns it along with the storage path.
+ *
+ * Flow:
+ * 1. Client sends { userId, fileName, mimeType, fileSize }
+ * 2. Backend validates against FILE_UPLOAD_RULES['highlight-video']
+ * 3. Backend generates a signed upload URL (v4, 30 min expiry)
+ * 4. Client uploads directly to the signed URL via PUT
+ * 5. (Future) Cloud Run job processes video for HLS/thumbnails
  */
 router.post(
   '/highlight-video',
-  upload.single('file'),
   asyncHandler(async (req: Request, res: Response) => {
-    const { userId } = req.body;
-    const file = req.file;
+    const { userId, fileName, mimeType, fileSize } = req.body;
 
     if (!userId) {
       throw fieldError('userId', 'User ID is required', 'required');
     }
 
-    if (!file) {
-      throw fieldError('file', 'File is required', 'required');
+    if (!fileName) {
+      throw fieldError('fileName', 'File name is required', 'required');
     }
 
-    res.status(501).json({ success: false, error: 'Not implemented' });
+    if (!mimeType) {
+      throw fieldError('mimeType', 'MIME type is required', 'required');
+    }
+
+    const category: FileCategory = 'highlight-video';
+    const rules = FILE_UPLOAD_RULES[category];
+
+    // Validate MIME type
+    const allowedTypes = rules.allowedTypes as readonly string[];
+    if (!allowedTypes.includes(mimeType)) {
+      throw fieldError(
+        'mimeType',
+        `File type ${mimeType} not allowed. Allowed: ${allowedTypes.join(', ')}`,
+        'invalid'
+      );
+    }
+
+    // Validate file size (if provided — final check happens at storage level)
+    if (fileSize && fileSize > rules.maxSize) {
+      throw fieldError(
+        'fileSize',
+        `File must be smaller than ${formatFileSize(rules.maxSize)}`,
+        'maxSize'
+      );
+    }
+
+    const storagePath = buildStoragePath(userId, category, fileName);
+    const bucket = req.firebase?.storage?.bucket() || getStorage().bucket();
+    const file = bucket.file(storagePath);
+
+    // Generate signed URL valid for 30 minutes (videos take longer to upload)
+    const expiresAt = Date.now() + 30 * 60 * 1000;
+    const [signedUrl] = await file.getSignedUrl({
+      version: 'v4',
+      action: 'write',
+      expires: expiresAt,
+      contentType: mimeType,
+      extensionHeaders: {
+        'x-goog-content-length-range': `0,${rules.maxSize}`,
+      },
+    });
+
+    logger.info('Generated highlight video upload URL', {
+      userId,
+      storagePath,
+      mimeType,
+      fileSize: fileSize ? formatFileSize(fileSize) : 'unknown',
+    });
+
+    res.json({
+      success: true,
+      data: {
+        uploadUrl: signedUrl,
+        storagePath,
+        expiresAt,
+        maxSize: rules.maxSize,
+        publicUrl: `https://storage.googleapis.com/${bucket.name}/${storagePath}`,
+      },
+    });
   })
 );
 
 /**
- * POST /upload/graphic
+ * POST /upload/highlight-video/confirm
  *
- * Upload graphic/image.
+ * Confirm a highlight video upload and enqueue processing.
+ * Called by the frontend after it finishes uploading to the presigned URL.
+ * Publishes a Pub/Sub message so the video processing Cloud Run worker
+ * can transcode to HLS asynchronously.
+ *
+ * Request body: { userId, storagePath, mimeType, fileSize? }
  */
 router.post(
-  '/graphic',
-  upload.single('file'),
+  '/highlight-video/confirm',
   asyncHandler(async (req: Request, res: Response) => {
-    const { userId } = req.body;
-    const file = req.file;
+    const { userId, storagePath, mimeType, fileSize } = req.body;
 
     if (!userId) {
       throw fieldError('userId', 'User ID is required', 'required');
     }
 
-    if (!file) {
-      throw fieldError('file', 'File is required', 'required');
+    if (!storagePath) {
+      throw fieldError('storagePath', 'Storage path is required', 'required');
     }
 
-    res.status(501).json({ success: false, error: 'Not implemented' });
-  })
-);
+    // Verify the file actually exists in Storage
+    const bucket = req.firebase?.storage?.bucket() || getStorage().bucket();
+    const file = bucket.file(storagePath);
+    const [exists] = await file.exists();
 
-/**
- * POST /upload/highlight-video
- *
- * Upload highlight video.
- */
-router.post(
-  '/highlight-video',
-  upload.single('file'),
-  asyncHandler(async (req: Request, res: Response) => {
-    const { userId } = req.body;
-    const file = req.file;
-
-    if (!userId) {
-      throw fieldError('userId', 'User ID is required', 'required');
+    if (!exists) {
+      throw fieldError(
+        'storagePath',
+        'Uploaded file not found at the specified path. Upload may have failed.',
+        'not_found'
+      );
     }
 
-    if (!file) {
-      throw fieldError('file', 'File is required', 'required');
-    }
+    // Make the source file publicly readable
+    await file.makePublic();
+    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
 
-    res.status(501).json({ success: false, error: 'Not implemented' });
-  })
-);
+    // Generate a unique job ID for idempotent processing
+    const jobId = `vid_${userId}_${Date.now()}`;
 
-/**
- * POST /upload/graphic
- *
- * Upload graphic/image.
- */
-router.post(
-  '/graphic',
-  upload.single('file'),
-  asyncHandler(async (req: Request, res: Response) => {
-    const { userId } = req.body;
-    const file = req.file;
+    // Publish video processing job to Pub/Sub
+    const { publishVideoProcessingJob } = await import('../workers/video-processing-worker.js');
+    const environment = (process.env['NODE_ENV'] === 'production' ? 'production' : 'staging') as
+      | 'staging'
+      | 'production';
 
-    if (!userId) {
-      throw fieldError('userId', 'User ID is required', 'required');
-    }
+    const messageId = await publishVideoProcessingJob({
+      jobId,
+      userId,
+      storagePath,
+      mimeType: mimeType || 'video/mp4',
+      fileSize: fileSize ? Number(fileSize) : undefined,
+      environment,
+    });
 
-    if (!file) {
-      throw fieldError('file', 'File is required', 'required');
-    }
+    logger.info('Video upload confirmed, processing enqueued', {
+      userId,
+      storagePath,
+      jobId,
+      messageId,
+    });
 
-    res.status(501).json({ success: false, error: 'Not implemented' });
+    res.json({
+      success: true,
+      data: {
+        jobId,
+        publicUrl,
+        storagePath,
+        status: 'pending',
+        message: 'Video upload confirmed. Processing has been enqueued.',
+      },
+    });
   })
 );
 

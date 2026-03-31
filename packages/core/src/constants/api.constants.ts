@@ -158,17 +158,6 @@ export const API_ENDPOINTS = {
   },
 
   // ==========================================
-  // Follow
-  // ==========================================
-  FOLLOW: {
-    FOLLOW: (userId: string) => `/v1/follow/${userId}`,
-    UNFOLLOW: (userId: string) => `/v1/follow/${userId}`,
-    FOLLOWERS: (userId: string) => `/v1/follow/${userId}/followers`,
-    FOLLOWING: (userId: string) => `/v1/follow/${userId}/following`,
-    CHECK: (userId: string) => `/v1/follow/${userId}/check`,
-  },
-
-  // ==========================================
   // SSR
   // ==========================================
   SSR: {

@@ -11,13 +11,7 @@
  */
 
 import type { HttpAdapter } from '../api/http-adapter';
-import type {
-  FeedResponse,
-  FeedPostResponse,
-  FeedActionResponse,
-  FeedFilter,
-  FeedCommentsResponse,
-} from './feed.types';
+import type { FeedResponse, FeedPostResponse, FeedActionResponse, FeedFilter } from './feed.types';
 import { FEED_API_ENDPOINTS, FEED_PAGINATION_DEFAULTS } from './feed.constants';
 import { createApiError, isNxtApiError } from '../errors';
 
@@ -264,35 +258,6 @@ export function createFeedApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Toggle bookmark on a post.
-     *
-     * @param postId - Post ID to bookmark/unbookmark
-     * @returns Updated engagement state
-     */
-    async toggleBookmark(postId: string): Promise<FeedActionResponse> {
-      try {
-        const path = replaceParams(FEED_API_ENDPOINTS.POST_BOOKMARK, { id: postId });
-        const url = `${baseUrl}${path}`;
-
-        const response = await http.post<FeedActionResponse>(url, {});
-
-        if (!response.success) {
-          throw createApiError('SRV_INTERNAL_ERROR', {
-            message: response.error ?? 'Failed to toggle bookmark',
-          });
-        }
-
-        return response;
-      } catch (error) {
-        if (isNxtApiError(error)) throw error;
-
-        throw createApiError('SRV_INTERNAL_ERROR', {
-          message: error instanceof Error ? error.message : 'Unknown error toggling bookmark',
-        });
-      }
-    },
-
-    /**
      * Share a post.
      *
      * @param postId - Post ID to share
@@ -317,41 +282,6 @@ export function createFeedApi(http: HttpAdapter, baseUrl: string) {
 
         throw createApiError('SRV_INTERNAL_ERROR', {
           message: error instanceof Error ? error.message : 'Unknown error sharing post',
-        });
-      }
-    },
-
-    /**
-     * Get comments for a post.
-     *
-     * @param postId - Post ID
-     * @param page - Page number
-     * @param limit - Items per page
-     * @returns Paginated comments
-     */
-    async getComments(
-      postId: string,
-      page: number = FEED_PAGINATION_DEFAULTS.INITIAL_PAGE,
-      limit: number = FEED_PAGINATION_DEFAULTS.LIMIT
-    ): Promise<FeedCommentsResponse> {
-      try {
-        const path = replaceParams(FEED_API_ENDPOINTS.COMMENTS, { id: postId });
-        const url = buildUrl(path, { page, limit });
-
-        const response = await http.get<FeedCommentsResponse>(url);
-
-        if (!response.success) {
-          throw createApiError('SRV_INTERNAL_ERROR', {
-            message: response.error ?? 'Failed to fetch comments',
-          });
-        }
-
-        return response;
-      } catch (error) {
-        if (isNxtApiError(error)) throw error;
-
-        throw createApiError('SRV_INTERNAL_ERROR', {
-          message: error instanceof Error ? error.message : 'Unknown error fetching comments',
         });
       }
     },

@@ -14,37 +14,34 @@ import type {
   InviteItem,
   InviteLink,
   InviteTeam,
-  InviteXpTier,
+  InviteRewardTier,
 } from '@nxt1/core';
 
 // ============================================
 // MOCK XP TIERS
 // ============================================
 
-export const MOCK_TIERS: InviteXpTier[] = [
+export const MOCK_TIERS: InviteRewardTier[] = [
   {
     name: 'Rookie',
     minInvites: 0,
-    multiplier: 1.0,
     badgeIcon: 'star-outline',
     badgeColor: 'var(--nxt1-color-text-tertiary)',
   },
   {
     name: 'Connector',
     minInvites: 5,
-    multiplier: 1.25,
     badgeIcon: 'star-half',
     badgeColor: '#CD7F32',
   },
-  { name: 'Networker', minInvites: 15, multiplier: 1.5, badgeIcon: 'star', badgeColor: '#C0C0C0' },
+  { name: 'Networker', minInvites: 15, badgeIcon: 'star', badgeColor: '#C0C0C0' },
   {
     name: 'Ambassador',
     minInvites: 30,
-    multiplier: 1.75,
     badgeIcon: 'trophy',
     badgeColor: '#FFD700',
   },
-  { name: 'Legend', minInvites: 50, multiplier: 2.0, badgeIcon: 'diamond', badgeColor: '#B9F2FF' },
+  { name: 'Legend', minInvites: 50, badgeIcon: 'diamond', badgeColor: '#B9F2FF' },
 ];
 
 // ============================================
@@ -73,7 +70,7 @@ export const MOCK_INVITE_ACHIEVEMENTS: InviteAchievement[] = [
     description: 'Send your first invite',
     icon: 'rocket',
     color: 'var(--nxt1-color-primary)',
-    xpReward: 50,
+    creditReward: 50,
     isEarned: true,
     earnedAt: '2024-01-15T10:30:00Z',
   },
@@ -83,7 +80,7 @@ export const MOCK_INVITE_ACHIEVEMENTS: InviteAchievement[] = [
     description: 'Use 3 different invite channels',
     icon: 'share-social',
     color: 'var(--nxt1-color-info)',
-    xpReward: 100,
+    creditReward: 100,
     isEarned: true,
     earnedAt: '2024-01-20T14:45:00Z',
   },
@@ -93,7 +90,7 @@ export const MOCK_INVITE_ACHIEVEMENTS: InviteAchievement[] = [
     description: 'Invite 5 teammates',
     icon: 'people',
     color: 'var(--nxt1-color-success)',
-    xpReward: 150,
+    creditReward: 150,
     isEarned: true,
     earnedAt: '2024-02-01T09:00:00Z',
   },
@@ -103,7 +100,7 @@ export const MOCK_INVITE_ACHIEVEMENTS: InviteAchievement[] = [
     description: 'Maintain a 7-day invite streak',
     icon: 'flame',
     color: '#FF6B35',
-    xpReward: 200,
+    creditReward: 200,
     isEarned: false,
     progress: 71, // 5/7 days
   },
@@ -113,7 +110,7 @@ export const MOCK_INVITE_ACHIEVEMENTS: InviteAchievement[] = [
     description: 'Have 10 invites accepted',
     icon: 'megaphone',
     color: 'var(--nxt1-color-warning)',
-    xpReward: 250,
+    creditReward: 250,
     isEarned: false,
     progress: 100, // 12/10 - earned but not shown yet for effect
   },
@@ -123,7 +120,7 @@ export const MOCK_INVITE_ACHIEVEMENTS: InviteAchievement[] = [
     description: 'Invite 25 people who join',
     icon: 'ribbon',
     color: '#FFD700',
-    xpReward: 500,
+    creditReward: 500,
     isEarned: false,
     progress: 48, // 12/25
   },
@@ -133,7 +130,7 @@ export const MOCK_INVITE_ACHIEVEMENTS: InviteAchievement[] = [
     description: 'Share via all social platforms',
     icon: 'trending-up',
     color: '#E4405F',
-    xpReward: 150,
+    creditReward: 150,
     isEarned: false,
     progress: 60,
   },
@@ -143,7 +140,7 @@ export const MOCK_INVITE_ACHIEVEMENTS: InviteAchievement[] = [
     description: 'Have 5 people join via QR code',
     icon: 'qr-code',
     color: 'var(--nxt1-color-text-primary)',
-    xpReward: 100,
+    creditReward: 100,
     isEarned: false,
     progress: 40, // 2/5
   },
@@ -171,7 +168,7 @@ export const MOCK_INVITE_HISTORY: InviteItem[] = [
     teamId: 'team_1',
     teamName: 'Riverside Eagles',
     referralCode: 'NXT-ABC123',
-    xpEarned: 50,
+    creditsEarned: 50,
     createdAt: new Date(now - 1000 * 60 * 30).toISOString(), // 30 min ago
     updatedAt: new Date(now - 1000 * 60 * 15).toISOString(),
   },
@@ -187,7 +184,7 @@ export const MOCK_INVITE_HISTORY: InviteItem[] = [
     },
     senderId: 'user_1',
     referralCode: 'NXT-DEF456',
-    xpEarned: 25,
+    creditsEarned: 25,
     createdAt: new Date(now - 1000 * 60 * 60 * 2).toISOString(), // 2 hours ago
     updatedAt: new Date(now - 1000 * 60 * 60 * 2).toISOString(),
   },
@@ -206,7 +203,7 @@ export const MOCK_INVITE_HISTORY: InviteItem[] = [
     teamId: 'team_1',
     teamName: 'Riverside Eagles',
     referralCode: 'NXT-GHI789',
-    xpEarned: 50,
+    creditsEarned: 50,
     createdAt: new Date(now - 1000 * 60 * 60 * 24).toISOString(), // 1 day ago
     updatedAt: new Date(now - 1000 * 60 * 60 * 12).toISOString(),
   },
@@ -221,7 +218,7 @@ export const MOCK_INVITE_HISTORY: InviteItem[] = [
     },
     senderId: 'user_1',
     referralCode: 'NXT-JKL012',
-    xpEarned: 30,
+    creditsEarned: 30,
     createdAt: new Date(now - 1000 * 60 * 60 * 48).toISOString(), // 2 days ago
     updatedAt: new Date(now - 1000 * 60 * 60 * 24).toISOString(),
   },
@@ -238,7 +235,7 @@ export const MOCK_INVITE_HISTORY: InviteItem[] = [
     },
     senderId: 'user_1',
     referralCode: 'NXT-MNO345',
-    xpEarned: 35,
+    creditsEarned: 35,
     createdAt: new Date(now - 1000 * 60 * 60 * 72).toISOString(), // 3 days ago
     updatedAt: new Date(now - 1000 * 60 * 60 * 48).toISOString(),
   },

@@ -33,6 +33,11 @@ export { FeedNewsCardComponent } from './feed-news-card.component';
 export { FeedService } from './feed.service';
 
 // ============================================
+// INJECTION TOKENS
+// ============================================
+export { FEED_API } from './feed-api.token';
+
+// ============================================
 // MOCK DATA (Development only)
 // ============================================
 export {

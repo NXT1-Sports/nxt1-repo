@@ -465,7 +465,6 @@ router.get('/:id', optionalAuth, async (req: Request, res: Response): Promise<vo
       isLiked,
       isBookmarked: false,
       isReposted: false,
-      isFollowingAuthor: false,
     });
 
     // Cache for non-authenticated requests

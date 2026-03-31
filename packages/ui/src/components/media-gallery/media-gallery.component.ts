@@ -4,7 +4,7 @@
  * @version 1.0.0
  *
  * Horizontal-scrolling photo gallery with add/remove capability.
- * Used on edit-profile, create-post, and any screen that manages
+ * Used on edit-profile and any screen that manages
  * a collection of user images.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐

@@ -146,7 +146,6 @@ export function profilePostToFeedPost(post: ProfilePost, author: FeedAuthor): Fe
       isLiked: post.isLiked ?? false,
       isBookmarked: false,
       isReposted: false,
-      isFollowingAuthor: false,
       isReacted: post.isLiked ?? false,
       reactionType: post.isLiked ? 'like' : null,
     },
@@ -253,7 +252,6 @@ export function profileOfferToFeedPost(offer: ProfileOffer, author: FeedAuthor):
       isLiked: false,
       isBookmarked: false,
       isReposted: false,
-      isFollowingAuthor: false,
       isReacted: false,
       reactionType: null,
     },
@@ -350,7 +348,6 @@ export function profileEventToFeedPost(event: ProfileEvent, author: FeedAuthor):
       isLiked: false,
       isBookmarked: false,
       isReposted: false,
-      isFollowingAuthor: false,
       isReacted: false,
       reactionType: null,
     },
@@ -517,7 +514,6 @@ export function teamPostToFeedPost(post: TeamProfilePost, author: FeedAuthor): F
       isLiked: post.isLiked ?? false,
       isBookmarked: false,
       isReposted: false,
-      isFollowingAuthor: false,
       isReacted: post.isLiked ?? false,
       reactionType: post.isLiked ? 'like' : null,
     },
@@ -570,7 +566,6 @@ const EMPTY_USER_ENGAGEMENT: FeedUserEngagement = {
   isLiked: false,
   isBookmarked: false,
   isReposted: false,
-  isFollowingAuthor: false,
 };
 
 /**

@@ -44,7 +44,7 @@ import { ProfileService } from '../profile.service';
         </div>
       </div>
 
-      <!-- ═══ TRAILING: Edit Profile (own) or Follow (other) ═══ -->
+      <!-- ═══ TRAILING: Edit Profile (own) ═══ -->
       <div headerTrailing class="mdh-trailing">
         @if (isOwnProfileView()) {
           <button
@@ -55,17 +55,6 @@ import { ProfileService } from '../profile.service';
           >
             <nxt1-icon name="pencil" [size]="13" />
             Edit Profile
-          </button>
-        } @else {
-          <button
-            type="button"
-            class="mdh-follow-btn"
-            [class.mdh-follow-btn--following]="isFollowing()"
-            (click)="follow.emit()"
-            [attr.aria-label]="isFollowing() ? 'Unfollow athlete' : 'Follow athlete'"
-          >
-            <nxt1-icon [name]="isFollowing() ? 'checkmark' : 'plus'" [size]="13" />
-            {{ isFollowing() ? 'Following' : 'Follow' }}
           </button>
         }
       </div>
@@ -170,57 +159,6 @@ import { ProfileService } from '../profile.service';
       }
 
       /* ============================================
-         FOLLOW BUTTON — matches team header style
-         ============================================ */
-      .mdh-follow-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        flex-shrink: 0;
-        border: 1.5px solid var(--nxt1-color-primary);
-        background: color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent);
-        color: var(--nxt1-color-primary);
-        border-radius: var(--nxt1-radius-md, 8px);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: 13px;
-        font-weight: var(--nxt1-fontWeight-semibold);
-        letter-spacing: 0.01em;
-        line-height: 1;
-        padding: 7px 16px;
-        cursor: pointer;
-        backdrop-filter: blur(4px);
-        -webkit-backdrop-filter: blur(4px);
-        transition:
-          transform 0.1s ease,
-          background 0.15s ease,
-          border-color 0.15s ease,
-          color 0.15s ease;
-      }
-      .mdh-follow-btn:hover {
-        background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-bg-primary);
-        border-color: var(--nxt1-color-primary);
-      }
-      .mdh-follow-btn:active {
-        transform: scale(0.97);
-      }
-      .mdh-follow-btn:focus-visible {
-        outline: 2px solid var(--nxt1-color-primary);
-        outline-offset: 2px;
-      }
-      .mdh-follow-btn--following {
-        background: transparent;
-        border-color: var(--nxt1-color-border-secondary, rgba(255, 255, 255, 0.2));
-        color: var(--nxt1-color-text-secondary);
-      }
-      .mdh-follow-btn--following:hover {
-        border-color: var(--nxt1-color-danger, #ef4444);
-        color: var(--nxt1-color-danger, #ef4444);
-        background: color-mix(in srgb, var(--nxt1-color-danger, #ef4444) 10%, transparent);
-      }
-
-      /* ============================================
          RESPONSIVE
          ============================================ */
       @media (max-width: 900px) {
@@ -243,12 +181,10 @@ export class ProfilePageHeaderComponent {
   readonly playerCard = input<unknown | null>(null);
   readonly showFollowAction = input(false);
   readonly back = output<void>();
-  readonly follow = output<void>();
   readonly editProfile = output<void>();
 
-  /* ── Follow State ── */
+  /* ── View State ── */
 
-  protected readonly isFollowing = computed(() => this.profile.followStats()?.isFollowing ?? false);
   protected readonly isOwnProfileView = computed(() => !this.showFollowAction());
 
   /* ── Name & Subtitle ── */

@@ -46,29 +46,28 @@ import {
   isFeedTab,
   resolveStateToAbbreviation,
 } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
-
-// ⚠️ TEMPORARY: Mock data for development (remove when backend is ready)
-import {
-  getMockExploreItems,
-  getMockItemCount,
-  getMockTabCounts,
-  getMockSuggestions,
-  MOCK_TRENDING_SEARCHES,
-  MOCK_RECENT_SEARCHES,
-} from './explore.mock-data';
+import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
+import { EXPLORE_API } from './explore-api.token';
 
 /**
  * Explore state management service.
  * Provides reactive state for the explore/search interface.
+ *
+ * Uses injection token EXPLORE_API — apps must provide a platform-specific adapter.
  */
 @Injectable({ providedIn: 'root' })
 export class ExploreService {
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ExploreService');
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly api = inject(EXPLORE_API, { optional: true });
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -83,13 +82,11 @@ export class ExploreService {
   private readonly _isSearchFocused = signal(false);
   private readonly _error = signal<string | null>(null);
   private readonly _pagination = signal<ExplorePagination | null>(null);
-  private readonly _recentSearches = signal<string[]>(MOCK_RECENT_SEARCHES);
-  private readonly _trendingSearches = signal<string[]>(MOCK_TRENDING_SEARCHES);
+  private readonly _recentSearches = signal<string[]>([]);
+  private readonly _trendingSearches = signal<string[]>([]);
   private readonly _suggestions = signal<string[]>([]);
   private readonly _tabFilters = signal<Record<ExploreTabId, ExploreFilters>>({
-    'for-you': {},
     feed: {},
-    following: {},
     news: {},
     colleges: {},
     athletes: {},
@@ -186,39 +183,67 @@ export class ExploreService {
 
     const tab = this._activeTab();
     const filters = this._tabFilters()[tab] ?? {};
-    this.logger.debug('Searching', { query, tab, filters });
+    this.logger.info('Searching', { query, tab, filters });
+    this.breadcrumb.trackStateChange('explore:searching', { query, tab });
 
     try {
-      // Simulate network delay
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      if (!this.api) {
+        this.logger.warn('EXPLORE_API not provided — no results available');
+        this._items.set([]);
+        this._tabCounts.set(EXPLORE_INITIAL_TAB_COUNTS);
+        this._pagination.set({
+          page: 1,
+          limit: EXPLORE_PAGINATION_DEFAULTS.pageSize,
+          total: 0,
+          totalPages: 0,
+          hasMore: false,
+        });
+        return;
+      }
 
-      // ⚠️ TEMPORARY: Using mock data
-      const items = getMockExploreItems(tab, 1, EXPLORE_PAGINATION_DEFAULTS.pageSize, query);
-      const counts = getMockTabCounts(query);
-      const total = getMockItemCount(tab, query);
-      const totalPages = Math.ceil(total / EXPLORE_PAGINATION_DEFAULTS.pageSize);
-      const hasMore = items.length < total;
-
-      this._items.set(items);
-      this._tabCounts.set(counts);
-      this._pagination.set({
+      const response = await this.api.search({
+        query,
+        tab,
+        filters,
         page: 1,
         limit: EXPLORE_PAGINATION_DEFAULTS.pageSize,
-        total,
-        totalPages,
-        hasMore,
       });
 
-      // Add to recent searches if query is valid
+      if (response.success) {
+        this._items.set([...response.items]);
+        this._pagination.set(response.pagination);
+      } else {
+        this._error.set(response.error ?? 'Search failed');
+        this._items.set([]);
+      }
+
+      // Fetch tab counts in parallel (non-blocking)
       if (query && query.length >= EXPLORE_SEARCH_CONFIG.minQueryLength) {
+        this.api
+          .getTabCounts(query)
+          .then((counts) => this._tabCounts.set(counts))
+          .catch(() => {});
         this.addToRecentSearches(query);
       }
+
+      this.logger.info('Search completed', { query, tab, count: this._items().length });
+      this.analytics?.trackEvent(APP_EVENTS.EXPLORE_SEARCHED, {
+        search_term: query,
+        tab,
+        result_count: this._items().length,
+      });
+      this.breadcrumb.trackStateChange('explore:search-complete', {
+        query,
+        tab,
+        count: this._items().length,
+      });
 
       await this.haptics.impact('light');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Search failed';
       this._error.set(message);
       this.logger.error('Search failed', err, { query, tab });
+      this.breadcrumb.trackStateChange('explore:search-error', { query, tab });
     } finally {
       this._isLoading.set(false);
     }
@@ -234,9 +259,10 @@ export class ExploreService {
 
     this._activeTab.set(tab);
     await this.haptics.impact('light');
+    this.breadcrumb.trackStateChange('explore:tab-switched', { tab });
 
-    // For-You and feed tabs are handled by their own components/services
-    if (tab === 'for-you' || isFeedTab(tab)) return;
+    // Feed tabs are handled by their own components/services
+    if (isFeedTab(tab)) return;
 
     // Re-search with current query for discovery tabs
     const query = this._query();
@@ -255,27 +281,34 @@ export class ExploreService {
     this._isLoadingMore.set(true);
     const tab = this._activeTab();
     const query = this._query();
+    const filters = this._tabFilters()[tab] ?? {};
     const nextPage = pagination.page + 1;
 
-    this.logger.debug('Loading more', { tab, page: nextPage, query });
+    this.logger.info('Loading more', { tab, page: nextPage, query });
 
     try {
-      // Simulate network delay
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      if (!this.api) {
+        this.logger.warn('EXPLORE_API not provided — cannot load more');
+        return;
+      }
 
-      // ⚠️ TEMPORARY: Using mock data
-      const items = getMockExploreItems(tab, nextPage, EXPLORE_PAGINATION_DEFAULTS.pageSize, query);
-      const total = getMockItemCount(tab, query);
-      const totalPages = Math.ceil(total / EXPLORE_PAGINATION_DEFAULTS.pageSize);
-      const hasMore = nextPage * EXPLORE_PAGINATION_DEFAULTS.pageSize < total;
-
-      this._items.update((current) => [...current, ...items]);
-      this._pagination.set({
+      const response = await this.api.search({
+        query,
+        tab,
+        filters,
         page: nextPage,
         limit: EXPLORE_PAGINATION_DEFAULTS.pageSize,
-        total,
-        totalPages,
-        hasMore,
+      });
+
+      if (response.success) {
+        this._items.update((current) => [...current, ...response.items]);
+        this._pagination.set(response.pagination);
+      }
+
+      this.analytics?.trackEvent(APP_EVENTS.EXPLORE_LOAD_MORE, {
+        tab,
+        page: nextPage,
+        count: response.items.length,
       });
     } catch (err) {
       this.logger.error('Load more failed', err, { tab, page: nextPage });
@@ -303,9 +336,19 @@ export class ExploreService {
       return;
     }
 
-    // ⚠️ TEMPORARY: Using mock data
-    const suggestions = getMockSuggestions(query, EXPLORE_SEARCH_CONFIG.maxSuggestions);
-    this._suggestions.set(suggestions);
+    try {
+      if (!this.api) {
+        this._suggestions.set([]);
+        return;
+      }
+      const suggestions = await this.api.getSuggestions(
+        query,
+        EXPLORE_SEARCH_CONFIG.maxSuggestions
+      );
+      this._suggestions.set(suggestions);
+    } catch {
+      this._suggestions.set([]);
+    }
   }
 
   /**
@@ -419,7 +462,7 @@ export class ExploreService {
   /**
    * Initialize default filters from user context.
    * Called once when the shell loads with the user's sport and state.
-   * Applies to 'for-you' (Discover) and 'news' (Pulse) tabs.
+   * Applies to 'feed' and 'news' (Pulse) tabs.
    * Skips if defaults were already applied this session.
    */
   initializeDefaultFilters(sport?: string | null, state?: string | null): void {
@@ -432,7 +475,7 @@ export class ExploreService {
       ...(resolvedState ? { state: resolvedState } : {}),
     };
 
-    this.setFiltersForTab('for-you', defaults);
+    this.setFiltersForTab('feed', defaults);
     this.setFiltersForTab('news', defaults);
     this._defaultFiltersInitialized = true;
     this._defaultFilterValues = {
@@ -452,7 +495,7 @@ export class ExploreService {
 
     const normalizedState = resolveStateToAbbreviation(state) ?? state.trim().toUpperCase();
 
-    for (const tabId of ['for-you', 'news'] as const) {
+    for (const tabId of ['feed', 'news'] as const) {
       const current = this.getFiltersForTab(tabId);
       this.setFiltersForTab(tabId, { ...current, state: normalizedState });
     }

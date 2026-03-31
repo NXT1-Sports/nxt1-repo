@@ -49,11 +49,17 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
                   fit="cover"
                 />
               } @else if (media.type === 'video') {
-                <nxt1-image
-                  [src]="media.thumbnailUrl || media.url"
-                  [alt]="media.altText || 'Video thumbnail'"
-                  fit="cover"
-                />
+                @if (media.thumbnailUrl) {
+                  <nxt1-image
+                    [src]="media.thumbnailUrl"
+                    [alt]="media.altText || 'Video thumbnail'"
+                    fit="cover"
+                  />
+                } @else {
+                  <div class="post-content__video-placeholder">
+                    <nxt1-icon name="videocam" [size]="48" />
+                  </div>
+                }
                 <div class="post-content__video-overlay">
                   <nxt1-icon name="playCircle" [size]="48" />
                 </div>
@@ -204,6 +210,16 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
         scroll-snap-align: start;
         position: relative;
         aspect-ratio: 16 / 10;
+      }
+
+      .post-content__video-placeholder {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
       }
 
       .post-content__video-overlay {

@@ -72,7 +72,6 @@ import {
   buildBasketballRecruitingActivities,
   buildPosts,
   buildNewsArticles,
-  buildFollows,
   buildRankings,
   buildScoutReports,
   buildVideos,
@@ -94,7 +93,6 @@ const RANKINGS_COL = 'Rankings'; // top-level: Rankings/{rankingId}
 const VIDEOS_COL = 'Videos'; // top-level: Videos/{videoId}
 const OFFERS_COL = 'Offers'; // top-level: Offers/{offerId}
 const INTERACTIONS_COL = 'Interactions'; // top-level: Interactions/{interactionId}
-const FOLLOWS_COL = 'Follows'; // top-level: Follows/{followerId}_{followingId}
 type BatchOp = (batch: FirebaseFirestore.WriteBatch) => void;
 
 // Helper to remove undefined values (Firestore rejects them)
@@ -180,7 +178,6 @@ async function runSeed(userId: string): Promise<void> {
   const bbRecruitingActivities = buildBasketballRecruitingActivities(userId);
   const posts = buildPosts(userId);
   const newsArticles = buildNewsArticles(userId);
-  const follows = buildFollows(userId);
   const rankings = buildRankings(userId);
   const scoutReports = buildScoutReports(userId);
   const videos = buildVideos(userId);
@@ -368,19 +365,6 @@ async function runSeed(userId: string): Promise<void> {
     ops.push((b) => b.set(db.collection(NEWS_COL).doc((a as { id: string }).id), a))
   );
 
-  // Follows — top-level Follows/{followerId}_{followingId}
-  follows.forEach((follow) => {
-    const followDocId = `${follow.followerId}_${follow.followingId}`;
-    const followDoc = {
-      id: followDocId,
-      followerId: follow.followerId,
-      followingId: follow.followingId,
-      createdAt: follow.createdAt,
-      updatedAt: now,
-    };
-    ops.push((b) => b.set(db.collection(FOLLOWS_COL).doc(followDocId), followDoc));
-  });
-
   // Rankings — top-level Rankings/{rankingId}
   rankings.forEach((r) => ops.push((b) => b.set(db.collection(RANKINGS_COL).doc(r.id), r)));
   // Scout reports — top-level ScoutReports/{reportId}
@@ -400,8 +384,6 @@ async function runSeed(userId: string): Promise<void> {
   });
 
   // User doc update
-  const followersCount = follows.filter((f) => f.followingId === userId).length;
-  const followingCount = follows.filter((f) => f.followerId === userId).length;
   // Only write basicProfile fields if the user hasn't set them yet
   const existingFirstName = (userData as Record<string, unknown>)['firstName'] as
     | string
@@ -423,8 +405,6 @@ async function runSeed(userId: string): Promise<void> {
     b.update(userRef, {
       ...basicProfileUpdate,
       sports: updatedSports,
-      '_counters.followersCount': followersCount,
-      '_counters.followingCount': followingCount,
       '_counters.postsCount': posts.length,
       // Overview tab fields
       teamHistory: profileFields.teamHistory,
@@ -449,7 +429,7 @@ async function runSeed(userId: string): Promise<void> {
     `     Basketball— stats:${bbStats.length}  metrics:${bbMetrics.length}  schedule:${bbScheduleEvents.length}  recruiting:${bbRecruitingActivities.length}`
   );
   console.log(
-    `     posts:${posts.length}  news:${newsArticles.length}  videos:${videos.length}  follows:${follows.length}  rankings:${rankings.length}  scoutReports:${scoutReports.length}`
+    `     posts:${posts.length}  news:${newsArticles.length}  videos:${videos.length}  rankings:${rankings.length}  scoutReports:${scoutReports.length}`
   );
   console.log(
     `     teamHistory:${profileFields.teamHistory.length}  awards:${profileFields.awards.length}  contact:✓  academics:✓  coach:✓`
@@ -504,14 +484,7 @@ async function runDelete(userId: string): Promise<void> {
     collectTopLevel(INTERACTIONS_COL),
   ]);
 
-  // Follows — delete where followerId or followingId matches userId
-  const followerSnap = await db.collection(FOLLOWS_COL).where('followerId', '==', userId).get();
-  followerSnap.docs.forEach((d) => ops.push((b) => b.delete(d.ref)));
-  const followingSnap = await db.collection(FOLLOWS_COL).where('followingId', '==', userId).get();
-  followingSnap.docs.forEach((d) => ops.push((b) => b.delete(d.ref)));
-  const followsCount = followerSnap.size + followingSnap.size;
-
-  const totalDeleted = topLevelCounts.reduce((a, b) => a + b, 0) + 2 + followsCount; // +2 for PlayerStats
+  const totalDeleted = topLevelCounts.reduce((a, b) => a + b, 0) + 2; // +2 for PlayerStats
 
   // Strip embedded fields from User doc sports array + clean profile fields
   const userDoc = await userRef.get();

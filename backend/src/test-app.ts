@@ -21,7 +21,6 @@ import editProfileRoutes from './routes/edit-profile.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import locationsRoutes from './routes/locations.routes.js';
 import agentXRoutes from './routes/agent-x.routes.js';
-import followRoutes from './routes/follow.routes.js';
 import ssrRoutes from './routes/ssr.routes.js';
 import collegesRoutes from './routes/colleges.routes.js';
 import athletesRoutes from './routes/athletes.routes.js';
@@ -169,7 +168,6 @@ const routeConfigs = [
   ['/agent-x', agentXRoutes],
   ['/users', usersRoutes],
   ['/locations', locationsRoutes],
-  ['/follow', followRoutes],
   ['/colleges', collegesRoutes],
   ['/athletes', athletesRoutes],
   ['/teams', teamsRoutes],

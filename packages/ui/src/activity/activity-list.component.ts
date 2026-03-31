@@ -47,6 +47,7 @@ import {
 } from '@nxt1/core';
 import { NxtIconComponent } from '../components/icon';
 import { NxtStateViewComponent } from '../components/state-view';
+import { NxtTrackClickDirective } from '../services/breadcrumb/breadcrumb.service';
 import { ActivityItemComponent } from './activity-item.component';
 import { ActivitySkeletonComponent } from './activity-skeleton.component';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-logo.constants';
@@ -60,6 +61,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
     IonSpinner,
     NxtIconComponent,
     NxtStateViewComponent,
+    NxtTrackClickDirective,
     ActivityItemComponent,
     ActivitySkeletonComponent,
   ],
@@ -112,7 +114,12 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
           <h3 class="activity-list__empty-title">{{ emptyState().title }}</h3>
           <p class="activity-list__empty-message">{{ emptyState().message }}</p>
           @if (emptyState().ctaLabel) {
-            <button type="button" class="activity-list__empty-action" (click)="emptyCta.emit()">
+            <button
+              type="button"
+              class="activity-list__empty-action"
+              nxtTrackClick="activity-empty-cta"
+              (click)="emptyCta.emit()"
+            >
               {{ emptyState().ctaLabel }}
             </button>
           }
@@ -169,7 +176,12 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
             @if (isLoadingMore()) {
               <ion-spinner name="crescent" color="primary"></ion-spinner>
             } @else {
-              <button type="button" class="activity-list__load-more-btn" (click)="loadMore.emit()">
+              <button
+                type="button"
+                class="activity-list__load-more-btn"
+                nxtTrackClick="activity-load-more"
+                (click)="loadMore.emit()"
+              >
                 Load More
               </button>
             }

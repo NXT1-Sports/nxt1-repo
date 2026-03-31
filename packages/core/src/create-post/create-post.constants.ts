@@ -189,12 +189,6 @@ export const PRIVACY_OPTIONS: readonly PrivacyOption[] = [
     recommended: true,
   },
   {
-    id: 'followers',
-    label: 'Followers',
-    description: 'Only your followers can see',
-    icon: 'people-outline',
-  },
-  {
     id: 'team',
     label: 'Team Only',
     description: 'Only your team members',
@@ -352,7 +346,6 @@ export const POST_TYPE_ICONS: Record<PostType, string> = {
  */
 export const PRIVACY_ICONS: Record<PostPrivacy, string> = {
   public: 'globe-outline',
-  followers: 'people-outline',
   team: 'shield-outline',
   coaches: 'school-outline',
   private: 'lock-closed-outline',

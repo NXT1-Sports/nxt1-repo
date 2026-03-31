@@ -75,6 +75,12 @@ export const CACHE_KEYS = {
   POST_DETAILS: 'post:details:',
   POST_COMMENTS: 'post:comments:',
 
+  // Explore
+  EXPLORE_TRENDING: 'explore:trending',
+  EXPLORE_SUGGESTIONS: 'explore:suggestions:',
+  EXPLORE_TAB_COUNTS: 'explore:counts:',
+  EXPLORE_SEARCH: 'explore:search:',
+
   // Video
   VIDEO_LIST: 'video:list:',
   VIDEO_DETAILS: 'video:details:',
@@ -121,6 +127,18 @@ export const CACHE_TTL_CONFIG = {
 
   /** Feed - short (new posts frequently) */
   [CACHE_KEYS.FEED]: CACHE_CONFIG.SHORT_TTL,
+
+  /** Explore trending - short (changes frequently) */
+  [CACHE_KEYS.EXPLORE_TRENDING]: CACHE_CONFIG.SHORT_TTL,
+
+  /** Explore suggestions - long (type-ahead data is relatively static) */
+  [CACHE_KEYS.EXPLORE_SUGGESTIONS]: CACHE_CONFIG.LONG_TTL,
+
+  /** Explore tab counts - medium (doesn't need real-time accuracy) */
+  [CACHE_KEYS.EXPLORE_TAB_COUNTS]: CACHE_CONFIG.MEDIUM_TTL,
+
+  /** Explore search results - short (results change with new content) */
+  [CACHE_KEYS.EXPLORE_SEARCH]: CACHE_CONFIG.SHORT_TTL,
 
   /** Post details - medium */
   [CACHE_KEYS.POST_DETAILS]: CACHE_CONFIG.MEDIUM_TTL,

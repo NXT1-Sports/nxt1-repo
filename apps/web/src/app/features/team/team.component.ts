@@ -13,7 +13,6 @@
  * - Platform-specific routing/navigation
  * - SEO Metadata for team pages
  * - Share / QR code functionality
- * - Auth-gated follow
  * - Analytics tracking
  *
  * Routes:
@@ -167,8 +166,13 @@ export class TeamComponent implements OnInit {
     // Update mobile top-nav edit/more buttons when team admin status is resolved
     effect(() => {
       const isAdmin = this.isTeamAdmin();
-      // Show more for everyone; show pencil only for admins
-      this.profilePageActions.setMobileActions({ showEdit: isAdmin, showMore: true });
+      // Show more for everyone; show pencil only for admins;
+      // isOwnPage = true for admins → hamburger instead of back arrow
+      this.profilePageActions.setMobileActions({
+        showEdit: isAdmin,
+        showMore: true,
+        isOwnPage: isAdmin,
+      });
     });
 
     // Handle mobile top-nav pencil tap — open manage team modal
@@ -288,28 +292,6 @@ export class TeamComponent implements OnInit {
       team_slug: this.teamSlug(),
       context: 'team_profile',
     });
-  }
-
-  /**
-   * Handle follow button — requires authentication.
-   */
-  protected async onFollow(): Promise<void> {
-    if (!this.authFlow.isAuthenticated()) {
-      const result = await this.authModal.presentSignInToContinue('follow teams', {
-        onGoogle: () => this.authFlow.signInWithGoogle(),
-        onApple: () => this.authFlow.signInWithApple(),
-        onEmailAuth: async (mode, data) =>
-          mode === 'login'
-            ? this.authFlow.signInWithEmail(data)
-            : this.authFlow.signUpWithEmail(data),
-      });
-      if (!result.authenticated) return;
-    }
-
-    // Authenticated — toggle follow
-    await this.teamProfile.toggleFollow();
-    const isFollowing = this.teamProfile.followStats()?.isFollowing;
-    this.toast.success(isFollowing ? 'Following!' : 'Unfollowed');
   }
 
   /**

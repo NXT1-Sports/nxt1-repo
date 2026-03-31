@@ -15,7 +15,6 @@
 export { ExploreShellComponent, type ExploreUser } from './explore-shell.component';
 export { ExploreListComponent } from './explore-list.component';
 export { ExploreItemComponent } from './explore-item.component';
-export { ExploreForYouComponent } from './explore-for-you.component';
 
 // ============================================
 // WEB — Zero Ionic, SSR-optimized
@@ -24,13 +23,13 @@ export { ExploreShellWebComponent } from './web/explore-shell-web.component';
 export { ExploreSidebarWebComponent } from './web/explore-sidebar-web.component';
 export { ExploreListWebComponent } from './web/explore-list-web.component';
 export { ExploreItemWebComponent } from './web/explore-item-web.component';
-export { ExploreForYouWebComponent } from './web/explore-for-you-web.component';
 
 // ============================================
 // SHARED — Works on both platforms
 // ============================================
 export { ExploreSkeletonComponent } from './explore-skeleton.component';
 export { ExploreService } from './explore.service';
+export { EXPLORE_API } from './explore-api.token';
 export { ExploreFilterModalComponent } from './explore-filter-modal.component';
 export {
   ExploreFilterModalService,

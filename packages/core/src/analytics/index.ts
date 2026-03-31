@@ -180,7 +180,6 @@ export {
   type PostCreatedEvent,
 
   // Engagement events
-  type UserFollowedEvent,
   type ReactionAddedEvent,
   type CommentAddedEvent,
 

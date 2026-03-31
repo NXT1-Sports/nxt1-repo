@@ -42,6 +42,8 @@ import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb';
+import { ANALYTICS_ADAPTER } from '../services/analytics';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { ACTIVITY_API_ADAPTER } from './activity-api.service';
 
 /**
@@ -55,6 +57,7 @@ export class ActivityService {
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ActivityService');
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -175,6 +178,7 @@ export class ActivityService {
       }
 
       await this.haptics.impact('light');
+      this.analytics?.trackEvent(APP_EVENTS.ACTIVITY_FEED_VIEWED, { tab, count: items.length });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load activity';
       this._error.set(message);
@@ -246,6 +250,7 @@ export class ActivityService {
       }
 
       await this.haptics.notification('success');
+      this.analytics?.trackEvent(APP_EVENTS.ACTIVITY_FEED_REFRESHED, { count: items.length });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to refresh';
       this.toast.error(message);
@@ -282,6 +287,7 @@ export class ActivityService {
       }
 
       await this.haptics.impact('light');
+      this.analytics?.trackEvent(APP_EVENTS.ACTIVITY_MARKED_READ, { count: ids.length });
     } catch (err) {
       // Rollback on failure
       this._items.set(previousItems);
@@ -316,6 +322,7 @@ export class ActivityService {
 
       this.toast.success('All marked as read');
       await this.haptics.notification('success');
+      this.analytics?.trackEvent(APP_EVENTS.ACTIVITY_MARKED_ALL_READ, { count: unreadCount });
     } catch (err) {
       // Rollback on failure
       this._items.set(previousItems);
@@ -339,6 +346,7 @@ export class ActivityService {
     try {
       await this.api.archive([id]);
       await this.haptics.impact('medium');
+      this.analytics?.trackEvent(APP_EVENTS.ACTIVITY_ITEM_ARCHIVED, { id });
     } catch (err) {
       this._items.set(previousItems);
       const message = err instanceof Error ? err.message : 'Failed to archive';

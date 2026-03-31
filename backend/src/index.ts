@@ -52,7 +52,6 @@ import editProfileRoutes from './routes/edit-profile.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import locationsRoutes from './routes/locations.routes.js';
 import agentXRoutes from './routes/agent-x.routes.js';
-import followRoutes from './routes/follow.routes.js';
 import messagesRoutes from './routes/messages.routes.js';
 
 import { bootstrapAgentQueue } from './modules/agent/queue/bootstrap.js';
@@ -302,7 +301,6 @@ async function setupApplication() {
     { path: '/agent-x', rateLimitType: 'api', handler: agentXRoutes },
     { path: '/users', rateLimitType: 'api', handler: usersRoutes },
     { path: '/locations', rateLimitType: 'api', handler: locationsRoutes },
-    { path: '/follow', rateLimitType: 'api', handler: followRoutes },
     // Messages routes
     { path: '/messages', rateLimitType: 'api', handler: messagesRoutes },
     // Search/Discovery routes with search-specific rate limiting

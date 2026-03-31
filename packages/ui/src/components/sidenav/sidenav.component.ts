@@ -140,6 +140,7 @@ import { formatSportDisplayName } from '@nxt1/core';
                         [src]="user()!.profileImg"
                         [name]="user()!.name"
                         [initials]="user()!.initials"
+                        [isTeamRole]="user()!.isTeamRole"
                         size="md"
                         [showSkeleton]="false"
                         class="nxt1-sidenav-profile-row__avatar-img"
@@ -159,8 +160,8 @@ import { formatSportDisplayName } from '@nxt1/core';
                     </div>
                   </button>
 
-                  <!-- Expand arrow for sport profiles -->
-                  @if ((user()!.sportProfiles?.length ?? 0) > 0) {
+                  <!-- Expand arrow for sport profiles / add action -->
+                  @if ((user()!.sportProfiles?.length ?? 0) > 0 || user()!.actionLabel) {
                     <button
                       class="nxt1-sidenav-profile-row__expand"
                       [class.nxt1-sidenav-profile-row__expand--open]="sportsExpanded()"
@@ -174,7 +175,10 @@ import { formatSportDisplayName } from '@nxt1/core';
                 </div>
 
                 <!-- Expandable sport profiles list -->
-                @if (sportsExpanded() && (user()!.sportProfiles?.length ?? 0) > 0) {
+                @if (
+                  sportsExpanded() &&
+                  ((user()!.sportProfiles?.length ?? 0) > 0 || user()!.actionLabel)
+                ) {
                   <div class="nxt1-sidenav-sport-list">
                     @for (profile of user()!.sportProfiles; track profile.id) {
                       <button
@@ -186,7 +190,8 @@ import { formatSportDisplayName } from '@nxt1/core';
                         <nxt1-avatar
                           [src]="profile.profileImg || user()!.profileImg"
                           [name]="profile.sport"
-                          [initials]="getSportInitials(profile.sport)"
+                          [isTeamRole]="user()!.isTeamRole ?? false"
+                          [initials]="user()!.isTeamRole ? '' : getSportInitials(profile.sport)"
                           [customSize]="28"
                           [showSkeleton]="false"
                         />
@@ -210,11 +215,11 @@ import { formatSportDisplayName } from '@nxt1/core';
                       </button>
                     }
 
-                    <!-- Add sport button -->
+                    <!-- Add sport/team button — label from user context -->
                     <button
                       class="nxt1-sidenav-sport-list__item nxt1-sidenav-sport-list__item--add"
                       (click)="onAddSportClick($event)"
-                      aria-label="Add sport profile"
+                      [attr.aria-label]="user()?.actionLabel || 'Add Sport'"
                     >
                       <div class="nxt1-sidenav-sport-list__add-icon">
                         <svg
@@ -231,7 +236,9 @@ import { formatSportDisplayName } from '@nxt1/core';
                           <path d="M5 12h14" />
                         </svg>
                       </div>
-                      <span class="nxt1-sidenav-sport-list__name">Add Sport</span>
+                      <span class="nxt1-sidenav-sport-list__name">{{
+                        user()?.actionLabel || 'Add Sport'
+                      }}</span>
                     </button>
                   </div>
                 }
@@ -1452,7 +1459,7 @@ export class NxtSidenavComponent {
   private readonly expandedSections = signal<Set<string>>(new Set());
 
   /** Whether sport profiles dropdown is expanded */
-  readonly sportsExpanded = signal(false);
+  readonly sportsExpanded = signal(true);
 
   /** Active route for highlighting */
   private readonly activeRoute = signal<string>('');
@@ -1831,7 +1838,9 @@ export class NxtSidenavComponent {
    * Header label for the top switcher block.
    * Sports for multi-sport users, Profiles for team-style accounts.
    */
-  getSwitcherTitle(userData: SidenavUserData): 'Sports' | 'Profiles' {
+  getSwitcherTitle(userData: SidenavUserData): string {
+    if (userData.switcherTitle) return userData.switcherTitle;
+    if (userData.isTeamRole) return 'Teams';
     return (userData.sportProfiles?.length ?? 0) > 0 ? 'Sports' : 'Profiles';
   }
 

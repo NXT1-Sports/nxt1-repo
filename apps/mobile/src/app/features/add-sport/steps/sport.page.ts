@@ -21,6 +21,7 @@ import {
   OnboardingAgentXTypewriterComponent,
   NxtLogoComponent,
 } from '@nxt1/ui';
+import { TEST_IDS } from '@nxt1/core/testing';
 
 import { AddSportService } from '../add-sport.service';
 
@@ -44,13 +45,13 @@ import { AddSportService } from '../add-sport.service';
         [mobileFooterPadding]="true"
         (backClick)="addSport.onBack()"
       >
-        <div authContent class="nxt1-add-sport-step">
+        <div authContent class="nxt1-add-sport-step" [attr.data-testid]="testIds.STEP_SPORT">
           <div class="nxt1-add-sport-logo">
             <nxt1-logo size="sm" variant="auth" />
           </div>
 
           <nxt1-onboarding-agent-x-typewriter
-            message="Which sport are you adding to your profile?"
+            [message]="sportTypewriterMessage()"
             alignment="left"
             [showLogo]="true"
           />
@@ -58,6 +59,7 @@ import { AddSportService } from '../add-sport.service';
           @if (contentReady()) {
             <nxt1-onboarding-sport-step
               [sportData]="addSport.sportFormData()"
+              [sports]="addSport.availableSports()"
               [role]="addSport.selectedRole()"
               [disabled]="addSport.isLoading()"
               variant="list-row"
@@ -85,6 +87,7 @@ import { AddSportService } from '../add-sport.service';
 })
 export class AddSportSportStepPage {
   protected readonly addSport = inject(AddSportService);
+  protected readonly testIds = TEST_IDS.ADD_SPORT;
 
   private readonly typewriterRef = viewChild(OnboardingAgentXTypewriterComponent);
 
@@ -92,6 +95,13 @@ export class AddSportSportStepPage {
     const tw = this.typewriterRef();
     return tw ? !tw.isTyping() : true;
   });
+
+  /** Role-aware typewriter message for the sport step */
+  protected readonly sportTypewriterMessage = computed(() =>
+    this.addSport.isTeamRoleUser()
+      ? 'Which sport does your team play?'
+      : 'Which sport are you adding to your profile?'
+  );
 
   constructor() {
     effect(() => {

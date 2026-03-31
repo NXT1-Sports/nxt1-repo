@@ -7,7 +7,7 @@
  * framework / HTTP / Firestore import — they are plain TypeScript utilities.
  *
  * Usage:
- *   import { buildPosts, buildFollows, ... } from '../utils/seed-factories.js';
+ *   import { buildPosts, ... } from '../utils/seed-factories.js';
  *
  * Adding a new factory:
  *   1. Define a return-type interface below the factory (or in firestore.models.ts).
@@ -64,12 +64,6 @@ export interface PostSeedDoc {
   createdAt: ReturnType<typeof Timestamp.now>;
   updatedAt: ReturnType<typeof Timestamp.now>;
   stats: { likes: number; comments: number; shares: number; views: number };
-}
-
-export interface FollowSeedDoc {
-  followerId: string;
-  followingId: string;
-  createdAt: string;
 }
 
 export interface RankingSeedDoc {
@@ -1463,29 +1457,6 @@ export function buildTeamNewsArticles(teamId: string): object[] {
       createdAt: daysAgo(5),
       updatedAt: now,
     },
-  ];
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Follows factory
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function buildFollows(uid: string): FollowSeedDoc[] {
-  const simulatedUsers = [
-    'coach_rivera_01',
-    'athlete_johnson_02',
-    'scout_reynolds_03',
-    'parent_smith_04',
-    'athlete_davis_05',
-  ];
-  return [
-    // 3 people following this user
-    { followerId: simulatedUsers[0]!, followingId: uid, createdAt: daysAgo(90) },
-    { followerId: simulatedUsers[1]!, followingId: uid, createdAt: daysAgo(45) },
-    { followerId: simulatedUsers[2]!, followingId: uid, createdAt: daysAgo(7) },
-    // User following 2 others
-    { followerId: uid, followingId: simulatedUsers[3]!, createdAt: daysAgo(60) },
-    { followerId: uid, followingId: simulatedUsers[4]!, createdAt: daysAgo(30) },
   ];
 }
 

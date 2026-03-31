@@ -29,18 +29,48 @@ export const sendEmail = onCall(
       throw new HttpsError('unauthenticated', 'Authentication required');
     }
 
-    const { to, templateId, data, subject, html, text } = request.data as {
-      to: string;
-      templateId?: string;
-      data?: Record<string, unknown>;
-      subject?: string;
-      html?: string;
-      text?: string;
-    };
+    const { to, templateId, data, subject, html, text, emailType, recipientUserId } =
+      request.data as {
+        to: string;
+        templateId?: string;
+        data?: Record<string, unknown>;
+        subject?: string;
+        html?: string;
+        text?: string;
+        /** 'transactional' | 'digest' | 'marketing' — defaults to 'transactional' */
+        emailType?: string;
+        /** If sending to a platform user, pass their UID so we can check preferences */
+        recipientUserId?: string;
+      };
 
     // Validate input
     if (!to || typeof to !== 'string') {
       throw new HttpsError('invalid-argument', 'Recipient email is required');
+    }
+
+    // ─── Preference gate ─────────────────────────────────────────
+    // Non-transactional emails to platform users respect their notification prefs
+    const classifiedType =
+      emailType === 'marketing' || emailType === 'digest' ? emailType : 'transactional';
+    if (recipientUserId && classifiedType !== 'transactional') {
+      const userDoc = await db.collection('Users').doc(recipientUserId).get();
+      if (userDoc.exists) {
+        const prefs = userDoc.data()?.['preferences']?.['notifications'] as
+          | Record<string, boolean>
+          | undefined;
+
+        if (classifiedType === 'marketing' && prefs?.['marketing'] === false) {
+          logger.info('Skipping email: user opted out of marketing', { recipientUserId, to });
+          return { success: false, skipped: true, reason: 'User opted out of marketing emails' };
+        }
+        if (prefs?.['email'] === false) {
+          logger.info('Skipping email: user opted out of email notifications', {
+            recipientUserId,
+            to,
+          });
+          return { success: false, skipped: true, reason: 'User opted out of email notifications' };
+        }
+      }
     }
 
     // Get template or use custom content

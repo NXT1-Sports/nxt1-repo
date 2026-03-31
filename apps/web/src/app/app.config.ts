@@ -87,7 +87,9 @@ import { USAGE_API_BASE_URL } from '@nxt1/ui/usage';
 // Help Center API adapter — wired at root so the shared HelpCenterService
 // (providedIn: 'root') can resolve the token when it's first injected.
 import { HELP_CENTER_API } from '@nxt1/ui/help-center';
+import { FEED_API } from '@nxt1/ui/feed';
 import { HelpCenterApiService } from './features/help-center/services/help-center-api.service';
+import { FeedApiService } from './core/services/feed-api.service';
 import { ActivityApiService as WebActivityApiService } from './features/activity/services/activity-api.service';
 
 // Firebase
@@ -312,6 +314,9 @@ export const appConfig: ApplicationConfig = {
 
     // Help Center API adapter — root-level so shared HelpCenterService resolves it
     { provide: HELP_CENTER_API, useExisting: HelpCenterApiService },
+
+    // Feed API adapter — root-level so shared FeedService resolves it
+    { provide: FEED_API, useExisting: FeedApiService },
 
     // ============================================
     // LOGGING & ERROR HANDLING

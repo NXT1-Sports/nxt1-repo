@@ -11,7 +11,6 @@
  */
 
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { appGuard, optionalAuth } from '../middleware/auth.middleware.js';
 import { validateBody, validateQuery } from '../middleware/validation.middleware.js';
 import {
@@ -795,89 +794,6 @@ router.post(
     logger.debug('[Teams API] Page view recorded', { teamId: id, viewerId });
 
     sendSuccess(res, { message: 'Page view recorded' });
-  })
-);
-
-// ============================================
-// TEAM FOLLOW / UNFOLLOW
-// ============================================
-
-const FOLLOWS_COLLECTION = 'follows';
-const TEAMS_COLLECTION = 'Teams';
-
-/**
- * Follow a team
- * POST /api/v1/teams/:id/follow
- *
- * Atomic: creates follows/{userId}_{teamId} doc + increments Teams/{teamId}.followersCount
- * Idempotent (no-op if already following).
- * Notifies team admins via FCM push after response is sent.
- */
-router.post(
-  '/:id/follow',
-  appGuard,
-  asyncHandler(async (req: Request, res: Response) => {
-    const { id: teamId } = req.params as { id: string };
-    const userId = req.user!.uid;
-    const db = req.firebase!.db;
-
-    validateRequired(teamId, 'Team ID');
-
-    const followRef = db.collection(FOLLOWS_COLLECTION).doc(`${userId}_${teamId}`);
-    const teamRef = db.collection(TEAMS_COLLECTION).doc(teamId);
-
-    let isNewFollow = false;
-
-    await db.runTransaction(async (transaction) => {
-      const followDoc = await transaction.get(followRef);
-      if (followDoc.exists) return; // idempotent — already following
-
-      transaction.set(followRef, {
-        followerId: userId,
-        followingId: teamId,
-        targetType: 'team',
-        createdAt: Timestamp.now(),
-      });
-      transaction.update(teamRef, { followersCount: FieldValue.increment(1) });
-      isNewFollow = true;
-    });
-
-    logger.info('[Teams API] Team followed', { userId, teamId, isNewFollow });
-
-    sendSuccess(res, { isFollowing: true });
-  })
-);
-
-/**
- * Unfollow a team
- * DELETE /api/v1/teams/:id/follow
- *
- * Idempotent (no-op if not following). No notification dispatched.
- */
-router.delete(
-  '/:id/follow',
-  appGuard,
-  asyncHandler(async (req: Request, res: Response) => {
-    const { id: teamId } = req.params as { id: string };
-    const userId = req.user!.uid;
-    const db = req.firebase!.db;
-
-    validateRequired(teamId, 'Team ID');
-
-    const followRef = db.collection(FOLLOWS_COLLECTION).doc(`${userId}_${teamId}`);
-    const teamRef = db.collection(TEAMS_COLLECTION).doc(teamId);
-
-    await db.runTransaction(async (transaction) => {
-      const followDoc = await transaction.get(followRef);
-      if (!followDoc.exists) return; // idempotent — not following
-
-      transaction.delete(followRef);
-      transaction.update(teamRef, { followersCount: FieldValue.increment(-1) });
-    });
-
-    logger.info('[Teams API] Team unfollowed', { userId, teamId });
-
-    sendSuccess(res, { isFollowing: false });
   })
 );
 

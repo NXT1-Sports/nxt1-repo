@@ -23,7 +23,15 @@
  * ```
  */
 
-import { Component, ChangeDetectionStrategy, input, output, computed, inject } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  input,
+  output,
+  computed,
+  inject,
+  NgZone,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonInfiniteScroll, IonInfiniteScrollContent } from '@ionic/angular/standalone';
 import {
@@ -174,9 +182,7 @@ export class ExploreListComponent {
   protected readonly initialState = computed(() => {
     const state = EXPLORE_INITIAL_STATES[this.activeTab()];
     const iconMap: Record<ExploreTabId, string> = {
-      'for-you': 'sparkles-outline',
       feed: 'home-outline',
-      following: 'people-outline',
       news: 'newspaper-outline',
       colleges: 'school-outline',
       athletes: 'person-outline',
@@ -199,10 +205,14 @@ export class ExploreListComponent {
     this.retry.emit();
   }
 
+  private readonly ngZone = inject(NgZone);
+
   protected async onInfiniteScroll(event: CustomEvent): Promise<void> {
     this.loadMore.emit();
-    setTimeout(() => {
-      (event.target as HTMLIonInfiniteScrollElement)?.complete();
-    }, 1000);
+    this.ngZone.runOutsideAngular(() => {
+      setTimeout(() => {
+        (event.target as HTMLIonInfiniteScrollElement)?.complete();
+      }, 1000);
+    });
   }
 }

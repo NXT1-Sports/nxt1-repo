@@ -357,6 +357,12 @@ export const APP_EVENTS = {
   PROFILE_SPORT_ADDED: 'profile_sport_added',
   /** Sport removed from profile */
   PROFILE_SPORT_REMOVED: 'profile_sport_removed',
+  /** Add-sport wizard opened */
+  ADD_SPORT_WIZARD_OPENED: 'add_sport_wizard_opened',
+  /** Add-sport wizard step navigated */
+  ADD_SPORT_STEP_CHANGED: 'add_sport_step_changed',
+  /** Add-sport wizard completed (saved) */
+  ADD_SPORT_WIZARD_COMPLETED: 'add_sport_wizard_completed',
   /** Profile photo updated */
   PROFILE_PHOTO_UPDATED: 'profile_photo_updated',
   /** Profile photo removed from gallery */
@@ -389,8 +395,6 @@ export const APP_EVENTS = {
   // ============================================
   /** Post viewed */
   POST_VIEWED: 'post_viewed',
-  /** Post created */
-  POST_CREATED: 'post_created',
   /** Post edited */
   POST_EDITED: 'post_edited',
   /** Post deleted */
@@ -415,10 +419,6 @@ export const APP_EVENTS = {
   // ============================================
   // ENGAGEMENT EVENTS
   // ============================================
-  /** User followed another user */
-  USER_FOLLOWED: 'user_followed',
-  /** User unfollowed another user */
-  USER_UNFOLLOWED: 'user_unfollowed',
   /** Reaction added (like, etc.) */
   REACTION_ADDED: 'reaction_added',
   /** Reaction removed */
@@ -439,6 +439,14 @@ export const APP_EVENTS = {
   EXPLORE_VIEWED: 'explore_viewed',
   /** Explore tab switched (pulse, discover, feed, etc.) */
   EXPLORE_TAB_CHANGED: 'explore_tab_changed',
+  /** Explore search executed */
+  EXPLORE_SEARCHED: 'explore_searched',
+  /** Explore load more (infinite scroll) */
+  EXPLORE_LOAD_MORE: 'explore_load_more',
+  /** Explore suggestion clicked */
+  EXPLORE_SUGGESTION_CLICKED: 'explore_suggestion_clicked',
+  /** Explore filter applied */
+  EXPLORE_FILTER_APPLIED: 'explore_filter_applied',
   /** User's location detected via geolocation */
   LOCATION_DETECTED: 'location_detected',
 
@@ -577,6 +585,42 @@ export const APP_EVENTS = {
   PUSH_TOKEN_REGISTERED: 'push_token_registered',
   /** FCM token registration failed on web */
   PUSH_TOKEN_FAILED: 'push_token_failed',
+
+  // ============================================
+  // ACTIVITY FEED EVENTS
+  // ============================================
+  /** Activity feed viewed / loaded */
+  ACTIVITY_FEED_VIEWED: 'activity_feed_viewed',
+  /** Activity feed refreshed (pull-to-refresh) */
+  ACTIVITY_FEED_REFRESHED: 'activity_feed_refreshed',
+  /** Individual activity item clicked */
+  ACTIVITY_ITEM_CLICKED: 'activity_item_clicked',
+  /** Activity item action button clicked */
+  ACTIVITY_ITEM_ACTION_CLICKED: 'activity_item_action_clicked',
+  /** Activity items marked as read */
+  ACTIVITY_MARKED_READ: 'activity_marked_read',
+  /** All activity items marked as read */
+  ACTIVITY_MARKED_ALL_READ: 'activity_marked_all_read',
+  /** Activity item archived */
+  ACTIVITY_ITEM_ARCHIVED: 'activity_item_archived',
+
+  // ============================================
+  // HOME FEED EVENTS
+  // ============================================
+  /** Home feed viewed / loaded */
+  HOME_FEED_VIEWED: 'home_feed_viewed',
+  /** Home feed refreshed (pull-to-refresh) */
+  HOME_FEED_REFRESHED: 'home_feed_refreshed',
+  /** Home feed load more (infinite scroll) */
+  HOME_FEED_LOAD_MORE: 'home_feed_load_more',
+  /** Home feed filter changed */
+  HOME_FEED_FILTER_CHANGED: 'home_feed_filter_changed',
+  /** Home feed post liked */
+  HOME_FEED_POST_LIKED: 'home_feed_post_liked',
+  /** Home feed post bookmarked */
+  HOME_FEED_POST_BOOKMARKED: 'home_feed_post_bookmarked',
+  /** Home feed error occurred */
+  HOME_FEED_ERROR: 'home_feed_error',
 
   // ============================================
   // AGENT ACTIVITY EVENTS
@@ -778,6 +822,30 @@ export const APP_EVENTS = {
   NEWS_FEED_RETRY: 'news_feed_retry',
   /** Category filter changed */
   NEWS_CATEGORY_CHANGED: 'news_category_changed',
+
+  // ============================================
+  // INVITE / REFERRAL EVENTS
+  // ============================================
+  /** Invite feature viewed (shell opened) */
+  INVITE_VIEWED: 'invite_viewed',
+  /** Invite link generated */
+  INVITE_LINK_GENERATED: 'invite_link_generated',
+  /** Invite sent via a channel */
+  INVITE_SENT: 'invite_sent',
+  /** Invite link copied to clipboard */
+  INVITE_LINK_COPIED: 'invite_link_copied',
+  /** Invite accepted by recipient */
+  INVITE_ACCEPTED: 'invite_accepted',
+  /** Invite QR code shared */
+  INVITE_QR_SHARED: 'invite_qr_shared',
+  /** Invite channel selected */
+  INVITE_CHANNEL_SELECTED: 'invite_channel_selected',
+  /** Invite team selected */
+  INVITE_TEAM_SELECTED: 'invite_team_selected',
+  /** Invite recipient added */
+  INVITE_RECIPIENT_ADDED: 'invite_recipient_added',
+  /** Invite celebration shown */
+  INVITE_CELEBRATION_SHOWN: 'invite_celebration_shown',
 } as const;
 
 export type AppEventName = (typeof APP_EVENTS)[keyof typeof APP_EVENTS];
@@ -845,10 +913,6 @@ export const USER_PROPERTIES = {
   // ============================================
   // ENGAGEMENT PROPERTIES
   // ============================================
-  /** Number of followers */
-  FOLLOWER_COUNT: 'follower_count',
-  /** Number of following */
-  FOLLOWING_COUNT: 'following_count',
   /** Number of videos uploaded */
   VIDEO_COUNT: 'video_count',
   /** Profile completion percentage */
@@ -900,8 +964,6 @@ export interface UserPropertiesMap {
   [USER_PROPERTIES.RECRUITING_CLASS]?: string;
   [USER_PROPERTIES.COMMITMENT_STATUS]?: 'uncommitted' | 'committed' | 'signed';
   [USER_PROPERTIES.STATE]?: string;
-  [USER_PROPERTIES.FOLLOWER_COUNT]?: number;
-  [USER_PROPERTIES.FOLLOWING_COUNT]?: number;
   [USER_PROPERTIES.VIDEO_COUNT]?: number;
   [USER_PROPERTIES.PROFILE_COMPLETION]?: number;
   [USER_PROPERTIES.DAYS_SINCE_SIGNUP]?: number;

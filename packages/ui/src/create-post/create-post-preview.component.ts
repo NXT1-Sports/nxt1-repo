@@ -608,8 +608,6 @@ export class CreatePostPreviewComponent {
     switch (this.privacy()) {
       case 'public':
         return 'earth-outline';
-      case 'followers':
-        return 'people-outline';
       case 'team':
         return 'people-outline';
       case 'private':

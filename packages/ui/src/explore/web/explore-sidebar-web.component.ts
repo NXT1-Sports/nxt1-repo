@@ -7,6 +7,7 @@ import {
   EXPLORE_FILTER_STATE_OPTIONS,
   EXPLORE_TAB_FILTER_FIELDS,
 } from '@nxt1/core';
+import { TEST_IDS } from '@nxt1/core/testing';
 import { NxtIconComponent } from '../../components/icon';
 
 interface ExploreSidebarContent {
@@ -39,38 +40,6 @@ const DEFAULT_SIDEBAR_CONTENT: ExploreSidebarContent = {
 };
 
 const SIDEBAR_CONTENT_BY_TAB: Partial<Record<ExploreTabId, ExploreSidebarContent>> = {
-  'for-you': {
-    eyebrow: 'Agent X Briefing',
-    title: 'For You, Without the Noise',
-    summary:
-      'A focused center column makes recommended posts feel intentional instead of random. The right rail can explain why each lane matters.',
-    focusLabel: 'Current Mode',
-    focusValue: 'Personalized athlete and team discovery',
-    laneLabel: 'Best Use',
-    laneValue: 'Quickly scan standout posts, offers, and commitments while staying oriented.',
-    bullets: [
-      'Keep social proof and media cards readable by capping feed width.',
-      'Use the left rail like a proper navigation system, not a floating filter strip.',
-      'Give Agent X a place to frame what the user should pay attention to next.',
-    ],
-    tags: ['Recommended', 'Signal First', 'Command View'],
-  },
-  following: {
-    eyebrow: 'Agent X Briefing',
-    title: 'Followed Voices in One Lane',
-    summary:
-      'This lane should feel tighter and more deliberate, like a monitored watchlist for the people and programs that matter most.',
-    focusLabel: 'Current Mode',
-    focusValue: 'Followed athlete and program activity',
-    laneLabel: 'Best Use',
-    laneValue: 'Track relationships, updates, and momentum without losing density.',
-    bullets: [
-      'A bounded feed makes follow activity feel premium and easy to scan.',
-      'The right rail can surface what changed instead of just duplicating the feed.',
-      'This creates a more professional, recruiting-dashboard feel on desktop.',
-    ],
-    tags: ['Watchlist', 'Follow Graph', 'Relationship Lane'],
-  },
   news: {
     eyebrow: 'Pulse Briefing',
     title: 'Editorial Feed With Desktop Discipline',
@@ -110,7 +79,11 @@ const SIDEBAR_CONTENT_BY_TAB: Partial<Record<ExploreTabId, ExploreSidebarContent
   standalone: true,
   imports: [CommonModule, NxtIconComponent],
   template: `
-    <aside class="sidebar-shell" aria-label="Explore insights panel">
+    <aside
+      class="sidebar-shell"
+      [attr.data-testid]="testIds.SIDEBAR"
+      aria-label="Explore insights panel"
+    >
       <!-- Context Briefing Card -->
       <section class="sidebar-card sidebar-card--hero">
         <span class="sidebar-eyebrow">{{ content().eyebrow }}</span>
@@ -152,6 +125,7 @@ const SIDEBAR_CONTENT_BY_TAB: Partial<Record<ExploreTabId, ExploreSidebarContent
           <button
             type="button"
             class="location-detect-btn"
+            [attr.data-testid]="testIds.DETECT_LOCATION_BTN"
             [disabled]="detectingLocation()"
             (click)="onDetectLocation()"
           >
@@ -199,7 +173,7 @@ const SIDEBAR_CONTENT_BY_TAB: Partial<Record<ExploreTabId, ExploreSidebarContent
 
           <!-- Sport filter -->
           @if (fields().sport) {
-            <div class="filter-group">
+            <div class="filter-group" [attr.data-testid]="testIds.FILTER_SPORT">
               <label class="filter-label">Sport</label>
               <div class="filter-chips">
                 @for (sport of sportOptions; track sport) {
@@ -218,7 +192,7 @@ const SIDEBAR_CONTENT_BY_TAB: Partial<Record<ExploreTabId, ExploreSidebarContent
 
           <!-- State filter -->
           @if (fields().state) {
-            <div class="filter-group">
+            <div class="filter-group" [attr.data-testid]="testIds.FILTER_STATE">
               <label class="filter-label" for="sidebar-state-filter">State</label>
               <select
                 id="sidebar-state-filter"
@@ -612,6 +586,7 @@ const SIDEBAR_CONTENT_BY_TAB: Partial<Record<ExploreTabId, ExploreSidebarContent
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExploreSidebarWebComponent {
+  protected readonly testIds = TEST_IDS.EXPLORE;
   readonly activeTab = input<ExploreTabId | null>(null);
   readonly activeFilterCount = input(0);
   readonly hasQuery = input(false);

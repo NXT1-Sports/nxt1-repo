@@ -345,20 +345,9 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
 
+  // Add Sport / Add Team wizard
   {
-    path: 'post/create',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'post/create/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'create-post',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'create-post/**',
+    path: 'add-sport',
     renderMode: RenderMode.Server,
   },
 

@@ -10,6 +10,7 @@
 
 import { Component, ChangeDetectionStrategy, input, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { INVITE_TEST_IDS } from '@nxt1/core/testing';
 import { IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { flame, flameOutline } from 'ionicons/icons';
@@ -20,28 +21,29 @@ import type { InviteStats } from '@nxt1/core';
   standalone: true,
   imports: [CommonModule, IonIcon],
   template: `
-    <div class="stats-card">
+    <div class="stats-card" [attr.data-testid]="testIds.STATS_CARD">
       <!-- Stats Row -->
       <div class="stats-card__quick-stats">
-        <div class="stats-card__stat">
+        <div class="stats-card__stat" [attr.data-testid]="testIds.STATS_SENT">
           <span class="stats-card__stat-value">{{ sentCount() }}</span>
           <span class="stats-card__stat-label">Sent</span>
         </div>
         <div class="stats-card__stat-divider"></div>
-        <div class="stats-card__stat">
+        <div class="stats-card__stat" [attr.data-testid]="testIds.STATS_JOINED">
           <span class="stats-card__stat-value stats-card__stat-value--success">{{
             acceptedCount()
           }}</span>
           <span class="stats-card__stat-label">Joined</span>
         </div>
         <div class="stats-card__stat-divider"></div>
-        <div class="stats-card__stat">
+        <div class="stats-card__stat" [attr.data-testid]="testIds.STATS_RATE">
           <span class="stats-card__stat-value">{{ conversionRate() }}%</span>
           <span class="stats-card__stat-label">Rate</span>
         </div>
         <div class="stats-card__stat-divider"></div>
         <div
           class="stats-card__stat stats-card__stat--streak"
+          [attr.data-testid]="testIds.STATS_STREAK"
           [class.stats-card__stat--active]="hasStreak()"
         >
           <span class="stats-card__stat-value">
@@ -145,6 +147,8 @@ import type { InviteStats } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InviteStatsCardComponent {
+  protected readonly testIds = INVITE_TEST_IDS;
+
   constructor() {
     addIcons({ flame, flameOutline });
   }

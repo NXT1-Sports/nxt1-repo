@@ -42,6 +42,8 @@ import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBrowserService } from '../services/browser';
+import { ANALYTICS_ADAPTER } from '../services/analytics';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { ActivityService } from './activity.service';
 import { ActivityListComponent } from './activity-list.component';
 
@@ -195,6 +197,7 @@ export class ActivityShellComponent {
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ActivityShell');
   private readonly browser = inject(NxtBrowserService);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
   private _hasLoadedInitialData = false;
 
@@ -325,6 +328,7 @@ export class ActivityShellComponent {
    */
   protected onItemClick(item: ActivityItem): void {
     this.logger.debug('Item clicked', { id: item.id, type: item.type, deepLink: item.deepLink });
+    this.analytics?.trackEvent(APP_EVENTS.ACTIVITY_ITEM_CLICKED, { id: item.id, type: item.type });
 
     // Mark as read handled by ActivityItemComponent → markRead output
     // Emit for platform-specific navigation
@@ -336,6 +340,10 @@ export class ActivityShellComponent {
    */
   protected onActionClick(item: ActivityItem): void {
     this.logger.debug('Item action clicked', { id: item.id, action: item.action?.id });
+    this.analytics?.trackEvent(APP_EVENTS.ACTIVITY_ITEM_ACTION_CLICKED, {
+      id: item.id,
+      actionId: item.action?.id,
+    });
 
     if (item.action?.route) {
       this.itemNavigate.emit(item);
