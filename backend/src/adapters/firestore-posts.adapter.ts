@@ -224,7 +224,6 @@ export function firestorePostToFeedPost(
       isLiked: userEngagement?.isLiked || false,
       isBookmarked: userEngagement?.isBookmarked || false,
       isReposted: userEngagement?.isReposted || false,
-      isFollowingAuthor: false,
     },
     mentions: doc.mentions,
     hashtags: doc.hashtags,

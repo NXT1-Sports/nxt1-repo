@@ -559,7 +559,6 @@ async function getTabCounts(
   return {
     'for-you': 0,
     feed: 0,
-    following: 0,
     news: 0,
     athletes: athletes.data().count,
     colleges: colleges.data().count,

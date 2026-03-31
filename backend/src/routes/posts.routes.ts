@@ -325,7 +325,6 @@ router.post(
       // Convert privacy to visibility (core uses 'privacy', backend uses 'visibility')
       const visibilityMap: Record<string, PostVisibility> = {
         public: PostVisibility.PUBLIC,
-        followers: PostVisibility.FOLLOWERS,
         team: PostVisibility.TEAM,
         private: PostVisibility.PRIVATE,
       };

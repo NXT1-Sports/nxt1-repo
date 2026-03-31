@@ -1039,10 +1039,6 @@ export async function mapTeamCodeToProfile(
     isTeamAdmin,
     isMember,
     canEdit,
-    followStats: {
-      followersCount: 0,
-      isFollowing: false,
-    },
   };
 }
 
