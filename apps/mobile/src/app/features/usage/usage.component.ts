@@ -123,7 +123,7 @@ export class UsageComponent {
     });
 
     // Refresh usage overview so wallet balance reflects the new top-up
-    if (result?.newBalanceCents != null) {
+    if (result?.data?.newBalanceCents != null) {
       await this.usage.refresh();
     }
   }
