@@ -1750,8 +1750,14 @@ router.post('/firecrawl/session/start', appGuard, async (req: Request, res: Resp
       return;
     }
 
+    const isMobile = req.body.isMobile === true;
     const service = getFirecrawlProfileService();
-    const session = await service.startSignInSession(user.uid, platform, platformDef.loginUrl);
+    const session = await service.startSignInSession(
+      user.uid,
+      platform,
+      platformDef.loginUrl,
+      isMobile
+    );
 
     logger.info('[AgentX] Firecrawl sign-in session started', {
       userId: user.uid,
@@ -1836,6 +1842,34 @@ router.post('/firecrawl/session/complete', appGuard, async (req: Request, res: R
     // Delete browser session — Firecrawl saves browser state to the profile
     await service.completeSignInSession(sessionId);
 
+    // Validate that the saved profile actually authenticated successfully.
+    // Probe the login URL — if authenticated, it should redirect away from the login page.
+    const platformDef = PLATFORM_REGISTRY.find((p) => p.platform === platform && p.loginUrl);
+    let verified = true;
+
+    if (platformDef?.loginUrl) {
+      try {
+        const probe = await service.probeProfileStatus(user.uid, platform, platformDef.loginUrl);
+        verified = probe.authenticated;
+
+        logger.info('[AgentX] Firecrawl profile probe result', {
+          userId: user.uid,
+          platform,
+          authenticated: probe.authenticated,
+          pageTitle: probe.pageTitle,
+          finalUrl: probe.finalUrl,
+        });
+      } catch (probeErr) {
+        // Probe failure is non-blocking — save as unverified rather than failing the entire flow
+        logger.warn('[AgentX] Profile probe failed, saving as unverified', {
+          userId: user.uid,
+          platform,
+          error: probeErr instanceof Error ? probeErr.message : String(probeErr),
+        });
+        verified = false;
+      }
+    }
+
     // Store the profile reference in Firestore
     const db = req.firebase?.db;
     if (db) {
@@ -1848,8 +1882,11 @@ router.post('/firecrawl/session/complete', appGuard, async (req: Request, res: R
               [platform]: {
                 type: 'firecrawl_profile',
                 profileName,
-                status: 'active',
+                status: verified ? 'active' : 'unverified',
                 connectedAt: new Date().toISOString(),
+                ...(verified
+                  ? {}
+                  : { verificationNote: 'Profile probe could not confirm authentication' }),
               },
             },
           },
@@ -1862,9 +1899,13 @@ router.post('/firecrawl/session/complete', appGuard, async (req: Request, res: R
       platform,
       profileName,
       sessionId,
+      verified,
     });
 
-    res.json({ success: true });
+    res.json({
+      success: true,
+      data: { verified },
+    });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('[AgentX] Failed to complete Firecrawl sign-in session', {

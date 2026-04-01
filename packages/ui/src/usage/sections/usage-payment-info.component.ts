@@ -11,7 +11,7 @@
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
-import type { UsageBillingInfo, UsagePaymentMethod, UsageCoupon } from '@nxt1/core';
+import type { UsageBillingInfo, UsagePaymentMethod } from '@nxt1/core';
 import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 
 @Component({
@@ -84,36 +84,6 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
               </div>
             } @else {
               <p class="empty-text">No payment method on file.</p>
-            }
-          </div>
-        </div>
-
-        <!-- Coupon Card -->
-        <div class="info-card">
-          <div class="card-header">
-            <div class="card-title">
-              <nxt1-icon name="gift-outline" className="card-icon" />
-              <span>Coupon</span>
-            </div>
-          </div>
-          <div class="card-body">
-            @if (coupon()) {
-              <div class="coupon-detail">
-                <div class="coupon-badge">{{ coupon()!.code }}</div>
-                <p class="coupon-desc">{{ coupon()!.description }}</p>
-                @if (coupon()!.expiresAt) {
-                  <p class="coupon-expiry">Expires {{ coupon()!.expiresAt }}</p>
-                }
-              </div>
-            } @else {
-              <p class="empty-text">No coupon applied.</p>
-              <button
-                class="redeem-btn"
-                [attr.data-testid]="testIds.PAYMENT_INFO_REDEEM_COUPON"
-                (click)="redeemCoupon.emit()"
-              >
-                Redeem a coupon
-              </button>
             }
           </div>
         </div>
@@ -278,53 +248,6 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         color: var(--nxt1-color-text-tertiary);
       }
 
-      .coupon-detail {
-        display: flex;
-        flex-direction: column;
-        gap: var(--nxt1-spacing-2);
-      }
-
-      .coupon-badge {
-        display: inline-flex;
-        padding: var(--nxt1-spacing-1) var(--nxt1-spacing-2);
-        font-family: var(--nxt1-fontFamily-mono);
-        font-size: var(--nxt1-fontSize-xs);
-        font-weight: var(--nxt1-fontWeight-medium);
-        color: var(--nxt1-color-primary);
-        background: var(--nxt1-color-alpha-primary10);
-        border-radius: var(--nxt1-radius-sm, 4px);
-        width: fit-content;
-      }
-
-      .coupon-desc {
-        margin: 0;
-        font-size: var(--nxt1-fontSize-sm);
-        color: var(--nxt1-color-text-primary);
-      }
-
-      .coupon-expiry {
-        margin: 0;
-        font-size: var(--nxt1-fontSize-xs);
-        color: var(--nxt1-color-text-tertiary);
-      }
-
-      .redeem-btn {
-        margin-top: var(--nxt1-spacing-3);
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-medium);
-        color: var(--nxt1-color-primary);
-        background: transparent;
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-radius-md, 8px);
-        cursor: pointer;
-        transition: background var(--nxt1-transition-fast);
-
-        &:hover {
-          background: var(--nxt1-color-surface-200);
-        }
-      }
-
       @media (max-width: 640px) {
         .info-grid {
           grid-template-columns: 1fr;
@@ -339,11 +262,9 @@ export class UsagePaymentInfoComponent {
 
   readonly billingInfo = input<UsageBillingInfo | null>(null);
   readonly paymentMethods = input<readonly UsagePaymentMethod[]>([]);
-  readonly coupon = input<UsageCoupon | null>(null);
 
   readonly editBilling = output<void>();
   readonly editPayment = output<void>();
-  readonly redeemCoupon = output<void>();
   readonly editAdditional = output<void>();
 
   protected readonly defaultMethod = computed(() => {

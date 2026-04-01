@@ -41,6 +41,7 @@ import {
   DEFAULT_SETTINGS_SECTIONS,
   DEFAULT_SETTINGS_PREFERENCES,
   DEFAULT_CONNECTED_PROVIDERS,
+  getSettingsSectionsForRole,
 } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { AnalyticsAdapter } from '@nxt1/core/analytics';
@@ -185,10 +186,13 @@ export class SettingsService {
   /**
    * Set user info from platform-specific auth service.
    * Call this from the web/mobile wrapper before the shell initializes.
+   * Automatically filters sections based on the user's role — athletes,
+   * parents, and recruiters will not see billing/usage sections.
    */
   setUser(user: SettingsUserInfo | null): void {
     this._user.set(user);
-    this.logger.debug('User info set', { userId: user?.id ?? null });
+    this._sections.set(getSettingsSectionsForRole(user?.role));
+    this.logger.debug('User info set', { userId: user?.id ?? null, role: user?.role ?? null });
   }
 
   /**

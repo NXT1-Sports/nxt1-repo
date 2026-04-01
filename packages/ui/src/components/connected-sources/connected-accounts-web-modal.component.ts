@@ -99,7 +99,8 @@ export interface ConnectedAccountsModalCloseData {
               <div class="nxt1-ca-loading-spinner"></div>
               <p class="nxt1-ca-loading-title">Launching secure browser…</p>
               <p class="nxt1-ca-loading-sub">
-                Setting up a private session for {{ firecrawlPlatformLabel() }}.
+                Sign in to {{ firecrawlPlatformLabel() }} so Agent X can sync your latest stats,
+                film, and updates to work for you.
               </p>
               <div class="nxt1-ca-loading-secure">
                 <nxt1-icon name="shield-checkmark-outline" [size]="14" />

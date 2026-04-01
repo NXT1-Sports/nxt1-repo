@@ -2433,7 +2433,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         presentation: 'modal',
         required,
       },
-      size: 'full',
+      size: panel === 'budget' ? 'xl' : 'full',
       backdropDismiss: !required,
       escDismiss: !required,
       ariaLabel:

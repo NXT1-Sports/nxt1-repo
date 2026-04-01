@@ -19,7 +19,13 @@ import {
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonContent, IonLabel, IonRange } from '@ionic/angular/standalone';
+import {
+  IonContent,
+  IonLabel,
+  IonRange,
+  IonSelect,
+  IonSelectOption,
+} from '@ionic/angular/standalone';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtChipComponent } from '../components/chip';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet';
@@ -45,6 +51,8 @@ import {
     IonContent,
     IonLabel,
     IonRange,
+    IonSelect,
+    IonSelectOption,
     NxtChipComponent,
     NxtSheetHeaderComponent,
     NxtIconComponent,
@@ -155,20 +163,17 @@ import {
       @if (fields().state) {
         <section class="filter-section">
           <h3>State</h3>
-          <input
-            class="nxt1-filter-input"
-            type="text"
-            list="nxt1-explore-filter-states"
+          <ion-select
+            interface="action-sheet"
             placeholder="Select state"
-            maxlength="2"
-            [value]="draftFilters().state ?? ''"
-            (input)="setState($event)"
-          />
-          <datalist id="nxt1-explore-filter-states">
+            [value]="draftFilters().state ?? null"
+            (ionChange)="onStateSelectChange($event)"
+            class="nxt1-filter-select"
+          >
             @for (state of stateOptions; track state) {
-              <option [value]="state"></option>
+              <ion-select-option [value]="state">{{ state }}</ion-select-option>
             }
-          </datalist>
+          </ion-select>
         </section>
       }
     </ion-content>
@@ -276,6 +281,20 @@ import {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
+      }
+
+      .nxt1-filter-select {
+        width: 100%;
+        min-height: 44px;
+        padding: 0 12px;
+        background: var(--nxt1-ui-bg-input);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-radius-md, 10px);
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--nxt1-color-text-primary);
+        --placeholder-color: var(--nxt1-ui-text-placeholder);
+        --placeholder-opacity: 1;
       }
 
       .nxt1-filter-input {
@@ -422,7 +441,7 @@ export class ExploreFilterModalComponent implements OnInit {
   protected toggleSport(sport: string): void {
     this.draftFilters.update((current) => ({
       ...current,
-      sport: current.sport === sport ? undefined : sport,
+      sport: current.sport?.toLowerCase() === sport.toLowerCase() ? undefined : sport,
     }));
   }
 
@@ -457,6 +476,14 @@ export class ExploreFilterModalComponent implements OnInit {
     this.draftFilters.update((current) => ({
       ...current,
       position: value || undefined,
+    }));
+  }
+
+  protected onStateSelectChange(event: Event): void {
+    const value = (event as CustomEvent<{ value: string | null }>).detail?.value;
+    this.draftFilters.update((current) => ({
+      ...current,
+      state: value ?? undefined,
     }));
   }
 

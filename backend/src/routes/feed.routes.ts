@@ -146,11 +146,11 @@ router.get('/', optionalAuth, async (req: Request, res: Response): Promise<void>
     const cursor = query.cursor as string | undefined;
     const teamId = query.teamId as string | undefined;
 
-    if (!['PUBLIC', 'FOLLOWERS', 'TEAM', 'PRIVATE'].includes(visibility)) {
+    if (!['PUBLIC', 'TEAM', 'PRIVATE'].includes(visibility)) {
       const error = validationError([
         {
           field: 'visibility',
-          message: 'visibility must be PUBLIC, FOLLOWERS, TEAM, or PRIVATE',
+          message: 'visibility must be PUBLIC, TEAM, or PRIVATE',
           rule: 'enum',
         },
       ]);
@@ -178,12 +178,14 @@ router.get('/', optionalAuth, async (req: Request, res: Response): Promise<void>
         res.set('X-Cache-Status', 'HIT');
         res.json({
           success: true,
-          data: {
-            posts: cached,
-            nextCursor: buildNextCursor(cached),
+          data: cached,
+          pagination: {
+            page: 1,
+            limit,
+            total: cached.length,
             hasMore: cached.length === limit,
+            nextCursor: buildNextCursor(cached),
           },
-          cached: true,
         });
         return;
       }
@@ -225,8 +227,14 @@ router.get('/', optionalAuth, async (req: Request, res: Response): Promise<void>
     res.set('X-Cache-Status', 'MISS');
     res.json({
       success: true,
-      data: { posts: enrichedPosts, nextCursor: buildNextCursor(enrichedPosts), hasMore },
-      cached: false,
+      data: enrichedPosts,
+      pagination: {
+        page: feedCursor ? -1 : 1,
+        limit,
+        total: enrichedPosts.length,
+        hasMore,
+        nextCursor: buildNextCursor(enrichedPosts),
+      },
     });
   } catch (error) {
     logger.error('[Feed] Failed to get feed', { error });

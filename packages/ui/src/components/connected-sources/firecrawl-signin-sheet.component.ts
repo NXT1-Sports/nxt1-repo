@@ -1,102 +1,93 @@
 /**
- * @fileoverview Firecrawl Sign-In Modal — Interactive Browser Session
+ * @fileoverview Firecrawl Sign-In Sheet — Bottom Sheet for Mobile
  * @module @nxt1/ui/components/connected-sources
  * @version 1.0.0
  *
- * Embeds the Firecrawl interactive live-view (remote browser) in a full-screen
- * overlay so the user can sign in to a third-party platform (Hudl, MaxPreps, X,
- * Instagram, etc.). The browser session is real — cookies, localStorage, and
- * IndexedDB state are captured by Firecrawl Persistent Profiles when the user
- * clicks "I'm Signed In".
+ * Bottom-sheet variant of the Firecrawl interactive sign-in flow.
+ * Uses Ionic ModalController for dismissal (required by NxtBottomSheetService.openSheet()).
  *
- * Rendered inside `NxtOverlayService.open()` — the `close` output is auto-wired
- * by the overlay service to dismiss and return the result.
+ * Rendered inside `NxtBottomSheetService.openSheet()` with FULL preset so the
+ * iframe has maximum space. Uses the same allowed-origin security check as the
+ * overlay variant.
  *
- * ⭐ WEB ONLY — Overlay-based component ⭐
+ * ⭐ MOBILE / SMALL VIEWPORT ONLY ⭐
  */
 
-import { Component, ChangeDetectionStrategy, input, output, signal, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, Input, inject, signal, computed } from '@angular/core';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
-import { inject } from '@angular/core';
-import { NxtModalHeaderComponent } from '../overlay/modal-header.component';
+import { ModalController } from '@ionic/angular/standalone';
+import { NxtSheetHeaderComponent } from '../bottom-sheet/sheet-header.component';
 import { NxtIconComponent } from '../icon/icon.component';
 
 @Component({
-  selector: 'nxt1-firecrawl-signin-modal',
+  selector: 'nxt1-firecrawl-signin-sheet',
   standalone: true,
-  imports: [NxtModalHeaderComponent, NxtIconComponent],
+  imports: [NxtSheetHeaderComponent, NxtIconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="nxt1-fc-signin">
-      <nxt1-modal-header
-        [title]="headerTitle()"
-        closePosition="left"
-        [showBorder]="true"
-        (closeModal)="onCancel()"
+    <nxt1-sheet-header
+      [title]="headerTitle()"
+      closePosition="left"
+      [showBorder]="true"
+      (closeSheet)="onCancel()"
+    >
+      <button
+        sheetHeaderAction
+        type="button"
+        class="nxt1-fcs-done-btn"
+        [class.nxt1-fcs-done-btn--loading]="completing()"
+        [disabled]="completing()"
+        (click)="onComplete()"
       >
-        <button
-          modalHeaderAction
-          type="button"
-          class="nxt1-fc-done-btn"
-          [class.nxt1-fc-done-btn--loading]="completing()"
-          [disabled]="completing()"
-          (click)="onComplete()"
-        >
-          @if (completing()) {
-            Saving…
-          } @else {
-            I'm Signed In
-          }
-        </button>
-      </nxt1-modal-header>
-
-      <div class="nxt1-fc-body">
-        @if (iframeLoading()) {
-          <div class="nxt1-fc-loading">
-            <div class="nxt1-fc-spinner"></div>
-            <p class="nxt1-fc-loading-text">Launching secure browser for {{ platformLabel() }}…</p>
-            <p class="nxt1-fc-loading-sub">
-              Sign in so Agent X can sync your latest stats, film, and achievements to go to work
-              for you.
-            </p>
-          </div>
+        @if (completing()) {
+          Saving…
+        } @else {
+          I'm Signed In
         }
+      </button>
+    </nxt1-sheet-header>
 
-        <iframe
-          class="nxt1-fc-iframe"
-          [class.nxt1-fc-iframe--visible]="!iframeLoading()"
-          [src]="safeUrl()"
-          allow="clipboard-read; clipboard-write"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
-          title="Sign in to {{ platformLabel() }}"
-          (load)="onIframeLoad()"
-        ></iframe>
-      </div>
+    <div class="nxt1-fcs-body">
+      @if (iframeLoading()) {
+        <div class="nxt1-fcs-loading">
+          <div class="nxt1-fcs-spinner"></div>
+          <p class="nxt1-fcs-loading-text">Launching secure browser for {{ _platformLabel }}…</p>
+          <p class="nxt1-fcs-loading-sub">
+            Sign in so Agent X can sync your latest stats, film, and achievements to go to work for
+            you.
+          </p>
+        </div>
+      }
 
-      <div class="nxt1-fc-footer">
-        <nxt1-icon name="shield-checkmark-outline" [size]="16" />
-        <span>
-          Secure session — your credentials are entered directly on
-          {{ platformLabel() }}'s website. NXT1 never sees your password.
-        </span>
-      </div>
+      <iframe
+        class="nxt1-fcs-iframe"
+        [class.nxt1-fcs-iframe--visible]="!iframeLoading()"
+        [src]="safeUrl()"
+        allow="clipboard-read; clipboard-write"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+        [title]="'Sign in to ' + _platformLabel"
+        (load)="onIframeLoad()"
+      ></iframe>
+    </div>
+
+    <div class="nxt1-fcs-footer">
+      <nxt1-icon name="shield-checkmark-outline" [size]="16" />
+      <span>
+        Secure session — your credentials are entered directly on
+        {{ _platformLabel }}'s website. NXT1 never sees your password.
+      </span>
     </div>
   `,
   styles: [
     `
       :host {
-        display: block;
-        width: 100%;
-        height: 100%;
-      }
-
-      .nxt1-fc-signin {
         display: flex;
         flex-direction: column;
         height: 100%;
+        overflow: hidden;
       }
 
-      .nxt1-fc-body {
+      .nxt1-fcs-body {
         flex: 1;
         position: relative;
         overflow: hidden;
@@ -105,7 +96,7 @@ import { NxtIconComponent } from '../icon/icon.component';
 
       /* ───── Loading State ───── */
 
-      .nxt1-fc-loading {
+      .nxt1-fcs-loading {
         position: absolute;
         inset: 0;
         display: flex;
@@ -117,37 +108,39 @@ import { NxtIconComponent } from '../icon/icon.component';
         background: var(--nxt1-color-surface-100, #1a1a2e);
       }
 
-      .nxt1-fc-spinner {
+      .nxt1-fcs-spinner {
         width: 40px;
         height: 40px;
         border: 3px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
         border-top-color: var(--nxt1-color-primary, #ccff00);
         border-radius: 50%;
-        animation: nxt1-fc-spin 0.8s linear infinite;
+        animation: nxt1-fcs-spin 0.8s linear infinite;
       }
 
-      @keyframes nxt1-fc-spin {
+      @keyframes nxt1-fcs-spin {
         to {
           transform: rotate(360deg);
         }
       }
 
-      .nxt1-fc-loading-text {
+      .nxt1-fcs-loading-text {
         font-size: 15px;
         font-weight: 500;
         color: var(--nxt1-color-text-primary, #fff);
         text-align: center;
+        margin: 0;
       }
 
-      .nxt1-fc-loading-sub {
+      .nxt1-fcs-loading-sub {
         font-size: 13px;
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
         text-align: center;
+        margin: 0;
       }
 
       /* ───── Iframe ───── */
 
-      .nxt1-fc-iframe {
+      .nxt1-fcs-iframe {
         width: 100%;
         height: 100%;
         border: none;
@@ -155,17 +148,18 @@ import { NxtIconComponent } from '../icon/icon.component';
         transition: opacity 0.3s ease;
       }
 
-      .nxt1-fc-iframe--visible {
+      .nxt1-fcs-iframe--visible {
         opacity: 1;
       }
 
       /* ───── Footer Security Notice ───── */
 
-      .nxt1-fc-footer {
+      .nxt1-fcs-footer {
         display: flex;
         align-items: center;
         gap: 8px;
         padding: 10px 16px;
+        padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
         border-top: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
         background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
         font-size: 12px;
@@ -173,14 +167,16 @@ import { NxtIconComponent } from '../icon/icon.component';
         line-height: 1.4;
       }
 
-      .nxt1-fc-footer nxt1-icon {
+      .nxt1-fcs-footer nxt1-icon {
         flex-shrink: 0;
         color: var(--nxt1-color-success, #10b981);
       }
 
       /* ───── Done Button ───── */
 
-      .nxt1-fc-done-btn {
+      .nxt1-fcs-done-btn {
+        appearance: none;
+        -webkit-appearance: none;
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -201,61 +197,48 @@ import { NxtIconComponent } from '../icon/icon.component';
         white-space: nowrap;
       }
 
-      .nxt1-fc-done-btn:hover:not(:disabled) {
-        opacity: 0.9;
-      }
-
-      .nxt1-fc-done-btn:active:not(:disabled) {
+      .nxt1-fcs-done-btn:active:not(:disabled) {
         transform: scale(0.97);
       }
 
-      .nxt1-fc-done-btn:disabled {
+      .nxt1-fcs-done-btn:disabled {
         opacity: 0.6;
         cursor: not-allowed;
       }
 
-      .nxt1-fc-done-btn:focus-visible {
-        outline: 2px solid var(--nxt1-color-primary, #ccff00);
-        outline-offset: 2px;
-      }
-
-      .nxt1-fc-done-btn--loading {
+      .nxt1-fcs-done-btn--loading {
         min-width: 90px;
       }
     `,
   ],
 })
-export class FirecrawlSignInModalComponent {
+export class FirecrawlSignInSheetComponent {
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly modalCtrl = inject(ModalController);
 
-  // ─── Inputs (set by NxtOverlayService via setInput) ───────────────
+  // ─── Inputs (set via componentProps from NxtBottomSheetService.openSheet) ──
 
-  readonly platformLabel = input.required<string>();
-  readonly interactiveLiveViewUrl = input.required<string>();
-
-  // ─── Output (auto-wired by overlay service for dismissal) ──────────
-
-  readonly close = output<{ completed: boolean }>();
+  /** Use @Input() (not signal inputs) — required by Ionic's componentProps binding. */
+  @Input() _platformLabel = '';
+  @Input() _interactiveLiveViewUrl = '';
 
   // ─── Internal State ───────────────────────────────────────────────
 
   protected readonly iframeLoading = signal(true);
   protected readonly completing = signal(false);
 
-  // ─── Constants ──────────────────────────────────────────────────────
-
   /** Only allow URLs from Firecrawl's live view domain. */
   private static readonly ALLOWED_ORIGINS = ['https://liveview.firecrawl.dev'] as const;
 
   // ─── Derived ──────────────────────────────────────────────────────
 
-  protected readonly headerTitle = computed(() => `Sign in to ${this.platformLabel()}`);
+  protected readonly headerTitle = computed(() => `Sign in to ${this._platformLabel}`);
 
   protected readonly safeUrl = computed<SafeResourceUrl>(() => {
-    const url = this.interactiveLiveViewUrl();
+    const url = this._interactiveLiveViewUrl;
+    if (!url) return this.sanitizer.bypassSecurityTrustResourceUrl('about:blank');
 
-    // Security: Only trust URLs from Firecrawl's known domain
-    const isAllowed = FirecrawlSignInModalComponent.ALLOWED_ORIGINS.some((origin) =>
+    const isAllowed = FirecrawlSignInSheetComponent.ALLOWED_ORIGINS.some((origin) =>
       url.startsWith(origin)
     );
     if (!isAllowed) {
@@ -273,10 +256,10 @@ export class FirecrawlSignInModalComponent {
 
   protected onComplete(): void {
     this.completing.set(true);
-    this.close.emit({ completed: true });
+    void this.modalCtrl.dismiss({ completed: true }, 'complete');
   }
 
   protected onCancel(): void {
-    this.close.emit({ completed: false });
+    void this.modalCtrl.dismiss({ completed: false }, 'cancel');
   }
 }

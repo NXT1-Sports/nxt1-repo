@@ -113,6 +113,9 @@ import { ActivityService } from '@nxt1/ui/activity';
 // ── Explore (for global search dropdown + mobile filter) ──
 import { ExploreService, ExploreFilterModalService } from '@nxt1/ui/explore';
 import type { TopNavSearchSubmitEvent } from '@nxt1/ui/components/top-nav';
+// ── Usage (for mobile billing actions) ──
+import { UsageService, UsageHelpContentComponent } from '@nxt1/ui/usage';
+import { AgentXBriefingPanelComponent } from '@nxt1/ui/agent-x';
 
 // ── Invite ──
 import { InviteShellComponent } from '@nxt1/ui/invite';
@@ -129,6 +132,7 @@ import {
   isTeamRole,
   normalizeSportKey,
   buildUserDisplayContext,
+  shouldShowUsage,
 } from '@nxt1/core';
 import type { SidenavSportProfile, UserDisplayInput, UserDisplayFallback } from '@nxt1/core';
 
@@ -415,6 +419,8 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
         (moreClick)="onMobileProfileMoreClick()"
         (markAllReadClick)="onMobileActivityMarkAllReadClick()"
         (filterClick)="onMobileExploreFilterClick()"
+        (helpClick)="onMobileUsageHelpClick()"
+        (budgetClick)="onMobileUsageBudgetClick()"
         (userClick)="onMobileUserClick()"
       />
 
@@ -708,6 +714,7 @@ export class WebShellComponent {
   private readonly elementRef = inject(ElementRef);
   private readonly exploreService = inject(ExploreService);
   private readonly exploreFilterModal = inject(ExploreFilterModalService);
+  private readonly usageService = inject(UsageService);
 
   /** Debounce timer for search input */
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -717,9 +724,18 @@ export class WebShellComponent {
   // ============================================
 
   /** Base sidebar sections — auth-aware (Profile → /super-profiles when logged out) */
-  private readonly _baseSidebarSections = computed(() =>
-    this.authFlow.isAuthenticated() ? DESKTOP_SIDEBAR_SECTIONS : WEB_LOGGED_OUT_SIDEBAR_SECTIONS
-  );
+  private readonly _baseSidebarSections = computed(() => {
+    const sections = this.authFlow.isAuthenticated()
+      ? DESKTOP_SIDEBAR_SECTIONS
+      : WEB_LOGGED_OUT_SIDEBAR_SECTIONS;
+    const ctx = this._userDisplayContext();
+    if (shouldShowUsage(ctx)) return sections;
+    // Hide Usage for athletes on a team/org
+    return sections.map((s) => ({
+      ...s,
+      items: s.items.filter((item) => item.id !== 'usage'),
+    }));
+  });
 
   /** Desktop sidebar sections — computed from auth state */
   readonly sidebarSections = this._baseSidebarSections;
@@ -949,6 +965,11 @@ export class WebShellComponent {
     return this._currentRoute().startsWith('/explore');
   });
 
+  /** Whether the current route is the usage/billing page */
+  private readonly _isOnUsagePage = computed(() => {
+    return this._currentRoute().startsWith('/usage');
+  });
+
   /**
    * Derives the display title for the mobile header from the current route.
    * Shown in the header center when the user is authenticated (logo is hidden).
@@ -1022,6 +1043,9 @@ export class WebShellComponent {
       filterActiveCount: this._isOnExplorePage()
         ? this.exploreService.getActiveFilterCount(this.exploreService.activeTab())
         : 0,
+      // Help + Budget icons: visible on /usage (desktop nav portal handles desktop)
+      showHelp: isLoggedIn && this._isOnUsagePage(),
+      showBudget: isLoggedIn && this._isOnUsagePage() && this.usageService.isOrg(),
       // Avatar already lives in the mobile footer tab bar — hide it here
       showAvatar: !isLoggedIn,
       sticky: true,
@@ -1056,8 +1080,10 @@ export class WebShellComponent {
    * filtered to remove the "follow-us" section and extended with
    * Help Center and Settings after Usage.
    */
-  readonly mobileSidebarSections = computed(() =>
-    this._baseSidebarSections()
+  readonly mobileSidebarSections = computed(() => {
+    const ctx = this._userDisplayContext();
+    const showUsage = shouldShowUsage(ctx);
+    return this._baseSidebarSections()
       .filter((s) => s.id !== 'follow-us' && s.id !== 'account')
       .map((s) => {
         if (s.id !== 'main') return s;
@@ -1066,13 +1092,15 @@ export class WebShellComponent {
           items: [
             // Agent X and Explore are in the mobile footer — omit here
             ...s.items.filter((item) => item.id !== 'agent' && item.id !== 'explore'),
-            { id: 'usage', label: 'Billing & Usage', icon: 'creditCard', route: '/usage' },
+            ...(showUsage
+              ? [{ id: 'usage', label: 'Billing & Usage', icon: 'creditCard', route: '/usage' }]
+              : []),
             { id: 'help-center', label: 'Help Center', icon: 'help', route: '/help-center' },
             { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
           ],
         };
-      })
-  );
+      });
+  });
 
   /** Mobile sidebar configuration */
   readonly mobileSidebarConfig = computed<MobileSidebarConfig>(() => {
@@ -1278,6 +1306,37 @@ export class WebShellComponent {
       this.exploreService.setFiltersForTab(tab, result.filters);
       await this.exploreService.refresh();
     }
+  }
+
+  /**
+   * Handle mobile top-nav help click on the billing/usage page.
+   * Opens the usage help dialog via the overlay service.
+   */
+  onMobileUsageHelpClick(): void {
+    this.inviteOverlay.open({
+      component: UsageHelpContentComponent,
+      size: 'lg',
+      showCloseButton: true,
+      backdropDismiss: true,
+      ariaLabel: 'How Billing Works',
+    });
+  }
+
+  /**
+   * Handle mobile top-nav budget button click on the billing/usage page (org users only).
+   * Opens the Agent X briefing panel (budget tab) as an overlay.
+   */
+  async onMobileUsageBudgetClick(): Promise<void> {
+    const ref = this.inviteOverlay.open<AgentXBriefingPanelComponent>({
+      component: AgentXBriefingPanelComponent,
+      inputs: { panel: 'budget', presentation: 'modal', required: false },
+      size: 'xl',
+      backdropDismiss: true,
+      escDismiss: true,
+      ariaLabel: 'Agent budget controls',
+      panelClass: 'agent-x-briefing-badge-modal',
+    });
+    await ref.closed;
   }
 
   // ============================================

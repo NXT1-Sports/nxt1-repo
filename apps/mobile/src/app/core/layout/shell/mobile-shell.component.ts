@@ -103,7 +103,14 @@ import {
   SIDENAV_WIDTHS,
   SIDENAV_ANIMATION,
 } from '@nxt1/ui';
-import { AUTH_ROUTES, formatSportDisplayName, isTeamRole } from '@nxt1/core';
+import {
+  AUTH_ROUTES,
+  formatSportDisplayName,
+  isTeamRole,
+  shouldShowUsage,
+  buildUserDisplayContext,
+} from '@nxt1/core';
+import type { UserDisplayInput, UserDisplayFallback } from '@nxt1/core';
 import { AuthFlowService } from '../../../features/auth/services/auth-flow.service';
 import { ProfileService } from '../../../core/services/profile.service';
 
@@ -162,7 +169,7 @@ import { ProfileService } from '../../../core/services/profile.service';
         [config]="footerConfig()"
         [profileAvatarSrc]="sidenavUser()?.profileImg"
         [profileAvatarName]="sidenavUser()?.name"
-        [profileAvatarIsTeam]="profileAvatarIsTeam()"
+        [profileAvatarIsTeam]="sidenavUser()?.isTeamRole ?? false"
         (tabSelect)="onTabSelect($event)"
         (scrollToTop)="onScrollToTop($event)"
       />
@@ -282,10 +289,15 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    * Uses buildDynamicFooterTabs() to render role-aware tabs:
    * - Athletes: "Profile" tab with user icon
    * - Coaches/Directors: "Team" tab with shield icon
+   *
+   * Derives role from both ProfileService and AuthFlowService for consistency
+   * during the window between auth resolution and full profile load.
    */
   readonly tabs = computed<FooterTabItem[]>(() => {
     const profile = this.profileService.user();
-    const isTeam = profile?.role ? isTeamRole(profile.role) : false;
+    const authUser = this.authFlow.user();
+    const role = profile?.role ?? authUser?.role ?? null;
+    const isTeam = role ? isTeamRole(role) : false;
     const teamSlug = profile?.teamCode?.slug ?? profile?.coach?.managedTeamCodes?.[0] ?? undefined;
     const ctx = isTeam
       ? { isTeamRole: true, profileRoute: teamSlug ? `/team/${teamSlug}` : '/profile' }
@@ -342,12 +354,6 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       enableHaptics: true,
     })
   );
-
-  /**
-   * Whether the current user is a coach/director (team role).
-   * When true, footer profile tab shows team logo; falls back to shield icon when no logo.
-   */
-  readonly profileAvatarIsTeam = computed(() => isTeamRole(this.profileService.user()?.role));
 
   // ============================================
   // SIDENAV CONFIGURATION
@@ -495,15 +501,31 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   });
 
   /**
-   * Sidenav sections (using defaults from @nxt1/core)
-   * Both web and mobile now use clean URLs (no tabs prefix)
+   * Sidenav sections (using defaults from @nxt1/core).
+   * Reactively hides "Usage" for athletes who belong to a team/org —
+   * their billing is managed by the team.
    */
-  readonly sidenavSections = computed<SidenavSection[]>(() =>
-    DEFAULT_SIDENAV_ITEMS.map((section) => ({
+  readonly sidenavSections = computed<SidenavSection[]>(() => {
+    const profile = this.profileService.user();
+    const authUser = this.authFlow.user();
+    const role = profile?.role ?? authUser?.role ?? null;
+    const teamSlug = (profile?.teamCode as Record<string, unknown> | null | undefined)?.['slug'] as
+      | string
+      | undefined;
+    const teamName = (profile?.teamCode as Record<string, unknown> | null | undefined)?.[
+      'teamName'
+    ] as string | undefined;
+    const isTeam = isTeamRole(role);
+    const isOnTeam = isTeam || !!(teamSlug || teamName);
+    const showUsage = shouldShowUsage({ isTeamRole: isTeam, isOnTeam });
+
+    return DEFAULT_SIDENAV_ITEMS.map((section) => ({
       ...section,
-      items: section.items.filter((item) => item.id !== 'connections'),
-    }))
-  );
+      items: section.items.filter(
+        (item) => item.id !== 'connections' && (showUsage || item.id !== 'usage')
+      ),
+    }));
+  });
 
   /** Social links for sidenav footer */
   readonly socialLinks: SocialLink[] = DEFAULT_SOCIAL_LINKS;

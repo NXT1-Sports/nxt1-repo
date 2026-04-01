@@ -40,7 +40,6 @@ import {
   type TemplateRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { NxtIconComponent } from '../../components/icon';
 import {
   NxtSectionNavWebComponent,
   type SectionNavChangeEvent,
@@ -80,7 +79,6 @@ export type { UsageUser };
   standalone: true,
   imports: [
     CommonModule,
-    NxtIconComponent,
     NxtSectionNavWebComponent,
     NxtOptionScrollerWebComponent,
     NxtRefresherComponent,
@@ -152,7 +150,22 @@ export type { UsageUser };
         aria-label="How billing works"
         (click)="showHelpDialog()"
       >
-        <nxt1-icon name="help-circle-outline" size="22" aria-hidden="true" />
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+          <line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>
       </button>
     </ng-template>
 
@@ -254,10 +267,8 @@ export type { UsageUser };
                   <nxt1-usage-payment-info
                     [billingInfo]="svc.billingInfo()"
                     [paymentMethods]="svc.paymentMethods()"
-                    [coupon]="svc.coupon()"
                     (editBilling)="onEditBilling()"
                     (editPayment)="onEditPayment()"
-                    (redeemCoupon)="onRedeemCoupon()"
                     (editAdditional)="onEditAdditional()"
                   />
                 }
@@ -510,13 +521,30 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
 
   protected async onCreateBudget(): Promise<void> {
     await this.haptics.impact('light');
-    await this.usageBottomSheet.showBudgetLimit();
+    const ref = this.overlay.open<AgentXBriefingPanelComponent>({
+      component: AgentXBriefingPanelComponent,
+      inputs: { panel: 'budget', presentation: 'modal', required: false },
+      size: 'xl',
+      backdropDismiss: true,
+      escDismiss: true,
+      ariaLabel: 'Agent budget controls',
+      panelClass: 'agent-x-briefing-badge-modal',
+    });
+    await ref.closed;
   }
 
-  protected async onEditBudget(budgetId: string): Promise<void> {
+  protected async onEditBudget(_budgetId: string): Promise<void> {
     await this.haptics.impact('light');
-    const budget = this.svc.budgets().find((b) => b.id === budgetId);
-    await this.usageBottomSheet.showBudgetLimit(budget?.budgetLimit);
+    const ref = this.overlay.open<AgentXBriefingPanelComponent>({
+      component: AgentXBriefingPanelComponent,
+      inputs: { panel: 'budget', presentation: 'modal', required: false },
+      size: 'xl',
+      backdropDismiss: true,
+      escDismiss: true,
+      ariaLabel: 'Agent budget controls',
+      panelClass: 'agent-x-briefing-badge-modal',
+    });
+    await ref.closed;
   }
 
   protected onEditBilling(): void {
@@ -529,11 +557,6 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
     // Open payment method form/bottom sheet
   }
 
-  protected onRedeemCoupon(): void {
-    this.haptics.impact('light');
-    // Open coupon redemption form/bottom sheet
-  }
-
   protected onEditAdditional(): void {
     this.haptics.impact('light');
     // Open additional info form/bottom sheet
@@ -544,7 +567,7 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
     const ref = this.overlay.open<AgentXBriefingPanelComponent>({
       component: AgentXBriefingPanelComponent,
       inputs: { panel: 'budget', presentation: 'modal', required: false },
-      size: 'full',
+      size: 'xl',
       backdropDismiss: true,
       escDismiss: true,
       ariaLabel: 'Agent budget controls',

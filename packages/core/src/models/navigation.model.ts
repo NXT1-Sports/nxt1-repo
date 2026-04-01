@@ -1357,6 +1357,24 @@ export const DEFAULT_SOCIAL_LINKS: SocialLink[] = [
 ];
 
 /**
+ * Whether the "Billing & Usage" sidebar item should be visible.
+ *
+ * Athletes who belong to a team/org do NOT manage their own billing —
+ * the team handles it. Everyone else (solo athletes, coaches, directors,
+ * recruiters, parents) sees the item.
+ *
+ * @param ctx - User display context (or null when unauthenticated)
+ * @returns `true` if the Usage nav item should be rendered
+ */
+export function shouldShowUsage(
+  ctx: { readonly isTeamRole: boolean; readonly isOnTeam: boolean } | null | undefined
+): boolean {
+  if (!ctx) return true; // Logged-out / unknown — show (backend will gate)
+  if (ctx.isTeamRole) return true; // Coaches/directors always manage billing
+  return !ctx.isOnTeam; // Athletes on a team → hide; solo athletes → show
+}
+
+/**
  * Default sidenav items for NXT1 application.
  * Can be used directly or as a template for customization.
  * Structure: Profile, Analytics, Settings, Help Center

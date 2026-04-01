@@ -10,70 +10,6 @@ import {
 import { TEST_IDS } from '@nxt1/core/testing';
 import { NxtIconComponent } from '../../components/icon';
 
-interface ExploreSidebarContent {
-  readonly eyebrow: string;
-  readonly title: string;
-  readonly summary: string;
-  readonly focusLabel: string;
-  readonly focusValue: string;
-  readonly laneLabel: string;
-  readonly laneValue: string;
-  readonly bullets: readonly string[];
-  readonly tags: readonly string[];
-}
-
-const DEFAULT_SIDEBAR_CONTENT: ExploreSidebarContent = {
-  eyebrow: 'Agent X Briefing',
-  title: 'Professional Discovery Flow',
-  summary:
-    'Use the left rail to switch lanes, keep the main column focused, and let the right rail surface context instead of noise.',
-  focusLabel: 'Current Mode',
-  focusValue: 'Explore command center',
-  laneLabel: 'Best Use',
-  laneValue: 'Scan high-value people, programs, and headlines without losing context.',
-  bullets: [
-    'A narrower center feed keeps cards, headlines, and imagery readable on wide screens.',
-    'The right rail gives Agent X a dedicated space for guidance, momentum, and quick reads.',
-    'This desktop layout feels like a platform, not a stretched mobile page.',
-  ],
-  tags: ['Command Center', 'Desktop First', 'Focused Feed'],
-};
-
-const SIDEBAR_CONTENT_BY_TAB: Partial<Record<ExploreTabId, ExploreSidebarContent>> = {
-  news: {
-    eyebrow: 'Pulse Briefing',
-    title: 'Editorial Feed With Desktop Discipline',
-    summary:
-      'Pulse reads better when the article column is capped. It stops large cards from feeling oversized and gives headlines room to breathe.',
-    focusLabel: 'Current Mode',
-    focusValue: 'Recruiting and sports news intelligence',
-    laneLabel: 'Best Use',
-    laneValue: 'Read, compare, and move between stories without the page looking stretched.',
-    bullets: [
-      'The main column becomes a true editorial lane instead of a full-width card wall.',
-      'The right rail can spotlight trends, themes, and what Agent X thinks matters.',
-      'Desktop users get a premium media experience instead of a blown-up mobile feed.',
-    ],
-    tags: ['Pulse', 'Editorial', 'Trend Watch'],
-  },
-  'scout-reports': {
-    eyebrow: 'Scout Desk',
-    title: 'Scouting With Better Visual Hierarchy',
-    summary:
-      'Reports need structure. The new layout makes the main reading lane tighter and reserves the right rail for context, filters, and takeaways.',
-    focusLabel: 'Current Mode',
-    focusValue: 'Player evaluation and scouting intelligence',
-    laneLabel: 'Best Use',
-    laneValue: 'Compare reports and move through insights without visual overload.',
-    bullets: [
-      'The main report lane stays readable across large monitors.',
-      'The right rail becomes a premium space for summary context and actions.',
-      'This desktop treatment feels closer to a real recruiting operations tool.',
-    ],
-    tags: ['Scouting', 'Evaluation', 'Operations'],
-  },
-};
-
 @Component({
   selector: 'nxt1-explore-sidebar-web',
   standalone: true,
@@ -84,20 +20,6 @@ const SIDEBAR_CONTENT_BY_TAB: Partial<Record<ExploreTabId, ExploreSidebarContent
       [attr.data-testid]="testIds.SIDEBAR"
       aria-label="Explore insights panel"
     >
-      <!-- Context Briefing Card -->
-      <section class="sidebar-card sidebar-card--hero">
-        <span class="sidebar-eyebrow">{{ content().eyebrow }}</span>
-        <h2 class="sidebar-title">{{ content().title }}</h2>
-        <p class="sidebar-summary">{{ content().summary }}</p>
-
-        @if (hasQuery()) {
-          <div class="query-chip-row" aria-label="Active search context">
-            <span class="query-chip">Searching</span>
-            <span class="query-value">{{ query() }}</span>
-          </div>
-        }
-      </section>
-
       <!-- Detect Location Prompt — shown when user has no state set -->
       @if (!userState()) {
         <section class="sidebar-card sidebar-card--location" aria-label="Detect your location">
@@ -180,7 +102,9 @@ const SIDEBAR_CONTENT_BY_TAB: Partial<Record<ExploreTabId, ExploreSidebarContent
                   <button
                     type="button"
                     class="filter-chip"
-                    [class.filter-chip--active]="filters().sport === sport"
+                    [class.filter-chip--active]="
+                      filters().sport?.toLowerCase() === sport.toLowerCase()
+                    "
                     (click)="toggleSport(sport)"
                   >
                     {{ sport }}
@@ -234,73 +158,6 @@ const SIDEBAR_CONTENT_BY_TAB: Partial<Record<ExploreTabId, ExploreSidebarContent
         padding: 16px;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
         overflow: hidden;
-      }
-
-      .sidebar-card--hero {
-        background:
-          radial-gradient(circle at top right, rgba(204, 255, 0, 0.12), transparent 44%),
-          linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01)),
-          var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
-      }
-
-      .sidebar-eyebrow {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 10px;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.04em;
-        color: var(--nxt1-color-primary, #ccff00);
-      }
-
-      .sidebar-title {
-        margin: 0;
-        font-size: 1.15rem;
-        line-height: 1.2;
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary, #ffffff);
-      }
-
-      .sidebar-summary {
-        margin: 10px 0 0;
-        font-size: 0.88rem;
-        line-height: 1.55;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.72));
-      }
-
-      .query-chip-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 14px;
-      }
-
-      .query-chip,
-      .query-value {
-        display: inline-flex;
-        align-items: center;
-        min-height: 28px;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        padding: 0 10px;
-        font-size: 0.74rem;
-        font-weight: 600;
-      }
-
-      .query-chip {
-        background: rgba(204, 255, 0, 0.12);
-        color: var(--nxt1-color-primary, #ccff00);
-        border: 1px solid rgba(204, 255, 0, 0.14);
-      }
-
-      .query-value {
-        max-width: 100%;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        color: var(--nxt1-color-text-primary, #ffffff);
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.05));
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
       }
 
       /* ============================================
@@ -589,8 +446,6 @@ export class ExploreSidebarWebComponent {
   protected readonly testIds = TEST_IDS.EXPLORE;
   readonly activeTab = input<ExploreTabId | null>(null);
   readonly activeFilterCount = input(0);
-  readonly hasQuery = input(false);
-  readonly query = input('');
   readonly filters = input<ExploreFilters>({});
   readonly filtersChange = output<ExploreFilters>();
 
@@ -603,12 +458,6 @@ export class ExploreSidebarWebComponent {
 
   protected readonly sportOptions = EXPLORE_FILTER_SPORT_OPTIONS;
   protected readonly stateOptions = EXPLORE_FILTER_STATE_OPTIONS;
-
-  protected readonly content = computed<ExploreSidebarContent>(() => {
-    const activeTab = this.activeTab();
-    if (!activeTab) return DEFAULT_SIDEBAR_CONTENT;
-    return SIDEBAR_CONTENT_BY_TAB[activeTab] ?? DEFAULT_SIDEBAR_CONTENT;
-  });
 
   /** Which filter fields are visible for the active tab */
   protected readonly fields = computed(() => {
@@ -642,8 +491,9 @@ export class ExploreSidebarWebComponent {
 
   protected toggleSport(sport: string): void {
     const current = this.filters();
-    const next: ExploreFilters =
-      current.sport === sport ? { ...current, sport: undefined } : { ...current, sport };
+    const isSame = current.sport?.toLowerCase() === sport.toLowerCase();
+    // Always emit the correctly-cased display value so chips stay in sync
+    const next: ExploreFilters = isSame ? { ...current, sport: undefined } : { ...current, sport };
     this.filtersChange.emit(next);
   }
 

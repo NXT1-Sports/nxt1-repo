@@ -56,6 +56,8 @@ export {
   DEFAULT_SETTINGS_SECTIONS,
   DEFAULT_SETTINGS_PREFERENCES,
   DEFAULT_CONNECTED_PROVIDERS,
+  // Role-aware factory
+  getSettingsSectionsForRole,
   // UI config
   SETTINGS_UI_CONFIG,
   // Cache
