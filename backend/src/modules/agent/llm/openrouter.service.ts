@@ -461,6 +461,13 @@ export class OpenRouterService {
       body['response_format'] = { type: 'json_object' };
     }
 
+    // For Anthropic models, explicitly prefer the Anthropic provider.
+    // Amazon Bedrock returns 400 "The provided model identifier is invalid"
+    // for the `anthropic/claude-*` OpenRouter slugs.
+    if (model.startsWith('anthropic/')) {
+      body['provider'] = { order: ['Anthropic'], allow_fallbacks: false };
+    }
+
     return body;
   }
 
@@ -473,7 +480,7 @@ export class OpenRouterService {
     model: string,
     options: LLMStreamOptions
   ): Record<string, unknown> {
-    return {
+    const streamBody: Record<string, unknown> = {
       model,
       messages: messages.map((m) => this.serializeMessage(m)),
       max_tokens: options.maxTokens ?? 2048,
@@ -482,6 +489,13 @@ export class OpenRouterService {
       // OpenRouter includes usage in the final streamed chunk when requested
       stream_options: { include_usage: true },
     };
+
+    // Same Bedrock avoidance as non-streaming path
+    if (model.startsWith('anthropic/')) {
+      streamBody['provider'] = { order: ['Anthropic'], allow_fallbacks: false };
+    }
+
+    return streamBody;
   }
 
   /**
