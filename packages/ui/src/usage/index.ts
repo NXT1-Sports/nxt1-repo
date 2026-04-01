@@ -32,6 +32,13 @@ export { UsageApiService, USAGE_API_BASE_URL } from './usage-api.service';
 export { UsageBottomSheetService } from './usage-bottom-sheet.service';
 export type { UsageBottomSheetResult } from './usage-bottom-sheet.service';
 
+// Billing Info Sheet
+export { UsageBillingInfoSheetComponent } from './usage-billing-info-sheet.component';
+export type {
+  BillingInfoSheetMode,
+  BillingInfoSheetResult,
+} from './usage-billing-info-sheet.component';
+
 // Section Components
 export {
   UsageOverviewComponent,

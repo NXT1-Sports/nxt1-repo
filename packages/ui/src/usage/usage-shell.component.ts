@@ -255,6 +255,14 @@ export interface UsageUser {
                     />
                   }
 
+                  @case ('budgets') {
+                    <nxt1-usage-budgets
+                      [budgets]="svc.budgets()"
+                      (createBudget)="onCreateBudget()"
+                      (editBudget)="onEditBudget($event)"
+                    />
+                  }
+
                   @case ('payment-info') {
                     <nxt1-usage-payment-info
                       [billingInfo]="svc.billingInfo()"
@@ -506,8 +514,8 @@ export class UsageShellComponent implements OnInit {
   protected readonly svc = inject(UsageService);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
-  // private readonly usageBottomSheet = inject(UsageBottomSheetService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly usageBottomSheet = inject(UsageBottomSheetService);
 
   // ============================================
   // INPUTS
@@ -618,14 +626,14 @@ export class UsageShellComponent implements OnInit {
     this.buyCredits.emit();
   }
 
-  protected onDownloadReceipt(_recordId: string): void {
-    this.haptics.impact('light');
-    // API call to get receipt URL and open
+  protected async onDownloadReceipt(recordId: string): Promise<void> {
+    await this.haptics.impact('light');
+    await this.svc.openReceipt(recordId);
   }
 
-  protected onDownloadInvoice(_recordId: string): void {
-    this.haptics.impact('light');
-    // API call to get invoice URL and open
+  protected async onDownloadInvoice(recordId: string): Promise<void> {
+    await this.haptics.impact('light');
+    await this.svc.openInvoice(recordId);
   }
 
   protected async onCreateBudget(): Promise<void> {
@@ -654,22 +662,27 @@ export class UsageShellComponent implements OnInit {
     });
   }
 
-  protected onEditBilling(): void {
-    this.haptics.impact('light');
-    // Open billing info editing form/bottom sheet
+  protected async onEditBilling(): Promise<void> {
+    await this.haptics.impact('light');
+    const result = await this.usageBottomSheet.editBillingInfo(this.svc.billingInfo());
+    if (result) {
+      await this.svc.saveBillingInfo(result);
+    }
   }
 
-  protected onEditPayment(): void {
-    this.haptics.impact('light');
-    void this.bottomSheet.openSheet({
-      component: AddPaymentMethodComponent,
-      ...SHEET_PRESETS.TALL,
-      cssClass: 'add-payment-method-sheet',
-    });
+  protected async onEditPayment(): Promise<void> {
+    await this.haptics.impact('light');
+    const result = await this.usageBottomSheet.showPaymentMethodOptions();
+    if (result?.action === 'remove-default') {
+      this.toast.warning('Cannot remove the default payment method while it is in use.');
+    }
   }
 
-  protected onEditAdditional(): void {
-    this.haptics.impact('light');
-    // Open additional info form/bottom sheet
+  protected async onEditAdditional(): Promise<void> {
+    await this.haptics.impact('light');
+    const result = await this.usageBottomSheet.editAdditionalInfo(this.svc.billingInfo());
+    if (result) {
+      await this.svc.saveBillingInfo(result);
+    }
   }
 }
