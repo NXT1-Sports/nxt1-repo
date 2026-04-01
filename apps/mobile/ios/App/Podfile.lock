@@ -72,6 +72,8 @@ PODS:
     - Capacitor
   - CapawesomeCapacitorBadge (8.0.1):
     - Capacitor
+  - CapgoNativePurchases (8.3.0):
+    - Capacitor
   - FirebaseABTesting (12.7.0):
     - FirebaseCore (~> 12.7.0)
   - FirebaseAppCheckInterop (12.7.0)
@@ -229,6 +231,7 @@ DEPENDENCIES:
   - "CapacitorSplashScreen (from `../../../../node_modules/@capacitor/splash-screen`)"
   - "CapacitorStatusBar (from `../../../../node_modules/@capacitor/status-bar`)"
   - "CapawesomeCapacitorBadge (from `../../../../node_modules/@capawesome/capacitor-badge`)"
+  - "CapgoNativePurchases (from `../../../../node_modules/@capgo/native-purchases`)"
   - "RecognizebvCapacitorPluginMsauth (from `../../../../node_modules/@recognizebv/capacitor-plugin-msauth`)"
 
 SPEC REPOS:
@@ -314,6 +317,8 @@ EXTERNAL SOURCES:
     :path: "../../../../node_modules/@capacitor/status-bar"
   CapawesomeCapacitorBadge:
     :path: "../../../../node_modules/@capawesome/capacitor-badge"
+  CapgoNativePurchases:
+    :path: "../../../../node_modules/@capgo/native-purchases"
   RecognizebvCapacitorPluginMsauth:
     :path: "../../../../node_modules/@recognizebv/capacitor-plugin-msauth"
 
@@ -345,6 +350,7 @@ SPEC CHECKSUMS:
   CapacitorSplashScreen: 4b46c72298db552b3c57ce021ef028b6dc7f1fa7
   CapacitorStatusBar: 32206abd53b14f339763da26f71286deaa891e16
   CapawesomeCapacitorBadge: 0a65ef36db6c236b41f324df5a2f12fe8cdd4a29
+  CapgoNativePurchases: 392b4d2b7f5f0de946176e0ed4304f134f736b2f
   FirebaseABTesting: 72e4636929660d40844f2a4db15be9d551fc27d6
   FirebaseAppCheckInterop: d58366471f1dadf2ed998b15f85c658458a10142
   FirebaseAuth: 88beaef7c688a2950541552b6dd195d22137c41a
@@ -374,6 +380,6 @@ SPEC CHECKSUMS:
   RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
   RecognizebvCapacitorPluginMsauth: c108ed22d9d2329bc729661356f9fce24354e2c2
 
-PODFILE CHECKSUM: 25b3712740fc3812364acfd056a02df0604c135b
+PODFILE CHECKSUM: ba7b414f2d9bc8276703bfb4e968e5d1147fe3e1
 
 COCOAPODS: 1.16.2
