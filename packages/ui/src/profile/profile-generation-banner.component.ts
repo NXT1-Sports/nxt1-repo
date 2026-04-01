@@ -56,6 +56,12 @@ const PHASE_ICONS: Record<GenerationPhase, string> = {
   error: '⚠️',
 };
 
+/** Delay before showing the skip button (ms) */
+const SKIP_BUTTON_DELAY_MS = 10_000;
+
+/** Duration of the dismiss fade-out animation (ms) — must match CSS transition */
+const DISMISS_ANIMATION_MS = 500;
+
 @Component({
   selector: 'nxt1-profile-generation-banner',
   standalone: true,
@@ -417,8 +423,8 @@ export class ProfileGenerationBannerComponent implements OnInit, OnDestroy {
 
     this.logger.info('Profile generation banner shown');
 
-    // Show skip button after 10 seconds
-    this.skipTimer = setTimeout(() => this.showSkip.set(true), 10_000);
+    // Show skip button after delay
+    this.skipTimer = setTimeout(() => this.showSkip.set(true), SKIP_BUTTON_DELAY_MS);
 
     // Start polling (idempotent — safe to call multiple times)
     void this.generation.pollUntilDone().then((result) => {
@@ -455,10 +461,10 @@ export class ProfileGenerationBannerComponent implements OnInit, OnDestroy {
     if (this.isDismissing()) return; // Prevent double-dismiss
     this.isDismissedByUser = true;
     this.isDismissing.set(true);
-    // Wait for fade-out animation (500ms) before emitting
+    // Wait for fade-out animation before emitting
     this.dismissTimer = setTimeout(() => {
       this.dismissed.emit(reason);
       this.generation.reset();
-    }, 500);
+    }, DISMISS_ANIMATION_MS);
   }
 }
