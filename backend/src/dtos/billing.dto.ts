@@ -182,7 +182,7 @@ export class UpdateTeamAllocationDto {
 export class IAPVerifyReceiptDto {
   @IsString({ message: 'jwsTransaction must be a string' })
   @IsNotEmpty({ message: 'jwsTransaction is required' })
-  @MaxLength(10000, { message: 'JWS transaction token exceeds maximum allowed length' })
+  @MaxLength(32000, { message: 'JWS transaction token exceeds maximum allowed length' })
   @Matches(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$/, {
     message: 'jwsTransaction must be a valid JWS compact serialization (header.payload.signature)',
   })
