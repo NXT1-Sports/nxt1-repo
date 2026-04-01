@@ -43,7 +43,9 @@ import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb';
 import { ANALYTICS_ADAPTER } from '../services/analytics';
+import { PERFORMANCE_ADAPTER } from '../services/performance';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
 import { ACTIVITY_API_ADAPTER } from './activity-api.service';
 
 /**
@@ -58,6 +60,7 @@ export class ActivityService {
   private readonly logger = inject(NxtLoggingService).child('ActivityService');
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -153,16 +156,23 @@ export class ActivityService {
 
     try {
       let response: ActivityFeedResponse;
+      const trace = await this.performance?.startTrace(TRACE_NAMES.ACTIVITY_FEED_LOAD);
+      await trace?.putAttribute(ATTRIBUTE_NAMES.FEATURE_NAME, 'activity');
+      await trace?.putAttribute('tab', tab);
       try {
         response = await this.api.getFeed({
           tab,
           page: 1,
           limit: ACTIVITY_PAGINATION_DEFAULTS.pageSize,
         });
+        await trace?.putAttribute('success', 'true');
       } catch {
         // API unavailable — use empty response
         this.logger.warn('Activity API unavailable, using fallback');
         response = { success: true, items: [] };
+        await trace?.putAttribute('success', 'false');
+      } finally {
+        await trace?.stop();
       }
 
       const items = response.items ? [...response.items] : [];
@@ -275,19 +285,25 @@ export class ActivityService {
     this.logger.debug('Marking items as read', { count: ids.length });
 
     try {
-      const response = await this.api.markRead(ids);
+      const trace = await this.performance?.startTrace(TRACE_NAMES.ACTIVITY_MARK_READ);
+      await trace?.putAttribute(ATTRIBUTE_NAMES.FEATURE_NAME, 'activity');
+      try {
+        const response = await this.api.markRead(ids);
 
-      if (response.badges) {
-        this._badges.set(response.badges);
-      } else {
-        this._badges.update((badges) => ({
-          ...badges,
-          alerts: Math.max(0, (badges['alerts'] ?? 0) - ids.length),
-        }));
+        if (response.badges) {
+          this._badges.set(response.badges);
+        } else {
+          this._badges.update((badges) => ({
+            ...badges,
+            alerts: Math.max(0, (badges['alerts'] ?? 0) - ids.length),
+          }));
+        }
+
+        await this.haptics.impact('light');
+        this.analytics?.trackEvent(APP_EVENTS.ACTIVITY_MARKED_READ, { count: ids.length });
+      } finally {
+        await trace?.stop();
       }
-
-      await this.haptics.impact('light');
-      this.analytics?.trackEvent(APP_EVENTS.ACTIVITY_MARKED_READ, { count: ids.length });
     } catch (err) {
       // Rollback on failure
       this._items.set(previousItems);
@@ -314,15 +330,21 @@ export class ActivityService {
     await this.breadcrumbs.trackStateChange('activity_mark_all_read', { count: unreadCount });
 
     try {
-      const response = await this.api.markAllRead('alerts');
+      const trace = await this.performance?.startTrace(TRACE_NAMES.ACTIVITY_MARK_ALL_READ);
+      await trace?.putAttribute(ATTRIBUTE_NAMES.FEATURE_NAME, 'activity');
+      try {
+        const response = await this.api.markAllRead('alerts');
 
-      if (response.badges) {
-        this._badges.set(response.badges);
+        if (response.badges) {
+          this._badges.set(response.badges);
+        }
+
+        this.toast.success('All marked as read');
+        await this.haptics.notification('success');
+        this.analytics?.trackEvent(APP_EVENTS.ACTIVITY_MARKED_ALL_READ, { count: unreadCount });
+      } finally {
+        await trace?.stop();
       }
-
-      this.toast.success('All marked as read');
-      await this.haptics.notification('success');
-      this.analytics?.trackEvent(APP_EVENTS.ACTIVITY_MARKED_ALL_READ, { count: unreadCount });
     } catch (err) {
       // Rollback on failure
       this._items.set(previousItems);
@@ -344,9 +366,15 @@ export class ActivityService {
     await this.breadcrumbs.trackUserAction('activity_archive', { id });
 
     try {
-      await this.api.archive([id]);
-      await this.haptics.impact('medium');
-      this.analytics?.trackEvent(APP_EVENTS.ACTIVITY_ITEM_ARCHIVED, { id });
+      const trace = await this.performance?.startTrace(TRACE_NAMES.ACTIVITY_ARCHIVE);
+      await trace?.putAttribute(ATTRIBUTE_NAMES.FEATURE_NAME, 'activity');
+      try {
+        await this.api.archive([id]);
+        await this.haptics.impact('medium');
+        this.analytics?.trackEvent(APP_EVENTS.ACTIVITY_ITEM_ARCHIVED, { id });
+      } finally {
+        await trace?.stop();
+      }
     } catch (err) {
       this._items.set(previousItems);
       const message = err instanceof Error ? err.message : 'Failed to archive';
@@ -362,8 +390,14 @@ export class ActivityService {
     this.logger.debug('Refreshing badge counts');
 
     try {
-      const badges = await this.api.getBadges();
-      this._badges.set(badges);
+      const trace = await this.performance?.startTrace(TRACE_NAMES.ACTIVITY_BADGES_LOAD);
+      await trace?.putAttribute(ATTRIBUTE_NAMES.FEATURE_NAME, 'activity');
+      try {
+        const badges = await this.api.getBadges();
+        this._badges.set(badges);
+      } finally {
+        await trace?.stop();
+      }
     } catch (err) {
       this.logger.error('Failed to refresh badge counts', err);
     }

@@ -568,16 +568,9 @@ export interface FeedPost {
 // ============================================
 
 /**
- * Feed filter options.
- */
-export type FeedFilterType = 'trending' | 'sports' | 'offers' | 'highlights';
-
-/**
  * Feed filter configuration.
  */
 export interface FeedFilter {
-  /** Filter type */
-  readonly type?: FeedFilterType;
   /** Filter by sport */
   readonly sport?: string;
   /** Filter by post types */

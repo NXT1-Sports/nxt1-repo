@@ -4,12 +4,11 @@
  * @version 1.0.0
  *
  * Main container for the Home Feed experience.
- * Orchestrates filter tabs, post list, and pull-to-refresh.
+ * Orchestrates post list and pull-to-refresh.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  *
  * Features:
- * - Feed filter tabs (Trending, Sports, Offers, Highlights)
  * - Pull-to-refresh with haptic feedback
  * - Post feed with all states
  * - New posts banner
@@ -34,17 +33,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { IonContent, IonRefresher, IonRefresherContent } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../components/icon';
-import {
-  type FeedPost,
-  type FeedAuthor,
-  type FeedFilterType,
-  FEED_FILTER_OPTIONS,
-} from '@nxt1/core';
-import {
-  NxtOptionScrollerComponent,
-  type OptionScrollerItem,
-  type OptionScrollerChangeEvent,
-} from '../components/option-scroller';
+import { type FeedPost, type FeedAuthor } from '@nxt1/core';
 import { FeedService } from './feed.service';
 import { FeedListComponent } from './feed-list.component';
 import { HapticsService } from '../services/haptics/haptics.service';
@@ -59,19 +48,10 @@ import { HapticsService } from '../services/haptics/haptics.service';
     IonRefresher,
     IonRefresherContent,
     NxtIconComponent,
-    NxtOptionScrollerComponent,
     FeedListComponent,
   ],
   template: `
     <div class="feed-shell">
-      <!-- Filter Tabs -->
-      <nxt1-option-scroller
-        [options]="filterOptions"
-        [selectedId]="feedService.activeFilter()"
-        [config]="{ scrollable: true, stretchToFill: false }"
-        (selectionChange)="onFilterChange($event)"
-      />
-
       <!-- New Posts Banner -->
       @if (feedService.hasNewPosts()) {
         <button type="button" class="feed-shell__new-posts" (click)="onLoadNewPosts()">
@@ -101,7 +81,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
           [isEmpty]="feedService.isEmpty()"
           [error]="feedService.error()"
           [hasMore]="feedService.hasMore()"
-          [filterType]="feedService.activeFilter()"
           (postClick)="onPostClick($event)"
           (authorClick)="onAuthorClick($event)"
           (reactClick)="onLikeClick($event)"
@@ -138,19 +117,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
         flex-direction: column;
         height: 100%;
         background: var(--shell-bg);
-      }
-
-      /* ============================================
-         FILTER TABS
-         ============================================ */
-
-      nxt1-option-scroller {
-        flex-shrink: 0;
-        border-bottom: 1px solid var(--shell-border);
-        background: var(--shell-bg);
-        position: sticky;
-        top: 0;
-        z-index: 10;
       }
 
       /* ============================================
@@ -265,16 +231,6 @@ export class FeedShellComponent implements OnInit {
   readonly explorePeople = output<void>();
 
   // ============================================
-  // FILTER OPTIONS
-  // ============================================
-
-  protected readonly filterOptions: OptionScrollerItem[] = FEED_FILTER_OPTIONS.map((opt) => ({
-    id: opt.id,
-    label: opt.label,
-    icon: opt.icon,
-  }));
-
-  // ============================================
   // LIFECYCLE
   // ============================================
 
@@ -286,10 +242,6 @@ export class FeedShellComponent implements OnInit {
   // ============================================
   // EVENT HANDLERS
   // ============================================
-
-  protected async onFilterChange(event: OptionScrollerChangeEvent): Promise<void> {
-    await this.feedService.changeFilter(event.option.id as FeedFilterType);
-  }
 
   protected async onRefresh(event: CustomEvent): Promise<void> {
     await this.feedService.refresh();

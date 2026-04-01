@@ -56,7 +56,12 @@ import {
   GLOBAL_CRASHLYTICS,
   httpErrorInterceptor,
 } from '@nxt1/ui/infrastructure';
-import { ANALYTICS_ADAPTER, NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui/services';
+import {
+  ANALYTICS_ADAPTER,
+  NxtLoggingService,
+  LOGGING_CONFIG,
+  PERFORMANCE_ADAPTER,
+} from '@nxt1/ui/services';
 
 // Core infrastructure (app-specific)
 import { httpCacheInterceptor, authInterceptor } from './core/infrastructure';
@@ -65,6 +70,7 @@ import { httpPerformanceInterceptor } from './core/infrastructure/performance-in
 // Crashlytics service (web uses GA4 fallback)
 import { CrashlyticsService } from './core/services/crashlytics.service';
 import { AnalyticsService } from './core/services/analytics.service';
+import { PerformanceService } from './core/services/performance.service';
 
 // Badge bridge: connects ActivityService (from @nxt1/ui) → BadgeCountService
 import { provideBadgeBridge } from './core/services';
@@ -340,6 +346,9 @@ export const appConfig: ApplicationConfig = {
 
     // Provide analytics adapter for shared services (@nxt1/ui)
     { provide: ANALYTICS_ADAPTER, useExisting: AnalyticsService },
+
+    // Provide performance adapter for shared services (@nxt1/ui)
+    { provide: PERFORMANCE_ADAPTER, useExisting: PerformanceService },
 
     // Provide settings persistence adapter (web: HTTP → backend API)
     { provide: SETTINGS_PERSISTENCE_ADAPTER, useExisting: SettingsApiService },

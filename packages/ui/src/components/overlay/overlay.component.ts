@@ -196,6 +196,9 @@ import type { OverlayDismissReason, OverlaySize } from './overlay.types';
 
       .nxt1-overlay-panel--full {
         max-width: 90vw;
+        width: 90vw;
+        height: 90vh;
+        height: 90dvh;
         max-height: 90vh;
         max-height: 90dvh;
       }
@@ -205,6 +208,12 @@ import type { OverlayDismissReason, OverlaySize } from './overlay.types';
         .nxt1-overlay-panel {
           max-width: calc(100% - 24px) !important;
           border-radius: var(--nxt1-borderRadius-xl, 16px);
+        }
+
+        .nxt1-overlay-panel--full {
+          width: calc(100% - 24px);
+          height: calc(100% - 24px);
+          max-height: calc(100dvh - 24px);
         }
       }
 

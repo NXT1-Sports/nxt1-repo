@@ -95,7 +95,6 @@ export function createFeedApi(http: HttpAdapter, baseUrl: string) {
     ): Promise<FeedResponse> {
       try {
         const url = buildUrl(FEED_API_ENDPOINTS.FEED, {
-          type: filter?.type,
           sport: filter?.sport,
           postTypes: filter?.postTypes?.join(','),
           authorRoles: filter?.authorRoles?.join(','),
@@ -282,34 +281,6 @@ export function createFeedApi(http: HttpAdapter, baseUrl: string) {
 
         throw createApiError('SRV_INTERNAL_ERROR', {
           message: error instanceof Error ? error.message : 'Unknown error sharing post',
-        });
-      }
-    },
-
-    /**
-     * Get trending posts.
-     *
-     * @param limit - Number of posts
-     * @returns Trending feed
-     */
-    async getTrending(limit: number = 10): Promise<FeedResponse> {
-      try {
-        const url = buildUrl(FEED_API_ENDPOINTS.TRENDING, { limit });
-
-        const response = await http.get<FeedResponse>(url);
-
-        if (!response.success) {
-          throw createApiError('SRV_INTERNAL_ERROR', {
-            message: response.error ?? 'Failed to fetch trending',
-          });
-        }
-
-        return response;
-      } catch (error) {
-        if (isNxtApiError(error)) throw error;
-
-        throw createApiError('SRV_INTERNAL_ERROR', {
-          message: error instanceof Error ? error.message : 'Unknown error fetching trending',
         });
       }
     },

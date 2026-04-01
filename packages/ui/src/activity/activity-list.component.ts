@@ -51,6 +51,7 @@ import { NxtTrackClickDirective } from '../services/breadcrumb/breadcrumb.servic
 import { ActivityItemComponent } from './activity-item.component';
 import { ActivitySkeletonComponent } from './activity-skeleton.component';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-logo.constants';
+import { ACTIVITY_TEST_IDS } from '@nxt1/core/testing';
 
 // Register icons
 @Component({
@@ -66,10 +67,10 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
     ActivitySkeletonComponent,
   ],
   template: `
-    <div class="activity-list">
+    <div class="activity-list" [attr.data-testid]="testIds.LIST_CONTAINER">
       <!-- Loading State: Skeletons -->
       @if (isLoading()) {
-        <div class="activity-list__skeletons">
+        <div class="activity-list__skeletons" [attr.data-testid]="testIds.LOADING_SKELETON">
           @for (i of skeletonArray; track i) {
             <nxt1-activity-skeleton />
           }
@@ -79,6 +80,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
       <!-- Error State -->
       @else if (error()) {
         <nxt1-state-view
+          [attr.data-testid]="testIds.ERROR_STATE"
           variant="error"
           title="Something went wrong"
           [message]="error()"
@@ -90,7 +92,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
 
       <!-- Empty State -->
       @else if (isEmpty()) {
-        <div class="activity-list__empty">
+        <div class="activity-list__empty" [attr.data-testid]="testIds.EMPTY_STATE">
           <div class="activity-list__empty-icon">
             @if (isAgentTab()) {
               <svg
@@ -161,6 +163,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
         <div class="activity-list__items">
           @for (item of items(); track item.id) {
             <nxt1-activity-item
+              [attr.data-testid]="testIds.LIST_ITEM + '-' + item.id"
               [item]="item"
               (itemClick)="itemClick.emit($event)"
               (actionClick)="actionClick.emit($event)"
@@ -179,6 +182,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
               <button
                 type="button"
                 class="activity-list__load-more-btn"
+                [attr.data-testid]="testIds.LOAD_MORE_BUTTON"
                 nxtTrackClick="activity-load-more"
                 (click)="loadMore.emit()"
               >
@@ -500,6 +504,9 @@ export class ActivityListComponent {
   protected readonly hasUnconnectedProviders = computed(() =>
     INBOX_EMAIL_PROVIDERS.some((p) => !this.isProviderConnected(p.id))
   );
+
+  /** Test IDs from @nxt1/core/testing */
+  protected readonly testIds = ACTIVITY_TEST_IDS;
 
   /** Agent X logo SVG data */
   protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;

@@ -46,6 +46,7 @@ import { ANALYTICS_ADAPTER } from '../services/analytics';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { ActivityService } from './activity.service';
 import { ActivityListComponent } from './activity-list.component';
+import { ACTIVITY_TEST_IDS } from '@nxt1/core/testing';
 
 /**
  * User info for header display.
@@ -101,7 +102,7 @@ export interface ActivityUser {
       </nxt1-page-header>
     }
 
-    <ion-content [fullscreen]="true" class="activity-content">
+    <ion-content [fullscreen]="true" class="activity-content" [attr.data-testid]="testIds.SHELL">
       <!-- Pull-to-Refresh -->
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
@@ -198,6 +199,9 @@ export class ActivityShellComponent {
   private readonly logger = inject(NxtLoggingService).child('ActivityShell');
   private readonly browser = inject(NxtBrowserService);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+
+  /** Test IDs from @nxt1/core/testing */
+  protected readonly testIds = ACTIVITY_TEST_IDS;
 
   private _hasLoadedInitialData = false;
 

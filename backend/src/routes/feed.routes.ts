@@ -7,8 +7,6 @@
  *
  * Caching Strategy:
  * - GET /          : SHORT_TTL (first page only, cursor-based pages are not cached)
- * - GET /trending  : To be implemented
- * - GET /discover  : To be implemented
  * - GET /users/:uid: To be implemented
  * - GET /teams/:teamCode: To be implemented
  *
@@ -37,7 +35,6 @@ import {
   firestorePostToFeedPost,
   userProfileToFeedAuthor,
 } from '../adapters/firestore-posts.adapter.js';
-import { createFeedHydrationService } from '../services/feed-hydration.service.js';
 import { createTimelineService } from '../services/timeline.service.js';
 import type { Firestore } from 'firebase-admin/firestore';
 
@@ -234,56 +231,6 @@ router.get('/', optionalAuth, async (req: Request, res: Response): Promise<void>
   } catch (error) {
     logger.error('[Feed] Failed to get feed', { error });
     res.status(500).json({ success: false, error: 'Failed to get feed' });
-  }
-});
-
-/**
- * Get trending feed — high-engagement items across Posts, Events, and Stats.
- * GET /api/v1/feed/trending
- * Reads pre-computed pointer array from Redis, hydrates into FeedItem[].
- * Falls back to explore feed if trending pointers are not yet computed.
- */
-router.get('/trending', optionalAuth, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const db = req.firebase!.db;
-    const limit = Math.min(parseInt(String(req.query['limit'] || 20)) || 20, 50);
-    const offset = parseInt(String(req.query['offset'] || 0)) || 0;
-
-    const hydrationService = createFeedHydrationService(db);
-    const items = await hydrationService.getTrendingFeed(limit, offset);
-
-    res.json({
-      success: true,
-      data: { posts: items, hasMore: items.length === limit },
-    });
-  } catch (error) {
-    logger.error('[Feed] Failed to get trending feed', { error });
-    res.status(500).json({ success: false, error: 'Failed to get trending feed' });
-  }
-});
-
-/**
- * Get discover feed — polymorphic items from users not followed.
- * GET /api/v1/feed/discover
- * Reads pre-computed pointer array from Redis, hydrates into FeedItem[].
- * Falls back to live Firestore query if Redis is empty.
- */
-router.get('/discover', optionalAuth, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const db = req.firebase!.db;
-    const limit = Math.min(parseInt(String(req.query['limit'] || 20)) || 20, 50);
-    const offset = parseInt(String(req.query['offset'] || 0)) || 0;
-
-    const hydrationService = createFeedHydrationService(db);
-    const items = await hydrationService.getExploreFeed(limit, offset);
-
-    res.json({
-      success: true,
-      data: { posts: items, hasMore: items.length === limit },
-    });
-  } catch (error) {
-    logger.error('[Feed] Failed to get discover feed', { error });
-    res.status(500).json({ success: false, error: 'Failed to get discover feed' });
   }
 });
 

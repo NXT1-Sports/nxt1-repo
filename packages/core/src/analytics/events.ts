@@ -613,8 +613,6 @@ export const APP_EVENTS = {
   HOME_FEED_REFRESHED: 'home_feed_refreshed',
   /** Home feed load more (infinite scroll) */
   HOME_FEED_LOAD_MORE: 'home_feed_load_more',
-  /** Home feed filter changed */
-  HOME_FEED_FILTER_CHANGED: 'home_feed_filter_changed',
   /** Home feed post liked */
   HOME_FEED_POST_LIKED: 'home_feed_post_liked',
   /** Home feed post bookmarked */

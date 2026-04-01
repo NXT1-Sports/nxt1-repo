@@ -59,6 +59,7 @@ export type { OptionScrollerItem, OptionScrollerChangeEvent };
     <div
       class="scroller"
       [class.scroller--stretch]="stretchToFill()"
+      [class.scroller--scrollable]="scrollable()"
       [class.scroller--divider]="showDivider()"
       role="tablist"
       [attr.aria-label]="ariaLabel()"
@@ -128,6 +129,18 @@ export type { OptionScrollerItem, OptionScrollerChangeEvent };
         position: relative;
         display: flex;
         align-items: stretch;
+        overflow-x: hidden;
+      }
+
+      .scroller--scrollable .scroller__container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+
+      .scroller--scrollable .scroller__container::-webkit-scrollbar {
+        display: none;
       }
 
       .scroller--stretch .scroller__container {
@@ -244,6 +257,9 @@ export class NxtOptionScrollerWebComponent {
 
   /** Stretch options to fill the full width */
   readonly stretchToFill = input<boolean>(true);
+
+  /** Allow horizontal scrolling when options overflow */
+  readonly scrollable = input<boolean>(false);
 
   /** Show bottom divider line */
   readonly showDivider = input<boolean>(true);

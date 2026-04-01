@@ -7,6 +7,7 @@
  */
 
 import { Router, type Request, type Response } from 'express';
+import type { Firestore, QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { appGuard } from '../middleware/auth.middleware.js';
 import { validateBody } from '../middleware/validation.middleware.js';
 import {
@@ -20,8 +21,9 @@ import {
   COLLECTIONS,
   getOrCreateCustomer,
   getStripeClient,
-  getOrCreateBillingContext,
   getOrgTeamAllocations,
+  resolveBillingTarget,
+  type ResolvedBillingTarget,
 } from '../modules/billing/index.js';
 import { USAGE_PRODUCT_CONFIGS, USAGE_CATEGORY_CONFIGS, USAGE_HISTORY_PAGE_SIZE } from '@nxt1/core';
 import type {
@@ -108,6 +110,85 @@ function getFeatureDisplayName(feature: string): string {
 }
 
 // ============================================
+// QUERY HELPERS
+// ============================================
+
+/**
+ * Fetch usage events for an organization by querying all team IDs.
+ * Firestore `.in()` is limited to 30 values, so we chunk and merge.
+ */
+async function fetchOrgUsageEvents(
+  db: Firestore,
+  teamIds: string[],
+  startIso: string,
+  endIso: string,
+  orderDesc = true,
+  limit = 1000
+): Promise<QueryDocumentSnapshot[]> {
+  if (teamIds.length === 0) return [];
+
+  const CHUNK_SIZE = 30;
+  const chunks: string[][] = [];
+  for (let i = 0; i < teamIds.length; i += CHUNK_SIZE) {
+    chunks.push(teamIds.slice(i, i + CHUNK_SIZE));
+  }
+
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      db.collection(COLLECTIONS.USAGE_EVENTS).where('teamId', 'in', chunk).limit(limit).get()
+    )
+  );
+
+  // Filter by date range in-memory (avoids composite index requirement)
+  const allDocs = results
+    .flatMap((snap) => snap.docs)
+    .filter((doc) => {
+      const createdAt = doc.data()['createdAt'] as string;
+      return createdAt >= startIso && createdAt <= endIso;
+    });
+  allDocs.sort((a, b) => {
+    const aDate = a.data()['createdAt'] as string;
+    const bDate = b.data()['createdAt'] as string;
+    return orderDesc ? bDate.localeCompare(aDate) : aDate.localeCompare(bDate);
+  });
+  return allDocs.slice(0, limit);
+}
+
+/**
+ * Fetch usage events for either an org (by teamIds) or an individual (by userId).
+ */
+async function fetchUsageEvents(
+  db: Firestore,
+  target: ResolvedBillingTarget,
+  startIso: string,
+  endIso: string,
+  orderDesc = true,
+  limit = 1000
+): Promise<QueryDocumentSnapshot[]> {
+  if (target.type === 'organization' && target.teamIds && target.teamIds.length > 0) {
+    return fetchOrgUsageEvents(db, target.teamIds, startIso, endIso, orderDesc, limit);
+  }
+
+  // Individual fallback — query by userId, filter date in-memory
+  const snap = await db
+    .collection(COLLECTIONS.USAGE_EVENTS)
+    .where('userId', '==', target.billingUserId)
+    .limit(limit)
+    .get();
+
+  const docs = [...snap.docs].filter((doc) => {
+    const createdAt = doc.data()['createdAt'] as string;
+    return createdAt >= startIso && createdAt <= endIso;
+  });
+  docs.sort((a, b) => {
+    const aDate = a.data()['createdAt'] as string;
+    const bDate = b.data()['createdAt'] as string;
+    return orderDesc ? bDate.localeCompare(aDate) : aDate.localeCompare(bDate);
+  });
+  return docs;
+}
+
+// ============================================
 // ROUTES
 // ============================================
 
@@ -125,25 +206,26 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     const { start, end } = resolveTimeframe(timeframe);
     const environment = req.isStaging ? 'staging' : 'production';
 
-    // Parallel queries
-    const [billingCtx, eventsSnap] = await Promise.all([
-      getOrCreateBillingContext(db, userId),
-      db
-        .collection(COLLECTIONS.USAGE_EVENTS)
-        .where('userId', '==', userId)
-        .where('createdAt', '>=', start.toISOString())
-        .where('createdAt', '<=', end.toISOString())
-        .orderBy('createdAt', 'desc')
-        .limit(1000)
-        .get(),
-    ]);
+    // Resolve billing target (director → org, otherwise individual)
+    const target = await resolveBillingTarget(db, userId);
+    const billingCtx = target.context;
+
+    // Fetch usage events for the resolved target
+    const eventsDocs = await fetchUsageEvents(
+      db,
+      target,
+      start.toISOString(),
+      end.toISOString(),
+      true,
+      1000
+    );
 
     // Aggregate usage by feature
     const featureUsage = new Map<string, number>();
     const dailyUsage = new Map<string, number>();
     let totalUsageCents = 0;
 
-    for (const doc of eventsSnap.docs) {
+    for (const doc of eventsDocs) {
       const data = doc.data();
       const feature = data['feature'] as string;
       const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
@@ -221,7 +303,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     const breakdownRows: UsageBreakdownRow[] = [];
     const dailyEvents = new Map<string, Map<string, { qty: number; cost: number }>>();
 
-    for (const doc of eventsSnap.docs) {
+    for (const doc of eventsDocs) {
       const data = doc.data();
       const dateKey = (data['createdAt'] as string).slice(0, 10);
       const feature = data['feature'] as string;
@@ -261,15 +343,21 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       });
     }
 
-    // Payment history from paymentLogs
+    // Payment history from paymentLogs (use billing target userId for org lookups)
     const paymentLogsSnap = await db
       .collection(COLLECTIONS.PAYMENT_LOGS)
-      .where('userId', '==', userId)
-      .orderBy('createdAt', 'desc')
+      .where('userId', '==', target.billingUserId)
       .limit(USAGE_HISTORY_PAGE_SIZE)
       .get();
 
-    const paymentHistory: UsagePaymentHistoryRecord[] = paymentLogsSnap.docs.map((doc) => {
+    const paymentLogDocs = [...paymentLogsSnap.docs];
+    paymentLogDocs.sort((a, b) => {
+      const aDate = (a.data()['createdAt'] as string) ?? '';
+      const bDate = (b.data()['createdAt'] as string) ?? '';
+      return bDate.localeCompare(aDate);
+    });
+
+    const paymentHistory: UsagePaymentHistoryRecord[] = paymentLogDocs.map((doc) => {
       const d = doc.data();
       return {
         id: doc.id,
@@ -286,12 +374,12 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       };
     });
 
-    // Payment methods from Stripe
+    // Payment methods from Stripe (use billing target userId for org lookups)
     let paymentMethods: UsagePaymentMethod[] = [];
     try {
       const customerDoc = await db
         .collection(COLLECTIONS.STRIPE_CUSTOMERS)
-        .where('userId', '==', userId)
+        .where('userId', '==', target.billingUserId)
         .where('environment', '==', environment)
         .limit(1)
         .get();
@@ -345,7 +433,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       if (allocations.length > 0) {
         // Resolve team names in parallel
         const teamDocs = await Promise.all(
-          allocations.map((a) => db.collection('teams').doc(a.teamId).get())
+          allocations.map((a) => db.collection('Teams').doc(a.teamId).get())
         );
         const teamNames = new Map(
           teamDocs.map((doc) => [doc.id, (doc.data()?.['name'] as string) ?? 'Unknown Team'])
@@ -420,18 +508,21 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
     const start = new Date(now.getFullYear(), now.getMonth(), 1);
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
-    const [billingCtx, eventsSnap] = await Promise.all([
-      getOrCreateBillingContext(db, userId),
-      db
-        .collection(COLLECTIONS.USAGE_EVENTS)
-        .where('userId', '==', userId)
-        .where('createdAt', '>=', start.toISOString())
-        .where('createdAt', '<=', end.toISOString())
-        .get(),
-    ]);
+    // Resolve billing target (director → org, otherwise individual)
+    const target = await resolveBillingTarget(db, userId);
+    const billingCtx = target.context;
+
+    const eventsDocs = await fetchUsageEvents(
+      db,
+      target,
+      start.toISOString(),
+      end.toISOString(),
+      false,
+      10000
+    );
 
     let totalUsageCents = 0;
-    for (const doc of eventsSnap.docs) {
+    for (const doc of eventsDocs) {
       const data = doc.data();
       totalUsageCents += (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
     }
@@ -476,15 +567,20 @@ router.get('/chart', appGuard, async (req: Request, res: Response) => {
     const timeframe = (req.query['timeframe'] as string) || 'current-month';
     const { start, end } = resolveTimeframe(timeframe);
 
-    const eventsSnap = await db
-      .collection(COLLECTIONS.USAGE_EVENTS)
-      .where('userId', '==', userId)
-      .where('createdAt', '>=', start.toISOString())
-      .where('createdAt', '<=', end.toISOString())
-      .get();
+    // Resolve billing target (director → org, otherwise individual)
+    const target = await resolveBillingTarget(db, userId);
+
+    const eventsDocs = await fetchUsageEvents(
+      db,
+      target,
+      start.toISOString(),
+      end.toISOString(),
+      false,
+      10000
+    );
 
     const dailyUsage = new Map<string, number>();
-    for (const doc of eventsSnap.docs) {
+    for (const doc of eventsDocs) {
       const data = doc.data();
       const dateKey = (data['createdAt'] as string).slice(0, 10);
       const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
@@ -528,18 +624,21 @@ router.get('/breakdown', appGuard, async (req: Request, res: Response) => {
     const timeframe = (req.query['timeframe'] as string) || 'current-month';
     const { start, end } = resolveTimeframe(timeframe);
 
-    const eventsSnap = await db
-      .collection(COLLECTIONS.USAGE_EVENTS)
-      .where('userId', '==', userId)
-      .where('createdAt', '>=', start.toISOString())
-      .where('createdAt', '<=', end.toISOString())
-      .orderBy('createdAt', 'desc')
-      .limit(500)
-      .get();
+    // Resolve billing target (director → org, otherwise individual)
+    const target = await resolveBillingTarget(db, userId);
+
+    const eventsDocs = await fetchUsageEvents(
+      db,
+      target,
+      start.toISOString(),
+      end.toISOString(),
+      true,
+      500
+    );
 
     const dailyEvents = new Map<string, Map<string, { qty: number; cost: number }>>();
 
-    for (const doc of eventsSnap.docs) {
+    for (const doc of eventsDocs) {
       const data = doc.data();
       const dateKey = (data['createdAt'] as string).slice(0, 10);
       const feature = data['feature'] as string;
@@ -604,24 +703,32 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
     const limit = Math.min(100, Math.max(1, Number(req.query['limit']) || USAGE_HISTORY_PAGE_SIZE));
     const offset = (page - 1) * limit;
 
+    // Resolve billing target (director → org, otherwise individual)
+    const target = await resolveBillingTarget(db, userId);
+
     // Get total count
     const countSnap = await db
       .collection(COLLECTIONS.PAYMENT_LOGS)
-      .where('userId', '==', userId)
+      .where('userId', '==', target.billingUserId)
       .count()
       .get();
     const total = countSnap.data().count;
 
-    // Get paginated records
+    // Get paginated records (sort in-memory to avoid composite index)
     const logsSnap = await db
       .collection(COLLECTIONS.PAYMENT_LOGS)
-      .where('userId', '==', userId)
-      .orderBy('createdAt', 'desc')
-      .offset(offset)
-      .limit(limit)
+      .where('userId', '==', target.billingUserId)
       .get();
 
-    const records: UsagePaymentHistoryRecord[] = logsSnap.docs.map((doc) => {
+    const allLogDocs = [...logsSnap.docs];
+    allLogDocs.sort((a, b) => {
+      const aDate = (a.data()['createdAt'] as string) ?? '';
+      const bDate = (b.data()['createdAt'] as string) ?? '';
+      return bDate.localeCompare(aDate);
+    });
+    const paginatedDocs = allLogDocs.slice(offset, offset + limit);
+
+    const records: UsagePaymentHistoryRecord[] = paginatedDocs.map((doc) => {
       const d = doc.data();
       return {
         id: doc.id,
@@ -666,9 +773,12 @@ router.get('/payment-methods', appGuard, async (req: Request, res: Response) => 
     if (!db) throw new Error('Firebase context not available');
     const environment = req.isStaging ? 'staging' : 'production';
 
+    // Resolve billing target (director → org, otherwise individual)
+    const target = await resolveBillingTarget(db, userId);
+
     const customerDoc = await db
       .collection(COLLECTIONS.STRIPE_CUSTOMERS)
-      .where('userId', '==', userId)
+      .where('userId', '==', target.billingUserId)
       .where('environment', '==', environment)
       .limit(1)
       .get();
@@ -816,9 +926,12 @@ router.post(
       if (!db) throw new Error('Firebase context not available');
       const environment = req.isStaging ? 'staging' : 'production';
 
+      // Resolve billing target (director → org, otherwise individual)
+      const target = await resolveBillingTarget(db, userId);
+
       const customerDoc = await db
         .collection(COLLECTIONS.STRIPE_CUSTOMERS)
-        .where('userId', '==', userId)
+        .where('userId', '==', target.billingUserId)
         .where('environment', '==', environment)
         .limit(1)
         .get();
@@ -903,7 +1016,9 @@ router.get('/budgets', appGuard, async (req: Request, res: Response) => {
     const db = req.firebase?.db;
     if (!db) throw new Error('Firebase context not available');
 
-    const ctx = await getOrCreateBillingContext(db, userId);
+    // Resolve billing target (director → org, otherwise individual)
+    const target = await resolveBillingTarget(db, userId);
+    const ctx = target.context;
 
     const accountName =
       ctx.billingEntity === 'organization'
@@ -918,7 +1033,7 @@ router.get('/budgets', appGuard, async (req: Request, res: Response) => {
       const allocations = await getOrgTeamAllocations(db, ctx.organizationId);
       if (allocations.length > 0) {
         const teamDocs = await Promise.all(
-          allocations.map((a) => db.collection('teams').doc(a.teamId).get())
+          allocations.map((a) => db.collection('Teams').doc(a.teamId).get())
         );
         const teamNames = new Map(
           teamDocs.map((doc) => [doc.id, (doc.data()?.['name'] as string) ?? 'Unknown Team'])
@@ -980,7 +1095,9 @@ router.get('/receipt/:transactionId', appGuard, async (req: Request, res: Respon
     }
 
     const logData = logDoc.data();
-    if (logData?.['userId'] !== userId) {
+    // Allow access if the log belongs to the user directly OR to their org billing target
+    const target = await resolveBillingTarget(db, userId);
+    if (logData?.['userId'] !== userId && logData?.['userId'] !== target.billingUserId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -1016,7 +1133,9 @@ router.get('/invoice/:transactionId', appGuard, async (req: Request, res: Respon
     }
 
     const logData = logDoc.data();
-    if (logData?.['userId'] !== userId) {
+    // Allow access if the log belongs to the user directly OR to their org billing target
+    const target = await resolveBillingTarget(db, userId);
+    if (logData?.['userId'] !== userId && logData?.['userId'] !== target.billingUserId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 

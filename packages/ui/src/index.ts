@@ -109,11 +109,14 @@ export {
   ConnectedAccountsWebModalComponent,
   ConnectedAccountsModalService,
   DEFAULT_PLATFORMS,
+  FirecrawlSignInService,
+  FirecrawlSignInModalComponent,
   type ConnectedSource,
   type ConnectedSourceTapEvent,
   type ConnectedAccountsModalOptions,
   type ConnectedAccountsModalResult,
   type ConnectedAccountsModalCloseData,
+  type FirecrawlSignInRequest,
 } from './components/connected-sources';
 export { NxtVerifiedPillComponent } from './components/verified-pill';
 export { NxtListRowComponent } from './components/list-row';
@@ -867,6 +870,9 @@ export { NxtLoggingService, LOGGING_CONFIG, type LoggingConfig } from './service
 
 // Analytics adapter token (provided by apps)
 export { ANALYTICS_ADAPTER } from './services/analytics/analytics-adapter.token';
+
+// Performance adapter token (provided by apps)
+export { PERFORMANCE_ADAPTER } from './services/performance/performance-adapter.token';
 
 // ============================================
 // NOTIFICATION STATE SERVICE (Global State Management)

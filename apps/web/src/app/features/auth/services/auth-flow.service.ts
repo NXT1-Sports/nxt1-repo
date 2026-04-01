@@ -57,6 +57,7 @@ import { Subscription } from 'rxjs';
 import type { Auth as FirebaseAuthType, User as FirebaseUser } from '@angular/fire/auth';
 
 import { AuthApiService } from './auth-api.service';
+import { AuthCookieService } from './auth-cookie.service';
 import { AUTH_TRANSFER_STATE_KEY } from './ssr-tokens';
 import type { TransferredAuthState } from './ssr-tokens';
 import { AuthErrorHandler } from '@nxt1/ui/services/auth-error';
@@ -142,6 +143,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   private readonly platform = inject(NxtPlatformService);
   private readonly injector = inject(Injector);
   private readonly authApi = inject(AuthApiService);
+  private readonly authCookie = inject(AuthCookieService);
   private readonly authErrorHandler = inject(AuthErrorHandler);
   private readonly inviteApi = inject(InviteApiService);
   private readonly transferState = inject(TransferState);
@@ -254,6 +256,21 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    */
   private async navigateRoot(path: string): Promise<void> {
     await this.router.navigate([path], { replaceUrl: true });
+  }
+
+  /**
+   * Store the Firebase ID token in authManager and set __session cookie.
+   * Must be called BEFORE any API calls (like syncUserProfile) so the
+   * auth interceptor can attach the Bearer token to outgoing requests.
+   */
+  private async storeTokenFromUser(firebaseUser: FirebaseUser): Promise<void> {
+    const token = await firebaseUser.getIdToken();
+    await this.authManager.setToken({
+      token,
+      expiresAt: Date.now() + 55 * 60 * 1000,
+      userId: firebaseUser.uid,
+    });
+    this.authCookie.setAuthCookie(token);
   }
 
   // ============================================
@@ -526,6 +543,20 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               this.logger.debug(
                 'Skipping initial Firebase null emission — keeping SSR-hydrated user'
               );
+
+              // Safety net: if Firebase never resolves a real user within 10s,
+              // the SSR-hydrated state is stale — clear it and show signed-out state.
+              setTimeout(async () => {
+                if (!this._firebaseAuthResolved) {
+                  this.logger.warn(
+                    'Firebase auth never resolved after SSR hydration — clearing stale auth state'
+                  );
+                  this.authCookie.clearAuthCookie();
+                  await this.authManager.reset();
+                  this.authManager.setInitialized(true);
+                  this._isAuthReady.set(true);
+                }
+              }, 10_000);
               return;
             }
 
@@ -896,6 +927,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     // Set flag to prevent auth state listener from racing with user setup (via core state manager)
     this.authManager.setSignupInProgress(true);
 
+    // Store token BEFORE any API calls so the auth interceptor can attach it
+    await this.storeTokenFromUser(result.user);
+
     try {
       // ALWAYS try to sync existing user first (Firebase isNewUser can be unreliable)
       this.logger.debug('📡 Attempting to sync existing user profile (Microsoft)');
@@ -1084,6 +1118,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       // Set flag to prevent auth state listener from racing with user setup (via core state manager)
       this.authManager.setSignupInProgress(true);
+
+      // Store token BEFORE any API calls so the auth interceptor can attach it
+      await this.storeTokenFromUser(result.user);
 
       let isNewlyCreated = false;
 
@@ -1301,6 +1338,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       // Set flag to prevent auth state listener from racing with user setup (via core state manager)
       this.authManager.setSignupInProgress(true);
 
+      // Store token BEFORE any API calls so the auth interceptor can attach it
+      await this.storeTokenFromUser(result.user);
+
       try {
         // ALWAYS try to sync existing user first (Firebase isNewUser can be unreliable)
         this.logger.debug('📡 Attempting to sync existing user profile (Apple)');
@@ -1498,6 +1538,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     try {
       // Dynamic import for SSR safety
       const { signOut } = await import('@angular/fire/auth');
+
+      // Clear __session cookie FIRST so SSR won't re-hydrate as authenticated
+      this.authCookie.clearAuthCookie();
 
       // Track sign out before clearing user
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_OUT);

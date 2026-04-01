@@ -8,7 +8,7 @@
  * All data here is fabricated for UI testing purposes only.
  */
 
-import type { FeedPost, FeedAuthor, FeedMedia, FeedFilterType, FeedPagination } from '@nxt1/core';
+import type { FeedPost, FeedAuthor, FeedMedia, FeedPagination } from '@nxt1/core';
 
 const now = Date.now();
 
@@ -452,22 +452,12 @@ export const MOCK_FEED_POSTS: FeedPost[] = [
  */
 export function getMockFeedPosts(
   page: number = 1,
-  limit: number = 20,
-  filterType?: FeedFilterType
+  limit: number = 20
 ): { posts: FeedPost[]; pagination: FeedPagination } {
-  let filteredPosts = [...MOCK_FEED_POSTS];
-
-  // Apply filter
-  if (filterType === 'offers') {
-    filteredPosts = filteredPosts.filter((p) => p.type === 'offer' || p.type === 'commitment');
-  } else if (filterType === 'highlights') {
-    filteredPosts = filteredPosts.filter((p) => p.type === 'video' || p.type === 'highlight');
-  }
-
-  const total = filteredPosts.length;
+  const total = MOCK_FEED_POSTS.length;
   const start = (page - 1) * limit;
   const end = start + limit;
-  const posts = filteredPosts.slice(start, end);
+  const posts = MOCK_FEED_POSTS.slice(start, end);
 
   return {
     posts,

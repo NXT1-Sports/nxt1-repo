@@ -48,7 +48,6 @@ import { NxtActivityCardComponent } from '../components/activity-card';
 import {
   type FeedPost,
   type FeedAuthor,
-  type FeedFilterType,
   type FeedItem,
   type FeedItemPost,
   type FeedItemEvent,
@@ -133,7 +132,7 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
 
       <!-- Empty State -->
       @else if (isEmpty()) {
-        <nxt1-feed-empty-state [filterType]="filterType()" (ctaClick)="emptyCta.emit()" />
+        <nxt1-feed-empty-state (ctaClick)="emptyCta.emit()" />
       }
 
       <!-- Posts List -->
@@ -435,7 +434,6 @@ export class FeedListComponent {
   readonly isEmpty = input(false);
   readonly error = input<string | null>(null);
   readonly hasMore = input(false);
-  readonly filterType = input<FeedFilterType>('trending');
   readonly showMenu = input(true);
   readonly compactCards = input(false);
 

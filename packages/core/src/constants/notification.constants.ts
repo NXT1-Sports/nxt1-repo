@@ -30,8 +30,6 @@ export type NotificationChannel =
 export const NOTIFICATION_CATEGORIES = {
   // Social interactions
   SOCIAL: 'social',
-  // Recruiting activities
-  RECRUITING: 'recruiting',
   // Team/organization
   TEAM: 'team',
   // Content updates
@@ -58,13 +56,6 @@ export const NOTIFICATION_TYPES = {
   POST_SHARE: 'post_share',
   PROFILE_VIEW: 'profile_view',
   VIDEO_VIEW: 'video_view',
-
-  // Recruiting
-  COLLEGE_VIEW: 'college_view',
-  COACH_VIEW: 'coach_view',
-  CAMP_REMINDER: 'camp_reminder',
-  VISIT_REMINDER: 'visit_reminder',
-  RECRUITING_UPDATE: 'recruiting_update',
 
   // Team
   TEAM_INVITE: 'team_invite',
@@ -156,13 +147,6 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   profile_view: 'social',
   video_view: 'social',
 
-  // Recruiting
-  college_view: 'recruiting',
-  coach_view: 'recruiting',
-  camp_reminder: 'recruiting',
-  visit_reminder: 'recruiting',
-  recruiting_update: 'recruiting',
-
   // Team
   team_invite: 'team',
   team_join_request: 'team',
@@ -219,7 +203,6 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: Record<
   }
 > = {
   social: { push: true, email: false, sms: false },
-  recruiting: { push: true, email: true, sms: false },
   team: { push: true, email: true, sms: false },
   content: { push: true, email: false, sms: false },
   system: { push: true, email: true, sms: false },
@@ -263,13 +246,6 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   post_share: 'alerts',
   profile_view: 'alerts',
   video_view: 'alerts',
-
-  // Recruiting → alerts
-  college_view: 'alerts',
-  coach_view: 'alerts',
-  camp_reminder: 'alerts',
-  visit_reminder: 'alerts',
-  recruiting_update: 'alerts',
 
   // Team → alerts
   team_invite: 'alerts',
@@ -331,13 +307,6 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   post_share: '/post/{entityId}',
   profile_view: '/analytics',
   video_view: '/analytics',
-
-  // Recruiting
-  college_view: '/analytics',
-  coach_view: '/analytics',
-  camp_reminder: '/activity?tab=inbox',
-  visit_reminder: '/activity?tab=inbox',
-  recruiting_update: '/activity?tab=inbox',
 
   // Team
   team_invite: '/activity?tab=inbox',

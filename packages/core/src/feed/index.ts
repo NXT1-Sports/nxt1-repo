@@ -48,7 +48,6 @@ export {
   // Main post type
   type FeedPost,
   // Filter types
-  type FeedFilterType,
   type FeedFilter,
   type FeedPagination,
   // Response types
@@ -101,10 +100,6 @@ export {
   FEED_API_ENDPOINTS,
   // Pagination
   FEED_PAGINATION_DEFAULTS,
-  // Filters
-  type FeedFilterOption,
-  FEED_FILTER_OPTIONS,
-  FEED_DEFAULT_FILTER,
   // Post types
   FEED_POST_TYPE_ICONS,
   FEED_POST_TYPE_LABELS,
@@ -115,8 +110,6 @@ export {
   // Engagement
   type FeedEngagementAction,
   FEED_ENGAGEMENT_ICONS,
-  // Empty states
-  FEED_EMPTY_STATES,
   // UI config
   FEED_UI_CONFIG,
   // Cache

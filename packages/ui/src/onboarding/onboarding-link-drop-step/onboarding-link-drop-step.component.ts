@@ -636,6 +636,17 @@ export class OnboardingLinkDropStepComponent {
     scopeId?: string;
   }>();
 
+  /**
+   * Emitted when the user taps a Firecrawl-based sign-in platform (Hudl, X, MaxPreps, etc.).
+   * The parent container is responsible for launching the Agent X interactive browser session
+   * at the platform's `loginUrl` using Firecrawl Persistent Profiles.
+   */
+  readonly firecrawlSigninRequest = output<{
+    platform: string;
+    label: string;
+    loginUrl: string;
+  }>();
+
   // ---- State ----
   readonly activeMode = signal<ConnectionMode>('link');
 
@@ -875,6 +886,20 @@ export class OnboardingLinkDropStepComponent {
       await this._handleSigninTokenEntry(
         source as typeof source & { platform: 'google' | 'microsoft' }
       );
+      return;
+    }
+
+    // ── Firecrawl-based sign-in: delegate to parent for interactive browser session ──
+    if (isSignIn && platformDef?.loginUrl) {
+      this.logger.info('Firecrawl sign-in requested', {
+        platform: source.platform,
+        label: source.label,
+      });
+      this.firecrawlSigninRequest.emit({
+        platform: source.platform,
+        label: source.label,
+        loginUrl: platformDef.loginUrl,
+      });
       return;
     }
 

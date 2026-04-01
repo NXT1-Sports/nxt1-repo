@@ -33,6 +33,7 @@ import { type ActivityItem, ACTIVITY_TYPE_ICONS, ACTIVITY_TYPE_COLORS } from '@n
 import { NxtIconComponent } from '../components/icon';
 import { NxtTrackClickDirective } from '../services/breadcrumb/breadcrumb.service';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-logo.constants';
+import { ACTIVITY_TEST_IDS } from '@nxt1/core/testing';
 
 // Register all icons
 @Component({
@@ -94,14 +95,20 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
       <!-- Center: Content -->
       <div class="activity-item__content">
         <div class="activity-item__header">
-          <span class="activity-item__title" [class.activity-item__title--bold]="!item().isRead">
+          <span
+            class="activity-item__title"
+            [attr.data-testid]="testIds.ITEM_TITLE"
+            [class.activity-item__title--bold]="!item().isRead"
+          >
             {{ item().title }}
           </span>
-          <span class="activity-item__time">{{ formattedTime() }}</span>
+          <span class="activity-item__time" [attr.data-testid]="testIds.ITEM_TIMESTAMP">{{
+            formattedTime()
+          }}</span>
         </div>
 
         @if (item().body) {
-          <p class="activity-item__body">
+          <p class="activity-item__body" [attr.data-testid]="testIds.ITEM_BODY">
             {{ item().body }}
           </p>
         }
@@ -115,7 +122,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
       <div class="activity-item__trailing">
         <!-- Unread indicator -->
         @if (!item().isRead) {
-          <div class="activity-item__unread-dot"></div>
+          <div class="activity-item__unread-dot" [attr.data-testid]="testIds.ITEM_UNREAD_DOT"></div>
         }
 
         <!-- Media thumbnail (Twitter/X style) — replaces chevron when media attached -->
@@ -133,6 +140,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
           <button
             type="button"
             class="activity-item__action"
+            [attr.data-testid]="testIds.ITEM_ACTION"
             [class.activity-item__action--primary]="item().action?.variant === 'primary'"
             (click)="handleActionClick($event)"
             nxtTrackClick="activity-item-action-clicked"
@@ -541,6 +549,9 @@ export class ActivityItemComponent {
 
   readonly agentXLogoPath = AGENT_X_LOGO_PATH;
   readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
+
+  /** Test IDs from @nxt1/core/testing */
+  protected readonly testIds = ACTIVITY_TEST_IDS;
 
   /** Icon name for the activity type */
   protected readonly typeIcon = computed(() => {

@@ -28,6 +28,7 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 import { LINK_SOURCES_TEST_IDS } from '@nxt1/core/testing';
 import type { LinkSourcesFormData, OnboardingUserType } from '@nxt1/core/api';
 import { OnboardingLinkDropStepComponent } from '../../onboarding/onboarding-link-drop-step';
+import { FirecrawlSignInService, type FirecrawlSignInRequest } from './firecrawl-signin.service';
 
 @Component({
   selector: 'nxt1-connected-accounts-sheet',
@@ -66,6 +67,7 @@ import { OnboardingLinkDropStepComponent } from '../../onboarding/onboarding-lin
           [role]="_role()"
           [scope]="_scope()"
           (linkSourcesChange)="onLinkSourcesChange($event)"
+          (firecrawlSigninRequest)="onFirecrawlSignin($event)"
         />
       </div>
     </div>
@@ -128,6 +130,7 @@ export class ConnectedAccountsSheetComponent implements OnInit {
   private readonly logger = inject(NxtLoggingService).child('ConnectedAccountsSheet');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly firecrawlSignIn = inject(FirecrawlSignInService);
 
   /** User role — passed through to link drop step for role-aware recommendations */
   readonly _role = input<OnboardingUserType | null>(null);
@@ -184,6 +187,14 @@ export class ConnectedAccountsSheetComponent implements OnInit {
     } else {
       this.breadcrumb.trackStateChange('connected-accounts-sheet:cancelled');
       void this.modalCtrl.dismiss(null, 'cancel');
+    }
+  }
+
+  async onFirecrawlSignin(request: FirecrawlSignInRequest): Promise<void> {
+    this.logger.info('Firecrawl sign-in requested from sheet', { platform: request.platform });
+    const success = await this.firecrawlSignIn.launchSignIn(request);
+    if (success) {
+      this._hasChanges.set(true);
     }
   }
 

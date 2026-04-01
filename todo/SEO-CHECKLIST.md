@@ -15,7 +15,8 @@
 
 - [ ] **Team pages** (`/team/:slug`) — create component, call
       `seo.updateForTeam()`
-- [ ] **Explore / Discovery page** — create component, call `seo.updatePage()`
+- [x] **Explore / Discovery page** — `seo.updatePage()` wired in
+      `explore.component.ts` ✅
 - [ ] **About page**
 - [ ] **Terms of Service**
 - [ ] **Privacy Policy**

@@ -4,14 +4,12 @@
  * @version 1.0.0
  *
  * Empty state display for feed with actionable CTAs.
- * Customizable per filter type.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  *
  * @example
  * ```html
  * <nxt1-feed-empty-state
- *   [filterType]="'following'"
  *   (ctaClick)="onExplorePeople()"
  * />
  * ```
@@ -19,7 +17,6 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { type FeedFilterType, FEED_EMPTY_STATES, FEED_FILTER_OPTIONS } from '@nxt1/core';
 import { NxtIconComponent } from '../components/icon';
 
 // ============================================
@@ -137,7 +134,6 @@ export class FeedEmptyStateComponent {
   // INPUTS
   // ============================================
 
-  readonly filterType = input<FeedFilterType>('trending');
   readonly customTitle = input<string | undefined>(undefined);
   readonly customMessage = input<string | undefined>(undefined);
   readonly customCta = input<string | undefined>(undefined);
@@ -154,23 +150,18 @@ export class FeedEmptyStateComponent {
   // ============================================
 
   protected readonly icon = computed(() => {
-    if (this.customIcon()) return this.customIcon()!;
-    const filterOption = FEED_FILTER_OPTIONS.find((f) => f.id === this.filterType());
-    return filterOption?.icon ?? 'sparkles';
+    return this.customIcon() ?? 'chatBubble';
   });
 
   protected readonly title = computed(() => {
-    if (this.customTitle()) return this.customTitle()!;
-    return FEED_EMPTY_STATES[this.filterType()]?.title ?? 'No updates yet';
+    return this.customTitle() ?? 'No posts yet';
   });
 
   protected readonly message = computed(() => {
-    if (this.customMessage()) return this.customMessage()!;
-    return FEED_EMPTY_STATES[this.filterType()]?.message ?? 'Check back later for updates.';
+    return this.customMessage() ?? 'Posts from the community will appear here.';
   });
 
   protected readonly cta = computed(() => {
-    if (this.customCta() !== undefined) return this.customCta();
-    return FEED_EMPTY_STATES[this.filterType()]?.cta;
+    return this.customCta();
   });
 }

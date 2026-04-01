@@ -485,9 +485,14 @@ export class NxtOptionScrollerComponent implements AfterViewInit, OnDestroy {
       // Read signals to establish reactive dependency
       this.selectedId();
       this.options();
-      // Schedule update after render
+      // Schedule update after render — always re-cache elements so the index
+      // correctly maps to the current DOM nodes (options list may have changed,
+      // e.g. 5-tab list collapsing to 3-tab list for personal users).
       if (isPlatformBrowser(this.platformId)) {
-        requestAnimationFrame(() => this.updateIndicator());
+        requestAnimationFrame(() => {
+          this.cacheOptionElements();
+          this.updateIndicator();
+        });
       }
     });
   }

@@ -223,6 +223,9 @@ export interface SettingsUser {
       /* Content area */
       .settings-content {
         --background: var(--settings-bg);
+        --padding-bottom: calc(
+          var(--nxt1-footer-height, 80px) + env(safe-area-inset-bottom, 0px) + 32px
+        );
       }
 
       /* Desktop wrapper (replaces ion-content) */

@@ -117,7 +117,7 @@ export interface UsageUser {
       <nxt1-option-scroller
         [options]="tabOptions()"
         [selectedId]="svc.activeSection()"
-        [config]="{ scrollable: false, stretchToFill: true, centered: true, showDivider: true }"
+        [config]="scrollerConfig()"
         (selectionChange)="onTabChange($event)"
       />
     </div>
@@ -530,6 +530,14 @@ export class UsageShellComponent implements OnInit {
       id: nav.id,
       label: nav.label,
     }));
+  });
+
+  /** Scroller config adapts: stretch for 3 tabs (personal), scroll for 5 tabs (org) */
+  protected readonly scrollerConfig = computed(() => {
+    const count = this.tabOptions().length;
+    return count <= 3
+      ? { scrollable: false, stretchToFill: true, centered: true, showDivider: true }
+      : { scrollable: true, stretchToFill: false, centered: false, showDivider: true };
   });
 
   /** Display name for header */

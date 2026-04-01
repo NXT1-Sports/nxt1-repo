@@ -66,7 +66,6 @@ export class FeedApiService implements FeedApi {
       {
         attributes: {
           [ATTRIBUTE_NAMES.FEATURE_NAME]: 'feed',
-          feed_filter: filter?.type ?? 'trending',
           feed_page: page.toString(),
         },
         onSuccess: async (response, trace) => {
@@ -141,21 +140,6 @@ export class FeedApiService implements FeedApi {
         post_id: postId,
       },
     });
-  }
-
-  getTrending(limit?: number): Promise<FeedResponse> {
-    return this.performance.trace(
-      TRACE_NAMES.FEED_TRENDING_LOAD,
-      () => this.api.getTrending(limit),
-      {
-        attributes: {
-          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'feed_trending',
-        },
-        onSuccess: async (response, trace) => {
-          await trace.putMetric(METRIC_NAMES.ITEMS_LOADED, response.data?.length ?? 0);
-        },
-      }
-    );
   }
 
   reportPost(postId: string, reason: string): Promise<FeedActionResponse> {

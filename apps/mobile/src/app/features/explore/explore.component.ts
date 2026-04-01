@@ -160,7 +160,6 @@ export class ExploreComponent {
    */
   protected onScoutReportFiltersOpen(): void {
     this.logger.debug('Scout report filters opened');
-    // TODO: Open filter modal/bottom sheet
   }
 
   // ── Feed / Following / News Handlers ──

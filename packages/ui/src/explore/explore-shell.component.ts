@@ -48,7 +48,7 @@ import {
   EXPLORE_TABS,
   EXPLORE_SEARCH_CONFIG,
 } from '@nxt1/core';
-import type { FeedPost, FeedAuthor, FeedFilterType } from '@nxt1/core';
+import type { FeedPost, FeedAuthor } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { type SearchBarSubmitEvent } from '../components/search-bar';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
@@ -211,7 +211,6 @@ export interface ExploreUser {
               [isEmpty]="feedService.isEmpty()"
               [error]="feedService.error()"
               [hasMore]="feedService.hasMore()"
-              [filterType]="'trending'"
               (postClick)="onPostSelect($event)"
               (authorClick)="onAuthorSelect($event)"
               (reactClick)="onLikeClick($event)"
@@ -647,9 +646,8 @@ export class ExploreShellComponent implements OnInit {
   protected async handleRefresh(event: RefreshEvent): Promise<void> {
     try {
       const tab = this.explore.activeTab();
-      const filterType = this.getFeedFilterType(tab);
 
-      if (filterType) {
+      if (tab === 'feed') {
         await this.feedService.refresh();
       } else {
         await this.explore.refresh();
@@ -722,26 +720,16 @@ export class ExploreShellComponent implements OnInit {
 
   protected async onFeedRetry(): Promise<void> {
     const tab = this.explore.activeTab();
-    const filterType = this.getFeedFilterType(tab);
-    if (!filterType) return;
-    await this.feedService.loadFeed(filterType);
-  }
-
-  private getFeedFilterType(tab: ExploreTabId): FeedFilterType | null {
-    if (tab === 'feed') return 'trending';
-    return null;
+    if (tab !== 'feed') return;
+    await this.feedService.loadFeed();
   }
 
   private async ensureFeedLoadedForTab(tab: ExploreTabId): Promise<void> {
-    const filterType = this.getFeedFilterType(tab);
-    if (!filterType) return;
+    if (tab !== 'feed') return;
 
-    const shouldReload =
-      this.feedService.posts().length === 0 || this.feedService.activeFilter() !== filterType;
-
-    if (!shouldReload) return;
-
-    await this.feedService.loadFeed(filterType);
+    if (this.feedService.posts().length === 0) {
+      await this.feedService.loadFeed();
+    }
   }
 
   protected onNewsArticleSelect(article: { id: string; title: string }): void {

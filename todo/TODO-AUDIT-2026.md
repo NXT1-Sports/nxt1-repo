@@ -1,6 +1,6 @@
 # TODO Audit — Remaining Items
 
-> Last updated: March 15, 2026
+> Last updated: March 31, 2026
 
 ---
 
@@ -55,17 +55,13 @@
 | `apps/mobile/.../auth/auth.page.ts` L643-679               | Pass team code through Google/Apple/Microsoft OAuth |
 | `apps/mobile/.../agent-x/services/agent-x.service.ts` L219 | Replace stub with actual API call                   |
 | `apps/mobile/.../shell/mobile-shell.component.ts` L369-713 | Pull verified/class year, help modal, referral code |
-| `apps/mobile/.../explore/explore.component.ts` L140        | Open filter modal/bottom sheet                      |
 | `apps/mobile/.../onboarding-congratulations/...` L139      | Track with analytics                                |
-| `apps/mobile/.../home/home.component.ts` L259-292          | XP breakdown, post detail, comment modal            |
 
 ### 6. Legacy Web App TODOs
 
-| Location                                       | TODO                                   |
-| ---------------------------------------------- | -------------------------------------- |
-| `nxt1/.../firebase-auth.service.ts` L252, L260 | Microsoft/Apple sign-in backend        |
-| `nxt1/.../post.service.ts` L1435               | Delete associated media on post delete |
-| `nxt1-backend/.../postController.js` L434      | Send email notification                |
+| Location                                       | TODO                            |
+| ---------------------------------------------- | ------------------------------- |
+| `nxt1/.../firebase-auth.service.ts` L252, L260 | Microsoft/Apple sign-in backend |
 
 ### 7. Code Cleanup
 
@@ -86,7 +82,6 @@
 
 - [ ] College library browsing/search
 - [ ] Video like/share functionality
-- [ ] Discover teams route
 
 ---
 

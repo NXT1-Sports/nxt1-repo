@@ -103,7 +103,7 @@ async function processUsageEvent(message: UsageEventMessage): Promise<void> {
     if (isOrgBilled && billingCtx.organizationId) {
       // Organization pays — get/create a Stripe customer for the org
       const orgDoc = await firestore
-        .collection('organizations')
+        .collection('Organizations')
         .doc(billingCtx.organizationId)
         .get();
       const orgData = orgDoc.data();
@@ -130,7 +130,7 @@ async function processUsageEvent(message: UsageEventMessage): Promise<void> {
       });
     } else if (isTeamBilled && billingCtx.teamId) {
       // Legacy team pays — get/create a Stripe customer for the team
-      const teamDoc = await firestore.collection('teams').doc(billingCtx.teamId).get();
+      const teamDoc = await firestore.collection('Teams').doc(billingCtx.teamId).get();
       const teamData = teamDoc.data();
       const teamEmail =
         (teamData?.['billingEmail'] as string) || (teamData?.['email'] as string) || userEmail;

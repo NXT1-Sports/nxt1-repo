@@ -38,7 +38,6 @@ import {
   type ScoutReport,
   type FeedPost,
   type FeedAuthor,
-  type FeedFilterType,
   EXPLORE_SEARCH_CONFIG,
   EXPLORE_TABS,
   isFeedTab,
@@ -240,7 +239,6 @@ import { ExploreSidebarWebComponent } from './explore-sidebar-web.component';
                   [error]="feedService.error()"
                   [hasMore]="feedService.hasMore()"
                   [compactCards]="true"
-                  [filterType]="'trending'"
                   (postClick)="onPostSelect($event)"
                   (authorClick)="onAuthorSelect($event)"
                   (reactClick)="onLikeClick($event)"
@@ -762,26 +760,16 @@ export class ExploreShellWebComponent implements OnInit, AfterViewInit, OnDestro
 
   protected async onFeedRetry(): Promise<void> {
     const tab = this.explore.activeTab();
-    const filterType = this.getFeedFilterType(tab);
-    if (!filterType) return;
-    await this.feedService.loadFeed(filterType);
-  }
-
-  private getFeedFilterType(tab: ExploreTabId): FeedFilterType | null {
-    if (tab === 'feed') return 'trending';
-    return null;
+    if (tab !== 'feed') return;
+    await this.feedService.loadFeed();
   }
 
   private async ensureFeedLoadedForTab(tab: ExploreTabId): Promise<void> {
-    const filterType = this.getFeedFilterType(tab);
-    if (!filterType) return;
+    if (tab !== 'feed') return;
 
-    const shouldReload =
-      this.feedService.posts().length === 0 || this.feedService.activeFilter() !== filterType;
-
-    if (!shouldReload) return;
-
-    await this.feedService.loadFeed(filterType);
+    if (this.feedService.posts().length === 0) {
+      await this.feedService.loadFeed();
+    }
   }
 
   protected onNewsArticleSelect(article: { id: string; title: string }): void {

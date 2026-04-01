@@ -18,7 +18,7 @@ import {
   getUnitCost,
   checkBudget,
   recordSpend,
-  getOrCreateBillingContext,
+  resolveBillingTarget,
   updateBudget,
   updateTeamBudget,
   updateOrgBudget,
@@ -219,7 +219,7 @@ router.get('/usage/team/:teamId', appGuard, async (req: Request, res: Response) 
     }
 
     // Verify the caller is a team member or admin
-    const teamDoc = await db.collection('teams').doc(teamId).get();
+    const teamDoc = await db.collection('Teams').doc(teamId).get();
     const teamData = teamDoc.data();
     if (!teamData) {
       return res.status(404).json({ error: 'Team not found' });
@@ -287,7 +287,9 @@ router.get('/budget', appGuard, async (req: Request, res: Response) => {
 
     if (!db) throw new Error('Firebase context not available');
 
-    const ctx = await getOrCreateBillingContext(db, userId);
+    // Resolve billing target (director → org, otherwise individual)
+    const target = await resolveBillingTarget(db, userId);
+    const ctx = target.context;
 
     return res.json({
       success: true,
@@ -363,7 +365,7 @@ router.put(
       if (!db) throw new Error('Firebase context not available');
 
       // Verify the caller is a team admin
-      const teamDoc = await db.collection('teams').doc(teamId).get();
+      const teamDoc = await db.collection('Teams').doc(teamId).get();
       const teamData = teamDoc.data();
       const userId = req.user!.uid;
       const adminIds: string[] = Array.isArray(teamData?.['adminIds'])
@@ -411,7 +413,7 @@ router.put(
 
       // Verify the caller is an org admin
       const userId = req.user!.uid;
-      const orgDoc = await db.collection('organizations').doc(orgId).get();
+      const orgDoc = await db.collection('Organizations').doc(orgId).get();
       const orgData = orgDoc.data();
 
       if (!orgData) {
@@ -464,7 +466,7 @@ router.put(
 
       // Verify the caller is an org admin
       const userId = req.user!.uid;
-      const orgDoc = await db.collection('organizations').doc(orgId).get();
+      const orgDoc = await db.collection('Organizations').doc(orgId).get();
       const orgData = orgDoc.data();
 
       if (!orgData) {
@@ -482,7 +484,7 @@ router.put(
       }
 
       // Verify team belongs to this org
-      const teamDoc = await db.collection('teams').doc(teamId).get();
+      const teamDoc = await db.collection('Teams').doc(teamId).get();
       const teamData = teamDoc.data();
       if (!teamData || teamData['organizationId'] !== orgId) {
         return res.status(400).json({ error: 'Team does not belong to this organization' });
@@ -519,7 +521,7 @@ router.get('/budget/org/:orgId/allocations', appGuard, async (req: Request, res:
 
     // Verify the caller is an org admin
     const userId = req.user!.uid;
-    const orgDoc = await db.collection('organizations').doc(orgId).get();
+    const orgDoc = await db.collection('Organizations').doc(orgId).get();
     const orgData = orgDoc.data();
 
     if (!orgData) {

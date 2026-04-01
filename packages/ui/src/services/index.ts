@@ -44,6 +44,9 @@ export { NxtLoggingService, LOGGING_CONFIG, type LoggingConfig } from './logging
 // Analytics adapter token (provided by apps)
 export { ANALYTICS_ADAPTER } from './analytics/analytics-adapter.token';
 
+// Performance adapter token (provided by apps)
+export { PERFORMANCE_ADAPTER } from './performance/performance-adapter.token';
+
 export { AuthNavigationService, type NavAnimation, type NavOptions } from './auth-navigation';
 
 export { AuthErrorHandler, type AuthError, type AuthRecoveryAction } from './auth-error';

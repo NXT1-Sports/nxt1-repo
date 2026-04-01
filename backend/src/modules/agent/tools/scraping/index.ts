@@ -10,6 +10,11 @@ export { ReadWebpageTool } from './read-webpage.tool.js';
 export { InteractWithWebpageTool } from './interact-with-webpage.tool.js';
 export { ScraperService } from './scraper.service.js';
 export { FirecrawlService } from './firecrawl.service.js';
+export { FirecrawlProfileService } from './firecrawl-profile.service.js';
+export type {
+  FirecrawlSignInSession,
+  FirecrawlProfileStatus,
+} from './firecrawl-profile.service.js';
 export { validateUrl } from './url-validator.js';
 export { extractPageData } from './page-data-extractor.js';
 export type { ScrapeRequest, ScrapeResult, ScrapeProvider } from './scraper.types.js';

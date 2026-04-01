@@ -235,7 +235,6 @@ export const TRACE_NAMES = {
   FEED_LOAD: 'feed_load',
   FEED_USER_LOAD: 'feed_user_load',
   FEED_TEAM_LOAD: 'feed_team_load',
-  FEED_TRENDING_LOAD: 'feed_trending_load',
   FEED_POST_LOAD: 'feed_post_load',
   FEED_LIKE_TOGGLE: 'feed_like_toggle',
   FEED_SHARE: 'feed_share',
@@ -253,6 +252,7 @@ export const TRACE_NAMES = {
   RANKINGS_LOAD: 'rankings_load',
 
   // Activity traces
+  ACTIVITY_FEED_LOAD: 'activity_feed_load',
   ACTIVITY_ITEM_LOAD: 'activity_item_load',
   ACTIVITY_MARK_READ: 'activity_mark_read',
   ACTIVITY_MARK_ALL_READ: 'activity_mark_all_read',

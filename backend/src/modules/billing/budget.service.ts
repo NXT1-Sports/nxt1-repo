@@ -85,14 +85,14 @@ export async function getOrCreateBillingContext(
   let organizationId: string | undefined;
 
   if (teamId) {
-    const teamDoc = await db.collection('teams').doc(teamId).get();
+    const teamDoc = await db.collection('Teams').doc(teamId).get();
     const teamData = teamDoc.data();
     effectiveTeamId = teamId;
 
     // Check for organization-level billing
     const orgId = teamData?.['organizationId'] as string | undefined;
     if (orgId) {
-      const orgDoc = await db.collection('organizations').doc(orgId).get();
+      const orgDoc = await db.collection('Organizations').doc(orgId).get();
       const orgData = orgDoc.data();
 
       // Organization billing is enabled if it has a billing subscription OR
@@ -784,7 +784,7 @@ async function checkAndNotifyOrg(
   const { dispatch } = await import('../../services/notification.service.js');
 
   // Get org admins
-  const orgDoc = await db.collection('organizations').doc(organizationId).get();
+  const orgDoc = await db.collection('Organizations').doc(organizationId).get();
   const orgData = orgDoc.data();
   const admins = (orgData?.['admins'] as Array<{ userId: string }>) ?? [];
   const adminIds = admins.map((a) => a.userId).filter(Boolean);
@@ -852,7 +852,7 @@ async function checkAndNotifyTeam(
 ): Promise<void> {
   const { dispatch } = await import('../../services/notification.service.js');
 
-  const teamDoc = await db.collection('teams').doc(teamId).get();
+  const teamDoc = await db.collection('Teams').doc(teamId).get();
   const teamData = teamDoc.data();
   const adminIds: string[] = Array.isArray(teamData?.['adminIds'])
     ? (teamData!['adminIds'] as string[])
@@ -923,7 +923,7 @@ async function checkAndNotifyTeamLegacy(
 ): Promise<void> {
   const { dispatch } = await import('../../services/notification.service.js');
 
-  const teamDoc = await db.collection('teams').doc(teamId).get();
+  const teamDoc = await db.collection('Teams').doc(teamId).get();
   const teamData = teamDoc.data();
   const adminIds: string[] = Array.isArray(teamData?.['adminIds'])
     ? (teamData!['adminIds'] as string[])
@@ -982,6 +982,221 @@ async function checkAndNotifyTeamLegacy(
 }
 
 // ============================================
+// BILLING TARGET RESOLUTION (DIRECTOR → ORG)
+// ============================================
+
+/**
+ * Resolved billing target — tells callers which userId / context to query
+ * when fetching usage events, payment history, Stripe customers, etc.
+ *
+ * NOTE: `context` is always fetched fresh (not cached) to avoid stale
+ * `currentPeriodSpend` / `walletBalanceCents` on the dashboard.
+ */
+export interface ResolvedBillingTarget {
+  /** Whether this is an organization or individual billing target */
+  type: 'organization' | 'individual';
+  /** The userId to query in billing collections (e.g. `org:{orgId}` or personal uid) */
+  billingUserId: string;
+  /** The resolved billing context (always fresh — never cached) */
+  context: BillingContext;
+  /** Organization ID (only for type === 'organization') */
+  organizationId?: string;
+  /** Team IDs belonging to the organization (only for type === 'organization') */
+  teamIds?: string[];
+}
+
+/**
+ * Cached resolution mapping — lightweight, does NOT include the BillingContext
+ * itself. The context is fetched fresh on every call to avoid showing stale
+ * spend/wallet data on the dashboard.
+ */
+interface CachedBillingResolution {
+  type: 'organization' | 'individual';
+  billingUserId: string;
+  organizationId?: string;
+  teamIds?: string[];
+  expiresAt: number;
+}
+
+// In-memory cache for billing target resolution (5 min TTL)
+// Only caches the mapping (role → org/individual), NOT the live BillingContext.
+const billingResolutionCache = new Map<string, CachedBillingResolution>();
+const BILLING_RESOLUTION_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const BILLING_RESOLUTION_CACHE_MAX_SIZE = 10_000; // Prevent unbounded growth
+
+/**
+ * Resolve the correct billing target for a user.
+ *
+ * For directors/admins of an organization, this returns the **organization's**
+ * billing context (userId = `org:{orgId}`) so that usage dashboards, payment
+ * history, and Stripe customer lookups show org-level data instead of a
+ * zeroed-out individual view.
+ *
+ * Resolution order:
+ *   1. Check in-memory cache (5 min TTL).
+ *   2. Read the user doc from `Users` to check their `role`.
+ *   3. If role is `director`:
+ *      a. Query `RosterEntries` for any active membership → `organizationId`.
+ *      b. Fallback: query `Organizations` where `ownerId == userId`.
+ *      c. If an org is found, fetch all team IDs from `Teams`.
+ *      d. Fetch or create the org billing context (`org:{orgId}`).
+ *      e. Return type 'organization' with the org context.
+ *   4. Otherwise, fallback to the user's personal billing context.
+ */
+export async function resolveBillingTarget(
+  db: Firestore,
+  userId: string
+): Promise<ResolvedBillingTarget> {
+  // ── Check resolution cache (mapping only, NOT the live context) ──
+  const cached = billingResolutionCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) {
+    // Always fetch fresh context to get current spend/wallet balance
+    const freshCtx =
+      cached.type === 'organization' && cached.organizationId
+        ? ((await getOrgBillingContext(db, cached.organizationId)) ??
+          (await getOrCreateBillingContext(db, userId)))
+        : await getOrCreateBillingContext(db, userId);
+
+    return {
+      type: cached.type,
+      billingUserId: cached.billingUserId,
+      context: freshCtx,
+      organizationId: cached.organizationId,
+      teamIds: cached.teamIds,
+    };
+  }
+
+  // ── Evict expired entries if cache is getting large ──
+  if (billingResolutionCache.size > BILLING_RESOLUTION_CACHE_MAX_SIZE) {
+    const now = Date.now();
+    for (const [key, entry] of billingResolutionCache) {
+      if (entry.expiresAt <= now) billingResolutionCache.delete(key);
+    }
+  }
+
+  // ── Read user role ──
+  const userDoc = await db.collection('Users').doc(userId).get();
+  const userData = userDoc.data();
+  const role = userData?.['role'] as string | undefined;
+
+  if (role === 'director') {
+    const target = await resolveDirectorTarget(db, userId);
+    if (target) {
+      // Cache the lightweight resolution mapping (NOT the context)
+      billingResolutionCache.set(userId, {
+        type: target.type,
+        billingUserId: target.billingUserId,
+        organizationId: target.organizationId,
+        teamIds: target.teamIds,
+        expiresAt: Date.now() + BILLING_RESOLUTION_CACHE_TTL_MS,
+      });
+      return target;
+    }
+    // Director without an active org — fall through to individual
+    logger.warn(
+      '[resolveBillingTarget] Director has no active organization, falling back to individual',
+      { userId }
+    );
+  }
+
+  // ── Fallback: individual billing ──
+  const ctx = await getOrCreateBillingContext(db, userId);
+  const target: ResolvedBillingTarget = {
+    type: 'individual',
+    billingUserId: userId,
+    context: ctx,
+  };
+
+  billingResolutionCache.set(userId, {
+    type: 'individual',
+    billingUserId: userId,
+    expiresAt: Date.now() + BILLING_RESOLUTION_CACHE_TTL_MS,
+  });
+
+  return target;
+}
+
+/**
+ * Internal: Resolve a director's organization target.
+ * Returns null if the director has no active organization.
+ */
+async function resolveDirectorTarget(
+  db: Firestore,
+  userId: string
+): Promise<ResolvedBillingTarget | null> {
+  // Strategy 1: Look up via RosterEntries — find any org-level role for this user.
+  // Note: roster `role` uses membership roles (owner, admin, director, coach)
+  // while the user doc `role` is the account type. We already verified the
+  // account type is 'director', so find any active org membership.
+  const rosterSnap = await db
+    .collection('RosterEntries')
+    .where('userId', '==', userId)
+    .where('status', '==', 'active')
+    .limit(1)
+    .get();
+
+  let organizationId: string | undefined;
+
+  if (!rosterSnap.empty) {
+    organizationId = rosterSnap.docs[0]!.data()['organizationId'] as string | undefined;
+  }
+
+  // Strategy 2: Fallback — check organizations.ownerId
+  if (!organizationId) {
+    const orgSnap = await db
+      .collection('Organizations')
+      .where('ownerId', '==', userId)
+      .limit(1)
+      .get();
+
+    if (!orgSnap.empty) {
+      organizationId = orgSnap.docs[0]!.id;
+    }
+  }
+
+  if (!organizationId) {
+    logger.warn('[resolveDirectorTarget] No org found for director', { userId });
+    return null;
+  }
+
+  // Fetch all teams for this organization
+  const teamsSnap = await db
+    .collection('Teams')
+    .where('organizationId', '==', organizationId)
+    .get();
+  const teamIds = teamsSnap.docs.map((doc) => doc.id);
+
+  // Fetch or create the org billing context
+  let orgCtx = await getOrgBillingContext(db, organizationId);
+  if (!orgCtx) {
+    await createOrgBillingContext(db, organizationId);
+    orgCtx = await getOrgBillingContext(db, organizationId);
+  }
+
+  if (!orgCtx) {
+    logger.error('[resolveDirectorTarget] Failed to create org billing context', {
+      organizationId,
+      userId,
+    });
+    return null;
+  }
+
+  logger.info('[resolveBillingTarget] Resolved director to organization', {
+    userId,
+    organizationId,
+    teamCount: teamIds.length,
+  });
+
+  return {
+    type: 'organization',
+    billingUserId: `org:${organizationId}`,
+    context: orgCtx,
+    organizationId,
+    teamIds,
+  };
+}
+
+// ============================================
 // CONTEXT LOOKUP HELPERS
 // ============================================
 
@@ -994,10 +1209,7 @@ async function getOrgBillingContext(
 ): Promise<BillingContext | null> {
   const snapshot = await db
     .collection(COLLECTIONS.BILLING_CONTEXTS)
-    .where('organizationId', '==', organizationId)
-    .where('billingEntity', '==', 'organization')
-    .where('userId', '>=', 'org:')
-    .where('userId', '<', 'org:\uf8ff')
+    .where('userId', '==', `org:${organizationId}`)
     .limit(1)
     .get();
 
@@ -1031,8 +1243,7 @@ async function getTeamBillingContext(
 ): Promise<BillingContext | null> {
   const snapshot = await db
     .collection(COLLECTIONS.BILLING_CONTEXTS)
-    .where('teamId', '==', teamId)
-    .where('billingEntity', '==', 'team')
+    .where('userId', '==', `team:${teamId}`)
     .limit(1)
     .get();
 
@@ -1057,13 +1268,17 @@ async function createOrgBillingContext(db: Firestore, organizationId: string): P
     userId: `org:${organizationId}`,
     organizationId,
     billingEntity: 'organization',
+    paymentProvider: 'stripe',
     monthlyBudget: DEFAULT_ORGANIZATION_BUDGET,
     currentPeriodSpend: 0,
+    walletBalanceCents: 0,
+    pendingHoldsCents: 0,
     periodStart,
     periodEnd,
     notified50: false,
     notified80: false,
     notified100: false,
+    iapLowBalanceNotified: false,
     hardStop: true,
     createdAt: ts,
     updatedAt: ts,
@@ -1085,10 +1300,14 @@ async function createTeamBillingContext(db: Firestore, teamId: string): Promise<
     userId: `team:${teamId}`,
     teamId,
     billingEntity: 'team',
+    paymentProvider: 'stripe',
     monthlyBudget: DEFAULT_ORGANIZATION_BUDGET,
     currentPeriodSpend: 0,
+    walletBalanceCents: 0,
+    pendingHoldsCents: 0,
     periodStart,
     periodEnd,
+    iapLowBalanceNotified: false,
     notified50: false,
     notified80: false,
     notified100: false,

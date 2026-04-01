@@ -62,6 +62,8 @@ import { SSR_AUTH_TOKEN, SSR_FIREBASE_CONFIG } from './features/auth/services/ss
 import { TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui/team-profile';
 import { MANAGE_TEAM_API_BASE_URL } from '@nxt1/ui/manage-team';
 import { AGENT_X_API_BASE_URL } from '@nxt1/ui/agent-x';
+import { FEED_API } from '@nxt1/ui/feed';
+import { FeedApiService } from './core/services/feed-api.service';
 
 // Environment for Firebase config
 import { environment } from '../environments/environment';
@@ -153,6 +155,10 @@ export const config: ApplicationConfig = {
     // Agent X API — required by AgentXService (providedIn: 'root')
     // Must use absolute URL in SSR context
     { provide: AGENT_X_API_BASE_URL, useFactory: () => environment.apiURL },
+
+    // Feed API adapter — required by FeedService (providedIn: 'root')
+    // Must use absolute URL in SSR context
+    { provide: FEED_API, useExisting: FeedApiService },
 
     // Provide Firebase config for ServerAuthService
     // This is used to initialize FirebaseServerApp

@@ -1100,7 +1100,6 @@ export {
   // Main post type
   type FeedPost,
   // Filter types
-  type FeedFilterType,
   type FeedFilter,
   type FeedPagination,
   // Response types
@@ -1137,9 +1136,6 @@ export {
   // Constants
   FEED_API_ENDPOINTS,
   FEED_PAGINATION_DEFAULTS,
-  type FeedFilterOption,
-  FEED_FILTER_OPTIONS,
-  FEED_DEFAULT_FILTER,
   FEED_POST_TYPE_ICONS,
   FEED_POST_TYPE_LABELS,
   FEED_POST_TYPE_COLORS,
@@ -1147,7 +1143,6 @@ export {
   FEED_MAX_VISIBLE_TAGS,
   type FeedEngagementAction,
   FEED_ENGAGEMENT_ICONS,
-  FEED_EMPTY_STATES,
   FEED_UI_CONFIG,
   FEED_CACHE_KEYS,
   FEED_CACHE_TTLS,

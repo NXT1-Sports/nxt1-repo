@@ -46,6 +46,7 @@ import {
   USAGE_API_BASE_URL,
   NEWS_API_BASE_URL,
   NEWS_API_ADAPTER,
+  PERFORMANCE_ADAPTER,
 } from '@nxt1/ui';
 // Mobile-specific Activity API adapter (uses CapacitorHttpAdapter + auth)
 import { ActivityApiService as MobileActivityApiService } from './features/activity/services/activity-api.service';
@@ -65,6 +66,7 @@ import { EditProfileApiService } from './core/services/edit-profile-api.service'
 // Local services
 import { CrashlyticsService } from './core/services/crashlytics.service';
 import { AnalyticsService } from './core/services/analytics.service';
+import { PerformanceService } from './core/services/performance.service';
 
 import { routes } from './app.routes';
 import { environment } from '../environments/environment';
@@ -185,6 +187,9 @@ export const appConfig: ApplicationConfig = {
 
     // Analytics adapter (used by @nxt1/ui shared services like FeedService)
     { provide: ANALYTICS_ADAPTER, useExisting: AnalyticsService },
+
+    // Performance adapter (used by @nxt1/ui shared services like ActivityService)
+    { provide: PERFORMANCE_ADAPTER, useExisting: PerformanceService },
 
     // Agent X API base URL
     { provide: AGENT_X_API_BASE_URL, useFactory: () => environment.apiUrl },

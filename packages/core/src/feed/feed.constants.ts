@@ -7,7 +7,7 @@
  * 100% portable - NO platform dependencies.
  */
 
-import type { FeedFilterType, FeedPostType, FeedPostTagType } from './feed.types';
+import type { FeedPostType, FeedPostTagType } from './feed.types';
 
 // ============================================
 // API ENDPOINTS
@@ -25,9 +25,6 @@ export const FEED_API_ENDPOINTS = {
   POST_LIKE: '/feed/posts/:id/like',
   POST_SHARE: '/feed/posts/:id/share',
   POST_REPORT: '/feed/posts/:id/report',
-  /** Trending/discover */
-  TRENDING: '/feed/trending',
-  DISCOVER: '/feed/discover',
   /** User-specific feeds */
   USER_FEED: '/feed/users/:uid',
   TEAM_FEED: '/feed/teams/:teamCode',
@@ -50,65 +47,6 @@ export const FEED_PAGINATION_DEFAULTS = {
   /** Prefetch threshold (load more when X items from bottom) */
   PREFETCH_THRESHOLD: 5,
 } as const;
-
-// ============================================
-// FEED FILTER OPTIONS
-// ============================================
-
-/**
- * Feed filter tab configuration.
- */
-export interface FeedFilterOption {
-  /** Filter type identifier */
-  readonly id: FeedFilterType;
-  /** Display label */
-  readonly label: string;
-  /** Ionicons icon name */
-  readonly icon: string;
-  /** Whether requires authentication */
-  readonly requiresAuth: boolean;
-  /** Description for empty state */
-  readonly description: string;
-}
-
-/**
- * Available feed filter options.
- */
-export const FEED_FILTER_OPTIONS: readonly FeedFilterOption[] = [
-  {
-    id: 'trending',
-    label: 'Trending',
-    icon: 'trendingUp',
-    requiresAuth: false,
-    description: "What's popular right now",
-  },
-  {
-    id: 'sports',
-    label: 'Sports',
-    icon: 'football',
-    requiresAuth: false,
-    description: 'Filter by your favorite sports',
-  },
-  {
-    id: 'offers',
-    label: 'Offers',
-    icon: 'school',
-    requiresAuth: false,
-    description: 'Latest college offers and commitments',
-  },
-  {
-    id: 'highlights',
-    label: 'Highlights',
-    icon: 'playCircle',
-    requiresAuth: false,
-    description: 'Top video highlights and clips',
-  },
-] as const;
-
-/**
- * Default feed filter.
- */
-export const FEED_DEFAULT_FILTER: FeedFilterType = 'trending';
 
 // ============================================
 // POST TYPE CONFIGURATION
@@ -221,37 +159,6 @@ export const FEED_ENGAGEMENT_ICONS: Record<
   share: { outline: 'share', filled: 'share' },
   bookmark: { outline: 'bookmark', filled: 'bookmarkFilled' },
   report: { outline: 'flag', filled: 'flagFilled' },
-} as const;
-
-// ============================================
-// EMPTY STATE CONFIGURATION
-// ============================================
-
-/**
- * Empty state messages per filter type.
- */
-export const FEED_EMPTY_STATES: Record<
-  FeedFilterType,
-  { title: string; message: string; cta?: string }
-> = {
-  sports: {
-    title: 'No posts in this sport',
-    message: "There aren't any recent posts for this sport yet.",
-  },
-  offers: {
-    title: 'No offers yet',
-    message: 'College offers and commitments will appear here.',
-  },
-  highlights: {
-    title: 'No highlights yet',
-    message: 'Video highlights from athletes will appear here.',
-    cta: 'Upload a Highlight',
-  },
-  trending: {
-    title: 'Nothing trending',
-    message: 'Popular posts from the community will appear here.',
-    cta: 'Explore',
-  },
 } as const;
 
 // ============================================

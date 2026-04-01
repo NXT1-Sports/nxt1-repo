@@ -8,7 +8,7 @@
  *
  * Features:
  * - Reactive state with Angular signals
- * - Filter-based feed management
+ * - Chronological feed (newest first)
  * - Infinite scroll pagination
  * - Optimistic UI for engagement actions
  * - Pull-to-refresh support
@@ -21,11 +21,6 @@
  *
  *   readonly posts = this.feed.posts;
  *   readonly isLoading = this.feed.isLoading;
- *   readonly activeFilter = this.feed.activeFilter;
- *
- *   async onFilterChange(filter: FeedFilterType): Promise<void> {
- *     await this.feed.loadFeed(filter);
- *   }
  * }
  * ```
  */
@@ -36,10 +31,7 @@ import {
   type FeedPost,
   type FeedItem,
   type FeedAuthor,
-  type FeedFilterType,
-  type FeedFilter,
   type FeedPagination,
-  FEED_DEFAULT_FILTER,
   FEED_PAGINATION_DEFAULTS,
 } from '@nxt1/core';
 import { APP_EVENTS, FIREBASE_EVENTS, type AnalyticsAdapter } from '@nxt1/core/analytics';
@@ -70,8 +62,6 @@ export class FeedService {
 
   private readonly _posts = signal<FeedPost[]>([]);
   private readonly _polymorphicFeed = signal<readonly FeedItem[]>([]);
-  private readonly _activeFilter = signal<FeedFilterType>(FEED_DEFAULT_FILTER);
-  private readonly _filters = signal<FeedFilter>({});
   private readonly _isLoading = signal(false);
   private readonly _isLoadingMore = signal(false);
   private readonly _isRefreshing = signal(false);
@@ -90,12 +80,6 @@ export class FeedService {
 
   /** Polymorphic feed demonstration */
   readonly polymorphicFeed = computed(() => this._polymorphicFeed());
-
-  /** Currently active filter type */
-  readonly activeFilter = computed(() => this._activeFilter());
-
-  /** Current filters applied */
-  readonly filters = computed(() => this._filters());
 
   /** Whether initial load is in progress */
   readonly isLoading = computed(() => this._isLoading());
@@ -135,18 +119,15 @@ export class FeedService {
   // ============================================
 
   /**
-   * Load feed with specified filter.
+   * Load feed (chronological, newest first).
    * Replaces current posts.
    */
-  async loadFeed(filterType?: FeedFilterType): Promise<void> {
-    const filter = filterType ?? this._activeFilter();
-
-    this.logger.info('Loading feed', { filter });
-    this.breadcrumb.trackStateChange('feed:loading', { filter });
+  async loadFeed(): Promise<void> {
+    this.logger.info('Loading feed');
+    this.breadcrumb.trackStateChange('feed:loading', {});
 
     this._isLoading.set(true);
     this._error.set(null);
-    this._activeFilter.set(filter);
     this._hasNewPosts.set(false);
     this._newPostsCount.set(0);
 
@@ -160,7 +141,7 @@ export class FeedService {
       }
 
       const response = await this.api.getFeed(
-        { type: filter },
+        {},
         FEED_PAGINATION_DEFAULTS.INITIAL_PAGE,
         FEED_PAGINATION_DEFAULTS.LIMIT
       );
@@ -176,24 +157,22 @@ export class FeedService {
         });
         this.breadcrumb.trackStateChange('feed:loaded', {
           count: response.data?.length ?? 0,
-          filter,
         });
         this.analytics?.trackEvent(APP_EVENTS.HOME_FEED_VIEWED, {
-          filter,
           count: response.data?.length ?? 0,
         });
       } else {
         this._error.set(response.error ?? 'Failed to load feed');
         this.logger.warn('Feed API returned error', { error: response.error });
         this.breadcrumb.trackStateChange('feed:error', { error: response.error });
-        this.analytics?.trackEvent(APP_EVENTS.HOME_FEED_ERROR, { error: response.error, filter });
+        this.analytics?.trackEvent(APP_EVENTS.HOME_FEED_ERROR, { error: response.error });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load feed';
       this._error.set(message);
       this.logger.error('Failed to load feed', err);
       this.breadcrumb.trackStateChange('feed:error', { error: message });
-      this.analytics?.trackEvent(APP_EVENTS.HOME_FEED_ERROR, { error: message, filter });
+      this.analytics?.trackEvent(APP_EVENTS.HOME_FEED_ERROR, { error: message });
     } finally {
       this._isLoading.set(false);
     }
@@ -215,11 +194,7 @@ export class FeedService {
     try {
       const nextPage = pagination.page + 1;
 
-      const response = await this.api.getFeed(
-        { type: this._activeFilter() },
-        nextPage,
-        FEED_PAGINATION_DEFAULTS.LIMIT
-      );
+      const response = await this.api.getFeed({}, nextPage, FEED_PAGINATION_DEFAULTS.LIMIT);
 
       if (response.success) {
         this._posts.update((current) => [...current, ...(response.data ?? [])]);
@@ -259,9 +234,8 @@ export class FeedService {
         return;
       }
 
-      const filter = this._activeFilter();
       const response = await this.api.getFeed(
-        { type: filter },
+        {},
         FEED_PAGINATION_DEFAULTS.INITIAL_PAGE,
         FEED_PAGINATION_DEFAULTS.LIMIT
       );
@@ -290,19 +264,6 @@ export class FeedService {
     } finally {
       this._isRefreshing.set(false);
     }
-  }
-
-  /**
-   * Change filter type.
-   */
-  async changeFilter(filterType: FeedFilterType): Promise<void> {
-    if (filterType === this._activeFilter()) {
-      return;
-    }
-
-    await this.haptics.impact('light');
-    this.analytics?.trackEvent(APP_EVENTS.HOME_FEED_FILTER_CHANGED, { filter: filterType });
-    await this.loadFeed(filterType);
   }
 
   // ============================================
