@@ -47,8 +47,14 @@ import type { AgentChatService } from '../services/agent-chat.service.js';
 import { isAgentYield } from '../errors/agent-yield.error.js';
 import { notifyYield } from '../services/yield-notifier.service.js';
 import { getJobCost } from '../../billing/helicone.service.js';
-import { calculateChargeAmount } from '../../billing/pricing.service.js';
-import { recordSpend } from '../../billing/budget.service.js';
+import { calculateChargeAmount, estimateChargeAmountSync } from '../../billing/pricing.service.js';
+import {
+  recordSpend,
+  getBillingContext,
+  createWalletHold,
+  captureWalletHold,
+  releaseWalletHold,
+} from '../../billing/budget.service.js';
 import {
   logAgentTaskCompletion,
   logAgentTaskFailure,
@@ -125,6 +131,43 @@ export class AgentWorker {
     const { payload } = job.data;
     const startMs = Date.now();
     const repo = this.getJobRepo(job);
+
+    // Hoist billing db so it's available across the full job lifecycle
+    const billingDb = await this.getActivityFirestore(job);
+    const feature = typeof payload.agent === 'string' ? payload.agent : 'agent';
+
+    // ── IAP hold: show "Processing" amount in usage overview ─────────────
+    // For prepaid wallet users, create a hold at job start so the UI can display
+    // the estimated in-flight cost under "Processing". Released or captured at end.
+    let iapHoldId: string | null = null;
+    const billingCtxForHold = await getBillingContext(billingDb, payload.userId);
+    if (
+      billingCtxForHold?.paymentProvider === 'iap' &&
+      billingCtxForHold.billingEntity === 'individual'
+    ) {
+      const { chargeAmountCents: estimatedCents } = estimateChargeAmountSync(0.1);
+      const holdResult = await createWalletHold(
+        billingDb,
+        payload.userId,
+        estimatedCents,
+        payload.operationId,
+        feature
+      );
+      if (holdResult.success && holdResult.holdId) {
+        iapHoldId = holdResult.holdId;
+        logger.info('[billing] IAP hold created for job', {
+          holdId: iapHoldId,
+          estimatedCents,
+          userId: payload.userId,
+          operationId: payload.operationId,
+        });
+      } else {
+        logger.warn('[billing] Failed to create IAP hold — job will proceed without hold', {
+          userId: payload.userId,
+          reason: holdResult.reason,
+        });
+      }
+    }
 
     let stepIndex = 0;
     let totalSteps = 1; // Updated once the plan is created
@@ -254,6 +297,16 @@ export class AgentWorker {
           agentId: yieldPayload.agentId,
         });
 
+        // Release any IAP hold — job is paused, not actively running
+        if (iapHoldId) {
+          releaseWalletHold(billingDb, iapHoldId).catch((e: unknown) => {
+            logger.warn('[billing] Failed to release IAP hold on yield', {
+              holdId: iapHoldId,
+              error: e instanceof Error ? e.message : String(e),
+            });
+          });
+        }
+
         // Return a clean result so BullMQ marks the job as "completed" (not failed).
         // The actual continuation happens when the user responds via the resume route.
         return {
@@ -287,6 +340,16 @@ export class AgentWorker {
         logger.error('Failed to dispatch failure notification', {
           operationId: payload.operationId,
           error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+        });
+      }
+
+      // Release any IAP hold — job failed, funds should not stay locked
+      if (iapHoldId) {
+        releaseWalletHold(billingDb, iapHoldId).catch((e: unknown) => {
+          logger.warn('[billing] Failed to release IAP hold on job failure', {
+            holdId: iapHoldId,
+            error: e instanceof Error ? e.message : String(e),
+          });
         });
       }
 
@@ -337,8 +400,9 @@ export class AgentWorker {
     });
 
     // Billing deduction: fetch actual Helicone cost → calculate charge → deduct (fire-and-forget)
-    const billingDb = await this.getActivityFirestore(job);
-    const feature = typeof payload.agent === 'string' ? payload.agent : 'agent';
+    // For IAP wallet users: capture the pre-created hold with the actual cost
+    // (releases pendingHoldsCents + deducts walletBalanceCents atomically).
+    // For Stripe/org users: record spend as before.
     void (async () => {
       try {
         const { totalCostUsd, source } = await getJobCost(payload.operationId);
@@ -349,18 +413,36 @@ export class AgentWorker {
               userId: payload.userId,
             });
           }
+          // Release IAP hold so funds are not permanently locked
+          if (iapHoldId) {
+            releaseWalletHold(billingDb, iapHoldId).catch((e: unknown) => {
+              logger.warn('[billing] Failed to release IAP hold on zero cost', {
+                holdId: iapHoldId,
+                error: e instanceof Error ? e.message : String(e),
+              });
+            });
+          }
           return;
         }
         const { chargeAmountCents } = await calculateChargeAmount(billingDb, totalCostUsd, feature);
         if (chargeAmountCents > 0) {
-          await recordSpend(billingDb, payload.userId, chargeAmountCents);
+          if (iapHoldId) {
+            // Capture hold: atomically release pendingHoldsCents + deduct actual cost
+            await captureWalletHold(billingDb, iapHoldId, chargeAmountCents);
+          } else {
+            await recordSpend(billingDb, payload.userId, chargeAmountCents);
+          }
           logger.info('[billing] Deducted charge for completed job', {
             operationId: payload.operationId,
             userId: payload.userId,
             actualCostUsd: totalCostUsd,
             chargeAmountCents,
             feature,
+            via: iapHoldId ? 'captureWalletHold' : 'recordSpend',
           });
+        } else if (iapHoldId) {
+          // No charge — release hold so funds are available again
+          await releaseWalletHold(billingDb, iapHoldId);
         }
       } catch (billingErr) {
         logger.warn('[billing] Deduction failed — job result unaffected', {
@@ -368,6 +450,15 @@ export class AgentWorker {
           userId: payload.userId,
           error: billingErr instanceof Error ? billingErr.message : String(billingErr),
         });
+        // Best-effort: release IAP hold to avoid permanently locked funds
+        if (iapHoldId) {
+          releaseWalletHold(billingDb, iapHoldId).catch((e: unknown) => {
+            logger.warn('[billing] Failed to release IAP hold after billing error', {
+              holdId: iapHoldId,
+              error: e instanceof Error ? e.message : String(e),
+            });
+          });
+        }
       }
     })();
 

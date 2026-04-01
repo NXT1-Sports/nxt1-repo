@@ -225,16 +225,25 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     const dailyUsage = new Map<string, number>();
     let totalUsageCents = 0;
 
-    for (const doc of eventsDocs) {
-      const data = doc.data();
-      const feature = data['feature'] as string;
-      const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
-      totalUsageCents += cost;
+    // For IAP wallet users, charges go directly to billingContexts.currentPeriodSpend
+    // (deductWallet does not write usageEvents). Use the authoritative source directly.
+    const isIapUser =
+      billingCtx.billingEntity === 'individual' && billingCtx.paymentProvider === 'iap';
 
-      featureUsage.set(feature, (featureUsage.get(feature) ?? 0) + cost);
+    if (isIapUser) {
+      totalUsageCents = billingCtx.currentPeriodSpend ?? 0;
+    } else {
+      for (const doc of eventsDocs) {
+        const data = doc.data();
+        const feature = data['feature'] as string;
+        const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
+        totalUsageCents += cost;
 
-      const dateKey = (data['createdAt'] as string).slice(0, 10);
-      dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
+        featureUsage.set(feature, (featureUsage.get(feature) ?? 0) + cost);
+
+        const dateKey = (data['createdAt'] as string).slice(0, 10);
+        dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
+      }
     }
 
     // Build overview (includes wallet fields for B2C UI fork)
@@ -521,10 +530,19 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
       10000
     );
 
+    // For IAP wallet users, charges go directly to billingContexts.currentPeriodSpend
+    // (deductWallet does not write usageEvents). Use the authoritative source directly.
+    const isIapUser =
+      billingCtx.billingEntity === 'individual' && billingCtx.paymentProvider === 'iap';
+
     let totalUsageCents = 0;
-    for (const doc of eventsDocs) {
-      const data = doc.data();
-      totalUsageCents += (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
+    if (isIapUser) {
+      totalUsageCents = billingCtx.currentPeriodSpend ?? 0;
+    } else {
+      for (const doc of eventsDocs) {
+        const data = doc.data();
+        totalUsageCents += (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
+      }
     }
 
     const overview: UsageOverview = {
