@@ -12,7 +12,7 @@
     "dev": "nodemon --watch src --ext ts,js,json --exec \"npm run build && npm start\"",
     "dev:staging": "NODE_ENV=staging nodemon --watch src --ext ts,js,json --exec \"npm run build && npm run start:staging\"",
     "dev:prod": "NODE_ENV=production nodemon --watch src --ext ts,js,json --exec \"npm run build && npm run start:prod\"",
-    "build": "rimraf tsconfig.tsbuildinfo && tsc",
+    "build": "rimraf tsconfig.tsbuildinfo && tsc && cp -r src/routes/iap-certs dist/routes/iap-certs",
     "build:watch": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
