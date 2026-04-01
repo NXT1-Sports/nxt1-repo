@@ -114,7 +114,10 @@ export class UsageComponent {
   }
 
   protected async onBuyCredits(): Promise<void> {
-    const result = await this.bottomSheet.openSheet<{ newBalanceCents: number }>({
+    const result = await this.bottomSheet.openSheet<{
+      purchased?: boolean;
+      newBalanceCents?: number;
+    }>({
       component: WalletTopUpSheetComponent,
       ...SHEET_PRESETS.FULL,
       showHandle: true,
@@ -122,8 +125,8 @@ export class UsageComponent {
       cssClass: 'wallet-top-up-sheet',
     });
 
-    // Refresh usage overview so wallet balance reflects the new top-up
-    if (result?.data?.newBalanceCents != null) {
+    // Refresh usage overview when a purchase was completed
+    if (result?.data?.purchased === true) {
       await this.usage.refresh();
     }
   }
