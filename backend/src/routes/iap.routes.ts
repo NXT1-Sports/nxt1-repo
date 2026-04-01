@@ -89,7 +89,9 @@ const WALLET_PRODUCTS: Record<string, number> = {
 async function buildVerifier(isStaging: boolean) {
   const certs = loadAppleCerts();
   const env = isStaging ? Environment.SANDBOX : Environment.PRODUCTION;
-  return new SignedDataVerifier(certs, true, env, APPLE_BUNDLE_ID, APPLE_APP_ID);
+  // Disable online OCSP checks for sandbox — Apple's OCSP endpoint can be unreliable in sandbox
+  const enableOnlineChecks = !isStaging;
+  return new SignedDataVerifier(certs, enableOnlineChecks, env, APPLE_BUNDLE_ID, APPLE_APP_ID);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -189,10 +191,16 @@ router.post(
         transactionId,
       });
     } catch (err) {
-      logger.error('[iap/verify-receipt] Verification failed', { error: err, userId });
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const errName = err instanceof Error ? err.name : 'UnknownError';
+      logger.error('[iap/verify-receipt] Verification failed', {
+        error: errMsg,
+        errorName: errName,
+        userId,
+      });
       return res.status(400).json({
         success: false,
-        error: err instanceof Error ? err.message : 'IAP verification failed',
+        error: errMsg || 'IAP verification failed',
       });
     }
   }
@@ -212,7 +220,19 @@ router.post(
  * Apple requires a 200 response within 5 seconds or it retries.
  */
 router.post('/webhook', async (req: Request, res: Response) => {
-  const { signedPayload } = req.body as { signedPayload?: string };
+  // webhookRawBodyMiddleware consumes the body stream before express.json() for all /webhook paths.
+  // Parse from req.rawBody if req.body is empty.
+  let parsedBody: { signedPayload?: string } = {};
+  if (req.body && typeof req.body === 'object' && Object.keys(req.body as object).length > 0) {
+    parsedBody = req.body as { signedPayload?: string };
+  } else if (req.rawBody) {
+    try {
+      parsedBody = JSON.parse(req.rawBody) as { signedPayload?: string };
+    } catch (_parseErr) {
+      return res.status(400).json({ success: false, error: 'Invalid JSON body' });
+    }
+  }
+  const { signedPayload } = parsedBody;
 
   if (!signedPayload) {
     return res.status(400).json({ success: false, error: 'Missing signedPayload' });
