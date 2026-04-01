@@ -53,6 +53,7 @@ export const USAGE_SECTION_NAVS: readonly UsageSectionNav[] = [
   { id: 'metered-usage', label: 'Metered usage' },
   { id: 'breakdown', label: 'Usage breakdown' },
   { id: 'payment-history', label: 'Payment history' },
+  { id: 'budgets', label: 'Budgets' },
   { id: 'payment-info', label: 'Payment info' },
 ] as const;
 import { NxtToastService } from '../services/toast/toast.service';
@@ -138,7 +139,9 @@ export class UsageService {
   readonly sectionNavs = computed((): readonly UsageSectionNav[] => {
     if (this.isPersonal()) {
       // B2C: hide metered-usage chart, budgets, and payment-info
-      return USAGE_SECTION_NAVS.filter((n) => n.id !== 'metered-usage' && n.id !== 'payment-info');
+      return USAGE_SECTION_NAVS.filter(
+        (n) => n.id !== 'metered-usage' && n.id !== 'budgets' && n.id !== 'payment-info'
+      );
     }
     return USAGE_SECTION_NAVS;
   });
@@ -405,6 +408,44 @@ export class UsageService {
   }
 
   // ============================================
+  // RECEIPT & INVOICE DOWNLOADS
+  // ============================================
+
+  /** Open a receipt PDF for a payment history record */
+  async openReceipt(recordId: string): Promise<void> {
+    const record = this._paymentHistory().find((r) => r.id === recordId);
+    if (record?.receiptUrl) {
+      window.open(record.receiptUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    this.logger.info('Fetching receipt URL', { recordId });
+    try {
+      const url = await this.api.getReceiptUrl(recordId);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      this.logger.error('Failed to get receipt URL', err, { recordId });
+      this.toast.error('Unable to open receipt. Please try again.');
+    }
+  }
+
+  /** Open an invoice PDF for a payment history record */
+  async openInvoice(recordId: string): Promise<void> {
+    const record = this._paymentHistory().find((r) => r.id === recordId);
+    if (record?.invoiceUrl) {
+      window.open(record.invoiceUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    this.logger.info('Fetching invoice URL', { recordId });
+    try {
+      const url = await this.api.getInvoiceUrl(recordId);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      this.logger.error('Failed to get invoice URL', err, { recordId });
+      this.toast.error('Unable to open invoice. Please try again.');
+    }
+  }
+
+  // ============================================
   // BUDGET MANAGEMENT
   // ============================================
 
@@ -444,6 +485,27 @@ export class UsageService {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update team budget';
       this.logger.error('Failed to update team budget', err, { teamId, monthlyBudget });
+      this.toast.error(message);
+      await this.haptics.notification('error');
+      return false;
+    }
+  }
+
+  /** Save billing info (address, name, etc.) to Stripe */
+  async saveBillingInfo(info: UsageBillingInfo): Promise<boolean> {
+    this.logger.info('Saving billing info');
+    this.breadcrumb.trackStateChange('usage:saving-billing-info');
+    const previous = this._billingInfo();
+    try {
+      this._billingInfo.set(info);
+      await this.api.updateBillingInfo(info);
+      await this.haptics.notification('success');
+      this.toast.success('Billing information updated');
+      return true;
+    } catch (err) {
+      this._billingInfo.set(previous);
+      const message = err instanceof Error ? err.message : 'Failed to update billing information';
+      this.logger.error('Failed to save billing info', err);
       this.toast.error(message);
       await this.haptics.notification('error');
       return false;

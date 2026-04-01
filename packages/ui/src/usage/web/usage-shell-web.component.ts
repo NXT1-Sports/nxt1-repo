@@ -263,6 +263,14 @@ export type { UsageUser };
                   />
                 }
 
+                @case ('budgets') {
+                  <nxt1-usage-budgets
+                    [budgets]="svc.budgets()"
+                    (createBudget)="onCreateBudget()"
+                    (editBudget)="onEditBudget($event)"
+                  />
+                }
+
                 @case ('payment-info') {
                   <nxt1-usage-payment-info
                     [billingInfo]="svc.billingInfo()"
@@ -509,14 +517,14 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
     // Navigate to subscription management
   }
 
-  protected onDownloadReceipt(_recordId: string): void {
-    this.haptics.impact('light');
-    // API call to get receipt URL and open
+  protected async onDownloadReceipt(recordId: string): Promise<void> {
+    await this.haptics.impact('light');
+    await this.svc.openReceipt(recordId);
   }
 
-  protected onDownloadInvoice(_recordId: string): void {
-    this.haptics.impact('light');
-    // API call to get invoice URL and open
+  protected async onDownloadInvoice(recordId: string): Promise<void> {
+    await this.haptics.impact('light');
+    await this.svc.openInvoice(recordId);
   }
 
   protected async onCreateBudget(): Promise<void> {
@@ -547,19 +555,25 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
     await ref.closed;
   }
 
-  protected onEditBilling(): void {
+  protected async onEditBilling(): Promise<void> {
     this.haptics.impact('light');
-    // Open billing info editing form/bottom sheet
+    const result = await this.usageBottomSheet.editBillingInfo(this.svc.billingInfo());
+    if (result) {
+      await this.svc.saveBillingInfo(result);
+    }
   }
 
-  protected onEditPayment(): void {
+  protected async onEditPayment(): Promise<void> {
     this.haptics.impact('light');
-    // Open payment method form/bottom sheet
+    await this.usageBottomSheet.showPaymentMethodOptions();
   }
 
-  protected onEditAdditional(): void {
+  protected async onEditAdditional(): Promise<void> {
     this.haptics.impact('light');
-    // Open additional info form/bottom sheet
+    const result = await this.usageBottomSheet.editAdditionalInfo(this.svc.billingInfo());
+    if (result) {
+      await this.svc.saveBillingInfo(result);
+    }
   }
 
   protected async onBuyCredits(): Promise<void> {

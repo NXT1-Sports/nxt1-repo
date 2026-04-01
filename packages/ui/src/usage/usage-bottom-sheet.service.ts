@@ -11,12 +11,16 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { NxtBottomSheetService } from '../components/bottom-sheet/bottom-sheet.service';
-import { USAGE_TIMEFRAME_OPTIONS, type UsageTimeframe } from '@nxt1/core';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
+import { USAGE_TIMEFRAME_OPTIONS, type UsageTimeframe, type UsageBillingInfo } from '@nxt1/core';
 import type {
   BottomSheetAction,
   BottomSheetResult,
 } from '../components/bottom-sheet/bottom-sheet.types';
+import {
+  UsageBillingInfoSheetComponent,
+  type BillingInfoSheetResult,
+} from './usage-billing-info-sheet.component';
 
 export interface UsageBottomSheetResult {
   readonly action: string;
@@ -110,5 +114,37 @@ export class UsageBottomSheetService {
     const selectedLabel = (result.data as BottomSheetAction | undefined)?.label;
     const match = selectedLabel?.match(/^\$(\d+)\s*\/\s*month$/);
     return match ? parseInt(match[1], 10) * 100 : null;
+  }
+
+  /** Open billing info edit form */
+  async editBillingInfo(current: UsageBillingInfo | null): Promise<UsageBillingInfo | null> {
+    const result = await this.bottomSheet.openSheet<BillingInfoSheetResult>({
+      component: UsageBillingInfoSheetComponent,
+      componentProps: { mode: 'billing', current },
+      ...SHEET_PRESETS.TALL,
+      showHandle: true,
+      backdropDismiss: true,
+      cssClass: 'usage-billing-info-sheet',
+    });
+    if (result?.data?.saved && result.data.info) {
+      return result.data.info;
+    }
+    return null;
+  }
+
+  /** Open additional info edit form */
+  async editAdditionalInfo(current: UsageBillingInfo | null): Promise<UsageBillingInfo | null> {
+    const result = await this.bottomSheet.openSheet<BillingInfoSheetResult>({
+      component: UsageBillingInfoSheetComponent,
+      componentProps: { mode: 'additional', current },
+      ...SHEET_PRESETS.TALL,
+      showHandle: true,
+      backdropDismiss: true,
+      cssClass: 'usage-billing-info-sheet',
+    });
+    if (result?.data?.saved && result.data.info) {
+      return result.data.info;
+    }
+    return null;
   }
 }
