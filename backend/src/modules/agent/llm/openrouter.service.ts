@@ -461,11 +461,12 @@ export class OpenRouterService {
       body['response_format'] = { type: 'json_object' };
     }
 
-    // For Anthropic models, explicitly prefer the Anthropic provider.
-    // Amazon Bedrock returns 400 "The provided model identifier is invalid"
-    // for the `anthropic/claude-*` OpenRouter slugs.
+    // For Anthropic models, exclude Amazon Bedrock which rejects the OpenRouter
+    // slug format ("The provided model identifier is invalid").
+    // Using `ignore` (not `order`+`allow_fallbacks:false`) so other providers
+    // like Anthropic direct or Azure can still serve the request.
     if (model.startsWith('anthropic/')) {
-      body['provider'] = { order: ['Anthropic'], allow_fallbacks: false };
+      body['provider'] = { ignore: ['Amazon Bedrock'], allow_fallbacks: true };
     }
 
     return body;
@@ -492,7 +493,7 @@ export class OpenRouterService {
 
     // Same Bedrock avoidance as non-streaming path
     if (model.startsWith('anthropic/')) {
-      streamBody['provider'] = { order: ['Anthropic'], allow_fallbacks: false };
+      streamBody['provider'] = { ignore: ['Amazon Bedrock'], allow_fallbacks: true };
     }
 
     return streamBody;
