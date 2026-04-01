@@ -50,7 +50,6 @@ import {
   ProfileService as UiProfileService,
   userToProfilePageData,
   NxtRefresherComponent,
-  ProfileGenerationOverlayComponent,
   ProfileGenerationStateService,
   TeamProfileShellWebComponent,
   TeamProfileService,
@@ -111,7 +110,6 @@ import { environment } from '../../../environments/environment';
     TeamProfileShellWebComponent,
     RelatedAthletesComponent,
     NxtRefresherComponent,
-    ProfileGenerationOverlayComponent,
   ],
   template: `
     <ion-header class="ion-no-border" [translucent]="true">
@@ -152,6 +150,7 @@ import { environment } from '../../../environments/environment';
           (qrCodeClick)="onQrCode()"
           (aiSummaryClick)="onAiSummary()"
           (refreshRequest)="onRefreshRequest()"
+          (generationDismissed)="onGenerationDismissed($event)"
         />
 
         @if (relatedAthletes().length > 0) {
@@ -165,10 +164,6 @@ import { environment } from '../../../environments/environment';
         }
       }
     </ion-content>
-
-    @if (generation.isGenerating()) {
-      <nxt1-profile-generation-overlay (dismissed)="onGenerationDismissed($event)" />
-    }
   `,
   styles: `
     :host {

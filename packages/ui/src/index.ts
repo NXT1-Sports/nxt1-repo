@@ -620,6 +620,7 @@ export {
   // Profile Generation (Agent X Onboarding Scrape)
   ProfileGenerationStateService,
   ProfileGenerationOverlayComponent,
+  ProfileGenerationBannerComponent,
   type GenerationPhase,
   type GenerationSnapshot,
 } from './profile';

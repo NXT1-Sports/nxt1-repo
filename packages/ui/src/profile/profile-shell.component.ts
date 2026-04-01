@@ -91,6 +91,8 @@ import {
   ProfileContactComponent,
   ProfileVerificationBannerComponent,
 } from './components';
+import { ProfileGenerationBannerComponent } from './profile-generation-banner.component';
+import { ProfileGenerationStateService } from './profile-generation-state.service';
 
 /**
  * User info passed from parent (web / mobile wrapper).
@@ -117,6 +119,7 @@ export interface ProfileShellUser {
     ProfileSkeletonComponent,
     ProfileContactComponent,
     ProfileVerificationBannerComponent,
+    ProfileGenerationBannerComponent,
   ],
   template: `
     <!-- ═══ TOP NAVIGATION HEADER ═══ -->
@@ -232,6 +235,11 @@ export interface ProfileShellUser {
 
           <!-- ═══ TAB CONTENT ═══ -->
           <section class="tab-content" aria-live="polite">
+            <!-- Inline generation banner — shown while Agent X builds the profile -->
+            @if (generation.isGenerating()) {
+              <nxt1-profile-generation-banner (dismissed)="generationDismissed.emit($event)" />
+            }
+
             @switch (profile.activeTab()) {
               @case ('intel') {
                 <nxt1-profile-overview
@@ -561,6 +569,7 @@ export class ProfileShellComponent implements OnInit {
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileShell');
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  protected readonly generation = inject(ProfileGenerationStateService);
 
   // ============================================
   // INPUTS
@@ -598,6 +607,7 @@ export class ProfileShellComponent implements OnInit {
   readonly agentXClick = output<void>();
   readonly retryClick = output<void>();
   readonly refreshRequest = output<void>();
+  readonly generationDismissed = output<'completed' | 'skipped'>();
 
   // ============================================
   // COMPUTED — Tab Options

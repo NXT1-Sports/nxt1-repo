@@ -57,7 +57,6 @@ import {
   type RelatedAthlete,
   type RankingSource,
   userToProfilePageData,
-  ProfileGenerationOverlayComponent,
   ProfileGenerationStateService,
 } from '@nxt1/ui/profile';
 import { TeamProfileService } from '@nxt1/ui/team-profile';
@@ -117,12 +116,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
   // Scope ProfileService to this component instance so each route navigation
   // gets isolated state and cannot pollute a concurrent instance's view.
   providers: [ProfileService],
-  imports: [
-    ProfileShellWebComponent,
-    NxtCtaBannerComponent,
-    RelatedAthletesComponent,
-    ProfileGenerationOverlayComponent,
-  ],
+  imports: [ProfileShellWebComponent, NxtCtaBannerComponent, RelatedAthletesComponent],
   template: `
     <nxt1-profile-shell-web
       [currentUser]="userInfo()"
@@ -139,6 +133,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
       (qrCodeClick)="onQrCode()"
       (aiSummaryClick)="onAiSummary()"
       (retryClick)="onRetry()"
+      (generationDismissed)="onGenerationDismissed($event)"
     >
       <!-- ═══ PROJECTED BELOW-FOLD CONTENT (inside shell scroll container) ═══ -->
       @defer (on viewport) {
@@ -166,10 +161,6 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
         />
       }
     </nxt1-profile-shell-web>
-
-    @if (generation.isGenerating()) {
-      <nxt1-profile-generation-overlay (dismissed)="onGenerationDismissed($event)" />
-    }
   `,
   styles: [
     `

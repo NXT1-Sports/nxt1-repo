@@ -106,3 +106,5 @@ export {
 } from './profile-generation-state.service';
 
 export { ProfileGenerationOverlayComponent } from './profile-generation-overlay.component';
+
+export { ProfileGenerationBannerComponent } from './profile-generation-banner.component';

@@ -82,6 +82,8 @@ import { ProfileOverviewComponent } from '../components/profile-overview.compone
 import { ProfileMobileHeroComponent } from '../components/profile-mobile-hero.component';
 import { ProfileVerificationBannerComponent } from '../components/profile-verification-banner.component';
 import { ProfileContactComponent } from '../components/profile-contact.component';
+import { ProfileGenerationBannerComponent } from '../profile-generation-banner.component';
+import { ProfileGenerationStateService } from '../profile-generation-state.service';
 import type { ProfileShellUser } from '../profile-shell.component';
 
 const TEAM_TYPE_LABELS: Readonly<Record<ProfileTeamType, string>> = {
@@ -123,6 +125,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
     ProfileMobileHeroComponent,
     ProfileVerificationBannerComponent,
     ProfileContactComponent,
+    ProfileGenerationBannerComponent,
   ],
   template: `
     <main class="profile-main">
@@ -249,6 +252,13 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                     [activeSideTab]="activeSideTab()"
                     [profileUser]="profile.user()"
                   />
+
+                  <!-- Inline generation banner — shown while Agent X builds the profile -->
+                  @if (generation.isGenerating()) {
+                    <nxt1-profile-generation-banner
+                      (dismissed)="generationDismissed.emit($event)"
+                    />
+                  }
 
                   @switch (profile.activeTab()) {
                     @case ('intel') {
@@ -1325,6 +1335,7 @@ export class ProfileShellWebComponent implements OnInit {
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileShellWeb');
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  protected readonly generation = inject(ProfileGenerationStateService);
   protected readonly formatSportDisplayName = formatSportDisplayName;
 
   // ============================================
@@ -1363,6 +1374,7 @@ export class ProfileShellWebComponent implements OnInit {
   readonly qrCodeClick = output<void>();
   readonly aiSummaryClick = output<void>();
   readonly retryClick = output<void>();
+  readonly generationDismissed = output<'completed' | 'skipped'>();
 
   // ============================================
   // COMPUTED
