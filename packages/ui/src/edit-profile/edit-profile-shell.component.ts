@@ -23,7 +23,12 @@ import {
   viewChild,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { AlertController, IonSpinner, ModalController } from '@ionic/angular/standalone';
+import {
+  AlertController,
+  IonContent,
+  IonSpinner,
+  ModalController,
+} from '@ionic/angular/standalone';
 import { NxtModalService } from '../services/modal';
 import {
   BrowserGeolocationAdapter,
@@ -121,6 +126,7 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
   selector: 'nxt1-edit-profile-shell',
   standalone: true,
   imports: [
+    IonContent,
     IonSpinner,
     EditProfileSkeletonComponent,
     NxtSheetHeaderComponent,
@@ -183,7 +189,7 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
       }
     }
 
-    <div class="nxt1-edit-content">
+    <ion-content class="nxt1-edit-content">
       @if (profile.isLoading()) {
         <nxt1-edit-profile-skeleton />
       } @else if (profile.error()) {
@@ -501,7 +507,7 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
           </div>
         </div>
       }
-    </div>
+    </ion-content>
   `,
   styles: [
     `
@@ -593,8 +599,6 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
          ============================================ */
       .nxt1-edit-content {
         flex: 1;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
       }
 
       .nxt1-edit-body {

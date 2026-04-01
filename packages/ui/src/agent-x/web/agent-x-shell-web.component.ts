@@ -2112,6 +2112,7 @@ interface AgentXDesktopSession {
         z-index: calc(var(--nxt1-z-index-fixed, 999) - 1);
         pointer-events: none;
         padding: 0;
+        transition: bottom 0.28s cubic-bezier(0.32, 0.72, 0, 1);
       }
 
       .m-coordinators-scroll {

@@ -88,6 +88,13 @@
 }
 
 /* ============================================
+ * Offset Modifier — shifts sheet up
+ * ============================================ */
+.nxt1-sheet-offset-up::part(content) {
+  margin-bottom: 50px;
+}
+
+/* ============================================
  * Animation
  * ============================================ */
 .nxt1-bottom-sheet-modal.modal-sheet {

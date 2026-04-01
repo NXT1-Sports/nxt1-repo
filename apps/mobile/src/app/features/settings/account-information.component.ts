@@ -210,6 +210,7 @@ export class AccountInformationComponent implements OnInit {
           subtitle:
             'This action cannot be undone. All your data will be permanently deleted. Are you sure you want to continue?',
           ...SHEET_PRESETS.COMPACT,
+          cssClass: 'nxt1-sheet-offset-up',
           actionsLayout: 'horizontal',
           destructive: true,
           actions: [

@@ -39,7 +39,7 @@ if (!firebaseEnv) {
 const projectRoot = path.dirname(__dirname); // Go up from scripts/ to mobile/
 const configDir = path.join(projectRoot, 'firebase-configs');
 
-log(`🔄 Auto-switching Firebase to: ${firebaseEnv} (Angular: ${buildEnv})`, colors.blue);
+log(`🔄 Auto-switching Mobile Firebase to: ${firebaseEnv} (Angular: ${buildEnv})`, colors.blue);
 
 // Switch iOS configuration
 const iOSSource = path.join(configDir, firebaseEnv, 'ios', 'GoogleService-Info.plist');

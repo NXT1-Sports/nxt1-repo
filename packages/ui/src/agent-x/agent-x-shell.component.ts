@@ -1103,6 +1103,7 @@ export interface WeeklyPlaybookItem {
         bottom: calc(76px + var(--keyboard-offset, 0px));
         z-index: calc(var(--nxt1-z-index-fixed, 999) - 1);
         pointer-events: none;
+        transition: bottom 0.28s cubic-bezier(0.32, 0.72, 0, 1);
       }
 
       @media (min-width: 768px) {

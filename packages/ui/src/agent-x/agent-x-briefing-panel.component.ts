@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
+  IonContent,
   IonInput,
   IonLabel,
   IonRange,
@@ -38,6 +39,7 @@ interface AgentXBriefingPanelCloseResult {
   standalone: true,
   imports: [
     CommonModule,
+    IonContent,
     IonInput,
     IonLabel,
     IonRange,
@@ -60,7 +62,7 @@ interface AgentXBriefingPanelCloseResult {
         (closeSheet)="dismiss()"
       />
 
-      <div class="panel-content">
+      <ion-content class="panel-content">
         <div class="panel-body">
           <p class="panel-intro">{{ subtitle() }}</p>
 
@@ -249,7 +251,7 @@ interface AgentXBriefingPanelCloseResult {
             </section>
           }
         </div>
-      </div>
+      </ion-content>
 
       @if (panel === 'status') {
         <nxt1-sheet-footer label="Close" (action)="dismiss()" />
@@ -286,10 +288,6 @@ interface AgentXBriefingPanelCloseResult {
       .panel-content {
         flex: 1;
         min-height: 0;
-        overflow-y: auto;
-        overflow-x: hidden;
-        -webkit-overflow-scrolling: touch;
-        overscroll-behavior: contain;
       }
 
       .panel-body {

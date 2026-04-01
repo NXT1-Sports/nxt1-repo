@@ -100,7 +100,7 @@ import type { AgentXQuickTask } from '@nxt1/core';
         bottom: calc(24px + var(--keyboard-offset, 0px));
         z-index: var(--nxt1-z-index-fixed, 999);
         pointer-events: none;
-        transition: bottom 0.3s ease-out;
+        transition: bottom 0.28s cubic-bezier(0.32, 0.72, 0, 1);
 
         --agent-input-bg: var(--nxt1-glass-bg, rgba(18, 18, 18, 0.8));
         --agent-input-border: var(--nxt1-glass-borderSubtle, rgba(255, 255, 255, 0.08));

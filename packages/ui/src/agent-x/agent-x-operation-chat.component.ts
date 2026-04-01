@@ -386,6 +386,7 @@ interface OperationMessage {
         flex-shrink: 0;
         /* Move input up when keyboard opens */
         transform: translateY(calc(-1 * var(--keyboard-offset, 0px)));
+        transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
       }
 
       .file-input-hidden {

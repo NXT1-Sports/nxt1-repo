@@ -253,7 +253,7 @@ export class NxtBottomSheetService {
       handleBehavior: 'cycle',
       canDismiss: config.canDismiss ?? true,
       // Use the same CSS classes as openSheet() for consistent appearance
-      cssClass: this.buildSheetCssClasses(),
+      cssClass: this.buildSheetCssClasses(config.cssClass),
     });
 
     this.activeModal = modal;
