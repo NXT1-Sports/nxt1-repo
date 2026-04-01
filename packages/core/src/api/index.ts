@@ -239,6 +239,7 @@ export {
   // Welcome Slides Config (role-based onboarding slides)
   type WelcomeSlide,
   type WelcomeSlidesConfig,
+  type WelcomeSlideType,
   WELCOME_SLIDES_BY_ROLE,
   getWelcomeSlidesForRole,
   getPersonalizedGreeting,

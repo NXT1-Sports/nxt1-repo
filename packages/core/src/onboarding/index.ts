@@ -242,6 +242,7 @@ export {
   // Types
   type WelcomeSlide,
   type WelcomeSlidesConfig,
+  type WelcomeSlideType,
 
   // Config map
   WELCOME_SLIDES_BY_ROLE,

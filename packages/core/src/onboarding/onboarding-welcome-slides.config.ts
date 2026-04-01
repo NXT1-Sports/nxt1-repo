@@ -22,6 +22,13 @@ import type { OnboardingUserType } from './onboarding-persistence.api';
 // ============================================
 
 /**
+ * Slide type determines rendering behavior.
+ * - 'info': Standard informational slide with hero, headline, description
+ * - 'goals': Interactive slide for setting agent goals (embeds AgentOnboardingGoalsComponent)
+ */
+export type WelcomeSlideType = 'info' | 'goals';
+
+/**
  * Individual slide configuration
  */
 export interface WelcomeSlide {
@@ -37,6 +44,13 @@ export interface WelcomeSlide {
   accentColor?: string;
   /** Background gradient colors [start, end] */
   gradient?: [string, string];
+  /**
+   * Slide type determines rendering behavior.
+   * Defaults to 'info' if not specified.
+   * - 'info': Standard informational slide
+   * - 'goals': Interactive goals selection slide
+   */
+  type?: WelcomeSlideType;
 }
 
 /**
@@ -59,192 +73,235 @@ export interface WelcomeSlidesConfig {
 
 /**
  * Athlete-specific welcome slides
- * Focus: Getting discovered, showcasing talent, building network
+ * Focus: Setting up Agent X with goals
+ *
+ * New Flow (2026):
+ * 1. Let's set up your agent (intro)
+ * 2. Set your agent goals (interactive goals step)
+ * 3. Agent will work for you + connect more accounts
  */
 const ATHLETE_SLIDES: WelcomeSlidesConfig = {
   role: 'athlete',
   greeting: 'Welcome to NXT1, {name}!',
-  ctaText: 'Start Your Journey',
+  ctaText: 'Launch Agent X',
   slides: [
     {
-      id: 'athlete-celebrate',
+      id: 'athlete-setup-intro',
       icon: 'agent-x',
-      headline: 'Welcome to NXT 1',
+      headline: "Let's Set Up Your Agent",
       description:
-        'NXT 1 is your AI agent sports platform. Agent X helps you run recruiting outreach, content, film breakdown, and daily actions from one command center.',
+        'Agent X is your AI-powered command center. It helps you run recruiting outreach, create content, break down film, and execute daily actions—all from one place.',
       accentColor: 'var(--nxt1-color-primary)',
       gradient: ['#0f172a', '#1e293b'],
+      type: 'info',
     },
     {
-      id: 'athlete-showcase',
-      icon: '🎬',
-      headline: 'Connect Accounts to Power Agent X',
+      id: 'athlete-goals',
+      icon: '🎯',
+      headline: 'Set Your Agent Goals',
       description:
-        'Link your social, video, and communication accounts so Agent X can publish highlights, draft outreach, and execute tasks with your live data.',
+        'Tell Agent X what matters most to you. Select up to two goals to focus your AI assistant.',
       accentColor: '#8B5CF6',
       gradient: ['#1e1b4b', '#312e81'],
+      type: 'goals',
     },
     {
-      id: 'athlete-discover',
-      icon: '🏆',
-      headline: 'Set Up Your Agent',
-      description: "Now let's finalize your Agent X setup and launch your first action plan.",
-      accentColor: '#F59E0B',
-      gradient: ['#1c1917', '#292524'],
+      id: 'athlete-ready',
+      icon: '🚀',
+      headline: 'Your Agent Is Ready to Work',
+      description:
+        'Agent X will now work for you based on your goals. Adjust your goals anytime, and connect more accounts to help your agent work even better.',
+      accentColor: '#10B981',
+      gradient: ['#0d1f17', '#1a3c2e'],
+      type: 'info',
     },
   ],
 };
 
 /**
  * Coach-specific welcome slides (High School/Club)
- * Focus: Team management, recruiting athletes, connecting with programs
+ * Focus: Setting up Agent X with goals
+ *
+ * New Flow (2026):
+ * 1. Let's set up your agent (intro)
+ * 2. Set your agent goals (interactive goals step)
+ * 3. Agent will work for you + connect more accounts
  */
 const COACH_SLIDES: WelcomeSlidesConfig = {
   role: 'coach',
   greeting: 'Welcome, Coach!',
-  ctaText: 'Build Your Team',
+  ctaText: 'Launch Agent X',
   slides: [
     {
-      id: 'coach-celebrate',
+      id: 'coach-setup-intro',
       icon: 'agent-x',
-      headline: 'Welcome to NXT 1',
+      headline: "Let's Set Up Your Agent",
       description:
-        'NXT 1 is your AI agent sports platform. Agent X helps your staff run planning, recruiting communication, player development workflows, and daily operations.',
+        'Agent X is your AI-powered command center. It helps your staff run planning, recruiting communication, player development workflows, and daily operations.',
       accentColor: 'var(--nxt1-color-primary)',
       gradient: ['#0f172a', '#1e293b'],
+      type: 'info',
     },
     {
-      id: 'coach-manage',
-      icon: '📋',
-      headline: 'Connect Accounts to Power Agent X',
+      id: 'coach-goals',
+      icon: '🎯',
+      headline: 'Set Your Agent Goals',
       description:
-        'Connect your team communication, video, and social accounts so Agent X can coordinate tasks, publish updates, and run recruiting actions for your program.',
+        'Tell Agent X what matters most to your program. Select up to two goals to focus your AI assistant.',
       accentColor: '#3B82F6',
       gradient: ['#0c1929', '#1e3a5f'],
+      type: 'goals',
     },
     {
-      id: 'coach-connect',
-      icon: '🤝',
-      headline: 'Set Up Your Agent',
-      description: "Now let's finalize your Agent X setup and launch your team action workflow.",
+      id: 'coach-ready',
+      icon: '🚀',
+      headline: 'Your Agent Is Ready to Work',
+      description:
+        'Agent X will now work for your program based on your goals. Adjust your goals anytime, and connect more accounts to help your agent work even better.',
       accentColor: '#10B981',
       gradient: ['#0d1f17', '#1a3c2e'],
+      type: 'info',
     },
   ],
 };
 
 /**
  * Recruiter-specific welcome slides (college coaches, scouts, recruiting services)
- * Focus: Finding recruits, evaluating talent, streamlining recruiting
+ * Focus: Setting up Agent X with goals
+ *
+ * New Flow (2026):
+ * 1. Let's set up your agent (intro)
+ * 2. Set your agent goals (interactive goals step)
+ * 3. Agent will work for you + connect more accounts
  */
 const RECRUITER_SLIDES: WelcomeSlidesConfig = {
   role: 'recruiter',
   greeting: 'Welcome to NXT1!',
-  ctaText: 'Start Recruiting',
+  ctaText: 'Launch Agent X',
   slides: [
     {
-      id: 'recruiter-celebrate',
+      id: 'recruiter-setup-intro',
       icon: 'agent-x',
-      headline: 'Welcome to NXT 1',
+      headline: "Let's Set Up Your Agent",
       description:
-        'NXT 1 is your AI agent sports platform. Agent X helps you evaluate prospects, automate communication, and keep recruiting pipelines moving.',
+        'Agent X is your AI-powered command center. It helps you evaluate prospects, automate communication, and keep recruiting pipelines moving.',
       accentColor: 'var(--nxt1-color-primary)',
       gradient: ['#0f172a', '#1e293b'],
+      type: 'info',
     },
     {
-      id: 'recruiter-search',
-      icon: '🔍',
-      headline: 'Connect Accounts to Power Agent X',
+      id: 'recruiter-goals',
+      icon: '🎯',
+      headline: 'Set Your Agent Goals',
       description:
-        'Connect your CRM, communication, and video accounts so Agent X can trigger outreach, organize intel, and execute recruiting actions from one place.',
+        'Tell Agent X what matters most to your recruiting. Select up to two goals to focus your AI assistant.',
       accentColor: '#6366F1',
       gradient: ['#1e1b4b', '#312e81'],
+      type: 'goals',
     },
     {
-      id: 'recruiter-evaluate',
-      icon: '📊',
-      headline: 'Set Up Your Agent',
-      description: "Now let's finalize your Agent X setup and launch your recruiting action flow.",
-      accentColor: '#EC4899',
-      gradient: ['#2d1f2d', '#3d2d3d'],
+      id: 'recruiter-ready',
+      icon: '🚀',
+      headline: 'Your Agent Is Ready to Work',
+      description:
+        'Agent X will now work for you based on your goals. Adjust your goals anytime, and connect more accounts to help your agent work even better.',
+      accentColor: '#10B981',
+      gradient: ['#0d1f17', '#1a3c2e'],
+      type: 'info',
     },
   ],
 };
 
 /**
  * Director-specific welcome slides
- * Focus: Program oversight, staff management, analytics
+ * Focus: Setting up Agent X with goals
+ *
+ * New Flow (2026):
+ * 1. Let's set up your agent (intro)
+ * 2. Set your agent goals (interactive goals step)
+ * 3. Agent will work for you + connect more accounts
  */
 const DIRECTOR_SLIDES: WelcomeSlidesConfig = {
   role: 'director',
   greeting: 'Welcome to NXT1!',
-  ctaText: 'View Your Program',
+  ctaText: 'Launch Agent X',
   slides: [
     {
-      id: 'director-celebrate',
+      id: 'director-setup-intro',
       icon: 'agent-x',
-      headline: 'Welcome to NXT 1',
+      headline: "Let's Set Up Your Agent",
       description:
-        'NXT 1 is your AI agent sports platform. Agent X helps your organization align strategy, automate workflows, and execute high-impact operations at scale.',
+        'Agent X is your AI-powered command center. It helps your organization align strategy, automate workflows, and execute high-impact operations at scale.',
       accentColor: 'var(--nxt1-color-primary)',
       gradient: ['#0f172a', '#1e293b'],
+      type: 'info',
     },
     {
-      id: 'director-oversight',
-      icon: '📈',
-      headline: 'Connect Accounts to Power Agent X',
+      id: 'director-goals',
+      icon: '🎯',
+      headline: 'Set Your Agent Goals',
       description:
-        'Connect your program systems, communication channels, and reporting tools so Agent X can orchestrate decisions and execution from one control center.',
+        'Tell Agent X what matters most to your program. Select up to two goals to focus your AI assistant.',
       accentColor: '#0EA5E9',
       gradient: ['#0c1929', '#1e3a5f'],
+      type: 'goals',
     },
     {
-      id: 'director-manage',
-      icon: '🏫',
-      headline: 'Set Up Your Agent',
+      id: 'director-ready',
+      icon: '🚀',
+      headline: 'Your Agent Is Ready to Work',
       description:
-        "Now let's finalize your Agent X setup and launch your program action framework.",
-      accentColor: '#14B8A6',
+        'Agent X will now work for your program based on your goals. Adjust your goals anytime, and connect more accounts to help your agent work even better.',
+      accentColor: '#10B981',
       gradient: ['#0d1f17', '#1a3c2e'],
+      type: 'info',
     },
   ],
 };
 
 /**
  * Parent/Guardian-specific welcome slides
- * Focus: Supporting athlete, tracking progress, understanding process
+ * Focus: Setting up Agent X with goals
+ *
+ * New Flow (2026):
+ * 1. Let's set up your agent (intro)
+ * 2. Set your agent goals (interactive goals step)
+ * 3. Agent will work for you + connect more accounts
  */
 const PARENT_SLIDES: WelcomeSlidesConfig = {
   role: 'parent',
   greeting: 'Welcome to NXT1!',
-  ctaText: 'Support Your Athlete',
+  ctaText: 'Launch Agent X',
   slides: [
     {
-      id: 'parent-celebrate',
+      id: 'parent-setup-intro',
       icon: 'agent-x',
-      headline: 'Welcome to NXT 1',
+      headline: "Let's Set Up Your Agent",
       description:
-        'NXT 1 is your AI agent sports platform. Agent X helps your family stay organized with recruiting tasks, milestones, and communication support.',
+        'Agent X is your AI-powered command center. It helps your family stay organized with recruiting tasks, milestones, and communication support.',
       accentColor: 'var(--nxt1-color-primary)',
       gradient: ['#0f172a', '#1e293b'],
+      type: 'info',
     },
     {
-      id: 'parent-track',
-      icon: '📱',
-      headline: 'Connect Accounts to Power Agent X',
+      id: 'parent-goals',
+      icon: '🎯',
+      headline: 'Set Your Agent Goals',
       description:
-        'Connect communication and scheduling accounts so Agent X can keep everyone synced, track progress, and support your athlete with real-time context.',
+        'Tell Agent X what matters most to your family. Select up to two goals to focus your AI assistant.',
       accentColor: '#E879F9',
       gradient: ['#2d1f2d', '#3d2d3d'],
+      type: 'goals',
     },
     {
-      id: 'parent-learn',
-      icon: '📚',
-      headline: 'Set Up Your Agent',
+      id: 'parent-ready',
+      icon: '🚀',
+      headline: 'Your Agent Is Ready to Work',
       description:
-        "Now let's finalize your Agent X setup and launch your family support action plan.",
-      accentColor: '#22D3EE',
-      gradient: ['#0c1929', '#1e3a5f'],
+        'Agent X will now work for your family based on your goals. Adjust your goals anytime, and connect more accounts to help your agent work even better.',
+      accentColor: '#10B981',
+      gradient: ['#0d1f17', '#1a3c2e'],
+      type: 'info',
     },
   ],
 };

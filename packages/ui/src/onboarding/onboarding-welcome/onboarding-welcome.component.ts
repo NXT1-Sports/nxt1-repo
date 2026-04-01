@@ -57,6 +57,15 @@ import {
   type WelcomeSlidesConfig,
   type OnboardingUserType,
 } from '@nxt1/core/api';
+import {
+  isTeamRole,
+  type AgentGoal,
+  ATHLETE_PREDEFINED_GOALS,
+  COACH_PREDEFINED_GOALS,
+} from '@nxt1/core';
+
+// Goals component for interactive slide
+import { AgentOnboardingGoalsComponent } from '../../agent-x/onboarding/agent-onboarding-goals.component';
 
 // ============================================
 // TYPES
@@ -97,10 +106,10 @@ const CONFIG = {
 @Component({
   selector: 'nxt1-onboarding-welcome',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AgentOnboardingGoalsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="nxt1-welcome-page">
+    <div class="nxt1-welcome-page" [class.nxt1-welcome-page--goals]="isGoalsSlide()">
       <!-- Confetti Background -->
       @if (showConfetti()) {
         <div class="nxt1-confetti-container" aria-hidden="true">
@@ -119,163 +128,105 @@ const CONFIG = {
       }
 
       <!-- Content Container -->
-      <div class="nxt1-welcome-content">
+      <div class="nxt1-welcome-content" [class.nxt1-welcome-content--goals]="isGoalsSlide()">
         <!-- Slide Content -->
         <div class="nxt1-slide-container" [attr.data-direction]="animationDirection()">
-          <!-- Feature Hero -->
-          <div
-            class="nxt1-slide-hero"
-            [class.nxt1-slide-hero--brain]="isStepTwoSlide()"
-            [class.nxt1-slide-hero--feature-panel]="isStepTwoSlide() || isStepThreeSlide()"
-            [style.--accent-color]="currentSlide()?.accentColor"
-            [style.--slide-gradient-start]="currentSlide()?.gradient?.[0]"
-            [style.--slide-gradient-end]="currentSlide()?.gradient?.[1]"
-          >
-            @if (isStepTwoSlide()) {
-              <div class="nxt1-brain-panel" aria-label="Agent X Brain capabilities" role="img">
-                <div class="nxt1-brain-header">
-                  <span class="nxt1-brain-badge" aria-hidden="true">
-                    <svg
-                      class="nxt1-brain-badge-logo"
-                      viewBox="0 0 612 792"
-                      width="14"
-                      height="14"
-                      fill="currentColor"
-                      stroke="currentColor"
-                      stroke-width="12"
-                      stroke-linejoin="round"
-                    >
-                      <path
-                        d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                      />
-                      <polygon
-                        points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
-                      />
-                    </svg>
-                  </span>
-                  <span class="nxt1-brain-title">Agent X Brain</span>
-                </div>
-
-                <div class="nxt1-brain-grid">
-                  <article class="nxt1-brain-card">
-                    <span class="nxt1-brain-card-icon">▶</span>
-                    <h3>Video & Content</h3>
-                    <p>Creates assets and edits that are ready to post.</p>
-                  </article>
-
-                  <article class="nxt1-brain-card nxt1-brain-card--active">
-                    <span class="nxt1-brain-card-icon">◎</span>
-                    <h3>Sport Strategy</h3>
-                    <p>Game-aware guidance tuned to your role and goals.</p>
-                  </article>
-
-                  <article class="nxt1-brain-card">
-                    <span class="nxt1-brain-card-icon">✦</span>
-                    <h3>Design Direction</h3>
-                    <p>Builds polished concepts for any sports workflow.</p>
-                  </article>
-
-                  <article class="nxt1-brain-card">
-                    <span class="nxt1-brain-card-icon">▮▮</span>
-                    <h3>Smart Analysis</h3>
-                    <p>Turns your data into clear, useful next actions.</p>
-                  </article>
-                </div>
-              </div>
-            } @else if (isStepThreeSlide()) {
-              <div class="nxt1-actions-panel" aria-label="Agent X action setup menu" role="img">
-                <div class="nxt1-actions-header">
-                  <span class="nxt1-actions-badge" aria-hidden="true">
-                    <svg
-                      class="nxt1-actions-badge-logo"
-                      viewBox="0 0 612 792"
-                      width="14"
-                      height="14"
-                      fill="currentColor"
-                      stroke="currentColor"
-                      stroke-width="12"
-                      stroke-linejoin="round"
-                    >
-                      <path
-                        d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                      />
-                      <polygon
-                        points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
-                      />
-                    </svg>
-                  </span>
-                  <span class="nxt1-actions-title">Action Menu</span>
-                </div>
-
-                <div class="nxt1-actions-marquee" aria-hidden="true">
-                  <div class="nxt1-actions-row nxt1-actions-row--left">
-                    <div class="nxt1-actions-track">
-                      @for (item of actionRowOne(); track item + '-' + $index) {
-                        <span class="nxt1-action-chip">{{ item }}</span>
-                      }
-                      @for (item of actionRowOne(); track item + '-clone-' + $index) {
-                        <span class="nxt1-action-chip">{{ item }}</span>
-                      }
+          @if (isGoalsSlide()) {
+            <!-- Goals Slide: Full-width interactive goals component -->
+            <h1 class="nxt1-slide-headline nxt1-slide-headline--goals">
+              {{ currentSlide()?.headline || 'Set Your Agent Goals' }}
+            </h1>
+            <p class="nxt1-slide-description nxt1-slide-description--goals">
+              {{ currentSlide()?.description || 'Tell Agent X what matters most to you.' }}
+            </p>
+            <nxt1-agent-onboarding-goals
+              [predefinedGoals]="predefinedGoals()"
+              (goalsChanged)="onGoalsChanged($event)"
+            />
+          } @else {
+            <!-- Feature Hero (info slides) -->
+            <div
+              class="nxt1-slide-hero"
+              [class.nxt1-slide-hero--feature-panel]="isReadySlide()"
+              [style.--accent-color]="currentSlide()?.accentColor"
+              [style.--slide-gradient-start]="currentSlide()?.gradient?.[0]"
+              [style.--slide-gradient-end]="currentSlide()?.gradient?.[1]"
+            >
+              @if (isReadySlide()) {
+                <!-- Ready Slide: Show success panel with rocket -->
+                <div class="nxt1-ready-panel" aria-label="Agent X is ready" role="img">
+                  <div class="nxt1-ready-hero">
+                    <span class="nxt1-ready-icon" aria-hidden="true">🚀</span>
+                    <div class="nxt1-ready-badge">
+                      <svg
+                        class="nxt1-ready-badge-logo"
+                        viewBox="0 0 612 792"
+                        width="16"
+                        height="16"
+                        fill="currentColor"
+                        stroke="currentColor"
+                        stroke-width="12"
+                        stroke-linejoin="round"
+                      >
+                        <path
+                          d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
+                        />
+                        <polygon
+                          points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
+                        />
+                      </svg>
                     </div>
                   </div>
-
-                  <div class="nxt1-actions-row nxt1-actions-row--right">
-                    <div class="nxt1-actions-track">
-                      @for (item of actionRowTwo(); track item + '-' + $index) {
-                        <span class="nxt1-action-chip">{{ item }}</span>
-                      }
-                      @for (item of actionRowTwo(); track item + '-clone-' + $index) {
-                        <span class="nxt1-action-chip">{{ item }}</span>
-                      }
+                  <div class="nxt1-ready-tips">
+                    <div class="nxt1-ready-tip">
+                      <span class="nxt1-tip-icon">⚡</span>
+                      <span class="nxt1-tip-text">Adjust goals anytime in settings</span>
                     </div>
-                  </div>
-
-                  <div class="nxt1-actions-row nxt1-actions-row--left-slow">
-                    <div class="nxt1-actions-track">
-                      @for (item of actionRowThree(); track item + '-' + $index) {
-                        <span class="nxt1-action-chip">{{ item }}</span>
-                      }
-                      @for (item of actionRowThree(); track item + '-clone-' + $index) {
-                        <span class="nxt1-action-chip">{{ item }}</span>
-                      }
+                    <div class="nxt1-ready-tip">
+                      <span class="nxt1-tip-icon">🔗</span>
+                      <span class="nxt1-tip-text">Connect more accounts to boost Agent X</span>
                     </div>
                   </div>
                 </div>
-              </div>
-            } @else if (isAgentXIcon(currentSlide()?.icon)) {
-              <svg
-                class="nxt1-agent-x-logo"
-                viewBox="0 0 612 792"
-                width="128"
-                height="128"
-                fill="currentColor"
-                stroke="currentColor"
-                stroke-width="12"
-                stroke-linejoin="round"
-                [attr.aria-label]="currentSlide()?.headline"
-                role="img"
-              >
-                <path
-                  d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                />
-                <polygon
-                  points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
-                />
-              </svg>
-            } @else {
-              <span class="nxt1-icon-emoji" role="img" [attr.aria-label]="currentSlide()?.headline">
-                {{ currentSlide()?.icon || '🎉' }}
-              </span>
-            }
-          </div>
+              } @else if (isAgentXIcon(currentSlide()?.icon)) {
+                <svg
+                  class="nxt1-agent-x-logo"
+                  viewBox="0 0 612 792"
+                  width="128"
+                  height="128"
+                  fill="currentColor"
+                  stroke="currentColor"
+                  stroke-width="12"
+                  stroke-linejoin="round"
+                  [attr.aria-label]="currentSlide()?.headline"
+                  role="img"
+                >
+                  <path
+                    d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
+                  />
+                  <polygon
+                    points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
+                  />
+                </svg>
+              } @else {
+                <span
+                  class="nxt1-icon-emoji"
+                  role="img"
+                  [attr.aria-label]="currentSlide()?.headline"
+                >
+                  {{ currentSlide()?.icon || '🎉' }}
+                </span>
+              }
+            </div>
 
-          <!-- Text -->
-          <h1 class="nxt1-slide-headline">
-            {{ currentSlide()?.headline || "You're In!" }}
-          </h1>
-          <p class="nxt1-slide-description">
-            {{ currentSlide()?.description || 'Your profile is ready.' }}
-          </p>
+            <!-- Text -->
+            <h1 class="nxt1-slide-headline">
+              {{ currentSlide()?.headline || "You're In!" }}
+            </h1>
+            <p class="nxt1-slide-description">
+              {{ currentSlide()?.description || 'Your profile is ready.' }}
+            </p>
+          }
         </div>
 
         <!-- Dot Navigation -->
@@ -382,6 +333,16 @@ const CONFIG = {
         transform: translateY(-20px);
       }
 
+      /* Goals slide: wider content area */
+      .nxt1-welcome-page--goals {
+        padding: 12px 8px;
+      }
+
+      .nxt1-welcome-content--goals {
+        max-width: 560px;
+        transform: none;
+      }
+
       /* ============================================
          SLIDE CONTENT
          ============================================ */
@@ -391,6 +352,18 @@ const CONFIG = {
         align-items: center;
         text-align: center;
         padding: 8px 0 20px;
+      }
+
+      /* Goals-specific headline & description */
+      .nxt1-slide-headline--goals {
+        font-size: 24px;
+        margin-bottom: 8px;
+      }
+
+      .nxt1-slide-description--goals {
+        font-size: 14px;
+        margin-bottom: 16px;
+        max-width: 400px;
       }
 
       .nxt1-slide-hero {
@@ -822,6 +795,104 @@ const CONFIG = {
       }
 
       /* ============================================
+         READY PANEL (Third slide - Agent is ready)
+         ============================================ */
+      .nxt1-ready-panel {
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
+        min-height: 0;
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        padding: 16px;
+      }
+
+      .nxt1-ready-hero {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .nxt1-ready-icon {
+        font-size: 48px;
+        filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.35));
+      }
+
+      .nxt1-ready-badge {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--nxt1-color-primary, #a3e635);
+        color: #0a0a0a;
+        box-shadow: 0 4px 12px rgba(163, 230, 53, 0.4);
+      }
+
+      .nxt1-ready-badge-logo {
+        display: block;
+      }
+
+      .nxt1-ready-tips {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        width: 100%;
+        max-width: 280px;
+      }
+
+      .nxt1-ready-tip {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        border-radius: 12px;
+        background: rgba(163, 230, 53, 0.12);
+        border: 1px solid rgba(163, 230, 53, 0.25);
+      }
+
+      .nxt1-tip-icon {
+        font-size: 16px;
+        flex-shrink: 0;
+      }
+
+      .nxt1-tip-text {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--nxt1-color-text-primary, #fff);
+        line-height: 1.3;
+      }
+
+      @media (max-width: 380px) {
+        .nxt1-ready-icon {
+          font-size: 40px;
+        }
+
+        .nxt1-ready-badge {
+          width: 28px;
+          height: 28px;
+        }
+
+        .nxt1-ready-tips {
+          max-width: 240px;
+        }
+
+        .nxt1-ready-tip {
+          padding: 8px 12px;
+        }
+
+        .nxt1-tip-text {
+          font-size: 11px;
+        }
+      }
+
+      /* ============================================
          SAFE AREA (Mobile)
          ============================================ */
       @supports (padding-bottom: env(safe-area-inset-bottom)) {
@@ -892,6 +963,9 @@ export class OnboardingWelcomeComponent implements OnInit, OnDestroy {
   /** Emitted when user views a slide (for analytics) */
   @Output() slideViewed = new EventEmitter<{ index: number; slideId: string }>();
 
+  /** Emitted when user changes goals selection */
+  @Output() goalsChanged = new EventEmitter<AgentGoal[]>();
+
   // ============================================
   // STATE
   // ============================================
@@ -907,6 +981,9 @@ export class OnboardingWelcomeComponent implements OnInit, OnDestroy {
 
   /** Confetti particles */
   readonly confettiParticles = signal<ConfettiParticle[]>([]);
+
+  /** Selected goals (stored in component for completion) */
+  readonly selectedGoals = signal<AgentGoal[]>([]);
 
   /** Confetti timeout */
   private confettiTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -942,6 +1019,20 @@ export class OnboardingWelcomeComponent implements OnInit, OnDestroy {
 
   /** Is last slide */
   readonly isLastSlide = computed(() => this.currentSlideIndex() >= this.slides().length - 1);
+
+  /** Predefined goals based on user role */
+  readonly predefinedGoals = computed<AgentGoal[]>(() => {
+    const role = this.userRole ?? 'athlete';
+    return isTeamRole(role) ? [...COACH_PREDEFINED_GOALS] : [...ATHLETE_PREDEFINED_GOALS];
+  });
+
+  /** Whether the current slide is a goals slide */
+  readonly isGoalsSlideComputed = computed(() => this.currentSlide()?.type === 'goals');
+
+  /** Whether the current slide is the "ready" slide (last slide, info type) */
+  readonly isReadySlideComputed = computed(
+    () => this.isLastSlide() && this.currentSlide()?.type !== 'goals'
+  );
 
   // ============================================
   // LIFECYCLE
@@ -1014,11 +1105,28 @@ export class OnboardingWelcomeComponent implements OnInit, OnDestroy {
     this.complete.emit();
   }
 
+  /** Handle goals changed from goals component */
+  onGoalsChanged(goals: AgentGoal[]): void {
+    this.selectedGoals.set(goals);
+    this.goalsChanged.emit(goals);
+  }
+
   protected isAgentXIcon(icon: string | null | undefined): boolean {
     if (!icon) return false;
     return icon.trim().toLowerCase() === 'agent-x';
   }
 
+  /** Check if current slide is a goals slide (interactive) */
+  protected isGoalsSlide(): boolean {
+    return this.currentSlide()?.type === 'goals';
+  }
+
+  /** Check if current slide is the ready/completion slide */
+  protected isReadySlide(): boolean {
+    return this.isLastSlide() && this.currentSlide()?.type !== 'goals';
+  }
+
+  // Keep legacy methods for backwards compatibility
   protected isStepTwoSlide(): boolean {
     return this.currentSlideIndex() === 1;
   }
