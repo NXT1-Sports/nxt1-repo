@@ -159,7 +159,7 @@ router.post(
         return res.status(200).json({
           success: true,
           alreadyProcessed: true,
-          newBalance: existing.get('newBalance') as number,
+          newBalanceCents: existing.get('newBalance') as number,
           transactionId,
         });
       }
@@ -187,7 +187,7 @@ router.post(
         success: true,
         productId,
         amountCents,
-        newBalance,
+        newBalanceCents: newBalance,
         transactionId,
       });
     } catch (err) {

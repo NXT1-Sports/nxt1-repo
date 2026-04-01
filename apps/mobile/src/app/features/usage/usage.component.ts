@@ -114,13 +114,18 @@ export class UsageComponent {
   }
 
   protected async onBuyCredits(): Promise<void> {
-    await this.bottomSheet.openSheet({
+    const result = await this.bottomSheet.openSheet<{ newBalanceCents: number }>({
       component: WalletTopUpSheetComponent,
       ...SHEET_PRESETS.FULL,
       showHandle: true,
       backdropDismiss: true,
       cssClass: 'wallet-top-up-sheet',
     });
+
+    // Refresh usage overview so wallet balance reflects the new top-up
+    if (result?.newBalanceCents != null) {
+      await this.usage.refresh();
+    }
   }
 
   protected navigateBack(): void {
