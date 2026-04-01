@@ -33,8 +33,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonContent, ModalController } from '@ionic/angular/standalone';
-import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
-import { AgentXBriefingPanelComponent } from '../agent-x/agent-x-briefing-panel.component';
+import { SHEET_PRESETS } from '../components/bottom-sheet';
 import { NxtIconComponent } from '../components/icon';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
@@ -496,7 +495,6 @@ export class UsageShellComponent implements OnInit {
   private readonly platform = inject(NxtPlatformService);
   private readonly modalController = inject(ModalController);
   private readonly usageBottomSheet = inject(UsageBottomSheetService);
-  private readonly bottomSheet = inject(NxtBottomSheetService);
 
   // ============================================
   // INPUTS
@@ -517,6 +515,9 @@ export class UsageShellComponent implements OnInit {
 
   /** Emitted when avatar is clicked (open sidenav) */
   readonly avatarClick = output<void>();
+
+  /** Emitted when user taps "Buy Credits" — host platform handles IAP flow */
+  readonly buyCredits = output<void>();
 
   // ============================================
   // COMPUTED
@@ -605,15 +606,7 @@ export class UsageShellComponent implements OnInit {
 
   protected async onBuyCredits(): Promise<void> {
     await this.haptics.impact('light');
-    await this.bottomSheet.openSheet({
-      component: AgentXBriefingPanelComponent,
-      componentProps: { panel: 'budget', presentation: 'sheet', required: false },
-      ...SHEET_PRESETS.FULL,
-      showHandle: true,
-      handleBehavior: 'cycle',
-      backdropDismiss: true,
-      cssClass: 'agent-x-briefing-badge-sheet',
-    });
+    this.buyCredits.emit();
   }
 
   protected onDownloadReceipt(_recordId: string): void {

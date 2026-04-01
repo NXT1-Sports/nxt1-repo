@@ -56,3 +56,14 @@ export { FcmRegistrationService } from './fcm-registration.service';
 
 // Native app icon badge sync (totalUnread → iOS/Android badge)
 export { NativeBadgeService } from './native-badge.service';
+
+// ============================================
+// IN-APP PURCHASES (Apple StoreKit 2)
+// ============================================
+export {
+  IapService,
+  IAP_PRODUCT_IDS,
+  IAP_CREDIT_MAP,
+  type IapProductId,
+  type IapProductDisplay,
+} from './iap.service';

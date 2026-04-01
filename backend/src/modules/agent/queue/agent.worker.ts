@@ -46,6 +46,9 @@ import { AgentJobRepository } from './job.repository.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
 import { isAgentYield } from '../errors/agent-yield.error.js';
 import { notifyYield } from '../services/yield-notifier.service.js';
+import { getJobCost } from '../../billing/helicone.service.js';
+import { calculateChargeAmount } from '../../billing/pricing.service.js';
+import { recordSpend } from '../../billing/budget.service.js';
 import {
   logAgentTaskCompletion,
   logAgentTaskFailure,
@@ -332,6 +335,41 @@ export class AgentWorker {
         error: err instanceof Error ? err.message : String(err),
       });
     });
+
+    // Billing deduction: fetch actual Helicone cost → calculate charge → deduct (fire-and-forget)
+    const billingDb = await this.getActivityFirestore(job);
+    const feature = typeof payload.agent === 'string' ? payload.agent : 'agent';
+    void (async () => {
+      try {
+        const { totalCostUsd, source } = await getJobCost(payload.operationId);
+        if (totalCostUsd <= 0) {
+          if (source === 'fallback') {
+            logger.warn('[billing] Helicone unavailable — skipping deduction', {
+              operationId: payload.operationId,
+              userId: payload.userId,
+            });
+          }
+          return;
+        }
+        const { chargeAmountCents } = await calculateChargeAmount(billingDb, totalCostUsd, feature);
+        if (chargeAmountCents > 0) {
+          await recordSpend(billingDb, payload.userId, chargeAmountCents);
+          logger.info('[billing] Deducted charge for completed job', {
+            operationId: payload.operationId,
+            userId: payload.userId,
+            actualCostUsd: totalCostUsd,
+            chargeAmountCents,
+            feature,
+          });
+        }
+      } catch (billingErr) {
+        logger.warn('[billing] Deduction failed — job result unaffected', {
+          operationId: payload.operationId,
+          userId: payload.userId,
+          error: billingErr instanceof Error ? billingErr.message : String(billingErr),
+        });
+      }
+    })();
 
     // Dispatch activity feed item + push notification (fire-and-forget)
     try {

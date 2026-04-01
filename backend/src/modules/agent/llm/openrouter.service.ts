@@ -73,9 +73,13 @@ function buildHeliconeHeaders(
     'Helicone-Auth': `Bearer ${HELICONE_API_KEY}`,
     // Groups all LLM calls within a single Agent X operation into one session
     ...(ctx?.operationId && { 'Helicone-Session-Id': ctx.operationId }),
+    // Tags with Job-Id so getJobCost(operationId) can query actual cost after job completes
+    ...(ctx?.operationId && { 'Helicone-Property-Job-Id': ctx.operationId }),
     // Tags the coordinator / planner name so the waterfall shows which agent made the call
     ...(ctx?.agentId && { 'Helicone-Session-Name': ctx.agentId }),
     ...(ctx?.userId && { 'Helicone-User-Id': ctx.userId }),
+    // Tags the feature for per-feature cost analytics
+    ...(ctx?.feature && { 'Helicone-Property-Feature': ctx.feature }),
     'Helicone-Property-Platform': 'nxt1',
   };
 }
