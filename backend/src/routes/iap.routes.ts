@@ -193,9 +193,12 @@ router.post(
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       const errName = err instanceof Error ? err.name : 'UnknownError';
+      // VerificationException from @apple/app-store-server-library has a `verificationError` property
+      const verificationError = (err as Record<string, unknown>)['verificationError'] ?? null;
       logger.error('[iap/verify-receipt] Verification failed', {
         error: errMsg,
         errorName: errName,
+        verificationError,
         userId,
       });
       return res.status(400).json({
