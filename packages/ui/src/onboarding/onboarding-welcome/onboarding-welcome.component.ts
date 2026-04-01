@@ -1023,7 +1023,10 @@ export class OnboardingWelcomeComponent implements OnInit, OnDestroy {
   /** Predefined goals based on user role */
   readonly predefinedGoals = computed<AgentGoal[]>(() => {
     const role = this.userRole ?? 'athlete';
-    return isTeamRole(role) ? [...COACH_PREDEFINED_GOALS] : [...ATHLETE_PREDEFINED_GOALS];
+    // Coach, director, and recruiter (college coach) roles get coach-oriented goals
+    // Athletes and parents get athlete-oriented goals
+    const useCoachGoals = isTeamRole(role) || role === 'recruiter';
+    return useCoachGoals ? [...COACH_PREDEFINED_GOALS] : [...ATHLETE_PREDEFINED_GOALS];
   });
 
   /** Whether the current slide is a goals slide */
@@ -1126,11 +1129,18 @@ export class OnboardingWelcomeComponent implements OnInit, OnDestroy {
     return this.isLastSlide() && this.currentSlide()?.type !== 'goals';
   }
 
-  // Keep legacy methods for backwards compatibility
+  /**
+   * @deprecated Use isGoalsSlide() instead. This method checks by index, not slide type.
+   * Kept for backwards compatibility with external consumers.
+   */
   protected isStepTwoSlide(): boolean {
     return this.currentSlideIndex() === 1;
   }
 
+  /**
+   * @deprecated Use isReadySlide() instead. This method checks by index, not slide type.
+   * Kept for backwards compatibility with external consumers.
+   */
   protected isStepThreeSlide(): boolean {
     return this.currentSlideIndex() === 2;
   }
