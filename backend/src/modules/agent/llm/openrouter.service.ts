@@ -127,7 +127,10 @@ export class OpenRouterService {
     }
 
     // Build fallback chain: primary model + alternatives for this tier
-    const chain = MODEL_FALLBACK_CHAIN[options.tier] ?? [MODEL_CATALOGUE[options.tier]];
+    // TEMPORARY FIX: Disable the fallback array to prevent runaway charges.
+    // Only attempt the primary model [0] and exit immediately if it fails.
+    const originalChain = MODEL_FALLBACK_CHAIN[options.tier] ?? [MODEL_CATALOGUE[options.tier]];
+    const chain = [originalChain[0]];
     let lastError: Error | undefined;
 
     for (let i = 0; i < chain.length; i++) {

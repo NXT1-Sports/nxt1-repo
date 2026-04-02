@@ -73,6 +73,7 @@
     "@angular-eslint/builder": "^21.2.0",
     "@capacitor/haptics": "^8.0.0",
     "@capacitor/preferences": "^8.0.0",
+    "@capgo/native-purchases": "^8.3.0",
     "@commitlint/cli": "^20.4.1",
     "@commitlint/config-conventional": "^20.4.1",
     "@eslint/js": "^9.39.2",
@@ -99,8 +100,8 @@
     "@capacitor-firebase/authentication": "^8.0.1",
     "@capacitor/synapse": "^1.0.4",
     "@firebase/component": "^0.7.0",
-    "firebase": "^12.9.0",
     "@types/qrcode": "^1.5.6",
+    "firebase": "^12.9.0",
     "qrcode": "^1.5.4",
     "tinyglobby": "^0.2.15",
     "turbo": "^2.8.1"

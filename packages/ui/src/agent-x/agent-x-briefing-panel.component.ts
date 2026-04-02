@@ -11,7 +11,6 @@ import {
 import { CommonModule } from '@angular/common';
 import {
   IonContent,
-  IonInput,
   IonLabel,
   IonRange,
   IonToggle,
@@ -42,7 +41,6 @@ interface AgentXBriefingPanelCloseResult {
   imports: [
     CommonModule,
     IonContent,
-    IonInput,
     IonLabel,
     IonRange,
     NxtIconComponent,
