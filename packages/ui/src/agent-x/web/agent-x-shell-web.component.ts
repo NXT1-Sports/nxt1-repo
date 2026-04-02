@@ -48,7 +48,7 @@ import { NxtHeaderPortalService } from '../../services/header-portal/header-port
 import { NxtOverlayService } from '../../components/overlay';
 import { AgentXService } from '../agent-x.service';
 import { AgentXDashboardSkeletonComponent } from '../agent-x-dashboard-skeleton.component';
-import { AgentXBriefingPanelComponent } from '../agent-x-briefing-panel.component';
+import { AgentXControlPanelComponent } from '../agent-x-control-panel.component';
 import { AgentXOperationsLogComponent } from '../agent-x-operations-log.component';
 import {
   AgentXOperationChatComponent,
@@ -56,10 +56,10 @@ import {
 } from '../agent-x-operation-chat.component';
 import { AgentXInputComponent } from '../agent-x-input.component';
 import {
-  AgentXBriefingBadgeStateService,
+  AgentXControlPanelStateService,
   AGENT_X_GOAL_OPTIONS,
-  type AgentXBriefingPanelKind,
-} from '../agent-x-briefing-badge-state.service';
+  type AgentXControlPanelKind,
+} from '../agent-x-control-panel-state.service';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import type { CommandCategory, WeeklyPlaybookItem } from '../agent-x-shell.component';
@@ -406,7 +406,7 @@ interface AgentXDesktopSession {
                 class="header-badge status-badge"
                 [class.status-badge--degraded]="agentStatusTone() === 'warning'"
                 [class.status-badge--down]="agentStatusTone() === 'critical'"
-                (click)="openBriefingPanel('status')"
+                (click)="openControlPanel('status')"
               >
                 <div
                   class="pulse-dot"
@@ -418,7 +418,7 @@ interface AgentXDesktopSession {
               <button
                 type="button"
                 class="header-badge budget-badge"
-                (click)="openBriefingPanel('budget')"
+                (click)="openControlPanel('budget')"
               >
                 <nxt1-icon name="wallet" [size]="14"></nxt1-icon>
                 <span>{{ agentBudgetBadgeLabel() }}</span>
@@ -482,7 +482,7 @@ interface AgentXDesktopSession {
                 class="header-badge status-badge"
                 [class.status-badge--degraded]="agentStatusTone() === 'warning'"
                 [class.status-badge--down]="agentStatusTone() === 'critical'"
-                (click)="openBriefingPanel('status')"
+                (click)="openControlPanel('status')"
               >
                 <div
                   class="pulse-dot"
@@ -494,7 +494,7 @@ interface AgentXDesktopSession {
               <button
                 type="button"
                 class="header-badge budget-badge"
-                (click)="openBriefingPanel('budget')"
+                (click)="openControlPanel('budget')"
               >
                 <nxt1-icon name="wallet" [size]="14"></nxt1-icon>
                 <span>{{ agentBudgetBadgeLabel() }}</span>
@@ -2168,7 +2168,7 @@ interface AgentXDesktopSession {
 })
 export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly agentX = inject(AgentXService);
-  protected readonly briefingBadges = inject(AgentXBriefingBadgeStateService);
+  protected readonly controlPanelState = inject(AgentXControlPanelStateService);
   private readonly overlay = inject(NxtOverlayService);
   private readonly headerPortal = inject(NxtHeaderPortalService);
 
@@ -2303,9 +2303,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
   /** Briefing preview text — live from service only. */
   protected readonly briefingPreview = computed(() => this.agentX.briefingPreviewText());
-  protected readonly agentStatusLabel = this.briefingBadges.statusLabel;
-  protected readonly agentStatusTone = this.briefingBadges.statusTone;
-  protected readonly agentBudgetBadgeLabel = this.briefingBadges.budgetBadgeLabel;
+  protected readonly agentStatusLabel = this.controlPanelState.statusLabel;
+  protected readonly agentStatusTone = this.controlPanelState.statusTone;
+  protected readonly agentBudgetBadgeLabel = this.controlPanelState.budgetBadgeLabel;
 
   /** AI-generated weekly playbook timeline items — live from service only. */
   protected readonly weeklyPlaybook = computed<ShellWeeklyPlaybookItem[]>(() =>
@@ -2367,7 +2367,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       if (!loaded || hasGoals || this.goalsSheetShown) return;
 
       this.goalsSheetShown = true;
-      void this.openBriefingPanel('goals', true);
+      void this.openControlPanel('goals', true);
     });
 
     // React to pending thread requests (push notifications, deep links, activity taps)
@@ -2414,20 +2414,17 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    * Handle "Set Your Goals" tap — opens the shared goals modal.
    */
   protected async onSetupGoals(): Promise<void> {
-    await this.openBriefingPanel('goals');
+    await this.openControlPanel('goals');
   }
 
-  protected async openBriefingPanel(
-    panel: AgentXBriefingPanelKind,
-    required = false
-  ): Promise<void> {
-    this.briefingBadges.notePanelOpened(panel, 'modal');
+  protected async openControlPanel(panel: AgentXControlPanelKind, required = false): Promise<void> {
+    this.controlPanelState.notePanelOpened(panel, 'modal');
 
     const ref = this.overlay.open<
-      AgentXBriefingPanelComponent,
-      { panel: AgentXBriefingPanelKind; saved?: boolean }
+      AgentXControlPanelComponent,
+      { panel: AgentXControlPanelKind; saved?: boolean }
     >({
-      component: AgentXBriefingPanelComponent,
+      component: AgentXControlPanelComponent,
       inputs: {
         panel,
         presentation: 'modal',
@@ -2442,14 +2439,14 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
           : panel === 'budget'
             ? 'Agent budget controls'
             : 'Agent goals manager',
-      panelClass: 'agent-x-briefing-badge-modal',
+      panelClass: 'agent-x-control-panel-modal',
     });
 
     const result = await ref.closed;
 
     // After saving goals, sync to backend and trigger generation
     if (panel === 'goals' && result?.data?.saved) {
-      const goalIds = this.briefingBadges.goals();
+      const goalIds = this.controlPanelState.goals();
       const dashboardGoals: AgentDashboardGoal[] = goalIds.map((id) => {
         if (id.startsWith('custom:')) {
           return { id, text: id.slice(7), category: 'custom', createdAt: new Date().toISOString() };

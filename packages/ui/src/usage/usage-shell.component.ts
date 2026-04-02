@@ -34,7 +34,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { IonContent } from '@ionic/angular/standalone';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
-import { AgentXBriefingPanelComponent } from '../agent-x/agent-x-briefing-panel.component';
+import { AgentXControlPanelComponent } from '../agent-x/agent-x-control-panel.component';
 import { NxtIconComponent } from '../components/icon';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
@@ -266,9 +266,7 @@ export interface UsageUser {
                     <nxt1-usage-payment-info
                       [billingInfo]="svc.billingInfo()"
                       [paymentMethods]="svc.paymentMethods()"
-                      (editBilling)="onEditBilling()"
-                      (editPayment)="onEditPayment()"
-                      (editAdditional)="onEditAdditional()"
+                      (manageBilling)="onManageBilling()"
                     />
                   }
                 }
@@ -638,50 +636,31 @@ export class UsageShellComponent implements OnInit {
   protected async onCreateBudget(): Promise<void> {
     await this.haptics.impact('light');
     await this.bottomSheet.openSheet({
-      component: AgentXBriefingPanelComponent,
+      component: AgentXControlPanelComponent,
       componentProps: { panel: 'budget', presentation: 'sheet', required: false },
       ...SHEET_PRESETS.FULL,
       showHandle: true,
       handleBehavior: 'cycle',
       backdropDismiss: true,
-      cssClass: 'agent-x-briefing-badge-sheet',
+      cssClass: 'agent-x-control-panel-sheet',
     });
   }
 
   protected async onEditBudget(_budgetId: string): Promise<void> {
     await this.haptics.impact('light');
     await this.bottomSheet.openSheet({
-      component: AgentXBriefingPanelComponent,
+      component: AgentXControlPanelComponent,
       componentProps: { panel: 'budget', presentation: 'sheet', required: false },
       ...SHEET_PRESETS.FULL,
       showHandle: true,
       handleBehavior: 'cycle',
       backdropDismiss: true,
-      cssClass: 'agent-x-briefing-badge-sheet',
+      cssClass: 'agent-x-control-panel-sheet',
     });
   }
 
-  protected async onEditBilling(): Promise<void> {
+  protected async onManageBilling(): Promise<void> {
     await this.haptics.impact('light');
-    const result = await this.usageBottomSheet.editBillingInfo(this.svc.billingInfo());
-    if (result) {
-      await this.svc.saveBillingInfo(result);
-    }
-  }
-
-  protected async onEditPayment(): Promise<void> {
-    await this.haptics.impact('light');
-    const result = await this.usageBottomSheet.showPaymentMethodOptions();
-    if (result?.action === 'remove-default') {
-      this.toast.warning('Cannot remove the default payment method while it is in use.');
-    }
-  }
-
-  protected async onEditAdditional(): Promise<void> {
-    await this.haptics.impact('light');
-    const result = await this.usageBottomSheet.editAdditionalInfo(this.svc.billingInfo());
-    if (result) {
-      await this.svc.saveBillingInfo(result);
-    }
+    await this.svc.openBillingPortal();
   }
 }

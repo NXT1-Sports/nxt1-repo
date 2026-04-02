@@ -21,7 +21,6 @@ import type {
   UsageChartDataPoint,
   UsageBreakdownRow,
   UsageBudget,
-  UsageBillingInfo,
   BillingContextSummary,
 } from './usage.types';
 import { USAGE_API_ENDPOINTS } from './usage.constants';
@@ -52,10 +51,7 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
     breakdown: `${baseUrl}${USAGE_API_ENDPOINTS.breakdown}`,
     history: `${baseUrl}${USAGE_API_ENDPOINTS.history}`,
     paymentMethods: `${baseUrl}${USAGE_API_ENDPOINTS.paymentMethods}`,
-    addPaymentMethod: `${baseUrl}${USAGE_API_ENDPOINTS.addPaymentMethod}`,
-    removePaymentMethod: `${baseUrl}${USAGE_API_ENDPOINTS.removePaymentMethod}`,
-    setDefaultPaymentMethod: `${baseUrl}${USAGE_API_ENDPOINTS.setDefaultPaymentMethod}`,
-    billingInfo: `${baseUrl}${USAGE_API_ENDPOINTS.billingInfo}`,
+    portalSession: `${baseUrl}${USAGE_API_ENDPOINTS.portalSession}`,
     budgets: `${baseUrl}${USAGE_API_ENDPOINTS.budgets}`,
     downloadReceipt: `${baseUrl}${USAGE_API_ENDPOINTS.downloadReceipt}`,
     downloadInvoice: `${baseUrl}${USAGE_API_ENDPOINTS.downloadInvoice}`,
@@ -131,7 +127,7 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
       return response.data;
     },
 
-    /** Fetch saved payment methods */
+    /** Fetch saved payment methods (read-only display) */
     async getPaymentMethods(): Promise<readonly UsagePaymentMethod[]> {
       const response = await http.get<ApiResponse<readonly UsagePaymentMethod[]>>(
         endpoints.paymentMethods
@@ -142,44 +138,22 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
       return response.data;
     },
 
-    /** Add a new payment method via Stripe token */
-    async addPaymentMethod(token: string): Promise<UsagePaymentMethod> {
-      const response = await http.post<ApiResponse<UsagePaymentMethod>>(
-        endpoints.addPaymentMethod,
-        { token }
+    /**
+     * Create a Stripe Customer Portal session.
+     * Returns the portal URL — the frontend redirects the user there.
+     * All payment method, billing address, and invoice management happens on Stripe.
+     */
+    async createPortalSession(): Promise<string> {
+      const response = await http.post<ApiResponse<string> & { url?: string }>(
+        endpoints.portalSession,
+        {}
       );
-      if (!response.success || !response.data) {
-        throw new Error(response.error ?? 'Failed to add payment method');
+      // Backend returns { success, url } at top level
+      const url = (response as { url?: string }).url ?? response.data;
+      if (!response.success || !url) {
+        throw new Error(response.error ?? 'Failed to create billing portal session');
       }
-      return response.data;
-    },
-
-    /** Remove a saved payment method */
-    async removePaymentMethod(methodId: string): Promise<void> {
-      const response = await http.post<ApiResponse<void>>(endpoints.removePaymentMethod, {
-        methodId,
-      });
-      if (!response.success) {
-        throw new Error(response.error ?? 'Failed to remove payment method');
-      }
-    },
-
-    /** Set a payment method as default */
-    async setDefaultPaymentMethod(methodId: string): Promise<void> {
-      const response = await http.post<ApiResponse<void>>(endpoints.setDefaultPaymentMethod, {
-        methodId,
-      });
-      if (!response.success) {
-        throw new Error(response.error ?? 'Failed to set default payment method');
-      }
-    },
-
-    /** Update billing information */
-    async updateBillingInfo(info: UsageBillingInfo): Promise<void> {
-      const response = await http.post<ApiResponse<void>>(endpoints.billingInfo, info);
-      if (!response.success) {
-        throw new Error(response.error ?? 'Failed to update billing info');
-      }
+      return url;
     },
 
     /** Fetch budgets */

@@ -133,19 +133,22 @@ async function fetchOrgUsageEvents(
     chunks.push(teamIds.slice(i, i + CHUNK_SIZE));
   }
 
+  const direction = orderDesc ? 'desc' : 'asc';
+
   const results = await Promise.all(
     chunks.map((chunk) =>
-      db.collection(COLLECTIONS.USAGE_EVENTS).where('teamId', 'in', chunk).limit(limit).get()
+      db
+        .collection(COLLECTIONS.USAGE_EVENTS)
+        .where('teamId', 'in', chunk)
+        .where('createdAt', '>=', startIso)
+        .where('createdAt', '<=', endIso)
+        .orderBy('createdAt', direction)
+        .limit(limit)
+        .get()
     )
   );
 
-  // Filter by date range in-memory (avoids composite index requirement)
-  const allDocs = results
-    .flatMap((snap) => snap.docs)
-    .filter((doc) => {
-      const createdAt = doc.data()['createdAt'] as string;
-      return createdAt >= startIso && createdAt <= endIso;
-    });
+  const allDocs = results.flatMap((snap) => snap.docs);
   allDocs.sort((a, b) => {
     const aDate = a.data()['createdAt'] as string;
     const bDate = b.data()['createdAt'] as string;
@@ -169,23 +172,18 @@ async function fetchUsageEvents(
     return fetchOrgUsageEvents(db, target.teamIds, startIso, endIso, orderDesc, limit);
   }
 
-  // Individual fallback — query by userId, filter date in-memory
+  // Individual query — date filtering at the database level
+  const direction = orderDesc ? 'desc' : 'asc';
   const snap = await db
     .collection(COLLECTIONS.USAGE_EVENTS)
     .where('userId', '==', target.billingUserId)
+    .where('createdAt', '>=', startIso)
+    .where('createdAt', '<=', endIso)
+    .orderBy('createdAt', direction)
     .limit(limit)
     .get();
 
-  const docs = [...snap.docs].filter((doc) => {
-    const createdAt = doc.data()['createdAt'] as string;
-    return createdAt >= startIso && createdAt <= endIso;
-  });
-  docs.sort((a, b) => {
-    const aDate = a.data()['createdAt'] as string;
-    const bDate = b.data()['createdAt'] as string;
-    return orderDesc ? bDate.localeCompare(aDate) : aDate.localeCompare(bDate);
-  });
-  return docs;
+  return snap.docs;
 }
 
 // ============================================
@@ -1238,5 +1236,58 @@ router.post(
     }
   }
 );
+
+// ============================================
+// STRIPE CUSTOMER PORTAL
+// ============================================
+
+/**
+ * POST /api/v1/usage/portal-session
+ * Create a Stripe Customer Portal session so the user can manage
+ * payment methods, billing info, and invoices on Stripe's hosted UI.
+ *
+ * @returns {{ success: true, url: string }}
+ */
+router.post('/portal-session', appGuard, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.uid;
+    const db = req.firebase?.db;
+    const email = req.user!.email ?? '';
+    const environment = req.isStaging ? 'staging' : 'production';
+
+    if (!db) {
+      return res.status(503).json({ error: 'Database unavailable' });
+    }
+
+    const { customerId } = await getOrCreateCustomer(db, userId, email, undefined, environment);
+
+    const stripe = getStripeClient(environment);
+    const returnUrl =
+      req.body?.returnUrl && typeof req.body.returnUrl === 'string'
+        ? req.body.returnUrl
+        : `${req.headers.origin ?? ''}/usage`;
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: returnUrl,
+    });
+
+    logger.info('[POST /portal-session] Portal session created', {
+      userId,
+      customerId,
+    });
+
+    return res.json({ success: true, url: session.url });
+  } catch (error) {
+    logger.error('[POST /portal-session] Failed to create portal session', {
+      error,
+      userId: req.user?.uid,
+    });
+    return res.status(500).json({
+      error: 'Failed to create billing portal session',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
 
 export default router;

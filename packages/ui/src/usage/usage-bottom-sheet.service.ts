@@ -4,23 +4,20 @@
  *
  * Bottom sheet for mobile usage actions:
  * - Change timeframe
- * - Manage payment methods
  * - Budget options
+ *
+ * Payment method management is handled via Stripe Customer Portal.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
 import { Injectable, inject } from '@angular/core';
-import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
-import { USAGE_TIMEFRAME_OPTIONS, type UsageTimeframe, type UsageBillingInfo } from '@nxt1/core';
+import { NxtBottomSheetService } from '../components/bottom-sheet';
+import { USAGE_TIMEFRAME_OPTIONS, type UsageTimeframe } from '@nxt1/core';
 import type {
   BottomSheetAction,
   BottomSheetResult,
 } from '../components/bottom-sheet/bottom-sheet.types';
-import {
-  UsageBillingInfoSheetComponent,
-  type BillingInfoSheetResult,
-} from './usage-billing-info-sheet.component';
 
 export interface UsageBottomSheetResult {
   readonly action: string;
@@ -47,22 +44,6 @@ export class UsageBottomSheetService {
 
     if (!result?.confirmed) return null;
     return ((result as BottomSheetResult & { reason?: string }).reason as UsageTimeframe) ?? null;
-  }
-
-  /** Open payment method options */
-  async showPaymentMethodOptions(): Promise<UsageBottomSheetResult | null> {
-    const result = await this.bottomSheet.show({
-      title: 'Payment Method',
-      icon: 'card-outline',
-      actions: [
-        { label: 'Set as default', role: 'primary', icon: 'star-outline' },
-        { label: 'Edit details', role: 'secondary', icon: 'create-outline' },
-        { label: 'Remove', role: 'destructive', icon: 'trash-outline' },
-      ],
-    });
-
-    if (!result?.confirmed) return null;
-    return { action: result.reason ?? 'unknown' };
   }
 
   /** Open budget options */
@@ -114,37 +95,5 @@ export class UsageBottomSheetService {
     const selectedLabel = (result.data as BottomSheetAction | undefined)?.label;
     const match = selectedLabel?.match(/^\$(\d+)\s*\/\s*month$/);
     return match ? parseInt(match[1], 10) * 100 : null;
-  }
-
-  /** Open billing info edit form */
-  async editBillingInfo(current: UsageBillingInfo | null): Promise<UsageBillingInfo | null> {
-    const result = await this.bottomSheet.openSheet<BillingInfoSheetResult>({
-      component: UsageBillingInfoSheetComponent,
-      componentProps: { mode: 'billing', current },
-      ...SHEET_PRESETS.TALL,
-      showHandle: true,
-      backdropDismiss: true,
-      cssClass: 'usage-billing-info-sheet',
-    });
-    if (result?.data?.saved && result.data.info) {
-      return result.data.info;
-    }
-    return null;
-  }
-
-  /** Open additional info edit form */
-  async editAdditionalInfo(current: UsageBillingInfo | null): Promise<UsageBillingInfo | null> {
-    const result = await this.bottomSheet.openSheet<BillingInfoSheetResult>({
-      component: UsageBillingInfoSheetComponent,
-      componentProps: { mode: 'additional', current },
-      ...SHEET_PRESETS.TALL,
-      showHandle: true,
-      backdropDismiss: true,
-      cssClass: 'usage-billing-info-sheet',
-    });
-    if (result?.data?.saved && result.data.info) {
-      return result.data.info;
-    }
-    return null;
   }
 }

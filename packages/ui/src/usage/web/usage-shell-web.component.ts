@@ -50,7 +50,7 @@ import {
 } from '../../components/option-scroller-web';
 import { NxtRefresherComponent, type RefreshEvent } from '../../components/refresh-container';
 import { NxtOverlayService } from '../../components/overlay';
-import { AgentXBriefingPanelComponent } from '../../agent-x/agent-x-briefing-panel.component';
+import { AgentXControlPanelComponent } from '../../agent-x/agent-x-control-panel.component';
 import { NxtHeaderPortalService } from '../../services/header-portal';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
@@ -275,9 +275,7 @@ export type { UsageUser };
                   <nxt1-usage-payment-info
                     [billingInfo]="svc.billingInfo()"
                     [paymentMethods]="svc.paymentMethods()"
-                    (editBilling)="onEditBilling()"
-                    (editPayment)="onEditPayment()"
-                    (editAdditional)="onEditAdditional()"
+                    (manageBilling)="onManageBilling()"
                   />
                 }
               }
@@ -529,63 +527,47 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
 
   protected async onCreateBudget(): Promise<void> {
     await this.haptics.impact('light');
-    const ref = this.overlay.open<AgentXBriefingPanelComponent>({
-      component: AgentXBriefingPanelComponent,
+    const ref = this.overlay.open<AgentXControlPanelComponent>({
+      component: AgentXControlPanelComponent,
       inputs: { panel: 'budget', presentation: 'modal', required: false },
       size: 'xl',
       backdropDismiss: true,
       escDismiss: true,
       ariaLabel: 'Agent budget controls',
-      panelClass: 'agent-x-briefing-badge-modal',
+      panelClass: 'agent-x-control-panel-modal',
     });
     await ref.closed;
   }
 
   protected async onEditBudget(_budgetId: string): Promise<void> {
     await this.haptics.impact('light');
-    const ref = this.overlay.open<AgentXBriefingPanelComponent>({
-      component: AgentXBriefingPanelComponent,
+    const ref = this.overlay.open<AgentXControlPanelComponent>({
+      component: AgentXControlPanelComponent,
       inputs: { panel: 'budget', presentation: 'modal', required: false },
       size: 'xl',
       backdropDismiss: true,
       escDismiss: true,
       ariaLabel: 'Agent budget controls',
-      panelClass: 'agent-x-briefing-badge-modal',
+      panelClass: 'agent-x-control-panel-modal',
     });
     await ref.closed;
   }
 
-  protected async onEditBilling(): Promise<void> {
+  protected async onManageBilling(): Promise<void> {
     this.haptics.impact('light');
-    const result = await this.usageBottomSheet.editBillingInfo(this.svc.billingInfo());
-    if (result) {
-      await this.svc.saveBillingInfo(result);
-    }
-  }
-
-  protected async onEditPayment(): Promise<void> {
-    this.haptics.impact('light');
-    await this.usageBottomSheet.showPaymentMethodOptions();
-  }
-
-  protected async onEditAdditional(): Promise<void> {
-    this.haptics.impact('light');
-    const result = await this.usageBottomSheet.editAdditionalInfo(this.svc.billingInfo());
-    if (result) {
-      await this.svc.saveBillingInfo(result);
-    }
+    await this.svc.openBillingPortal();
   }
 
   protected async onBuyCredits(): Promise<void> {
     await this.haptics.impact('light');
-    const ref = this.overlay.open<AgentXBriefingPanelComponent>({
-      component: AgentXBriefingPanelComponent,
+    const ref = this.overlay.open<AgentXControlPanelComponent>({
+      component: AgentXControlPanelComponent,
       inputs: { panel: 'budget', presentation: 'modal', required: false },
       size: 'xl',
       backdropDismiss: true,
       escDismiss: true,
       ariaLabel: 'Agent budget controls',
-      panelClass: 'agent-x-briefing-badge-modal',
+      panelClass: 'agent-x-control-panel-modal',
     });
     await ref.closed;
   }
