@@ -115,7 +115,7 @@ import { ExploreService, ExploreFilterModalService } from '@nxt1/ui/explore';
 import type { TopNavSearchSubmitEvent } from '@nxt1/ui/components/top-nav';
 // ── Usage (for mobile billing actions) ──
 import { UsageService, UsageHelpContentComponent } from '@nxt1/ui/usage';
-import { AgentXBriefingPanelComponent } from '@nxt1/ui/agent-x';
+import { AgentXControlPanelComponent } from '@nxt1/ui/agent-x';
 
 // ── Invite ──
 import { InviteShellComponent } from '@nxt1/ui/invite';
@@ -1324,17 +1324,17 @@ export class WebShellComponent {
 
   /**
    * Handle mobile top-nav budget button click on the billing/usage page (org users only).
-   * Opens the Agent X briefing panel (budget tab) as an overlay.
+   * Opens the Agent X control panel (budget tab) as an overlay.
    */
   async onMobileUsageBudgetClick(): Promise<void> {
-    const ref = this.inviteOverlay.open<AgentXBriefingPanelComponent>({
-      component: AgentXBriefingPanelComponent,
+    const ref = this.inviteOverlay.open<AgentXControlPanelComponent>({
+      component: AgentXControlPanelComponent,
       inputs: { panel: 'budget', presentation: 'modal', required: false },
       size: 'xl',
       backdropDismiss: true,
       escDismiss: true,
       ariaLabel: 'Agent budget controls',
-      panelClass: 'agent-x-briefing-badge-modal',
+      panelClass: 'agent-x-control-panel-modal',
     });
     await ref.closed;
   }

@@ -4,8 +4,8 @@ import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 
-export type AgentXBriefingPanelKind = 'status' | 'budget' | 'goals';
-export type AgentXBriefingPresentation = 'sheet' | 'modal';
+export type AgentXControlPanelKind = 'status' | 'budget' | 'goals';
+export type AgentXControlPanelPresentation = 'sheet' | 'modal';
 export type AgentXSystemStatus = 'active' | 'degraded' | 'down';
 export type AgentXSystemStatusTone = 'positive' | 'warning' | 'critical';
 
@@ -89,8 +89,8 @@ export const AGENT_X_GOAL_OPTIONS: readonly AgentXGoalOption[] = [
 ] as const;
 
 @Injectable({ providedIn: 'root' })
-export class AgentXBriefingBadgeStateService {
-  private readonly logger = inject(NxtLoggingService).child('AgentXBriefingBadgeState');
+export class AgentXControlPanelStateService {
+  private readonly logger = inject(NxtLoggingService).child('AgentXControlPanelState');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
 
@@ -122,9 +122,12 @@ export class AgentXBriefingBadgeStateService {
   readonly statusDefinitions = AGENT_X_STATUS_DEFINITIONS;
   readonly goalOptions = AGENT_X_GOAL_OPTIONS;
 
-  notePanelOpened(panel: AgentXBriefingPanelKind, presentation: AgentXBriefingPresentation): void {
+  notePanelOpened(
+    panel: AgentXControlPanelKind,
+    presentation: AgentXControlPanelPresentation
+  ): void {
     this.logger.info('Agent X briefing panel opened', { panel, presentation });
-    this.breadcrumb.trackStateChange('agent-x-briefing-panel:opened', {
+    this.breadcrumb.trackStateChange('agent-x-control-panel:opened', {
       panel,
       presentation,
     });
@@ -149,7 +152,7 @@ export class AgentXBriefingBadgeStateService {
       autoTopOffAmount,
     });
     this.analytics?.trackEvent(APP_EVENTS.USAGE_BUDGET_UPDATED, {
-      source: 'agent-x-briefing-panel',
+      source: 'agent-x-control-panel',
       monthlyBudget,
       autoTopOffEnabled: settings.autoTopOffEnabled,
       autoTopOffAmount,
@@ -174,7 +177,7 @@ export class AgentXBriefingBadgeStateService {
       goalCount: normalized.length,
     });
     this.analytics?.trackEvent(APP_EVENTS.AGENT_X_GOALS_SET, {
-      source: 'agent-x-briefing-panel',
+      source: 'agent-x-control-panel',
       goalCount: normalized.length,
       goals: normalized,
     });

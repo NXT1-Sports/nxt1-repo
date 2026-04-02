@@ -53,17 +53,16 @@ export class UsageApiService {
   readonly getBreakdown: UsageApi['getBreakdown'] = this.api.getBreakdown;
   readonly getHistory: UsageApi['getHistory'] = this.api.getHistory;
 
-  // ── Payment Methods ──────────────────────────
+  // ── Payment Methods (read-only display) ───
 
   readonly getPaymentMethods: UsageApi['getPaymentMethods'] = this.api.getPaymentMethods;
-  readonly addPaymentMethod: UsageApi['addPaymentMethod'] = this.api.addPaymentMethod;
-  readonly removePaymentMethod: UsageApi['removePaymentMethod'] = this.api.removePaymentMethod;
-  readonly setDefaultPaymentMethod: UsageApi['setDefaultPaymentMethod'] =
-    this.api.setDefaultPaymentMethod;
 
-  // ── Billing Info ─────────────────────────────
+  // ── Stripe Customer Portal ───────────────
 
-  readonly updateBillingInfo: UsageApi['updateBillingInfo'] = this.api.updateBillingInfo;
+  readonly createPortalSession: UsageApi['createPortalSession'] = this.api.createPortalSession;
+
+  // ── Billing Info (read-only, synced from Stripe) ──────
+
   readonly getBudgets: UsageApi['getBudgets'] = this.api.getBudgets;
 
   // ── Downloads & Coupons ──────────────────────

@@ -32,8 +32,7 @@ export { UsageApiService, USAGE_API_BASE_URL } from './usage-api.service';
 export { UsageBottomSheetService } from './usage-bottom-sheet.service';
 export type { UsageBottomSheetResult } from './usage-bottom-sheet.service';
 
-// Billing Info Sheet
-export { UsageBillingInfoSheetComponent } from './usage-billing-info-sheet.component';
+// Billing Info Sheet (deprecated — types only, managed via Stripe Portal)
 export type {
   BillingInfoSheetMode,
   BillingInfoSheetResult,

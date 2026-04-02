@@ -1,9 +1,11 @@
 /**
- * @fileoverview Usage Payment Info — Billing, Payment Method, Coupon Cards
+ * @fileoverview Usage Payment Info — Read-Only Summary + Stripe Portal Redirect
  * @module @nxt1/ui/usage
  *
- * Professional payment information section matching GitHub billing style.
- * Cards: Billing information, Payment method, Coupon, Additional information.
+ * Read-only payment information section. Displays current billing address and
+ * default payment method on file. All editing (add/remove cards, update billing
+ * address, manage invoices) is handled via the Stripe Customer Portal — the
+ * frontend never collects raw card data.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
@@ -21,21 +23,13 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
   template: `
     <section class="payment-info" [attr.data-testid]="testIds.PAYMENT_INFO_SECTION">
       <div class="info-grid">
-        <!-- Billing Information Card -->
+        <!-- Billing Information Card (read-only) -->
         <div class="info-card">
           <div class="card-header">
             <div class="card-title">
               <nxt1-icon name="location-outline" className="card-icon" />
               <span>Billing information</span>
             </div>
-            <button
-              class="edit-btn"
-              [attr.data-testid]="testIds.PAYMENT_INFO_EDIT_BILLING"
-              (click)="editBilling.emit()"
-            >
-              <nxt1-icon name="pencil" className="edit-icon" />
-              Edit
-            </button>
           </div>
           <div class="card-body">
             @if (billingInfo()) {
@@ -51,21 +45,13 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
           </div>
         </div>
 
-        <!-- Payment Method Card -->
+        <!-- Payment Method Card (read-only) -->
         <div class="info-card">
           <div class="card-header">
             <div class="card-title">
               <nxt1-icon name="card-outline" className="card-icon" />
               <span>Payment method</span>
             </div>
-            <button
-              class="edit-btn"
-              [attr.data-testid]="testIds.PAYMENT_INFO_EDIT_PAYMENT"
-              (click)="editPayment.emit()"
-            >
-              <nxt1-icon name="pencil" className="edit-icon" />
-              Edit
-            </button>
           </div>
           <div class="card-body">
             @if (defaultMethod()) {
@@ -87,30 +73,23 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
             }
           </div>
         </div>
+      </div>
 
-        <!-- Additional Information Card -->
-        <div class="info-card">
-          <div class="card-header">
-            <div class="card-title">
-              <nxt1-icon name="infoCircle" className="card-icon" />
-              <span>Additional information</span>
-            </div>
-            <button
-              class="edit-btn"
-              [attr.data-testid]="testIds.PAYMENT_INFO_EDIT_ADDITIONAL"
-              (click)="editAdditional.emit()"
-            >
-              <nxt1-icon name="pencil" className="edit-icon" />
-              Edit
-            </button>
-          </div>
-          <div class="card-body">
-            <p class="empty-text">
-              Add information for your receipts such as an alternate email, PO numbers, or
-              additional notes.
-            </p>
-          </div>
+      <!-- Stripe Portal CTA -->
+      <div class="portal-cta">
+        <div class="portal-info">
+          <nxt1-icon name="shield-checkmark-outline" className="portal-shield-icon" />
+          <p class="portal-text">
+            Payment methods, billing address, and invoices are managed securely through Stripe.
+          </p>
         </div>
+        <button
+          class="portal-btn"
+          [attr.data-testid]="testIds.PAYMENT_INFO_EDIT_BILLING"
+          (click)="manageBilling.emit()"
+        >
+          Manage billing
+        </button>
       </div>
     </section>
   `,
@@ -118,14 +97,6 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
     `
       .payment-info {
         margin-bottom: var(--nxt1-spacing-8);
-      }
-
-      .section-heading {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-xl);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        color: var(--nxt1-color-text-primary);
-        margin: 0 0 var(--nxt1-spacing-4) 0;
       }
 
       .info-grid {
@@ -163,30 +134,6 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         color: var(--nxt1-color-text-secondary);
       }
 
-      .edit-btn {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-1);
-        padding: var(--nxt1-spacing-1) var(--nxt1-spacing-2);
-        font-size: var(--nxt1-fontSize-xs);
-        font-weight: var(--nxt1-fontWeight-medium);
-        color: var(--nxt1-color-primary);
-        background: transparent;
-        border: none;
-        border-radius: var(--nxt1-radius-sm, 4px);
-        cursor: pointer;
-        transition: background var(--nxt1-transition-fast);
-
-        &:hover {
-          background: var(--nxt1-color-surface-200);
-        }
-      }
-
-      .edit-icon {
-        width: var(--nxt1-fontSize-sm, 14px);
-        height: var(--nxt1-fontSize-sm, 14px);
-      }
-
       .card-body {
         padding: var(--nxt1-spacing-4);
       }
@@ -202,11 +149,6 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         font-size: var(--nxt1-fontSize-sm);
         color: var(--nxt1-color-text-primary);
         line-height: var(--nxt1-lineHeight-normal);
-      }
-
-      .detail-line--muted {
-        color: var(--nxt1-color-text-secondary);
-        margin-top: var(--nxt1-spacing-1);
       }
 
       .empty-text {
@@ -248,9 +190,86 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         color: var(--nxt1-color-text-tertiary);
       }
 
+      /* ── Stripe Portal CTA ────────────────────────── */
+
+      .portal-cta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--nxt1-spacing-4);
+        margin-top: var(--nxt1-spacing-4);
+        padding: var(--nxt1-spacing-4);
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        border-radius: var(--nxt1-radius-lg, 12px);
+      }
+
+      .portal-info {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-3);
+        flex: 1;
+        min-width: 0;
+      }
+
+      .portal-shield-icon {
+        flex-shrink: 0;
+        font-size: var(--nxt1-icon-size-md, 20px);
+        color: var(--nxt1-color-success, #22c55e);
+      }
+
+      .portal-text {
+        margin: 0;
+        font-size: var(--nxt1-fontSize-sm);
+        color: var(--nxt1-color-text-secondary);
+        line-height: var(--nxt1-lineHeight-normal);
+      }
+
+      .portal-btn {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2);
+        flex-shrink: 0;
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        font-family: var(--nxt1-fontFamily-body);
+        color: var(--nxt1-color-text-on-primary, #000);
+        background: var(--nxt1-color-primary);
+        border: none;
+        border-radius: var(--nxt1-radius-md, 8px);
+        cursor: pointer;
+        transition: opacity var(--nxt1-transition-fast);
+        white-space: nowrap;
+
+        &:hover {
+          opacity: 0.9;
+        }
+      }
+
+      .portal-btn-icon {
+        width: var(--nxt1-fontSize-sm, 14px);
+        height: var(--nxt1-fontSize-sm, 14px);
+      }
+
       @media (max-width: 640px) {
         .info-grid {
           grid-template-columns: 1fr;
+        }
+
+        .portal-cta {
+          flex-direction: column;
+          align-items: stretch;
+          text-align: center;
+        }
+
+        .portal-info {
+          flex-direction: column;
+          text-align: center;
+        }
+
+        .portal-btn {
+          justify-content: center;
         }
       }
     `,
@@ -263,9 +282,8 @@ export class UsagePaymentInfoComponent {
   readonly billingInfo = input<UsageBillingInfo | null>(null);
   readonly paymentMethods = input<readonly UsagePaymentMethod[]>([]);
 
-  readonly editBilling = output<void>();
-  readonly editPayment = output<void>();
-  readonly editAdditional = output<void>();
+  /** Emitted when the user clicks "Manage billing" — opens Stripe Customer Portal */
+  readonly manageBilling = output<void>();
 
   protected readonly defaultMethod = computed(() => {
     const methods = this.paymentMethods();

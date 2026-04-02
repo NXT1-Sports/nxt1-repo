@@ -43,12 +43,12 @@ import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import { NxtIconComponent } from '../components/icon';
 import { AgentXService } from './agent-x.service';
-import { AgentXBriefingPanelComponent } from './agent-x-briefing-panel.component';
+import { AgentXControlPanelComponent } from './agent-x-control-panel.component';
 import {
   AGENT_X_GOAL_OPTIONS,
-  AgentXBriefingBadgeStateService,
-  type AgentXBriefingPanelKind,
-} from './agent-x-briefing-badge-state.service';
+  AgentXControlPanelStateService,
+  type AgentXControlPanelKind,
+} from './agent-x-control-panel-state.service';
 
 import { AgentXInputComponent } from './agent-x-input.component';
 import {
@@ -214,7 +214,7 @@ export interface WeeklyPlaybookItem {
                 class="header-badge status-badge"
                 [class.status-badge--degraded]="agentStatusTone() === 'warning'"
                 [class.status-badge--down]="agentStatusTone() === 'critical'"
-                (click)="openBriefingPanel('status')"
+                (click)="openControlPanel('status')"
               >
                 <div
                   class="pulse-dot"
@@ -226,7 +226,7 @@ export interface WeeklyPlaybookItem {
               <button
                 type="button"
                 class="header-badge budget-badge"
-                (click)="openBriefingPanel('budget')"
+                (click)="openControlPanel('budget')"
               >
                 <nxt1-icon name="wallet" [size]="14"></nxt1-icon>
                 <span>{{ agentBudgetBadgeLabel() }}</span>
@@ -1647,7 +1647,7 @@ export interface WeeklyPlaybookItem {
 })
 export class AgentXShellComponent {
   protected readonly agentX = inject(AgentXService);
-  protected readonly briefingBadges = inject(AgentXBriefingBadgeStateService);
+  protected readonly controlPanelState = inject(AgentXControlPanelStateService);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
@@ -1721,9 +1721,9 @@ export class AgentXShellComponent {
 
   /** Briefing preview text — live from service only. */
   protected readonly briefingPreview = computed(() => this.agentX.briefingPreviewText());
-  protected readonly agentStatusLabel = this.briefingBadges.statusLabel;
-  protected readonly agentStatusTone = this.briefingBadges.statusTone;
-  protected readonly agentBudgetBadgeLabel = this.briefingBadges.budgetBadgeLabel;
+  protected readonly agentStatusLabel = this.controlPanelState.statusLabel;
+  protected readonly agentStatusTone = this.controlPanelState.statusTone;
+  protected readonly agentBudgetBadgeLabel = this.controlPanelState.budgetBadgeLabel;
 
   // ============================================
   // COORDINATORS — Role-Aware Virtual Staff
@@ -1790,7 +1790,7 @@ export class AgentXShellComponent {
       if (!loaded || hasGoals || this.goalsSheetShown) return;
 
       this.goalsSheetShown = true;
-      void this.openBriefingPanel('goals', true);
+      void this.openControlPanel('goals', true);
     });
 
     effect(() => {
@@ -1834,21 +1834,18 @@ export class AgentXShellComponent {
    * Opens the shared Agent X goals panel.
    */
   protected async onSetupGoals(): Promise<void> {
-    await this.openBriefingPanel('goals');
+    await this.openControlPanel('goals');
   }
 
-  protected async openBriefingPanel(
-    panel: AgentXBriefingPanelKind,
-    required = false
-  ): Promise<void> {
+  protected async openControlPanel(panel: AgentXControlPanelKind, required = false): Promise<void> {
     await this.haptics.impact('light');
-    this.briefingBadges.notePanelOpened(panel, 'sheet');
+    this.controlPanelState.notePanelOpened(panel, 'sheet');
 
     const result = await this.bottomSheet.openSheet<{
-      panel: AgentXBriefingPanelKind;
+      panel: AgentXControlPanelKind;
       saved?: boolean;
     }>({
-      component: AgentXBriefingPanelComponent,
+      component: AgentXControlPanelComponent,
       componentProps: {
         panel,
         presentation: 'sheet',
@@ -1861,7 +1858,7 @@ export class AgentXShellComponent {
       canDismiss: required
         ? async (_data?: unknown, role?: string) => role === 'save' || role === 'back'
         : true,
-      cssClass: 'agent-x-briefing-badge-sheet',
+      cssClass: 'agent-x-control-panel-sheet',
     });
 
     // User tapped close without saving in required mode — navigate back
@@ -1872,7 +1869,7 @@ export class AgentXShellComponent {
 
     // After saving goals, sync to backend and trigger generation
     if (panel === 'goals' && result?.role === 'save') {
-      const goalIds = this.briefingBadges.goals();
+      const goalIds = this.controlPanelState.goals();
       const dashboardGoals: AgentDashboardGoal[] = goalIds.map((id) => {
         if (id.startsWith('custom:')) {
           return { id, text: id.slice(7), category: 'custom', createdAt: new Date().toISOString() };

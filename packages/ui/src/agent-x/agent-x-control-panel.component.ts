@@ -16,21 +16,22 @@ import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header
 import { NxtSheetFooterComponent } from '../components/bottom-sheet/sheet-footer.component';
 import { NxtModalFooterComponent } from '../components/overlay/modal-footer.component';
 import { NxtToastService } from '../services/toast/toast.service';
+import { UsageService } from '../usage/usage.service';
 import {
   AGENT_X_GOAL_OPTIONS,
   AGENT_X_STATUS_DEFINITIONS,
-  AgentXBriefingBadgeStateService,
-  type AgentXBriefingPanelKind,
-  type AgentXBriefingPresentation,
-} from './agent-x-briefing-badge-state.service';
+  AgentXControlPanelStateService,
+  type AgentXControlPanelKind,
+  type AgentXControlPanelPresentation,
+} from './agent-x-control-panel-state.service';
 
-interface AgentXBriefingPanelCloseResult {
-  readonly panel: AgentXBriefingPanelKind;
+interface AgentXControlPanelCloseResult {
+  readonly panel: AgentXControlPanelKind;
   readonly saved?: boolean;
 }
 
 @Component({
-  selector: 'nxt1-agent-x-briefing-panel',
+  selector: 'nxt1-agent-x-control-panel',
   standalone: true,
   imports: [
     CommonModule,
@@ -260,7 +261,9 @@ interface AgentXBriefingPanelCloseResult {
           } @else {
             <nxt1-modal-footer
               [label]="panel === 'budget' ? 'Save budget' : 'Save goals'"
-              [disabled]="panel === 'goals' && draftGoals().length === 0"
+              [loadingLabel]="'Saving...'"
+              [loading]="saving()"
+              [disabled]="(panel === 'goals' && draftGoals().length === 0) || saving()"
               (action)="savePanel()"
             />
           }
@@ -270,7 +273,9 @@ interface AgentXBriefingPanelCloseResult {
       } @else {
         <nxt1-sheet-footer
           [label]="panel === 'budget' ? 'Save budget' : 'Save goals'"
-          [disabled]="panel === 'goals' && draftGoals().length === 0"
+          [loadingLabel]="'Saving...'"
+          [loading]="saving()"
+          [disabled]="(panel === 'goals' && draftGoals().length === 0) || saving()"
           (action)="savePanel()"
         />
       }
@@ -690,15 +695,16 @@ interface AgentXBriefingPanelCloseResult {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AgentXBriefingPanelComponent implements OnInit {
+export class AgentXControlPanelComponent implements OnInit {
   private readonly modalController = inject(ModalController);
   private readonly toast = inject(NxtToastService);
-  private readonly state = inject(AgentXBriefingBadgeStateService);
+  private readonly state = inject(AgentXControlPanelStateService);
+  private readonly usageService = inject(UsageService);
 
-  readonly close = output<AgentXBriefingPanelCloseResult>();
+  readonly close = output<AgentXControlPanelCloseResult>();
 
-  @Input() panel: AgentXBriefingPanelKind = 'status';
-  @Input() presentation: AgentXBriefingPresentation = 'modal';
+  @Input() panel: AgentXControlPanelKind = 'status';
+  @Input() presentation: AgentXControlPanelPresentation = 'modal';
   @Input() required = false;
 
   readonly title = computed(() => {
@@ -725,6 +731,7 @@ export class AgentXBriefingPanelComponent implements OnInit {
     }
   });
 
+  readonly saving = signal(false);
   readonly draftBudget = signal(150);
   readonly draftAutoTopOffEnabled = signal(true);
   readonly draftAutoTopOffAmount = signal(50);
@@ -746,7 +753,13 @@ export class AgentXBriefingPanelComponent implements OnInit {
   readonly goalOptions = AGENT_X_GOAL_OPTIONS;
 
   ngOnInit(): void {
-    this.draftBudget.set(this.state.monthlyBudget());
+    // Hydrate budget from backend billing context (cents → dollars) if available,
+    // otherwise fall back to local badge state
+    const billingCtx = this.usageService.billingContext();
+    const budgetDollars = billingCtx?.monthlyBudget
+      ? Math.round(billingCtx.monthlyBudget / 100)
+      : this.state.monthlyBudget();
+    this.draftBudget.set(budgetDollars);
     this.draftAutoTopOffEnabled.set(this.state.autoTopOffEnabled());
     this.draftAutoTopOffAmount.set(this.state.autoTopOffAmount());
     this.draftGoals.set([...this.state.goals()]);
@@ -818,15 +831,30 @@ export class AgentXBriefingPanelComponent implements OnInit {
     this.customGoalText.set('');
   }
 
-  savePanel(): void {
+  async savePanel(): Promise<void> {
     if (this.panel === 'budget') {
-      this.state.saveBudget({
-        monthlyBudget: this.draftBudget(),
-        autoTopOffEnabled: this.draftAutoTopOffEnabled(),
-        autoTopOffAmount: this.draftAutoTopOffAmount(),
-      });
-      this.toast.success('Agent X budget updated.');
-      this.dismiss({ panel: 'budget', saved: true });
+      this.saving.set(true);
+      const budgetCents = Math.round(this.draftBudget() * 100);
+
+      try {
+        const success = await this.usageService.updateBudget(budgetCents);
+        if (!success) {
+          this.saving.set(false);
+          return; // UsageService already showed error toast
+        }
+
+        // Only update badge state after backend confirms
+        this.state.saveBudget({
+          monthlyBudget: this.draftBudget(),
+          autoTopOffEnabled: this.draftAutoTopOffEnabled(),
+          autoTopOffAmount: this.draftAutoTopOffAmount(),
+        });
+        this.dismiss({ panel: 'budget', saved: true });
+      } catch {
+        // UsageService handles error toast/logging internally
+      } finally {
+        this.saving.set(false);
+      }
       return;
     }
 
@@ -837,7 +865,7 @@ export class AgentXBriefingPanelComponent implements OnInit {
     }
   }
 
-  dismiss(result: AgentXBriefingPanelCloseResult = { panel: this.panel }): void {
+  dismiss(result: AgentXControlPanelCloseResult = { panel: this.panel }): void {
     // In required mode without saving, dismiss with 'back' role so the shell can navigate back
     if (this.required && !result.saved) {
       if (this.presentation === 'sheet') {
