@@ -71,7 +71,6 @@ import {
   UsageBudgetsComponent,
 } from '../sections';
 import type { UsageUser } from '../usage-shell.component';
-import { NxtBottomSheetService } from 'src/components';
 
 // Re-export for convenience
 export type { UsageUser };

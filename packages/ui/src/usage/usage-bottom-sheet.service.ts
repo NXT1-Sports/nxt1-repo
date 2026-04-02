@@ -59,7 +59,7 @@ export class UsageBottomSheetService {
     });
 
     if (!result?.confirmed) return null;
-    const selected = result.data as BottomSheetAction | undefined;
+    const selected = result.data as unknown as BottomSheetAction | undefined;
     return { action: selected?.label ?? 'unknown' };
   }
 
