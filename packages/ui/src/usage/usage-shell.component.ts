@@ -50,7 +50,7 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 import { UsageSkeletonComponent } from './usage-skeleton.component';
 import { UsageHelpContentComponent } from './usage-help-content.component';
 import { UsageErrorStateComponent } from './usage-error-state.component';
-// import { UsageBottomSheetService } from './usage-bottom-sheet.service';
+import { UsageBottomSheetService } from './usage-bottom-sheet.service';
 import {
   UsageOverviewComponent,
   UsageSubscriptionsComponent,
@@ -60,7 +60,6 @@ import {
   UsagePaymentInfoComponent,
   UsageBudgetsComponent,
 } from './sections';
-import { AddPaymentMethodComponent } from './add-payment-method.component';
 
 /**
  * User info for header display.
