@@ -42,3 +42,7 @@ export {
   UsagePaymentInfoComponent,
   UsageBudgetsComponent,
 } from './sections';
+
+// Stripe
+export { STRIPE_PUBLISHABLE_KEY } from './stripe-config';
+export { AddPaymentMethodComponent } from './add-payment-method.component';

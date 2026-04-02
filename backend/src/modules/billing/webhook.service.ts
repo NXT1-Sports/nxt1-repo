@@ -247,6 +247,50 @@ export async function handleInvoicePaymentFailed(
 }
 
 /**
+ * Handle setup_intent.succeeded event
+ * Sets the payment method as the customer's default after a successful card save.
+ */
+export async function handleSetupIntentSucceeded(
+  _db: Firestore,
+  setupIntent: Stripe.SetupIntent,
+  environment: 'staging' | 'production'
+): Promise<void> {
+  try {
+    const customerId =
+      typeof setupIntent.customer === 'string' ? setupIntent.customer : setupIntent.customer?.id;
+
+    const paymentMethodId =
+      typeof setupIntent.payment_method === 'string'
+        ? setupIntent.payment_method
+        : setupIntent.payment_method?.id;
+
+    if (!customerId || !paymentMethodId) {
+      logger.warn('[handleSetupIntentSucceeded] Missing customer or payment_method', {
+        setupIntentId: setupIntent.id,
+      });
+      return;
+    }
+
+    const stripe = getStripeClient(environment);
+    await stripe.customers.update(customerId, {
+      invoice_settings: { default_payment_method: paymentMethodId },
+    });
+
+    logger.info('[handleSetupIntentSucceeded] Default payment method updated', {
+      customerId,
+      paymentMethodId,
+      setupIntentId: setupIntent.id,
+    });
+  } catch (error) {
+    logger.error('[handleSetupIntentSucceeded] Failed to set default payment method', {
+      error,
+      setupIntentId: setupIntent.id,
+    });
+    throw error;
+  }
+}
+
+/**
  * Main webhook handler - routes events to appropriate handlers
  */
 export async function handleWebhookEvent(
@@ -270,6 +314,10 @@ export async function handleWebhookEvent(
 
     case 'invoice.payment_failed':
       await handleInvoicePaymentFailed(db, event.data.object as Stripe.Invoice, environment);
+      break;
+
+    case 'setup_intent.succeeded':
+      await handleSetupIntentSucceeded(db, event.data.object as Stripe.SetupIntent, environment);
       break;
 
     case 'customer.subscription.created':

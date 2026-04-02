@@ -88,7 +88,7 @@ import { AGENT_X_API_BASE_URL, AGENT_X_AUTH_TOKEN_FACTORY } from '@nxt1/ui/agent
 import { ACTIVITY_API_BASE_URL, ACTIVITY_API_ADAPTER } from '@nxt1/ui/activity';
 import { INVITE_API_BASE_URL } from '@nxt1/ui/invite';
 import { MESSAGES_API_BASE_URL } from '@nxt1/ui/messages';
-import { USAGE_API_BASE_URL } from '@nxt1/ui/usage';
+import { USAGE_API_BASE_URL, STRIPE_PUBLISHABLE_KEY } from '@nxt1/ui/usage';
 
 // Help Center API adapter — wired at root so the shared HelpCenterService
 // (providedIn: 'root') can resolve the token when it's first injected.
@@ -317,6 +317,9 @@ export const appConfig: ApplicationConfig = {
 
     // Usage/Billing API base URL
     { provide: USAGE_API_BASE_URL, useFactory: () => environment.apiURL },
+
+    // Stripe publishable key — env-specific (test for staging, live for production)
+    { provide: STRIPE_PUBLISHABLE_KEY, useFactory: () => environment.stripePublishableKey },
 
     // Help Center API adapter — root-level so shared HelpCenterService resolves it
     { provide: HELP_CENTER_API, useExisting: HelpCenterApiService },

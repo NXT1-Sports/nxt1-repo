@@ -21,6 +21,8 @@ import {
   COLLECTIONS,
   getOrCreateCustomer,
   getStripeClient,
+  createSetupIntent,
+  getBillingContext,
   getOrgTeamAllocations,
   resolveBillingTarget,
   type ResolvedBillingTarget,
@@ -897,6 +899,51 @@ router.post(
     }
   }
 );
+
+/**
+ * POST /api/v1/usage/payment-methods/setup-intent
+ * Create a Stripe SetupIntent to save a card via Stripe Elements.
+ * Only available for Org/Team users — Individual users use Apple IAP.
+ */
+router.post('/payment-methods/setup-intent', appGuard, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.uid;
+
+    const db = req.firebase?.db;
+    if (!db) throw new Error('Firebase context not available');
+
+    const billingCtx = await getBillingContext(db, userId);
+    if (billingCtx?.billingEntity === 'individual') {
+      return res.status(400).json({
+        error: 'Individual users manage payment via Apple IAP, not Stripe',
+        code: 'INDIVIDUAL_USE_IAP',
+      });
+    }
+
+    const environment = req.isStaging ? 'staging' : 'production';
+    const email = req.user!.email ?? '';
+
+    const target = await resolveBillingTarget(db, userId);
+    const { customerId } = await getOrCreateCustomer(
+      db,
+      target.billingUserId,
+      email,
+      target.teamIds?.[0],
+      environment
+    );
+
+    const clientSecret = await createSetupIntent(customerId, environment);
+
+    logger.info('[POST /payment-methods/setup-intent] SetupIntent created', { userId });
+    return res.json({ success: true, data: { clientSecret } });
+  } catch (error) {
+    logger.error('[POST /payment-methods/setup-intent] Failed to create setup intent', { error });
+    return res.status(500).json({
+      error: 'Failed to create setup intent',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
 
 /**
  * POST /api/v1/usage/payment-methods/remove

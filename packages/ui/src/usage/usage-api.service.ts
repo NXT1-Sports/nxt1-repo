@@ -77,4 +77,7 @@ export class UsageApiService {
   readonly getBillingContext: UsageApi['getBillingContext'] = this.api.getBillingContext;
   readonly updateBudget: UsageApi['updateBudget'] = this.api.updateBudget;
   readonly updateTeamBudget: UsageApi['updateTeamBudget'] = this.api.updateTeamBudget;
+  // ── Stripe SetupIntent ────────────────────────────────────────────
+
+  readonly getSetupIntent: UsageApi['getSetupIntent'] = this.api.getSetupIntent;
 }

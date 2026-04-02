@@ -41,7 +41,8 @@
   },
   "dependencies": {
     "@nxt1/core": "*",
-    "@nxt1/design-tokens": "*"
+    "@nxt1/design-tokens": "*",
+    "@stripe/stripe-js": "^5.0.0"
   },
   "peerDependencies": {
     "@angular/cdk": "^21.0.0",

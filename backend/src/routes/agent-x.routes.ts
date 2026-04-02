@@ -58,6 +58,12 @@ import {
 import { AgentGenerationService } from '../modules/agent/services/generation.service.js';
 import { FirecrawlProfileService } from '../modules/agent/tools/scraping/firecrawl-profile.service.js';
 import { PLATFORM_REGISTRY } from '@nxt1/core';
+import {
+  checkBudget,
+  hasPaymentMethod,
+  resolveBillingTarget,
+  COLLECTIONS,
+} from '../modules/billing/index.js';
 
 /** Lazy singleton for content generation — avoids eager init at import time. */
 let _generationService: AgentGenerationService | null = null;
@@ -207,6 +213,52 @@ router.post('/ask', appGuard, validateBody(AskAgentDto), async (req: Request, re
     // Write to Firestore first so the frontend can listen immediately.
     // Use req.firebase.db to target the correct environment (staging vs production).
     const { db } = req.firebase!;
+
+    // ─── Billing gate ─────────────────────────────────────────────────
+    const billingTarget = await resolveBillingTarget(db, user.uid);
+    const billingCtx = billingTarget.context;
+    const env = req.isStaging ? 'staging' : 'production';
+
+    if (billingCtx.billingEntity === 'individual') {
+      // IAP wallet: check prepaid balance
+      const budgetResult = await checkBudget(db, user.uid, 0);
+      if (!budgetResult.allowed) {
+        res.status(402).json({ success: false, error: budgetResult.reason, code: 'WALLET_EMPTY' });
+        return;
+      }
+    } else {
+      // Org/Team: must have a card on file before running jobs
+      const customerQuery = await db
+        .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+        .where('userId', '==', billingTarget.billingUserId)
+        .where('environment', '==', env)
+        .limit(1)
+        .get();
+
+      const customerId = customerQuery.empty
+        ? null
+        : ((customerQuery.docs[0]!.data()['stripeCustomerId'] as string | undefined) ?? null);
+
+      if (!customerId || !(await hasPaymentMethod(customerId, env))) {
+        res.status(402).json({
+          success: false,
+          error: 'Add a payment method in Settings → Billing to use Agent X',
+          code: 'NO_PAYMENT_METHOD',
+        });
+        return;
+      }
+
+      // Monthly budget check
+      const budgetResult = await checkBudget(db, user.uid, 0, billingCtx.teamId);
+      if (!budgetResult.allowed) {
+        res
+          .status(402)
+          .json({ success: false, error: budgetResult.reason, code: 'BUDGET_EXCEEDED' });
+        return;
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────
+
     await jobRepository.withDb(db).create(payload);
 
     // Enqueue the job in Redis/BullMQ

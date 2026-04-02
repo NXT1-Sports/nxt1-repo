@@ -70,6 +70,8 @@ import {
   UsageBudgetsComponent,
 } from '../sections';
 import type { UsageUser } from '../usage-shell.component';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../../components/bottom-sheet';
+import { AddPaymentMethodComponent } from '../add-payment-method.component';
 
 // Re-export for convenience
 export type { UsageUser };
@@ -435,6 +437,7 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
   private readonly usageBottomSheet = inject(UsageBottomSheetService);
+  private readonly bottomSheet = inject(NxtBottomSheetService);
 
   // Template refs for header portal
   private readonly centerPortalContent = viewChild<TemplateRef<unknown>>('centerPortalContent');
@@ -554,7 +557,11 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
 
   protected onEditPayment(): void {
     this.haptics.impact('light');
-    // Open payment method form/bottom sheet
+    void this.bottomSheet.openSheet({
+      component: AddPaymentMethodComponent,
+      ...SHEET_PRESETS.TALL,
+      cssClass: 'add-payment-method-sheet',
+    });
   }
 
   protected onEditAdditional(): void {

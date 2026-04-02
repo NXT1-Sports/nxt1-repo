@@ -320,6 +320,7 @@ export const USAGE_API_ENDPOINTS = {
   budget: '/billing/budget',
   budgetTeam: '/billing/budget/team',
   recordUsage: '/billing/usage',
+  setupIntent: '/usage/payment-methods/setup-intent',
 } as const;
 
 // ============================================

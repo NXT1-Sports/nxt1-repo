@@ -249,6 +249,21 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
         throw new Error(response.error ?? 'Failed to update team budget');
       }
     },
+
+    /**
+     * Create a Stripe SetupIntent for saving a card (Org/Team users only).
+     * Returns a clientSecret to be used with Stripe Elements.
+     */
+    async getSetupIntent(): Promise<{ clientSecret: string }> {
+      const response = await http.post<ApiResponse<{ clientSecret: string }>>(
+        `${baseUrl}${USAGE_API_ENDPOINTS.setupIntent}`,
+        {}
+      );
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? 'Failed to create setup intent');
+      }
+      return response.data;
+    },
   } as const;
 }
 

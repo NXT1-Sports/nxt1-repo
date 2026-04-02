@@ -60,6 +60,7 @@ import {
   UsagePaymentInfoComponent,
   UsageBudgetsComponent,
 } from './sections';
+import { AddPaymentMethodComponent } from './add-payment-method.component';
 
 /**
  * User info for header display.
@@ -660,7 +661,11 @@ export class UsageShellComponent implements OnInit {
 
   protected onEditPayment(): void {
     this.haptics.impact('light');
-    // Open payment method form/bottom sheet
+    void this.bottomSheet.openSheet({
+      component: AddPaymentMethodComponent,
+      ...SHEET_PRESETS.TALL,
+      cssClass: 'add-payment-method-sheet',
+    });
   }
 
   protected onEditAdditional(): void {

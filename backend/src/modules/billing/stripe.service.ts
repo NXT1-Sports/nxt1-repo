@@ -303,6 +303,57 @@ export async function getCustomerInvoices(
 }
 
 /**
+ * Create a Stripe SetupIntent for saving a card.
+ * Used only for Org/Team users — Individual users use Apple IAP.
+ * Returns the client_secret to be used with Stripe Elements on the frontend.
+ */
+export async function createSetupIntent(
+  customerId: string,
+  environment: 'staging' | 'production'
+): Promise<string> {
+  const stripe = getStripeClient(environment);
+
+  const setupIntent = await stripe.setupIntents.create({
+    customer: customerId,
+    usage: 'off_session',
+    payment_method_types: ['card'],
+  });
+
+  logger.info('[createSetupIntent] SetupIntent created', {
+    customerId,
+    setupIntentId: setupIntent.id,
+  });
+
+  if (!setupIntent.client_secret) {
+    throw new Error('Stripe returned SetupIntent without client_secret');
+  }
+
+  return setupIntent.client_secret;
+}
+
+/**
+ * Check whether a Stripe customer has at least one saved card.
+ * Used to gate Org/Team users from running agent jobs before adding a payment method.
+ */
+export async function hasPaymentMethod(
+  customerId: string,
+  environment: 'staging' | 'production'
+): Promise<boolean> {
+  try {
+    const stripe = getStripeClient(environment);
+    const methods = await stripe.paymentMethods.list({
+      customer: customerId,
+      type: 'card',
+      limit: 1,
+    });
+    return methods.data.length > 0;
+  } catch (error) {
+    logger.error('[hasPaymentMethod] Failed to check payment methods', { error, customerId });
+    return false;
+  }
+}
+
+/**
  * Cancel all active Stripe subscriptions for a user in a given environment.
  * This is used during account deletion to stop future billing before data is removed.
  */
