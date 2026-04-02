@@ -1100,6 +1100,27 @@ export async function resolveBillingTarget(
     );
   }
 
+  // ── Athletes / Coaches on org-billed teams ────────────────────────────
+  // Non-director users (athletes, coaches) may belong to an org-billed team.
+  // In that case their AI usage should be gated against the org budget and
+  // charged to the org's Stripe customer — not treated as individual IAP.
+  //
+  // Resolution: find the user's active roster entry → look up its team →
+  // check if the org has billing enabled → create/return org billing target
+  // using the athlete's own context (which has teamId for sub-limit tracking).
+  if (role !== 'director') {
+    const athleteTarget = await resolveAthleteOrgTarget(db, userId);
+    if (athleteTarget) {
+      billingResolutionCache.set(userId, {
+        type: athleteTarget.type,
+        billingUserId: athleteTarget.billingUserId,
+        organizationId: athleteTarget.organizationId,
+        expiresAt: Date.now() + BILLING_RESOLUTION_CACHE_TTL_MS,
+      });
+      return athleteTarget;
+    }
+  }
+
   // ── Fallback: individual billing ──
   const ctx = await getOrCreateBillingContext(db, userId);
   const target: ResolvedBillingTarget = {
@@ -1115,6 +1136,106 @@ export async function resolveBillingTarget(
   });
 
   return target;
+}
+
+/**
+ * Internal: Resolve an athlete/coach's organization target.
+ *
+ * Non-director users (athletes, coaches) on an org-billed team should have
+ * their AI usage charged to the organization, not treated as individual.
+ *
+ * Strategy:
+ *   1. Find the user's active roster entry to get their teamId.
+ *   2. Look up the team's organizationId and check for org billing.
+ *   3. If org-billed, ensure the athlete's billing context is created with
+ *      the correct teamId (so spend attribution walks the 3-tier hierarchy).
+ *   4. Return type='organization' with the org's Stripe customer userId
+ *      (`org:{orgId}`) but context = the athlete's own context (which tracks
+ *      teamId for team sub-limit enforcement).
+ *
+ * Returns null if the user is not on an org-billed team (fallback to individual).
+ */
+async function resolveAthleteOrgTarget(
+  db: Firestore,
+  userId: string
+): Promise<ResolvedBillingTarget | null> {
+  // Step 1: find active roster entry to get the user's team
+  const rosterSnap = await db
+    .collection('RosterEntries')
+    .where('userId', '==', userId)
+    .where('status', '==', 'active')
+    .limit(1)
+    .get();
+
+  if (rosterSnap.empty) return null;
+
+  const rosterData = rosterSnap.docs[0]!.data();
+  const teamId = rosterData['teamId'] as string | undefined;
+  const organizationId = rosterData['organizationId'] as string | undefined;
+
+  if (!teamId) return null;
+
+  // Step 2: check if the team's org has billing enabled
+  const teamDoc = await db.collection('Teams').doc(teamId).get();
+  const teamData = teamDoc.data();
+
+  const orgId = organizationId ?? (teamData?.['organizationId'] as string | undefined);
+
+  let orgHasBilling = false;
+  if (orgId) {
+    const orgDoc = await db.collection('Organizations').doc(orgId).get();
+    const orgData = orgDoc.data();
+    orgHasBilling = !!orgData?.['billing']?.['subscriptionId'] || !!teamData?.['orgBillingEnabled'];
+  } else if (teamData?.['orgBillingEnabled']) {
+    orgHasBilling = true;
+  }
+
+  if (!orgHasBilling) return null;
+
+  // Step 3: ensure athlete's billing context has teamId and billingEntity='organization'
+  // getOrCreateBillingContext with teamId will either return the existing context
+  // (if already properly set up) or create a new one with org billing.
+  const athleteCtx = await getOrCreateBillingContext(db, userId, teamId);
+
+  // If the existing context is individual (created before the team joined org billing),
+  // update it to reflect the organization billing.
+  if (athleteCtx.billingEntity === 'individual' && orgId) {
+    const ctxSnap = await db
+      .collection(COLLECTIONS.BILLING_CONTEXTS)
+      .where('userId', '==', userId)
+      .limit(1)
+      .get();
+    if (!ctxSnap.empty) {
+      await ctxSnap.docs[0]!.ref.update({
+        billingEntity: 'organization' as BillingEntity,
+        teamId,
+        organizationId: orgId,
+        paymentProvider: 'stripe' as PaymentProvider,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      // Refresh the context so callers see the updated values
+      athleteCtx.billingEntity = 'organization';
+      athleteCtx.teamId = teamId;
+      athleteCtx.organizationId = orgId;
+      athleteCtx.paymentProvider = 'stripe';
+    }
+  }
+
+  const billingUserId = orgId ? `org:${orgId}` : `team:${teamId}`;
+
+  logger.info('[resolveBillingTarget] Resolved athlete to organization billing', {
+    userId,
+    teamId,
+    organizationId: orgId,
+    billingUserId,
+  });
+
+  return {
+    type: 'organization',
+    billingUserId,
+    context: athleteCtx,
+    organizationId: orgId,
+  };
 }
 
 /**
@@ -1337,6 +1458,9 @@ export async function updateBudget(
     throw new Error('Budget cannot be negative');
   }
 
+  // Ensure a billing context exists (creates one with defaults if missing)
+  const ctx = await getOrCreateBillingContext(db, userId);
+
   const snapshot = await db
     .collection(COLLECTIONS.BILLING_CONTEXTS)
     .where('userId', '==', userId)
@@ -1344,7 +1468,7 @@ export async function updateBudget(
     .get();
 
   if (snapshot.empty) {
-    throw new Error('Billing context not found');
+    throw new Error('Billing context not found after upsert');
   }
 
   await snapshot.docs[0]!.ref.update({
@@ -1356,7 +1480,11 @@ export async function updateBudget(
     updatedAt: FieldValue.serverTimestamp(),
   });
 
-  logger.info('[updateBudget] Budget updated', { userId, newBudgetCents });
+  logger.info('[updateBudget] Budget updated', {
+    userId,
+    newBudgetCents,
+    billingEntity: ctx.billingEntity,
+  });
 }
 
 /**

@@ -622,3 +622,37 @@ export async function createUsageMeter(
     };
   }
 }
+
+/**
+ * Issue a refund for a Stripe charge.
+ * Used by org admins to credit back a disputed or erroneous charge.
+ *
+ * @param chargeId  Stripe charge ID (ch_...)
+ * @param environment  Stripe environment
+ * @param amountCents  Partial refund amount in cents. Omit for a full refund.
+ * @returns The created Stripe Refund object
+ */
+export async function refundCharge(
+  chargeId: string,
+  environment: 'staging' | 'production',
+  amountCents?: number
+): Promise<Stripe.Refund> {
+  const stripe = getStripeClient(environment);
+
+  const params: Stripe.RefundCreateParams = { charge: chargeId };
+  if (amountCents != null && amountCents > 0) {
+    params.amount = Math.round(amountCents);
+  }
+
+  const refund = await stripe.refunds.create(params);
+
+  logger.info('[refundCharge] Refund created', {
+    refundId: refund.id,
+    chargeId,
+    amountCents: refund.amount,
+    status: refund.status,
+    environment,
+  });
+
+  return refund;
+}

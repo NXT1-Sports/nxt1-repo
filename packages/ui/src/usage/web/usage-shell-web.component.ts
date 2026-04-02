@@ -34,11 +34,14 @@ import {
   input,
   computed,
   viewChild,
+  NgZone,
+  PLATFORM_ID,
   OnInit,
   AfterViewInit,
   OnDestroy,
   type TemplateRef,
 } from '@angular/core';
+import { isPlatformBrowser, CommonModule } from '@angular/common';
 import {
   NxtSectionNavWebComponent,
   type SectionNavChangeEvent,
@@ -68,6 +71,7 @@ import {
   UsageBudgetsComponent,
 } from '../sections';
 import type { UsageUser } from '../usage-shell.component';
+import { NxtBottomSheetService } from 'src/components';
 
 // Re-export for convenience
 export type { UsageUser };
@@ -434,6 +438,15 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
   private readonly usageBottomSheet = inject(UsageBottomSheetService);
+  // private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly ngZone = inject(NgZone);
+  private readonly platformId = inject(PLATFORM_ID);
+
+  private readonly onVisibilityChange = (): void => {
+    if (document.visibilityState === 'visible') {
+      this.ngZone.run(() => this.svc.loadDashboard());
+    }
+  };
 
   // Template refs for header portal
   private readonly centerPortalContent = viewChild<TemplateRef<unknown>>('centerPortalContent');
@@ -461,6 +474,9 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
 
   ngOnInit(): void {
     this.svc.loadDashboard();
+    if (isPlatformBrowser(this.platformId)) {
+      document.addEventListener('visibilitychange', this.onVisibilityChange);
+    }
   }
 
   ngAfterViewInit(): void {
@@ -472,6 +488,9 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
 
   ngOnDestroy(): void {
     this.headerPortal.clearAll();
+    if (isPlatformBrowser(this.platformId)) {
+      document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    }
   }
 
   // ============================================

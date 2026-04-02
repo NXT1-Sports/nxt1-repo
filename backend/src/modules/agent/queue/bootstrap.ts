@@ -81,6 +81,7 @@ import { setWelcomeDependencies } from '../../../services/agent-welcome.service.
 import { setScrapeDependencies } from '../../../services/agent-scrape.service.js';
 import { stagingDb } from '../../../utils/firebase-staging.js';
 import { logger } from '../../../utils/logger.js';
+import { addJobCost } from './job-cost-tracker.js';
 
 /**
  * Quick probe: attempt a single TCP connect + PING to Redis.
@@ -152,6 +153,16 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   const telemetry = new TelemetryService();
   const llm = new OpenRouterService({
     onTelemetry: (record) => {
+      // Accumulate cost per operationId so the worker can deduct billing
+      // without querying the Helicone REST API (which requires a matching org key).
+      logger.info('[onTelemetry] LLM call recorded', {
+        operationId: record.operationId,
+        model: record.model,
+        inputTokens: record.inputTokens,
+        outputTokens: record.outputTokens,
+        costUsd: record.costUsd,
+      });
+      addJobCost(record.operationId, record.costUsd);
       void telemetry.recordLLMCall({
         operationId: record.operationId,
         userId: record.userId,

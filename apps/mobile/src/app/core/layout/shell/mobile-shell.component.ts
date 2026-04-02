@@ -110,7 +110,7 @@ import {
   shouldShowUsage,
   buildUserDisplayContext,
 } from '@nxt1/core';
-import type { UserDisplayInput, UserDisplayFallback } from '@nxt1/core';
+import type { UserDisplayInput, UserDisplayFallback, InviteTeam } from '@nxt1/core';
 import { AuthFlowService } from '../../../features/auth/services/auth-flow.service';
 import { ProfileService } from '../../../core/services/profile.service';
 
@@ -1014,8 +1014,24 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    */
   private async openInviteSheet(): Promise<void> {
     const user = this.profileService.user();
+    const primarySport = this.profileService.primarySport();
+
+    // Build InviteTeam from the user's primary sport team data
+    const teamInfo = primarySport?.team;
+    const team: InviteTeam | undefined =
+      teamInfo?.teamId && primarySport
+        ? {
+            id: teamInfo.teamId,
+            name: teamInfo.name ?? '',
+            sport: primarySport.sport,
+            logoUrl: teamInfo.logoUrl ?? teamInfo.logo ?? undefined,
+            memberCount: 0,
+          }
+        : undefined;
+
     await this.inviteSheet.open({
-      inviteType: 'team',
+      inviteType: team ? 'team' : 'general',
+      team,
       user: user
         ? {
             displayName: `${user.firstName} ${user.lastName}`.trim() || user.email || undefined,

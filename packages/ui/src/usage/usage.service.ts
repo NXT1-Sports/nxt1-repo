@@ -392,12 +392,28 @@ export class UsageService implements OnDestroy {
   async openBillingPortal(): Promise<void> {
     this.logger.info('Opening Stripe billing portal');
     this.breadcrumb.trackStateChange('usage:opening-billing-portal');
+
+    // On web, window.open() called after an async operation is blocked by popup blockers.
+    // Pre-open a blank window synchronously before the API call, then redirect it to the URL.
+    // On native (Capacitor), window.open is not used — the Capacitor Browser plugin handles it.
+    const preOpenedWindow =
+      typeof window !== 'undefined' && typeof window.open === 'function'
+        ? window.open('about:blank', '_blank')
+        : null;
+
     try {
       const url = await this.api.createPortalSession();
       this.analytics?.trackEvent(APP_EVENTS.USAGE_BILLING_PORTAL_OPENED);
-      // Navigate to the Stripe-hosted portal using the in-app browser (or new tab on web)
-      this.browser.open({ url, presentationStyle: 'fullscreen' });
+
+      if (preOpenedWindow) {
+        // Web: redirect the pre-opened window to the Stripe portal URL
+        preOpenedWindow.location.href = url;
+      } else {
+        // Native (Capacitor): use the in-app browser plugin
+        this.browser.open({ url, presentationStyle: 'fullscreen' });
+      }
     } catch (err) {
+      preOpenedWindow?.close();
       const message = err instanceof Error ? err.message : 'Failed to open billing portal';
       this.logger.error('Failed to open billing portal', err);
       this.toast.error(message);

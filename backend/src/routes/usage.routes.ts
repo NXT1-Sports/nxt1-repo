@@ -40,6 +40,7 @@ import type {
   UsageDashboardData,
   UsageProductCategory,
   UsagePaymentMethod,
+  UsageBillingInfo,
 } from '@nxt1/core';
 
 const router = Router();
@@ -379,8 +380,9 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       };
     });
 
-    // Payment methods from Stripe (use billing target userId for org lookups)
+    // Payment methods and billing info from Stripe (use billing target userId for org lookups)
     let paymentMethods: UsagePaymentMethod[] = [];
+    let billingInfo: UsageBillingInfo | null = null;
     try {
       const customerDoc = await db
         .collection(COLLECTIONS.STRIPE_CUSTOMERS)
@@ -418,6 +420,17 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
           email: null,
           addedAt: new Date(m.created * 1000).toISOString(),
         }));
+
+        if (typeof customer !== 'string' && !customer.deleted && customer.address) {
+          const addr = customer.address;
+          const cityStateZip = [addr.city, addr.state, addr.postal_code].filter(Boolean).join(', ');
+          billingInfo = {
+            name: customer.name ?? '',
+            addressLine1: addr.line1 ?? '',
+            addressLine2: addr.line2 ? `${addr.line2}, ${cityStateZip}` : cityStateZip,
+            country: addr.country ?? '',
+          };
+        }
       }
     } catch (err) {
       logger.warn('[GET /dashboard] Failed to fetch payment methods from Stripe', { error: err });
@@ -482,7 +495,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       breakdownRows,
       paymentHistory,
       paymentMethods,
-      billingInfo: null,
+      billingInfo,
       coupon: null,
       budgets,
       billingEntity: billingCtx.billingEntity,
@@ -1332,7 +1345,40 @@ router.post('/portal-session', appGuard, async (req: Request, res: Response) => 
       return res.status(503).json({ error: 'Database unavailable' });
     }
 
-    const { customerId } = await getOrCreateCustomer(db, userId, email, undefined, environment);
+    // Resolve who actually pays — directors bill to their org's Stripe customer,
+    // individuals bill to their own.
+    const billingCtx = await getBillingContext(db, userId);
+    let customerUserId = userId;
+    let customerEmail = email;
+
+    if (billingCtx?.billingEntity === 'organization' && billingCtx.organizationId) {
+      // Director / org-billed: open portal for the org's Stripe customer
+      customerUserId = `org:${billingCtx.organizationId}`;
+      const orgDoc = await db.collection('Organizations').doc(billingCtx.organizationId).get();
+      const orgData = orgDoc.data();
+      customerEmail =
+        (orgData?.['billingEmail'] as string) || (orgData?.['email'] as string) || email;
+      logger.info('[POST /portal-session] Resolved director to org customer', {
+        userId,
+        organizationId: billingCtx.organizationId,
+        customerUserId,
+      });
+    } else if (billingCtx?.billingEntity === 'team' && billingCtx.teamId) {
+      // Legacy team billing
+      customerUserId = `team:${billingCtx.teamId}`;
+      const teamDoc = await db.collection('Teams').doc(billingCtx.teamId).get();
+      const teamData = teamDoc.data();
+      customerEmail =
+        (teamData?.['billingEmail'] as string) || (teamData?.['email'] as string) || email;
+    }
+
+    const { customerId } = await getOrCreateCustomer(
+      db,
+      customerUserId,
+      customerEmail,
+      billingCtx?.teamId,
+      environment
+    );
 
     const stripe = getStripeClient(environment);
     const returnUrl =
@@ -1347,7 +1393,9 @@ router.post('/portal-session', appGuard, async (req: Request, res: Response) => 
 
     logger.info('[POST /portal-session] Portal session created', {
       userId,
+      customerUserId,
       customerId,
+      billingEntity: billingCtx?.billingEntity ?? 'individual',
     });
 
     return res.json({ success: true, url: session.url });

@@ -49,7 +49,6 @@ import { logger } from '../../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1_500;
@@ -59,6 +58,18 @@ const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 
 /** Helicone proxy base URL (set to empty to disable). */
 const HELICONE_API_KEY = process.env['HELICONE_API_KEY'] ?? '';
+
+/**
+ * OpenRouter endpoint — routes through the Helicone proxy when HELICONE_API_KEY is
+ * configured so that every LLM call is automatically logged to Helicone. Without the
+ * proxy, OpenRouter does NOT forward Helicone headers on its own, meaning
+ * getJobCost() will always return requestCount=0.
+ *
+ * Helicone proxy for OpenRouter: https://openrouter.helicone.ai/api/v1
+ */
+const OPENROUTER_API_URL = HELICONE_API_KEY
+  ? 'https://openrouter.helicone.ai/api/v1/chat/completions'
+  : 'https://openrouter.ai/api/v1/chat/completions';
 
 /**
  * Build Helicone tracing headers when enabled.
@@ -71,16 +82,21 @@ function buildHeliconeHeaders(
   if (!HELICONE_API_KEY) return {};
   return {
     'Helicone-Auth': `Bearer ${HELICONE_API_KEY}`,
-    // Groups all LLM calls within a single Agent X operation into one session
+    // Sessions: group all LLM calls in one Agent X operation into a single Helicone session.
+    // Helicone-Session-Path is REQUIRED alongside Session-Id for sessions to be created.
     ...(ctx?.operationId && { 'Helicone-Session-Id': ctx.operationId }),
-    // Tags with Job-Id so getJobCost(operationId) can query actual cost after job completes
-    ...(ctx?.operationId && { 'Helicone-Property-Job-Id': ctx.operationId }),
+    ...(ctx?.operationId && {
+      'Helicone-Session-Path': ctx.agentId ? `/${ctx.agentId}` : '/agent',
+    }),
+    // Custom property for cost lookup by job — stored in lowercase because HTTP/2
+    // normalises header names to lowercase before Helicone indexes them.
+    ...(ctx?.operationId && { 'Helicone-Property-job-id': ctx.operationId }),
     // Tags the coordinator / planner name so the waterfall shows which agent made the call
     ...(ctx?.agentId && { 'Helicone-Session-Name': ctx.agentId }),
     ...(ctx?.userId && { 'Helicone-User-Id': ctx.userId }),
     // Tags the feature for per-feature cost analytics
-    ...(ctx?.feature && { 'Helicone-Property-Feature': ctx.feature }),
-    'Helicone-Property-Platform': 'nxt1',
+    ...(ctx?.feature && { 'Helicone-Property-feature': ctx.feature }),
+    'Helicone-Property-platform': 'nxt1',
   };
 }
 
@@ -181,9 +197,49 @@ export class OpenRouterService {
     );
     const latencyMs = Date.now() - startMs;
 
-    const result = this.parseResponse(raw, model, latencyMs);
+    let result = this.parseResponse(raw, model, latencyMs);
+
+    // If the API response is missing usage (e.g. the Helicone proxy sometimes
+    // omits it), fall back to a character-based estimate (~4 chars per token).
+    // This ensures billing always fires even when the proxy strips token counts.
+    if (result.usage.inputTokens === 0) {
+      const inputChars = messages.reduce<number>(
+        (sum, m) =>
+          sum +
+          (typeof m.content === 'string'
+            ? m.content.length
+            : JSON.stringify(m.content ?? '').length),
+        0
+      );
+      const outputChars = result.content?.length ?? 0;
+      const estimatedInput = Math.max(1, Math.ceil(inputChars / 4));
+      const estimatedOutput = Math.max(1, Math.ceil(outputChars / 4));
+      logger.info('[OpenRouter] usage missing from API response — using char-based estimate', {
+        operationId: options.telemetryContext?.operationId ?? '(none)',
+        model: result.model,
+        estimatedInput,
+        estimatedOutput,
+      });
+      result = {
+        ...result,
+        usage: {
+          inputTokens: estimatedInput,
+          outputTokens: estimatedOutput,
+          totalTokens: estimatedInput + estimatedOutput,
+        },
+        costUsd: this.estimateCost(result.model, estimatedInput, estimatedOutput),
+      };
+    }
 
     // Emit telemetry if a callback is registered
+    logger.info('[OpenRouter] completeWithModel telemetry', {
+      operationId: options.telemetryContext?.operationId ?? '(none)',
+      model: result.model,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+      costUsd: result.costUsd,
+      hasCallback: !!this.telemetryCallback,
+    });
     this.telemetryCallback?.({
       operationId: options.telemetryContext?.operationId ?? '',
       userId: options.telemetryContext?.userId ?? '',
@@ -745,6 +801,10 @@ export class OpenRouterService {
    * @returns A 1536-dimensional embedding vector (text-embedding-3-small).
    */
   async embed(text: string): Promise<readonly number[]> {
+    // Always use OpenRouter directly for embeddings.
+    // The Helicone OpenRouter proxy (openrouter.helicone.ai) only proxies
+    // /api/v1/chat/completions — forwarding /api/v1/embeddings through it
+    // causes a 401 "User not found" from OpenRouter.
     const response = await fetch('https://openrouter.ai/api/v1/embeddings', {
       method: 'POST',
       headers: {

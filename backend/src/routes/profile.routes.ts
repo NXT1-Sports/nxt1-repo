@@ -1483,7 +1483,7 @@ router.post(
       return;
     }
 
-    const sport = req.body as Partial<SportProfile>;
+    const sport = req.body as Partial<SportProfile> & { teamName?: string; teamType?: string };
 
     if (!sport.sport?.trim()) {
       sendError(
@@ -1549,6 +1549,31 @@ router.post(
           inheritedTeamName = teamCodeObj.teamName;
           inheritedTeamType = teamCodeObj.teamType || 'club';
           inheritedOrgId = teamCodeObj.organizationId || '';
+        }
+      }
+
+      // Director adding their first team: allow teamName/teamType from request body
+      if (!inheritedTeamName && sport.teamName?.trim()) {
+        inheritedTeamName = sport.teamName.trim();
+        inheritedTeamType = sport.teamType?.trim() || 'club';
+      }
+
+      // Last resort for Directors: look up their own Organization and use its name
+      if (!inheritedTeamName && userRole === 'director') {
+        const orgSnap = await db
+          .collection('Organizations')
+          .where('ownerId', '==', userId)
+          .limit(1)
+          .get();
+        if (!orgSnap.empty) {
+          const orgData = orgSnap.docs[0].data();
+          inheritedOrgId = orgSnap.docs[0].id;
+          inheritedTeamName =
+            (orgData['name'] as string | undefined) ||
+            (orgData['teamName'] as string | undefined) ||
+            (orgData['organizationName'] as string | undefined) ||
+            '';
+          inheritedTeamType = (orgData['teamType'] as string | undefined) || 'organization';
         }
       }
 

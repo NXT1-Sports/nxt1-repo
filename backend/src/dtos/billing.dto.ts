@@ -234,3 +234,22 @@ export class UpdatePricingConfigDto {
   @IsOptional()
   featureOverrides?: Record<string, number>;
 }
+
+// ============================================
+// ORG REFUND DTO
+// ============================================
+
+export class OrgRefundDto {
+  @IsString({ message: 'chargeId must be a string' })
+  @IsNotEmpty({ message: 'chargeId is required' })
+  @Matches(/^ch_[a-zA-Z0-9_-]{1,255}$/, {
+    message: 'chargeId must be a valid Stripe charge ID (ch_...)',
+  })
+  chargeId!: string;
+
+  @IsInt({ message: 'amountCents must be an integer' })
+  @Min(1, { message: 'amountCents must be at least 1' })
+  @Max(100_000_000, { message: 'amountCents cannot exceed $1,000,000' })
+  @IsOptional()
+  amountCents?: number;
+}

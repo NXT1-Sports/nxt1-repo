@@ -46,7 +46,7 @@ import { AgentJobRepository } from './job.repository.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
 import { isAgentYield } from '../errors/agent-yield.error.js';
 import { notifyYield } from '../services/yield-notifier.service.js';
-import { getJobCost } from '../../billing/helicone.service.js';
+import { getAndClearJobCost } from './job-cost-tracker.js';
 import { calculateChargeAmount, estimateChargeAmountSync } from '../../billing/pricing.service.js';
 import {
   recordSpend,
@@ -399,20 +399,17 @@ export class AgentWorker {
       });
     });
 
-    // Billing deduction: fetch actual Helicone cost → calculate charge → deduct (fire-and-forget)
-    // For IAP wallet users: capture the pre-created hold with the actual cost
-    // (releases pendingHoldsCents + deducts walletBalanceCents atomically).
-    // For Stripe/org users: record spend as before.
+    // Billing deduction: use in-process cost accumulated via onTelemetry callback
+    // (each LLM call adds its estimated cost to the tracker, bypassing the Helicone REST API
+    // which requires a matching org key that may differ from the proxy auth key).
     void (async () => {
       try {
-        const { totalCostUsd, source } = await getJobCost(payload.operationId);
+        const totalCostUsd = getAndClearJobCost(payload.operationId);
+        logger.info('[billing] Job cost from local tracker', {
+          operationId: payload.operationId,
+          totalCostUsd,
+        });
         if (totalCostUsd <= 0) {
-          if (source === 'fallback') {
-            logger.warn('[billing] Helicone unavailable — skipping deduction', {
-              operationId: payload.operationId,
-              userId: payload.userId,
-            });
-          }
           // Release IAP hold so funds are not permanently locked
           if (iapHoldId) {
             releaseWalletHold(billingDb, iapHoldId).catch((e: unknown) => {
