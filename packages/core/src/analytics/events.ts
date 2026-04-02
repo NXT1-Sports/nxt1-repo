@@ -780,6 +780,10 @@ export const APP_EVENTS = {
   USAGE_RECEIPT_DOWNLOADED: 'usage_receipt_downloaded',
   /** User downloaded an invoice */
   USAGE_INVOICE_DOWNLOADED: 'usage_invoice_downloaded',
+  /** User purchased credits via Stripe Checkout */
+  USAGE_CREDITS_PURCHASED: 'usage_credits_purchased',
+  /** User deleted (disabled) a budget */
+  USAGE_BUDGET_DELETED: 'usage_budget_deleted',
 
   // ============================================
   // ANALYTICS PANEL EVENTS

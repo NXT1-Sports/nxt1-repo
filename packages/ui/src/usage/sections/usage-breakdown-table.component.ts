@@ -10,7 +10,6 @@
  */
 
 import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
 import type { UsageBreakdownRow, UsageTimeframe } from '@nxt1/core';
 import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
@@ -19,7 +18,7 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 @Component({
   selector: 'nxt1-usage-breakdown-table',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent],
+  imports: [NxtIconComponent],
   template: `
     <section class="usage-breakdown" [attr.data-testid]="testIds.BREAKDOWN_SECTION">
       <div class="section-header">

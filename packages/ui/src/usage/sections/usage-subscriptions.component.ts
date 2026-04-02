@@ -9,7 +9,6 @@
  */
 
 import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { IonRippleEffect } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../../components/icon';
 import type { UsageSubscription } from '@nxt1/core';
@@ -19,7 +18,7 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 @Component({
   selector: 'nxt1-usage-subscriptions',
   standalone: true,
-  imports: [CommonModule, IonRippleEffect, NxtIconComponent],
+  imports: [IonRippleEffect, NxtIconComponent],
   template: `
     <section class="usage-subscriptions" [attr.data-testid]="testIds.SUBSCRIPTIONS_SECTION">
       <div class="section-header">

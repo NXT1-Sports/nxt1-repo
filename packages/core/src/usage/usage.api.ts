@@ -56,6 +56,7 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
     downloadReceipt: `${baseUrl}${USAGE_API_ENDPOINTS.downloadReceipt}`,
     downloadInvoice: `${baseUrl}${USAGE_API_ENDPOINTS.downloadInvoice}`,
     redeemCoupon: `${baseUrl}${USAGE_API_ENDPOINTS.redeemCoupon}`,
+    buyCredits: `${baseUrl}${USAGE_API_ENDPOINTS.buyCredits}`,
     budget: `${baseUrl}${USAGE_API_ENDPOINTS.budget}`,
     budgetTeam: `${baseUrl}${USAGE_API_ENDPOINTS.budgetTeam}`,
   } as const;
@@ -221,6 +222,40 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
       });
       if (!response.success) {
         throw new Error(response.error ?? 'Failed to update team budget');
+      }
+    },
+
+    /**
+     * Purchase credits via Stripe Checkout (B2C wallet top-up).
+     * Returns the Checkout URL to redirect the user.
+     */
+    async buyCredits(amountCents: number): Promise<string> {
+      const response = await http.post<ApiResponse<string> & { url?: string }>(
+        endpoints.buyCredits,
+        { amountCents }
+      );
+      const url = (response as { url?: string }).url ?? response.data;
+      if (!response.success || !url) {
+        throw new Error(response.error ?? 'Failed to start credit purchase');
+      }
+      return url;
+    },
+
+    /** Delete (disable) the user's budget by setting it to 0 */
+    async deleteBudget(): Promise<void> {
+      const response = await http.put<ApiResponse<void>>(endpoints.budget, { monthlyBudget: 0 });
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to delete budget');
+      }
+    },
+
+    /** Delete (disable) a team's budget by setting it to 0 */
+    async deleteTeamBudget(teamId: string): Promise<void> {
+      const response = await http.put<ApiResponse<void>>(`${endpoints.budgetTeam}/${teamId}`, {
+        monthlyBudget: 0,
+      });
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to delete team budget');
       }
     },
 

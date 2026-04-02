@@ -11,7 +11,6 @@
  */
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
 import type { UsageBillingInfo, UsagePaymentMethod } from '@nxt1/core';
 import { USAGE_TEST_IDS } from '@nxt1/core/testing';
@@ -19,7 +18,7 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 @Component({
   selector: 'nxt1-usage-payment-info',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent],
+  imports: [NxtIconComponent],
   template: `
     <section class="payment-info" [attr.data-testid]="testIds.PAYMENT_INFO_SECTION">
       <div class="info-grid">

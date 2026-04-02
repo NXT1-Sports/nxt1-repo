@@ -314,6 +314,7 @@ export const USAGE_API_ENDPOINTS = {
   downloadReceipt: '/usage/receipt',
   downloadInvoice: '/usage/invoice',
   redeemCoupon: '/usage/coupon/redeem',
+  buyCredits: '/usage/buy-credits',
   budget: '/billing/budget',
   budgetTeam: '/billing/budget/team',
   recordUsage: '/billing/usage',

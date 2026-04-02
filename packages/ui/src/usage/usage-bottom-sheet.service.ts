@@ -59,7 +59,8 @@ export class UsageBottomSheetService {
     });
 
     if (!result?.confirmed) return null;
-    return { action: result.reason ?? 'unknown' };
+    const selected = result.data as BottomSheetAction | undefined;
+    return { action: selected?.label ?? 'unknown' };
   }
 
   /** Open general usage actions */
@@ -86,7 +87,7 @@ export class UsageBottomSheetService {
       icon: 'wallet-outline',
       actions: limits.map((amount) => ({
         label: `$${amount} / month`,
-        role: 'secondary' as const,
+        role: 'primary' as const,
         icon: currentLimit === amount * 100 ? ('checkmark-circle-outline' as const) : undefined,
       })),
     });
@@ -94,6 +95,24 @@ export class UsageBottomSheetService {
     if (!result?.confirmed) return null;
     const selectedLabel = (result.data as BottomSheetAction | undefined)?.label;
     const match = selectedLabel?.match(/^\$(\d+)\s*\/\s*month$/);
+    return match ? parseInt(match[1], 10) * 100 : null;
+  }
+
+  /** Open credit package selector for buying credits (B2C) */
+  async showBuyCreditsOptions(): Promise<number | null> {
+    const packages = [5, 10, 25, 50, 100, 250, 500];
+    const result = await this.bottomSheet.show<BottomSheetAction>({
+      title: 'Buy Credits',
+      icon: 'card-outline',
+      actions: packages.map((amount) => ({
+        label: `$${amount}`,
+        role: 'primary' as const,
+      })),
+    });
+
+    if (!result?.confirmed) return null;
+    const selectedLabel = (result.data as BottomSheetAction | undefined)?.label;
+    const match = selectedLabel?.match(/^\$(\d+)$/);
     return match ? parseInt(match[1], 10) * 100 : null;
   }
 }

@@ -61,7 +61,17 @@ interface AgentXControlPanelCloseResult {
         (closeSheet)="dismiss()"
       />
 
-      <ion-content class="panel-content">
+      @if (presentation === 'modal') {
+        <div class="panel-content panel-content--web">
+          <ng-container *ngTemplateOutlet="panelBody" />
+        </div>
+      } @else {
+        <ion-content class="panel-content">
+          <ng-container *ngTemplateOutlet="panelBody" />
+        </ion-content>
+      }
+
+      <ng-template #panelBody>
         <div class="panel-body">
           <p class="panel-intro">{{ subtitle() }}</p>
 
@@ -252,7 +262,7 @@ interface AgentXControlPanelCloseResult {
             </section>
           }
         </div>
-      </ion-content>
+      </ng-template>
 
       @if (presentation === 'modal') {
         <div class="modal-footer-sticky">
@@ -318,7 +328,7 @@ interface AgentXControlPanelCloseResult {
       }
 
       .panel-shell--modal .panel-content {
-        overflow: visible;
+        overflow-y: auto;
         flex: none;
         min-height: unset;
       }

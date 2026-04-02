@@ -9,7 +9,6 @@
  */
 
 import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
 import type { UsageBudget } from '@nxt1/core';
 import { formatPrice } from '@nxt1/core';
@@ -18,7 +17,7 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 @Component({
   selector: 'nxt1-usage-budgets',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent],
+  imports: [NxtIconComponent],
   template: `
     <section class="budgets" [attr.data-testid]="testIds.BUDGET_SECTION">
       <div class="section-header">
@@ -87,6 +86,10 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
                     </span>
                   </div>
                 </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="4" class="empty-row">No budgets configured.</td>
               </tr>
             }
           </tbody>
@@ -247,6 +250,13 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
       .alert-icon {
         font-size: var(--nxt1-fontSize-sm, 14px);
         color: var(--nxt1-color-warning);
+      }
+
+      .empty-row {
+        padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4);
+        text-align: center;
+        color: var(--nxt1-color-text-tertiary);
+        font-size: var(--nxt1-fontSize-sm);
       }
 
       @media (max-width: 640px) {

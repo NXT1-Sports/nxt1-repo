@@ -12,6 +12,7 @@ import { getStripeClient } from './stripe.service.js';
 import { getStripeConfig, COLLECTIONS } from './config.js';
 import { logger } from '../../utils/logger.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
+import { addWalletTopUp } from './budget.service.js';
 import type { PaymentLog } from './types/index.js';
 
 /**
@@ -291,6 +292,67 @@ export async function handleSetupIntentSucceeded(
 }
 
 /**
+ * Handle checkout.session.completed
+ *
+ * Processes completed Stripe Checkout Sessions. Currently handles:
+ * - `wallet_topup`: Credits the user's prepaid wallet balance via addWalletTopUp.
+ */
+async function handleCheckoutSessionCompleted(
+  db: Firestore,
+  session: Stripe.Checkout.Session
+): Promise<void> {
+  const metadata = session.metadata ?? {};
+  const type = metadata['type'];
+
+  if (type !== 'wallet_topup') {
+    logger.info('[handleCheckoutSessionCompleted] Ignoring non-wallet checkout session', {
+      sessionId: session.id,
+      type,
+    });
+    return;
+  }
+
+  const userId = metadata['userId'];
+  const amountCents = parseInt(metadata['amountCents'] ?? '0', 10);
+
+  if (!userId || !amountCents || amountCents <= 0) {
+    logger.error('[handleCheckoutSessionCompleted] Missing or invalid metadata', {
+      sessionId: session.id,
+      userId,
+      amountCents,
+    });
+    return;
+  }
+
+  if (session.payment_status !== 'paid') {
+    logger.warn('[handleCheckoutSessionCompleted] Payment not confirmed', {
+      sessionId: session.id,
+      paymentStatus: session.payment_status,
+    });
+    return;
+  }
+
+  try {
+    const { newBalance } = await addWalletTopUp(db, userId, amountCents, 'stripe');
+
+    logger.info('[handleCheckoutSessionCompleted] Wallet topped up via Stripe Checkout', {
+      sessionId: session.id,
+      userId,
+      amountCents,
+      newBalance,
+    });
+  } catch (error) {
+    logger.error('[handleCheckoutSessionCompleted] Failed to credit wallet', {
+      error,
+      sessionId: session.id,
+      userId,
+      amountCents,
+    });
+    throw error;
+  }
+}
+
+/**
  * Main webhook handler - routes events to appropriate handlers
  */
 export async function handleWebhookEvent(
@@ -318,6 +380,10 @@ export async function handleWebhookEvent(
 
     case 'setup_intent.succeeded':
       await handleSetupIntentSucceeded(db, event.data.object as Stripe.SetupIntent, environment);
+      break;
+
+    case 'checkout.session.completed':
+      await handleCheckoutSessionCompleted(db, event.data.object as Stripe.Checkout.Session);
       break;
 
     case 'customer.subscription.created':

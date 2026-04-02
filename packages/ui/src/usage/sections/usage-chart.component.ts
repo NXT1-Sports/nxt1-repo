@@ -10,7 +10,6 @@
  */
 
 import { Component, ChangeDetectionStrategy, input, output, computed, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import type { UsageChartDataPoint, UsageTimeframe } from '@nxt1/core';
 import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
 import { USAGE_TEST_IDS } from '@nxt1/core/testing';
@@ -18,7 +17,7 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 @Component({
   selector: 'nxt1-usage-chart',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   template: `
     <section class="usage-chart-section" [attr.data-testid]="testIds.CHART_SECTION">
       <!-- METERED USAGE HEADER -->

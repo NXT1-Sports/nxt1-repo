@@ -111,7 +111,7 @@ export class UsageService implements OnDestroy {
           this.api
             .getOverview()
             .then((overview) => this._overview.set(overview))
-            .catch(() => undefined);
+            .catch((err: unknown) => this.logger.warn('Holds polling failed', { error: err }));
         }, 5000);
       } else if (!hasHolds && this._holdsPollingInterval) {
         clearInterval(this._holdsPollingInterval);
@@ -495,6 +495,56 @@ export class UsageService implements OnDestroy {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update team budget';
       this.logger.error('Failed to update team budget', err, { teamId, monthlyBudget });
+      this.toast.error(message);
+      await this.haptics.notification('error');
+      return false;
+    }
+  }
+
+  // ============================================
+  // BUY CREDITS (B2C)
+  // ============================================
+
+  /**
+   * Purchase credits via Stripe Checkout.
+   * Opens the Stripe-hosted checkout page in the in-app browser.
+   */
+  async buyCredits(amountCents: number): Promise<void> {
+    this.logger.info('Purchasing credits', { amountCents });
+    this.breadcrumb.trackStateChange('usage:buying-credits', { amountCents });
+    try {
+      const url = await this.api.buyCredits(amountCents);
+      this.analytics?.trackEvent(APP_EVENTS.USAGE_CREDITS_PURCHASED, { amountCents });
+      this.browser.open({ url, presentationStyle: 'fullscreen' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to start credit purchase';
+      this.logger.error('Failed to purchase credits', err, { amountCents });
+      this.toast.error(message);
+      await this.haptics.notification('error');
+    }
+  }
+
+  // ============================================
+  // DELETE BUDGET
+  // ============================================
+
+  /** Delete (disable) the current budget by setting it to $0 */
+  async deleteBudget(): Promise<boolean> {
+    this.logger.info('Deleting budget');
+    this.breadcrumb.trackStateChange('usage:deleting-budget');
+    try {
+      await this.api.deleteBudget();
+      this._billingContext.update((ctx) => (ctx ? { ...ctx, monthlyBudget: 0 } : ctx));
+      this._budgets.update((budgets) =>
+        budgets.map((b) => ({ ...b, budgetLimit: 0, percentUsed: 0 }))
+      );
+      await this.haptics.notification('success');
+      this.toast.success('Budget removed');
+      this.analytics?.trackEvent(APP_EVENTS.USAGE_BUDGET_DELETED);
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to delete budget';
+      this.logger.error('Failed to delete budget', err);
       this.toast.error(message);
       await this.haptics.notification('error');
       return false;

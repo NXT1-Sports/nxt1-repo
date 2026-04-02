@@ -9,7 +9,6 @@
  */
 
 import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
 import type { UsagePaymentHistoryRecord } from '@nxt1/core';
 import { formatPrice } from '@nxt1/core';
@@ -18,7 +17,7 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 @Component({
   selector: 'nxt1-usage-payment-history',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent],
+  imports: [NxtIconComponent],
   template: `
     <section class="payment-history" [attr.data-testid]="testIds.HISTORY_SECTION">
       <div class="table-container">
@@ -77,6 +76,10 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
                     }
                   </div>
                 </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="6" class="empty-row">No payment history yet.</td>
               </tr>
             }
           </tbody>
@@ -243,6 +246,13 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         &:hover {
           background: var(--nxt1-color-surface-200);
         }
+      }
+
+      .empty-row {
+        padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4);
+        text-align: center;
+        color: var(--nxt1-color-text-tertiary);
+        font-size: var(--nxt1-fontSize-sm);
       }
 
       @media (max-width: 640px) {

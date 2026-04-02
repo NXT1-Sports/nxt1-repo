@@ -21,14 +21,7 @@ import {
   IonRouterOutlet,
   NavController,
 } from '@ionic/angular/standalone';
-import {
-  UsageShellComponent,
-  UsageService,
-  NxtBottomSheetService,
-  SHEET_PRESETS,
-  type UsageSection,
-} from '@nxt1/ui';
-import { WalletTopUpSheetComponent } from './wallet-top-up-sheet.component';
+import { UsageShellComponent, UsageService, type UsageSection } from '@nxt1/ui';
 
 @Component({
   selector: 'app-usage',
@@ -39,12 +32,7 @@ import { WalletTopUpSheetComponent } from './wallet-top-up-sheet.component';
       <ion-toolbar></ion-toolbar>
     </ion-header>
     <ion-content [fullscreen]="true">
-      <nxt1-usage-shell
-        [user]="null"
-        [showPageHeader]="true"
-        (back)="navigateBack()"
-        (buyCredits)="onBuyCredits()"
-      />
+      <nxt1-usage-shell [user]="null" [showPageHeader]="true" (back)="navigateBack()" />
     </ion-content>
   `,
   styles: [
@@ -82,7 +70,6 @@ export class UsageComponent {
   private readonly routerOutlet = inject(IonRouterOutlet, { optional: true });
   private readonly route = inject(ActivatedRoute);
   private readonly usage = inject(UsageService);
-  private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly destroyRef = inject(DestroyRef);
 
   private readonly usageSections: readonly UsageSection[] = [
@@ -111,24 +98,6 @@ export class UsageComponent {
   private toUsageSection(value: string | null): UsageSection | null {
     if (!value) return null;
     return this.usageSections.includes(value as UsageSection) ? (value as UsageSection) : null;
-  }
-
-  protected async onBuyCredits(): Promise<void> {
-    const result = await this.bottomSheet.openSheet<{
-      purchased?: boolean;
-      newBalanceCents?: number;
-    }>({
-      component: WalletTopUpSheetComponent,
-      ...SHEET_PRESETS.FULL,
-      showHandle: true,
-      backdropDismiss: true,
-      cssClass: 'wallet-top-up-sheet',
-    });
-
-    // Refresh usage overview when a purchase was completed
-    if (result?.data?.purchased === true) {
-      await this.usage.refresh();
-    }
   }
 
   protected navigateBack(): void {

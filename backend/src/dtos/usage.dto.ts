@@ -292,3 +292,14 @@ export class SimpleBillingInfoDto {
   @Length(0, 100)
   country?: string;
 }
+
+// ============================================
+// BUY CREDITS DTO
+// ============================================
+
+export class BuyCreditsDto {
+  @IsInt()
+  @Min(500)
+  @Max(50000)
+  amountCents!: number;
+}

@@ -147,47 +147,48 @@ export class FirecrawlProfileService {
 
     const sessionId = browserResult.id;
 
-    // Navigate the browser to the platform's login page.
-    // When the caller is on a mobile device we also set a mobile viewport and
-    // override the User-Agent so login pages serve their mobile layout.
+    // ── Mobile viewport resize (per Firecrawl Support guidance) ─────────
+    // The interactive live-view stream defaults to a desktop-sized VNC canvas.
+    // To get a true mobile stream we MUST resize the viewport in a **separate,
+    // first** browserExecute call *before* navigating. This gives Firecrawl's
+    // streaming infrastructure time to resize the VNC canvas to the new
+    // dimensions. The subsequent navigation call then loads the page into the
+    // already-mobile-sized stream so it fills the iframe edge-to-edge.
     //
-    // IMPORTANT: viewport, UA override, and navigation MUST happen in a single
-    // browserExecute call — Firecrawl does NOT guarantee state persistence
-    // between separate calls. Combining them avoids the desktop-fallback bug
-    // where the viewport change was lost before page.goto() ran.
-    const mobileUA =
-      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) ' +
-      'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
-
-    const navigationCode = isMobile
-      ? [
-          // 1. Shrink viewport to iPhone 15 Pro dimensions
-          `await page.setViewportSize({ width: 393, height: 852 });`,
-          // 2. Intercept every outgoing request and rewrite the User-Agent header.
-          //    Using page.route() is more reliable than setExtraHTTPHeaders because
-          //    it replaces the header Chromium actually sends, ensuring the server
-          //    sees a genuine mobile UA on the very first navigation request.
-          `await page.route('**/*', (route) => {`,
-          `  const headers = { ...route.request().headers(), 'user-agent': ${JSON.stringify(mobileUA)} };`,
-          `  return route.continue({ headers });`,
-          `});`,
-          // 3. Navigate
-          `await page.goto(${JSON.stringify(loginUrl)}, { waitUntil: "domcontentloaded" });`,
-        ].join('\n')
-      : `await page.goto(${JSON.stringify(loginUrl)}, { waitUntil: "domcontentloaded" });`;
-
-    await this.client.browserExecute(sessionId, {
-      code: navigationCode,
-      language: 'node',
-      timeout: 30, // seconds — allow time for slow login pages to load
-    });
-
+    // Reference: https://docs.firecrawl.dev/features/interact
+    // "Use the code parameter on your first interact call to set the viewport…
+    //  The interactiveLiveViewUrl stream will reflect the new size."
     if (isMobile) {
+      const mobileUA =
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) ' +
+        'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
+      await this.client.browserExecute(sessionId, {
+        code: [
+          // Resize the VNC stream to iPhone 15 Pro dimensions
+          `await page.setViewportSize({ width: 393, height: 852 });`,
+          // Set mobile User-Agent so the server responds with its mobile layout
+          `await page.context().setExtraHTTPHeaders({ 'User-Agent': ${JSON.stringify(mobileUA)} });`,
+        ].join('\n'),
+        language: 'node',
+        timeout: 10,
+      });
+
       logger.info('[FirecrawlProfile] Mobile viewport applied', {
         sessionId,
         viewport: '393x852',
       });
     }
+
+    // ── Navigate to the login page ──────────────────────────────────────
+    // This is either the second call (mobile, after resize) or the first
+    // call (desktop). The Playwright `page` object persists across calls
+    // within the same session, so the viewport/UA set above carry over.
+    await this.client.browserExecute(sessionId, {
+      code: `await page.goto(${JSON.stringify(loginUrl)}, { waitUntil: "domcontentloaded" });`,
+      language: 'node',
+      timeout: 30,
+    });
 
     const interactiveLiveViewUrl = browserResult.interactiveLiveViewUrl ?? '';
     const liveViewUrl = browserResult.liveViewUrl ?? '';

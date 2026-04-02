@@ -76,6 +76,9 @@ export class UsageApiService {
   readonly getBillingContext: UsageApi['getBillingContext'] = this.api.getBillingContext;
   readonly updateBudget: UsageApi['updateBudget'] = this.api.updateBudget;
   readonly updateTeamBudget: UsageApi['updateTeamBudget'] = this.api.updateTeamBudget;
+  readonly buyCredits: UsageApi['buyCredits'] = this.api.buyCredits;
+  readonly deleteBudget: UsageApi['deleteBudget'] = this.api.deleteBudget;
+  readonly deleteTeamBudget: UsageApi['deleteTeamBudget'] = this.api.deleteTeamBudget;
   // ── Stripe SetupIntent ────────────────────────────────────────────
 
   readonly getSetupIntent: UsageApi['getSetupIntent'] = this.api.getSetupIntent;

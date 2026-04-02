@@ -34,7 +34,6 @@ import {
 import { CommonModule } from '@angular/common';
 import { IonContent } from '@ionic/angular/standalone';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
-import { AgentXControlPanelComponent } from '../agent-x/agent-x-control-panel.component';
 import { NxtIconComponent } from '../components/icon';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
@@ -534,9 +533,6 @@ export class UsageShellComponent implements OnInit {
   /** Emitted when avatar is clicked (open sidenav) */
   readonly avatarClick = output<void>();
 
-  /** Emitted when user taps "Buy Credits" — host platform handles IAP flow */
-  readonly buyCredits = output<void>();
-
   // ============================================
   // COMPUTED
   // ============================================
@@ -613,14 +609,17 @@ export class UsageShellComponent implements OnInit {
   // EVENT HANDLERS
   // ============================================
 
-  protected onManageSubscriptions(): void {
-    this.haptics.impact('light');
-    // Navigate to subscription management
+  protected async onManageSubscriptions(): Promise<void> {
+    await this.haptics.impact('light');
+    await this.svc.openBillingPortal();
   }
 
   protected async onBuyCredits(): Promise<void> {
     await this.haptics.impact('light');
-    this.buyCredits.emit();
+    const amountCents = await this.usageBottomSheet.showBuyCreditsOptions();
+    if (amountCents !== null) {
+      await this.svc.buyCredits(amountCents);
+    }
   }
 
   protected async onDownloadReceipt(recordId: string): Promise<void> {
@@ -635,28 +634,26 @@ export class UsageShellComponent implements OnInit {
 
   protected async onCreateBudget(): Promise<void> {
     await this.haptics.impact('light');
-    await this.bottomSheet.openSheet({
-      component: AgentXControlPanelComponent,
-      componentProps: { panel: 'budget', presentation: 'sheet', required: false },
-      ...SHEET_PRESETS.FULL,
-      showHandle: true,
-      handleBehavior: 'cycle',
-      backdropDismiss: true,
-      cssClass: 'agent-x-control-panel-sheet',
-    });
+    const amountCents = await this.usageBottomSheet.showBudgetLimit();
+    if (amountCents !== null) {
+      await this.svc.updateBudget(amountCents);
+    }
   }
 
   protected async onEditBudget(_budgetId: string): Promise<void> {
     await this.haptics.impact('light');
-    await this.bottomSheet.openSheet({
-      component: AgentXControlPanelComponent,
-      componentProps: { panel: 'budget', presentation: 'sheet', required: false },
-      ...SHEET_PRESETS.FULL,
-      showHandle: true,
-      handleBehavior: 'cycle',
-      backdropDismiss: true,
-      cssClass: 'agent-x-control-panel-sheet',
-    });
+    const result = await this.usageBottomSheet.showBudgetOptions();
+    if (!result) return;
+
+    if (result.action === 'Edit budget') {
+      const currentLimit = this.svc.billingContext()?.monthlyBudget;
+      const amountCents = await this.usageBottomSheet.showBudgetLimit(currentLimit);
+      if (amountCents !== null) {
+        await this.svc.updateBudget(amountCents);
+      }
+    } else if (result.action === 'Delete budget') {
+      await this.svc.deleteBudget();
+    }
   }
 
   protected async onManageBilling(): Promise<void> {

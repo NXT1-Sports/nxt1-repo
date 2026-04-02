@@ -517,16 +517,17 @@ export async function processWalletRefund(
 
 /**
  * Add funds to an individual user's prepaid wallet.
- * Called after a verified Apple IAP consumable purchase.
+ * Called after a verified wallet top-up (Apple IAP or Stripe Checkout).
  *
  * - Atomically increments `walletBalanceCents`.
- * - Sets `paymentProvider` to 'iap' if not already set.
+ * - Sets `paymentProvider` to the given provider ('iap' or 'stripe').
  * - Resets budget notification flags so the user doesn't see stale "low balance" alerts.
  */
 export async function addWalletTopUp(
   db: Firestore,
   userId: string,
-  amountCents: number
+  amountCents: number,
+  provider: PaymentProvider = 'iap'
 ): Promise<{ newBalance: number }> {
   if (amountCents <= 0) {
     throw new Error('Top-up amount must be positive');
@@ -551,7 +552,7 @@ export async function addWalletTopUp(
 
   await docRef.update({
     walletBalanceCents: FieldValue.increment(amountCents),
-    paymentProvider: 'iap' as PaymentProvider,
+    paymentProvider: provider,
     // Reset ALL notification flags so the user sees fresh alerts at the new balance
     notified50: false,
     notified80: false,

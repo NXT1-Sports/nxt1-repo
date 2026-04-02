@@ -121,12 +121,14 @@ import { NxtIconComponent } from '../../components/icon';
               <select
                 id="sidebar-state-filter"
                 class="filter-select"
-                [value]="filters().state ?? ''"
+                [class.filter-select--active]="!!filters().state"
                 (change)="onStateChange($event)"
               >
-                <option value="">All States</option>
+                <option value="" [selected]="!filters().state">All States</option>
                 @for (state of stateOptions; track state) {
-                  <option [value]="state">{{ state }}</option>
+                  <option [value]="state" [selected]="filters().state === state">
+                    {{ state }}
+                  </option>
                 }
               </select>
             </div>
@@ -296,6 +298,11 @@ import { NxtIconComponent } from '../../components/icon';
       .filter-select:focus {
         outline: none;
         border-color: var(--nxt1-color-primary, #ccff00);
+      }
+
+      .filter-select--active {
+        border-color: rgba(204, 255, 0, 0.25);
+        color: var(--nxt1-color-primary, #ccff00);
       }
 
       .filter-select option {

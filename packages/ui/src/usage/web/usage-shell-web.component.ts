@@ -39,7 +39,6 @@ import {
   OnDestroy,
   type TemplateRef,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import {
   NxtSectionNavWebComponent,
   type SectionNavChangeEvent,
@@ -50,7 +49,6 @@ import {
 } from '../../components/option-scroller-web';
 import { NxtRefresherComponent, type RefreshEvent } from '../../components/refresh-container';
 import { NxtOverlayService } from '../../components/overlay';
-import { AgentXControlPanelComponent } from '../../agent-x/agent-x-control-panel.component';
 import { NxtHeaderPortalService } from '../../services/header-portal';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
@@ -70,8 +68,6 @@ import {
   UsageBudgetsComponent,
 } from '../sections';
 import type { UsageUser } from '../usage-shell.component';
-import { NxtBottomSheetService, SHEET_PRESETS } from '../../components/bottom-sheet';
-import { AddPaymentMethodComponent } from '../add-payment-method.component';
 
 // Re-export for convenience
 export type { UsageUser };
@@ -80,7 +76,6 @@ export type { UsageUser };
   selector: 'nxt1-usage-shell-web',
   standalone: true,
   imports: [
-    CommonModule,
     NxtSectionNavWebComponent,
     NxtOptionScrollerWebComponent,
     NxtRefresherComponent,
@@ -214,6 +209,7 @@ export type { UsageUser };
                   <nxt1-usage-overview
                     [data]="svc.overview()"
                     [isPersonal]="svc.isPersonal()"
+                    [hideBuyCredits]="true"
                     (viewPaymentHistory)="svc.setActiveSection('payment-history')"
                     (buyCredit)="onBuyCredits()"
                   />
@@ -388,12 +384,7 @@ export type { UsageUser };
         display: none;
       }
 
-      /* Hide "Buy Credits" button in overview on desktop as it's in the top nav */
-      @media (min-width: 769px) {
-        ::ng-deep .buy-credits-btn {
-          display: none !important;
-        }
-      }
+      /* Buy Credits button hidden on desktop via [hideBuyCredits] input */
 
       @media (max-width: 768px) {
         .usage-mobile-scroller {
@@ -443,7 +434,6 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
   private readonly usageBottomSheet = inject(UsageBottomSheetService);
-  private readonly bottomSheet = inject(NxtBottomSheetService);
 
   // Template refs for header portal
   private readonly centerPortalContent = viewChild<TemplateRef<unknown>>('centerPortalContent');
@@ -513,9 +503,9 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
     this.svc.setActiveSection(event.option.id as UsageSection);
   }
 
-  protected onManageSubscriptions(): void {
-    this.haptics.impact('light');
-    // Navigate to subscription management
+  protected async onManageSubscriptions(): Promise<void> {
+    await this.haptics.impact('light');
+    await this.svc.openBillingPortal();
   }
 
   protected async onDownloadReceipt(recordId: string): Promise<void> {
@@ -530,30 +520,26 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
 
   protected async onCreateBudget(): Promise<void> {
     await this.haptics.impact('light');
-    const ref = this.overlay.open<AgentXControlPanelComponent>({
-      component: AgentXControlPanelComponent,
-      inputs: { panel: 'budget', presentation: 'modal', required: false },
-      size: 'xl',
-      backdropDismiss: true,
-      escDismiss: true,
-      ariaLabel: 'Agent budget controls',
-      panelClass: 'agent-x-control-panel-modal',
-    });
-    await ref.closed;
+    const amountCents = await this.usageBottomSheet.showBudgetLimit();
+    if (amountCents !== null) {
+      await this.svc.updateBudget(amountCents);
+    }
   }
 
   protected async onEditBudget(_budgetId: string): Promise<void> {
     await this.haptics.impact('light');
-    const ref = this.overlay.open<AgentXControlPanelComponent>({
-      component: AgentXControlPanelComponent,
-      inputs: { panel: 'budget', presentation: 'modal', required: false },
-      size: 'xl',
-      backdropDismiss: true,
-      escDismiss: true,
-      ariaLabel: 'Agent budget controls',
-      panelClass: 'agent-x-control-panel-modal',
-    });
-    await ref.closed;
+    const result = await this.usageBottomSheet.showBudgetOptions();
+    if (!result) return;
+
+    if (result.action === 'Edit budget') {
+      const currentLimit = this.svc.billingContext()?.monthlyBudget;
+      const amountCents = await this.usageBottomSheet.showBudgetLimit(currentLimit);
+      if (amountCents !== null) {
+        await this.svc.updateBudget(amountCents);
+      }
+    } else if (result.action === 'Delete budget') {
+      await this.svc.deleteBudget();
+    }
   }
 
   protected async onManageBilling(): Promise<void> {
@@ -563,16 +549,10 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
 
   protected async onBuyCredits(): Promise<void> {
     await this.haptics.impact('light');
-    const ref = this.overlay.open<AgentXControlPanelComponent>({
-      component: AgentXControlPanelComponent,
-      inputs: { panel: 'budget', presentation: 'modal', required: false },
-      size: 'xl',
-      backdropDismiss: true,
-      escDismiss: true,
-      ariaLabel: 'Agent budget controls',
-      panelClass: 'agent-x-control-panel-modal',
-    });
-    await ref.closed;
+    const amountCents = await this.usageBottomSheet.showBuyCreditsOptions();
+    if (amountCents !== null) {
+      await this.svc.buyCredits(amountCents);
+    }
   }
 
   // ============================================
