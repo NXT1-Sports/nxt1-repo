@@ -506,6 +506,7 @@ export class UsageShellComponent implements OnInit {
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
   private readonly usageBottomSheet = inject(UsageBottomSheetService);
+  private readonly bottomSheet = inject(NxtBottomSheetService);
 
   // ============================================
   // INPUTS
