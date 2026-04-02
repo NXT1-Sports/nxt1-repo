@@ -8,15 +8,29 @@
  * - Address line 2 (city, state, zip)
  * - Country
  *
+ * Follows the signal-first pattern of the NXT1 UI library:
+ * - `signal()` for reactive draft state
+ * - `computed()` for derived state
+ * - `[value]="signal()"` + `(input)="handler($event)"` for form inputs
+ * - `NxtFormFieldComponent` for consistent field labelling
+ *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Component, ChangeDetectionStrategy, Input, OnInit, inject, output } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  Input,
+  OnInit,
+  inject,
+  output,
+  signal,
+  computed,
+} from '@angular/core';
 import { IonContent } from '@ionic/angular/standalone';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtSheetHeaderComponent, NxtSheetFooterComponent } from '../components/bottom-sheet';
+import { NxtFormFieldComponent } from '../components/form-field';
 import type { UsageBillingInfo } from '@nxt1/core';
 
 export type BillingInfoSheetMode = 'billing' | 'additional';
@@ -29,13 +43,7 @@ export interface BillingInfoSheetResult {
 @Component({
   selector: 'nxt1-usage-billing-info-sheet',
   standalone: true,
-  imports: [
-    CommonModule,
-    FormsModule,
-    IonContent,
-    NxtSheetHeaderComponent,
-    NxtSheetFooterComponent,
-  ],
+  imports: [IonContent, NxtSheetHeaderComponent, NxtSheetFooterComponent, NxtFormFieldComponent],
   template: `
     <nxt1-sheet-header
       [title]="mode === 'additional' ? 'Additional information' : 'Billing information'"
@@ -47,81 +55,86 @@ export interface BillingInfoSheetResult {
     <ion-content class="billing-sheet-content">
       <div class="billing-form">
         @if (mode === 'billing') {
-          <div class="form-group">
-            <label class="form-label" for="billing-name">Full name</label>
+          <nxt1-form-field label="Full name" inputId="billing-name">
             <input
               id="billing-name"
-              class="form-input"
+              class="nxt1-input"
               type="text"
               placeholder="e.g. Jane Smith"
               autocomplete="name"
-              [(ngModel)]="draftName"
+              [value]="draftName()"
+              (input)="onNameInput($event)"
             />
-          </div>
+          </nxt1-form-field>
 
-          <div class="form-group">
-            <label class="form-label" for="billing-address1">Address line 1</label>
+          <nxt1-form-field label="Address line 1" inputId="billing-address1">
             <input
               id="billing-address1"
-              class="form-input"
+              class="nxt1-input"
               type="text"
               placeholder="Street address"
               autocomplete="address-line1"
-              [(ngModel)]="draftAddressLine1"
+              [value]="draftAddressLine1()"
+              (input)="onAddress1Input($event)"
             />
-          </div>
+          </nxt1-form-field>
 
-          <div class="form-group">
-            <label class="form-label" for="billing-address2">City, state, zip</label>
+          <nxt1-form-field label="City, state, zip" inputId="billing-address2">
             <input
               id="billing-address2"
-              class="form-input"
+              class="nxt1-input"
               type="text"
               placeholder="e.g. Austin, TX 78701"
-              autocomplete="address-line2"
-              [(ngModel)]="draftAddressLine2"
+              autocomplete="address-level2"
+              [value]="draftAddressLine2()"
+              (input)="onAddress2Input($event)"
             />
-          </div>
+          </nxt1-form-field>
 
-          <div class="form-group">
-            <label class="form-label" for="billing-country">Country</label>
+          <nxt1-form-field label="Country" inputId="billing-country">
             <input
               id="billing-country"
-              class="form-input"
+              class="nxt1-input"
               type="text"
               placeholder="e.g. United States"
               autocomplete="country-name"
-              [(ngModel)]="draftCountry"
+              [value]="draftCountry()"
+              (input)="onCountryInput($event)"
             />
-          </div>
+          </nxt1-form-field>
         } @else {
-          <p class="form-hint">
+          <p class="billing-hint">
             Add details that appear on your receipts and invoices, such as a purchase order number
             or an alternate contact email.
           </p>
 
-          <div class="form-group">
-            <label class="form-label" for="billing-po">Purchase order number</label>
+          <nxt1-form-field label="Purchase order number" inputId="billing-po" [optional]="true">
             <input
               id="billing-po"
-              class="form-input"
+              class="nxt1-input"
               type="text"
-              placeholder="Optional — e.g. PO-12345"
-              [(ngModel)]="draftPoNumber"
+              placeholder="e.g. PO-12345"
+              [value]="draftPoNumber()"
+              (input)="onPoNumberInput($event)"
             />
-          </div>
+          </nxt1-form-field>
 
-          <div class="form-group">
-            <label class="form-label" for="billing-email">Alternate billing email</label>
+          <nxt1-form-field
+            label="Alternate billing email"
+            inputId="billing-email"
+            [optional]="true"
+            hint="Receives copies of invoices"
+          >
             <input
               id="billing-email"
-              class="form-input"
+              class="nxt1-input"
               type="email"
-              placeholder="Optional — receives invoice copies"
+              placeholder="billing@example.com"
               autocomplete="email"
-              [(ngModel)]="draftBillingEmail"
+              [value]="draftBillingEmail()"
+              (input)="onBillingEmailInput($event)"
             />
-          </div>
+          </nxt1-form-field>
         }
       </div>
     </ion-content>
@@ -148,26 +161,14 @@ export interface BillingInfoSheetResult {
         gap: var(--nxt1-spacing-4, 16px);
       }
 
-      .form-hint {
-        margin: 0 0 var(--nxt1-spacing-2, 8px) 0;
+      .billing-hint {
+        margin: 0;
         font-size: var(--nxt1-fontSize-sm);
         color: var(--nxt1-color-text-secondary);
         line-height: var(--nxt1-lineHeight-normal);
       }
 
-      .form-group {
-        display: flex;
-        flex-direction: column;
-        gap: var(--nxt1-spacing-1, 4px);
-      }
-
-      .form-label {
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-medium);
-        color: var(--nxt1-color-text-primary);
-      }
-
-      .form-input {
+      .nxt1-input {
         width: 100%;
         padding: var(--nxt1-spacing-2-5, 10px) var(--nxt1-spacing-3, 12px);
         font-size: var(--nxt1-fontSize-sm);
@@ -201,52 +202,79 @@ export class UsageBillingInfoSheetComponent implements OnInit {
   /** Emitted when the sheet closes — for NxtOverlayService compatibility on web */
   readonly close = output<BillingInfoSheetResult>();
 
-  // Billing mode fields
-  protected draftName = '';
-  protected draftAddressLine1 = '';
-  protected draftAddressLine2 = '';
-  protected draftCountry = '';
+  // ── Billing mode signals ──────────────────────────────────────────────────
+  protected readonly draftName = signal('');
+  protected readonly draftAddressLine1 = signal('');
+  protected readonly draftAddressLine2 = signal('');
+  protected readonly draftCountry = signal('');
 
-  // Additional mode fields (PO number + billing email)
-  protected draftPoNumber = '';
-  protected draftBillingEmail = '';
+  // ── Additional mode signals ───────────────────────────────────────────────
+  protected readonly draftPoNumber = signal('');
+  protected readonly draftBillingEmail = signal('');
+
+  /** Whether the current draft has enough data to save */
+  protected readonly canSave = computed(() => {
+    if (this.mode === 'billing') {
+      return this.draftName().trim().length > 0 || this.draftAddressLine1().trim().length > 0;
+    }
+    return true;
+  });
 
   ngOnInit(): void {
     if (this.current) {
-      this.draftName = this.current.name ?? '';
-      this.draftAddressLine1 = this.current.addressLine1 ?? '';
-      this.draftAddressLine2 = this.current.addressLine2 ?? '';
-      this.draftCountry = this.current.country ?? '';
+      this.draftName.set(this.current.name ?? '');
+      this.draftAddressLine1.set(this.current.addressLine1 ?? '');
+      this.draftAddressLine2.set(this.current.addressLine2 ?? '');
+      this.draftCountry.set(this.current.country ?? '');
     }
   }
 
-  protected canSave(): boolean {
-    if (this.mode === 'billing') {
-      return this.draftName.trim().length > 0 || this.draftAddressLine1.trim().length > 0;
-    }
-    return true;
+  // ── Input event handlers ──────────────────────────────────────────────────
+
+  protected onNameInput(event: Event): void {
+    this.draftName.set((event.target as HTMLInputElement).value);
   }
+
+  protected onAddress1Input(event: Event): void {
+    this.draftAddressLine1.set((event.target as HTMLInputElement).value);
+  }
+
+  protected onAddress2Input(event: Event): void {
+    this.draftAddressLine2.set((event.target as HTMLInputElement).value);
+  }
+
+  protected onCountryInput(event: Event): void {
+    this.draftCountry.set((event.target as HTMLInputElement).value);
+  }
+
+  protected onPoNumberInput(event: Event): void {
+    this.draftPoNumber.set((event.target as HTMLInputElement).value);
+  }
+
+  protected onBillingEmailInput(event: Event): void {
+    this.draftBillingEmail.set((event.target as HTMLInputElement).value);
+  }
+
+  // ── Actions ───────────────────────────────────────────────────────────────
 
   protected save(): void {
-    let info: UsageBillingInfo;
-    if (this.mode === 'additional') {
-      // Map additional info fields into the billing info structure using addressLine1/2
-      info = {
-        name: this.current?.name ?? '',
-        addressLine1: this.draftPoNumber.trim(),
-        addressLine2: this.draftBillingEmail.trim(),
-        country: this.current?.country ?? '',
-      };
-    } else {
-      info = {
-        name: this.draftName.trim(),
-        addressLine1: this.draftAddressLine1.trim(),
-        addressLine2: this.draftAddressLine2.trim(),
-        country: this.draftCountry.trim(),
-      };
-    }
+    const info: UsageBillingInfo =
+      this.mode === 'additional'
+        ? {
+            name: this.current?.name ?? '',
+            addressLine1: this.draftPoNumber().trim(),
+            addressLine2: this.draftBillingEmail().trim(),
+            country: this.current?.country ?? '',
+          }
+        : {
+            name: this.draftName().trim(),
+            addressLine1: this.draftAddressLine1().trim(),
+            addressLine2: this.draftAddressLine2().trim(),
+            country: this.draftCountry().trim(),
+          };
+
     const result: BillingInfoSheetResult = { saved: true, info };
-    // Emit for NxtOverlayService (web); ModalController for Ionic (mobile)
+    // Emit for NxtOverlayService (web); ModalController handles dismiss on mobile
     this.close.emit(result);
     void this.modalController.dismiss(result, 'save');
   }
