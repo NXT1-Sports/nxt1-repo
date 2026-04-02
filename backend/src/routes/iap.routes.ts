@@ -166,6 +166,21 @@ router.post(
 
       const { newBalance } = await addWalletTopUp(db, userId, amountCents);
 
+      // Write payment history record so the Usage dashboard history tab shows IAP purchases
+      await db.collection('paymentLogs').add({
+        userId,
+        amount: amountCents,
+        currency: 'usd',
+        status: 'completed',
+        paymentMethodLabel: 'Apple Pay',
+        provider: 'apple_iap',
+        productId,
+        transactionId,
+        createdAt: FieldValue.serverTimestamp(),
+        receiptUrl: null,
+        invoiceUrl: null,
+      });
+
       // Persist the idempotency record after crediting
       await txnDocRef.set({
         userId,

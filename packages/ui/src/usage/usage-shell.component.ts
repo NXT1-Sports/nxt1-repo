@@ -32,7 +32,7 @@ import {
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonContent, ModalController } from '@ionic/angular/standalone';
+import { IonContent } from '@ionic/angular/standalone';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import { AgentXBriefingPanelComponent } from '../agent-x/agent-x-briefing-panel.component';
 import { NxtIconComponent } from '../components/icon';
@@ -50,7 +50,7 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 import { UsageSkeletonComponent } from './usage-skeleton.component';
 import { UsageHelpContentComponent } from './usage-help-content.component';
 import { UsageErrorStateComponent } from './usage-error-state.component';
-import { UsageBottomSheetService } from './usage-bottom-sheet.service';
+// import { UsageBottomSheetService } from './usage-bottom-sheet.service';
 import {
   UsageOverviewComponent,
   UsageSubscriptionsComponent,
@@ -505,7 +505,7 @@ export class UsageShellComponent implements OnInit {
   protected readonly svc = inject(UsageService);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
-  private readonly usageBottomSheet = inject(UsageBottomSheetService);
+  // private readonly usageBottomSheet = inject(UsageBottomSheetService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
 
   // ============================================

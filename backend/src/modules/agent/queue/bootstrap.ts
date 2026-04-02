@@ -101,6 +101,9 @@ async function isRedisAvailable(url: string): Promise<boolean> {
     enableOfflineQueue: false,
     connectTimeout: 2000,
   });
+  // Suppress the ioredis 'error' event emitted on connection failure.
+  // Without this listener Node.js would throw an unhandled error and crash.
+  client.on('error', () => undefined);
   try {
     await client.connect();
     await client.quit();
@@ -128,14 +131,21 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   const redisOk = await isRedisAvailable(redisUrl);
   if (!redisOk) {
     if (process.env['NODE_ENV'] === 'production') {
-      throw new Error(
-        `Redis is unreachable at ${redisUrl} — cannot start Agent Engine in production.`
+      logger.error(
+        `⚠️  Redis is unreachable at ${redisUrl}. ` +
+          'Ensure the REDIS_URL secret is set in Firebase App Hosting (backend/apphosting.yaml) ' +
+          'and the service account has roles/secretmanager.secretAccessor. ' +
+          'Agent X features are unavailable until Redis is configured.'
+      );
+    } else {
+      logger.warn(
+        '⚠️  Redis unavailable — Agent Engine skipped. ' +
+          'Start Redis locally (e.g. via WSL2/Docker: `docker run -p 6379:6379 redis`) ' +
+          'or set AGENT_ENGINE_DISABLED=true to suppress this warning.'
       );
     }
-    logger.warn(
-      '⚠️  Redis unavailable — Agent Engine skipped. ' +
-        'Start Redis (e.g. via WSL2/Docker) or set AGENT_ENGINE_DISABLED=true to suppress this warning.'
-    );
+    // Do NOT throw — let the server start so all other routes keep working.
+    // Agent routes return 503 when queueService/jobRepository are null.
     return async () => {};
   }
   // ── 1. Core services ─────────────────────────────────────────────────

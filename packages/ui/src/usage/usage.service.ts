@@ -9,7 +9,7 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Injectable, inject, signal, computed } from '@angular/core';
+import { Injectable, inject, signal, computed, effect, OnDestroy } from '@angular/core';
 import {
   formatPrice,
   USAGE_CATEGORY_CONFIGS,
@@ -60,13 +60,16 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 import { UsageApiService } from './usage-api.service';
 
 @Injectable({ providedIn: 'root' })
-export class UsageService {
+export class UsageService implements OnDestroy {
   private readonly api = inject(UsageApiService);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('UsageService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+
+  /** Interval handle for polling overview while agent holds are pending */
+  private _holdsPollingInterval: ReturnType<typeof setInterval> | null = null;
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -94,6 +97,32 @@ export class UsageService {
   private readonly _historyHasMore = signal(true);
   private readonly _isLoadingMore = signal(false);
   private readonly _activeSection = signal<UsageSection>('overview');
+
+  constructor() {
+    // Auto-poll overview every 5 s while an agent job has an active hold.
+    // Stops as soon as pendingHoldsCents drops to 0 or the service is destroyed.
+    effect(() => {
+      const hasHolds = this.pendingHoldsCents() > 0;
+      if (hasHolds && !this._holdsPollingInterval) {
+        this._holdsPollingInterval = setInterval(() => {
+          this.api
+            .getOverview()
+            .then((overview) => this._overview.set(overview))
+            .catch(() => undefined);
+        }, 5000);
+      } else if (!hasHolds && this._holdsPollingInterval) {
+        clearInterval(this._holdsPollingInterval);
+        this._holdsPollingInterval = null;
+      }
+    });
+  }
+
+  ngOnDestroy(): void {
+    if (this._holdsPollingInterval) {
+      clearInterval(this._holdsPollingInterval);
+      this._holdsPollingInterval = null;
+    }
+  }
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS

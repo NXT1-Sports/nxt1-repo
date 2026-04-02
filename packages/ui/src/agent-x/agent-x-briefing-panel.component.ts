@@ -9,13 +9,7 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import {
-  IonContent,
-  IonLabel,
-  IonRange,
-  IonToggle,
-  ModalController,
-} from '@ionic/angular/standalone';
+import { IonContent, IonLabel, IonRange, ModalController } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../components/icon';
 import { NxtFormFieldComponent } from '../components/form-field';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
