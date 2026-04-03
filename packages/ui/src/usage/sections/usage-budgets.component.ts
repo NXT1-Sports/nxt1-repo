@@ -8,9 +8,9 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output, signal } from '@angular/core';
 import { NxtIconComponent } from '../../components/icon';
-import type { UsageBudget } from '@nxt1/core';
+import type { UsageBudget, TeamBudgetAllocation } from '@nxt1/core';
 import { formatPrice } from '@nxt1/core';
 import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 
@@ -48,12 +48,26 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
           </thead>
           <tbody>
             @for (budget of budgets(); track budget.id) {
+              <!-- Main budget row -->
               <tr
                 class="budget-row"
+                [class.budget-row--expanded]="expandedBudgetId() === budget.id"
+                [class.budget-row--has-teams]="hasTeams(budget)"
                 [attr.data-testid]="testIds.BUDGET_CARD"
-                (click)="editBudget.emit(budget.id)"
+                (click)="onRowClick(budget)"
               >
-                <td class="col-account">{{ budget.accountName }}</td>
+                <td class="col-account">
+                  <div class="account-cell">
+                    @if (hasTeams(budget)) {
+                      <nxt1-icon
+                        [name]="expandedBudgetId() === budget.id ? 'chevronDown' : 'chevronForward'"
+                        className="expand-icon"
+                        size="14"
+                      />
+                    }
+                    {{ budget.accountName }}
+                  </div>
+                </td>
                 <td class="col-product">{{ budget.productName }}</td>
                 <td class="col-stop">
                   @if (budget.stopOnLimit) {
@@ -87,6 +101,70 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
                   </div>
                 </td>
               </tr>
+
+              <!-- Team allocations sub-rows (org Director only) -->
+              @if (expandedBudgetId() === budget.id && hasTeams(budget)) {
+                <!-- Sub-table header -->
+                <tr class="team-header-row">
+                  <td colspan="4">
+                    <div class="team-header">
+                      <span class="team-col-name">Team</span>
+                      <span class="team-col-limit">Monthly limit</span>
+                      <span class="team-col-spend">Spending</span>
+                    </div>
+                  </td>
+                </tr>
+                @for (team of budget.teamAllocations!; track team.teamId) {
+                  <tr class="team-row">
+                    <td colspan="4">
+                      <div class="team-detail">
+                        <span class="team-col-name">
+                          <button
+                            class="team-edit-btn"
+                            title="Edit team budget"
+                            (click)="$event.stopPropagation(); editTeamBudget.emit(team.teamId)"
+                          >
+                            {{ team.teamName }}
+                            <nxt1-icon name="create-outline" className="team-edit-icon" size="13" />
+                          </button>
+                        </span>
+                        <span class="team-col-limit">
+                          {{
+                            team.monthlyLimit > 0 ? formatAmount(team.monthlyLimit) : 'Unlimited'
+                          }}
+                        </span>
+                        <span class="team-col-spend">
+                          <div class="progress-cell">
+                            <div class="progress-bar-container">
+                              <div
+                                class="progress-bar-fill"
+                                [class.progress-bar-fill--warning]="
+                                  team.percentUsed >= 75 && team.percentUsed < 100
+                                "
+                                [class.progress-bar-fill--danger]="team.percentUsed >= 100"
+                                [style.width.%]="clampTeamPercent(team)"
+                              ></div>
+                            </div>
+                            <span class="progress-label">
+                              {{ formatAmount(team.currentSpend) }}
+                              @if (team.monthlyLimit > 0) {
+                                / {{ formatAmount(team.monthlyLimit) }}
+                              }
+                              @if (team.percentUsed >= 90) {
+                                <nxt1-icon
+                                  name="alert-circle-outline"
+                                  className="alert-icon"
+                                  size="14"
+                                />
+                              }
+                            </span>
+                          </div>
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                }
+              }
             } @empty {
               <tr>
                 <td colspan="4" class="empty-row">No budgets configured.</td>
@@ -190,11 +268,96 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
           background: var(--nxt1-color-surface-200);
         }
 
+        &.budget-row--expanded {
+          background: var(--nxt1-color-surface-200);
+        }
+
+        &.budget-row--has-teams td:first-child {
+          font-weight: var(--nxt1-fontWeight-medium);
+        }
+
         td {
           padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
           font-size: var(--nxt1-fontSize-sm);
           color: var(--nxt1-color-text-primary);
         }
+      }
+
+      .account-cell {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2);
+      }
+
+      .expand-icon {
+        color: var(--nxt1-color-text-tertiary);
+        flex-shrink: 0;
+      }
+
+      /* Team sub-rows */
+      .team-header-row td {
+        padding: 0;
+      }
+
+      .team-header {
+        display: grid;
+        grid-template-columns: 2fr 1fr 2fr;
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4) var(--nxt1-spacing-2)
+          var(--nxt1-spacing-10);
+        background: var(--nxt1-color-surface-300);
+        border-bottom: 1px solid var(--nxt1-color-border-subtle);
+        font-size: var(--nxt1-fontSize-xs);
+        color: var(--nxt1-color-text-tertiary);
+        font-weight: var(--nxt1-fontWeight-medium);
+      }
+
+      .team-row td {
+        padding: 0;
+        border-bottom: 1px solid var(--nxt1-color-border-subtle);
+      }
+
+      .team-detail {
+        display: grid;
+        grid-template-columns: 2fr 1fr 2fr;
+        padding: var(--nxt1-spacing-2-5) var(--nxt1-spacing-4) var(--nxt1-spacing-2-5)
+          var(--nxt1-spacing-10);
+        background: var(--nxt1-color-surface-200);
+        font-size: var(--nxt1-fontSize-sm);
+        color: var(--nxt1-color-text-primary);
+        align-items: center;
+      }
+
+      .team-col-name {
+        display: flex;
+        align-items: center;
+      }
+
+      .team-edit-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-1);
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: var(--nxt1-fontSize-sm);
+        color: var(--nxt1-color-text-primary);
+        padding: 0;
+        font-family: inherit;
+
+        &:hover {
+          color: var(--nxt1-color-primary);
+        }
+      }
+
+      .team-edit-icon {
+        color: var(--nxt1-color-text-tertiary);
+        opacity: 0;
+        transition: opacity var(--nxt1-duration-fast);
+      }
+
+      .team-edit-btn:hover .team-edit-icon {
+        opacity: 1;
+        color: var(--nxt1-color-primary);
       }
 
       .stop-icon {
@@ -283,6 +446,22 @@ export class UsageBudgetsComponent {
 
   readonly createBudget = output<void>();
   readonly editBudget = output<string>();
+  /** Emitted when a team allocation row's edit button is clicked — carries the teamId */
+  readonly editTeamBudget = output<string>();
+
+  protected readonly expandedBudgetId = signal<string | null>(null);
+
+  protected hasTeams(budget: UsageBudget): boolean {
+    return (budget.teamAllocations?.length ?? 0) > 0;
+  }
+
+  protected onRowClick(budget: UsageBudget): void {
+    if (this.hasTeams(budget)) {
+      this.expandedBudgetId.update((id) => (id === budget.id ? null : budget.id));
+    } else {
+      this.editBudget.emit(budget.id);
+    }
+  }
 
   protected formatAmount(cents: number): string {
     return formatPrice(cents);
@@ -295,5 +474,10 @@ export class UsageBudgetsComponent {
 
   protected clampPercent(budget: UsageBudget): number {
     return Math.min(this.getPercent(budget), 100);
+  }
+
+  protected clampTeamPercent(team: TeamBudgetAllocation): number {
+    if (team.monthlyLimit === 0) return 0;
+    return Math.min(team.percentUsed, 100);
   }
 }

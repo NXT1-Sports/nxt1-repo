@@ -244,6 +244,9 @@ export async function generateInvoice(
 
     if (collectionMethod === 'send_invoice') {
       invoiceParams['days_until_due'] = options?.daysUntilDue ?? 30;
+      // Stripe defaults pending_invoice_items_behavior to 'exclude' for send_invoice.
+      // Must override to 'include' so invoice items added before this call are picked up.
+      invoiceParams['pending_invoice_items_behavior'] = 'include';
     }
 
     const invoice = await stripe.invoices.create(
@@ -262,6 +265,7 @@ export async function generateInvoice(
     return {
       success: true,
       invoiceId: finalizedInvoice.id,
+      invoiceUrl: finalizedInvoice.hosted_invoice_url ?? undefined,
     };
   } catch (error) {
     logger.error('[generateInvoice] Failed to generate invoice', {

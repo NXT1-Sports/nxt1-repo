@@ -469,6 +469,23 @@ async function handleCheckoutSessionCompleted(
   try {
     const { newBalance } = await addWalletTopUp(db, userId, amountCents, 'stripe');
 
+    // Write payment log so the dashboard's Payment History section shows this top-up
+    const now = FieldValue.serverTimestamp();
+    await db.collection(COLLECTIONS.PAYMENT_LOGS).add({
+      invoiceId: session.id,
+      customerId: (session.customer as string) ?? '',
+      userId,
+      amountDue: amountCents / 100,
+      amountPaid: amountCents / 100,
+      currency: session.currency ?? 'usd',
+      status: 'PAID',
+      paymentMethodLabel: 'Card',
+      type: 'wallet_topup',
+      invoiceUrl: null,
+      rawEvent: session as unknown as Record<string, unknown>,
+      createdAt: now,
+    });
+
     logger.info('[handleCheckoutSessionCompleted] Wallet topped up via Stripe Checkout', {
       sessionId: session.id,
       userId,

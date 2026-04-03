@@ -218,6 +218,7 @@ export interface UsageUser {
                         [budgets]="svc.budgets()"
                         (createBudget)="onCreateBudget()"
                         (editBudget)="onEditBudget($event)"
+                        (editTeamBudget)="onEditTeamBudget($event)"
                       />
                     }
                   }
@@ -258,6 +259,7 @@ export interface UsageUser {
                       [budgets]="svc.budgets()"
                       (createBudget)="onCreateBudget()"
                       (editBudget)="onEditBudget($event)"
+                      (editTeamBudget)="onEditTeamBudget($event)"
                     />
                   }
 
@@ -653,6 +655,14 @@ export class UsageShellComponent implements OnInit {
       }
     } else if (result.action === 'Delete budget') {
       await this.svc.deleteBudget();
+    }
+  }
+
+  protected async onEditTeamBudget(teamId: string): Promise<void> {
+    await this.haptics.impact('light');
+    const amountCents = await this.usageBottomSheet.showBudgetLimit();
+    if (amountCents !== null) {
+      await this.svc.updateTeamBudget(teamId, amountCents);
     }
   }
 

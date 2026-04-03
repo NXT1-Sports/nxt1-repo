@@ -55,6 +55,8 @@ import {
   captureWalletHold,
   releaseWalletHold,
 } from '../../billing/budget.service.js';
+import { recordUsageEvent } from '../../billing/usage.service.js';
+import { UsageFeature } from '../../billing/types/index.js';
 import {
   logAgentTaskCompletion,
   logAgentTaskFailure,
@@ -142,8 +144,9 @@ export class AgentWorker {
     let iapHoldId: string | null = null;
     const billingCtxForHold = await getBillingContext(billingDb, payload.userId);
     if (
-      billingCtxForHold?.paymentProvider === 'iap' &&
-      billingCtxForHold.billingEntity === 'individual'
+      (billingCtxForHold?.paymentProvider === 'iap' &&
+        billingCtxForHold.billingEntity === 'individual') ||
+      (billingCtxForHold?.billingEntity === 'organization' && billingCtxForHold?.hardStop)
     ) {
       const { chargeAmountCents: estimatedCents } = estimateChargeAmountSync(0.1);
       const holdResult = await createWalletHold(
@@ -367,6 +370,11 @@ export class AgentWorker {
     };
     await job.updateProgress(completedProgress);
 
+    logger.info('[DEBUGLOG] Final job result before persistence:', {
+      operationId: payload.operationId,
+      resultSummary: result.summary,
+    });
+
     // Treat max-iterations as a failure — the agent made no real progress
     if (result.data && (result.data as Record<string, unknown>)['maxIterationsReached'] === true) {
       logger.warn('Agent hit max iterations limit — marking as failed', {
@@ -429,6 +437,30 @@ export class AgentWorker {
           } else {
             await recordSpend(billingDb, payload.userId, chargeAmountCents);
           }
+          // Write usage event for audit trail (visible in Director billing history)
+          const jobEnvironment = job.data.environment;
+          recordUsageEvent(
+            billingDb,
+            {
+              userId: payload.userId,
+              teamId: payload.userId, // fallback: use userId if no teamId on payload
+              feature: UsageFeature.ACTIVITY_USAGE,
+              quantity: 1,
+              unitCostSnapshot: chargeAmountCents,
+              currency: 'usd',
+              stripePriceId: '',
+              jobId: payload.operationId,
+              dynamicCostCents: chargeAmountCents,
+              rawProviderCostUsd: totalCostUsd,
+              metadata: { operationId: payload.operationId, agent: payload.agent },
+            },
+            jobEnvironment
+          ).catch((e: unknown) => {
+            logger.warn('[billing] Failed to write usage event — spend already recorded', {
+              operationId: payload.operationId,
+              error: e instanceof Error ? e.message : String(e),
+            });
+          });
           logger.info('[billing] Deducted charge for completed job', {
             operationId: payload.operationId,
             userId: payload.userId,

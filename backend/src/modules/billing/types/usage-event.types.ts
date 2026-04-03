@@ -361,6 +361,10 @@ export interface WalletHold {
   id: string;
   /** User who owns this hold */
   userId: string;
+  /** Organization ID — set for org-entity users so hold ops update org master budget */
+  organizationId?: string;
+  /** Team ID — set for org-entity users with team sub-allocations */
+  teamId?: string;
   /** Amount reserved in cents */
   amountCents: number;
   /** Whether the hold has been captured or released */

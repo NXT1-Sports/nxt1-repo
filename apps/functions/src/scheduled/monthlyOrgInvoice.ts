@@ -150,11 +150,14 @@ export const monthlyOrgInvoice = onSchedule(
         );
 
         // Create invoice with Net 30 send_invoice collection
+        // NOTE: must set pending_invoice_items_behavior='include' — Stripe defaults
+        // to 'exclude' for send_invoice, which would produce a $0 invoice.
         const invoice = await stripe.invoices.create({
           customer: customerId,
           auto_advance: false,
           collection_method: 'send_invoice',
           days_until_due: 30,
+          pending_invoice_items_behavior: 'include',
         });
 
         // Finalize so Stripe sends the invoice email
@@ -166,6 +169,7 @@ export const monthlyOrgInvoice = onSchedule(
           organizationId: organizationId ?? null,
           customerId,
           invoiceId: finalizedInvoice.id,
+          invoiceUrl: finalizedInvoice.hosted_invoice_url ?? null,
           amountCents: spendCents,
           currency: 'usd',
           status: 'invoiced',

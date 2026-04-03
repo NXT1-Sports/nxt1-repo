@@ -40,6 +40,7 @@ export interface GetOrCreateCustomerResult {
 export interface GenerateInvoiceResult {
   success: boolean;
   invoiceId?: string;
+  invoiceUrl?: string;
   error?: string;
 }
 

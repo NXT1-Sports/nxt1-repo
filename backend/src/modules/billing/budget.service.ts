@@ -246,7 +246,8 @@ export async function checkBudget(
  * Single-tier budget check (shared by individual and org master).
  */
 function checkSingleTierBudget(ctx: BillingContext, costCents: number): BudgetCheckResult {
-  const projectedSpend = ctx.currentPeriodSpend + costCents;
+  const pendingHolds = ctx.pendingHoldsCents ?? 0;
+  const projectedSpend = ctx.currentPeriodSpend + pendingHolds + costCents;
   const percentUsed =
     ctx.monthlyBudget > 0 ? Math.round((projectedSpend / ctx.monthlyBudget) * 100) : 0;
 
@@ -1793,20 +1794,63 @@ export async function createWalletHold(
 
       const walletBalance = data.walletBalanceCents ?? 0;
       const pendingHolds = data.pendingHoldsCents ?? 0;
-      availableBalance = walletBalance - pendingHolds;
+      const currentSpend = data.currentPeriodSpend ?? 0;
+      const monthlyBudget = data.monthlyBudget ?? 0;
 
-      if (availableBalance < estimatedCostCents) {
-        throw new Error(
-          `Insufficient available balance: $${(availableBalance / 100).toFixed(2)} < $${(estimatedCostCents / 100).toFixed(2)}`
+      let orgMasterRef: FirebaseFirestore.DocumentReference | null = null;
+      let orgMasterData: BillingContext | null = null;
+
+      if (data.billingEntity === 'organization') {
+        // For org users, budget enforcement must be done against the org master
+        // context (userId = 'org:<orgId>') to prevent concurrent job overdrafts.
+        const orgUserId = data.organizationId ? `org:${data.organizationId}` : null;
+        if (!orgUserId) {
+          throw new Error('Org user has no organizationId in billing context');
+        }
+
+        const orgSnap = await txn.get(
+          db.collection(COLLECTIONS.BILLING_CONTEXTS).where('userId', '==', orgUserId).limit(1)
         );
+        if (orgSnap.empty) {
+          throw new Error(`Org master billing context not found for ${orgUserId}`);
+        }
+        orgMasterRef = orgSnap.docs[0]!.ref;
+        orgMasterData = orgSnap.docs[0]!.data() as BillingContext;
+
+        if (data.hardStop) {
+          const orgCurrentSpend = orgMasterData.currentPeriodSpend ?? 0;
+          const orgPendingHolds = orgMasterData.pendingHoldsCents ?? 0;
+          const orgMonthlyBudget = orgMasterData.monthlyBudget ?? monthlyBudget;
+          const availableBudget = orgMonthlyBudget - orgCurrentSpend - orgPendingHolds;
+          if (availableBudget < estimatedCostCents) {
+            throw new Error(
+              `Insufficient budget: $${(availableBudget / 100).toFixed(2)} (available) < $${(estimatedCostCents / 100).toFixed(2)} (estimated)`
+            );
+          }
+          availableBalance = availableBudget;
+        }
+      } else if (data.billingEntity === 'individual' && data.paymentProvider === 'iap') {
+        // IAP prepay wallet balance check
+        availableBalance = walletBalance - pendingHolds;
+        if (availableBalance < estimatedCostCents) {
+          throw new Error(
+            `Insufficient available balance: $${(availableBalance / 100).toFixed(2)} < $${(estimatedCostCents / 100).toFixed(2)}`
+          );
+        }
+      } else {
+        // Other types like individual stripe, default to available budget check
+        const availableBudget = monthlyBudget - currentSpend - pendingHolds;
+        availableBalance = availableBudget;
       }
 
-      // Create hold document
+      // Create hold document — store org context so capture/release can update it
       const holdRef = db.collection(COLLECTIONS.WALLET_HOLDS).doc();
       holdId = holdRef.id;
 
       txn.set(holdRef, {
         userId,
+        ...(data.organizationId ? { organizationId: data.organizationId } : {}),
+        ...(data.teamId ? { teamId: data.teamId } : {}),
         amountCents: estimatedCostCents,
         status: 'active',
         jobId,
@@ -1814,11 +1858,19 @@ export async function createWalletHold(
         createdAt: FieldValue.serverTimestamp(),
       });
 
-      // Atomically increase pending holds on the billing context
+      // Atomically increase pending holds on the user's billing context
       txn.update(docRef, {
         pendingHoldsCents: FieldValue.increment(estimatedCostCents),
         updatedAt: FieldValue.serverTimestamp(),
       });
+
+      // For org users: also reserve budget on the org master context
+      if (orgMasterRef) {
+        txn.update(orgMasterRef, {
+          pendingHoldsCents: FieldValue.increment(estimatedCostCents),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
     });
 
     logger.info('[createWalletHold] Hold created', {
@@ -1870,6 +1922,8 @@ export async function captureWalletHold(
   }
 
   const holdRef = db.collection(COLLECTIONS.WALLET_HOLDS).doc(holdId);
+  let organizationId: string | undefined;
+  let teamId: string | undefined;
 
   await db.runTransaction(async (txn) => {
     const holdDoc = await txn.get(holdRef);
@@ -1879,6 +1933,8 @@ export async function captureWalletHold(
     }
 
     const hold = holdDoc.data() as WalletHold;
+    organizationId = hold.organizationId;
+    teamId = hold.teamId;
 
     if (hold.status !== 'active') {
       throw new Error(`Wallet hold ${holdId} is already ${hold.status}`);
@@ -1894,14 +1950,34 @@ export async function captureWalletHold(
     }
 
     const ctxRef = ctxSnap.docs[0]!.ref;
+    const ctxData = ctxSnap.docs[0]!.data() as BillingContext;
 
-    // Release the full hold and deduct the actual cost
-    txn.update(ctxRef, {
+    // Release the full hold and record the actual cost on the user's context
+    const updates: Record<string, unknown> = {
       pendingHoldsCents: FieldValue.increment(-hold.amountCents),
-      walletBalanceCents: FieldValue.increment(-actualCostCents),
       currentPeriodSpend: FieldValue.increment(actualCostCents),
       updatedAt: FieldValue.serverTimestamp(),
-    });
+    };
+
+    if (ctxData.billingEntity === 'individual' && ctxData.paymentProvider === 'iap') {
+      updates['walletBalanceCents'] = FieldValue.increment(-actualCostCents);
+    }
+
+    txn.update(ctxRef, updates);
+
+    // For org users: also release the pending hold reservation on the org master context
+    if (hold.organizationId) {
+      const orgUserId = `org:${hold.organizationId}`;
+      const orgSnap = await txn.get(
+        db.collection(COLLECTIONS.BILLING_CONTEXTS).where('userId', '==', orgUserId).limit(1)
+      );
+      if (!orgSnap.empty) {
+        txn.update(orgSnap.docs[0]!.ref, {
+          pendingHoldsCents: FieldValue.increment(-hold.amountCents),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+    }
 
     // Mark hold as captured
     txn.update(holdRef, {
@@ -1910,6 +1986,15 @@ export async function captureWalletHold(
       resolvedAt: FieldValue.serverTimestamp(),
     });
   });
+
+  // For org users: update the org master's currentPeriodSpend (with threshold notifications)
+  // and the team sub-allocation. This mirrors what recordSpend() does.
+  if (organizationId && actualCostCents > 0) {
+    await updateOrgSpend(db, organizationId, actualCostCents);
+    if (teamId) {
+      await updateTeamAllocationSpend(db, teamId, actualCostCents);
+    }
+  }
 
   logger.info('[captureWalletHold] Hold captured', { holdId, actualCostCents });
 }
@@ -1958,6 +2043,20 @@ export async function releaseWalletHold(db: Firestore, holdId: string): Promise<
       updatedAt: FieldValue.serverTimestamp(),
     });
 
+    // For org users: also release the pending hold on the org master context
+    if (hold.organizationId) {
+      const orgUserId = `org:${hold.organizationId}`;
+      const orgSnap = await txn.get(
+        db.collection(COLLECTIONS.BILLING_CONTEXTS).where('userId', '==', orgUserId).limit(1)
+      );
+      if (!orgSnap.empty) {
+        txn.update(orgSnap.docs[0]!.ref, {
+          pendingHoldsCents: FieldValue.increment(-hold.amountCents),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
     // Mark hold as released
     txn.update(holdRef, {
       status: 'released',
@@ -1994,6 +2093,8 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
 
   // Group holds by userId to batch-update billing contexts
   const holdsByUser = new Map<string, number>();
+  // Group holds by orgId to batch-update org master contexts
+  const holdsByOrg = new Map<string, number>();
 
   for (const doc of snapshot.docs) {
     const hold = doc.data() as WalletHold;
@@ -2005,6 +2106,12 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
 
     const existing = holdsByUser.get(hold.userId) ?? 0;
     holdsByUser.set(hold.userId, existing + hold.amountCents);
+
+    if (hold.organizationId) {
+      const orgExisting = holdsByOrg.get(hold.organizationId) ?? 0;
+      holdsByOrg.set(hold.organizationId, orgExisting + hold.amountCents);
+    }
+
     expiredCount++;
   }
 
@@ -2020,6 +2127,23 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
 
     if (!ctxSnap.empty) {
       await ctxSnap.docs[0]!.ref.update({
+        pendingHoldsCents: FieldValue.increment(-totalHeldCents),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
+  // Release pending holds on each affected org master context
+  for (const [organizationId, totalHeldCents] of holdsByOrg) {
+    const orgUserId = `org:${organizationId}`;
+    const orgSnap = await db
+      .collection(COLLECTIONS.BILLING_CONTEXTS)
+      .where('userId', '==', orgUserId)
+      .limit(1)
+      .get();
+
+    if (!orgSnap.empty) {
+      await orgSnap.docs[0]!.ref.update({
         pendingHoldsCents: FieldValue.increment(-totalHeldCents),
         updatedAt: FieldValue.serverTimestamp(),
       });

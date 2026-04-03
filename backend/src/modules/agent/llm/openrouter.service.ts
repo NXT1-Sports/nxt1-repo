@@ -188,6 +188,11 @@ export class OpenRouterService {
   ): Promise<LLMCompletionResult> {
     const startMs = Date.now();
 
+    logger.info(`[DEBUGLOG] completeWithModel called!`, {
+      model,
+      operationId: options.telemetryContext?.operationId,
+    });
+
     const body = this.buildRequestBody(messages, model, options);
     const raw = await this.fetchWithRetry(
       body,
@@ -794,8 +799,8 @@ export class OpenRouterService {
    * Generate a text embedding via the OpenRouter embeddings endpoint.
    * Used by VectorMemoryService for MongoDB Atlas Vector Search.
    *
-   * Routes through OpenRouter (openai/text-embedding-3-small) so no separate
-   * OPENAI_API_KEY is required — only the existing OPENROUTER_API_KEY.
+   * Routes through OpenRouter (openai/text-embedding-3-small).
+   * We only use OPENROUTER_API_KEY for all model requests.
    *
    * @param text - The text to embed (truncated to 8,192 tokens by the model).
    * @returns A 1536-dimensional embedding vector (text-embedding-3-small).

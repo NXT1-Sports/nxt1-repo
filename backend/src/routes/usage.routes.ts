@@ -28,6 +28,35 @@ import {
   type ResolvedBillingTarget,
 } from '../modules/billing/index.js';
 import { USAGE_PRODUCT_CONFIGS, USAGE_CATEGORY_CONFIGS, USAGE_HISTORY_PAGE_SIZE } from '@nxt1/core';
+
+/** Normalize PaymentLog status (Firestore: 'PAID'/'FAILED'/…) to TransactionStatus ('completed'/'failed'/…) */
+function normalizePaymentStatus(status: unknown): string {
+  switch (String(status ?? '').toUpperCase()) {
+    case 'PAID':
+      return 'completed';
+    case 'FAILED':
+      return 'failed';
+    case 'PENDING':
+      return 'processing';
+    case 'VOID':
+    case 'CANCELED':
+      return 'canceled';
+    case 'REFUNDED':
+      return 'refunded';
+    default:
+      return 'completed';
+  }
+}
+
+/** Convert Firestore Timestamp, Date, or ISO string to ISO string */
+function toISOString(val: unknown): string {
+  if (!val) return new Date().toISOString();
+  if (typeof val === 'string') return val;
+  if (val instanceof Date) return val.toISOString();
+  // Firestore Timestamp
+  if (typeof (val as any).toDate === 'function') return (val as any).toDate().toISOString();
+  return new Date().toISOString();
+}
 import type {
   UsageOverview,
   UsageChartDataPoint,
@@ -242,7 +271,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
 
         featureUsage.set(feature, (featureUsage.get(feature) ?? 0) + cost);
 
-        const dateKey = (data['createdAt'] as string).slice(0, 10);
+        const dateKey = toISOString(data['createdAt']).slice(0, 10);
         dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
       }
     }
@@ -315,7 +344,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
 
     for (const doc of eventsDocs) {
       const data = doc.data();
-      const dateKey = (data['createdAt'] as string).slice(0, 10);
+      const dateKey = toISOString(data['createdAt']).slice(0, 10);
       const feature = data['feature'] as string;
       const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
       const qty = data['quantity'] as number;
@@ -368,15 +397,15 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       return {
         id: doc.id,
         displayId: doc.id.slice(0, 8).toUpperCase(),
-        amount: (d['amount'] as number) ?? 0,
-        currency: 'usd',
-        status: (d['status'] as 'completed') ?? 'completed',
+        amount: (d['amountPaid'] as number) ?? 0,
+        currency: ((d['currency'] as string) ?? 'usd') as UsagePaymentHistoryRecord['currency'],
+        status: normalizePaymentStatus(d['status']) as UsagePaymentHistoryRecord['status'],
         paymentMethodLabel: (d['paymentMethodLabel'] as string) ?? 'Card',
         provider: 'stripe',
-        createdAt: (d['createdAt'] as string) ?? new Date().toISOString(),
-        dateLabel: (d['createdAt'] as string)?.slice(0, 10) ?? '',
-        receiptUrl: (d['receiptUrl'] as string) ?? null,
-        invoiceUrl: (d['invoiceUrl'] as string) ?? null,
+        createdAt: toISOString(d['createdAt']),
+        dateLabel: toISOString(d['createdAt']).slice(0, 10),
+        receiptUrl: (d['receiptUrl'] as string | null) ?? null,
+        invoiceUrl: (d['invoiceUrl'] as string | null) ?? null,
       };
     });
 
@@ -609,7 +638,7 @@ router.get('/chart', appGuard, async (req: Request, res: Response) => {
     const dailyUsage = new Map<string, number>();
     for (const doc of eventsDocs) {
       const data = doc.data();
-      const dateKey = (data['createdAt'] as string).slice(0, 10);
+      const dateKey = toISOString(data['createdAt']).slice(0, 10);
       const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
       dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
     }
@@ -667,7 +696,7 @@ router.get('/breakdown', appGuard, async (req: Request, res: Response) => {
 
     for (const doc of eventsDocs) {
       const data = doc.data();
-      const dateKey = (data['createdAt'] as string).slice(0, 10);
+      const dateKey = toISOString(data['createdAt']).slice(0, 10);
       const feature = data['feature'] as string;
       const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
       const qty = data['quantity'] as number;
@@ -757,15 +786,15 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
       return {
         id: doc.id,
         displayId: doc.id.slice(0, 8).toUpperCase(),
-        amount: (d['amount'] as number) ?? 0,
-        currency: 'usd',
-        status: (d['status'] as 'completed') ?? 'completed',
+        amount: (d['amountPaid'] as number) ?? 0,
+        currency: ((d['currency'] as string) ?? 'usd') as UsagePaymentHistoryRecord['currency'],
+        status: normalizePaymentStatus(d['status']) as UsagePaymentHistoryRecord['status'],
         paymentMethodLabel: (d['paymentMethodLabel'] as string) ?? 'Card',
         provider: 'stripe',
-        createdAt: (d['createdAt'] as string) ?? new Date().toISOString(),
-        dateLabel: (d['createdAt'] as string)?.slice(0, 10) ?? '',
-        receiptUrl: (d['receiptUrl'] as string) ?? null,
-        invoiceUrl: (d['invoiceUrl'] as string) ?? null,
+        createdAt: toISOString(d['createdAt']),
+        dateLabel: toISOString(d['createdAt']).slice(0, 10),
+        receiptUrl: (d['receiptUrl'] as string | null) ?? null,
+        invoiceUrl: (d['invoiceUrl'] as string | null) ?? null,
       };
     });
 

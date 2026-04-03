@@ -37,7 +37,12 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
               <tr class="history-row" [attr.data-testid]="testIds.HISTORY_ROW">
                 <td class="col-date">{{ record.dateLabel }}</td>
                 <td class="col-id">
-                  <span class="id-text">{{ record.displayId }}</span>
+                  <div class="id-cell">
+                    <span class="id-text">{{ record.displayId }}</span>
+                    @if (record.invoiceUrl) {
+                      <span class="type-badge type-badge--invoice">Invoice</span>
+                    }
+                  </div>
                 </td>
                 <td class="col-method">{{ record.paymentMethodLabel }}</td>
                 <td class="col-amount">{{ formatAmount(record.amount) }}</td>
@@ -159,10 +164,33 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         }
       }
 
+      .id-cell {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-1-5);
+      }
+
       .id-text {
         font-family: var(--nxt1-fontFamily-mono);
         font-size: var(--nxt1-fontSize-xs);
         color: var(--nxt1-color-text-secondary);
+      }
+
+      .type-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px var(--nxt1-spacing-1-5);
+        border-radius: var(--nxt1-radius-sm, 4px);
+        font-size: 10px;
+        font-weight: var(--nxt1-fontWeight-medium);
+        line-height: 1.4;
+        white-space: nowrap;
+      }
+
+      .type-badge--invoice {
+        background: var(--nxt1-color-infoBg);
+        color: var(--nxt1-color-info);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-info) 20%, transparent);
       }
 
       .col-amount {
