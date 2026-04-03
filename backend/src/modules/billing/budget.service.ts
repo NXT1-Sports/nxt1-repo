@@ -1029,21 +1029,18 @@ const BILLING_RESOLUTION_CACHE_MAX_SIZE = 10_000; // Prevent unbounded growth
 /**
  * Resolve the correct billing target for a user.
  *
- * For directors/admins of an organization, this returns the **organization's**
- * billing context (userId = `org:{orgId}`) so that usage dashboards, payment
- * history, and Stripe customer lookups show org-level data instead of a
- * zeroed-out individual view.
+ * Directors always route to their organization's billing context.
+ * Athletes, coaches, staff, and other roster members route to the
+ * organization's billing context ONLY if the org is on the Elite plan.
+ * Everyone else falls back to their personal individual billing context.
  *
  * Resolution order:
  *   1. Check in-memory cache (5 min TTL).
  *   2. Read the user doc from `Users` to check their `role`.
- *   3. If role is `director`:
- *      a. Query `RosterEntries` for any active membership → `organizationId`.
- *      b. Fallback: query `Organizations` where `ownerId == userId`.
- *      c. If an org is found, fetch all team IDs from `Teams`.
- *      d. Fetch or create the org billing context (`org:{orgId}`).
- *      e. Return type 'organization' with the org context.
- *   4. Otherwise, fallback to the user's personal billing context.
+ *   3. Query `RosterEntries` for any active membership → `organizationId`.
+ *   4. If role is `director`, ALWAYS route to org billing.
+ *      If role is anything else AND the org is on the Elite plan, route to org billing.
+ *   5. Otherwise, fallback to the user's personal billing context.
  */
 export async function resolveBillingTarget(
   db: Firestore,
@@ -1081,20 +1078,21 @@ export async function resolveBillingTarget(
   const userData = userDoc.data();
   const role = userData?.['role'] as string | undefined;
 
+  // ── Try to resolve to an organization (directors always, others only if Elite) ──
+  const orgTarget = await resolveUserOrgTarget(db, userId, role);
+  if (orgTarget) {
+    billingResolutionCache.set(userId, {
+      type: orgTarget.type,
+      billingUserId: orgTarget.billingUserId,
+      organizationId: orgTarget.organizationId,
+      teamIds: orgTarget.teamIds,
+      expiresAt: Date.now() + BILLING_RESOLUTION_CACHE_TTL_MS,
+    });
+    return orgTarget;
+  }
+
+  // Director without an active org — log a warning
   if (role === 'director') {
-    const target = await resolveDirectorTarget(db, userId);
-    if (target) {
-      // Cache the lightweight resolution mapping (NOT the context)
-      billingResolutionCache.set(userId, {
-        type: target.type,
-        billingUserId: target.billingUserId,
-        organizationId: target.organizationId,
-        teamIds: target.teamIds,
-        expiresAt: Date.now() + BILLING_RESOLUTION_CACHE_TTL_MS,
-      });
-      return target;
-    }
-    // Director without an active org — fall through to individual
     logger.warn(
       '[resolveBillingTarget] Director has no active organization, falling back to individual',
       { userId }
@@ -1240,17 +1238,21 @@ async function resolveAthleteOrgTarget(
 }
 
 /**
- * Internal: Resolve a director's organization target.
- * Returns null if the director has no active organization.
+ * Internal: Resolve a user's organization billing target.
+ *
+ * Directors are ALWAYS routed to their organization's billing context.
+ * Athletes, coaches, and other roster members are routed to the organization
+ * billing context ONLY if the organization is on the Elite plan. Otherwise
+ * they fall back to their individual billing context.
+ *
+ * Returns null if no qualifying organization is found.
  */
-async function resolveDirectorTarget(
+async function resolveUserOrgTarget(
   db: Firestore,
-  userId: string
+  userId: string,
+  role: string | undefined
 ): Promise<ResolvedBillingTarget | null> {
-  // Strategy 1: Look up via RosterEntries — find any org-level role for this user.
-  // Note: roster `role` uses membership roles (owner, admin, director, coach)
-  // while the user doc `role` is the account type. We already verified the
-  // account type is 'director', so find any active org membership.
+  // Strategy 1: Look up via RosterEntries — find any active org membership.
   const rosterSnap = await db
     .collection('RosterEntries')
     .where('userId', '==', userId)
@@ -1264,8 +1266,8 @@ async function resolveDirectorTarget(
     organizationId = rosterSnap.docs[0]!.data()['organizationId'] as string | undefined;
   }
 
-  // Strategy 2: Fallback — check organizations.ownerId
-  if (!organizationId) {
+  // Strategy 2: Fallback for directors — check organizations.ownerId
+  if (!organizationId && role === 'director') {
     const orgSnap = await db
       .collection('Organizations')
       .where('ownerId', '==', userId)
@@ -1278,7 +1280,6 @@ async function resolveDirectorTarget(
   }
 
   if (!organizationId) {
-    logger.warn('[resolveDirectorTarget] No org found for director', { userId });
     return null;
   }
 
@@ -1297,15 +1298,16 @@ async function resolveDirectorTarget(
   }
 
   if (!orgCtx) {
-    logger.error('[resolveDirectorTarget] Failed to create org billing context', {
+    logger.error('[resolveUserOrgTarget] Failed to create org billing context', {
       organizationId,
       userId,
     });
     return null;
   }
 
-  logger.info('[resolveBillingTarget] Resolved director to organization', {
+  logger.info('[resolveUserOrgTarget] Resolved user to organization billing', {
     userId,
+    role,
     organizationId,
     teamCount: teamIds.length,
   });

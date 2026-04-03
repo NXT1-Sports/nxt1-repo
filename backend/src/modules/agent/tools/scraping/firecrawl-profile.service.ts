@@ -147,48 +147,48 @@ export class FirecrawlProfileService {
 
     const sessionId = browserResult.id;
 
-    // ── Mobile viewport resize (per Firecrawl Support guidance) ─────────
-    // The interactive live-view stream defaults to a desktop-sized VNC canvas.
-    // To get a true mobile stream we MUST resize the viewport in a **separate,
-    // first** browserExecute call *before* navigating. This gives Firecrawl's
-    // streaming infrastructure time to resize the VNC canvas to the new
-    // dimensions. The subsequent navigation call then loads the page into the
-    // already-mobile-sized stream so it fills the iframe edge-to-edge.
+    // ── Force Mobile Layout via CSS Scaling ─────────────────────────────
+    // Firecrawl's interactive browser VNC stream currently locks to a desktop
+    // container size (e.g. ~1280px wide). Their API does not yet support creating
+    // native mobile VNC stream containers (as confirmed by Firecrawl Support).
     //
-    // Reference: https://docs.firecrawl.dev/features/interact
-    // "Use the code parameter on your first interact call to set the viewport…
-    //  The interactiveLiveViewUrl stream will reflect the new size."
+    // If we just use `page.setViewportSize({width: 393})`, Playwright shrinks
+    // the webpage into a tiny 393px box *inside* the massive 1280px VNC stream.
+    // When the user's phone scales that 1280px VNC video down to fit the phone's
+    // 390px screen (~3.2x reduction), the content shrinks to unreadable microscopic text.
+    //
+    // THE FIX: We invert the scale. We force the layout to 393px wide to behave
+    // like a phone, and then blow it up with `zoom: 3.2` to physically fill the
+    // 1280px desktop stream. When the phone scales the stream down, it perfectly
+    // reverses the zoom, perfectly restoring the text to its correct size.
+    const navigationCode = isMobile
+      ? [
+          // 1. Inject the inverted scale CSS before the page renders
+          `await page.addInitScript(() => {`,
+          `  const style = document.createElement('style');`,
+          `  style.textContent = 'html, body { width: 393px !important; min-width: 393px !important; margin: 0 auto !important; zoom: 3.2 !important; overflow-x: hidden !important; background-color: #000; }';`,
+          `  document.documentElement.appendChild(style);`,
+          `});`,
+          // 2. Set mobile User-Agent to ensure the server sends a mobile UI
+          `await page.context().setExtraHTTPHeaders({`,
+          `  'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'`,
+          `});`,
+          // 3. Navigate
+          `await page.goto(${JSON.stringify(loginUrl)}, { waitUntil: "domcontentloaded" });`,
+        ].join('\n')
+      : `await page.goto(${JSON.stringify(loginUrl)}, { waitUntil: "domcontentloaded" });`;
+
+    await this.client.browserExecute(sessionId, {
+      code: navigationCode,
+      language: 'node',
+      timeout: 30, // seconds — allow time for slow login pages to load
+    });
+
     if (isMobile) {
-      const mobileUA =
-        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) ' +
-        'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
-
-      await this.client.browserExecute(sessionId, {
-        code: [
-          // Resize the VNC stream to iPhone 15 Pro dimensions
-          `await page.setViewportSize({ width: 393, height: 852 });`,
-          // Set mobile User-Agent so the server responds with its mobile layout
-          `await page.context().setExtraHTTPHeaders({ 'User-Agent': ${JSON.stringify(mobileUA)} });`,
-        ].join('\n'),
-        language: 'node',
-        timeout: 10,
-      });
-
-      logger.info('[FirecrawlProfile] Mobile viewport applied', {
+      logger.info('[FirecrawlProfile] Mobile inverted CSS scale applied', {
         sessionId,
-        viewport: '393x852',
       });
     }
-
-    // ── Navigate to the login page ──────────────────────────────────────
-    // This is either the second call (mobile, after resize) or the first
-    // call (desktop). The Playwright `page` object persists across calls
-    // within the same session, so the viewport/UA set above carry over.
-    await this.client.browserExecute(sessionId, {
-      code: `await page.goto(${JSON.stringify(loginUrl)}, { waitUntil: "domcontentloaded" });`,
-      language: 'node',
-      timeout: 30,
-    });
 
     const interactiveLiveViewUrl = browserResult.interactiveLiveViewUrl ?? '';
     const liveViewUrl = browserResult.liveViewUrl ?? '';

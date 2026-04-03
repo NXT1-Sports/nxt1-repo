@@ -326,7 +326,8 @@ router.get('/budget', appGuard, async (req: Request, res: Response) => {
 
 /**
  * PUT /api/v1/billing/budget
- * Update the current user's monthly budget
+ * Update the current user's monthly budget.
+ * For directors, resolves to the organization billing context.
  * Body: { monthlyBudget: number (cents) }
  */
 router.put(
@@ -341,7 +342,14 @@ router.put(
 
       if (!db) throw new Error('Firebase context not available');
 
-      await updateBudget(db, userId, monthlyBudget);
+      // Resolve the correct billing target (directors → org context)
+      const target = await resolveBillingTarget(db, userId);
+
+      if (target.type === 'organization' && target.organizationId) {
+        await updateOrgBudget(db, target.organizationId, monthlyBudget);
+      } else {
+        await updateBudget(db, userId, monthlyBudget);
+      }
 
       return res.json({ success: true, monthlyBudget });
     } catch (error) {

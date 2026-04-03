@@ -61,6 +61,7 @@ import { UsageSkeletonComponent } from '../usage-skeleton.component';
 import { UsageHelpContentComponent } from '../usage-help-content.component';
 import { UsageErrorStateComponent } from '../usage-error-state.component';
 import { UsageBottomSheetService } from '../usage-bottom-sheet.service';
+import { AgentXControlPanelComponent, type AgentXControlPanelKind } from '../../agent-x';
 import {
   UsageOverviewComponent,
   UsageSubscriptionsComponent,
@@ -540,26 +541,28 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
 
   protected async onCreateBudget(): Promise<void> {
     await this.haptics.impact('light');
-    const amountCents = await this.usageBottomSheet.showBudgetLimit();
-    if (amountCents !== null) {
-      await this.svc.updateBudget(amountCents);
-    }
+    await this.openBudgetControlPanel();
   }
 
   protected async onEditBudget(_budgetId: string): Promise<void> {
     await this.haptics.impact('light');
-    const result = await this.usageBottomSheet.showBudgetOptions();
-    if (!result) return;
+    await this.openBudgetControlPanel();
+  }
 
-    if (result.action === 'Edit budget') {
-      const currentLimit = this.svc.billingContext()?.monthlyBudget;
-      const amountCents = await this.usageBottomSheet.showBudgetLimit(currentLimit);
-      if (amountCents !== null) {
-        await this.svc.updateBudget(amountCents);
-      }
-    } else if (result.action === 'Delete budget') {
-      await this.svc.deleteBudget();
-    }
+  private async openBudgetControlPanel(): Promise<void> {
+    const panel: AgentXControlPanelKind = 'budget';
+    this.overlay.open({
+      component: AgentXControlPanelComponent,
+      inputs: {
+        panel,
+        presentation: 'modal',
+      },
+      size: 'xl',
+      backdropDismiss: true,
+      escDismiss: true,
+      ariaLabel: 'Agent budget controls',
+      panelClass: 'agent-x-control-panel-modal',
+    });
   }
 
   protected async onEditTeamBudget(teamId: string): Promise<void> {

@@ -327,9 +327,9 @@ export interface TeamBudgetAllocation {
 }
 
 /** Default budgets (cents) */
-export const DEFAULT_INDIVIDUAL_BUDGET = 2000; // $20
+export const DEFAULT_INDIVIDUAL_BUDGET = 500; // $5
 export const DEFAULT_TEAM_BUDGET = 20000; // $200
-export const DEFAULT_ORGANIZATION_BUDGET = 50000; // $500
+export const DEFAULT_ORGANIZATION_BUDGET = 2000; // $20
 
 /** A product budget configuration */
 export interface UsageBudget {

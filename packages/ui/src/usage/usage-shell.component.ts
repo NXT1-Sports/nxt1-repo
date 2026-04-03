@@ -50,6 +50,7 @@ import { UsageSkeletonComponent } from './usage-skeleton.component';
 import { UsageHelpContentComponent } from './usage-help-content.component';
 import { UsageErrorStateComponent } from './usage-error-state.component';
 import { UsageBottomSheetService } from './usage-bottom-sheet.service';
+import { AgentXControlPanelComponent } from '../agent-x';
 import {
   UsageOverviewComponent,
   UsageSubscriptionsComponent,
@@ -636,10 +637,7 @@ export class UsageShellComponent implements OnInit {
 
   protected async onCreateBudget(): Promise<void> {
     await this.haptics.impact('light');
-    const amountCents = await this.usageBottomSheet.showBudgetLimit();
-    if (amountCents !== null) {
-      await this.svc.updateBudget(amountCents);
-    }
+    await this.openBudgetControlPanel();
   }
 
   protected async onEditBudget(_budgetId: string): Promise<void> {
@@ -648,11 +646,7 @@ export class UsageShellComponent implements OnInit {
     if (!result) return;
 
     if (result.action === 'Edit budget') {
-      const currentLimit = this.svc.billingContext()?.monthlyBudget;
-      const amountCents = await this.usageBottomSheet.showBudgetLimit(currentLimit);
-      if (amountCents !== null) {
-        await this.svc.updateBudget(amountCents);
-      }
+      await this.openBudgetControlPanel();
     } else if (result.action === 'Delete budget') {
       await this.svc.deleteBudget();
     }
@@ -664,6 +658,20 @@ export class UsageShellComponent implements OnInit {
     if (amountCents !== null) {
       await this.svc.updateTeamBudget(teamId, amountCents);
     }
+  }
+
+  private async openBudgetControlPanel(): Promise<void> {
+    await this.bottomSheet.openSheet({
+      component: AgentXControlPanelComponent,
+      componentProps: {
+        panel: 'budget',
+        presentation: 'sheet',
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      cssClass: 'agent-x-control-panel-sheet',
+    });
   }
 
   protected async onManageBilling(): Promise<void> {
