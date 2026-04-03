@@ -100,7 +100,7 @@ const ATHLETE_SLIDES: WelcomeSlidesConfig = {
       icon: '🎯',
       headline: 'Set Your Agent Goals',
       description:
-        'Tell Agent X what matters most to you. Select up to two goals to focus your AI assistant.',
+        'Tell Agent X what matters most to you. Select up to three goals to focus your AI assistant.',
       accentColor: '#8B5CF6',
       gradient: ['#1e1b4b', '#312e81'],
       type: 'goals',
@@ -147,7 +147,7 @@ const COACH_SLIDES: WelcomeSlidesConfig = {
       icon: '🎯',
       headline: 'Set Your Agent Goals',
       description:
-        'Tell Agent X what matters most to your program. Select up to two goals to focus your AI assistant.',
+        'Tell Agent X what matters most to your program. Select up to three goals to focus your AI assistant.',
       accentColor: '#3B82F6',
       gradient: ['#0c1929', '#1e3a5f'],
       type: 'goals',
@@ -155,9 +155,9 @@ const COACH_SLIDES: WelcomeSlidesConfig = {
     {
       id: 'coach-ready',
       icon: '🚀',
-      headline: 'Your Agent Is Ready to Work',
+      headline: 'Your Coordinators Are Ready to Work',
       description:
-        'Agent X will now work for your program based on your goals. Adjust your goals anytime, and connect more accounts to help your agent work even better.',
+        'Your AI coordinators will now work for your program based on your goals. Adjust your goals anytime, and connect more accounts to help your coordinators work even better.',
       accentColor: '#10B981',
       gradient: ['#0d1f17', '#1a3c2e'],
       type: 'info',
@@ -194,7 +194,7 @@ const RECRUITER_SLIDES: WelcomeSlidesConfig = {
       icon: '🎯',
       headline: 'Set Your Agent Goals',
       description:
-        'Tell Agent X what matters most to your recruiting. Select up to two goals to focus your AI assistant.',
+        'Tell Agent X what matters most to your recruiting. Select up to three goals to focus your AI assistant.',
       accentColor: '#6366F1',
       gradient: ['#1e1b4b', '#312e81'],
       type: 'goals',
@@ -241,7 +241,7 @@ const DIRECTOR_SLIDES: WelcomeSlidesConfig = {
       icon: '🎯',
       headline: 'Set Your Agent Goals',
       description:
-        'Tell Agent X what matters most to your program. Select up to two goals to focus your AI assistant.',
+        'Tell Agent X what matters most to your program. Select up to three goals to focus your AI assistant.',
       accentColor: '#0EA5E9',
       gradient: ['#0c1929', '#1e3a5f'],
       type: 'goals',
@@ -249,9 +249,9 @@ const DIRECTOR_SLIDES: WelcomeSlidesConfig = {
     {
       id: 'director-ready',
       icon: '🚀',
-      headline: 'Your Agent Is Ready to Work',
+      headline: 'Your Coordinators Are Ready to Work',
       description:
-        'Agent X will now work for your program based on your goals. Adjust your goals anytime, and connect more accounts to help your agent work even better.',
+        'Your AI coordinators will now work for your program based on your goals. Adjust your goals anytime, and connect more accounts to help your coordinators work even better.',
       accentColor: '#10B981',
       gradient: ['#0d1f17', '#1a3c2e'],
       type: 'info',
@@ -288,7 +288,7 @@ const PARENT_SLIDES: WelcomeSlidesConfig = {
       icon: '🎯',
       headline: 'Set Your Agent Goals',
       description:
-        'Tell Agent X what matters most to your family. Select up to two goals to focus your AI assistant.',
+        'Tell Agent X what matters most to your family. Select up to three goals to focus your AI assistant.',
       accentColor: '#E879F9',
       gradient: ['#2d1f2d', '#3d2d3d'],
       type: 'goals',

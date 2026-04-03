@@ -69,7 +69,7 @@ import { SeoService } from '../../../../core/services';
       variant="card-glass"
       [showLogo]="true"
       [showBackButton]="false"
-      [maxWidth]="'600px'"
+      [maxWidth]="'760px'"
     >
       <div authContent>
         <nxt1-onboarding-welcome
@@ -171,31 +171,20 @@ export class OnboardingCongratulationsComponent implements OnInit {
   private async saveGoalsAndNavigate(): Promise<void> {
     const goals = this.selectedGoals();
 
-    // Save goals if any were selected
+    // Fire-and-forget: save goals in background, navigate immediately.
+    // The /agent page has its own loading state for playbook generation.
     if (goals.length > 0) {
-      try {
-        const dashboardGoals: AgentDashboardGoal[] = goals.map((g) => ({
-          id: g.id,
-          text: g.text,
-          category: g.category ?? 'custom',
-          createdAt: new Date().toISOString(),
-        }));
+      const dashboardGoals: AgentDashboardGoal[] = goals.map((g) => ({
+        id: g.id,
+        text: g.text,
+        category: g.category ?? 'custom',
+        createdAt: new Date().toISOString(),
+      }));
 
-        this.logger.info('Saving agent goals', { count: goals.length });
-        const saved = await this.agentX.setGoals(dashboardGoals);
-
-        if (saved) {
-          this.logger.info('Goals saved successfully');
-          // Generate initial briefing in background (non-blocking)
-          this.agentX.generateBriefing(true).catch((err) => {
-            this.logger.warn('Initial briefing generation failed (non-critical)', err);
-          });
-        } else {
-          this.logger.warn('Failed to save goals');
-        }
-      } catch (err) {
-        this.logger.error('Error saving goals', err);
-      }
+      this.logger.info('Saving agent goals in background', { count: goals.length });
+      this.agentX.setGoals(dashboardGoals).catch((err) => {
+        this.logger.error('Error saving goals (non-blocking)', err);
+      });
     }
 
     // ⭐ THEME RESTORATION: Clear temporary override, restore user's preference

@@ -448,7 +448,7 @@ export type AuthShellVariant =
         padding-bottom: 200px;
       }
 
-      @media (min-width: 769px) {
+      @media (min-width: 1024px) {
         .nxt1-auth-wrapper--mobile-footer {
           padding-bottom: 0;
         }
@@ -904,6 +904,17 @@ export type AuthShellVariant =
       .nxt1-mobile-title {
         margin-bottom: var(--nxt1-spacing-4);
         min-height: 80px; /* Prevent logo shift on step transitions */
+      }
+
+      @media (max-width: 1023px) {
+        .nxt1-mobile-header {
+          margin-bottom: var(--nxt1-spacing-2);
+        }
+
+        .nxt1-mobile-title {
+          margin-bottom: 0;
+          min-height: 0;
+        }
       }
 
       /* ============================================ */

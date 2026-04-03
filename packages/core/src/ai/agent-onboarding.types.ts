@@ -9,7 +9,7 @@
  * Flow:
  * 1. Welcome — "Let's get your agent started"
  * 2. Program Search — Search/create/claim a program (coaches)
- * 3. Goals — Set 2 goals for Agent X (predefined + custom)
+ * 3. Goals — Set up to 3 goals for Agent X (predefined + custom)
  * 4. Connections — Add connections (shared component)
  * 5. Loading — Sleek boot-up animation → Agent X shell
  */

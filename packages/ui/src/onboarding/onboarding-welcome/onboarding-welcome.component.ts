@@ -339,8 +339,12 @@ const CONFIG = {
       }
 
       .nxt1-welcome-content--goals {
-        max-width: 560px;
+        max-width: min(100%, 680px);
         transform: none;
+      }
+
+      .nxt1-welcome-content--goals .nxt1-slide-container {
+        width: 100%;
       }
 
       /* ============================================
@@ -363,7 +367,7 @@ const CONFIG = {
       .nxt1-slide-description--goals {
         font-size: 14px;
         margin-bottom: 16px;
-        max-width: 400px;
+        max-width: 500px;
       }
 
       .nxt1-slide-hero {
@@ -679,6 +683,22 @@ const CONFIG = {
           height: 26px;
           padding: 0 12px;
           font-size: 10px;
+        }
+      }
+
+      @media (min-width: 768px) {
+        .nxt1-welcome-page--goals {
+          padding: 20px 12px;
+        }
+
+        .nxt1-slide-headline--goals {
+          font-size: 32px;
+          margin-bottom: 10px;
+        }
+
+        .nxt1-slide-description--goals {
+          font-size: 15px;
+          margin-bottom: 22px;
         }
       }
 

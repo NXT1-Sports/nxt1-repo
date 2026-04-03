@@ -14,6 +14,7 @@ import { getFirestore, FieldValue, Timestamp, type Firestore } from 'firebase-ad
 import type { AgentDashboardGoal, ShellWeeklyPlaybookItem, ShellBriefingInsight } from '@nxt1/core';
 import { getShellContentForRole } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
+import { buildEliteContext } from './elite-context.js';
 
 // ─── Shared Helpers ─────────────────────────────────────────────────────────
 
@@ -93,9 +94,10 @@ export class AgentGenerationService {
     const userDoc = await db.collection('Users').doc(uid).get();
     const userData = userDoc.data() ?? {};
     const role = (userData['role'] ?? 'athlete') as string;
-    const sport = (userData['sport'] ?? '') as string;
-    const displayName = (userData['displayName'] ?? '') as string;
     const agentGoals: AgentDashboardGoal[] = (userData['agentGoals'] ?? []) as AgentDashboardGoal[];
+
+    // ── Build elite context from full user profile ────────────────────────
+    const eliteContext = buildEliteContext(userData);
 
     if (agentGoals.length === 0) {
       throw new Error('Set at least one goal before generating a playbook');
@@ -166,9 +168,13 @@ export class AgentGenerationService {
       .join('\n');
 
     const prompt = [
-      `You are Agent X, the AI assistant for NXT1 sports platform.`,
-      `Generate a personalized weekly playbook for ${displayName || 'the user'}, a ${role}${sport ? ` in ${sport}` : ''}.`,
-      `Their goals are:\n${goalsText}`,
+      `You are Agent X, the AI-powered sports assistant for the NXT1 platform — the first AI born in the locker room. You are not just a recruiting tool; you are an intelligent sports operations agent that helps athletes develop, coaches strategize, parents navigate, directors manage, and scouts evaluate.`,
+      ``,
+      `═══ USER PROFILE (Elite Context) ═══`,
+      eliteContext,
+      ``,
+      `═══ USER'S GOALS (Your #1 Priority) ═══`,
+      goalsText,
       pastTaskContext,
       deltaContext,
       ``,
@@ -179,14 +185,14 @@ export class AgentGenerationService {
       `- "weekLabel": day abbreviation ("Mon", "Tue", "Wed", "Thu", "Fri") — spread across the week`,
       `- "title": short action title (max 50 chars)`,
       `- "summary": one-sentence description of the task`,
-      `- "why": a compelling one-sentence reason WHY this matters for their career/goals — make the user feel the urgency or excitement (e.g. "Coaches check profiles most on Mondays — this gets you seen first.")`,
+      `- "why": a compelling one-sentence reason WHY this matters for their career/goals — make the user feel the urgency or excitement. Reference their SPECIFIC profile data (class year, position, sport season, team, location) to make it hyper-personal. Example: "As a Class of 2026 PG heading into summer AAU, this exposure window closes in 8 weeks."`,
       `- "details": detailed explanation of what Agent X prepared`,
       `- "actionLabel": button text (e.g., "Review Draft", "Send Emails")`,
       `- "status": always "pending"`,
       `- "goal": object with "id" and "label" matching one of the user's goals`,
       `- "coordinator": object with "id", "label", and "icon" from the available coordinators list above`,
       ``,
-      `IMPORTANT: Generate exactly 5 tasks. Order them so the most time-sensitive and highest-impact task is first. The "why" field is critical — it should hook the user emotionally and make them WANT to act immediately. Use data-driven language, urgency, or competitive advantage framing.`,
+      `IMPORTANT: Generate exactly 5 tasks. Order them so the most time-sensitive and highest-impact task is first. The "why" field is critical — it should hook the user emotionally and make them WANT to act immediately. Use the user's specific profile data (class year, season phase, position, team, physicals, academics, location) to make every task feel like it was written by someone who KNOWS them. Never produce generic advice — always ground it in their reality.`,
       ``,
       `Return ONLY the JSON array, no markdown fences, no explanation.`,
     ]
@@ -200,7 +206,11 @@ export class AgentGenerationService {
       const llm = new OpenRouterService();
       const llmResult = await llm.complete(
         [
-          { role: 'system', content: 'You are a JSON generator. Return only valid JSON arrays.' },
+          {
+            role: 'system',
+            content:
+              "You are Agent X, a hyper-personalized AI sports assistant. You deeply understand each user's role, sport, season, and goals. Return only valid JSON arrays. Every task you generate must feel hand-crafted for this specific user — never generic.",
+          },
           { role: 'user', content: prompt },
         ],
         {
@@ -352,9 +362,10 @@ export class AgentGenerationService {
     const userDoc = await db.collection('Users').doc(uid).get();
     const userData = userDoc.data() ?? {};
     const role = (userData['role'] ?? 'athlete') as string;
-    const sport = (userData['sport'] ?? '') as string;
-    const displayName = (userData['displayName'] ?? '') as string;
     const agentGoals: AgentDashboardGoal[] = (userData['agentGoals'] ?? []) as AgentDashboardGoal[];
+
+    // ── Build elite context from full user profile ────────────────────────
+    const eliteContext = buildEliteContext(userData);
 
     const goalsText =
       agentGoals.length > 0 ? agentGoals.map((g) => `• ${g.text}`).join('\n') : 'No goals set yet.';
@@ -405,18 +416,23 @@ export class AgentGenerationService {
 
     // ── Build LLM prompt ────────────────────────────────────────────────
     const promptLines = [
-      `You are Agent X for NXT1 Sports. Generate a concise daily briefing for ${displayName || 'the user'}, a ${role}${sport ? ` in ${sport}` : ''}.`,
+      `You are Agent X, the AI-powered sports assistant for NXT1. Generate a concise, hyper-personalized daily briefing.`,
       ``,
-      `Their current goals:`,
+      `═══ USER PROFILE (Elite Context) ═══`,
+      eliteContext,
+      ``,
+      `═══ USER'S GOALS ═══`,
       goalsText,
       recentActivityText,
       syncContext,
       ``,
+      `Generate a briefing that feels personally crafted for this user — reference their sport, season phase, role, and goals. Never be generic.`,
+      ``,
       `Return ONLY a JSON object with:`,
-      `- "previewText": one sentence summary of today's focus (max 80 chars)`,
+      `- "previewText": one sentence summary of today's focus (max 80 chars) — personalized to their role and season`,
       `- "insights": array of 2-4 insight objects, each with:`,
       `    - "id": unique string like "bi-1"`,
-      `    - "text": actionable insight (max 90 chars)`,
+      `    - "text": actionable insight personalized to their profile (max 90 chars)`,
       `    - "icon": one of "trophy-outline", "mail-outline", "trending-up-outline", "alert-outline", "checkmark-circle-outline", "star-outline"`,
       `    - "type": one of "info", "warning", "success"`,
       ``,
@@ -425,6 +441,7 @@ export class AgentGenerationService {
       .filter(Boolean)
       .join('\n');
 
+    const displayName = ((userData['displayName'] ?? '') as string).trim();
     let briefingInsights: ShellBriefingInsight[] = [];
     let briefingPreviewText = `Good morning, ${displayName || 'athlete'}. Here's your daily focus.`;
 
@@ -435,7 +452,8 @@ export class AgentGenerationService {
         [
           {
             role: 'system',
-            content: 'You are a JSON generator for a sports AI assistant. Return only valid JSON.',
+            content:
+              "You are Agent X, a hyper-personalized AI sports assistant. You deeply understand each user's role, sport, season, and goals. Return only valid JSON. Every insight must feel hand-crafted for this specific user — never generic.",
           },
           { role: 'user', content: promptLines },
         ],
