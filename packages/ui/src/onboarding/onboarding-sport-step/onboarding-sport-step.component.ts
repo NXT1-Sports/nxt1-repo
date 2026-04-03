@@ -145,6 +145,29 @@ type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
           }
         </p>
 
+        @if (showCoachTitleSelection()) {
+          <div class="nxt1-detail-section" data-testid="onboarding-sport-coach-title-top">
+            <p class="nxt1-detail-heading">Title</p>
+            <div class="nxt1-position-chips" role="radiogroup" aria-label="Select coach title">
+              @for (option of coachTitleOptions; track option.value) {
+                <nxt1-chip
+                  [selected]="coachTitle() === option.value"
+                  [disabled]="disabled()"
+                  [testId]="'onboarding-sport-title-' + option.value"
+                  ariaRole="radio"
+                  (chipClick)="selectCoachTitle(option.value)"
+                >
+                  {{ option.label }}
+                </nxt1-chip>
+              }
+            </div>
+          </div>
+        }
+
+        @if (showSportHeading()) {
+          <p class="nxt1-detail-heading">Sport</p>
+        }
+
         <!-- Sport Chips Grid -->
         <div class="nxt1-sport-grid" role="group" aria-label="Select sport">
           @for (sport of availableSports(); track sport.name) {
@@ -197,25 +220,6 @@ type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
               No position selection is needed for this sport
             </nxt1-validation-summary>
           }
-        }
-
-        @if (showCoachTitleSelection() && selectedSport()) {
-          <div class="nxt1-detail-section" data-testid="onboarding-sport-coach-title">
-            <p class="nxt1-detail-heading">Title</p>
-            <div class="nxt1-position-chips" role="radiogroup" aria-label="Select coach title">
-              @for (option of coachTitleOptions; track option.value) {
-                <nxt1-chip
-                  [selected]="coachTitle() === option.value"
-                  [disabled]="disabled()"
-                  [testId]="'onboarding-sport-title-' + option.value"
-                  ariaRole="radio"
-                  (chipClick)="selectCoachTitle(option.value)"
-                >
-                  {{ option.label }}
-                </nxt1-chip>
-              }
-            </div>
-          </div>
         }
 
         <!-- Selection Summary -->
@@ -431,6 +435,9 @@ export class OnboardingSportStepComponent {
 
   /** Current selected onboarding role (used for role-specific prompt/copy) */
   readonly role = input<OnboardingUserType | null>(null);
+
+  /** Whether to show a field heading above the sport selector */
+  readonly showSportHeading = input<boolean>(false);
 
   /** Override the auto-generated step prompt text (e.g. for post-onboarding add-sport context) */
   readonly promptOverride = input<string | null>(null);

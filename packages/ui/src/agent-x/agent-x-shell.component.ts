@@ -386,7 +386,7 @@ export interface WeeklyPlaybookItem {
                       >
                     </p>
                     <p class="generating-sub">
-                      Analyzing your goals, scanning opportunities, and prioritizing tasks
+                      Reading your profile, reviewing activity, and generating tasks
                     </p>
                   </div>
                   <div class="generating-steps">
@@ -1672,10 +1672,10 @@ export class AgentXShellComponent {
   // ============================================
 
   protected readonly generatingSteps = [
-    { label: 'Reviewing your goals' },
-    { label: 'Scanning recruiting opportunities' },
-    { label: 'Prioritizing high-impact actions' },
-    { label: 'Building your personalized plan' },
+    { label: 'Loading your profile and goals' },
+    { label: 'Reviewing recent activity and progress' },
+    { label: 'Generating personalized tasks' },
+    { label: 'Finalizing your playbook' },
   ];
 
   // ============================================
@@ -1775,22 +1775,10 @@ export class AgentXShellComponent {
   // HEADER CONFIG
   // ============================================
 
-  private goalsSheetShown = false;
-
   constructor() {
     afterNextRender(() => {
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
-    });
-
-    // Auto-open goal selection when dashboard loads with zero goals
-    effect(() => {
-      const loaded = this.agentX.dashboardLoaded();
-      const hasGoals = this.agentX.hasGoals();
-      if (!loaded || hasGoals || this.goalsSheetShown) return;
-
-      this.goalsSheetShown = true;
-      void this.openControlPanel('goals', true);
     });
 
     effect(() => {

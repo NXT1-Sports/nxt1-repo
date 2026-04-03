@@ -369,6 +369,13 @@ function normalizePlatformConnectionValue(
           Signed In
         </button>
       </div>
+      <p class="nxt1-mode-hint">
+        @if (activeMode() === 'link') {
+          Linking accounts automatically pulls your information and stats into NXT1.
+        } @else {
+          Signing in allows Agent X to do work directly on those platforms for you.
+        }
+      </p>
 
       <!-- Sport filter: only when 2+ sports and link mode -->
       @if (showSportFilter()) {
@@ -598,6 +605,15 @@ function normalizePlatformConnectionValue(
         color: var(--nxt1-color-text-secondary);
         background: var(--nxt1-color-surface-200);
         border-radius: var(--nxt1-borderRadius-md);
+      }
+
+      .nxt1-mode-hint {
+        margin: calc(-1 * var(--nxt1-spacing-4, 16px)) 0 0;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        line-height: 1.4;
+        color: var(--nxt1-color-text-tertiary);
+        text-align: center;
       }
     `,
   ],
@@ -1256,11 +1272,13 @@ export class OnboardingLinkDropStepComponent {
 
   /** Recommended and signin groups are always expanded and not collapsible */
   protected isGroupCollapsible(key: string): boolean {
-    return !key.startsWith('recommended-') && !key.startsWith('signin-') && key !== 'custom-links';
+    if (this.activeMode() === 'signin') return false;
+    return !key.startsWith('recommended-') && key !== 'custom-links';
   }
 
   protected isGroupExpanded(key: string): boolean {
-    return key.startsWith('recommended-') || key.startsWith('signin-') || key === 'custom-links';
+    if (this.activeMode() === 'signin') return true;
+    return key.startsWith('recommended-') || key === 'custom-links';
   }
 
   private isDuplicateUrl(

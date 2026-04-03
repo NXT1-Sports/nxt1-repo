@@ -256,7 +256,7 @@ interface AgentXDesktopSession {
                       >
                     </p>
                     <p class="generating-sub">
-                      Analyzing your goals, scanning opportunities, and prioritizing tasks
+                      Reading your profile, reviewing activity, and generating tasks
                     </p>
                   </div>
                   <div class="generating-steps">
@@ -652,7 +652,7 @@ interface AgentXDesktopSession {
                     >
                   </p>
                   <p class="generating-sub">
-                    Analyzing your goals, scanning opportunities, and prioritizing tasks
+                    Reading your profile, reviewing activity, and generating tasks
                   </p>
                 </div>
                 <div class="generating-steps">
@@ -2241,9 +2241,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     }))
   );
 
-  /** Guard: prevents the required-goals panel from re-opening once shown. */
-  private goalsSheetShown = false;
-
   /** Playbook-derived progress: count of completed items. */
   protected readonly actionPlanCompletionLabel = computed(() => {
     const completed = this.playbookCompletedCount();
@@ -2262,10 +2259,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   );
 
   protected readonly generatingSteps = [
-    { label: 'Reviewing your goals' },
-    { label: 'Scanning recruiting opportunities' },
-    { label: 'Prioritizing high-impact actions' },
-    { label: 'Building your personalized plan' },
+    { label: 'Loading your profile and goals' },
+    { label: 'Reviewing recent activity and progress' },
+    { label: 'Generating personalized tasks' },
+    { label: 'Finalizing your playbook' },
   ];
 
   // ============================================
@@ -2358,16 +2355,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     afterNextRender(() => {
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
-    });
-
-    // Auto-open goal selection when dashboard loads with zero goals
-    effect(() => {
-      const loaded = this.agentX.dashboardLoaded();
-      const hasGoals = this.agentX.hasGoals();
-      if (!loaded || hasGoals || this.goalsSheetShown) return;
-
-      this.goalsSheetShown = true;
-      void this.openControlPanel('goals', true);
     });
 
     // React to pending thread requests (push notifications, deep links, activity taps)

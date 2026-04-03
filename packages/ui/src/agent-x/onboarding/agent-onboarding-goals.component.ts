@@ -3,7 +3,7 @@
  * @module @nxt1/ui/agent-x/onboarding
  * @version 1.0.0
  *
- * Step where users select up to 2 goals for Agent X.
+ * Step where users select up to 3 goals for Agent X.
  * Includes predefined goal cards and a custom goal input.
  */
 
@@ -18,14 +18,13 @@ import {
 } from '@angular/core';
 import { type AgentGoal, AGENT_MAX_GOALS, AGENT_GOAL_CATEGORIES } from '@nxt1/core';
 import { TEST_IDS } from '@nxt1/core/testing';
-import { NxtIconComponent } from '../../components/icon/icon.component';
 import { NxtSearchBarComponent } from '../../components/search-bar/search-bar.component';
 import { HapticsService } from '../../services/haptics/haptics.service';
 
 @Component({
   selector: 'nxt1-agent-onboarding-goals',
   standalone: true,
-  imports: [NxtIconComponent, NxtSearchBarComponent],
+  imports: [NxtSearchBarComponent],
   template: `
     <section class="goals-container" [attr.data-testid]="testIds.GOALS_STEP">
       <div class="step-header">
@@ -66,7 +65,19 @@ import { HapticsService } from '../../services/haptics/haptics.service';
         <div class="selected-summary">
           @for (goal of selectedGoals(); track goal.id) {
             <div class="selected-pill">
-              <nxt1-icon [name]="goal.icon || 'flag-outline'" [size]="14" />
+              <svg
+                class="pill-check"
+                viewBox="0 0 24 24"
+                width="14"
+                height="14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
               <span class="pill-text">{{ goal.text }}</span>
               <button
                 type="button"
@@ -74,44 +85,24 @@ import { HapticsService } from '../../services/haptics/haptics.service';
                 aria-label="Remove goal"
                 (click)="removeGoal(goal.id)"
               >
-                <nxt1-icon name="close" [size]="12" />
+                <svg
+                  viewBox="0 0 24 24"
+                  width="12"
+                  height="12"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
               </button>
             </div>
           }
         </div>
       }
-
-      <div class="quick-options-panel">
-        <button type="button" class="quick-options-toggle" (click)="toggleQuickOptions()">
-          <span>{{ showQuickOptions() ? 'Hide quick options' : 'Show quick options' }}</span>
-          <nxt1-icon [name]="showQuickOptions() ? 'chevronUp' : 'chevronDown'" [size]="16" />
-        </button>
-
-        @if (showQuickOptions()) {
-          <div class="goal-category-list">
-            @for (section of categorizedGoals(); track section.category) {
-              <div class="goal-category">
-                <p class="goal-category-label">{{ section.label }}</p>
-                <div class="goals-row" role="list">
-                  @for (goal of section.goals; track goal.id) {
-                    <button
-                      type="button"
-                      class="goal-card"
-                      [class.goal-card--selected]="isSelected(goal.id)"
-                      [class.goal-card--disabled]="isMaxReached() && !isSelected(goal.id)"
-                      [attr.data-testid]="testIds.GOAL_OPTION"
-                      [disabled]="isMaxReached() && !isSelected(goal.id)"
-                      (click)="toggleGoal(goal)"
-                    >
-                      <span class="goal-text">{{ goal.text }}</span>
-                    </button>
-                  }
-                </div>
-              </div>
-            }
-          </div>
-        }
-      </div>
     </section>
   `,
   styles: [
@@ -124,7 +115,7 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       .goals-container {
         padding: var(--nxt1-spacing-1) 0
           calc(var(--nxt1-spacing-6) + env(safe-area-inset-bottom, 0px));
-        max-width: 540px;
+        max-width: min(100%, 640px);
         margin: 0 auto;
         display: flex;
         flex-direction: column;
@@ -193,9 +184,8 @@ import { HapticsService } from '../../services/haptics/haptics.service';
         padding-left: 2px;
         font-size: var(--nxt1-fontSize-xs);
         font-weight: var(--nxt1-fontWeight-semibold);
-        letter-spacing: var(--nxt1-letterSpacing-wide);
-        text-transform: uppercase;
         color: var(--nxt1-color-text-tertiary);
+        text-align: left;
       }
 
       .goals-row {
@@ -258,6 +248,7 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       .custom-goal-section {
         margin-bottom: var(--nxt1-spacing-4);
         width: 100%;
+        max-width: min(100%, 640px);
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -266,7 +257,7 @@ import { HapticsService } from '../../services/haptics/haptics.service';
 
       .custom-goal-input-row {
         width: 100%;
-        max-width: 520px;
+        max-width: none;
         display: flex;
         align-items: center;
         gap: var(--nxt1-spacing-2);
@@ -284,6 +275,7 @@ import { HapticsService } from '../../services/haptics/haptics.service';
         color: var(--nxt1-color-text-primary);
         border-radius: var(--nxt1-borderRadius-full);
         height: var(--nxt1-spacing-10);
+        min-width: 76px;
         padding: 0 var(--nxt1-spacing-3_5);
         font-size: var(--nxt1-fontSize-xs);
         font-weight: var(--nxt1-fontWeight-semibold);
@@ -323,6 +315,7 @@ import { HapticsService } from '../../services/haptics/haptics.service';
         flex-direction: column;
         gap: var(--nxt1-spacing-1);
         width: 100%;
+        max-width: min(100%, 640px);
       }
 
       .goals-continue-row {
@@ -363,15 +356,24 @@ import { HapticsService } from '../../services/haptics/haptics.service';
         border-color: var(--nxt1-color-primary);
       }
 
+      .goal-category-list--hidden {
+        display: none;
+      }
+
       .selected-pill {
         display: flex;
         align-items: center;
         gap: var(--nxt1-spacing-2);
-        padding: var(--nxt1-spacing-2_5) var(--nxt1-spacing-3_5);
-        border-radius: var(--nxt1-borderRadius-md);
-        background: var(--nxt1-color-alpha-primary10);
-        border: 1px solid var(--nxt1-color-alpha-primary20);
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3_5);
+        border-radius: var(--nxt1-borderRadius-full);
+        background: var(--nxt1-color-alpha-primary6);
+        border: 1px solid var(--nxt1-color-primary);
         animation: fadeIn var(--nxt1-duration-normal) var(--nxt1-easing-out);
+      }
+
+      .pill-check {
+        flex-shrink: 0;
+        color: var(--nxt1-color-primary);
       }
 
       .pill-text {
@@ -408,6 +410,10 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       }
 
       @media (max-width: 480px) {
+        .goals-container {
+          max-width: 100%;
+        }
+
         .step-title {
           font-size: clamp(1.4rem, 7.2vw, 1.9rem);
         }
@@ -427,6 +433,7 @@ import { HapticsService } from '../../services/haptics/haptics.service';
 
         .goal-category-label {
           font-size: var(--nxt1-fontSize-2xs);
+          text-align: left;
         }
 
         .goals-row {
@@ -441,15 +448,23 @@ import { HapticsService } from '../../services/haptics/haptics.service';
           font-size: var(--nxt1-fontSize-2xs);
         }
 
+        .custom-goal-section {
+          max-width: 100%;
+          align-items: stretch;
+        }
+
         .custom-goal-input-row {
-          width: 94%;
-          max-width: 400px;
-          gap: var(--nxt1-spacing-1_5);
+          width: 100%;
+          max-width: none;
+          flex-direction: column;
+          gap: var(--nxt1-spacing-2);
         }
 
         .custom-add-goal-btn {
           height: 36px;
-          padding: 0 var(--nxt1-spacing-3);
+          min-width: 62px;
+          width: 100%;
+          padding: 0 var(--nxt1-spacing-2_5);
         }
 
         .custom-goal-section nxt1-search-bar {
@@ -459,6 +474,26 @@ import { HapticsService } from '../../services/haptics/haptics.service';
 
         .goals-continue-row {
           width: min(100%, 300px);
+        }
+      }
+
+      @media (min-width: 768px) {
+        .custom-goal-section {
+          gap: var(--nxt1-spacing-2_5);
+        }
+
+        .custom-goal-input-row {
+          gap: var(--nxt1-spacing-3);
+        }
+
+        .custom-add-goal-btn {
+          height: 44px;
+          padding: 0 var(--nxt1-spacing-4);
+        }
+
+        .custom-label {
+          width: 100%;
+          text-align: left;
         }
       }
     `,

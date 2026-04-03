@@ -39,7 +39,6 @@ import {
 import { logger } from '../utils/logger.js';
 import { generateUnicodeForUser, getUserUnicode } from '../utils/unicode-generator.js';
 
-import { enqueueWelcomeGraphic } from '../services/agent-welcome.service.js';
 import { enqueueLinkedAccountScrape } from '../services/agent-scrape.service.js';
 import * as teamCodeService from '../services/team-code.service.js';
 import { buildTeamSlug } from '../services/team-code.service.js';
@@ -1506,40 +1505,44 @@ router.post(
 
     logger.info('[POST /profile/onboarding] Success:', { userId, onboardingCompleted: true });
 
-    // Fire-and-forget: enqueue personalized AI welcome graphic via Agent X
+    // Welcome graphic is NO LONGER generated at onboarding completion.
+    // It is deferred until the user first uploads a profile image (athletes)
+    // or team logo (coaches/directors) via the edit-profile section save flow.
+    // See edit-profile.routes.ts — "Deferred welcome graphic" section.
+
+    // Shared variables used by scrape enqueue below
     const primarySportName = getPrimarySport(userData?.sports) ?? userData?.primarySport;
-    const primarySportProfile = userData?.sports?.[0];
     const agentEnv = req.isStaging ? 'staging' : 'production';
-    void enqueueWelcomeGraphic(
-      db,
-      {
-        userId,
-        displayName: `${userData?.firstName ?? ''} ${userData?.lastName ?? ''}`.trim() || 'Athlete',
-        role: (userData?.role as UserRole) ?? 'athlete',
-        sport: primarySportName,
-        position: primarySportProfile?.positions?.[0],
-        profileImageUrl: userData?.profileImgs?.[0],
-        teamName: primarySportProfile?.team?.name,
-        teamColors: primarySportProfile?.team?.colors as string[] | undefined,
-      },
-      agentEnv
-    ).catch((err) =>
-      logger.error('[Auth] Failed to enqueue welcome graphic', { userId, error: err })
-    );
 
     // Enqueue linked account scrape (skip if pre-fetched from Step 5)
     let scrapeJobId: string | undefined;
     const existingPreloadScrapeId =
       typeof profileData['scrapeJobId'] === 'string' ? profileData['scrapeJobId'] : undefined;
 
-    if (existingPreloadScrapeId) {
-      // Pre-fetch already fired from /profile/preload-scrape — reuse the job ID
+    // Resolve first team/org from sportTeamMap (populated after team creation above)
+    const firstTeamEntry = sportTeamMap.size > 0 ? sportTeamMap.values().next().value : undefined;
+    const resolvedTeamId = firstTeamEntry?.teamId as string | undefined;
+    const resolvedOrgId = firstTeamEntry?.organizationId as string | undefined;
+    const isCoachOrDirector = role === 'coach' || role === 'director';
+
+    if (existingPreloadScrapeId && !isCoachOrDirector) {
+      // Athletes: preload is fine — writes to user profile, not team doc
       scrapeJobId = existingPreloadScrapeId;
       logger.info('[Auth] Reusing pre-fetched scrape job from Step 5', {
         userId,
         scrapeJobId,
       });
     } else {
+      // Coaches/Directors: always enqueue fresh with teamId/orgId so the agent
+      // can write to the Team document (preload ran before team creation).
+      // Athletes without a preload also come through here.
+      if (existingPreloadScrapeId && isCoachOrDirector) {
+        logger.info('[Auth] Discarding coach preload scrape — re-enqueuing with teamId', {
+          userId,
+          preloadScrapeId: existingPreloadScrapeId,
+          resolvedTeamId,
+        });
+      }
       const connectedSources = userData?.connectedSources as ConnectedSourceRecord[] | undefined;
       if (connectedSources && connectedSources.length > 0) {
         try {
@@ -1553,6 +1556,8 @@ router.post(
                 platform: cs.platform,
                 profileUrl: cs.profileUrl,
               })),
+              teamId: resolvedTeamId,
+              organizationId: resolvedOrgId,
             },
             agentEnv
           );

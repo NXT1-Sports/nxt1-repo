@@ -191,7 +191,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
       variant="onboarding"
       [showLogo]="true"
       [showBackButton]="canGoBack()"
-      [mobileFooterPadding]="isMobile()"
+      [mobileFooterPadding]="true"
       (backClick)="onBack()"
     >
       <!-- Desktop: Title & Subtitle shown in branding panel (left side) -->
@@ -205,7 +205,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
       <!-- Mobile: Title & Subtitle shown in form panel (top) -->
       <div authTitleMobile class="nxt1-mobile-titles">
         <nxt1-onboarding-agent-x-typewriter [message]="agentXMessage()" />
-        <h1 class="mb-2 mt-2 text-2xl font-bold text-text-primary">
+        <h1 class="nxt1-mobile-step-title text-2xl font-bold text-text-primary">
           {{ currentStep().title || 'Loading...' }}
         </h1>
       </div>
@@ -213,12 +213,14 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
       <!-- Main Content (Form Panel) -->
       <div authContent class="flex flex-col">
         <!-- Progress Indicator (shown throughout flow) -->
-        <nxt1-onboarding-progress-bar
-          [steps]="steps()"
-          [currentStepIndex]="currentStepIndex()"
-          [completedStepIds]="completedStepIds()"
-          (stepClick)="goToStep($event)"
-        />
+        <div class="nxt1-progress-shell">
+          <nxt1-onboarding-progress-bar
+            [steps]="steps()"
+            [currentStepIndex]="currentStepIndex()"
+            [completedStepIds]="completedStepIds()"
+            (stepClick)="goToStep($event)"
+          />
+        </div>
 
         <!-- Step Content Container -->
         <div class="nxt1-step-content">
@@ -299,6 +301,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               <nxt1-onboarding-sport-step
                 [sportData]="sportFormData()"
                 [role]="selectedRole()"
+                [showSportHeading]="true"
                 [disabled]="isLoading()"
                 (sportChange)="onSportChange($event)"
               />
@@ -382,18 +385,16 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
       <!-- Desktop: Navigation Buttons (in footer - always visible) -->
       <div authFooter class="desktop-footer">
-        @if (!isMobile()) {
-          <nxt1-onboarding-navigation-buttons
-            [showSkip]="isCurrentStepOptional()"
-            [showBack]="false"
-            [isLastStep]="isLastStep()"
-            [loading]="isLoading()"
-            [disabled]="!isCurrentStepValid() && !isCurrentStepOptional()"
-            (skipClick)="onSkip()"
-            (backClick)="onBack()"
-            (continueClick)="onContinue()"
-          />
-        }
+        <nxt1-onboarding-navigation-buttons
+          [showSkip]="isCurrentStepOptional()"
+          [showBack]="false"
+          [isLastStep]="isLastStep()"
+          [loading]="isLoading()"
+          [disabled]="!isCurrentStepValid() && !isCurrentStepOptional()"
+          (skipClick)="onSkip()"
+          (backClick)="onBack()"
+          (continueClick)="onContinue()"
+        />
         <!-- TODO: Re-enable sign out link when ready
         <button
           type="button"
@@ -407,16 +408,18 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     </nxt1-auth-shell>
 
     <!-- Mobile Web: Professional Sticky Footer -->
-    @if (isMobile()) {
-      <nxt1-onboarding-button-mobile
-        [showSkip]="isCurrentStepOptional()"
-        [isLastStep]="isLastStep()"
-        [loading]="isLoading()"
-        [disabled]="!isCurrentStepValid() && !isCurrentStepOptional()"
-        (skipClick)="onSkip()"
-        (continueClick)="onContinue()"
-      />
-    }
+    <nxt1-onboarding-button-mobile
+      class="mobile-footer"
+      [totalSteps]="totalSteps()"
+      [currentStepIndex]="currentStepIndex()"
+      [completedStepIndices]="completedStepIndices()"
+      [showSkip]="isCurrentStepOptional()"
+      [isLastStep]="isLastStep()"
+      [loading]="isLoading()"
+      [disabled]="!isCurrentStepValid() && !isCurrentStepOptional()"
+      (skipClick)="onSkip()"
+      (continueClick)="onContinue()"
+    />
   `,
   styles: [
     `
@@ -436,8 +439,21 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
       /* Mobile titles styling — fixed min-height prevents logo from shifting */
       .nxt1-mobile-titles {
         text-align: center;
-        padding: var(--nxt1-spacing-2) 0 var(--nxt1-spacing-4) 0;
-        min-height: 7rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--nxt1-spacing-1_5);
+        padding: 0 0 var(--nxt1-spacing-2) 0;
+        min-height: 0;
+      }
+
+      .nxt1-mobile-step-title {
+        margin: 0;
+        line-height: 1.15;
+      }
+
+      .nxt1-progress-shell {
+        width: 100%;
       }
 
       /* Desktop footer visibility */
@@ -445,11 +461,29 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
         display: none;
       }
 
+      @media (max-width: 1023px) {
+        .nxt1-progress-shell {
+          margin-top: calc(var(--nxt1-spacing-1) * -1);
+        }
+
+        .nxt1-step-content {
+          margin-top: 0;
+        }
+      }
+
+      .mobile-footer {
+        display: block;
+      }
+
       @media (min-width: 1024px) {
         .desktop-footer {
           display: block;
           padding-top: var(--nxt1-spacing-4);
           border-top: 1px solid var(--nxt1-color-border-subtle);
+        }
+
+        .mobile-footer {
+          display: none;
         }
       }
     `,
@@ -612,6 +646,14 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
   /** Completed step IDs set */
   readonly completedStepIds = computed(() => this._completedSteps());
+
+  /** Completed step indices for the mobile sticky footer */
+  readonly completedStepIndices = computed(() => {
+    const completed = this._completedSteps();
+    return this._steps()
+      .map((step, index) => (completed.has(step.id) ? index : -1))
+      .filter((index) => index >= 0);
+  });
 
   /** Current step object - always returns a valid step */
   readonly currentStep = computed(() => {
@@ -1475,6 +1517,13 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     if (!user) return;
 
     const formData = this._formData();
+
+    // Skip preload for coaches/directors — Team docs don't exist yet so the
+    // agent can't write team data. A fresh job with teamId is enqueued at
+    // onboarding completion instead.
+    const userType = formData.userType;
+    if (userType === 'coach' || userType === 'director') return;
+
     const links = formData.linkSources?.links?.filter((l) => l.connected && l.url);
     if (!links || links.length === 0) return;
 

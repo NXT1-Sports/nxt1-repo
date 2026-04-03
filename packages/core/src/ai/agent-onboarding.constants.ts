@@ -39,7 +39,7 @@ export const AGENT_ONBOARDING_STEPS: readonly AgentOnboardingStep[] = [
   {
     id: 'goals',
     title: 'Set Your Goals',
-    subtitle: 'What should Agent X focus on? Pick up to two.',
+    subtitle: 'What should Agent X focus on? Pick up to three.',
     order: 2,
     skippable: false,
   },
@@ -130,50 +130,58 @@ export const AGENT_GOAL_CATEGORIES: readonly {
 ] as const;
 
 /**
- * Predefined goals for coaches.
+ * Predefined goals for coaches (HS / club / all levels).
+ * Covers performance, content, communication, analytics, development, and more.
  */
 export const COACH_PREDEFINED_GOALS: readonly AgentGoal[] = [
   {
-    id: 'recruit-top-talent',
-    text: 'Find and recruit top talent for my program',
+    id: 'improve-performance',
+    text: 'Improve team and player performance',
     type: 'predefined',
-    icon: 'search-outline',
-    category: 'recruiting',
+    icon: 'trending-up-outline',
+    category: 'development',
   },
   {
-    id: 'automate-outreach',
-    text: 'Automate recruiting emails and outreach',
-    type: 'predefined',
-    icon: 'mail-outline',
-    category: 'communication',
-  },
-  {
-    id: 'analyze-opponents',
-    text: 'Analyze opponents and game film',
+    id: 'analyze-film',
+    text: 'Analyze game film and opponents',
     type: 'predefined',
     icon: 'videocam-outline',
     category: 'analytics',
   },
   {
     id: 'create-graphics',
-    text: 'Create professional recruiting graphics',
+    text: 'Create professional graphics and content',
     type: 'predefined',
     icon: 'image-outline',
     category: 'content',
   },
   {
-    id: 'scout-prospects',
-    text: 'Scout and evaluate prospective athletes',
+    id: 'build-brand',
+    text: 'Build program brand and social presence',
     type: 'predefined',
-    icon: 'eye-outline',
-    category: 'scouting',
+    icon: 'megaphone-outline',
+    category: 'content',
+  },
+  {
+    id: 'manage-communication',
+    text: 'Streamline team and parent communication',
+    type: 'predefined',
+    icon: 'mail-outline',
+    category: 'communication',
   },
   {
     id: 'track-roster',
-    text: 'Track roster development and player progress',
+    text: 'Track roster development and stats',
     type: 'predefined',
-    icon: 'trending-up-outline',
-    category: 'development',
+    icon: 'stats-chart-outline',
+    category: 'analytics',
+  },
+  {
+    id: 'game-planning',
+    text: 'AI-assisted game planning and strategy',
+    type: 'predefined',
+    icon: 'clipboard-outline',
+    category: 'analytics',
   },
   {
     id: 'manage-schedule',
@@ -183,11 +191,32 @@ export const COACH_PREDEFINED_GOALS: readonly AgentGoal[] = [
     category: 'development',
   },
   {
-    id: 'build-brand',
-    text: 'Build program brand and social presence',
+    id: 'recruit-players',
+    text: 'Recruit and discover new players',
     type: 'predefined',
-    icon: 'megaphone-outline',
-    category: 'content',
+    icon: 'search-outline',
+    category: 'recruiting',
+  },
+  {
+    id: 'nil-guidance',
+    text: 'NIL education and opportunity tracking',
+    type: 'predefined',
+    icon: 'cash-outline',
+    category: 'development',
+  },
+  {
+    id: 'scout-opponents',
+    text: 'Scout and evaluate upcoming opponents',
+    type: 'predefined',
+    icon: 'eye-outline',
+    category: 'scouting',
+  },
+  {
+    id: 'automate-outreach',
+    text: 'Automate recruiting emails and outreach',
+    type: 'predefined',
+    icon: 'paper-plane-outline',
+    category: 'communication',
   },
 ] as const;
 

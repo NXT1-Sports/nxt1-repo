@@ -308,6 +308,18 @@ ion-action-sheet.nxt-modal-action-sheet.md .action-sheet-group {
 ion-loading.nxt-modal-loading {
   --background: var(--nxt1-ui-bg-elevated, var(--nxt1-color-bg-elevated, #121212));
   --spinner-color: var(--nxt1-ui-primary, var(--nxt1-color-primary, #ccff00));
+
+  /* Override Ionic's default blue primary — same pattern used for alerts */
+  --ion-color-primary: var(--nxt1-ui-primary, var(--nxt1-color-primary, #ccff00));
+  --ion-color-primary-contrast: var(--nxt1-color-black, #000);
+
+  /* Dark background context so text colors resolve correctly */
+  --ion-background-color: var(--nxt1-ui-bg-elevated, var(--nxt1-color-bg-elevated, #121212));
+  --ion-background-color-rgb: 18, 18, 18;
+  --ion-text-color: var(--nxt1-ui-text-primary, #fff);
+
+  /* Backdrop */
+  --backdrop-opacity: 0.7;
 }
 
 ion-loading.nxt-modal-loading.ios {

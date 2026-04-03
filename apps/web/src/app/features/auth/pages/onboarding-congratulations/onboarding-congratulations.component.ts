@@ -8,6 +8,7 @@
  * - SEO meta tags
  * - Navigation with Angular Router
  * - Theme restoration after onboarding (clears temporary dark override)
+ * - Saving agent goals during onboarding flow
  *
  * Route: /auth/onboarding/congratulations
  *
@@ -32,7 +33,14 @@
  * ⭐ FOLLOWS MONOREPO SHARED INFRASTRUCTURE PATTERNS ⭐
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  computed,
+  OnInit,
+  signal,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 
@@ -41,10 +49,12 @@ import { AuthShellComponent } from '@nxt1/ui/auth/auth-shell';
 import { OnboardingWelcomeComponent } from '@nxt1/ui/onboarding/onboarding-welcome';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtThemeService } from '@nxt1/ui/services/theme';
+import { AgentXService } from '@nxt1/ui/agent-x';
 
 // Core Constants
 import { AUTH_REDIRECTS } from '@nxt1/core/constants';
 import type { OnboardingUserType } from '@nxt1/core/api';
+import type { AgentGoal, AgentDashboardGoal } from '@nxt1/core';
 
 // App Services
 import { AuthFlowService } from '../../services';
@@ -59,7 +69,7 @@ import { SeoService } from '../../../../core/services';
       variant="card-glass"
       [showLogo]="true"
       [showBackButton]="false"
-      [maxWidth]="'560px'"
+      [maxWidth]="'760px'"
     >
       <div authContent>
         <nxt1-onboarding-welcome
@@ -68,6 +78,7 @@ import { SeoService } from '../../../../core/services';
           (complete)="onComplete()"
           (skip)="onSkip()"
           (slideViewed)="onSlideViewed($event)"
+          (goalsChanged)="onGoalsChanged($event)"
         />
       </div>
     </nxt1-auth-shell>
@@ -80,6 +91,10 @@ export class OnboardingCongratulationsComponent implements OnInit {
   private readonly seo = inject(SeoService);
   private readonly themeService = inject(NxtThemeService);
   private readonly logger = inject(NxtLoggingService).child('OnboardingCongratulations');
+  private readonly agentX = inject(AgentXService);
+
+  /** Selected goals from the goals slide */
+  private readonly selectedGoals = signal<AgentGoal[]>([]);
 
   // ============================================
   // COMPUTED (from AuthFlowService)
@@ -121,14 +136,20 @@ export class OnboardingCongratulationsComponent implements OnInit {
   // EVENT HANDLERS
   // ============================================
 
+  /** Handle goals changed from welcome slides */
+  onGoalsChanged(goals: AgentGoal[]): void {
+    this.selectedGoals.set(goals);
+    this.logger.debug('Goals updated', { count: goals.length });
+  }
+
   /** Handle complete (CTA button click) */
   async onComplete(): Promise<void> {
-    await this.navigateToAgent();
+    await this.saveGoalsAndNavigate();
   }
 
   /** Handle skip */
   async onSkip(): Promise<void> {
-    await this.navigateToAgent();
+    await this.saveGoalsAndNavigate();
   }
 
   /** Handle slide viewed (for analytics) */
@@ -142,12 +163,30 @@ export class OnboardingCongratulationsComponent implements OnInit {
   // ============================================
 
   /**
-   * Navigate to Agent X using Angular Router.
+   * Save goals to backend and navigate to Agent X.
    * Uses replaceUrl to replace the navigation stack (no back to onboarding).
    *
    * Also clears the temporary theme override, restoring user's saved preference.
    */
-  private async navigateToAgent(): Promise<void> {
+  private async saveGoalsAndNavigate(): Promise<void> {
+    const goals = this.selectedGoals();
+
+    // Fire-and-forget: save goals in background, navigate immediately.
+    // The /agent page has its own loading state for playbook generation.
+    if (goals.length > 0) {
+      const dashboardGoals: AgentDashboardGoal[] = goals.map((g) => ({
+        id: g.id,
+        text: g.text,
+        category: g.category ?? 'custom',
+        createdAt: new Date().toISOString(),
+      }));
+
+      this.logger.info('Saving agent goals in background', { count: goals.length });
+      this.agentX.setGoals(dashboardGoals).catch((err) => {
+        this.logger.error('Error saving goals (non-blocking)', err);
+      });
+    }
+
     // ⭐ THEME RESTORATION: Clear temporary override, restore user's preference
     // This ensures the app respects user's original theme choice going forward
     this.themeService.clearTemporaryOverride();
