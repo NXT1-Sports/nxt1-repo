@@ -4,14 +4,15 @@
  *
  * Bottom sheet for mobile usage actions:
  * - Change timeframe
- * - Manage payment methods
  * - Budget options
+ *
+ * Payment method management is handled via Stripe Customer Portal.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
 import { Injectable, inject } from '@angular/core';
-import { NxtBottomSheetService } from '../components/bottom-sheet/bottom-sheet.service';
+import { NxtBottomSheetService } from '../components/bottom-sheet';
 import { USAGE_TIMEFRAME_OPTIONS, type UsageTimeframe } from '@nxt1/core';
 import type {
   BottomSheetAction,
@@ -45,22 +46,6 @@ export class UsageBottomSheetService {
     return ((result as BottomSheetResult & { reason?: string }).reason as UsageTimeframe) ?? null;
   }
 
-  /** Open payment method options */
-  async showPaymentMethodOptions(): Promise<UsageBottomSheetResult | null> {
-    const result = await this.bottomSheet.show({
-      title: 'Payment Method',
-      icon: 'card-outline',
-      actions: [
-        { label: 'Set as default', role: 'primary', icon: 'star-outline' },
-        { label: 'Edit details', role: 'secondary', icon: 'create-outline' },
-        { label: 'Remove', role: 'destructive', icon: 'trash-outline' },
-      ],
-    });
-
-    if (!result?.confirmed) return null;
-    return { action: result.reason ?? 'unknown' };
-  }
-
   /** Open budget options */
   async showBudgetOptions(): Promise<UsageBottomSheetResult | null> {
     const result = await this.bottomSheet.show({
@@ -74,7 +59,8 @@ export class UsageBottomSheetService {
     });
 
     if (!result?.confirmed) return null;
-    return { action: result.reason ?? 'unknown' };
+    const selected = result.data as unknown as BottomSheetAction | undefined;
+    return { action: selected?.label ?? 'unknown' };
   }
 
   /** Open general usage actions */
@@ -101,7 +87,7 @@ export class UsageBottomSheetService {
       icon: 'wallet-outline',
       actions: limits.map((amount) => ({
         label: `$${amount} / month`,
-        role: 'secondary' as const,
+        role: 'primary' as const,
         icon: currentLimit === amount * 100 ? ('checkmark-circle-outline' as const) : undefined,
       })),
     });
@@ -109,6 +95,24 @@ export class UsageBottomSheetService {
     if (!result?.confirmed) return null;
     const selectedLabel = (result.data as BottomSheetAction | undefined)?.label;
     const match = selectedLabel?.match(/^\$(\d+)\s*\/\s*month$/);
+    return match ? parseInt(match[1], 10) * 100 : null;
+  }
+
+  /** Open credit package selector for buying credits (B2C) */
+  async showBuyCreditsOptions(): Promise<number | null> {
+    const packages = [5, 10, 25, 50, 100, 250, 500];
+    const result = await this.bottomSheet.show<BottomSheetAction>({
+      title: 'Buy Credits',
+      icon: 'card-outline',
+      actions: packages.map((amount) => ({
+        label: `$${amount}`,
+        role: 'primary' as const,
+      })),
+    });
+
+    if (!result?.confirmed) return null;
+    const selectedLabel = (result.data as BottomSheetAction | undefined)?.label;
+    const match = selectedLabel?.match(/^\$(\d+)$/);
     return match ? parseInt(match[1], 10) * 100 : null;
   }
 }

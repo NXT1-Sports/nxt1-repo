@@ -225,6 +225,56 @@ export class AgentXService {
       this._weeklyPlaybook().every((t) => t.status === 'complete')
   );
 
+  // ── Playbook Category Pill Filter (shared between web & mobile shells) ──
+
+  /** Currently selected category pill ID. 'all' = show everything. */
+  private readonly _activeCategoryId = signal<string>('all');
+  readonly activeCategoryId = computed(() => this._activeCategoryId());
+
+  /** Pending (non-complete) playbook items. */
+  readonly pendingPlaybookItems = computed(() =>
+    this._weeklyPlaybook().filter((t) => t.status !== 'complete')
+  );
+
+  /** Derive unique category pills from the playbook tasks. */
+  readonly categoryPills = computed(() => {
+    const tasks = this._weeklyPlaybook();
+    const pills: { id: string; label: string }[] = [{ id: 'all', label: 'All' }];
+    const seen = new Set<string>();
+
+    for (const task of tasks) {
+      const goalId = task.goal?.id;
+      if (!goalId || seen.has(goalId)) continue;
+      seen.add(goalId);
+      pills.push({ id: goalId, label: task.goal?.label ?? goalId });
+    }
+    return pills;
+  });
+
+  /** Show pills only when there are 2+ unique categories. */
+  readonly showCategoryPills = computed(() => this.categoryPills().length > 2);
+
+  /** Pending playbook items filtered by the active category pill. */
+  readonly filteredPlaybookItems = computed(() => {
+    const active = this._activeCategoryId();
+    const pending = this.pendingPlaybookItems();
+    if (active === 'all') return pending;
+    // Auto-fallback: if active category no longer exists, show all
+    const exists = pending.some((t) => t.goal?.id === active);
+    if (!exists) return pending;
+    return pending.filter((t) => t.goal?.id === active);
+  });
+
+  /** Select a category pill. */
+  selectCategory(id: string): void {
+    this._activeCategoryId.set(id);
+  }
+
+  /** Reset category filter (called internally when playbook is regenerated). */
+  resetCategoryFilter(): void {
+    this._activeCategoryId.set('all');
+  }
+
   /** Operations currently awaiting user input/approval. */
   readonly awaitingInputOperations = computed(() =>
     this._activeOperations().filter((op) => op.status === 'awaiting_input')
@@ -768,6 +818,7 @@ export class AgentXService {
         this._briefingInsights.set([...briefing.insights]);
         this._briefingPreviewText.set(briefing.previewText);
         this._weeklyPlaybook.set([...playbook.items]);
+        this.resetCategoryFilter();
         this._goals.set([...playbook.goals]);
         this._playbookGeneratedAt.set(playbook.generatedAt);
         this._canRegenerate.set(playbook.canRegenerate);
@@ -862,6 +913,7 @@ export class AgentXService {
         this._briefingInsights.set([...briefing.insights]);
         this._briefingPreviewText.set(briefing.previewText);
         this._weeklyPlaybook.set([...playbook.items]);
+        this.resetCategoryFilter();
         this._goals.set([...playbook.goals]);
         this._playbookGeneratedAt.set(playbook.generatedAt);
         this._canRegenerate.set(playbook.canRegenerate);
@@ -945,6 +997,7 @@ export class AgentXService {
 
       if (response.success && response.data) {
         this._weeklyPlaybook.set([...response.data.items]);
+        this.resetCategoryFilter();
         this._playbookGeneratedAt.set(response.data.generatedAt);
         this._canRegenerate.set(true);
         this.toast.success('Weekly playbook generated!');

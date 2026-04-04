@@ -37,6 +37,7 @@ import { NxtBottomSheetService, SHEET_PRESETS } from '@nxt1/ui/components/bottom
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtToastService } from '@nxt1/ui/services/toast';
+import { NxtModalService } from '@nxt1/ui/services/modal';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 import type { SettingsUserInfo, SettingsSubscription, SettingsItem } from '@nxt1/core';
@@ -61,6 +62,7 @@ import { SettingsConfirmModalComponent } from './settings-confirm-modal.componen
       />
     </div>
   `,
+  styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SettingsComponent implements OnInit {
@@ -72,6 +74,7 @@ export class SettingsComponent implements OnInit {
   private readonly toast = inject(NxtToastService);
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('SettingsComponent');
+  private readonly modal = inject(NxtModalService);
   private readonly seo = inject(SeoService);
 
   /** Responsive: true on mobile viewport, false on desktop */
@@ -334,14 +337,22 @@ export class SettingsComponent implements OnInit {
 
     if (!confirmed) return;
 
-    const result = await this.authService.deleteAccount();
+    try {
+      await this.modal.showLoading({ message: 'Deleting your account...' });
+      const result = await this.authService.deleteAccount();
 
-    if (result.success) {
-      this.logger.info('Account deleted — redirecting to auth');
-      this.router.navigate(['/auth']);
-    } else {
-      this.logger.error('Account deletion failed', result.error);
-      this.toast.error(`Failed to delete account: ${result.error ?? 'Unknown error'}`);
+      if (result.success) {
+        this.logger.info('Account deleted — redirecting to auth');
+        this.router.navigate(['/auth']);
+      } else {
+        this.logger.error('Account deletion failed', result.error);
+        this.toast.error(`Failed to delete account: ${result.error ?? 'Unknown error'}`);
+      }
+    } catch (err) {
+      this.logger.error('Account deletion threw', err);
+      this.toast.error('Failed to delete account. Please try again.');
+    } finally {
+      await this.modal.hideLoading();
     }
   }
 

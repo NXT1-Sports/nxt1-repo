@@ -173,7 +173,10 @@ export class RosterEntryService {
     if (externalBatch) {
       // Add to caller's batch — caller is responsible for committing
       externalBatch.set(docRef, entryData);
-      externalBatch.update(teamRef, { athleteMember: FieldValue.increment(1) });
+      externalBatch.update(teamRef, {
+        athleteMember: FieldValue.increment(1),
+        memberIds: FieldValue.arrayUnion(input.userId),
+      });
 
       logger.info('[RosterEntryService] Roster entry queued in batch', { entryId: docRef.id });
 
@@ -207,7 +210,10 @@ export class RosterEntryService {
     // No external batch — use internal batch for atomicity (fixes race condition)
     const batch = this.db.batch();
     batch.set(docRef, entryData);
-    batch.update(teamRef, { athleteMember: FieldValue.increment(1) });
+    batch.update(teamRef, {
+      athleteMember: FieldValue.increment(1),
+      memberIds: FieldValue.arrayUnion(input.userId),
+    });
     await batch.commit();
 
     logger.info('[RosterEntryService] Roster entry created', { entryId: docRef.id });

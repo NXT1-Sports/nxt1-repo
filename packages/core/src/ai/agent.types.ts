@@ -156,6 +156,8 @@ export interface AgentSessionContext {
   readonly retrievedMemories?: readonly AgentMemoryEntry[];
   readonly createdAt: string;
   readonly lastActiveAt: string;
+  /** The job/operation ID — threaded into LLM calls as Helicone-Property-Job-Id for cost tracking. */
+  readonly operationId?: string;
 }
 
 /** A single message within a session (lighter than the full AgentXMessage). */

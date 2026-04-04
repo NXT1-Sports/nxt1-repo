@@ -34,13 +34,14 @@ import {
   input,
   computed,
   viewChild,
+  NgZone,
+  PLATFORM_ID,
   OnInit,
   AfterViewInit,
   OnDestroy,
   type TemplateRef,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { NxtIconComponent } from '../../components/icon';
+import { isPlatformBrowser, CommonModule } from '@angular/common';
 import {
   NxtSectionNavWebComponent,
   type SectionNavChangeEvent,
@@ -51,7 +52,6 @@ import {
 } from '../../components/option-scroller-web';
 import { NxtRefresherComponent, type RefreshEvent } from '../../components/refresh-container';
 import { NxtOverlayService } from '../../components/overlay';
-import { AgentXBriefingPanelComponent } from '../../agent-x/agent-x-briefing-panel.component';
 import { NxtHeaderPortalService } from '../../services/header-portal';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
@@ -61,6 +61,7 @@ import { UsageSkeletonComponent } from '../usage-skeleton.component';
 import { UsageHelpContentComponent } from '../usage-help-content.component';
 import { UsageErrorStateComponent } from '../usage-error-state.component';
 import { UsageBottomSheetService } from '../usage-bottom-sheet.service';
+import { AgentXControlPanelComponent, type AgentXControlPanelKind } from '../../agent-x';
 import {
   UsageOverviewComponent,
   UsageSubscriptionsComponent,
@@ -79,8 +80,6 @@ export type { UsageUser };
   selector: 'nxt1-usage-shell-web',
   standalone: true,
   imports: [
-    CommonModule,
-    NxtIconComponent,
     NxtSectionNavWebComponent,
     NxtOptionScrollerWebComponent,
     NxtRefresherComponent,
@@ -152,7 +151,22 @@ export type { UsageUser };
         aria-label="How billing works"
         (click)="showHelpDialog()"
       >
-        <nxt1-icon name="help-circle-outline" size="22" aria-hidden="true" />
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+          <line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>
       </button>
     </ng-template>
 
@@ -199,6 +213,7 @@ export type { UsageUser };
                   <nxt1-usage-overview
                     [data]="svc.overview()"
                     [isPersonal]="svc.isPersonal()"
+                    [hideBuyCredits]="true"
                     (viewPaymentHistory)="svc.setActiveSection('payment-history')"
                     (buyCredit)="onBuyCredits()"
                   />
@@ -215,6 +230,7 @@ export type { UsageUser };
                       [budgets]="svc.budgets()"
                       (createBudget)="onCreateBudget()"
                       (editBudget)="onEditBudget($event)"
+                      (editTeamBudget)="onEditTeamBudget($event)"
                     />
                   }
                 }
@@ -250,15 +266,20 @@ export type { UsageUser };
                   />
                 }
 
+                @case ('budgets') {
+                  <nxt1-usage-budgets
+                    [budgets]="svc.budgets()"
+                    (createBudget)="onCreateBudget()"
+                    (editBudget)="onEditBudget($event)"
+                    (editTeamBudget)="onEditTeamBudget($event)"
+                  />
+                }
+
                 @case ('payment-info') {
                   <nxt1-usage-payment-info
                     [billingInfo]="svc.billingInfo()"
                     [paymentMethods]="svc.paymentMethods()"
-                    [coupon]="svc.coupon()"
-                    (editBilling)="onEditBilling()"
-                    (editPayment)="onEditPayment()"
-                    (redeemCoupon)="onRedeemCoupon()"
-                    (editAdditional)="onEditAdditional()"
+                    (manageBilling)="onManageBilling()"
                   />
                 }
               }
@@ -369,12 +390,7 @@ export type { UsageUser };
         display: none;
       }
 
-      /* Hide "Buy Credits" button in overview on desktop as it's in the top nav */
-      @media (min-width: 769px) {
-        ::ng-deep .buy-credits-btn {
-          display: none !important;
-        }
-      }
+      /* Buy Credits button hidden on desktop via [hideBuyCredits] input */
 
       @media (max-width: 768px) {
         .usage-mobile-scroller {
@@ -424,6 +440,15 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
   private readonly usageBottomSheet = inject(UsageBottomSheetService);
+  // private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly ngZone = inject(NgZone);
+  private readonly platformId = inject(PLATFORM_ID);
+
+  private readonly onVisibilityChange = (): void => {
+    if (document.visibilityState === 'visible') {
+      this.ngZone.run(() => this.svc.loadDashboard());
+    }
+  };
 
   // Template refs for header portal
   private readonly centerPortalContent = viewChild<TemplateRef<unknown>>('centerPortalContent');
@@ -451,6 +476,9 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
 
   ngOnInit(): void {
     this.svc.loadDashboard();
+    if (isPlatformBrowser(this.platformId)) {
+      document.addEventListener('visibilitychange', this.onVisibilityChange);
+    }
   }
 
   ngAfterViewInit(): void {
@@ -462,6 +490,9 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
 
   ngOnDestroy(): void {
     this.headerPortal.clearAll();
+    if (isPlatformBrowser(this.platformId)) {
+      document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    }
   }
 
   // ============================================
@@ -493,64 +524,66 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
     this.svc.setActiveSection(event.option.id as UsageSection);
   }
 
-  protected onManageSubscriptions(): void {
-    this.haptics.impact('light');
-    // Navigate to subscription management
+  protected async onManageSubscriptions(): Promise<void> {
+    await this.haptics.impact('light');
+    await this.svc.openBillingPortal();
   }
 
-  protected onDownloadReceipt(_recordId: string): void {
-    this.haptics.impact('light');
-    // API call to get receipt URL and open
+  protected async onDownloadReceipt(recordId: string): Promise<void> {
+    await this.haptics.impact('light');
+    await this.svc.openReceipt(recordId);
   }
 
-  protected onDownloadInvoice(_recordId: string): void {
-    this.haptics.impact('light');
-    // API call to get invoice URL and open
+  protected async onDownloadInvoice(recordId: string): Promise<void> {
+    await this.haptics.impact('light');
+    await this.svc.openInvoice(recordId);
   }
 
   protected async onCreateBudget(): Promise<void> {
     await this.haptics.impact('light');
-    await this.usageBottomSheet.showBudgetLimit();
+    await this.openBudgetControlPanel();
   }
 
-  protected async onEditBudget(budgetId: string): Promise<void> {
+  protected async onEditBudget(_budgetId: string): Promise<void> {
     await this.haptics.impact('light');
-    const budget = this.svc.budgets().find((b) => b.id === budgetId);
-    await this.usageBottomSheet.showBudgetLimit(budget?.budgetLimit);
+    await this.openBudgetControlPanel();
   }
 
-  protected onEditBilling(): void {
-    this.haptics.impact('light');
-    // Open billing info editing form/bottom sheet
+  private async openBudgetControlPanel(): Promise<void> {
+    const panel: AgentXControlPanelKind = 'budget';
+    this.overlay.open({
+      component: AgentXControlPanelComponent,
+      inputs: {
+        panel,
+        presentation: 'modal',
+      },
+      size: 'xl',
+      backdropDismiss: true,
+      escDismiss: true,
+      ariaLabel: 'Agent budget controls',
+      panelClass: 'agent-x-control-panel-modal',
+    });
   }
 
-  protected onEditPayment(): void {
-    this.haptics.impact('light');
-    // Open payment method form/bottom sheet
+  protected async onEditTeamBudget(teamId: string): Promise<void> {
+    await this.haptics.impact('light');
+    const amountCents = await this.usageBottomSheet.showBudgetLimit();
+    if (amountCents !== null) {
+      await this.svc.updateTeamBudget(teamId, amountCents);
+    }
   }
 
-  protected onRedeemCoupon(): void {
+  protected async onManageBilling(): Promise<void> {
     this.haptics.impact('light');
-    // Open coupon redemption form/bottom sheet
-  }
-
-  protected onEditAdditional(): void {
-    this.haptics.impact('light');
-    // Open additional info form/bottom sheet
+    await this.svc.openBillingPortal();
   }
 
   protected async onBuyCredits(): Promise<void> {
     await this.haptics.impact('light');
-    const ref = this.overlay.open<AgentXBriefingPanelComponent>({
-      component: AgentXBriefingPanelComponent,
-      inputs: { panel: 'budget', presentation: 'modal', required: false },
-      size: 'full',
-      backdropDismiss: true,
-      escDismiss: true,
-      ariaLabel: 'Agent budget controls',
-      panelClass: 'agent-x-briefing-badge-modal',
-    });
-    await ref.closed;
+    const amountCents = await this.usageBottomSheet.showBuyCreditsOptions();
+    if (amountCents !== null) {
+      await this.svc.buyCredits(amountCents);
+    }
   }
 
   // ============================================

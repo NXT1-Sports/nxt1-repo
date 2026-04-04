@@ -116,7 +116,8 @@ export class FirecrawlProfileService {
   async startSignInSession(
     userId: string,
     platform: string,
-    loginUrl: string
+    loginUrl: string,
+    isMobile = false
   ): Promise<FirecrawlSignInSession> {
     const profileName = this.generateProfileName(userId, platform);
 
@@ -146,12 +147,48 @@ export class FirecrawlProfileService {
 
     const sessionId = browserResult.id;
 
-    // Navigate the browser to the platform's login page.
+    // ── Force Mobile Layout via CSS Scaling ─────────────────────────────
+    // Firecrawl's interactive browser VNC stream currently locks to a desktop
+    // container size (e.g. ~1280px wide). Their API does not yet support creating
+    // native mobile VNC stream containers (as confirmed by Firecrawl Support).
+    //
+    // If we just use `page.setViewportSize({width: 393})`, Playwright shrinks
+    // the webpage into a tiny 393px box *inside* the massive 1280px VNC stream.
+    // When the user's phone scales that 1280px VNC video down to fit the phone's
+    // 390px screen (~3.2x reduction), the content shrinks to unreadable microscopic text.
+    //
+    // THE FIX: We invert the scale. We force the layout to 393px wide to behave
+    // like a phone, and then blow it up with `zoom: 3.2` to physically fill the
+    // 1280px desktop stream. When the phone scales the stream down, it perfectly
+    // reverses the zoom, perfectly restoring the text to its correct size.
+    const navigationCode = isMobile
+      ? [
+          // 1. Inject the inverted scale CSS before the page renders
+          `await page.addInitScript(() => {`,
+          `  const style = document.createElement('style');`,
+          `  style.textContent = 'html, body { width: 393px !important; min-width: 393px !important; margin: 0 auto !important; zoom: 3.2 !important; overflow-x: hidden !important; background-color: #000; }';`,
+          `  document.documentElement.appendChild(style);`,
+          `});`,
+          // 2. Set mobile User-Agent to ensure the server sends a mobile UI
+          `await page.context().setExtraHTTPHeaders({`,
+          `  'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'`,
+          `});`,
+          // 3. Navigate
+          `await page.goto(${JSON.stringify(loginUrl)}, { waitUntil: "domcontentloaded" });`,
+        ].join('\n')
+      : `await page.goto(${JSON.stringify(loginUrl)}, { waitUntil: "domcontentloaded" });`;
+
     await this.client.browserExecute(sessionId, {
-      code: `window.location.href = ${JSON.stringify(loginUrl)};`,
+      code: navigationCode,
       language: 'node',
-      timeout: 15, // seconds (Firecrawl API uses seconds, max 300)
+      timeout: 30, // seconds — allow time for slow login pages to load
     });
+
+    if (isMobile) {
+      logger.info('[FirecrawlProfile] Mobile inverted CSS scale applied', {
+        sessionId,
+      });
+    }
 
     const interactiveLiveViewUrl = browserResult.interactiveLiveViewUrl ?? '';
     const liveViewUrl = browserResult.liveViewUrl ?? '';

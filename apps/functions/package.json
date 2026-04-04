@@ -28,7 +28,8 @@
     "firebase-functions": "^7.0.5",
     "lodash": "^4.17.21",
     "nodemailer": "^8.0.1",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "stripe": "^17.7.0"
   },
   "devDependencies": {
     "@types/lodash": "^4.17.13",

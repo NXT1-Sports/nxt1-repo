@@ -9,7 +9,7 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Injectable, inject, signal, computed } from '@angular/core';
+import { Injectable, inject, signal, computed, effect, OnDestroy } from '@angular/core';
 import {
   formatPrice,
   USAGE_CATEGORY_CONFIGS,
@@ -33,6 +33,7 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
+import { NxtBrowserService } from '../services/browser/browser.service';
 
 /** Navigation sections for the billing dashboard */
 export type UsageSection =
@@ -53,6 +54,7 @@ export const USAGE_SECTION_NAVS: readonly UsageSectionNav[] = [
   { id: 'metered-usage', label: 'Metered usage' },
   { id: 'breakdown', label: 'Usage breakdown' },
   { id: 'payment-history', label: 'Payment history' },
+  { id: 'budgets', label: 'Budgets' },
   { id: 'payment-info', label: 'Payment info' },
 ] as const;
 import { NxtToastService } from '../services/toast/toast.service';
@@ -60,13 +62,17 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 import { UsageApiService } from './usage-api.service';
 
 @Injectable({ providedIn: 'root' })
-export class UsageService {
+export class UsageService implements OnDestroy {
   private readonly api = inject(UsageApiService);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
+  private readonly browser = inject(NxtBrowserService);
   private readonly logger = inject(NxtLoggingService).child('UsageService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+
+  /** Interval handle for polling overview while agent holds are pending */
+  private _holdsPollingInterval: ReturnType<typeof setInterval> | null = null;
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -94,6 +100,32 @@ export class UsageService {
   private readonly _historyHasMore = signal(true);
   private readonly _isLoadingMore = signal(false);
   private readonly _activeSection = signal<UsageSection>('overview');
+
+  constructor() {
+    // Auto-poll overview every 5 s while an agent job has an active hold.
+    // Stops as soon as pendingHoldsCents drops to 0 or the service is destroyed.
+    effect(() => {
+      const hasHolds = this.pendingHoldsCents() > 0;
+      if (hasHolds && !this._holdsPollingInterval) {
+        this._holdsPollingInterval = setInterval(() => {
+          this.api
+            .getOverview()
+            .then((overview) => this._overview.set(overview))
+            .catch((err: unknown) => this.logger.warn('Holds polling failed', { error: err }));
+        }, 5000);
+      } else if (!hasHolds && this._holdsPollingInterval) {
+        clearInterval(this._holdsPollingInterval);
+        this._holdsPollingInterval = null;
+      }
+    });
+  }
+
+  ngOnDestroy(): void {
+    if (this._holdsPollingInterval) {
+      clearInterval(this._holdsPollingInterval);
+      this._holdsPollingInterval = null;
+    }
+  }
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
@@ -138,7 +170,9 @@ export class UsageService {
   readonly sectionNavs = computed((): readonly UsageSectionNav[] => {
     if (this.isPersonal()) {
       // B2C: hide metered-usage chart, budgets, and payment-info
-      return USAGE_SECTION_NAVS.filter((n) => n.id !== 'metered-usage' && n.id !== 'payment-info');
+      return USAGE_SECTION_NAVS.filter(
+        (n) => n.id !== 'metered-usage' && n.id !== 'budgets' && n.id !== 'payment-info'
+      );
     }
     return USAGE_SECTION_NAVS;
   });
@@ -347,61 +381,87 @@ export class UsageService {
   }
 
   // ============================================
-  // PAYMENT METHOD MANAGEMENT
+  // STRIPE CUSTOMER PORTAL
   // ============================================
 
-  async setDefaultPaymentMethod(methodId: string): Promise<boolean> {
-    this.logger.info('Setting default payment method', { methodId });
-    this.breadcrumb.trackStateChange('usage:updating-payment-method', { methodId });
-    const previous = this._paymentMethods();
+  /**
+   * Open the Stripe Customer Portal for managing payment methods,
+   * billing address, invoices, and subscriptions.
+   * Backend creates a portal session and returns the URL.
+   */
+  async openBillingPortal(): Promise<void> {
+    this.logger.info('Opening Stripe billing portal');
+    this.breadcrumb.trackStateChange('usage:opening-billing-portal');
+
+    // On web, window.open() called after an async operation is blocked by popup blockers.
+    // Pre-open a blank window synchronously before the API call, then redirect it to the URL.
+    // On native (Capacitor), window.open is not used — the Capacitor Browser plugin handles it.
+    const preOpenedWindow =
+      typeof window !== 'undefined' && typeof window.open === 'function'
+        ? window.open('about:blank', '_blank')
+        : null;
+
     try {
-      this._paymentMethods.update((methods) =>
-        methods.map((m) => ({ ...m, isDefault: m.id === methodId }))
-      );
-      await this.api.setDefaultPaymentMethod(methodId);
-      await this.haptics.notification('success');
-      this.toast.success('Default payment method updated');
-      this.analytics?.trackEvent(APP_EVENTS.USAGE_PAYMENT_METHOD_DEFAULT_SET, { methodId });
-      return true;
+      const url = await this.api.createPortalSession();
+      this.analytics?.trackEvent(APP_EVENTS.USAGE_BILLING_PORTAL_OPENED);
+
+      if (preOpenedWindow) {
+        // Web: redirect the pre-opened window to the Stripe portal URL
+        preOpenedWindow.location.href = url;
+      } else {
+        // Native (Capacitor): use the in-app browser plugin
+        this.browser.open({ url, presentationStyle: 'fullscreen' });
+      }
     } catch (err) {
-      this._paymentMethods.set(previous);
-      const message = err instanceof Error ? err.message : 'Failed to update payment method';
-      this.logger.error('Failed to set default payment method', err, { methodId });
+      preOpenedWindow?.close();
+      const message = err instanceof Error ? err.message : 'Failed to open billing portal';
+      this.logger.error('Failed to open billing portal', err);
       this.toast.error(message);
       await this.haptics.notification('error');
-      return false;
-    }
-  }
-
-  async removePaymentMethod(methodId: string): Promise<boolean> {
-    const method = this._paymentMethods().find((m) => m.id === methodId);
-    if (!method) return false;
-    if (method.isDefault) {
-      this.toast.error('Cannot remove default payment method');
-      return false;
-    }
-
-    const previous = this._paymentMethods();
-    try {
-      this._paymentMethods.update((methods) => methods.filter((m) => m.id !== methodId));
-      await this.api.removePaymentMethod(methodId);
-      await this.haptics.notification('success');
-      this.toast.success('Payment method removed');
-      this.analytics?.trackEvent(APP_EVENTS.USAGE_PAYMENT_METHOD_REMOVED, { methodId });
-      return true;
-    } catch (err) {
-      this._paymentMethods.set(previous);
-      const message = err instanceof Error ? err.message : 'Failed to remove payment method';
-      this.logger.error('Failed to remove payment method', err, { methodId });
-      this.toast.error(message);
-      await this.haptics.notification('error');
-      return false;
     }
   }
 
   /** Format price (delegates to @nxt1/core) */
   formatPrice(cents: number): string {
     return formatPrice(cents);
+  }
+
+  // ============================================
+  // RECEIPT & INVOICE DOWNLOADS
+  // ============================================
+
+  /** Open a receipt PDF for a payment history record */
+  async openReceipt(recordId: string): Promise<void> {
+    const record = this._paymentHistory().find((r) => r.id === recordId);
+    if (record?.receiptUrl) {
+      this.browser.open({ url: record.receiptUrl, presentationStyle: 'fullscreen' });
+      return;
+    }
+    this.logger.info('Fetching receipt URL', { recordId });
+    try {
+      const url = await this.api.getReceiptUrl(recordId);
+      this.browser.open({ url, presentationStyle: 'fullscreen' });
+    } catch (err) {
+      this.logger.error('Failed to get receipt URL', err, { recordId });
+      this.toast.error('Unable to open receipt. Please try again.');
+    }
+  }
+
+  /** Open an invoice PDF for a payment history record */
+  async openInvoice(recordId: string): Promise<void> {
+    const record = this._paymentHistory().find((r) => r.id === recordId);
+    if (record?.invoiceUrl) {
+      this.browser.open({ url: record.invoiceUrl, presentationStyle: 'fullscreen' });
+      return;
+    }
+    this.logger.info('Fetching invoice URL', { recordId });
+    try {
+      const url = await this.api.getInvoiceUrl(recordId);
+      this.browser.open({ url, presentationStyle: 'fullscreen' });
+    } catch (err) {
+      this.logger.error('Failed to get invoice URL', err, { recordId });
+      this.toast.error('Unable to open invoice. Please try again.');
+    }
   }
 
   // ============================================
@@ -415,6 +475,13 @@ export class UsageService {
     try {
       await this.api.updateBudget(monthlyBudget);
       this._billingContext.update((ctx) => (ctx ? { ...ctx, monthlyBudget } : ctx));
+      this._budgets.update((budgets) =>
+        budgets.map((b) => ({
+          ...b,
+          budgetLimit: monthlyBudget,
+          percentUsed: monthlyBudget > 0 ? Math.round((b.spent / monthlyBudget) * 100) : 0,
+        }))
+      );
       await this.haptics.notification('success');
       this.toast.success('Budget updated');
       this.analytics?.trackEvent(APP_EVENTS.USAGE_BUDGET_UPDATED, { monthlyBudget });
@@ -444,6 +511,56 @@ export class UsageService {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update team budget';
       this.logger.error('Failed to update team budget', err, { teamId, monthlyBudget });
+      this.toast.error(message);
+      await this.haptics.notification('error');
+      return false;
+    }
+  }
+
+  // ============================================
+  // BUY CREDITS (B2C)
+  // ============================================
+
+  /**
+   * Purchase credits via Stripe Checkout.
+   * Opens the Stripe-hosted checkout page in the in-app browser.
+   */
+  async buyCredits(amountCents: number): Promise<void> {
+    this.logger.info('Purchasing credits', { amountCents });
+    this.breadcrumb.trackStateChange('usage:buying-credits', { amountCents });
+    try {
+      const url = await this.api.buyCredits(amountCents);
+      this.analytics?.trackEvent(APP_EVENTS.USAGE_CREDITS_PURCHASED, { amountCents });
+      this.browser.open({ url, presentationStyle: 'fullscreen' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to start credit purchase';
+      this.logger.error('Failed to purchase credits', err, { amountCents });
+      this.toast.error(message);
+      await this.haptics.notification('error');
+    }
+  }
+
+  // ============================================
+  // DELETE BUDGET
+  // ============================================
+
+  /** Delete (disable) the current budget by setting it to $0 */
+  async deleteBudget(): Promise<boolean> {
+    this.logger.info('Deleting budget');
+    this.breadcrumb.trackStateChange('usage:deleting-budget');
+    try {
+      await this.api.deleteBudget();
+      this._billingContext.update((ctx) => (ctx ? { ...ctx, monthlyBudget: 0 } : ctx));
+      this._budgets.update((budgets) =>
+        budgets.map((b) => ({ ...b, budgetLimit: 0, percentUsed: 0 }))
+      );
+      await this.haptics.notification('success');
+      this.toast.success('Budget removed');
+      this.analytics?.trackEvent(APP_EVENTS.USAGE_BUDGET_DELETED);
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to delete budget';
+      this.logger.error('Failed to delete budget', err);
       this.toast.error(message);
       await this.haptics.notification('error');
       return false;

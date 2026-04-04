@@ -40,6 +40,7 @@ import {
   trendingUpOutline,
   chevronForwardOutline,
   locateOutline,
+  funnelOutline,
 } from 'ionicons/icons';
 import {
   type ExploreTabId,
@@ -394,7 +395,7 @@ export interface ExploreUser {
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        margin: 0 var(--nxt1-spacing-4, 16px);
+        margin: 14px var(--nxt1-spacing-4, 16px) 0;
         padding: 10px 14px;
         background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
         border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
@@ -463,7 +464,13 @@ export interface ExploreUser {
 })
 export class ExploreShellComponent implements OnInit {
   constructor() {
-    addIcons({ timeOutline, trendingUpOutline, chevronForwardOutline, locateOutline });
+    addIcons({
+      timeOutline,
+      trendingUpOutline,
+      chevronForwardOutline,
+      locateOutline,
+      funnelOutline,
+    });
   }
 
   protected readonly explore = inject(ExploreService);
@@ -495,9 +502,21 @@ export class ExploreShellComponent implements OnInit {
   readonly _detectedState = signal<string | null>(null);
 
   // Computed
-  protected readonly headerActions = computed<PageHeaderAction[]>(() => [
-    { id: 'filter', icon: 'funnel-outline', label: 'Filters' },
-  ]);
+  protected readonly activeFilterCount = computed(() =>
+    this.explore.getActiveFilterCount(this.explore.activeTab())
+  );
+
+  protected readonly headerActions = computed<PageHeaderAction[]>(() => {
+    const count = this.activeFilterCount();
+    return [
+      {
+        id: 'filter',
+        icon: 'funnel-outline',
+        label: 'Filters',
+        badge: count > 0 ? count : undefined,
+      },
+    ];
+  });
 
   protected readonly displayName = computed(() => this.user()?.displayName ?? 'User');
   protected readonly tabOptions = computed((): OptionScrollerItem[] => {

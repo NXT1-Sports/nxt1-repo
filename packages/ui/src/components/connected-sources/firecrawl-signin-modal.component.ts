@@ -55,7 +55,10 @@ import { NxtIconComponent } from '../icon/icon.component';
           <div class="nxt1-fc-loading">
             <div class="nxt1-fc-spinner"></div>
             <p class="nxt1-fc-loading-text">Launching secure browser for {{ platformLabel() }}…</p>
-            <p class="nxt1-fc-loading-sub">This may take a few seconds</p>
+            <p class="nxt1-fc-loading-sub">
+              Sign in so Agent X can sync your latest stats, film, and achievements to go to work
+              for you.
+            </p>
           </div>
         }
 

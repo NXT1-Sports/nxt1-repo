@@ -309,17 +309,16 @@ export const USAGE_API_ENDPOINTS = {
   breakdown: '/usage/breakdown',
   history: '/usage/history',
   paymentMethods: '/usage/payment-methods',
-  addPaymentMethod: '/usage/payment-methods/add',
-  removePaymentMethod: '/usage/payment-methods/remove',
-  setDefaultPaymentMethod: '/usage/payment-methods/default',
-  billingInfo: '/usage/billing-info',
+  portalSession: '/usage/portal-session',
   budgets: '/usage/budgets',
   downloadReceipt: '/usage/receipt',
   downloadInvoice: '/usage/invoice',
   redeemCoupon: '/usage/coupon/redeem',
+  buyCredits: '/usage/buy-credits',
   budget: '/billing/budget',
   budgetTeam: '/billing/budget/team',
   recordUsage: '/billing/usage',
+  setupIntent: '/usage/payment-methods/setup-intent',
 } as const;
 
 // ============================================

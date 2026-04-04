@@ -246,7 +246,8 @@ export async function checkBudget(
  * Single-tier budget check (shared by individual and org master).
  */
 function checkSingleTierBudget(ctx: BillingContext, costCents: number): BudgetCheckResult {
-  const projectedSpend = ctx.currentPeriodSpend + costCents;
+  const pendingHolds = ctx.pendingHoldsCents ?? 0;
+  const projectedSpend = ctx.currentPeriodSpend + pendingHolds + costCents;
   const percentUsed =
     ctx.monthlyBudget > 0 ? Math.round((projectedSpend / ctx.monthlyBudget) * 100) : 0;
 
@@ -517,16 +518,17 @@ export async function processWalletRefund(
 
 /**
  * Add funds to an individual user's prepaid wallet.
- * Called after a verified Apple IAP consumable purchase.
+ * Called after a verified wallet top-up (Apple IAP or Stripe Checkout).
  *
  * - Atomically increments `walletBalanceCents`.
- * - Sets `paymentProvider` to 'iap' if not already set.
+ * - Sets `paymentProvider` to the given provider ('iap' or 'stripe').
  * - Resets budget notification flags so the user doesn't see stale "low balance" alerts.
  */
 export async function addWalletTopUp(
   db: Firestore,
   userId: string,
-  amountCents: number
+  amountCents: number,
+  provider: PaymentProvider = 'iap'
 ): Promise<{ newBalance: number }> {
   if (amountCents <= 0) {
     throw new Error('Top-up amount must be positive');
@@ -551,7 +553,7 @@ export async function addWalletTopUp(
 
   await docRef.update({
     walletBalanceCents: FieldValue.increment(amountCents),
-    paymentProvider: 'iap' as PaymentProvider,
+    paymentProvider: provider,
     // Reset ALL notification flags so the user sees fresh alerts at the new balance
     notified50: false,
     notified80: false,
@@ -1027,21 +1029,18 @@ const BILLING_RESOLUTION_CACHE_MAX_SIZE = 10_000; // Prevent unbounded growth
 /**
  * Resolve the correct billing target for a user.
  *
- * For directors/admins of an organization, this returns the **organization's**
- * billing context (userId = `org:{orgId}`) so that usage dashboards, payment
- * history, and Stripe customer lookups show org-level data instead of a
- * zeroed-out individual view.
+ * Directors always route to their organization's billing context.
+ * Athletes, coaches, staff, and other roster members route to the
+ * organization's billing context ONLY if the org is on the Elite plan.
+ * Everyone else falls back to their personal individual billing context.
  *
  * Resolution order:
  *   1. Check in-memory cache (5 min TTL).
  *   2. Read the user doc from `Users` to check their `role`.
- *   3. If role is `director`:
- *      a. Query `RosterEntries` for any active membership → `organizationId`.
- *      b. Fallback: query `Organizations` where `ownerId == userId`.
- *      c. If an org is found, fetch all team IDs from `Teams`.
- *      d. Fetch or create the org billing context (`org:{orgId}`).
- *      e. Return type 'organization' with the org context.
- *   4. Otherwise, fallback to the user's personal billing context.
+ *   3. Query `RosterEntries` for any active membership → `organizationId`.
+ *   4. If role is `director`, ALWAYS route to org billing.
+ *      If role is anything else AND the org is on the Elite plan, route to org billing.
+ *   5. Otherwise, fallback to the user's personal billing context.
  */
 export async function resolveBillingTarget(
   db: Firestore,
@@ -1079,24 +1078,46 @@ export async function resolveBillingTarget(
   const userData = userDoc.data();
   const role = userData?.['role'] as string | undefined;
 
+  // ── Try to resolve to an organization (directors always, others only if Elite) ──
+  const orgTarget = await resolveUserOrgTarget(db, userId, role);
+  if (orgTarget) {
+    billingResolutionCache.set(userId, {
+      type: orgTarget.type,
+      billingUserId: orgTarget.billingUserId,
+      organizationId: orgTarget.organizationId,
+      teamIds: orgTarget.teamIds,
+      expiresAt: Date.now() + BILLING_RESOLUTION_CACHE_TTL_MS,
+    });
+    return orgTarget;
+  }
+
+  // Director without an active org — log a warning
   if (role === 'director') {
-    const target = await resolveDirectorTarget(db, userId);
-    if (target) {
-      // Cache the lightweight resolution mapping (NOT the context)
-      billingResolutionCache.set(userId, {
-        type: target.type,
-        billingUserId: target.billingUserId,
-        organizationId: target.organizationId,
-        teamIds: target.teamIds,
-        expiresAt: Date.now() + BILLING_RESOLUTION_CACHE_TTL_MS,
-      });
-      return target;
-    }
-    // Director without an active org — fall through to individual
     logger.warn(
       '[resolveBillingTarget] Director has no active organization, falling back to individual',
       { userId }
     );
+  }
+
+  // ── Athletes / Coaches on org-billed teams ────────────────────────────
+  // Non-director users (athletes, coaches) may belong to an org-billed team.
+  // In that case their AI usage should be gated against the org budget and
+  // charged to the org's Stripe customer — not treated as individual IAP.
+  //
+  // Resolution: find the user's active roster entry → look up its team →
+  // check if the org has billing enabled → create/return org billing target
+  // using the athlete's own context (which has teamId for sub-limit tracking).
+  if (role !== 'director') {
+    const athleteTarget = await resolveAthleteOrgTarget(db, userId);
+    if (athleteTarget) {
+      billingResolutionCache.set(userId, {
+        type: athleteTarget.type,
+        billingUserId: athleteTarget.billingUserId,
+        organizationId: athleteTarget.organizationId,
+        expiresAt: Date.now() + BILLING_RESOLUTION_CACHE_TTL_MS,
+      });
+      return athleteTarget;
+    }
   }
 
   // ── Fallback: individual billing ──
@@ -1117,17 +1138,121 @@ export async function resolveBillingTarget(
 }
 
 /**
- * Internal: Resolve a director's organization target.
- * Returns null if the director has no active organization.
+ * Internal: Resolve an athlete/coach's organization target.
+ *
+ * Non-director users (athletes, coaches) on an org-billed team should have
+ * their AI usage charged to the organization, not treated as individual.
+ *
+ * Strategy:
+ *   1. Find the user's active roster entry to get their teamId.
+ *   2. Look up the team's organizationId and check for org billing.
+ *   3. If org-billed, ensure the athlete's billing context is created with
+ *      the correct teamId (so spend attribution walks the 3-tier hierarchy).
+ *   4. Return type='organization' with the org's Stripe customer userId
+ *      (`org:{orgId}`) but context = the athlete's own context (which tracks
+ *      teamId for team sub-limit enforcement).
+ *
+ * Returns null if the user is not on an org-billed team (fallback to individual).
  */
-async function resolveDirectorTarget(
+async function resolveAthleteOrgTarget(
   db: Firestore,
   userId: string
 ): Promise<ResolvedBillingTarget | null> {
-  // Strategy 1: Look up via RosterEntries — find any org-level role for this user.
-  // Note: roster `role` uses membership roles (owner, admin, director, coach)
-  // while the user doc `role` is the account type. We already verified the
-  // account type is 'director', so find any active org membership.
+  // Step 1: find active roster entry to get the user's team
+  const rosterSnap = await db
+    .collection('RosterEntries')
+    .where('userId', '==', userId)
+    .where('status', '==', 'active')
+    .limit(1)
+    .get();
+
+  if (rosterSnap.empty) return null;
+
+  const rosterData = rosterSnap.docs[0]!.data();
+  const teamId = rosterData['teamId'] as string | undefined;
+  const organizationId = rosterData['organizationId'] as string | undefined;
+
+  if (!teamId) return null;
+
+  // Step 2: check if the team's org has billing enabled
+  const teamDoc = await db.collection('Teams').doc(teamId).get();
+  const teamData = teamDoc.data();
+
+  const orgId = organizationId ?? (teamData?.['organizationId'] as string | undefined);
+
+  let orgHasBilling = false;
+  if (orgId) {
+    const orgDoc = await db.collection('Organizations').doc(orgId).get();
+    const orgData = orgDoc.data();
+    orgHasBilling = !!orgData?.['billing']?.['subscriptionId'] || !!teamData?.['orgBillingEnabled'];
+  } else if (teamData?.['orgBillingEnabled']) {
+    orgHasBilling = true;
+  }
+
+  if (!orgHasBilling) return null;
+
+  // Step 3: ensure athlete's billing context has teamId and billingEntity='organization'
+  // getOrCreateBillingContext with teamId will either return the existing context
+  // (if already properly set up) or create a new one with org billing.
+  const athleteCtx = await getOrCreateBillingContext(db, userId, teamId);
+
+  // If the existing context is individual (created before the team joined org billing),
+  // update it to reflect the organization billing.
+  if (athleteCtx.billingEntity === 'individual' && orgId) {
+    const ctxSnap = await db
+      .collection(COLLECTIONS.BILLING_CONTEXTS)
+      .where('userId', '==', userId)
+      .limit(1)
+      .get();
+    if (!ctxSnap.empty) {
+      await ctxSnap.docs[0]!.ref.update({
+        billingEntity: 'organization' as BillingEntity,
+        teamId,
+        organizationId: orgId,
+        paymentProvider: 'stripe' as PaymentProvider,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      // Refresh the context so callers see the updated values
+      athleteCtx.billingEntity = 'organization';
+      athleteCtx.teamId = teamId;
+      athleteCtx.organizationId = orgId;
+      athleteCtx.paymentProvider = 'stripe';
+    }
+  }
+
+  const billingUserId = orgId ? `org:${orgId}` : `team:${teamId}`;
+
+  logger.info('[resolveBillingTarget] Resolved athlete to organization billing', {
+    userId,
+    teamId,
+    organizationId: orgId,
+    billingUserId,
+  });
+
+  return {
+    type: 'organization',
+    billingUserId,
+    context: athleteCtx,
+    organizationId: orgId,
+  };
+}
+
+/**
+ * Internal: Resolve a user's organization billing target.
+ *
+ * Directors are ALWAYS routed to their organization's billing context.
+ * Athletes, coaches, and other roster members are routed to the organization
+ * billing context ONLY if the organization is on the Elite plan. Otherwise
+ * they fall back to their individual billing context.
+ *
+ * Returns null if no qualifying organization is found.
+ */
+async function resolveUserOrgTarget(
+  db: Firestore,
+  userId: string,
+  role: string | undefined
+): Promise<ResolvedBillingTarget | null> {
+  // Strategy 1: Look up via RosterEntries — find any active org membership.
   const rosterSnap = await db
     .collection('RosterEntries')
     .where('userId', '==', userId)
@@ -1141,8 +1266,8 @@ async function resolveDirectorTarget(
     organizationId = rosterSnap.docs[0]!.data()['organizationId'] as string | undefined;
   }
 
-  // Strategy 2: Fallback — check organizations.ownerId
-  if (!organizationId) {
+  // Strategy 2: Fallback for directors — check organizations.ownerId
+  if (!organizationId && role === 'director') {
     const orgSnap = await db
       .collection('Organizations')
       .where('ownerId', '==', userId)
@@ -1155,7 +1280,6 @@ async function resolveDirectorTarget(
   }
 
   if (!organizationId) {
-    logger.warn('[resolveDirectorTarget] No org found for director', { userId });
     return null;
   }
 
@@ -1174,15 +1298,16 @@ async function resolveDirectorTarget(
   }
 
   if (!orgCtx) {
-    logger.error('[resolveDirectorTarget] Failed to create org billing context', {
+    logger.error('[resolveUserOrgTarget] Failed to create org billing context', {
       organizationId,
       userId,
     });
     return null;
   }
 
-  logger.info('[resolveBillingTarget] Resolved director to organization', {
+  logger.info('[resolveUserOrgTarget] Resolved user to organization billing', {
     userId,
+    role,
     organizationId,
     teamCount: teamIds.length,
   });
@@ -1336,6 +1461,9 @@ export async function updateBudget(
     throw new Error('Budget cannot be negative');
   }
 
+  // Ensure a billing context exists (creates one with defaults if missing)
+  const ctx = await getOrCreateBillingContext(db, userId);
+
   const snapshot = await db
     .collection(COLLECTIONS.BILLING_CONTEXTS)
     .where('userId', '==', userId)
@@ -1343,7 +1471,7 @@ export async function updateBudget(
     .get();
 
   if (snapshot.empty) {
-    throw new Error('Billing context not found');
+    throw new Error('Billing context not found after upsert');
   }
 
   await snapshot.docs[0]!.ref.update({
@@ -1355,7 +1483,11 @@ export async function updateBudget(
     updatedAt: FieldValue.serverTimestamp(),
   });
 
-  logger.info('[updateBudget] Budget updated', { userId, newBudgetCents });
+  logger.info('[updateBudget] Budget updated', {
+    userId,
+    newBudgetCents,
+    billingEntity: ctx.billingEntity,
+  });
 }
 
 /**
@@ -1664,20 +1796,63 @@ export async function createWalletHold(
 
       const walletBalance = data.walletBalanceCents ?? 0;
       const pendingHolds = data.pendingHoldsCents ?? 0;
-      availableBalance = walletBalance - pendingHolds;
+      const currentSpend = data.currentPeriodSpend ?? 0;
+      const monthlyBudget = data.monthlyBudget ?? 0;
 
-      if (availableBalance < estimatedCostCents) {
-        throw new Error(
-          `Insufficient available balance: $${(availableBalance / 100).toFixed(2)} < $${(estimatedCostCents / 100).toFixed(2)}`
+      let orgMasterRef: FirebaseFirestore.DocumentReference | null = null;
+      let orgMasterData: BillingContext | null = null;
+
+      if (data.billingEntity === 'organization') {
+        // For org users, budget enforcement must be done against the org master
+        // context (userId = 'org:<orgId>') to prevent concurrent job overdrafts.
+        const orgUserId = data.organizationId ? `org:${data.organizationId}` : null;
+        if (!orgUserId) {
+          throw new Error('Org user has no organizationId in billing context');
+        }
+
+        const orgSnap = await txn.get(
+          db.collection(COLLECTIONS.BILLING_CONTEXTS).where('userId', '==', orgUserId).limit(1)
         );
+        if (orgSnap.empty) {
+          throw new Error(`Org master billing context not found for ${orgUserId}`);
+        }
+        orgMasterRef = orgSnap.docs[0]!.ref;
+        orgMasterData = orgSnap.docs[0]!.data() as BillingContext;
+
+        if (data.hardStop) {
+          const orgCurrentSpend = orgMasterData.currentPeriodSpend ?? 0;
+          const orgPendingHolds = orgMasterData.pendingHoldsCents ?? 0;
+          const orgMonthlyBudget = orgMasterData.monthlyBudget ?? monthlyBudget;
+          const availableBudget = orgMonthlyBudget - orgCurrentSpend - orgPendingHolds;
+          if (availableBudget < estimatedCostCents) {
+            throw new Error(
+              `Insufficient budget: $${(availableBudget / 100).toFixed(2)} (available) < $${(estimatedCostCents / 100).toFixed(2)} (estimated)`
+            );
+          }
+          availableBalance = availableBudget;
+        }
+      } else if (data.billingEntity === 'individual' && data.paymentProvider === 'iap') {
+        // IAP prepay wallet balance check
+        availableBalance = walletBalance - pendingHolds;
+        if (availableBalance < estimatedCostCents) {
+          throw new Error(
+            `Insufficient available balance: $${(availableBalance / 100).toFixed(2)} < $${(estimatedCostCents / 100).toFixed(2)}`
+          );
+        }
+      } else {
+        // Other types like individual stripe, default to available budget check
+        const availableBudget = monthlyBudget - currentSpend - pendingHolds;
+        availableBalance = availableBudget;
       }
 
-      // Create hold document
+      // Create hold document — store org context so capture/release can update it
       const holdRef = db.collection(COLLECTIONS.WALLET_HOLDS).doc();
       holdId = holdRef.id;
 
       txn.set(holdRef, {
         userId,
+        ...(data.organizationId ? { organizationId: data.organizationId } : {}),
+        ...(data.teamId ? { teamId: data.teamId } : {}),
         amountCents: estimatedCostCents,
         status: 'active',
         jobId,
@@ -1685,11 +1860,19 @@ export async function createWalletHold(
         createdAt: FieldValue.serverTimestamp(),
       });
 
-      // Atomically increase pending holds on the billing context
+      // Atomically increase pending holds on the user's billing context
       txn.update(docRef, {
         pendingHoldsCents: FieldValue.increment(estimatedCostCents),
         updatedAt: FieldValue.serverTimestamp(),
       });
+
+      // For org users: also reserve budget on the org master context
+      if (orgMasterRef) {
+        txn.update(orgMasterRef, {
+          pendingHoldsCents: FieldValue.increment(estimatedCostCents),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
     });
 
     logger.info('[createWalletHold] Hold created', {
@@ -1741,6 +1924,8 @@ export async function captureWalletHold(
   }
 
   const holdRef = db.collection(COLLECTIONS.WALLET_HOLDS).doc(holdId);
+  let organizationId: string | undefined;
+  let teamId: string | undefined;
 
   await db.runTransaction(async (txn) => {
     const holdDoc = await txn.get(holdRef);
@@ -1750,6 +1935,8 @@ export async function captureWalletHold(
     }
 
     const hold = holdDoc.data() as WalletHold;
+    organizationId = hold.organizationId;
+    teamId = hold.teamId;
 
     if (hold.status !== 'active') {
       throw new Error(`Wallet hold ${holdId} is already ${hold.status}`);
@@ -1765,14 +1952,34 @@ export async function captureWalletHold(
     }
 
     const ctxRef = ctxSnap.docs[0]!.ref;
+    const ctxData = ctxSnap.docs[0]!.data() as BillingContext;
 
-    // Release the full hold and deduct the actual cost
-    txn.update(ctxRef, {
+    // Release the full hold and record the actual cost on the user's context
+    const updates: Record<string, unknown> = {
       pendingHoldsCents: FieldValue.increment(-hold.amountCents),
-      walletBalanceCents: FieldValue.increment(-actualCostCents),
       currentPeriodSpend: FieldValue.increment(actualCostCents),
       updatedAt: FieldValue.serverTimestamp(),
-    });
+    };
+
+    if (ctxData.billingEntity === 'individual' && ctxData.paymentProvider === 'iap') {
+      updates['walletBalanceCents'] = FieldValue.increment(-actualCostCents);
+    }
+
+    txn.update(ctxRef, updates);
+
+    // For org users: also release the pending hold reservation on the org master context
+    if (hold.organizationId) {
+      const orgUserId = `org:${hold.organizationId}`;
+      const orgSnap = await txn.get(
+        db.collection(COLLECTIONS.BILLING_CONTEXTS).where('userId', '==', orgUserId).limit(1)
+      );
+      if (!orgSnap.empty) {
+        txn.update(orgSnap.docs[0]!.ref, {
+          pendingHoldsCents: FieldValue.increment(-hold.amountCents),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+    }
 
     // Mark hold as captured
     txn.update(holdRef, {
@@ -1781,6 +1988,15 @@ export async function captureWalletHold(
       resolvedAt: FieldValue.serverTimestamp(),
     });
   });
+
+  // For org users: update the org master's currentPeriodSpend (with threshold notifications)
+  // and the team sub-allocation. This mirrors what recordSpend() does.
+  if (organizationId && actualCostCents > 0) {
+    await updateOrgSpend(db, organizationId, actualCostCents);
+    if (teamId) {
+      await updateTeamAllocationSpend(db, teamId, actualCostCents);
+    }
+  }
 
   logger.info('[captureWalletHold] Hold captured', { holdId, actualCostCents });
 }
@@ -1829,6 +2045,20 @@ export async function releaseWalletHold(db: Firestore, holdId: string): Promise<
       updatedAt: FieldValue.serverTimestamp(),
     });
 
+    // For org users: also release the pending hold on the org master context
+    if (hold.organizationId) {
+      const orgUserId = `org:${hold.organizationId}`;
+      const orgSnap = await txn.get(
+        db.collection(COLLECTIONS.BILLING_CONTEXTS).where('userId', '==', orgUserId).limit(1)
+      );
+      if (!orgSnap.empty) {
+        txn.update(orgSnap.docs[0]!.ref, {
+          pendingHoldsCents: FieldValue.increment(-hold.amountCents),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
     // Mark hold as released
     txn.update(holdRef, {
       status: 'released',
@@ -1865,6 +2095,8 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
 
   // Group holds by userId to batch-update billing contexts
   const holdsByUser = new Map<string, number>();
+  // Group holds by orgId to batch-update org master contexts
+  const holdsByOrg = new Map<string, number>();
 
   for (const doc of snapshot.docs) {
     const hold = doc.data() as WalletHold;
@@ -1876,6 +2108,12 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
 
     const existing = holdsByUser.get(hold.userId) ?? 0;
     holdsByUser.set(hold.userId, existing + hold.amountCents);
+
+    if (hold.organizationId) {
+      const orgExisting = holdsByOrg.get(hold.organizationId) ?? 0;
+      holdsByOrg.set(hold.organizationId, orgExisting + hold.amountCents);
+    }
+
     expiredCount++;
   }
 
@@ -1891,6 +2129,23 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
 
     if (!ctxSnap.empty) {
       await ctxSnap.docs[0]!.ref.update({
+        pendingHoldsCents: FieldValue.increment(-totalHeldCents),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
+  // Release pending holds on each affected org master context
+  for (const [organizationId, totalHeldCents] of holdsByOrg) {
+    const orgUserId = `org:${organizationId}`;
+    const orgSnap = await db
+      .collection(COLLECTIONS.BILLING_CONTEXTS)
+      .where('userId', '==', orgUserId)
+      .limit(1)
+      .get();
+
+    if (!orgSnap.empty) {
+      await orgSnap.docs[0]!.ref.update({
         pendingHoldsCents: FieldValue.increment(-totalHeldCents),
         updatedAt: FieldValue.serverTimestamp(),
       });

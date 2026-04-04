@@ -137,6 +137,10 @@ export type { OptionScrollerItem, OptionScrollerChangeEvent };
         -webkit-overflow-scrolling: touch;
         scrollbar-width: none;
         -ms-overflow-style: none;
+        /* Tell the browser this container scrolls horizontally.
+           This prevents the browser from firing click on a different element
+           after the user pans/scrolls the tab bar. */
+        touch-action: pan-x;
       }
 
       .scroller--scrollable .scroller__container::-webkit-scrollbar {
@@ -308,7 +312,10 @@ export class NxtOptionScrollerWebComponent {
       this.selectedId();
       this.options();
       if (isPlatformBrowser(this.platformId)) {
-        requestAnimationFrame(() => this.updateIndicator());
+        // Double-rAF: first frame lets Angular commit DOM changes,
+        // second frame lets the browser fully paint/layout so measurements
+        // (getBoundingClientRect) are stable — critical on mobile.
+        requestAnimationFrame(() => requestAnimationFrame(() => this.updateIndicator()));
       }
     });
 
@@ -398,12 +405,47 @@ export class NxtOptionScrollerWebComponent {
     const element = this.optionElements[idx];
     if (!element) return;
 
-    const containerRect = this.optionsContainer()?.nativeElement.getBoundingClientRect();
-    const elementRect = element.getBoundingClientRect();
-    if (!containerRect) return;
+    const containerEl = this.optionsContainer()?.nativeElement;
+    if (!containerEl) return;
 
-    this._indicatorOffset.set(elementRect.left - containerRect.left);
+    const containerRect = containerEl.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+
+    // scrollLeft converts the visual (viewport-relative) position to the
+    // logical position from the container's scroll origin.  Without this,
+    // the indicator lands on the wrong tab whenever the container is scrolled.
+    const scrollLeft = containerEl.scrollLeft || 0;
+    this._indicatorOffset.set(elementRect.left - containerRect.left + scrollLeft);
     this._indicatorWidth.set(elementRect.width);
+
+    // Scroll the selected option into view (for scrollable tab bars)
+    this.scrollOptionIntoView(element, containerEl);
+  }
+
+  /**
+   * Smoothly scroll the selected option into full view within the container.
+   * No-op when the element is already fully visible.
+   */
+  private scrollOptionIntoView(element: HTMLButtonElement, container: HTMLElement): void {
+    if (container.scrollWidth <= container.clientWidth) return; // not scrollable
+
+    const containerRect = container.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    const scrollLeft = container.scrollLeft;
+
+    const elementLogicalLeft = elementRect.left - containerRect.left + scrollLeft;
+    const elementLogicalRight = elementLogicalLeft + elementRect.width;
+
+    if (elementLogicalLeft < scrollLeft) {
+      // Partially hidden on the left
+      container.scrollTo({ left: elementLogicalLeft - 16, behavior: 'smooth' });
+    } else if (elementLogicalRight > scrollLeft + container.clientWidth) {
+      // Partially hidden on the right
+      container.scrollTo({
+        left: elementLogicalRight - container.clientWidth + 16,
+        behavior: 'smooth',
+      });
+    }
   }
 
   private focusOption(index: number): void {

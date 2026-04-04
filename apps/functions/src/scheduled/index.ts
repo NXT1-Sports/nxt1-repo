@@ -9,6 +9,7 @@ export { dailyDigest } from './dailyDigest';
 export { weeklyCleanup } from './weeklyCleanup';
 export { subscriptionCheck } from './subscriptionCheck';
 export { monthlyBillingReset } from './monthlyBillingReset';
+export { monthlyOrgInvoice } from './monthlyOrgInvoice';
 export { agentDailyBriefings } from './runDailyBriefings';
 export { expireStaleWalletHolds } from './expireStaleHolds';
 // DISABLED: Temporarily disabled to stop OpenRouter charges (deepseek-r1 fallback billing)

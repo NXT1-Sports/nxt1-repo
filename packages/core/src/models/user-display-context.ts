@@ -95,6 +95,9 @@ export interface UserDisplayContext {
   /** Whether this user is a team-management role (coach/director) */
   readonly isTeamRole: boolean;
 
+  /** Whether this user belongs to a team/org (athletes with teamCode, or any team role) */
+  readonly isOnTeam: boolean;
+
   // ── Sport/Team Switcher ──
 
   /** Section title above the profile row: "Teams" for coaches, "Sports" for athletes */
@@ -226,6 +229,7 @@ function buildTeamContext(
     isPremium,
     verified: false,
     isTeamRole: true,
+    isOnTeam: true,
     switcherTitle: 'Teams',
     sportLabel,
     actionLabel: 'Add Team',
@@ -273,6 +277,7 @@ function buildAthleteContext(
     isPremium,
     verified: false,
     isTeamRole: false,
+    isOnTeam: !!(user?.teamCode?.slug || user?.teamCode?.teamName),
     switcherTitle: 'Sports',
     sportLabel,
     actionLabel: 'Add Sport',

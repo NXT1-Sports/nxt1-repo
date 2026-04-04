@@ -13,19 +13,50 @@ import { validateBody } from '../middleware/validation.middleware.js';
 import {
   AddPaymentMethodTokenDto,
   PaymentMethodIdDto,
-  SimpleBillingInfoDto,
   RedeemCouponDto,
+  BuyCreditsDto,
 } from '../dtos/usage.dto.js';
 import { logger } from '../utils/logger.js';
 import {
   COLLECTIONS,
   getOrCreateCustomer,
   getStripeClient,
+  createSetupIntent,
+  getBillingContext,
   getOrgTeamAllocations,
   resolveBillingTarget,
   type ResolvedBillingTarget,
 } from '../modules/billing/index.js';
 import { USAGE_PRODUCT_CONFIGS, USAGE_CATEGORY_CONFIGS, USAGE_HISTORY_PAGE_SIZE } from '@nxt1/core';
+
+/** Normalize PaymentLog status (Firestore: 'PAID'/'FAILED'/…) to TransactionStatus ('completed'/'failed'/…) */
+function normalizePaymentStatus(status: unknown): string {
+  switch (String(status ?? '').toUpperCase()) {
+    case 'PAID':
+      return 'completed';
+    case 'FAILED':
+      return 'failed';
+    case 'PENDING':
+      return 'processing';
+    case 'VOID':
+    case 'CANCELED':
+      return 'canceled';
+    case 'REFUNDED':
+      return 'refunded';
+    default:
+      return 'completed';
+  }
+}
+
+/** Convert Firestore Timestamp, Date, or ISO string to ISO string */
+function toISOString(val: unknown): string {
+  if (!val) return new Date().toISOString();
+  if (typeof val === 'string') return val;
+  if (val instanceof Date) return val.toISOString();
+  // Firestore Timestamp
+  if (typeof (val as any).toDate === 'function') return (val as any).toDate().toISOString();
+  return new Date().toISOString();
+}
 import type {
   UsageOverview,
   UsageChartDataPoint,
@@ -38,6 +69,7 @@ import type {
   UsageDashboardData,
   UsageProductCategory,
   UsagePaymentMethod,
+  UsageBillingInfo,
 } from '@nxt1/core';
 
 const router = Router();
@@ -133,19 +165,22 @@ async function fetchOrgUsageEvents(
     chunks.push(teamIds.slice(i, i + CHUNK_SIZE));
   }
 
+  const direction = orderDesc ? 'desc' : 'asc';
+
   const results = await Promise.all(
     chunks.map((chunk) =>
-      db.collection(COLLECTIONS.USAGE_EVENTS).where('teamId', 'in', chunk).limit(limit).get()
+      db
+        .collection(COLLECTIONS.USAGE_EVENTS)
+        .where('teamId', 'in', chunk)
+        .where('createdAt', '>=', startIso)
+        .where('createdAt', '<=', endIso)
+        .orderBy('createdAt', direction)
+        .limit(limit)
+        .get()
     )
   );
 
-  // Filter by date range in-memory (avoids composite index requirement)
-  const allDocs = results
-    .flatMap((snap) => snap.docs)
-    .filter((doc) => {
-      const createdAt = doc.data()['createdAt'] as string;
-      return createdAt >= startIso && createdAt <= endIso;
-    });
+  const allDocs = results.flatMap((snap) => snap.docs);
   allDocs.sort((a, b) => {
     const aDate = a.data()['createdAt'] as string;
     const bDate = b.data()['createdAt'] as string;
@@ -169,23 +204,18 @@ async function fetchUsageEvents(
     return fetchOrgUsageEvents(db, target.teamIds, startIso, endIso, orderDesc, limit);
   }
 
-  // Individual fallback — query by userId, filter date in-memory
+  // Individual query — date filtering at the database level
+  const direction = orderDesc ? 'desc' : 'asc';
   const snap = await db
     .collection(COLLECTIONS.USAGE_EVENTS)
     .where('userId', '==', target.billingUserId)
+    .where('createdAt', '>=', startIso)
+    .where('createdAt', '<=', endIso)
+    .orderBy('createdAt', direction)
     .limit(limit)
     .get();
 
-  const docs = [...snap.docs].filter((doc) => {
-    const createdAt = doc.data()['createdAt'] as string;
-    return createdAt >= startIso && createdAt <= endIso;
-  });
-  docs.sort((a, b) => {
-    const aDate = a.data()['createdAt'] as string;
-    const bDate = b.data()['createdAt'] as string;
-    return orderDesc ? bDate.localeCompare(aDate) : aDate.localeCompare(bDate);
-  });
-  return docs;
+  return snap.docs;
 }
 
 // ============================================
@@ -225,16 +255,25 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     const dailyUsage = new Map<string, number>();
     let totalUsageCents = 0;
 
-    for (const doc of eventsDocs) {
-      const data = doc.data();
-      const feature = data['feature'] as string;
-      const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
-      totalUsageCents += cost;
+    // For IAP wallet users, charges go directly to billingContexts.currentPeriodSpend
+    // (deductWallet does not write usageEvents). Use the authoritative source directly.
+    const isIapUser =
+      billingCtx.billingEntity === 'individual' && billingCtx.paymentProvider === 'iap';
 
-      featureUsage.set(feature, (featureUsage.get(feature) ?? 0) + cost);
+    if (isIapUser) {
+      totalUsageCents = billingCtx.currentPeriodSpend ?? 0;
+    } else {
+      for (const doc of eventsDocs) {
+        const data = doc.data();
+        const feature = data['feature'] as string;
+        const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
+        totalUsageCents += cost;
 
-      const dateKey = (data['createdAt'] as string).slice(0, 10);
-      dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
+        featureUsage.set(feature, (featureUsage.get(feature) ?? 0) + cost);
+
+        const dateKey = toISOString(data['createdAt']).slice(0, 10);
+        dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
+      }
     }
 
     // Build overview (includes wallet fields for B2C UI fork)
@@ -305,7 +344,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
 
     for (const doc of eventsDocs) {
       const data = doc.data();
-      const dateKey = (data['createdAt'] as string).slice(0, 10);
+      const dateKey = toISOString(data['createdAt']).slice(0, 10);
       const feature = data['feature'] as string;
       const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
       const qty = data['quantity'] as number;
@@ -347,35 +386,32 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     const paymentLogsSnap = await db
       .collection(COLLECTIONS.PAYMENT_LOGS)
       .where('userId', '==', target.billingUserId)
+      .orderBy('createdAt', 'desc')
       .limit(USAGE_HISTORY_PAGE_SIZE)
       .get();
 
-    const paymentLogDocs = [...paymentLogsSnap.docs];
-    paymentLogDocs.sort((a, b) => {
-      const aDate = (a.data()['createdAt'] as string) ?? '';
-      const bDate = (b.data()['createdAt'] as string) ?? '';
-      return bDate.localeCompare(aDate);
-    });
+    const paymentLogDocs = paymentLogsSnap.docs;
 
     const paymentHistory: UsagePaymentHistoryRecord[] = paymentLogDocs.map((doc) => {
       const d = doc.data();
       return {
         id: doc.id,
         displayId: doc.id.slice(0, 8).toUpperCase(),
-        amount: (d['amount'] as number) ?? 0,
-        currency: 'usd',
-        status: (d['status'] as 'completed') ?? 'completed',
+        amount: (d['amountPaid'] as number) ?? 0,
+        currency: ((d['currency'] as string) ?? 'usd') as UsagePaymentHistoryRecord['currency'],
+        status: normalizePaymentStatus(d['status']) as UsagePaymentHistoryRecord['status'],
         paymentMethodLabel: (d['paymentMethodLabel'] as string) ?? 'Card',
         provider: 'stripe',
-        createdAt: (d['createdAt'] as string) ?? new Date().toISOString(),
-        dateLabel: (d['createdAt'] as string)?.slice(0, 10) ?? '',
-        receiptUrl: (d['receiptUrl'] as string) ?? null,
-        invoiceUrl: (d['invoiceUrl'] as string) ?? null,
+        createdAt: toISOString(d['createdAt']),
+        dateLabel: toISOString(d['createdAt']).slice(0, 10),
+        receiptUrl: (d['receiptUrl'] as string | null) ?? null,
+        invoiceUrl: (d['invoiceUrl'] as string | null) ?? null,
       };
     });
 
-    // Payment methods from Stripe (use billing target userId for org lookups)
+    // Payment methods and billing info from Stripe (use billing target userId for org lookups)
     let paymentMethods: UsagePaymentMethod[] = [];
+    let billingInfo: UsageBillingInfo | null = null;
     try {
       const customerDoc = await db
         .collection(COLLECTIONS.STRIPE_CUSTOMERS)
@@ -413,6 +449,17 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
           email: null,
           addedAt: new Date(m.created * 1000).toISOString(),
         }));
+
+        if (typeof customer !== 'string' && !customer.deleted && customer.address) {
+          const addr = customer.address;
+          const cityStateZip = [addr.city, addr.state, addr.postal_code].filter(Boolean).join(', ');
+          billingInfo = {
+            name: customer.name ?? '',
+            addressLine1: addr.line1 ?? '',
+            addressLine2: addr.line2 ? `${addr.line2}, ${cityStateZip}` : cityStateZip,
+            country: addr.country ?? '',
+          };
+        }
       }
     } catch (err) {
       logger.warn('[GET /dashboard] Failed to fetch payment methods from Stripe', { error: err });
@@ -477,7 +524,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       breakdownRows,
       paymentHistory,
       paymentMethods,
-      billingInfo: null,
+      billingInfo,
       coupon: null,
       budgets,
       billingEntity: billingCtx.billingEntity,
@@ -521,10 +568,19 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
       10000
     );
 
+    // For IAP wallet users, charges go directly to billingContexts.currentPeriodSpend
+    // (deductWallet does not write usageEvents). Use the authoritative source directly.
+    const isIapUser =
+      billingCtx.billingEntity === 'individual' && billingCtx.paymentProvider === 'iap';
+
     let totalUsageCents = 0;
-    for (const doc of eventsDocs) {
-      const data = doc.data();
-      totalUsageCents += (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
+    if (isIapUser) {
+      totalUsageCents = billingCtx.currentPeriodSpend ?? 0;
+    } else {
+      for (const doc of eventsDocs) {
+        const data = doc.data();
+        totalUsageCents += (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
+      }
     }
 
     const overview: UsageOverview = {
@@ -582,7 +638,7 @@ router.get('/chart', appGuard, async (req: Request, res: Response) => {
     const dailyUsage = new Map<string, number>();
     for (const doc of eventsDocs) {
       const data = doc.data();
-      const dateKey = (data['createdAt'] as string).slice(0, 10);
+      const dateKey = toISOString(data['createdAt']).slice(0, 10);
       const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
       dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
     }
@@ -640,7 +696,7 @@ router.get('/breakdown', appGuard, async (req: Request, res: Response) => {
 
     for (const doc of eventsDocs) {
       const data = doc.data();
-      const dateKey = (data['createdAt'] as string).slice(0, 10);
+      const dateKey = toISOString(data['createdAt']).slice(0, 10);
       const feature = data['feature'] as string;
       const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
       const qty = data['quantity'] as number;
@@ -714,34 +770,31 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
       .get();
     const total = countSnap.data().count;
 
-    // Get paginated records (sort in-memory to avoid composite index)
+    // Paginate at the database level using orderBy + offset + limit
     const logsSnap = await db
       .collection(COLLECTIONS.PAYMENT_LOGS)
       .where('userId', '==', target.billingUserId)
+      .orderBy('createdAt', 'desc')
+      .offset(offset)
+      .limit(limit)
       .get();
 
-    const allLogDocs = [...logsSnap.docs];
-    allLogDocs.sort((a, b) => {
-      const aDate = (a.data()['createdAt'] as string) ?? '';
-      const bDate = (b.data()['createdAt'] as string) ?? '';
-      return bDate.localeCompare(aDate);
-    });
-    const paginatedDocs = allLogDocs.slice(offset, offset + limit);
+    const paginatedDocs = logsSnap.docs;
 
     const records: UsagePaymentHistoryRecord[] = paginatedDocs.map((doc) => {
       const d = doc.data();
       return {
         id: doc.id,
         displayId: doc.id.slice(0, 8).toUpperCase(),
-        amount: (d['amount'] as number) ?? 0,
-        currency: 'usd',
-        status: (d['status'] as 'completed') ?? 'completed',
+        amount: (d['amountPaid'] as number) ?? 0,
+        currency: ((d['currency'] as string) ?? 'usd') as UsagePaymentHistoryRecord['currency'],
+        status: normalizePaymentStatus(d['status']) as UsagePaymentHistoryRecord['status'],
         paymentMethodLabel: (d['paymentMethodLabel'] as string) ?? 'Card',
         provider: 'stripe',
-        createdAt: (d['createdAt'] as string) ?? new Date().toISOString(),
-        dateLabel: (d['createdAt'] as string)?.slice(0, 10) ?? '',
-        receiptUrl: (d['receiptUrl'] as string) ?? null,
-        invoiceUrl: (d['invoiceUrl'] as string) ?? null,
+        createdAt: toISOString(d['createdAt']),
+        dateLabel: toISOString(d['createdAt']).slice(0, 10),
+        receiptUrl: (d['receiptUrl'] as string | null) ?? null,
+        invoiceUrl: (d['invoiceUrl'] as string | null) ?? null,
       };
     });
 
@@ -824,65 +877,70 @@ router.get('/payment-methods', appGuard, async (req: Request, res: Response) => 
 });
 
 /**
- * POST /api/v1/usage/payment-methods/add
- * Add a new payment method via Stripe token
+ * @deprecated Use Stripe Customer Portal (POST /portal-session) instead.
+ * POST /api/v1/usage/payment-methods/add — kept for backwards compatibility only.
  */
 router.post(
   '/payment-methods/add',
   appGuard,
   validateBody(AddPaymentMethodTokenDto),
-  async (req: Request, res: Response) => {
-    try {
-      const userId = req.user!.uid;
-      const { token } = req.body as AddPaymentMethodTokenDto;
-
-      const db = req.firebase?.db;
-      if (!db) throw new Error('Firebase context not available');
-      const environment = req.isStaging ? 'staging' : 'production';
-      const email = req.user!.email ?? '';
-
-      const { customerId } = await getOrCreateCustomer(db, userId, email, undefined, environment);
-      const stripe = getStripeClient(environment);
-
-      const paymentMethod = await stripe.paymentMethods.create({
-        type: 'card',
-        card: { token },
-      });
-
-      await stripe.paymentMethods.attach(paymentMethod.id, { customer: customerId });
-
-      const result: UsagePaymentMethod = {
-        id: paymentMethod.id,
-        type: 'card',
-        provider: 'stripe',
-        label: `${(paymentMethod.card?.brand ?? 'card').charAt(0).toUpperCase() + (paymentMethod.card?.brand ?? 'card').slice(1)} ending in ${paymentMethod.card?.last4 ?? '****'}`,
-        last4: paymentMethod.card?.last4 ?? null,
-        brand: paymentMethod.card?.brand ?? null,
-        expiryMonth: paymentMethod.card?.exp_month ?? null,
-        expiryYear: paymentMethod.card?.exp_year ?? null,
-        isDefault: false,
-        email: null,
-        addedAt: new Date().toISOString(),
-      };
-
-      logger.info('[POST /payment-methods/add] Payment method added', {
-        userId,
-        methodId: result.id,
-      });
-      return res.json({ success: true, data: result });
-    } catch (error) {
-      logger.error('[POST /payment-methods/add] Failed to add payment method', { error });
-      return res.status(500).json({
-        error: 'Failed to add payment method',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      });
-    }
+  async (_req: Request, res: Response) => {
+    return res.status(410).json({
+      error:
+        'This endpoint has been deprecated. Use the Stripe Customer Portal to manage payment methods.',
+      code: 'DEPRECATED_USE_PORTAL',
+    });
   }
 );
 
 /**
+ * POST /api/v1/usage/payment-methods/setup-intent
+ * Create a Stripe SetupIntent to save a card via Stripe Elements.
+ * Only available for Org/Team users — Individual users use Apple IAP.
+ */
+router.post('/payment-methods/setup-intent', appGuard, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.uid;
+
+    const db = req.firebase?.db;
+    if (!db) throw new Error('Firebase context not available');
+
+    const billingCtx = await getBillingContext(db, userId);
+    if (billingCtx?.billingEntity === 'individual') {
+      return res.status(400).json({
+        error: 'Individual users manage payment via Apple IAP, not Stripe',
+        code: 'INDIVIDUAL_USE_IAP',
+      });
+    }
+
+    const environment = req.isStaging ? 'staging' : 'production';
+    const email = req.user!.email ?? '';
+
+    const target = await resolveBillingTarget(db, userId);
+    const { customerId } = await getOrCreateCustomer(
+      db,
+      target.billingUserId,
+      email,
+      target.teamIds?.[0],
+      environment
+    );
+
+    const clientSecret = await createSetupIntent(customerId, environment);
+
+    logger.info('[POST /payment-methods/setup-intent] SetupIntent created', { userId });
+    return res.json({ success: true, data: { clientSecret } });
+  } catch (error) {
+    logger.error('[POST /payment-methods/setup-intent] Failed to create setup intent', { error });
+    return res.status(500).json({
+      error: 'Failed to create setup intent',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
  * POST /api/v1/usage/payment-methods/remove
- * Remove a saved payment method
+ * Remove a saved payment method (with ownership verification)
  */
 router.post(
   '/payment-methods/remove',
@@ -890,14 +948,47 @@ router.post(
   validateBody(PaymentMethodIdDto),
   async (req: Request, res: Response) => {
     try {
+      const userId = req.user!.uid;
       const { methodId } = req.body as PaymentMethodIdDto;
 
+      const db = req.firebase?.db;
+      if (!db) throw new Error('Firebase context not available');
       const environment = req.isStaging ? 'staging' : 'production';
+
+      // Verify the payment method belongs to this user's Stripe customer
+      const target = await resolveBillingTarget(db, userId);
+      const customerDoc = await db
+        .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+        .where('userId', '==', target.billingUserId)
+        .where('environment', '==', environment)
+        .limit(1)
+        .get();
+
+      if (customerDoc.empty) {
+        return res.status(404).json({ error: 'No Stripe customer found' });
+      }
+
+      const customerId = customerDoc.docs[0]?.data()['stripeCustomerId'] as string;
       const stripe = getStripeClient(environment);
+
+      // Retrieve the payment method and verify it belongs to this customer
+      const pm = await stripe.paymentMethods.retrieve(methodId);
+      if (pm.customer !== customerId) {
+        logger.warn('[POST /payment-methods/remove] Ownership mismatch', {
+          userId,
+          methodId,
+          expectedCustomer: customerId,
+          actualCustomer: pm.customer,
+        });
+        return res.status(403).json({ error: 'Payment method does not belong to this account' });
+      }
 
       await stripe.paymentMethods.detach(methodId);
 
-      logger.info('[POST /payment-methods/remove] Payment method removed', { methodId });
+      logger.info('[POST /payment-methods/remove] Payment method removed', {
+        userId,
+        methodId,
+      });
       return res.json({ success: true });
     } catch (error) {
       logger.error('[POST /payment-methods/remove] Failed to remove payment method', { error });
@@ -965,41 +1056,81 @@ router.post(
 );
 
 /**
- * POST /api/v1/usage/billing-info
- * Update billing information
+ * @deprecated Use Stripe Customer Portal (POST /portal-session) instead.
+ * POST /api/v1/usage/billing-info — kept for backwards compatibility only.
+ */
+router.post('/billing-info', appGuard, async (_req: Request, res: Response) => {
+  return res.status(410).json({
+    error:
+      'This endpoint has been deprecated. Use the Stripe Customer Portal to manage billing info.',
+    code: 'DEPRECATED_USE_PORTAL',
+  });
+});
+
+/**
+ * POST /api/v1/usage/buy-credits
+ * Purchase credits via Stripe Checkout (B2C wallet top-up).
+ * Creates a Stripe Checkout Session in "payment" mode for a one-time purchase.
+ * On success the webhook credits the wallet; the frontend gets the checkout URL.
+ *
+ * Body: { amountCents: number } — min 500 ($5), max 50000 ($500)
  */
 router.post(
-  '/billing-info',
+  '/buy-credits',
   appGuard,
-  validateBody(SimpleBillingInfoDto),
+  validateBody(BuyCreditsDto),
   async (req: Request, res: Response) => {
     try {
       const userId = req.user!.uid;
-      const { name, addressLine1, addressLine2, country } = req.body as SimpleBillingInfoDto;
-
+      const email = req.user!.email ?? '';
+      const { amountCents } = req.body as BuyCreditsDto;
       const db = req.firebase?.db;
-      if (!db) throw new Error('Firebase context not available');
 
-      await db
-        .collection('billingInfo')
-        .doc(userId)
-        .set(
+      if (!db) {
+        return res.status(503).json({ error: 'Database unavailable' });
+      }
+
+      const environment = req.isStaging ? 'staging' : 'production';
+      const { customerId } = await getOrCreateCustomer(db, userId, email, undefined, environment);
+      const stripe = getStripeClient(environment);
+
+      const origin = req.headers.origin ?? '';
+      const session = await stripe.checkout.sessions.create({
+        customer: customerId,
+        mode: 'payment',
+        line_items: [
           {
-            name: String(name).slice(0, 200),
-            addressLine1: String(addressLine1 ?? '').slice(0, 200),
-            addressLine2: String(addressLine2 ?? '').slice(0, 200),
-            country: String(country ?? '').slice(0, 100),
-            updatedAt: new Date().toISOString(),
+            price_data: {
+              currency: 'usd',
+              unit_amount: amountCents,
+              product_data: {
+                name: 'NXT1 Credits',
+                description: `$${(amountCents / 100).toFixed(2)} credit top-up`,
+              },
+            },
+            quantity: 1,
           },
-          { merge: true }
-        );
+        ],
+        metadata: {
+          userId,
+          type: 'wallet_topup',
+          amountCents: String(amountCents),
+        },
+        success_url: `${origin}/usage?credits=success&amount=${amountCents}`,
+        cancel_url: `${origin}/usage?credits=cancelled`,
+      });
 
-      logger.info('[POST /billing-info] Billing info updated', { userId });
-      return res.json({ success: true });
+      logger.info('[POST /buy-credits] Checkout session created', {
+        userId,
+        amountCents,
+        sessionId: session.id,
+      });
+
+      return res.json({ success: true, url: session.url });
     } catch (error) {
-      logger.error('[POST /billing-info] Failed to update billing info', { error });
+      logger.error('[POST /buy-credits] Failed to create checkout session', { error });
       return res.status(500).json({
-        error: 'Failed to update billing info',
+        error: 'Failed to start credit purchase',
         message: error instanceof Error ? error.message : 'Unknown error',
       });
     }
@@ -1220,5 +1351,93 @@ router.post(
     }
   }
 );
+
+// ============================================
+// STRIPE CUSTOMER PORTAL
+// ============================================
+
+/**
+ * POST /api/v1/usage/portal-session
+ * Create a Stripe Customer Portal session so the user can manage
+ * payment methods, billing info, and invoices on Stripe's hosted UI.
+ *
+ * @returns {{ success: true, url: string }}
+ */
+router.post('/portal-session', appGuard, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.uid;
+    const db = req.firebase?.db;
+    const email = req.user!.email ?? '';
+    const environment = req.isStaging ? 'staging' : 'production';
+
+    if (!db) {
+      return res.status(503).json({ error: 'Database unavailable' });
+    }
+
+    // Resolve who actually pays — directors bill to their org's Stripe customer,
+    // individuals bill to their own.
+    const billingCtx = await getBillingContext(db, userId);
+    let customerUserId = userId;
+    let customerEmail = email;
+
+    if (billingCtx?.billingEntity === 'organization' && billingCtx.organizationId) {
+      // Director / org-billed: open portal for the org's Stripe customer
+      customerUserId = `org:${billingCtx.organizationId}`;
+      const orgDoc = await db.collection('Organizations').doc(billingCtx.organizationId).get();
+      const orgData = orgDoc.data();
+      customerEmail =
+        (orgData?.['billingEmail'] as string) || (orgData?.['email'] as string) || email;
+      logger.info('[POST /portal-session] Resolved director to org customer', {
+        userId,
+        organizationId: billingCtx.organizationId,
+        customerUserId,
+      });
+    } else if (billingCtx?.billingEntity === 'team' && billingCtx.teamId) {
+      // Legacy team billing
+      customerUserId = `team:${billingCtx.teamId}`;
+      const teamDoc = await db.collection('Teams').doc(billingCtx.teamId).get();
+      const teamData = teamDoc.data();
+      customerEmail =
+        (teamData?.['billingEmail'] as string) || (teamData?.['email'] as string) || email;
+    }
+
+    const { customerId } = await getOrCreateCustomer(
+      db,
+      customerUserId,
+      customerEmail,
+      billingCtx?.teamId,
+      environment
+    );
+
+    const stripe = getStripeClient(environment);
+    const returnUrl =
+      req.body?.returnUrl && typeof req.body.returnUrl === 'string'
+        ? req.body.returnUrl
+        : `${req.headers.origin ?? ''}/usage`;
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: returnUrl,
+    });
+
+    logger.info('[POST /portal-session] Portal session created', {
+      userId,
+      customerUserId,
+      customerId,
+      billingEntity: billingCtx?.billingEntity ?? 'individual',
+    });
+
+    return res.json({ success: true, url: session.url });
+  } catch (error) {
+    logger.error('[POST /portal-session] Failed to create portal session', {
+      error,
+      userId: req.user?.uid,
+    });
+    return res.status(500).json({
+      error: 'Failed to create billing portal session',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
 
 export default router;

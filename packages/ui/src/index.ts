@@ -1319,6 +1319,9 @@ export {
   UsagePaymentHistoryComponent,
   UsagePaymentInfoComponent,
   UsageBudgetsComponent,
+  // Stripe
+  STRIPE_PUBLISHABLE_KEY,
+  AddPaymentMethodComponent,
 } from './usage';
 
 // ============================================

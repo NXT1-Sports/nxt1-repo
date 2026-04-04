@@ -209,6 +209,7 @@ export {
   type SidenavSectionToggleEvent,
   DEFAULT_SOCIAL_LINKS,
   DEFAULT_SIDENAV_ITEMS,
+  shouldShowUsage,
   SIDENAV_WIDTHS,
   SIDENAV_Z_INDEX,
   SIDENAV_ANIMATION,

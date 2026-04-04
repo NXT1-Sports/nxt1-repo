@@ -29,6 +29,9 @@ export { InvitePage } from './invite.page';
 // Add Sport page
 export { AddSportPage } from './add-sport.page';
 
+// Connected Accounts pages
+export { ConnectedAccountsPage } from './connected-accounts.page';
+
 // Add additional page exports here as features are developed:
 // export * from './profile';
 // export * from './onboarding';

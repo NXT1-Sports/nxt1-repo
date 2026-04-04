@@ -933,7 +933,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     try {
       // ALWAYS try to sync existing user first (Firebase isNewUser can be unreliable)
       this.logger.debug('📡 Attempting to sync existing user profile (Microsoft)');
-      await this.syncUserProfile(result.user);
+      await this.syncUserProfile(result.user, true);
       this.logger.info('✅ User profile sync successful - existing user (Microsoft)');
 
       // Check if user needs onboarding
@@ -1127,7 +1127,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       try {
         try {
           this.logger.debug('📡 Attempting to sync existing user profile');
-          await this.syncUserProfile(result.user);
+          await this.syncUserProfile(result.user, true);
           this.logger.info('✅ User profile sync successful - existing user');
         } catch (syncError: unknown) {
           const errorObj = syncError as { message?: string };

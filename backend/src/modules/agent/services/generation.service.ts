@@ -14,6 +14,11 @@ import { getFirestore, FieldValue, Timestamp, type Firestore } from 'firebase-ad
 import type { AgentDashboardGoal, ShellWeeklyPlaybookItem, ShellBriefingInsight } from '@nxt1/core';
 import { getShellContentForRole } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
+import {
+  buildEliteContext,
+  getRecurringHabitsPrompt,
+  resolvePrimarySport,
+} from './elite-context.js';
 
 // ─── Shared Helpers ─────────────────────────────────────────────────────────
 
@@ -93,16 +98,25 @@ export class AgentGenerationService {
     const userDoc = await db.collection('Users').doc(uid).get();
     const userData = userDoc.data() ?? {};
     const role = (userData['role'] ?? 'athlete') as string;
-    const sport = (userData['sport'] ?? '') as string;
-    const displayName = (userData['displayName'] ?? '') as string;
     const agentGoals: AgentDashboardGoal[] = (userData['agentGoals'] ?? []) as AgentDashboardGoal[];
+
+    // ── Build elite context from full user profile ────────────────────────
+    const eliteContext = buildEliteContext(userData);
+
+    // ── Resolve primary sport for habit menu ──────────────────────────────
+    const primarySport = resolvePrimarySport(userData);
+    const recurringHabitsBlock = getRecurringHabitsPrompt(role, primarySport || undefined);
 
     if (agentGoals.length === 0) {
       throw new Error('Set at least one goal before generating a playbook');
     }
 
     const goalsText = agentGoals
-      .map((g, i) => `${i + 1}. ${g.text} (category: ${g.category})`)
+      .map((g, i) => `${i + 1}. [id: "${g.id}"] ${g.text} (category: ${g.category})`)
+      .join('\n');
+
+    const goalsForPrompt = agentGoals
+      .map((g) => `- id: "${g.id}", label: "${g.text.slice(0, 40)}"`)
       .join('\n');
 
     // ── Gather past task context ──────────────────────────────────────────
@@ -166,27 +180,49 @@ export class AgentGenerationService {
       .join('\n');
 
     const prompt = [
-      `You are Agent X, the AI assistant for NXT1 sports platform.`,
-      `Generate a personalized weekly playbook for ${displayName || 'the user'}, a ${role}${sport ? ` in ${sport}` : ''}.`,
-      `Their goals are:\n${goalsText}`,
+      `You are Agent X, the AI-powered sports assistant for the NXT1 platform — the first AI born in the locker room. You are not just a recruiting tool; you are an intelligent sports operations agent that helps athletes develop, coaches strategize, parents navigate, directors manage, and scouts evaluate.`,
+      ``,
+      `═══ USER PROFILE (Elite Context) ═══`,
+      eliteContext,
+      ``,
+      `═══ USER'S GOALS (Your #1 Priority) ═══`,
+      goalsText,
       pastTaskContext,
       deltaContext,
       ``,
+      `═══ RECURRING WEEKLY HABITS ═══`,
+      recurringHabitsBlock,
+      ``,
+      `Available user goal IDs (for the "goal" field on strategic tasks):\n${goalsForPrompt}`,
+      ``,
       `Available coordinators (assign the most relevant one to each task):\n${coordinatorsList}`,
       ``,
-      `Return EXACTLY a JSON array of 5 playbook items, ordered by priority (highest-impact task first). Each item must have:`,
+      `═══ OUTPUT FORMAT (CATEGORIZED PLAYBOOK) ═══`,
+      `Return a JSON array of EXACTLY 5 playbook items split into TWO categories:`,
+      ``,
+      `CATEGORY 1 — RECURRING HABITS (exactly 2 items):`,
+      `  These are routine maintenance tasks from the habits menu above.`,
+      `  Set "goal" to: { "id": "recurring", "label": "Weekly Habits" }`,
+      `  Set "weekLabel" to "Weekly".`,
+      ``,
+      `CATEGORY 2 — GOAL EXECUTION (exactly 3 items):`,
+      `  These are unique, high-impact strategic tasks tied to the user's specific goals.`,
+      `  Set "goal" to: { "id": "<real goal id>", "label": "<goal text (max 30 chars)>" }`,
+      `  Set "weekLabel" to a specific day ("Mon", "Tue", "Wed", "Thu", "Fri").`,
+      ``,
+      `Each item must have:`,
       `- "id": unique string like "wp-1"`,
-      `- "weekLabel": day abbreviation ("Mon", "Tue", "Wed", "Thu", "Fri") — spread across the week`,
+      `- "weekLabel": "Weekly" for recurring habits, or a day abbreviation for goal tasks`,
       `- "title": short action title (max 50 chars)`,
       `- "summary": one-sentence description of the task`,
-      `- "why": a compelling one-sentence reason WHY this matters for their career/goals — make the user feel the urgency or excitement (e.g. "Coaches check profiles most on Mondays — this gets you seen first.")`,
+      `- "why": a compelling, hyper-personal reason WHY this matters — reference their specific profile data (class year, position, sport, season, team, location). Example: "As a Class of 2026 PG heading into summer AAU, this exposure window closes in 8 weeks."`,
       `- "details": detailed explanation of what Agent X prepared`,
-      `- "actionLabel": button text (e.g., "Review Draft", "Send Emails")`,
+      `- "actionLabel": button text (e.g., "Review Draft", "Send Emails", "Sync Now")`,
       `- "status": always "pending"`,
-      `- "goal": object with "id" and "label" matching one of the user's goals`,
+      `- "goal": object with "id" and "label" as described above`,
       `- "coordinator": object with "id", "label", and "icon" from the available coordinators list above`,
       ``,
-      `IMPORTANT: Generate exactly 5 tasks. Order them so the most time-sensitive and highest-impact task is first. The "why" field is critical — it should hook the user emotionally and make them WANT to act immediately. Use data-driven language, urgency, or competitive advantage framing.`,
+      `IMPORTANT: Return the 2 recurring items FIRST, then the 3 goal items (ordered most time-sensitive first). The "why" field is critical — hook the user emotionally. Never produce generic advice — always ground it in their reality using their profile data.`,
       ``,
       `Return ONLY the JSON array, no markdown fences, no explanation.`,
     ]
@@ -200,7 +236,11 @@ export class AgentGenerationService {
       const llm = new OpenRouterService();
       const llmResult = await llm.complete(
         [
-          { role: 'system', content: 'You are a JSON generator. Return only valid JSON arrays.' },
+          {
+            role: 'system',
+            content:
+              "You are Agent X, a hyper-personalized AI sports assistant. You deeply understand each user's role, sport, season, and goals. Return only valid JSON arrays. Every task you generate must feel hand-crafted for this specific user — never generic.",
+          },
           { role: 'user', content: prompt },
         ],
         {
@@ -253,26 +293,58 @@ export class AgentGenerationService {
     // Fallback: generate template-based playbook if LLM unavailable or parse fails
     if (playbookItems.length === 0) {
       const defaultCoordinator = shellContent.coordinators[0];
-      playbookItems = agentGoals.flatMap((goal, gi) => [
+      const coordObj = defaultCoordinator
+        ? {
+            id: defaultCoordinator.id,
+            label: defaultCoordinator.label,
+            icon: defaultCoordinator.icon,
+          }
+        : undefined;
+
+      // 2 recurring habit tasks
+      const recurringItems: ShellWeeklyPlaybookItem[] = [
         {
-          id: `wp-${gi * 2 + 1}`,
-          weekLabel: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'][gi % 5],
-          title: `Work on: ${goal.text.slice(0, 40)}`,
-          summary: `Agent X has prepared action steps for your "${goal.text}" goal.`,
-          why: `Getting ahead on this goal now gives you an edge before the week gets busy.`,
-          details: `Review the plan and take the first step toward achieving your goal.`,
-          actionLabel: 'Review Plan',
+          id: 'wp-recurring-1',
+          weekLabel: 'Weekly',
+          title: 'Sync your profile',
+          summary: 'Make sure your profile is up to date so coaches and scouts see the latest you.',
+          why: 'An outdated profile means missed opportunities — keep it fresh.',
+          details:
+            'Review your height, weight, stats, and contact info. Update anything that has changed.',
+          actionLabel: 'Sync Now',
           status: 'pending' as const,
-          goal: { id: goal.id, label: goal.text.slice(0, 30) },
-          coordinator: defaultCoordinator
-            ? {
-                id: defaultCoordinator.id,
-                label: defaultCoordinator.label,
-                icon: defaultCoordinator.icon,
-              }
-            : undefined,
+          goal: { id: 'recurring', label: 'Weekly Habits' },
+          coordinator: coordObj,
         },
-      ]);
+        {
+          id: 'wp-recurring-2',
+          weekLabel: 'Weekly',
+          title: 'Review your weekly progress',
+          summary: 'Take 5 minutes to review what you accomplished this week.',
+          why: 'Consistent reflection builds momentum and keeps you on track.',
+          details: 'Check your completed tasks, look at your stats, and plan for next week.',
+          actionLabel: 'Review Now',
+          status: 'pending' as const,
+          goal: { id: 'recurring', label: 'Weekly Habits' },
+          coordinator: coordObj,
+        },
+      ];
+
+      // 3 goal-specific tasks (distribute across goals)
+      const goalItems: ShellWeeklyPlaybookItem[] = agentGoals.slice(0, 3).map((goal, gi) => ({
+        id: `wp-goal-${gi + 1}`,
+        weekLabel: ['Mon', 'Wed', 'Fri'][gi % 3],
+        title: `Work on: ${goal.text.slice(0, 40)}`,
+        summary: `Agent X has prepared action steps for your "${goal.text}" goal.`,
+        why: 'Getting ahead on this goal now gives you an edge before the week gets busy.',
+        details: 'Review the plan and take the first step toward achieving your goal.',
+        actionLabel: 'Review Plan',
+        status: 'pending' as const,
+        goal: { id: goal.id, label: goal.text.slice(0, 30) },
+        coordinator: coordObj,
+      }));
+
+      playbookItems = [...recurringItems, ...goalItems];
     }
 
     const generatedAt = new Date().toISOString();
@@ -352,9 +424,10 @@ export class AgentGenerationService {
     const userDoc = await db.collection('Users').doc(uid).get();
     const userData = userDoc.data() ?? {};
     const role = (userData['role'] ?? 'athlete') as string;
-    const sport = (userData['sport'] ?? '') as string;
-    const displayName = (userData['displayName'] ?? '') as string;
     const agentGoals: AgentDashboardGoal[] = (userData['agentGoals'] ?? []) as AgentDashboardGoal[];
+
+    // ── Build elite context from full user profile ────────────────────────
+    const eliteContext = buildEliteContext(userData);
 
     const goalsText =
       agentGoals.length > 0 ? agentGoals.map((g) => `• ${g.text}`).join('\n') : 'No goals set yet.';
@@ -405,18 +478,23 @@ export class AgentGenerationService {
 
     // ── Build LLM prompt ────────────────────────────────────────────────
     const promptLines = [
-      `You are Agent X for NXT1 Sports. Generate a concise daily briefing for ${displayName || 'the user'}, a ${role}${sport ? ` in ${sport}` : ''}.`,
+      `You are Agent X, the AI-powered sports assistant for NXT1. Generate a concise, hyper-personalized daily briefing.`,
       ``,
-      `Their current goals:`,
+      `═══ USER PROFILE (Elite Context) ═══`,
+      eliteContext,
+      ``,
+      `═══ USER'S GOALS ═══`,
       goalsText,
       recentActivityText,
       syncContext,
       ``,
+      `Generate a briefing that feels personally crafted for this user — reference their sport, season phase, role, and goals. Never be generic.`,
+      ``,
       `Return ONLY a JSON object with:`,
-      `- "previewText": one sentence summary of today's focus (max 80 chars)`,
+      `- "previewText": one sentence summary of today's focus (max 80 chars) — personalized to their role and season`,
       `- "insights": array of 2-4 insight objects, each with:`,
       `    - "id": unique string like "bi-1"`,
-      `    - "text": actionable insight (max 90 chars)`,
+      `    - "text": actionable insight personalized to their profile (max 90 chars)`,
       `    - "icon": one of "trophy-outline", "mail-outline", "trending-up-outline", "alert-outline", "checkmark-circle-outline", "star-outline"`,
       `    - "type": one of "info", "warning", "success"`,
       ``,
@@ -425,6 +503,7 @@ export class AgentGenerationService {
       .filter(Boolean)
       .join('\n');
 
+    const displayName = ((userData['displayName'] ?? '') as string).trim();
     let briefingInsights: ShellBriefingInsight[] = [];
     let briefingPreviewText = `Good morning, ${displayName || 'athlete'}. Here's your daily focus.`;
 
@@ -435,7 +514,8 @@ export class AgentGenerationService {
         [
           {
             role: 'system',
-            content: 'You are a JSON generator for a sports AI assistant. Return only valid JSON.',
+            content:
+              "You are Agent X, a hyper-personalized AI sports assistant. You deeply understand each user's role, sport, season, and goals. Return only valid JSON. Every insight must feel hand-crafted for this specific user — never generic.",
           },
           { role: 'user', content: promptLines },
         ],

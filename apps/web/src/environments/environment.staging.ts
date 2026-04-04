@@ -36,4 +36,8 @@ export const environment = {
   },
   yahooClientId:
     'dj1yJmk9dml1QlJOTnpMSzNNJmQ9WVdrOVdsaGFUMjlJZVRVbWNHbzlNQT09JnM9Y29uc3VtZXJzZWNyZXQmc3Y9MCZ4PWE2',
+
+  // Stripe publishable key (staging uses test mode)
+  stripePublishableKey:
+    'pk_test_51THcNAK4cVDETfc6IECX633oV4RY3jq3jIyqhdfA3v7oaAMBs0mdtZkFgGlNIBbGTezA80cXdVHNxyy8H1jS6i1j00PBsMGQmN',
 };

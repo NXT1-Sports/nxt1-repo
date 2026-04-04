@@ -9,45 +9,44 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import {
-  IonContent,
-  IonInput,
-  IonLabel,
-  IonRange,
-  IonToggle,
-  ModalController,
-} from '@ionic/angular/standalone';
+import { IonContent, IonLabel, IonRange, ModalController } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../components/icon';
+import { NxtFormFieldComponent } from '../components/form-field';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 import { NxtSheetFooterComponent } from '../components/bottom-sheet/sheet-footer.component';
+import { NxtModalFooterComponent } from '../components/overlay/modal-footer.component';
 import { NxtToastService } from '../services/toast/toast.service';
+import { UsageService } from '../usage/usage.service';
 import {
   AGENT_X_GOAL_OPTIONS,
   AGENT_X_STATUS_DEFINITIONS,
-  AgentXBriefingBadgeStateService,
-  type AgentXBriefingPanelKind,
-  type AgentXBriefingPresentation,
-} from './agent-x-briefing-badge-state.service';
+  AgentXControlPanelStateService,
+  type AgentXControlPanelKind,
+  type AgentXControlPanelPresentation,
+} from './agent-x-control-panel-state.service';
 
-interface AgentXBriefingPanelCloseResult {
-  readonly panel: AgentXBriefingPanelKind;
+interface AgentXControlPanelCloseResult {
+  readonly panel: AgentXControlPanelKind;
   readonly saved?: boolean;
 }
 
 @Component({
-  selector: 'nxt1-agent-x-briefing-panel',
+  selector: 'nxt1-agent-x-control-panel',
   standalone: true,
   imports: [
     CommonModule,
     IonContent,
-    IonInput,
     IonLabel,
     IonRange,
-    IonToggle,
     NxtIconComponent,
+    NxtFormFieldComponent,
     NxtSheetHeaderComponent,
     NxtSheetFooterComponent,
+    NxtModalFooterComponent,
   ],
+  host: {
+    '[class.modal-presentation]': 'presentation === "modal"',
+  },
   template: `
     <div
       class="panel-shell"
@@ -62,7 +61,17 @@ interface AgentXBriefingPanelCloseResult {
         (closeSheet)="dismiss()"
       />
 
-      <ion-content class="panel-content">
+      @if (presentation === 'modal') {
+        <div class="panel-content panel-content--web">
+          <ng-container *ngTemplateOutlet="panelBody" />
+        </div>
+      } @else {
+        <ion-content class="panel-content">
+          <ng-container *ngTemplateOutlet="panelBody" />
+        </ion-content>
+      }
+
+      <ng-template #panelBody>
         <div class="panel-body">
           <p class="panel-intro">{{ subtitle() }}</p>
 
@@ -115,72 +124,75 @@ interface AgentXBriefingPanelCloseResult {
               <div class="budget-hero">
                 <span class="budget-label">Monthly agent budget</span>
                 <strong class="budget-value">&#36;{{ draftBudget() }}</strong>
-                <p class="budget-copy">
-                  Set how aggressive Agent X can be when running premium automations and media
-                  tasks.
-                </p>
+                <p class="budget-copy">Set your monthly Agent X budget</p>
               </div>
 
-              <section class="control-card">
-                <label class="field-label" for="agent-x-budget-slider">Budget range</label>
-                <ion-range
-                  id="agent-x-budget-slider"
-                  class="budget-range"
-                  [min]="25"
-                  [max]="2500"
-                  [step]="25"
-                  [snaps]="true"
-                  [pin]="true"
-                  [value]="draftBudget()"
-                  (ionChange)="onBudgetSliderInput($event)"
-                >
-                  <ion-label slot="start">$25</ion-label>
-                  <ion-label slot="end">$2,500</ion-label>
-                </ion-range>
-              </section>
-
-              <section class="control-card">
-                <label class="field-label" for="agent-x-budget-input">Custom budget</label>
-                <ion-input
-                  id="agent-x-budget-input"
-                  class="panel-input"
-                  type="number"
-                  fill="outline"
-                  labelPlacement="stacked"
-                  inputmode="numeric"
-                  [value]="draftBudget()"
-                  (ionInput)="onBudgetCustomInput($event)"
-                ></ion-input>
-              </section>
-
-              <section class="control-card control-card--toggle">
-                <div class="toggle-copy-block">
-                  <div class="toggle-title">Auto top-off</div>
-                  <p class="toggle-copy">
-                    Refill your Agent X budget automatically when it gets close to empty.
-                  </p>
-                </div>
-                <ion-toggle
-                  [checked]="draftAutoTopOffEnabled()"
-                  (ionChange)="onAutoTopOffChange($event)"
-                ></ion-toggle>
-              </section>
-
-              @if (draftAutoTopOffEnabled()) {
+              <div class="budget-grid">
                 <section class="control-card">
-                  <label class="field-label" for="agent-x-topoff-input">Auto top-off amount</label>
-                  <ion-input
-                    id="agent-x-topoff-input"
-                    class="panel-input"
-                    type="number"
-                    fill="outline"
-                    labelPlacement="stacked"
-                    inputmode="numeric"
-                    [value]="draftAutoTopOffAmount()"
-                    (ionInput)="onTopOffInput($event)"
-                  ></ion-input>
+                  <label class="field-label" for="agent-x-budget-slider">Budget range</label>
+                  <ion-range
+                    id="agent-x-budget-slider"
+                    class="budget-range"
+                    [min]="25"
+                    [max]="2500"
+                    [step]="25"
+                    [snaps]="true"
+                    [pin]="true"
+                    [value]="draftBudget()"
+                    (ionChange)="onBudgetSliderInput($event)"
+                  >
+                    <ion-label slot="start">$25</ion-label>
+                    <ion-label slot="end">$2,500</ion-label>
+                  </ion-range>
                 </section>
-              }
+
+                <section class="control-card">
+                  <nxt1-form-field label="Custom budget" inputId="agent-x-budget-input">
+                    <input
+                      id="agent-x-budget-input"
+                      class="nxt1-input"
+                      type="number"
+                      inputmode="numeric"
+                      [value]="draftBudget()"
+                      (input)="onBudgetCustomInput($event)"
+                    />
+                  </nxt1-form-field>
+                </section>
+
+                <section class="control-card control-card--toggle">
+                  <div class="toggle-copy-block">
+                    <div class="toggle-title">Auto top-off</div>
+                    <p class="toggle-copy">
+                      Refill your Agent X budget automatically when it gets close to empty.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    class="nxt1-toggle-switch"
+                    [class.nxt1-toggle-switch--on]="draftAutoTopOffEnabled()"
+                    [attr.aria-checked]="draftAutoTopOffEnabled()"
+                    (click)="onAutoTopOffClick()"
+                  >
+                    <span class="nxt1-toggle-switch__thumb"></span>
+                  </button>
+                </section>
+
+                @if (draftAutoTopOffEnabled()) {
+                  <section class="control-card">
+                    <nxt1-form-field label="Auto top-off amount" inputId="agent-x-topoff-input">
+                      <input
+                        id="agent-x-topoff-input"
+                        class="nxt1-input"
+                        type="number"
+                        inputmode="numeric"
+                        [value]="draftAutoTopOffAmount()"
+                        (input)="onTopOffInput($event)"
+                      />
+                    </nxt1-form-field>
+                  </section>
+                }
+              </div>
             </section>
           }
 
@@ -208,17 +220,16 @@ interface AgentXBriefingPanelCloseResult {
               </div>
 
               <div class="custom-goal-row">
-                <ion-input
-                  class="panel-input custom-goal-input"
+                <input
+                  class="nxt1-input custom-goal-input"
                   type="text"
-                  fill="outline"
                   placeholder="Type a custom goal…"
-                  [maxlength]="100"
+                  [attr.maxlength]="100"
                   [value]="customGoalText()"
                   [disabled]="draftGoals().length >= 3"
-                  (ionInput)="onCustomGoalInput($event)"
+                  (input)="onCustomGoalInput($event)"
                   (keyup.enter)="addCustomGoal()"
-                ></ion-input>
+                />
                 <button
                   type="button"
                   class="custom-goal-add-btn"
@@ -251,14 +262,30 @@ interface AgentXBriefingPanelCloseResult {
             </section>
           }
         </div>
-      </ion-content>
+      </ng-template>
 
-      @if (panel === 'status') {
+      @if (presentation === 'modal') {
+        <div class="modal-footer-sticky">
+          @if (panel === 'status') {
+            <nxt1-modal-footer label="Close" variant="secondary" (action)="dismiss()" />
+          } @else {
+            <nxt1-modal-footer
+              [label]="panel === 'budget' ? 'Save budget' : 'Save goals'"
+              [loadingLabel]="'Saving...'"
+              [loading]="saving()"
+              [disabled]="(panel === 'goals' && draftGoals().length === 0) || saving()"
+              (action)="savePanel()"
+            />
+          }
+        </div>
+      } @else if (panel === 'status') {
         <nxt1-sheet-footer label="Close" (action)="dismiss()" />
       } @else {
         <nxt1-sheet-footer
           [label]="panel === 'budget' ? 'Save budget' : 'Save goals'"
-          [disabled]="panel === 'goals' && draftGoals().length === 0"
+          [loadingLabel]="'Saving...'"
+          [loading]="saving()"
+          [disabled]="(panel === 'goals' && draftGoals().length === 0) || saving()"
           (action)="savePanel()"
         />
       }
@@ -267,27 +294,50 @@ interface AgentXBriefingPanelCloseResult {
   styles: [
     `
       :host {
-        display: block;
+        display: flex;
+        flex-direction: column;
         width: 100%;
         height: 100%;
+        overflow: hidden;
         color: var(--nxt1-color-text-primary);
+      }
+
+      /* Modal mode: let overlay handle scrolling, footer sticky */
+      :host(.modal-presentation) {
+        display: block;
+        height: auto;
+        overflow: visible;
       }
 
       .panel-shell {
         display: flex;
         flex-direction: column;
-        height: 100%;
+        flex: 1;
+        min-height: 0;
         background: var(--nxt1-color-bg-primary);
       }
 
       .panel-shell--modal {
-        border-radius: var(--nxt1-radius-xl, 16px) var(--nxt1-radius-xl, 16px) 0 0;
-        overflow: hidden;
+        display: block;
+        overflow: visible;
       }
 
       .panel-content {
         flex: 1;
         min-height: 0;
+      }
+
+      .panel-shell--modal .panel-content {
+        overflow-y: auto;
+        flex: none;
+        min-height: unset;
+      }
+
+      .modal-footer-sticky {
+        position: sticky;
+        bottom: 0;
+        z-index: 10;
+        background: var(--nxt1-color-bg-primary);
       }
 
       .panel-body {
@@ -380,6 +430,7 @@ interface AgentXBriefingPanelCloseResult {
       }
 
       .status-grid,
+      .budget-grid,
       .goal-grid {
         display: grid;
         gap: 12px;
@@ -500,24 +551,43 @@ interface AgentXBriefingPanelCloseResult {
         --pin-color: var(--nxt1-color-on-primary);
       }
 
-      .panel-input {
-        --background: var(--nxt1-color-surface-100);
-        --border-color: var(--nxt1-color-border-subtle);
-        --border-radius: var(--nxt1-radius-lg);
-        --color: var(--nxt1-color-text-primary);
-        --highlight-color-focused: var(--nxt1-color-primary);
-        --padding-start: var(--nxt1-spacing-4);
-        --padding-end: var(--nxt1-spacing-4);
-        --padding-top: var(--nxt1-spacing-4);
-        --padding-bottom: var(--nxt1-spacing-4);
-        font: inherit;
+      /* Native toggle switch — matches settings-item ion-toggle style */
+      .nxt1-toggle-switch {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        width: 51px;
+        height: 31px;
+        border-radius: 9999px;
+        background: rgba(255, 255, 255, 0.22);
+        border: none;
+        cursor: pointer;
+        transition: background 0.2s ease;
+        flex-shrink: 0;
+        padding: 0;
       }
 
-      ion-toggle {
-        --track-background: var(--nxt1-color-border-subtle);
-        --track-background-checked: var(--nxt1-color-primary);
-        --handle-background: var(--nxt1-color-bg-primary);
-        --handle-background-checked: var(--nxt1-color-on-primary);
+      .nxt1-toggle-switch--on {
+        background: var(--nxt1-color-primary);
+      }
+
+      .nxt1-toggle-switch__thumb {
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 27px;
+        height: 27px;
+        border-radius: 50%;
+        background: #ffffff;
+        transition:
+          transform 0.2s ease,
+          background 0.2s ease;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+      }
+
+      .nxt1-toggle-switch--on .nxt1-toggle-switch__thumb {
+        transform: translateX(20px);
+        background: #1a1a1a;
       }
 
       .selected-goals {
@@ -573,7 +643,8 @@ interface AgentXBriefingPanelCloseResult {
 
       .custom-goal-input {
         flex: 1;
-        --border-radius: 14px;
+        min-width: 0;
+        border-radius: 14px;
         font-size: 15px;
       }
 
@@ -600,6 +671,26 @@ interface AgentXBriefingPanelCloseResult {
         cursor: not-allowed;
       }
 
+      @media (min-width: 900px) {
+        .panel-shell--modal[data-panel-kind='budget'] .panel-body {
+          max-width: 760px;
+        }
+
+        .panel-shell--modal[data-panel-kind='budget'] .budget-shell {
+          gap: 20px;
+        }
+
+        .panel-shell--modal[data-panel-kind='budget'] .budget-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 16px;
+          align-items: start;
+        }
+
+        .panel-shell--modal[data-panel-kind='budget'] .budget-copy {
+          max-width: 44ch;
+        }
+      }
+
       @media (max-width: 640px) {
         .budget-value {
           font-size: 36px;
@@ -614,15 +705,16 @@ interface AgentXBriefingPanelCloseResult {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AgentXBriefingPanelComponent implements OnInit {
+export class AgentXControlPanelComponent implements OnInit {
   private readonly modalController = inject(ModalController);
   private readonly toast = inject(NxtToastService);
-  private readonly state = inject(AgentXBriefingBadgeStateService);
+  private readonly state = inject(AgentXControlPanelStateService);
+  private readonly usageService = inject(UsageService);
 
-  readonly close = output<AgentXBriefingPanelCloseResult>();
+  readonly close = output<AgentXControlPanelCloseResult>();
 
-  @Input() panel: AgentXBriefingPanelKind = 'status';
-  @Input() presentation: AgentXBriefingPresentation = 'modal';
+  @Input() panel: AgentXControlPanelKind = 'status';
+  @Input() presentation: AgentXControlPanelPresentation = 'modal';
   @Input() required = false;
 
   readonly title = computed(() => {
@@ -649,6 +741,7 @@ export class AgentXBriefingPanelComponent implements OnInit {
     }
   });
 
+  readonly saving = signal(false);
   readonly draftBudget = signal(150);
   readonly draftAutoTopOffEnabled = signal(true);
   readonly draftAutoTopOffAmount = signal(50);
@@ -670,7 +763,13 @@ export class AgentXBriefingPanelComponent implements OnInit {
   readonly goalOptions = AGENT_X_GOAL_OPTIONS;
 
   ngOnInit(): void {
-    this.draftBudget.set(this.state.monthlyBudget());
+    // Hydrate budget from backend billing context (cents → dollars) if available,
+    // otherwise fall back to local badge state
+    const billingCtx = this.usageService.billingContext();
+    const budgetDollars = billingCtx?.monthlyBudget
+      ? Math.round(billingCtx.monthlyBudget / 100)
+      : this.state.monthlyBudget();
+    this.draftBudget.set(budgetDollars);
     this.draftAutoTopOffEnabled.set(this.state.autoTopOffEnabled());
     this.draftAutoTopOffAmount.set(this.state.autoTopOffAmount());
     this.draftGoals.set([...this.state.goals()]);
@@ -699,8 +798,8 @@ export class AgentXBriefingPanelComponent implements OnInit {
     }
   }
 
-  onAutoTopOffChange(event: CustomEvent<{ checked: boolean }>): void {
-    this.draftAutoTopOffEnabled.set(event.detail.checked);
+  onAutoTopOffClick(): void {
+    this.draftAutoTopOffEnabled.update((v) => !v);
   }
 
   toggleGoal(goalId: string): void {
@@ -742,15 +841,30 @@ export class AgentXBriefingPanelComponent implements OnInit {
     this.customGoalText.set('');
   }
 
-  savePanel(): void {
+  async savePanel(): Promise<void> {
     if (this.panel === 'budget') {
-      this.state.saveBudget({
-        monthlyBudget: this.draftBudget(),
-        autoTopOffEnabled: this.draftAutoTopOffEnabled(),
-        autoTopOffAmount: this.draftAutoTopOffAmount(),
-      });
-      this.toast.success('Agent X budget updated.');
-      this.dismiss({ panel: 'budget', saved: true });
+      this.saving.set(true);
+      const budgetCents = Math.round(this.draftBudget() * 100);
+
+      try {
+        const success = await this.usageService.updateBudget(budgetCents);
+        if (!success) {
+          this.saving.set(false);
+          return; // UsageService already showed error toast
+        }
+
+        // Only update badge state after backend confirms
+        this.state.saveBudget({
+          monthlyBudget: this.draftBudget(),
+          autoTopOffEnabled: this.draftAutoTopOffEnabled(),
+          autoTopOffAmount: this.draftAutoTopOffAmount(),
+        });
+        this.dismiss({ panel: 'budget', saved: true });
+      } catch {
+        // UsageService handles error toast/logging internally
+      } finally {
+        this.saving.set(false);
+      }
       return;
     }
 
@@ -761,7 +875,7 @@ export class AgentXBriefingPanelComponent implements OnInit {
     }
   }
 
-  dismiss(result: AgentXBriefingPanelCloseResult = { panel: this.panel }): void {
+  dismiss(result: AgentXControlPanelCloseResult = { panel: this.panel }): void {
     // In required mode without saving, dismiss with 'back' role so the shell can navigate back
     if (this.required && !result.saved) {
       if (this.presentation === 'sheet') {

@@ -117,6 +117,13 @@ export abstract class BaseAgent {
         maxTokens: routing.maxTokens,
         temperature: routing.temperature,
         tools: toolSchemas.length > 0 ? toolSchemas : undefined,
+        ...(context.operationId && {
+          telemetryContext: {
+            operationId: context.operationId,
+            userId: context.userId,
+            agentId: this.id,
+          },
+        }),
       });
 
       // If the LLM responded with text and no tool calls → we're done

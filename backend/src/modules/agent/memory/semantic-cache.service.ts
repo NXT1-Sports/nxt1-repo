@@ -116,9 +116,16 @@ export class SemanticCacheService {
    * against the cache collection, and returns the cached result if the
    * similarity score exceeds the strict threshold.
    *
+   * Skipped entirely when SEMANTIC_CACHE_ENABLED is not set to 'true' or when
+   * an embedding provider is unavailable — agent continues without caching.
+   *
    * @returns The cached result if a high-confidence match exists, or null.
    */
   async check(intent: string): Promise<SemanticCacheHit | null> {
+    if (process.env['SEMANTIC_CACHE_ENABLED'] !== 'true') {
+      return null;
+    }
+
     let queryEmbedding: readonly number[];
 
     try {
@@ -202,6 +209,10 @@ export class SemanticCacheService {
    * The entry auto-expires after 24 hours via MongoDB TTL.
    */
   async store(intent: string, result: AgentOperationResult): Promise<void> {
+    if (process.env['SEMANTIC_CACHE_ENABLED'] !== 'true') {
+      return;
+    }
+
     try {
       const embedding = await this.llm.embed(intent);
 
@@ -243,7 +254,8 @@ export class SemanticCacheService {
   async personalize(
     cachedResult: AgentOperationResult,
     userContext: AgentUserContext,
-    intent: string
+    intent: string,
+    operationId?: string
   ): Promise<AgentOperationResult> {
     // Build a compact user profile string for the system prompt
     const profileParts: string[] = [
@@ -297,7 +309,7 @@ export class SemanticCacheService {
         temperature: 0.4,
         maxTokens: 2048,
         telemetryContext: {
-          operationId: 'cache-personalizer',
+          operationId: operationId ?? 'cache-personalizer',
           userId: userContext.userId,
           agentId: 'router',
         },

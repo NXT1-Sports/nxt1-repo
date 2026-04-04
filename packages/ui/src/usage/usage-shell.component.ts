@@ -32,8 +32,8 @@ import {
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonContent, ModalController } from '@ionic/angular/standalone';
-import { SHEET_PRESETS } from '../components/bottom-sheet';
+import { IonContent } from '@ionic/angular/standalone';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import { NxtIconComponent } from '../components/icon';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
@@ -44,13 +44,13 @@ import {
 } from '../components/option-scroller';
 import { NxtToastService } from '../services/toast/toast.service';
 import { HapticsService } from '../services/haptics/haptics.service';
-import { NxtPlatformService } from '../services/platform/platform.service';
 import { UsageService, type UsageSection } from './usage.service';
 import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 import { UsageSkeletonComponent } from './usage-skeleton.component';
 import { UsageHelpContentComponent } from './usage-help-content.component';
 import { UsageErrorStateComponent } from './usage-error-state.component';
 import { UsageBottomSheetService } from './usage-bottom-sheet.service';
+import { AgentXControlPanelComponent } from '../agent-x';
 import {
   UsageOverviewComponent,
   UsageSubscriptionsComponent,
@@ -106,7 +106,22 @@ export interface UsageUser {
           [attr.data-testid]="testIds.HELP_BTN"
           (click)="showHelp()"
         >
-          <nxt1-icon name="help-circle-outline" size="20" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
         </button>
       </nxt1-page-header>
     }
@@ -204,6 +219,7 @@ export interface UsageUser {
                         [budgets]="svc.budgets()"
                         (createBudget)="onCreateBudget()"
                         (editBudget)="onEditBudget($event)"
+                        (editTeamBudget)="onEditTeamBudget($event)"
                       />
                     }
                   }
@@ -239,15 +255,20 @@ export interface UsageUser {
                     />
                   }
 
+                  @case ('budgets') {
+                    <nxt1-usage-budgets
+                      [budgets]="svc.budgets()"
+                      (createBudget)="onCreateBudget()"
+                      (editBudget)="onEditBudget($event)"
+                      (editTeamBudget)="onEditTeamBudget($event)"
+                    />
+                  }
+
                   @case ('payment-info') {
                     <nxt1-usage-payment-info
                       [billingInfo]="svc.billingInfo()"
                       [paymentMethods]="svc.paymentMethods()"
-                      [coupon]="svc.coupon()"
-                      (editBilling)="onEditBilling()"
-                      (editPayment)="onEditPayment()"
-                      (redeemCoupon)="onRedeemCoupon()"
-                      (editAdditional)="onEditAdditional()"
+                      (manageBilling)="onManageBilling()"
                     />
                   }
                 }
@@ -492,8 +513,7 @@ export class UsageShellComponent implements OnInit {
   protected readonly svc = inject(UsageService);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
-  private readonly platform = inject(NxtPlatformService);
-  private readonly modalController = inject(ModalController);
+  private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly usageBottomSheet = inject(UsageBottomSheetService);
 
   // ============================================
@@ -515,9 +535,6 @@ export class UsageShellComponent implements OnInit {
 
   /** Emitted when avatar is clicked (open sidenav) */
   readonly avatarClick = output<void>();
-
-  /** Emitted when user taps "Buy Credits" — host platform handles IAP flow */
-  readonly buyCredits = output<void>();
 
   // ============================================
   // COMPUTED
@@ -555,19 +572,15 @@ export class UsageShellComponent implements OnInit {
   protected async showHelp(): Promise<void> {
     await this.haptics.impact('light');
 
-    const modal = await this.modalController.create({
+    await this.bottomSheet.openSheet({
       component: UsageHelpContentComponent,
-      cssClass: this.platform.isMobile() ? 'usage-help-sheet' : 'usage-help-modal',
-      breakpoints: this.platform.isMobile() ? SHEET_PRESETS.STANDARD.breakpoints : undefined,
-      initialBreakpoint: this.platform.isMobile()
-        ? SHEET_PRESETS.STANDARD.initialBreakpoint
-        : undefined,
-      handle: this.platform.isMobile(),
-      showBackdrop: true,
+      componentProps: { isPersonal: this.svc.isPersonal() },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
       backdropDismiss: true,
+      cssClass: 'usage-help-sheet',
     });
-
-    await modal.present();
   }
 
   // ============================================
@@ -599,54 +612,70 @@ export class UsageShellComponent implements OnInit {
   // EVENT HANDLERS
   // ============================================
 
-  protected onManageSubscriptions(): void {
-    this.haptics.impact('light');
-    // Navigate to subscription management
+  protected async onManageSubscriptions(): Promise<void> {
+    await this.haptics.impact('light');
+    await this.svc.openBillingPortal();
   }
 
   protected async onBuyCredits(): Promise<void> {
     await this.haptics.impact('light');
-    this.buyCredits.emit();
+    const amountCents = await this.usageBottomSheet.showBuyCreditsOptions();
+    if (amountCents !== null) {
+      await this.svc.buyCredits(amountCents);
+    }
   }
 
-  protected onDownloadReceipt(_recordId: string): void {
-    this.haptics.impact('light');
-    // API call to get receipt URL and open
+  protected async onDownloadReceipt(recordId: string): Promise<void> {
+    await this.haptics.impact('light');
+    await this.svc.openReceipt(recordId);
   }
 
-  protected onDownloadInvoice(_recordId: string): void {
-    this.haptics.impact('light');
-    // API call to get invoice URL and open
+  protected async onDownloadInvoice(recordId: string): Promise<void> {
+    await this.haptics.impact('light');
+    await this.svc.openInvoice(recordId);
   }
 
   protected async onCreateBudget(): Promise<void> {
     await this.haptics.impact('light');
-    await this.usageBottomSheet.showBudgetLimit();
+    await this.openBudgetControlPanel();
   }
 
-  protected async onEditBudget(budgetId: string): Promise<void> {
+  protected async onEditBudget(_budgetId: string): Promise<void> {
     await this.haptics.impact('light');
-    const budget = this.svc.budgets().find((b) => b.id === budgetId);
-    await this.usageBottomSheet.showBudgetLimit(budget?.budgetLimit);
+    const result = await this.usageBottomSheet.showBudgetOptions();
+    if (!result) return;
+
+    if (result.action === 'Edit budget') {
+      await this.openBudgetControlPanel();
+    } else if (result.action === 'Delete budget') {
+      await this.svc.deleteBudget();
+    }
   }
 
-  protected onEditBilling(): void {
-    this.haptics.impact('light');
-    // Open billing info editing form/bottom sheet
+  protected async onEditTeamBudget(teamId: string): Promise<void> {
+    await this.haptics.impact('light');
+    const amountCents = await this.usageBottomSheet.showBudgetLimit();
+    if (amountCents !== null) {
+      await this.svc.updateTeamBudget(teamId, amountCents);
+    }
   }
 
-  protected onEditPayment(): void {
-    this.haptics.impact('light');
-    // Open payment method form/bottom sheet
+  private async openBudgetControlPanel(): Promise<void> {
+    await this.bottomSheet.openSheet({
+      component: AgentXControlPanelComponent,
+      componentProps: {
+        panel: 'budget',
+        presentation: 'sheet',
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      cssClass: 'agent-x-control-panel-sheet',
+    });
   }
 
-  protected onRedeemCoupon(): void {
-    this.haptics.impact('light');
-    // Open coupon redemption form/bottom sheet
-  }
-
-  protected onEditAdditional(): void {
-    this.haptics.impact('light');
-    // Open additional info form/bottom sheet
+  protected async onManageBilling(): Promise<void> {
+    await this.haptics.impact('light');
+    await this.svc.openBillingPortal();
   }
 }

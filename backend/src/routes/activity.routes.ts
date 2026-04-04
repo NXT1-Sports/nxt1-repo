@@ -59,6 +59,46 @@ function buildBadgeCounts(
   };
 }
 
+/**
+ * Retry a Firestore operation on transient errors (UNAVAILABLE, DEADLINE_EXCEEDED,
+ * INTERNAL, ABORTED, RESOURCE_EXHAUSTED) with exponential back-off.
+ *
+ * Max 3 retries: delays ≈ 500 ms → 1 s → 2 s before giving up.
+ */
+const FIRESTORE_TRANSIENT_CODES = new Set([
+  'UNAVAILABLE',
+  'DEADLINE_EXCEEDED',
+  'INTERNAL',
+  'ABORTED',
+  'RESOURCE_EXHAUSTED',
+]);
+
+async function withFirestoreRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  maxRetries = 3,
+  baseDelayMs = 500
+): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const code = (err as { code?: string })?.code ?? '';
+      const isTransient = FIRESTORE_TRANSIENT_CODES.has(code);
+      if (!isTransient || attempt === maxRetries) throw err;
+      const delay = baseDelayMs * Math.pow(2, attempt);
+      logger.warn(`[${label}] Transient Firestore error — retrying`, {
+        code,
+        attempt: attempt + 1,
+        delayMs: delay,
+      });
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  // Unreachable — loop always throws or returns before exhausting retries.
+  throw new Error(`[${label}] Retry loop exhausted`);
+}
+
 /** Parse a Firestore doc into a plain activity item object. */
 function docToItem(doc: FirebaseFirestore.QueryDocumentSnapshot) {
   const data = doc.data();
@@ -349,7 +389,7 @@ router.post(
       }
 
       // Fetch all docs, filter in memory (avoids composite index)
-      const snapshot = await col.get();
+      const snapshot = await withFirestoreRetry(() => col.get(), 'read-all/fetch');
       const toMark = snapshot.docs.filter((doc) => {
         const data = doc.data();
         if (data['isRead'] || data['isArchived']) return false;
@@ -373,12 +413,12 @@ router.post(
         for (const doc of chunk) {
           batch.update(doc.ref, { isRead: true, readAt: FieldValue.serverTimestamp() });
         }
-        await batch.commit();
+        await withFirestoreRetry(() => batch.commit(), `read-all/batch-commit[${i}]`);
         count += chunk.length;
       }
 
       // Recompute badges after marking
-      const afterSnapshot = await col.get();
+      const afterSnapshot = await withFirestoreRetry(() => col.get(), 'read-all/badge-fetch');
       const unread = afterSnapshot.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
       const badges = buildBadgeCounts(unread);
 

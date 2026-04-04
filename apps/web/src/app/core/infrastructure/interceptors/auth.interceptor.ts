@@ -42,6 +42,8 @@ const PUBLIC_ENDPOINTS = [
   '/explore',
   '/college/search',
   '/college/list',
+  '/news',
+  '/feed',
 ];
 
 /**

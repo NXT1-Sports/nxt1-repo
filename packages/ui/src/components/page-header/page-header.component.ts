@@ -733,10 +733,15 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
         position: absolute;
         top: 2px;
         right: 2px;
-        font-size: var(--nxt1-font-size-2xs, 10px);
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+        font-weight: 700;
+        line-height: 1;
         min-width: 16px;
         height: 16px;
-        padding: 0 var(--nxt1-spacing-1, 4px);
+        padding: 0 4px;
         border-radius: var(--nxt1-radius-full, 9999px);
         --background: var(--nxt1-color-error, #ff3b30);
         --color: var(--nxt1-color-text-inverse, white);

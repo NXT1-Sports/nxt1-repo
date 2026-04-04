@@ -35,96 +35,39 @@ export const webhookRawBodyMiddleware: RequestHandler = (req: Request, _res, nex
 };
 
 /**
- * POST /api/v1/billing/webhook
- * Stripe webhook endpoint for production
+ * POST /api/v1/webhook          ← production (STRIPE_WEBHOOK_SECRET)
+ * POST /api/v1/staging/webhook  ← staging   (STRIPE_TEST_WEBHOOK_SECRET)
+ *
+ * Single handler — req.isStaging is set by firebaseContext middleware based on URL prefix.
  */
-router.post('/webhook', async (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
+  const environment = req.isStaging ? 'staging' : 'production';
+  const tag = `[POST /webhook:${environment}]`;
+
   try {
     const signature = req.headers['stripe-signature'];
 
     if (!signature) {
-      logger.error('[POST /webhook] Missing stripe-signature header');
-      return res.status(400).json({
-        error: 'Missing stripe-signature header',
-      });
+      logger.error(`${tag} Missing stripe-signature header`);
+      return res.status(400).json({ error: 'Missing stripe-signature header' });
     }
 
-    // Get raw body
     const rawBody = req.rawBody || JSON.stringify(req.body);
+    const event = verifyWebhookSignature(rawBody, signature as string, environment);
 
-    // Verify signature and get event
-    const event = verifyWebhookSignature(rawBody, signature as string, 'production');
-
-    // Get Firebase context
     const db = req.firebase?.db;
+    if (!db) throw new Error('Firebase context not available');
 
-    if (!db) {
-      throw new Error('Firebase context not available');
-    }
+    await handleWebhookEvent(db, event, environment);
 
-    // Handle event
-    await handleWebhookEvent(db, event, 'production');
-
-    logger.info('[POST /webhook] Webhook processed successfully', {
+    logger.info(`${tag} Webhook processed successfully`, {
       eventType: event.type,
       eventId: event.id,
     });
 
     return res.json({ received: true });
   } catch (error) {
-    logger.error('[POST /webhook] Webhook processing failed', {
-      error,
-    });
-
-    return res.status(400).json({
-      error: 'Webhook processing failed',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
-
-/**
- * POST /api/v1/billing/staging/webhook
- * Stripe webhook endpoint for staging
- */
-router.post('/staging/webhook', async (req: Request, res: Response) => {
-  try {
-    const signature = req.headers['stripe-signature'];
-
-    if (!signature) {
-      logger.error('[POST /staging/webhook] Missing stripe-signature header');
-      return res.status(400).json({
-        error: 'Missing stripe-signature header',
-      });
-    }
-
-    // Get raw body
-    const rawBody = req.rawBody || JSON.stringify(req.body);
-
-    // Verify signature and get event
-    const event = verifyWebhookSignature(rawBody, signature as string, 'staging');
-
-    // Get Firebase context (staging)
-    const db = req.firebase?.db;
-
-    if (!db) {
-      throw new Error('Firebase context not available');
-    }
-
-    // Handle event
-    await handleWebhookEvent(db, event, 'staging');
-
-    logger.info('[POST /staging/webhook] Webhook processed successfully', {
-      eventType: event.type,
-      eventId: event.id,
-    });
-
-    return res.json({ received: true });
-  } catch (error) {
-    logger.error('[POST /staging/webhook] Webhook processing failed', {
-      error,
-    });
-
+    logger.error(`${tag} Webhook processing failed`, { error });
     return res.status(400).json({
       error: 'Webhook processing failed',
       message: error instanceof Error ? error.message : 'Unknown error',

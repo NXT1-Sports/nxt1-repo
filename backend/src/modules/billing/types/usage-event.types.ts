@@ -361,6 +361,10 @@ export interface WalletHold {
   id: string;
   /** User who owns this hold */
   userId: string;
+  /** Organization ID — set for org-entity users so hold ops update org master budget */
+  organizationId?: string;
+  /** Team ID — set for org-entity users with team sub-allocations */
+  teamId?: string;
   /** Amount reserved in cents */
   amountCents: number;
   /** Whether the hold has been captured or released */
@@ -390,13 +394,13 @@ export interface WalletHoldResult {
 }
 
 /** Default monthly budget for individual accounts (in cents) */
-export const DEFAULT_INDIVIDUAL_BUDGET = 2000; // $20
+export const DEFAULT_INDIVIDUAL_BUDGET = 500; // $5
 
 /** Default monthly budget for team/organization accounts (in cents) */
 export const DEFAULT_TEAM_BUDGET = 20000; // $200
 
 /** Default monthly budget for organization accounts (in cents) */
-export const DEFAULT_ORGANIZATION_BUDGET = 50000; // $500
+export const DEFAULT_ORGANIZATION_BUDGET = 2000; // $20
 
 /** Budget alert thresholds as percentages */
 export const BUDGET_ALERT_THRESHOLDS = [50, 80, 100] as const;

@@ -23,9 +23,14 @@ import { NxtLoggingService } from '../../services/logging';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
 import { NxtToastService } from '../../services/toast';
+import { PERFORMANCE_ADAPTER } from '../../services/performance';
+import { NxtPlatformService } from '../../services/platform';
 import { NxtOverlayService } from '../overlay/overlay.service';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../bottom-sheet';
 import { FirecrawlSignInModalComponent } from './firecrawl-signin-modal.component';
+import { FirecrawlSignInSheetComponent } from './firecrawl-signin-sheet.component';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -49,6 +54,9 @@ interface StartSessionResponse {
 interface CompleteSessionResponse {
   readonly success: boolean;
   readonly error?: string;
+  readonly data?: {
+    readonly verified: boolean;
+  };
 }
 
 // ─── Service ────────────────────────────────────────────────────────────────
@@ -58,10 +66,13 @@ export class FirecrawlSignInService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = `${inject(AGENT_X_API_BASE_URL)}/agent-x`;
   private readonly overlay = inject(NxtOverlayService);
+  private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('FirecrawlSignInService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
+  private readonly platform = inject(NxtPlatformService);
 
   // ─── State ──────────────────────────────────────────────────────────────
 
@@ -122,26 +133,34 @@ export class FirecrawlSignInService {
 
       // Step 3: Complete the session (save profile + store in DB)
       this._loading.set(true);
-      const success = await this.completeSession(
+      const result = await this.completeSession(
         session.sessionId,
         request.platform,
         session.profileName
       );
 
-      if (success) {
-        this.toast.success(`${request.label} connected successfully`);
+      if (result.success) {
+        if (result.verified) {
+          this.toast.success(`${request.label} connected successfully`);
+        } else {
+          this.toast.warning(
+            `${request.label} saved, but we couldn't confirm you're signed in. You may need to try again.`
+          );
+        }
         this.analytics?.trackEvent(APP_EVENTS.LINK_SOURCE_CONNECTED, {
           source_platform: request.platform,
           mode: 'signin',
           method: 'firecrawl',
           status: 'success',
+          verified: result.verified,
         });
         this.breadcrumb.trackStateChange('firecrawl-signin:completed', {
           platform: request.platform,
+          verified: result.verified,
         });
       }
 
-      return success;
+      return result.success;
     } catch (err) {
       this.logger.error('Firecrawl sign-in failed', err, {
         platform: request.platform,
@@ -157,10 +176,14 @@ export class FirecrawlSignInService {
   // ─── Backend API Calls ────────────────────────────────────────────────
 
   private async startSession(platform: string): Promise<StartSessionResponse['data'] | null> {
+    const trace = await this.performance?.startTrace(TRACE_NAMES.FIRECRAWL_SESSION_START);
+    await trace?.putAttribute(ATTRIBUTE_NAMES.FEATURE_NAME, 'connected-accounts');
+    await trace?.putAttribute('platform', platform);
     try {
       const response = await firstValueFrom(
         this.http.post<StartSessionResponse>(`${this.baseUrl}/firecrawl/session/start`, {
           platform,
+          isMobile: this.platform.isMobile(),
         })
       );
 
@@ -178,6 +201,7 @@ export class FirecrawlSignInService {
         } else {
           this.toast.error(errorMsg);
         }
+        await trace?.putAttribute('success', 'false');
         return null;
       }
 
@@ -185,6 +209,7 @@ export class FirecrawlSignInService {
         platform,
         sessionId: response.data.sessionId,
       });
+      await trace?.putAttribute('success', 'true');
       return response.data;
     } catch (err: unknown) {
       this.logger.error('Failed to start Firecrawl session', err, { platform });
@@ -202,7 +227,10 @@ export class FirecrawlSignInService {
       } else {
         this.toast.error(serverMsg ?? 'Unable to start sign-in session. Please try again.');
       }
+      await trace?.putAttribute('success', 'false');
       return null;
+    } finally {
+      await trace?.stop();
     }
   }
 
@@ -210,7 +238,10 @@ export class FirecrawlSignInService {
     sessionId: string,
     platform: string,
     profileName: string
-  ): Promise<boolean> {
+  ): Promise<{ success: boolean; verified: boolean }> {
+    const trace = await this.performance?.startTrace(TRACE_NAMES.FIRECRAWL_SESSION_COMPLETE);
+    await trace?.putAttribute(ATTRIBUTE_NAMES.FEATURE_NAME, 'connected-accounts');
+    await trace?.putAttribute('platform', platform);
     try {
       const response = await firstValueFrom(
         this.http.post<CompleteSessionResponse>(`${this.baseUrl}/firecrawl/session/complete`, {
@@ -226,16 +257,23 @@ export class FirecrawlSignInService {
           platform,
           error: response.error,
         });
-        return false;
+        await trace?.putAttribute('success', 'false');
+        return { success: false, verified: false };
       }
 
-      return true;
+      const verified = response.data?.verified ?? true;
+      await trace?.putAttribute('success', 'true');
+      await trace?.putAttribute('verified', String(verified));
+      return { success: true, verified };
     } catch (err) {
       this.logger.error('Failed to complete Firecrawl session', err, {
         sessionId,
         platform,
       });
-      return false;
+      await trace?.putAttribute('success', 'false');
+      return { success: false, verified: false };
+    } finally {
+      await trace?.stop();
     }
   }
 
@@ -256,9 +294,21 @@ export class FirecrawlSignInService {
     }
   }
 
-  // ─── Modal ────────────────────────────────────────────────────────────
+  // ─── Modal / Sheet ────────────────────────────────────────────────────
 
   private async showInteractiveModal(
+    platformLabel: string,
+    interactiveLiveViewUrl: string
+  ): Promise<boolean> {
+    if (this.shouldUseBottomSheet()) {
+      return this.showInteractiveSheet(platformLabel, interactiveLiveViewUrl);
+    }
+
+    return this.showInteractiveOverlay(platformLabel, interactiveLiveViewUrl);
+  }
+
+  /** Desktop/large viewport: full-screen overlay */
+  private async showInteractiveOverlay(
     platformLabel: string,
     interactiveLiveViewUrl: string
   ): Promise<boolean> {
@@ -278,5 +328,39 @@ export class FirecrawlSignInService {
 
     const result = await ref.closed;
     return result.data?.completed ?? false;
+  }
+
+  /** Mobile/native/small viewport: full-height bottom sheet */
+  private async showInteractiveSheet(
+    platformLabel: string,
+    interactiveLiveViewUrl: string
+  ): Promise<boolean> {
+    const result = await this.bottomSheet.openSheet<{ completed: boolean }>({
+      component: FirecrawlSignInSheetComponent,
+      componentProps: {
+        _platformLabel: platformLabel,
+        _interactiveLiveViewUrl: interactiveLiveViewUrl,
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: false,
+      backdropDismiss: false,
+      canDismiss: true,
+    });
+
+    return result.data?.completed ?? false;
+  }
+
+  /** Same logic as ConnectedAccountsModalService — consistent platform detection. */
+  private shouldUseBottomSheet(): boolean {
+    if (this.platform.isNative()) return true;
+    if (!this.platform.isBrowser()) return false;
+
+    const viewportWidth = this.platform.viewport().width;
+    if (viewportWidth < 768) return true;
+
+    const hasTouch = this.platform.hasTouch();
+    if (hasTouch && viewportWidth < 1024) return true;
+
+    return false;
   }
 }

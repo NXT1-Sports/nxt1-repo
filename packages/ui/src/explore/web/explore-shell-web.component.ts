@@ -287,8 +287,6 @@ import { ExploreSidebarWebComponent } from './explore-sidebar-web.component';
               class="explore-sidebar-column"
               [activeTab]="explore.activeTab()"
               [activeFilterCount]="activeFilterCount()"
-              [hasQuery]="explore.hasQuery()"
-              [query]="explore.query()"
               [filters]="currentFilters()"
               [userState]="effectiveUserState()"
               [detectingLocation]="_detectingLocation()"

@@ -134,7 +134,7 @@ export class AgentRouter {
       };
     }
 
-    const context = this.buildSessionContext(userId, payload.sessionId);
+    const context = this.buildSessionContext(userId, payload.sessionId, operationId);
 
     // Inject thread history for conversation continuity
     // (contextObj already extracted above for resume detection)
@@ -229,7 +229,8 @@ export class AgentRouter {
         const personalized = await this.semanticCache.personalize(
           cacheHit.result,
           userContext,
-          intent
+          intent,
+          operationId
         );
 
         this.emitUpdate(onUpdate, operationId, 'completed', personalized.summary);
@@ -467,7 +468,7 @@ export class AgentRouter {
       userContext = { userId } as AgentUserContext;
     }
 
-    const context = this.buildSessionContext(userId, payload.sessionId);
+    const context = this.buildSessionContext(userId, payload.sessionId, operationId);
     const enrichedIntent = this.enrichIntentWithContext(intent, userContext, payload.context);
 
     try {
@@ -583,7 +584,11 @@ export class AgentRouter {
   }
 
   /** Build a minimal session context. */
-  private buildSessionContext(userId: string, sessionId?: string): AgentSessionContext {
+  private buildSessionContext(
+    userId: string,
+    sessionId?: string,
+    operationId?: string
+  ): AgentSessionContext {
     const now = new Date().toISOString();
     return {
       sessionId: sessionId ?? crypto.randomUUID(),
@@ -591,6 +596,7 @@ export class AgentRouter {
       conversationHistory: [],
       createdAt: now,
       lastActiveAt: now,
+      ...(operationId && { operationId }),
     };
   }
 

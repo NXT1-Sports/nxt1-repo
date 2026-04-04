@@ -768,12 +768,8 @@ export const APP_EVENTS = {
   USAGE_BREAKDOWN_EXPANDED: 'usage_breakdown_expanded',
   /** User loaded more payment history */
   USAGE_HISTORY_LOADED_MORE: 'usage_history_loaded_more',
-  /** User added a payment method */
-  USAGE_PAYMENT_METHOD_ADDED: 'usage_payment_method_added',
-  /** User removed a payment method */
-  USAGE_PAYMENT_METHOD_REMOVED: 'usage_payment_method_removed',
-  /** User set default payment method */
-  USAGE_PAYMENT_METHOD_DEFAULT_SET: 'usage_payment_method_default_set',
+  /** User opened Stripe billing portal */
+  USAGE_BILLING_PORTAL_OPENED: 'usage_billing_portal_opened',
   /** User updated budget */
   USAGE_BUDGET_UPDATED: 'usage_budget_updated',
   /** User updated team budget */
@@ -784,6 +780,10 @@ export const APP_EVENTS = {
   USAGE_RECEIPT_DOWNLOADED: 'usage_receipt_downloaded',
   /** User downloaded an invoice */
   USAGE_INVOICE_DOWNLOADED: 'usage_invoice_downloaded',
+  /** User purchased credits via Stripe Checkout */
+  USAGE_CREDITS_PURCHASED: 'usage_credits_purchased',
+  /** User deleted (disabled) a budget */
+  USAGE_BUDGET_DELETED: 'usage_budget_deleted',
 
   // ============================================
   // ANALYTICS PANEL EVENTS

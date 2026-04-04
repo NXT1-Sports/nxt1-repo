@@ -10,7 +10,6 @@
  */
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { IonRippleEffect } from '@ionic/angular/standalone';
 
 import type { UsageOverview } from '@nxt1/core';
@@ -20,7 +19,7 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 @Component({
   selector: 'nxt1-usage-overview',
   standalone: true,
-  imports: [CommonModule, IonRippleEffect],
+  imports: [IonRippleEffect],
   template: `
     <section class="usage-overview" [attr.data-testid]="testIds.OVERVIEW_SECTION">
       @if (isPersonal()) {

@@ -1,7 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "ignoreDeprecations": "5.0",
     "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "outDir": "./dist",
     "declaration": true,
     "declarationMap": true,
@@ -11,7 +13,10 @@
       "@nxt1/core": ["../core/src/index.ts", "../core/dist/index.d.ts"],
       "@nxt1/core/*": ["../core/src/*/index.ts", "../core/dist/*/index.d.ts"],
       "@nxt1/design-tokens": ["../design-tokens/src/index.ts"],
-      "@nxt1/design-tokens/*": ["../design-tokens/src/*"]
+      "@nxt1/design-tokens/*": ["../design-tokens/src/*"],
+      "@stripe/stripe-js": [
+        "../../node_modules/@stripe/stripe-js/lib/index.d.ts"
+      ]
     }
   },
   "angularCompilerOptions": {

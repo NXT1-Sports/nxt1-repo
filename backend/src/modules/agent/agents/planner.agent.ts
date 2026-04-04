@@ -142,6 +142,13 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
       maxTokens: routing.maxTokens,
       temperature: routing.temperature,
       jsonMode: true,
+      ...(context.operationId && {
+        telemetryContext: {
+          operationId: context.operationId,
+          userId: context.userId,
+          agentId: this.id,
+        },
+      }),
     });
 
     if (!result.content) {

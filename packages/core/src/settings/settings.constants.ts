@@ -18,6 +18,7 @@ import type {
   SettingsPreferences,
   SettingsConnectedProvider,
 } from './settings.types';
+import { isTeamRole } from '../constants/user.constants';
 
 // ============================================
 // SECTION METADATA
@@ -142,15 +143,6 @@ export const SETTINGS_PREFERENCES_ITEMS: readonly SettingsItem[] = [
 // ============================================
 
 export const SETTINGS_BILLING_ITEMS: readonly SettingsItem[] = [
-  {
-    id: 'currentPlan',
-    section: 'billing',
-    type: 'navigation',
-    label: 'Current Plan',
-    description: 'View and upgrade your subscription',
-    icon: 'star-outline',
-    route: '/usage?section=overview',
-  },
   {
     id: 'paymentMethods',
     section: 'billing',
@@ -324,6 +316,28 @@ export const DEFAULT_SETTINGS_SECTIONS: readonly SettingsSection[] = [
     items: SETTINGS_LEGAL_ITEMS,
   },
 ] as const;
+
+// ============================================
+// ROLE-AWARE SECTION FACTORY
+// ============================================
+
+/**
+ * Returns the settings sections appropriate for the given user role.
+ *
+ * - Athletes, parents, and recruiters do NOT see the billing section —
+ *   billing/subscription management is only relevant for team accounts.
+ * - Coaches and directors DO see billing and usage.
+ *
+ * Uses `isTeamRole()` from user.constants as the single source of truth.
+ */
+export function getSettingsSectionsForRole(
+  role: string | null | undefined
+): readonly SettingsSection[] {
+  if (isTeamRole(role)) {
+    return DEFAULT_SETTINGS_SECTIONS;
+  }
+  return DEFAULT_SETTINGS_SECTIONS.filter((section) => section.id !== 'billing');
+}
 
 // ============================================
 // DEFAULT PREFERENCES

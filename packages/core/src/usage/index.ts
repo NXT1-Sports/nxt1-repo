@@ -21,6 +21,7 @@ export type {
   UsagePaymentMethod,
   UsageCoupon,
   UsageBudget,
+  TeamBudgetAllocation,
   UsageDashboardData,
   UsageDashboardRequest,
   UsageDashboardResponse,

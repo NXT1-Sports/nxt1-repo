@@ -26,6 +26,8 @@ export interface ScrapeLinkedAccountsInput {
   readonly role: UserRole;
   readonly sport?: string;
   readonly linkedAccounts: readonly LinkedAccount[];
+  readonly teamId?: string;
+  readonly organizationId?: string;
 }
 
 export interface ScrapeLinkedAccountsResult {
@@ -130,6 +132,8 @@ export async function enqueueLinkedAccountScrape(
         platform: a.platform,
         url: a.profileUrl,
       })),
+      ...(input.teamId ? { teamId: input.teamId } : {}),
+      ...(input.organizationId ? { organizationId: input.organizationId } : {}),
       ...(threadId ? { threadId } : {}),
     },
   };

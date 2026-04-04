@@ -188,6 +188,10 @@ import { DEFAULT_OPTION_SCROLLER_CONFIG } from './option-scroller.types';
 
       .option-scroller--scrollable .option-scroller__container {
         overflow-x: auto;
+        /* Tell the browser this container handles horizontal panning.
+           This prevents the browser from firing click on a different element
+           (e.g. the wrong tab) after the user drags/scrolls the tab bar. */
+        touch-action: pan-x;
       }
 
       .option-scroller--stretch .option-scroller__container {
@@ -485,13 +489,15 @@ export class NxtOptionScrollerComponent implements AfterViewInit, OnDestroy {
       // Read signals to establish reactive dependency
       this.selectedId();
       this.options();
-      // Schedule update after render — always re-cache elements so the index
-      // correctly maps to the current DOM nodes (options list may have changed,
-      // e.g. 5-tab list collapsing to 3-tab list for personal users).
+      // Double-rAF: first frame lets Angular commit DOM changes,
+      // second frame lets the browser fully paint/layout so measurements
+      // (getBoundingClientRect) are stable — critical on mobile.
       if (isPlatformBrowser(this.platformId)) {
         requestAnimationFrame(() => {
-          this.cacheOptionElements();
-          this.updateIndicator();
+          requestAnimationFrame(() => {
+            this.cacheOptionElements();
+            this.updateIndicator();
+          });
         });
       }
     });
@@ -502,8 +508,10 @@ export class NxtOptionScrollerComponent implements AfterViewInit, OnDestroy {
 
     // Initial indicator position
     requestAnimationFrame(() => {
-      this.cacheOptionElements();
-      this.updateIndicator();
+      requestAnimationFrame(() => {
+        this.cacheOptionElements();
+        this.updateIndicator();
+      });
     });
 
     // Watch for resize changes
@@ -650,6 +658,15 @@ export class NxtOptionScrollerComponent implements AfterViewInit, OnDestroy {
   onTouchEnd(event: TouchEvent): void {
     if (!this.mergedConfig().swipeEnabled || !this.isSwiping) return;
 
+    // When the tab bar itself is scrollable, the user drags the tab bar to
+    // reveal off-screen tabs.  That horizontal drag must NOT also fire swipe
+    // section-navigation — those two interactions conflict and cause the
+    // indicator to land on the wrong option.
+    if (this.mergedConfig().scrollable) {
+      this.isSwiping = false;
+      return;
+    }
+
     const deltaX = event.changedTouches[0].clientX - this.touchStartX;
 
     if (Math.abs(deltaX) > this.swipeThreshold) {
@@ -703,6 +720,34 @@ export class NxtOptionScrollerComponent implements AfterViewInit, OnDestroy {
 
     this._indicatorOffset.set(offset + scrollLeft);
     this._indicatorWidth.set(elementRect.width);
+
+    // Scroll the selected option into view (for scrollable tab bars)
+    this.scrollOptionIntoView(element);
+  }
+
+  /**
+   * Smoothly scroll the selected option into full view within the container.
+   * No-op when the element is already fully visible.
+   */
+  private scrollOptionIntoView(element: HTMLButtonElement): void {
+    const container = this.optionsContainer?.nativeElement;
+    if (!container || container.scrollWidth <= container.clientWidth) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    const scrollLeft = container.scrollLeft;
+
+    const elementLogicalLeft = elementRect.left - containerRect.left + scrollLeft;
+    const elementLogicalRight = elementLogicalLeft + elementRect.width;
+
+    if (elementLogicalLeft < scrollLeft) {
+      container.scrollTo({ left: elementLogicalLeft - 16, behavior: 'smooth' });
+    } else if (elementLogicalRight > scrollLeft + container.clientWidth) {
+      container.scrollTo({
+        left: elementLogicalRight - container.clientWidth + 16,
+        behavior: 'smooth',
+      });
+    }
   }
 
   /**

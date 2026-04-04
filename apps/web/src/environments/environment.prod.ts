@@ -79,4 +79,9 @@ export const environment = {
   },
   yahooClientId:
     'dj1yJmk9dml1QlJOTnpMSzNNJmQ9WVdrOVdsaGFUMjlJZVRVbWNHbzlNQT09JnM9Y29uc3VtZXJzZWNyZXQmc3Y9MCZ4PWE2',
+
+  // Stripe publishable key (prod.ts currently uses staging config — update when production is ready)
+  // TODO: Replace with pk_live_... when production Stripe account is configured
+  stripePublishableKey:
+    'pk_live_52MTwFLKBRB9aJio2J4N26ctBXnLKlt2Tw9nfsOf4nxpESY9ODakObjQpUuznFH4rQbuGRWYVOdquttj4fT3djE5U005EPYUTAE',
 };

@@ -8,6 +8,7 @@
  * - Navigation with NavController (native-feel transitions)
  * - Mobile-specific analytics
  * - Theme restoration after onboarding (clears temporary dark override)
+ * - Saving agent goals during onboarding flow
  *
  * Route: /auth/onboarding/congratulations
  *
@@ -52,12 +53,14 @@ import {
   OnboardingButtonMobileComponent,
   NxtLoggingService,
   NxtThemeService,
+  AgentXService,
 } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 
 // Core Constants
 import { AUTH_REDIRECTS } from '@nxt1/core/constants';
 import { getWelcomeSlidesForRole, type OnboardingUserType } from '@nxt1/core/api';
+import type { AgentGoal, AgentDashboardGoal } from '@nxt1/core';
 
 // App Services
 import { AuthFlowService } from '../../services';
@@ -76,7 +79,7 @@ import { AuthFlowService } from '../../services';
       variant="card-glass"
       [showLogo]="true"
       [showBackButton]="false"
-      [maxWidth]="'560px'"
+      [maxWidth]="'600px'"
       [mobileFooterPadding]="true"
     >
       <div authContent>
@@ -89,6 +92,7 @@ import { AuthFlowService } from '../../services';
           (complete)="onComplete()"
           (skip)="onSkip()"
           (slideViewed)="onSlideViewed($event)"
+          (goalsChanged)="onGoalsChanged($event)"
         />
       </div>
     </nxt1-auth-shell>
@@ -99,8 +103,8 @@ import { AuthFlowService } from '../../services';
       [completedStepIndices]="completedSlideIndices()"
       [showSkip]="!isLastSlide()"
       [isLastStep]="isLastSlide()"
-      [loading]="false"
-      [disabled]="false"
+      [loading]="isSaving()"
+      [disabled]="isGoalsSlide() && !hasSelectedGoals()"
       [showSignOut]="false"
       (skipClick)="onSkip()"
       (continueClick)="onFooterContinue()"
@@ -113,11 +117,18 @@ export class OnboardingCongratulationsPage implements OnInit {
   private readonly authFlow = inject(AuthFlowService);
   private readonly themeService = inject(NxtThemeService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('CongratulationsPage');
+  private readonly agentX = inject(AgentXService);
 
   @ViewChild('welcomeSlides') welcomeSlidesRef?: OnboardingWelcomeComponent;
 
   /** Current slide index for sticky footer progress */
   readonly currentSlideIndex = signal(0);
+
+  /** Selected goals from the goals slide */
+  private readonly selectedGoals = signal<AgentGoal[]>([]);
+
+  /** Whether goals are being saved */
+  readonly isSaving = signal(false);
 
   // ============================================
   // COMPUTED (from AuthFlowService)
@@ -152,6 +163,17 @@ export class OnboardingCongratulationsPage implements OnInit {
     return Array.from({ length: current }, (_, i) => i);
   });
 
+  /** Check if current slide is a goals slide */
+  readonly isGoalsSlide = computed(() => {
+    const role = this.userRole() ?? 'athlete';
+    const slides = getWelcomeSlidesForRole(role).slides;
+    const currentSlide = slides[this.currentSlideIndex()];
+    return currentSlide?.type === 'goals';
+  });
+
+  /** Whether user has selected at least one goal */
+  readonly hasSelectedGoals = computed(() => this.selectedGoals().length > 0);
+
   // ============================================
   // LIFECYCLE
   // ============================================
@@ -174,16 +196,22 @@ export class OnboardingCongratulationsPage implements OnInit {
   // EVENT HANDLERS
   // ============================================
 
+  /** Handle goals changed from welcome slides */
+  onGoalsChanged(goals: AgentGoal[]): void {
+    this.selectedGoals.set(goals);
+    this.logger.debug('Goals updated', { count: goals.length });
+  }
+
   /** Handle complete (CTA button click) */
   async onComplete(): Promise<void> {
     this.logger.info('User completed welcome slides');
-    await this.navigateToAgent();
+    await this.saveGoalsAndNavigate();
   }
 
   /** Handle skip */
   async onSkip(): Promise<void> {
     this.logger.info('User skipped welcome slides');
-    await this.navigateToAgent();
+    await this.saveGoalsAndNavigate();
   }
 
   /** Handle slide viewed (for analytics) */
@@ -208,12 +236,44 @@ export class OnboardingCongratulationsPage implements OnInit {
   // ============================================
 
   /**
-   * Navigate to Agent X using NavController.
+   * Save goals to backend and navigate to Agent X.
    * Uses navigateRoot to replace the navigation stack (no back to onboarding).
    *
    * Also clears the temporary theme override, restoring user's saved preference.
    */
-  private async navigateToAgent(): Promise<void> {
+  private async saveGoalsAndNavigate(): Promise<void> {
+    const goals = this.selectedGoals();
+
+    // Save goals if any were selected
+    if (goals.length > 0) {
+      this.isSaving.set(true);
+      try {
+        const dashboardGoals: AgentDashboardGoal[] = goals.map((g) => ({
+          id: g.id,
+          text: g.text,
+          category: g.category ?? 'custom',
+          createdAt: new Date().toISOString(),
+        }));
+
+        this.logger.info('Saving agent goals', { count: goals.length });
+        const saved = await this.agentX.setGoals(dashboardGoals);
+
+        if (saved) {
+          this.logger.info('Goals saved successfully');
+          // Generate initial briefing in background (non-blocking)
+          this.agentX.generateBriefing(true).catch((err) => {
+            this.logger.warn('Initial briefing generation failed (non-critical)', err);
+          });
+        } else {
+          this.logger.warn('Failed to save goals');
+        }
+      } catch (err) {
+        this.logger.error('Error saving goals', err);
+      } finally {
+        this.isSaving.set(false);
+      }
+    }
+
     this.logger.info('Navigating to Agent X', { target: AUTH_REDIRECTS.AGENT });
 
     // ⭐ THEME RESTORATION: Clear temporary override, restore user's preference

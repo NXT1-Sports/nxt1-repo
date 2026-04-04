@@ -265,15 +265,17 @@ export class WalletTopUpSheetComponent implements OnInit {
     try {
       const newBalance = await this.iap.purchase(product.productId);
       if (newBalance !== null) {
-        // Dismiss sheet after successful purchase
-        await this.dismiss(newBalance);
+        // Dismiss sheet after successful purchase — always pass purchased:true
+        // so usage overview refreshes even if newBalanceCents is unavailable
+        await this.modal.dismiss({ purchased: true, newBalanceCents: newBalance });
+        return;
       }
     } finally {
       this.purchasingId.set(null);
     }
   }
 
-  protected async dismiss(newBalanceCents?: number): Promise<void> {
-    await this.modal.dismiss({ newBalanceCents });
+  protected async dismiss(): Promise<void> {
+    await this.modal.dismiss();
   }
 }

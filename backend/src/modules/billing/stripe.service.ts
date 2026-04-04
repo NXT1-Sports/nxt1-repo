@@ -244,6 +244,9 @@ export async function generateInvoice(
 
     if (collectionMethod === 'send_invoice') {
       invoiceParams['days_until_due'] = options?.daysUntilDue ?? 30;
+      // Stripe defaults pending_invoice_items_behavior to 'exclude' for send_invoice.
+      // Must override to 'include' so invoice items added before this call are picked up.
+      invoiceParams['pending_invoice_items_behavior'] = 'include';
     }
 
     const invoice = await stripe.invoices.create(
@@ -262,6 +265,7 @@ export async function generateInvoice(
     return {
       success: true,
       invoiceId: finalizedInvoice.id,
+      invoiceUrl: finalizedInvoice.hosted_invoice_url ?? undefined,
     };
   } catch (error) {
     logger.error('[generateInvoice] Failed to generate invoice', {
@@ -299,6 +303,57 @@ export async function getCustomerInvoices(
       customerId,
     });
     throw error;
+  }
+}
+
+/**
+ * Create a Stripe SetupIntent for saving a card.
+ * Used only for Org/Team users — Individual users use Apple IAP.
+ * Returns the client_secret to be used with Stripe Elements on the frontend.
+ */
+export async function createSetupIntent(
+  customerId: string,
+  environment: 'staging' | 'production'
+): Promise<string> {
+  const stripe = getStripeClient(environment);
+
+  const setupIntent = await stripe.setupIntents.create({
+    customer: customerId,
+    usage: 'off_session',
+    payment_method_types: ['card'],
+  });
+
+  logger.info('[createSetupIntent] SetupIntent created', {
+    customerId,
+    setupIntentId: setupIntent.id,
+  });
+
+  if (!setupIntent.client_secret) {
+    throw new Error('Stripe returned SetupIntent without client_secret');
+  }
+
+  return setupIntent.client_secret;
+}
+
+/**
+ * Check whether a Stripe customer has at least one saved card.
+ * Used to gate Org/Team users from running agent jobs before adding a payment method.
+ */
+export async function hasPaymentMethod(
+  customerId: string,
+  environment: 'staging' | 'production'
+): Promise<boolean> {
+  try {
+    const stripe = getStripeClient(environment);
+    const methods = await stripe.paymentMethods.list({
+      customer: customerId,
+      type: 'card',
+      limit: 1,
+    });
+    return methods.data.length > 0;
+  } catch (error) {
+    logger.error('[hasPaymentMethod] Failed to check payment methods', { error, customerId });
+    return false;
   }
 }
 
@@ -570,4 +625,38 @@ export async function createUsageMeter(
       error: error instanceof Error ? error.message : 'Unknown error',
     };
   }
+}
+
+/**
+ * Issue a refund for a Stripe charge.
+ * Used by org admins to credit back a disputed or erroneous charge.
+ *
+ * @param chargeId  Stripe charge ID (ch_...)
+ * @param environment  Stripe environment
+ * @param amountCents  Partial refund amount in cents. Omit for a full refund.
+ * @returns The created Stripe Refund object
+ */
+export async function refundCharge(
+  chargeId: string,
+  environment: 'staging' | 'production',
+  amountCents?: number
+): Promise<Stripe.Refund> {
+  const stripe = getStripeClient(environment);
+
+  const params: Stripe.RefundCreateParams = { charge: chargeId };
+  if (amountCents != null && amountCents > 0) {
+    params.amount = Math.round(amountCents);
+  }
+
+  const refund = await stripe.refunds.create(params);
+
+  logger.info('[refundCharge] Refund created', {
+    refundId: refund.id,
+    chargeId,
+    amountCents: refund.amount,
+    status: refund.status,
+    environment,
+  });
+
+  return refund;
 }

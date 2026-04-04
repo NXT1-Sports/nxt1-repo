@@ -14,6 +14,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 const db = admin.firestore();
 
 const BILLING_CONTEXTS_COLLECTION = 'billingContexts';
+const TEAM_BUDGET_ALLOCATIONS_COLLECTION = 'teamBudgetAllocations';
 const BATCH_SIZE = 450;
 
 /**
@@ -65,6 +66,39 @@ export const monthlyBillingReset = onSchedule(
       }
 
       logger.info('Monthly billing reset complete', { count, periodStart, periodEnd });
+
+      // ── Reset team budget allocations ─────────────────────────────────
+      const allocSnap = await db.collection(TEAM_BUDGET_ALLOCATIONS_COLLECTION).get();
+
+      let allocBatch = db.batch();
+      let allocCount = 0;
+      let allocBatchCount = 0;
+
+      for (const doc of allocSnap.docs) {
+        allocBatch.update(doc.ref, {
+          currentPeriodSpend: 0,
+          periodStart,
+          periodEnd,
+          notified50: false,
+          notified80: false,
+          notified100: false,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        allocCount++;
+        allocBatchCount++;
+
+        if (allocBatchCount >= BATCH_SIZE) {
+          await allocBatch.commit();
+          allocBatch = db.batch();
+          allocBatchCount = 0;
+        }
+      }
+
+      if (allocBatchCount > 0) {
+        await allocBatch.commit();
+      }
+
+      logger.info('Monthly team allocation reset complete', { allocCount, periodStart, periodEnd });
     } catch (error) {
       logger.error('Monthly billing reset failed', { error });
       throw error;

@@ -14,9 +14,10 @@ import { appGuard } from '../middleware/auth.middleware.js';
 import { logger } from '../utils/logger.js';
 import { asyncHandler } from '@nxt1/core/errors/express';
 import { notFoundError, forbiddenError, fieldError } from '@nxt1/core/errors';
-import type { User, SportProfile, TeamType } from '@nxt1/core';
+import type { User, SportProfile, TeamType, UserRole } from '@nxt1/core';
 import { formatFileSize, TEAM_TYPES } from '@nxt1/core';
 import { invalidateProfileCaches } from './profile.routes.js';
+import { enqueueWelcomeGraphic } from '../services/agent-welcome.service.js';
 import type {
   EditProfileData,
   EditProfileFormData,
@@ -937,6 +938,72 @@ router.put(
     // Fetch updated user
     const updatedDoc = await userRef.get();
     const updatedUser = { id: updatedDoc.id, ...updatedDoc.data() } as User;
+
+    // ─── Deferred welcome graphic ──────────────────────────────────────────
+    // Generate a welcome graphic the FIRST time the user adds a relevant image:
+    //   • Athletes / parents → first profile image (profileImgs)
+    //   • Coaches / directors → first team logo (teamLogoUrl)
+    // The flag `welcomeGraphicQueued` on the user document prevents duplicates.
+    const hasWelcomeGraphicAlready = !!(updatedDoc.data() as Record<string, unknown> | undefined)?.[
+      'welcomeGraphicQueued'
+    ];
+
+    if (!hasWelcomeGraphicAlready) {
+      const role = (updatedUser.role ?? 'athlete') as UserRole;
+      const isTeamRole = role === 'coach' || role === 'director';
+
+      // Determine if the relevant image was just added
+      const hadProfileImg = !!(user.profileImgs && user.profileImgs.length > 0);
+      const hasProfileImgNow = !!(updatedUser.profileImgs && updatedUser.profileImgs.length > 0);
+      const athleteImageAdded = !isTeamRole && !hadProfileImg && hasProfileImgNow;
+
+      const hadTeamLogo = !!user.sports?.[user.activeSportIndex ?? 0]?.team?.logoUrl;
+      const hasTeamLogoNow =
+        !!updatedUser.sports?.[updatedUser.activeSportIndex ?? 0]?.team?.logoUrl;
+      const teamLogoAdded = isTeamRole && !hadTeamLogo && hasTeamLogoNow;
+
+      if (athleteImageAdded || teamLogoAdded) {
+        const primarySport = updatedUser.sports?.[updatedUser.activeSportIndex ?? 0];
+        const agentEnv = req.isStaging ? 'staging' : 'production';
+
+        // Mark the flag immediately so concurrent requests don't enqueue twice
+        void userRef.update({ welcomeGraphicQueued: true }).catch((err) =>
+          logger.warn('[EditProfile] Failed to set welcomeGraphicQueued flag', {
+            userId: uid,
+            err,
+          })
+        );
+
+        void enqueueWelcomeGraphic(
+          db,
+          {
+            userId: uid,
+            displayName:
+              `${updatedUser.firstName ?? ''} ${updatedUser.lastName ?? ''}`.trim() || 'Athlete',
+            role,
+            sport: primarySport?.sport,
+            position: primarySport?.positions?.[0],
+            profileImageUrl: updatedUser.profileImgs?.[0],
+            teamName: primarySport?.team?.name,
+            teamLogoUrl: primarySport?.team?.logoUrl,
+            teamColors: primarySport?.team?.colors as string[] | undefined,
+          },
+          agentEnv
+        ).catch((err) =>
+          logger.error('[EditProfile] Failed to enqueue welcome graphic', {
+            userId: uid,
+            error: err,
+          })
+        );
+
+        logger.info('[EditProfile] Welcome graphic enqueued on first image upload', {
+          userId: uid,
+          trigger: athleteImageAdded ? 'profileImage' : 'teamLogo',
+          role,
+        });
+      }
+    }
+    // ─── End deferred welcome graphic ──────────────────────────────────────
 
     // Invalidate all profile caches to ensure fresh data
     await invalidateProfileCaches(uid, updatedUser.username, updatedUser.unicode).catch((err) =>

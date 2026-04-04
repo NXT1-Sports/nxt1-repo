@@ -81,6 +81,7 @@ import { setWelcomeDependencies } from '../../../services/agent-welcome.service.
 import { setScrapeDependencies } from '../../../services/agent-scrape.service.js';
 import { stagingDb } from '../../../utils/firebase-staging.js';
 import { logger } from '../../../utils/logger.js';
+import { addJobCost } from './job-cost-tracker.js';
 
 /**
  * Quick probe: attempt a single TCP connect + PING to Redis.
@@ -101,6 +102,9 @@ async function isRedisAvailable(url: string): Promise<boolean> {
     enableOfflineQueue: false,
     connectTimeout: 2000,
   });
+  // Suppress the ioredis 'error' event emitted on connection failure.
+  // Without this listener Node.js would throw an unhandled error and crash.
+  client.on('error', () => undefined);
   try {
     await client.connect();
     await client.quit();
@@ -128,20 +132,37 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   const redisOk = await isRedisAvailable(redisUrl);
   if (!redisOk) {
     if (process.env['NODE_ENV'] === 'production') {
-      throw new Error(
-        `Redis is unreachable at ${redisUrl} — cannot start Agent Engine in production.`
+      logger.error(
+        `⚠️  Redis is unreachable at ${redisUrl}. ` +
+          'Ensure the REDIS_URL secret is set in Firebase App Hosting (backend/apphosting.yaml) ' +
+          'and the service account has roles/secretmanager.secretAccessor. ' +
+          'Agent X features are unavailable until Redis is configured.'
+      );
+    } else {
+      logger.warn(
+        '⚠️  Redis unavailable — Agent Engine skipped. ' +
+          'Start Redis locally (e.g. via WSL2/Docker: `docker run -p 6379:6379 redis`) ' +
+          'or set AGENT_ENGINE_DISABLED=true to suppress this warning.'
       );
     }
-    logger.warn(
-      '⚠️  Redis unavailable — Agent Engine skipped. ' +
-        'Start Redis (e.g. via WSL2/Docker) or set AGENT_ENGINE_DISABLED=true to suppress this warning.'
-    );
+    // Do NOT throw — let the server start so all other routes keep working.
+    // Agent routes return 503 when queueService/jobRepository are null.
     return async () => {};
   }
   // ── 1. Core services ─────────────────────────────────────────────────
   const telemetry = new TelemetryService();
   const llm = new OpenRouterService({
     onTelemetry: (record) => {
+      // Accumulate cost per operationId so the worker can deduct billing
+      // without querying the Helicone REST API (which requires a matching org key).
+      logger.info('[onTelemetry] LLM call recorded', {
+        operationId: record.operationId,
+        model: record.model,
+        inputTokens: record.inputTokens,
+        outputTokens: record.outputTokens,
+        costUsd: record.costUsd,
+      });
+      addJobCost(record.operationId, record.costUsd);
       void telemetry.recordLLMCall({
         operationId: record.operationId,
         userId: record.userId,

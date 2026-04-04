@@ -68,6 +68,12 @@ export interface MobileHeaderConfig {
 
   /** Number of active filters — renders a green badge dot when > 0 */
   readonly filterActiveCount?: number;
+
+  /** Whether to show the help (?) icon button (e.g. on Billing page) */
+  readonly showHelp?: boolean;
+
+  /** Whether to show the budget/settings icon button for org users (e.g. on Billing page) */
+  readonly showBudget?: boolean;
 }
 
 /**

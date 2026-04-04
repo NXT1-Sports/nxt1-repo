@@ -43,12 +43,12 @@ import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import { NxtIconComponent } from '../components/icon';
 import { AgentXService } from './agent-x.service';
-import { AgentXBriefingPanelComponent } from './agent-x-briefing-panel.component';
+import { AgentXControlPanelComponent } from './agent-x-control-panel.component';
 import {
   AGENT_X_GOAL_OPTIONS,
-  AgentXBriefingBadgeStateService,
-  type AgentXBriefingPanelKind,
-} from './agent-x-briefing-badge-state.service';
+  AgentXControlPanelStateService,
+  type AgentXControlPanelKind,
+} from './agent-x-control-panel-state.service';
 
 import { AgentXInputComponent } from './agent-x-input.component';
 import {
@@ -214,7 +214,7 @@ export interface WeeklyPlaybookItem {
                 class="header-badge status-badge"
                 [class.status-badge--degraded]="agentStatusTone() === 'warning'"
                 [class.status-badge--down]="agentStatusTone() === 'critical'"
-                (click)="openBriefingPanel('status')"
+                (click)="openControlPanel('status')"
               >
                 <div
                   class="pulse-dot"
@@ -226,7 +226,7 @@ export interface WeeklyPlaybookItem {
               <button
                 type="button"
                 class="header-badge budget-badge"
-                (click)="openBriefingPanel('budget')"
+                (click)="openControlPanel('budget')"
               >
                 <nxt1-icon name="wallet" [size]="14"></nxt1-icon>
                 <span>{{ agentBudgetBadgeLabel() }}</span>
@@ -386,7 +386,7 @@ export interface WeeklyPlaybookItem {
                       >
                     </p>
                     <p class="generating-sub">
-                      Analyzing your goals, scanning opportunities, and prioritizing tasks
+                      Reading your profile, reviewing activity, and generating tasks
                     </p>
                   </div>
                   <div class="generating-steps">
@@ -401,7 +401,23 @@ export interface WeeklyPlaybookItem {
                   </div>
                 </div>
               } @else if (weeklyPlaybook().length > 0 && !allTasksComplete()) {
-                @for (task of pendingPlaybookItems(); track task.id; let i = $index) {
+                @if (showCategoryPills()) {
+                  <div class="category-pills" role="tablist" aria-label="Filter action plan">
+                    @for (pill of categoryPills(); track pill.id) {
+                      <button
+                        type="button"
+                        role="tab"
+                        class="category-pill"
+                        [class.category-pill--active]="activeCategoryId() === pill.id"
+                        [attr.aria-selected]="activeCategoryId() === pill.id"
+                        (click)="selectCategory(pill.id)"
+                      >
+                        {{ pill.label }}
+                      </button>
+                    }
+                  </div>
+                }
+                @for (task of filteredPlaybookItems(); track task.id; let i = $index) {
                   <div
                     class="action-card action-card--enter"
                     [style.animation-delay]="i * 80 + 'ms'"
@@ -1227,6 +1243,38 @@ export interface WeeklyPlaybookItem {
         transition: width 0.28s ease;
       }
 
+      /* ── Category Pill Filter ──────────────────── */
+      .category-pills {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: var(--nxt1-spacing-3, 12px);
+        margin-bottom: var(--nxt1-spacing-2, 8px);
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+      }
+      .category-pills::-webkit-scrollbar {
+        display: none;
+      }
+      .category-pill {
+        flex: 0 0 auto;
+        padding: 6px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--agent-border);
+        background: transparent;
+        color: var(--agent-text-secondary);
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        white-space: nowrap;
+      }
+      .category-pill--active {
+        background: var(--agent-primary);
+        color: #fff;
+        border-color: var(--agent-primary);
+      }
+
       .action-card {
         display: flex;
         flex-direction: column;
@@ -1647,7 +1695,7 @@ export interface WeeklyPlaybookItem {
 })
 export class AgentXShellComponent {
   protected readonly agentX = inject(AgentXService);
-  protected readonly briefingBadges = inject(AgentXBriefingBadgeStateService);
+  protected readonly controlPanelState = inject(AgentXControlPanelStateService);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
@@ -1672,10 +1720,10 @@ export class AgentXShellComponent {
   // ============================================
 
   protected readonly generatingSteps = [
-    { label: 'Reviewing your goals' },
-    { label: 'Scanning recruiting opportunities' },
-    { label: 'Prioritizing high-impact actions' },
-    { label: 'Building your personalized plan' },
+    { label: 'Loading your profile and goals' },
+    { label: 'Reviewing recent activity and progress' },
+    { label: 'Generating personalized tasks' },
+    { label: 'Finalizing your playbook' },
   ];
 
   // ============================================
@@ -1721,9 +1769,9 @@ export class AgentXShellComponent {
 
   /** Briefing preview text — live from service only. */
   protected readonly briefingPreview = computed(() => this.agentX.briefingPreviewText());
-  protected readonly agentStatusLabel = this.briefingBadges.statusLabel;
-  protected readonly agentStatusTone = this.briefingBadges.statusTone;
-  protected readonly agentBudgetBadgeLabel = this.briefingBadges.budgetBadgeLabel;
+  protected readonly agentStatusLabel = this.controlPanelState.statusLabel;
+  protected readonly agentStatusTone = this.controlPanelState.statusTone;
+  protected readonly agentBudgetBadgeLabel = this.controlPanelState.budgetBadgeLabel;
 
   // ============================================
   // COORDINATORS — Role-Aware Virtual Staff
@@ -1750,9 +1798,18 @@ export class AgentXShellComponent {
   );
 
   /** Pending (non-complete) playbook items to render as action cards. */
-  protected readonly pendingPlaybookItems = computed(() =>
-    this.weeklyPlaybook().filter((t) => t.status !== 'complete')
-  );
+  protected readonly pendingPlaybookItems = this.agentX.pendingPlaybookItems;
+
+  // ── Category Pill Filter (delegated to AgentXService) ──────────────────
+
+  protected readonly activeCategoryId = this.agentX.activeCategoryId;
+  protected readonly categoryPills = this.agentX.categoryPills;
+  protected readonly showCategoryPills = this.agentX.showCategoryPills;
+  protected readonly filteredPlaybookItems = this.agentX.filteredPlaybookItems;
+
+  protected selectCategory(id: string): void {
+    this.agentX.selectCategory(id);
+  }
 
   /** Playbook-derived progress label. */
   protected readonly actionPlanCompletionLabel = computed(() => {
@@ -1775,22 +1832,10 @@ export class AgentXShellComponent {
   // HEADER CONFIG
   // ============================================
 
-  private goalsSheetShown = false;
-
   constructor() {
     afterNextRender(() => {
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
-    });
-
-    // Auto-open goal selection when dashboard loads with zero goals
-    effect(() => {
-      const loaded = this.agentX.dashboardLoaded();
-      const hasGoals = this.agentX.hasGoals();
-      if (!loaded || hasGoals || this.goalsSheetShown) return;
-
-      this.goalsSheetShown = true;
-      void this.openBriefingPanel('goals', true);
     });
 
     effect(() => {
@@ -1834,21 +1879,18 @@ export class AgentXShellComponent {
    * Opens the shared Agent X goals panel.
    */
   protected async onSetupGoals(): Promise<void> {
-    await this.openBriefingPanel('goals');
+    await this.openControlPanel('goals');
   }
 
-  protected async openBriefingPanel(
-    panel: AgentXBriefingPanelKind,
-    required = false
-  ): Promise<void> {
+  protected async openControlPanel(panel: AgentXControlPanelKind, required = false): Promise<void> {
     await this.haptics.impact('light');
-    this.briefingBadges.notePanelOpened(panel, 'sheet');
+    this.controlPanelState.notePanelOpened(panel, 'sheet');
 
     const result = await this.bottomSheet.openSheet<{
-      panel: AgentXBriefingPanelKind;
+      panel: AgentXControlPanelKind;
       saved?: boolean;
     }>({
-      component: AgentXBriefingPanelComponent,
+      component: AgentXControlPanelComponent,
       componentProps: {
         panel,
         presentation: 'sheet',
@@ -1861,7 +1903,7 @@ export class AgentXShellComponent {
       canDismiss: required
         ? async (_data?: unknown, role?: string) => role === 'save' || role === 'back'
         : true,
-      cssClass: 'agent-x-briefing-badge-sheet',
+      cssClass: 'agent-x-control-panel-sheet',
     });
 
     // User tapped close without saving in required mode — navigate back
@@ -1872,7 +1914,7 @@ export class AgentXShellComponent {
 
     // After saving goals, sync to backend and trigger generation
     if (panel === 'goals' && result?.role === 'save') {
-      const goalIds = this.briefingBadges.goals();
+      const goalIds = this.controlPanelState.goals();
       const dashboardGoals: AgentDashboardGoal[] = goalIds.map((id) => {
         if (id.startsWith('custom:')) {
           return { id, text: id.slice(7), category: 'custom', createdAt: new Date().toISOString() };

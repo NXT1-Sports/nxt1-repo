@@ -381,6 +381,10 @@ export const TRACE_NAMES = {
   INVITE_SEND: 'invite_send',
   INVITE_SEND_BULK: 'invite_send_bulk',
   INVITE_ACCEPT: 'invite_accept',
+
+  // Connected accounts / Firecrawl traces
+  FIRECRAWL_SESSION_START: 'firecrawl_session_start',
+  FIRECRAWL_SESSION_COMPLETE: 'firecrawl_session_complete',
 } as const;
 
 export type TraceName = (typeof TRACE_NAMES)[keyof typeof TRACE_NAMES];

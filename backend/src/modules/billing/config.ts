@@ -20,7 +20,10 @@ export function getStripeConfig(environment: 'staging' | 'production'): StripeCo
       ? process.env['STRIPE_TEST_SECRET_KEY']
       : process.env['STRIPE_SECRET_KEY'];
 
-  const webhookSecret = process.env['STRIPE_WEBHOOK_SECRET'];
+  const webhookSecret =
+    environment === 'staging'
+      ? process.env['STRIPE_TEST_WEBHOOK_SECRET']
+      : process.env['STRIPE_WEBHOOK_SECRET'];
   const enabled = process.env['STRIPE_ENABLED'] !== 'false';
 
   if (!secretKey && enabled) {

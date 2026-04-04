@@ -53,12 +53,22 @@ function getApiKey(): string {
  * `Helicone-Property-Feature` headers when proxying through Helicone.
  *
  * @param jobId - The unique job ID used to tag AI calls
+ * @param retries - Number of retry attempts when Helicone returns 0 requests (default 3)
+ * @param retryDelayMs - Delay between retries in ms (default 3000 — Helicone indexing lag)
  * @returns Total cost in USD
  */
-export async function getJobCost(jobId: string): Promise<HeliconeJobCostResult> {
+export async function getJobCost(
+  jobId: string,
+  retries = 3,
+  retryDelayMs = 3000
+): Promise<HeliconeJobCostResult> {
   const apiKey = getApiKey();
 
-  try {
+  const fetchOnce = async (): Promise<HeliconeJobCostResult> => {
+    // Use the point-query endpoint (not clickhouse) for per-job lookups.
+    // Property names must be lowercase — HTTP/2 normalises all header names to lowercase
+    // before Helicone stores them, so 'Helicone-Property-job-id' is stored as 'job-id'.
+    // The properties filter must be wrapped in request_response_rmt per Helicone docs.
     const response = await fetch(`${HELICONE_API_BASE}/request/query`, {
       method: 'POST',
       headers: {
@@ -67,9 +77,11 @@ export async function getJobCost(jobId: string): Promise<HeliconeJobCostResult> 
       },
       body: JSON.stringify({
         filter: {
-          properties: {
-            'Job-Id': {
-              equals: jobId,
+          request_response_rmt: {
+            properties: {
+              'job-id': {
+                equals: jobId,
+              },
             },
           },
         },
@@ -87,13 +99,14 @@ export async function getJobCost(jobId: string): Promise<HeliconeJobCostResult> 
     }
 
     const data = (await response.json()) as {
-      data: Array<{ costUSD?: number; cost_usd?: number }>;
+      data: Array<{ costUSD?: number; cost_usd?: number; cost?: number }>;
       meta?: { total?: number };
     };
 
     const requests = data.data ?? [];
     const totalCostUsd = requests.reduce((sum, req) => {
-      const cost = req.costUSD ?? req.cost_usd ?? 0;
+      // Helicone may return cost under different field names depending on API version
+      const cost = req.costUSD ?? req.cost_usd ?? req.cost ?? 0;
       return sum + cost;
     }, 0);
 
@@ -108,19 +121,41 @@ export async function getJobCost(jobId: string): Promise<HeliconeJobCostResult> 
       requestCount: requests.length,
       source: 'helicone',
     };
-  } catch (error) {
-    logger.error('[helicone] Failed to fetch job cost — using fallback 0', {
-      jobId,
-      error,
-    });
+  };
 
-    // Return 0 with fallback source so callers can decide how to handle
-    return {
-      totalCostUsd: 0,
-      requestCount: 0,
-      source: 'fallback',
-    };
+  // Retry loop: Helicone can take a few seconds to index requests after job completion.
+  // If requestCount === 0, wait and retry before concluding there is truly no cost.
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      logger.info('[helicone] Retrying job cost fetch (Helicone indexing lag)', {
+        jobId,
+        attempt,
+        retries,
+      });
+    }
+    try {
+      const result = await fetchOnce();
+      if (result.requestCount > 0 || attempt === retries) {
+        return result;
+      }
+      // requestCount === 0 and still have retries left — keep waiting
+    } catch (error) {
+      lastError = error;
+    }
   }
+
+  logger.error('[helicone] Failed to fetch job cost — using fallback 0', {
+    jobId,
+    error: lastError,
+  });
+
+  return {
+    totalCostUsd: 0,
+    requestCount: 0,
+    source: 'fallback',
+  };
 }
 
 /**

@@ -17,3 +17,5 @@ env:
     value: 'production'
   - variable: CRON_SECRET
     secret: CRON_SECRET
+  - variable: REDIS_URL
+    secret: REDIS_URL

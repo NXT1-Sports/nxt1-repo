@@ -99,6 +99,30 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
 
         <!-- Right: Action Buttons -->
         <div class="mobile-header__actions">
+          <!-- Budget Button (billing page, org users only) -->
+          @if (config().showBudget) {
+            <button
+              type="button"
+              class="mobile-header__action-btn"
+              aria-label="Manage budget"
+              (click)="onBudgetClick($event)"
+            >
+              <nxt1-icon name="settings-outline" [size]="22" />
+            </button>
+          }
+
+          <!-- Help Button (billing page) -->
+          @if (config().showHelp) {
+            <button
+              type="button"
+              class="mobile-header__action-btn"
+              aria-label="How billing works"
+              (click)="onHelpClick($event)"
+            >
+              <nxt1-icon name="help-circle-outline" [size]="22" />
+            </button>
+          }
+
           <!-- Filter Button (explore page only) -->
           @if (config().showFilter) {
             <button
@@ -582,6 +606,12 @@ export class NxtMobileHeaderComponent implements OnDestroy {
   /** Emitted when filter button is clicked (explore page) */
   readonly filterClick = output<Event>();
 
+  /** Emitted when help button is clicked (billing page) */
+  readonly helpClick = output<Event>();
+
+  /** Emitted when budget button is clicked (billing page, org users) */
+  readonly budgetClick = output<Event>();
+
   /** Emitted when user avatar is clicked */
   readonly userClick = output<Event>();
 
@@ -672,6 +702,16 @@ export class NxtMobileHeaderComponent implements OnDestroy {
   onFilterClick(event: Event): void {
     this.haptics.impact('light');
     this.filterClick.emit(event);
+  }
+
+  onHelpClick(event: Event): void {
+    this.haptics.impact('light');
+    this.helpClick.emit(event);
+  }
+
+  onBudgetClick(event: Event): void {
+    this.haptics.impact('light');
+    this.budgetClick.emit(event);
   }
 
   onUserClick(event: Event): void {

@@ -23,3 +23,4 @@ export {
 } from './connected-accounts-modal.service';
 export { FirecrawlSignInService, type FirecrawlSignInRequest } from './firecrawl-signin.service';
 export { FirecrawlSignInModalComponent } from './firecrawl-signin-modal.component';
+export { FirecrawlSignInSheetComponent } from './firecrawl-signin-sheet.component';

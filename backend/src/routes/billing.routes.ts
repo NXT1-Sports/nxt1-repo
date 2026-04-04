@@ -6,7 +6,7 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import { appGuard } from '../middleware/auth.middleware.js';
+import { appGuard, cronGuard } from '../middleware/auth.middleware.js';
 import { logger } from '../utils/logger.js';
 import { getCacheService } from '../services/cache.service.js';
 import {
@@ -29,6 +29,12 @@ import {
   getPricingConfig,
   updatePricingConfig,
   type PricingConfig,
+  getStripeClient,
+  COLLECTIONS,
+  refundCharge,
+  generateInvoice,
+  getOrCreateCustomer,
+  getBillingContext,
 } from '../modules/billing/index.js';
 import { validateBody, validateQuery } from '../middleware/validation.middleware.js';
 import {
@@ -39,6 +45,7 @@ import {
   UpdateTeamAllocationDto,
   WalletCheckQueryDto,
   UpdatePricingConfigDto,
+  OrgRefundDto,
 } from '../dtos/billing.dto.js';
 
 const router = Router();
@@ -319,7 +326,8 @@ router.get('/budget', appGuard, async (req: Request, res: Response) => {
 
 /**
  * PUT /api/v1/billing/budget
- * Update the current user's monthly budget
+ * Update the current user's monthly budget.
+ * For directors, resolves to the organization billing context.
  * Body: { monthlyBudget: number (cents) }
  */
 router.put(
@@ -334,7 +342,14 @@ router.put(
 
       if (!db) throw new Error('Firebase context not available');
 
-      await updateBudget(db, userId, monthlyBudget);
+      // Resolve the correct billing target (directors → org context)
+      const target = await resolveBillingTarget(db, userId);
+
+      if (target.type === 'organization' && target.organizationId) {
+        await updateOrgBudget(db, target.organizationId, monthlyBudget);
+      } else {
+        await updateBudget(db, userId, monthlyBudget);
+      }
 
       return res.json({ success: true, monthlyBudget });
     } catch (error) {
@@ -707,5 +722,213 @@ router.put(
     }
   }
 );
+
+// ============================================
+// STRIPE REFUND — Org Admin
+// ============================================
+
+/**
+ * POST /api/v1/billing/refund/org/:orgId
+ * Org admin issues a Stripe refund for a specific charge.
+ *
+ * Body: { chargeId: string, amountCents?: number }
+ *
+ * Stripe fires a `charge.refunded` webhook which decrements
+ * `currentPeriodSpend` on the org billing context automatically.
+ */
+router.post(
+  '/refund/org/:orgId',
+  appGuard,
+  validateBody(OrgRefundDto),
+  async (req: Request, res: Response) => {
+    try {
+      const orgId = String(req.params['orgId'] ?? '').trim();
+      if (!orgId || orgId.length > 128) {
+        return res.status(400).json({ error: 'Invalid organization ID' });
+      }
+
+      const { chargeId, amountCents } = req.body as OrgRefundDto;
+      const db = req.firebase?.db;
+      if (!db) throw new Error('Firebase context not available');
+
+      // Verify caller is an org admin / owner
+      const userId = req.user!.uid;
+      const orgDoc = await db.collection('Organizations').doc(orgId).get();
+      const orgData = orgDoc.data();
+      if (!orgData) {
+        return res.status(404).json({ error: 'Organization not found' });
+      }
+
+      const admins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
+      const adminIds = admins.map((a) => a.userId).filter(Boolean);
+      const ownerId = orgData['ownerId'] as string | undefined;
+      if (!adminIds.includes(userId) && ownerId !== userId) {
+        return res.status(403).json({ error: 'Only organization admins can issue refunds' });
+      }
+
+      const environment = req.isStaging ? 'staging' : 'production';
+
+      // Verify the charge belongs to a customer of this org (prevent cross-org refunds)
+      const stripe = getStripeClient(environment);
+      const charge = await stripe.charges.retrieve(chargeId);
+      const chargeCustomerId =
+        typeof charge.customer === 'string' ? charge.customer : charge.customer?.id;
+
+      if (chargeCustomerId) {
+        const customerSnap = await db
+          .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+          .where('stripeCustomerId', '==', chargeCustomerId)
+          .where('environment', '==', environment)
+          .limit(1)
+          .get();
+
+        if (!customerSnap.empty) {
+          const linkedUserId = customerSnap.docs[0]!.data()['userId'] as string;
+          // Must belong to this org (userId = 'org:<orgId>')
+          if (linkedUserId !== `org:${orgId}`) {
+            return res.status(403).json({
+              error: 'Charge does not belong to this organization',
+            });
+          }
+        }
+      }
+
+      const refund = await refundCharge(chargeId, environment, amountCents);
+
+      logger.info('[POST /refund/org/:orgId] Refund issued', {
+        orgId,
+        chargeId,
+        refundId: refund.id,
+        amountCents: refund.amount,
+        issuedBy: userId,
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          refundId: refund.id,
+          chargeId,
+          amountCents: refund.amount,
+          status: refund.status,
+        },
+      });
+    } catch (error) {
+      logger.error('[POST /refund/org/:orgId] Failed to issue refund', { error });
+      return res.status(500).json({
+        error: 'Failed to issue refund',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+);
+
+/**
+ * POST /api/v1/billing/cron/send-monthly-invoices
+ *
+ * Manually trigger Stripe invoice generation for a user/org.
+ * Protected by cronGuard (requires X-Cron-Secret header matching CRON_SECRET).
+ *
+ * Body: { userId: string, environment?: 'staging' | 'production' }
+ *
+ * How to test:
+ *   curl -X POST https://<host>/api/v1/billing/cron/send-monthly-invoices \
+ *     -H "X-Cron-Secret: <CRON_SECRET>" \
+ *     -H "Content-Type: application/json" \
+ *     -d '{"userId":"<director-uid>","environment":"staging"}'
+ */
+router.post('/cron/send-monthly-invoices', cronGuard, async (req: Request, res: Response) => {
+  try {
+    const { userId, environment: envOverride } = req.body as {
+      userId?: string;
+      environment?: string;
+    };
+
+    if (!userId || typeof userId !== 'string') {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    const environment: 'staging' | 'production' =
+      envOverride === 'staging' ? 'staging' : 'production';
+    const db = req.firebase?.db;
+    if (!db) return res.status(500).json({ error: 'Firebase context unavailable' });
+
+    // Resolve who actually pays (director → org, individual → individual)
+    const billingCtx = await getBillingContext(db, userId);
+    if (!billingCtx) {
+      return res.status(404).json({ error: `No billing context for user ${userId}` });
+    }
+
+    if (billingCtx.paymentProvider === 'iap') {
+      return res.status(400).json({
+        error:
+          'IAP user — Stripe invoices do not apply. Billing is handled via Apple/Google wallet.',
+      });
+    }
+
+    // Determine the customer ID to bill
+    let customerUserId = userId;
+    let description = `individual: ${userId}`;
+
+    if (billingCtx.billingEntity === 'organization' && billingCtx.organizationId) {
+      customerUserId = `org:${billingCtx.organizationId}`;
+      description = `org: ${billingCtx.organizationId}`;
+      const orgDoc = await db.collection('Organizations').doc(billingCtx.organizationId).get();
+      const orgData = orgDoc.data();
+      const orgEmail =
+        (orgData?.['billingEmail'] as string) ||
+        (orgData?.['email'] as string) ||
+        `${billingCtx.organizationId}@nxt1.app`;
+      const customer = await getOrCreateCustomer(
+        db,
+        customerUserId,
+        orgEmail,
+        billingCtx.teamId,
+        environment
+      );
+      const result = await generateInvoice(customer.customerId, environment, {
+        collectionMethod: 'send_invoice',
+        daysUntilDue: 30,
+      });
+      logger.info('[POST /cron/send-monthly-invoices] Invoice triggered for org', {
+        userId,
+        organizationId: billingCtx.organizationId,
+        customerId: customer.customerId,
+        result,
+      });
+      return res.json({
+        success: result.success,
+        customerId: customer.customerId,
+        description,
+        result,
+      });
+    }
+
+    // Individual
+    const userDoc = await db.collection('Users').doc(userId).get();
+    const userData = userDoc.data();
+    const userEmail = (userData?.['email'] as string) || `${userId}@nxt1.app`;
+    const customer = await getOrCreateCustomer(db, userId, userEmail, undefined, environment);
+    const result = await generateInvoice(customer.customerId, environment, {
+      collectionMethod: 'charge_automatically',
+    });
+    logger.info('[POST /cron/send-monthly-invoices] Invoice triggered for individual', {
+      userId,
+      customerId: customer.customerId,
+      result,
+    });
+    return res.json({
+      success: result.success,
+      customerId: customer.customerId,
+      description,
+      result,
+    });
+  } catch (error) {
+    logger.error('[POST /cron/send-monthly-invoices] Failed', { error });
+    return res.status(500).json({
+      error: 'Failed to generate invoice',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
 
 export default router;

@@ -641,25 +641,13 @@ export async function joinTeam(db: Firestore, input: JoinTeamInput): Promise<Tea
     ]);
   }
 
-  // Create new member
-  const newMember: TeamMember = {
-    id: input.userId,
-    firstName: input.userProfile.firstName,
-    lastName: input.userProfile.lastName,
-    name: `${input.userProfile.firstName} ${input.userProfile.lastName}`,
-    joinTime: new Date().toISOString(),
-    role: input.role ?? ROLE.athlete,
-    isVerify: false,
-    email: input.userProfile.email,
-    phoneNumber: input.userProfile.phoneNumber ?? '',
-  };
+  const role = input.role ?? ROLE.athlete;
 
-  // Update team with new member (atomic operation)
+  // Update team with new member (only memberIds — members map is deprecated)
   await db
     .collection('Teams')
     .doc(team.id!)
     .update({
-      members: FieldValue.arrayUnion(newMember) as unknown as FieldValueType,
       memberIds: FieldValue.arrayUnion(input.userId) as unknown as FieldValueType,
     });
 
@@ -668,7 +656,7 @@ export async function joinTeam(db: Firestore, input: JoinTeamInput): Promise<Tea
   await invalidateTeamCache(team.id!, team.teamCode, team.unicode);
   await cache.del(CACHE_KEYS.USER_TEAMS(input.userId));
 
-  logger.info('User joined team', { userId: input.userId, teamId: team.id, role: newMember.role });
+  logger.info('User joined team', { userId: input.userId, teamId: team.id, role });
 
   const { team: updatedTeam } = await getTeamCodeById(db, team.id!, false);
   return updatedTeam;
@@ -701,25 +689,11 @@ export async function inviteMember(db: Firestore, input: InviteMemberInput): Pro
     ]);
   }
 
-  // Create invited member
-  const newMember: TeamMember = {
-    id: input.userId,
-    firstName: input.userProfile.firstName,
-    lastName: input.userProfile.lastName,
-    name: `${input.userProfile.firstName} ${input.userProfile.lastName}`,
-    joinTime: new Date().toISOString(),
-    role: input.role,
-    isVerify: false,
-    email: input.userProfile.email,
-    phoneNumber: input.userProfile.phoneNumber ?? '',
-  };
-
-  // Update team with invited member
+  // Update team with invited member (only memberIds — members map is deprecated)
   await db
     .collection('Teams')
     .doc(input.teamId)
     .update({
-      members: FieldValue.arrayUnion(newMember) as unknown as FieldValueType,
       memberIds: FieldValue.arrayUnion(input.userId) as unknown as FieldValueType,
     });
 
@@ -766,12 +740,10 @@ export async function removeMember(
     }
   }
 
-  // Remove member
-  const updatedMembers = team.members?.filter((m: TeamMember) => m.id !== userId) ?? [];
+  // Remove member (only update memberIds — members map is deprecated)
   const updatedMemberIds = team.memberIds?.filter((id: string) => id !== userId) ?? [];
 
   await db.collection('Teams').doc(teamId).update({
-    members: updatedMembers,
     memberIds: updatedMemberIds,
   });
 

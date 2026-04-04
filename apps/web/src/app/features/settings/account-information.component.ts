@@ -1,11 +1,4 @@
-import {
-  Component,
-  ChangeDetectionStrategy,
-  computed,
-  inject,
-  OnInit,
-  signal,
-} from '@angular/core';
+import { Component, ChangeDetectionStrategy, computed, inject, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import type { SettingsSection } from '@nxt1/core';
 import {
@@ -19,6 +12,7 @@ import { NxtOverlayService } from '@nxt1/ui/components/overlay';
 import { NxtBottomSheetService, SHEET_PRESETS } from '@nxt1/ui/components/bottom-sheet';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { NxtToastService } from '@nxt1/ui/services/toast';
+import { NxtModalService } from '@nxt1/ui/services/modal';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
@@ -86,6 +80,7 @@ export class AccountInformationComponent implements OnInit {
   private readonly platform = inject(NxtPlatformService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('AccountInformationComponent');
+  private readonly modal = inject(NxtModalService);
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly analytics: AnalyticsAdapter | null =
     inject(ANALYTICS_ADAPTER, { optional: true }) ?? null;
@@ -93,8 +88,6 @@ export class AccountInformationComponent implements OnInit {
 
   /** Responsive: true on mobile viewport, false on desktop */
   protected readonly isMobile = computed(() => this.platform.isMobile());
-
-  protected readonly isDeleting = signal(false);
 
   protected readonly isAuthLoading = computed(
     () => !this.authService.isInitialized() || this.authService.isLoading()
@@ -235,11 +228,11 @@ export class AccountInformationComponent implements OnInit {
   }
 
   private async _executeDeleteAccount(): Promise<void> {
-    this.isDeleting.set(true);
     this.logger.info('Executing account deletion');
     this.breadcrumb.trackUserAction('delete-account-confirmed');
 
     try {
+      await this.modal.showLoading({ message: 'Deleting your account...' });
       const result = await this.authService.deleteAccount();
 
       if (result.success) {
@@ -253,7 +246,7 @@ export class AccountInformationComponent implements OnInit {
       this.logger.error('Account deletion threw', err);
       this.toast.error('Failed to delete account. Please try again.');
     } finally {
-      this.isDeleting.set(false);
+      await this.modal.hideLoading();
     }
   }
 

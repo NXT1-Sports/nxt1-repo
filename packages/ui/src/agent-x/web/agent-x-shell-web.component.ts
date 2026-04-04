@@ -48,7 +48,7 @@ import { NxtHeaderPortalService } from '../../services/header-portal/header-port
 import { NxtOverlayService } from '../../components/overlay';
 import { AgentXService } from '../agent-x.service';
 import { AgentXDashboardSkeletonComponent } from '../agent-x-dashboard-skeleton.component';
-import { AgentXBriefingPanelComponent } from '../agent-x-briefing-panel.component';
+import { AgentXControlPanelComponent } from '../agent-x-control-panel.component';
 import { AgentXOperationsLogComponent } from '../agent-x-operations-log.component';
 import {
   AgentXOperationChatComponent,
@@ -56,10 +56,10 @@ import {
 } from '../agent-x-operation-chat.component';
 import { AgentXInputComponent } from '../agent-x-input.component';
 import {
-  AgentXBriefingBadgeStateService,
+  AgentXControlPanelStateService,
   AGENT_X_GOAL_OPTIONS,
-  type AgentXBriefingPanelKind,
-} from '../agent-x-briefing-badge-state.service';
+  type AgentXControlPanelKind,
+} from '../agent-x-control-panel-state.service';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import type { CommandCategory, WeeklyPlaybookItem } from '../agent-x-shell.component';
@@ -256,7 +256,7 @@ interface AgentXDesktopSession {
                       >
                     </p>
                     <p class="generating-sub">
-                      Analyzing your goals, scanning opportunities, and prioritizing tasks
+                      Reading your profile, reviewing activity, and generating tasks
                     </p>
                   </div>
                   <div class="generating-steps">
@@ -271,7 +271,23 @@ interface AgentXDesktopSession {
                   </div>
                 </div>
               } @else if (weeklyPlaybook().length > 0 && !allTasksComplete()) {
-                @for (task of pendingPlaybookItems(); track task.id; let i = $index) {
+                @if (showCategoryPills()) {
+                  <div class="category-pills" role="tablist" aria-label="Filter action plan">
+                    @for (pill of categoryPills(); track pill.id) {
+                      <button
+                        type="button"
+                        role="tab"
+                        class="category-pill"
+                        [class.category-pill--active]="activeCategoryId() === pill.id"
+                        [attr.aria-selected]="activeCategoryId() === pill.id"
+                        (click)="selectCategory(pill.id)"
+                      >
+                        {{ pill.label }}
+                      </button>
+                    }
+                  </div>
+                }
+                @for (task of filteredPlaybookItems(); track task.id; let i = $index) {
                   <div
                     class="action-card action-card--enter"
                     [style.animation-delay]="i * 80 + 'ms'"
@@ -406,7 +422,7 @@ interface AgentXDesktopSession {
                 class="header-badge status-badge"
                 [class.status-badge--degraded]="agentStatusTone() === 'warning'"
                 [class.status-badge--down]="agentStatusTone() === 'critical'"
-                (click)="openBriefingPanel('status')"
+                (click)="openControlPanel('status')"
               >
                 <div
                   class="pulse-dot"
@@ -418,7 +434,7 @@ interface AgentXDesktopSession {
               <button
                 type="button"
                 class="header-badge budget-badge"
-                (click)="openBriefingPanel('budget')"
+                (click)="openControlPanel('budget')"
               >
                 <nxt1-icon name="wallet" [size]="14"></nxt1-icon>
                 <span>{{ agentBudgetBadgeLabel() }}</span>
@@ -482,7 +498,7 @@ interface AgentXDesktopSession {
                 class="header-badge status-badge"
                 [class.status-badge--degraded]="agentStatusTone() === 'warning'"
                 [class.status-badge--down]="agentStatusTone() === 'critical'"
-                (click)="openBriefingPanel('status')"
+                (click)="openControlPanel('status')"
               >
                 <div
                   class="pulse-dot"
@@ -494,7 +510,7 @@ interface AgentXDesktopSession {
               <button
                 type="button"
                 class="header-badge budget-badge"
-                (click)="openBriefingPanel('budget')"
+                (click)="openControlPanel('budget')"
               >
                 <nxt1-icon name="wallet" [size]="14"></nxt1-icon>
                 <span>{{ agentBudgetBadgeLabel() }}</span>
@@ -652,7 +668,7 @@ interface AgentXDesktopSession {
                     >
                   </p>
                   <p class="generating-sub">
-                    Analyzing your goals, scanning opportunities, and prioritizing tasks
+                    Reading your profile, reviewing activity, and generating tasks
                   </p>
                 </div>
                 <div class="generating-steps">
@@ -665,7 +681,23 @@ interface AgentXDesktopSession {
                 </div>
               </div>
             } @else if (weeklyPlaybook().length > 0 && !allTasksComplete()) {
-              @for (task of pendingPlaybookItems(); track task.id; let i = $index) {
+              @if (showCategoryPills()) {
+                <div class="category-pills" role="tablist" aria-label="Filter action plan">
+                  @for (pill of categoryPills(); track pill.id) {
+                    <button
+                      type="button"
+                      role="tab"
+                      class="category-pill"
+                      [class.category-pill--active]="activeCategoryId() === pill.id"
+                      [attr.aria-selected]="activeCategoryId() === pill.id"
+                      (click)="selectCategory(pill.id)"
+                    >
+                      {{ pill.label }}
+                    </button>
+                  }
+                </div>
+              }
+              @for (task of filteredPlaybookItems(); track task.id; let i = $index) {
                 <div class="action-card action-card--enter" [style.animation-delay]="i * 80 + 'ms'">
                   <div class="card-coordinator">
                     <div class="coordinator-avatar" aria-hidden="true">
@@ -1384,6 +1416,38 @@ interface AgentXDesktopSession {
           color-mix(in srgb, var(--agent-primary) 65%, white)
         );
         transition: width 0.28s ease;
+      }
+
+      /* ── Category Pill Filter ──────────────────── */
+      .category-pills {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: var(--nxt1-spacing-3, 12px);
+        margin-bottom: var(--nxt1-spacing-2, 8px);
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+      }
+      .category-pills::-webkit-scrollbar {
+        display: none;
+      }
+      .category-pill {
+        flex: 0 0 auto;
+        padding: 6px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--agent-border);
+        background: transparent;
+        color: var(--agent-text-secondary);
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        white-space: nowrap;
+      }
+      .category-pill--active {
+        background: var(--agent-primary);
+        color: #fff;
+        border-color: var(--agent-primary);
       }
 
       .action-card {
@@ -2168,7 +2232,7 @@ interface AgentXDesktopSession {
 })
 export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly agentX = inject(AgentXService);
-  protected readonly briefingBadges = inject(AgentXBriefingBadgeStateService);
+  protected readonly controlPanelState = inject(AgentXControlPanelStateService);
   private readonly overlay = inject(NxtOverlayService);
   private readonly headerPortal = inject(NxtHeaderPortalService);
 
@@ -2241,9 +2305,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     }))
   );
 
-  /** Guard: prevents the required-goals panel from re-opening once shown. */
-  private goalsSheetShown = false;
-
   /** Playbook-derived progress: count of completed items. */
   protected readonly actionPlanCompletionLabel = computed(() => {
     const completed = this.playbookCompletedCount();
@@ -2257,15 +2318,24 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   });
 
   /** Pending (non-complete) playbook items to render as action cards. */
-  protected readonly pendingPlaybookItems = computed(() =>
-    this.weeklyPlaybook().filter((t) => t.status !== 'complete')
-  );
+  protected readonly pendingPlaybookItems = this.agentX.pendingPlaybookItems;
+
+  // ── Category Pill Filter (delegated to AgentXService) ──────────────────
+
+  protected readonly activeCategoryId = this.agentX.activeCategoryId;
+  protected readonly categoryPills = this.agentX.categoryPills;
+  protected readonly showCategoryPills = this.agentX.showCategoryPills;
+  protected readonly filteredPlaybookItems = this.agentX.filteredPlaybookItems;
+
+  protected selectCategory(id: string): void {
+    this.agentX.selectCategory(id);
+  }
 
   protected readonly generatingSteps = [
-    { label: 'Reviewing your goals' },
-    { label: 'Scanning recruiting opportunities' },
-    { label: 'Prioritizing high-impact actions' },
-    { label: 'Building your personalized plan' },
+    { label: 'Loading your profile and goals' },
+    { label: 'Reviewing recent activity and progress' },
+    { label: 'Generating personalized tasks' },
+    { label: 'Finalizing your playbook' },
   ];
 
   // ============================================
@@ -2303,9 +2373,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
   /** Briefing preview text — live from service only. */
   protected readonly briefingPreview = computed(() => this.agentX.briefingPreviewText());
-  protected readonly agentStatusLabel = this.briefingBadges.statusLabel;
-  protected readonly agentStatusTone = this.briefingBadges.statusTone;
-  protected readonly agentBudgetBadgeLabel = this.briefingBadges.budgetBadgeLabel;
+  protected readonly agentStatusLabel = this.controlPanelState.statusLabel;
+  protected readonly agentStatusTone = this.controlPanelState.statusTone;
+  protected readonly agentBudgetBadgeLabel = this.controlPanelState.budgetBadgeLabel;
 
   /** AI-generated weekly playbook timeline items — live from service only. */
   protected readonly weeklyPlaybook = computed<ShellWeeklyPlaybookItem[]>(() =>
@@ -2360,16 +2430,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.agentX.loadDashboard();
     });
 
-    // Auto-open goal selection when dashboard loads with zero goals
-    effect(() => {
-      const loaded = this.agentX.dashboardLoaded();
-      const hasGoals = this.agentX.hasGoals();
-      if (!loaded || hasGoals || this.goalsSheetShown) return;
-
-      this.goalsSheetShown = true;
-      void this.openBriefingPanel('goals', true);
-    });
-
     // React to pending thread requests (push notifications, deep links, activity taps)
     effect(() => {
       const pending = this.agentX.pendingThread();
@@ -2414,26 +2474,23 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    * Handle "Set Your Goals" tap — opens the shared goals modal.
    */
   protected async onSetupGoals(): Promise<void> {
-    await this.openBriefingPanel('goals');
+    await this.openControlPanel('goals');
   }
 
-  protected async openBriefingPanel(
-    panel: AgentXBriefingPanelKind,
-    required = false
-  ): Promise<void> {
-    this.briefingBadges.notePanelOpened(panel, 'modal');
+  protected async openControlPanel(panel: AgentXControlPanelKind, required = false): Promise<void> {
+    this.controlPanelState.notePanelOpened(panel, 'modal');
 
     const ref = this.overlay.open<
-      AgentXBriefingPanelComponent,
-      { panel: AgentXBriefingPanelKind; saved?: boolean }
+      AgentXControlPanelComponent,
+      { panel: AgentXControlPanelKind; saved?: boolean }
     >({
-      component: AgentXBriefingPanelComponent,
+      component: AgentXControlPanelComponent,
       inputs: {
         panel,
         presentation: 'modal',
         required,
       },
-      size: 'full',
+      size: panel === 'budget' ? 'xl' : 'full',
       backdropDismiss: !required,
       escDismiss: !required,
       ariaLabel:
@@ -2442,14 +2499,14 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
           : panel === 'budget'
             ? 'Agent budget controls'
             : 'Agent goals manager',
-      panelClass: 'agent-x-briefing-badge-modal',
+      panelClass: 'agent-x-control-panel-modal',
     });
 
     const result = await ref.closed;
 
     // After saving goals, sync to backend and trigger generation
     if (panel === 'goals' && result?.data?.saved) {
-      const goalIds = this.briefingBadges.goals();
+      const goalIds = this.controlPanelState.goals();
       const dashboardGoals: AgentDashboardGoal[] = goalIds.map((id) => {
         if (id.startsWith('custom:')) {
           return { id, text: id.slice(7), category: 'custom', createdAt: new Date().toISOString() };

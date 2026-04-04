@@ -32,6 +32,12 @@ export { UsageApiService, USAGE_API_BASE_URL } from './usage-api.service';
 export { UsageBottomSheetService } from './usage-bottom-sheet.service';
 export type { UsageBottomSheetResult } from './usage-bottom-sheet.service';
 
+// Billing Info Sheet (deprecated — types only, managed via Stripe Portal)
+export type {
+  BillingInfoSheetMode,
+  BillingInfoSheetResult,
+} from './usage-billing-info-sheet.component';
+
 // Section Components
 export {
   UsageOverviewComponent,
@@ -42,3 +48,7 @@ export {
   UsagePaymentInfoComponent,
   UsageBudgetsComponent,
 } from './sections';
+
+// Stripe
+export { STRIPE_PUBLISHABLE_KEY } from './stripe-config';
+export { AddPaymentMethodComponent } from './add-payment-method.component';
