@@ -14,7 +14,11 @@ import { getFirestore, FieldValue, Timestamp, type Firestore } from 'firebase-ad
 import type { AgentDashboardGoal, ShellWeeklyPlaybookItem, ShellBriefingInsight } from '@nxt1/core';
 import { getShellContentForRole } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
-import { buildEliteContext } from './elite-context.js';
+import {
+  buildEliteContext,
+  getRecurringHabitsPrompt,
+  resolvePrimarySport,
+} from './elite-context.js';
 
 // ─── Shared Helpers ─────────────────────────────────────────────────────────
 
@@ -99,12 +103,20 @@ export class AgentGenerationService {
     // ── Build elite context from full user profile ────────────────────────
     const eliteContext = buildEliteContext(userData);
 
+    // ── Resolve primary sport for habit menu ──────────────────────────────
+    const primarySport = resolvePrimarySport(userData);
+    const recurringHabitsBlock = getRecurringHabitsPrompt(role, primarySport || undefined);
+
     if (agentGoals.length === 0) {
       throw new Error('Set at least one goal before generating a playbook');
     }
 
     const goalsText = agentGoals
-      .map((g, i) => `${i + 1}. ${g.text} (category: ${g.category})`)
+      .map((g, i) => `${i + 1}. [id: "${g.id}"] ${g.text} (category: ${g.category})`)
+      .join('\n');
+
+    const goalsForPrompt = agentGoals
+      .map((g) => `- id: "${g.id}", label: "${g.text.slice(0, 40)}"`)
       .join('\n');
 
     // ── Gather past task context ──────────────────────────────────────────
@@ -178,21 +190,39 @@ export class AgentGenerationService {
       pastTaskContext,
       deltaContext,
       ``,
+      `═══ RECURRING WEEKLY HABITS ═══`,
+      recurringHabitsBlock,
+      ``,
+      `Available user goal IDs (for the "goal" field on strategic tasks):\n${goalsForPrompt}`,
+      ``,
       `Available coordinators (assign the most relevant one to each task):\n${coordinatorsList}`,
       ``,
-      `Return EXACTLY a JSON array of 5 playbook items, ordered by priority (highest-impact task first). Each item must have:`,
+      `═══ OUTPUT FORMAT (CATEGORIZED PLAYBOOK) ═══`,
+      `Return a JSON array of EXACTLY 5 playbook items split into TWO categories:`,
+      ``,
+      `CATEGORY 1 — RECURRING HABITS (exactly 2 items):`,
+      `  These are routine maintenance tasks from the habits menu above.`,
+      `  Set "goal" to: { "id": "recurring", "label": "Weekly Habits" }`,
+      `  Set "weekLabel" to "Weekly".`,
+      ``,
+      `CATEGORY 2 — GOAL EXECUTION (exactly 3 items):`,
+      `  These are unique, high-impact strategic tasks tied to the user's specific goals.`,
+      `  Set "goal" to: { "id": "<real goal id>", "label": "<goal text (max 30 chars)>" }`,
+      `  Set "weekLabel" to a specific day ("Mon", "Tue", "Wed", "Thu", "Fri").`,
+      ``,
+      `Each item must have:`,
       `- "id": unique string like "wp-1"`,
-      `- "weekLabel": day abbreviation ("Mon", "Tue", "Wed", "Thu", "Fri") — spread across the week`,
+      `- "weekLabel": "Weekly" for recurring habits, or a day abbreviation for goal tasks`,
       `- "title": short action title (max 50 chars)`,
       `- "summary": one-sentence description of the task`,
-      `- "why": a compelling one-sentence reason WHY this matters for their career/goals — make the user feel the urgency or excitement. Reference their SPECIFIC profile data (class year, position, sport season, team, location) to make it hyper-personal. Example: "As a Class of 2026 PG heading into summer AAU, this exposure window closes in 8 weeks."`,
+      `- "why": a compelling, hyper-personal reason WHY this matters — reference their specific profile data (class year, position, sport, season, team, location). Example: "As a Class of 2026 PG heading into summer AAU, this exposure window closes in 8 weeks."`,
       `- "details": detailed explanation of what Agent X prepared`,
-      `- "actionLabel": button text (e.g., "Review Draft", "Send Emails")`,
+      `- "actionLabel": button text (e.g., "Review Draft", "Send Emails", "Sync Now")`,
       `- "status": always "pending"`,
-      `- "goal": object with "id" and "label" matching one of the user's goals`,
+      `- "goal": object with "id" and "label" as described above`,
       `- "coordinator": object with "id", "label", and "icon" from the available coordinators list above`,
       ``,
-      `IMPORTANT: Generate exactly 5 tasks. Order them so the most time-sensitive and highest-impact task is first. The "why" field is critical — it should hook the user emotionally and make them WANT to act immediately. Use the user's specific profile data (class year, season phase, position, team, physicals, academics, location) to make every task feel like it was written by someone who KNOWS them. Never produce generic advice — always ground it in their reality.`,
+      `IMPORTANT: Return the 2 recurring items FIRST, then the 3 goal items (ordered most time-sensitive first). The "why" field is critical — hook the user emotionally. Never produce generic advice — always ground it in their reality using their profile data.`,
       ``,
       `Return ONLY the JSON array, no markdown fences, no explanation.`,
     ]
@@ -263,26 +293,58 @@ export class AgentGenerationService {
     // Fallback: generate template-based playbook if LLM unavailable or parse fails
     if (playbookItems.length === 0) {
       const defaultCoordinator = shellContent.coordinators[0];
-      playbookItems = agentGoals.flatMap((goal, gi) => [
+      const coordObj = defaultCoordinator
+        ? {
+            id: defaultCoordinator.id,
+            label: defaultCoordinator.label,
+            icon: defaultCoordinator.icon,
+          }
+        : undefined;
+
+      // 2 recurring habit tasks
+      const recurringItems: ShellWeeklyPlaybookItem[] = [
         {
-          id: `wp-${gi * 2 + 1}`,
-          weekLabel: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'][gi % 5],
-          title: `Work on: ${goal.text.slice(0, 40)}`,
-          summary: `Agent X has prepared action steps for your "${goal.text}" goal.`,
-          why: `Getting ahead on this goal now gives you an edge before the week gets busy.`,
-          details: `Review the plan and take the first step toward achieving your goal.`,
-          actionLabel: 'Review Plan',
+          id: 'wp-recurring-1',
+          weekLabel: 'Weekly',
+          title: 'Sync your profile',
+          summary: 'Make sure your profile is up to date so coaches and scouts see the latest you.',
+          why: 'An outdated profile means missed opportunities — keep it fresh.',
+          details:
+            'Review your height, weight, stats, and contact info. Update anything that has changed.',
+          actionLabel: 'Sync Now',
           status: 'pending' as const,
-          goal: { id: goal.id, label: goal.text.slice(0, 30) },
-          coordinator: defaultCoordinator
-            ? {
-                id: defaultCoordinator.id,
-                label: defaultCoordinator.label,
-                icon: defaultCoordinator.icon,
-              }
-            : undefined,
+          goal: { id: 'recurring', label: 'Weekly Habits' },
+          coordinator: coordObj,
         },
-      ]);
+        {
+          id: 'wp-recurring-2',
+          weekLabel: 'Weekly',
+          title: 'Review your weekly progress',
+          summary: 'Take 5 minutes to review what you accomplished this week.',
+          why: 'Consistent reflection builds momentum and keeps you on track.',
+          details: 'Check your completed tasks, look at your stats, and plan for next week.',
+          actionLabel: 'Review Now',
+          status: 'pending' as const,
+          goal: { id: 'recurring', label: 'Weekly Habits' },
+          coordinator: coordObj,
+        },
+      ];
+
+      // 3 goal-specific tasks (distribute across goals)
+      const goalItems: ShellWeeklyPlaybookItem[] = agentGoals.slice(0, 3).map((goal, gi) => ({
+        id: `wp-goal-${gi + 1}`,
+        weekLabel: ['Mon', 'Wed', 'Fri'][gi % 3],
+        title: `Work on: ${goal.text.slice(0, 40)}`,
+        summary: `Agent X has prepared action steps for your "${goal.text}" goal.`,
+        why: 'Getting ahead on this goal now gives you an edge before the week gets busy.',
+        details: 'Review the plan and take the first step toward achieving your goal.',
+        actionLabel: 'Review Plan',
+        status: 'pending' as const,
+        goal: { id: goal.id, label: goal.text.slice(0, 30) },
+        coordinator: coordObj,
+      }));
+
+      playbookItems = [...recurringItems, ...goalItems];
     }
 
     const generatedAt = new Date().toISOString();

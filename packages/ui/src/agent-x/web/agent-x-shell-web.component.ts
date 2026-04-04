@@ -271,7 +271,23 @@ interface AgentXDesktopSession {
                   </div>
                 </div>
               } @else if (weeklyPlaybook().length > 0 && !allTasksComplete()) {
-                @for (task of pendingPlaybookItems(); track task.id; let i = $index) {
+                @if (showCategoryPills()) {
+                  <div class="category-pills" role="tablist" aria-label="Filter action plan">
+                    @for (pill of categoryPills(); track pill.id) {
+                      <button
+                        type="button"
+                        role="tab"
+                        class="category-pill"
+                        [class.category-pill--active]="activeCategoryId() === pill.id"
+                        [attr.aria-selected]="activeCategoryId() === pill.id"
+                        (click)="selectCategory(pill.id)"
+                      >
+                        {{ pill.label }}
+                      </button>
+                    }
+                  </div>
+                }
+                @for (task of filteredPlaybookItems(); track task.id; let i = $index) {
                   <div
                     class="action-card action-card--enter"
                     [style.animation-delay]="i * 80 + 'ms'"
@@ -665,7 +681,23 @@ interface AgentXDesktopSession {
                 </div>
               </div>
             } @else if (weeklyPlaybook().length > 0 && !allTasksComplete()) {
-              @for (task of pendingPlaybookItems(); track task.id; let i = $index) {
+              @if (showCategoryPills()) {
+                <div class="category-pills" role="tablist" aria-label="Filter action plan">
+                  @for (pill of categoryPills(); track pill.id) {
+                    <button
+                      type="button"
+                      role="tab"
+                      class="category-pill"
+                      [class.category-pill--active]="activeCategoryId() === pill.id"
+                      [attr.aria-selected]="activeCategoryId() === pill.id"
+                      (click)="selectCategory(pill.id)"
+                    >
+                      {{ pill.label }}
+                    </button>
+                  }
+                </div>
+              }
+              @for (task of filteredPlaybookItems(); track task.id; let i = $index) {
                 <div class="action-card action-card--enter" [style.animation-delay]="i * 80 + 'ms'">
                   <div class="card-coordinator">
                     <div class="coordinator-avatar" aria-hidden="true">
@@ -1384,6 +1416,38 @@ interface AgentXDesktopSession {
           color-mix(in srgb, var(--agent-primary) 65%, white)
         );
         transition: width 0.28s ease;
+      }
+
+      /* ── Category Pill Filter ──────────────────── */
+      .category-pills {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: var(--nxt1-spacing-3, 12px);
+        margin-bottom: var(--nxt1-spacing-2, 8px);
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+      }
+      .category-pills::-webkit-scrollbar {
+        display: none;
+      }
+      .category-pill {
+        flex: 0 0 auto;
+        padding: 6px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--agent-border);
+        background: transparent;
+        color: var(--agent-text-secondary);
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        white-space: nowrap;
+      }
+      .category-pill--active {
+        background: var(--agent-primary);
+        color: #fff;
+        border-color: var(--agent-primary);
       }
 
       .action-card {
@@ -2254,9 +2318,18 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   });
 
   /** Pending (non-complete) playbook items to render as action cards. */
-  protected readonly pendingPlaybookItems = computed(() =>
-    this.weeklyPlaybook().filter((t) => t.status !== 'complete')
-  );
+  protected readonly pendingPlaybookItems = this.agentX.pendingPlaybookItems;
+
+  // ── Category Pill Filter (delegated to AgentXService) ──────────────────
+
+  protected readonly activeCategoryId = this.agentX.activeCategoryId;
+  protected readonly categoryPills = this.agentX.categoryPills;
+  protected readonly showCategoryPills = this.agentX.showCategoryPills;
+  protected readonly filteredPlaybookItems = this.agentX.filteredPlaybookItems;
+
+  protected selectCategory(id: string): void {
+    this.agentX.selectCategory(id);
+  }
 
   protected readonly generatingSteps = [
     { label: 'Loading your profile and goals' },

@@ -481,7 +481,7 @@ function buildLocation(userData: Record<string, unknown>): string {
  * Resolve the user's primary sport from whichever field source exists.
  * Checks: top-level `sport` → `sports[0].sport` → role-specific sport fields.
  */
-function resolvePrimarySport(userData: Record<string, unknown>): string {
+export function resolvePrimarySport(userData: Record<string, unknown>): string {
   const topSport = str(userData['sport']);
   if (topSport) return topSport;
 
@@ -782,4 +782,108 @@ function buildRecruiterRoleContext(userData: Record<string, unknown>): string | 
 
   lines.push(base);
   return lines.join(' ');
+}
+
+// ─── Recurring Habit Menus (Role × Season) ──────────────────────────────────
+
+interface RecurringHabitMenu {
+  readonly inSeason: readonly string[];
+  readonly offSeason: readonly string[];
+  readonly general: readonly string[];
+}
+
+const ROLE_HABITS: Readonly<Record<string, RecurringHabitMenu>> = {
+  athlete: {
+    inSeason: [
+      "Upload this week's game film or highlights so coaches can see your latest performance",
+      'Update your stats from the latest game or competition',
+      'Log your recovery, sleep, and wellness check-in for the week',
+    ],
+    offSeason: [
+      'Sync your profile — update height, weight, and any new training metrics',
+      'Log your strength and conditioning progress for the week',
+      'Review and update your academic GPA and test scores',
+    ],
+    general: ['Sync your profile to make sure coaches are seeing your latest info'],
+  },
+
+  coach: {
+    inSeason: [
+      'Review updated athlete profiles and recent stat uploads from your roster',
+      'Generate or review opponent scout report for the upcoming matchup',
+      'Audit your team depth chart and check for roster updates',
+    ],
+    offSeason: [
+      'Review your recruiting prospect board and update evaluations',
+      'Audit roster academic standing and eligibility compliance',
+      'Update offseason training plans and share with athletes',
+    ],
+    general: ['Review your team analytics dashboard for the week'],
+  },
+
+  parent: {
+    inSeason: [
+      "Review your athlete's weekly schedule, game times, and travel logistics",
+      "Check your athlete's latest stats and recovery status",
+    ],
+    offSeason: [
+      'Review upcoming camp, club, and showcase costs and budget accordingly',
+      "Track your athlete's academic progress and recruiting milestones",
+    ],
+    general: ["Sync your athlete's profile to ensure it reflects the latest info"],
+  },
+
+  director: {
+    inSeason: [
+      'Review compliance alerts and eligibility updates across all programs',
+      'Audit facility scheduling and resolve any booking conflicts',
+      'Check coach and staff platform engagement metrics',
+    ],
+    offSeason: [
+      'Review departmental budget allocations and upcoming fiscal needs',
+      'Audit coaching staff evaluations and offseason hiring pipeline',
+      'Review athlete retention and transfer portal activity',
+    ],
+    general: ['Run a department-wide analytics review for the week'],
+  },
+
+  recruiter: {
+    inSeason: [
+      'Update your prospect evaluation board with weekend game observations',
+      'Log high-school coach communications and follow-ups from the week',
+      'Review weekend film of committed prospects and watchlist athletes',
+    ],
+    offSeason: [
+      'Refresh your recruiting target list and update prospect rankings',
+      'Review camp and showcase invitee lists for upcoming events',
+      'Audit your communication cadence with top prospects',
+    ],
+    general: ['Sync your recruiting pipeline — update contact logs and prospect notes'],
+  },
+};
+
+/**
+ * Build the recurring habit instruction block for the LLM prompt.
+ * Returns a formatted string telling the AI which habits to choose from.
+ */
+export function getRecurringHabitsPrompt(
+  role: string,
+  sportRaw?: string,
+  now: Date = new Date()
+): string {
+  const menu = ROLE_HABITS[role] ?? ROLE_HABITS['athlete'];
+  const season = sportRaw ? getSeasonInfo(sportRaw, now) : null;
+
+  const isInSeason = season?.phase === 'In-Season' || season?.phase === 'Post-Season / Playoffs';
+  const habits = isInSeason ? menu.inSeason : menu.offSeason;
+  const alwaysHabits = menu.general;
+
+  const allHabits = [...habits, ...alwaysHabits];
+  const numbered = allHabits.map((h, i) => `  ${i + 1}. ${h}`).join('\n');
+
+  return [
+    `RECURRING WEEKLY HABITS (select 2 from this menu and adapt the wording to the user's context):`,
+    numbered,
+    `Make the habit task titles short and action-oriented. Adapt the language to feel personal — reference their sport, team, or season.`,
+  ].join('\n');
 }
