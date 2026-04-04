@@ -515,6 +515,11 @@ export {
 } from './agent-x/onboarding';
 
 // ============================================
+// BRAND VAULT (Mobile)
+// ============================================
+export { BrandService, BrandCategoryCardComponent, BrandShellComponent } from './brand';
+
+// ============================================
 // ACTIVITY (Notifications - Shared Web & Mobile)
 // ============================================
 export {

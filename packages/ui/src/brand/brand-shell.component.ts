@@ -201,10 +201,10 @@ export class BrandShellComponent {
 
     const user = this.profileService.user();
     const selectedSports: string[] = [];
-    if (user?.primarySport?.sport) selectedSports.push(user.primarySport.sport);
+    if (user?.primarySport?.name) selectedSports.push(user.primarySport.name);
     if (user?.additionalSports) {
       for (const s of user.additionalSports) {
-        if (s.sport) selectedSports.push(s.sport);
+        if (s.name) selectedSports.push(s.name);
       }
     }
 
