@@ -1279,7 +1279,7 @@ export class OnboardingLinkDropStepComponent {
     return !key.startsWith('recommended-') && key !== 'custom-links';
   }
 
-  protected isGroupExpanded(key: string): boolean {
+  protected isGroupExpanded(_key: string): boolean {
     return true;
   }
 

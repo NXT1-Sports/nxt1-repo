@@ -3739,7 +3739,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
           await document.exitFullscreen();
         }
       }
-    } catch (err) {
+    } catch (_err) {
       this.toast.error('Could not enter fullscreen mode');
     }
   }
