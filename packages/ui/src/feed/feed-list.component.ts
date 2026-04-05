@@ -38,9 +38,7 @@ import {
   computed,
   inject,
   NgZone,
-  PLATFORM_ID,
 } from '@angular/core';
-import { isPlatformBrowser } from '@angular/common';
 import { IonSpinner, IonInfiniteScroll, IonInfiniteScrollContent } from '@ionic/angular/standalone';
 import { ScrollingModule } from '@angular/cdk/scrolling';
 import { NxtIconComponent } from '../components/icon';

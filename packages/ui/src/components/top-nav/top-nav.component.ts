@@ -70,7 +70,7 @@ import {
 import { NxtPlatformService } from '../../services/platform';
 import { NxtHeaderPortalService } from '../../services/header-portal';
 import { HapticsService } from '../../services/haptics';
-import type { ExploreItem, SidenavSportProfile } from '@nxt1/core';
+import type { ExploreItem } from '@nxt1/core';
 import type { TopNavItem, TopNavUserMenuItem, TopNavUserData, TopNavConfig } from '@nxt1/core';
 import {
   DEFAULT_TOP_NAV_ITEMS,
@@ -1354,7 +1354,7 @@ export class NxtHeaderComponent implements OnDestroy {
   /**
    * Handle user info header click — navigate to profile or team
    */
-  onUserInfoClick(event: Event): void {
+  onUserInfoClick(_event: Event): void {
     this.haptics.impact('light');
     this.userMenuOpen.set(false);
     this.mobileMenuOpen.set(false);

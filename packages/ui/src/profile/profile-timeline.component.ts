@@ -48,7 +48,7 @@ import {
   feedPostToFeedItem,
 } from '@nxt1/core';
 import type { ContentCardItem } from '@nxt1/core';
-import { FEED_CARD_TEST_IDS, PROFILE_TIMELINE_TEST_IDS } from '@nxt1/core/testing';
+import { PROFILE_TIMELINE_TEST_IDS } from '@nxt1/core/testing';
 import { ProfileSkeletonComponent } from './profile-skeleton.component';
 import { NxtIconComponent } from '../components/icon';
 import { NxtStateViewComponent } from '../components/state-view';

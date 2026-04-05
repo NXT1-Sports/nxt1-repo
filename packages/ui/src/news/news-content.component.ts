@@ -31,12 +31,11 @@
  * ```
  */
 
-import { Component, ChangeDetectionStrategy, inject, output, signal, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, output, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { type NewsArticle } from '@nxt1/core';
 import { NewsService } from './news.service';
 import { NewsListComponent } from './news-list.component';
-import { NewsArticleDetailComponent } from './news-article-detail.component';
 import { HapticsService } from '../services/haptics/haptics.service';
 
 // Register icons

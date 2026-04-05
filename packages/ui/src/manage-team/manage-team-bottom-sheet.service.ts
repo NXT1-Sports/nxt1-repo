@@ -69,7 +69,7 @@ export class ManageTeamBottomSheetService {
 
     const {
       teamId = null,
-      initialSection,
+      initialSection: _initialSection,
       title = teamId ? 'Manage Team' : 'Create Team',
       breakpoints = SHEET_PRESETS.FULL.breakpoints,
       initialBreakpoint = SHEET_PRESETS.FULL.initialBreakpoint,

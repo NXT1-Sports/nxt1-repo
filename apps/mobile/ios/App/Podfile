@@ -1,4 +1,13 @@
-require_relative '../../../../node_modules/@capacitor/ios/scripts/pods_helpers'
+# Resolve node_modules directory — supports both npm workspace hoisting (monorepo root)
+# and workspace-local install (apps/mobile/node_modules).
+# Root path (../../../../) is relative to apps/mobile/ios/App/Podfile.
+def resolve_node_modules
+  root_nm = File.expand_path('../../../../node_modules', __dir__)
+  local_nm = File.expand_path('../../node_modules', __dir__)
+  Dir.exist?(File.join(root_nm, '@capacitor', 'ios')) ? root_nm : local_nm
+end
+NODE_MODULES = resolve_node_modules
+require File.join(NODE_MODULES, '@capacitor/ios/scripts/pods_helpers')
 
 platform :ios, '15.0'
 use_frameworks!
@@ -9,39 +18,39 @@ use_frameworks!
 install! 'cocoapods', :disable_input_output_paths => true
 
 def capacitor_pods
-  pod 'Capacitor', :path => '../../../../node_modules/@capacitor/ios'
-  pod 'CapacitorCordova', :path => '../../../../node_modules/@capacitor/ios'
-  pod 'CapacitorCommunityAppleSignIn', :path => '../../../../node_modules/@capacitor-community/apple-sign-in'
-  pod 'CapacitorFirebaseAuthentication', :path => '../../../../node_modules/@capacitor-firebase/authentication'
-  pod 'CapacitorFirebaseCrashlytics', :path => '../../../../node_modules/@capacitor-firebase/crashlytics'
-  pod 'CapacitorFirebaseMessaging', :path => '../../../../node_modules/@capacitor-firebase/messaging'
-  pod 'CapacitorFirebasePerformance', :path => '../../../../node_modules/@capacitor-firebase/performance'
-  pod 'CapacitorActionSheet', :path => '../../../../node_modules/@capacitor/action-sheet'
-  pod 'CapacitorApp', :path => '../../../../node_modules/@capacitor/app'
-  pod 'CapacitorBrowser', :path => '../../../../node_modules/@capacitor/browser'
-  pod 'CapacitorCamera', :path => '../../../../node_modules/@capacitor/camera'
-  pod 'CapacitorDevice', :path => '../../../../node_modules/@capacitor/device'
-  pod 'CapacitorDialog', :path => '../../../../node_modules/@capacitor/dialog'
-  pod 'CapacitorFilesystem', :path => '../../../../node_modules/@capacitor/filesystem'
-  pod 'CapacitorGeolocation', :path => '../../../../node_modules/@capacitor/geolocation'
-  pod 'CapacitorHaptics', :path => '../../../../node_modules/@capacitor/haptics'
-  pod 'CapacitorKeyboard', :path => '../../../../node_modules/@capacitor/keyboard'
-  pod 'CapacitorNetwork', :path => '../../../../node_modules/@capacitor/network'
-  pod 'CapacitorPreferences', :path => '../../../../node_modules/@capacitor/preferences'
-  pod 'CapacitorPushNotifications', :path => '../../../../node_modules/@capacitor/push-notifications'
-  pod 'CapacitorShare', :path => '../../../../node_modules/@capacitor/share'
-  pod 'CapacitorSplashScreen', :path => '../../../../node_modules/@capacitor/splash-screen'
-  pod 'CapacitorStatusBar', :path => '../../../../node_modules/@capacitor/status-bar'
-  pod 'CapawesomeCapacitorBadge', :path => '../../../../node_modules/@capawesome/capacitor-badge'
-  pod 'CapgoNativePurchases', :path => '../../../../node_modules/@capgo/native-purchases'
-  pod 'RecognizebvCapacitorPluginMsauth', :path => '../../../../node_modules/@recognizebv/capacitor-plugin-msauth'
-  pod 'CapacitorNativeBiometric', :path => '../../../../node_modules/capacitor-native-biometric'
+  pod 'Capacitor', :path => "#{NODE_MODULES}/@capacitor/ios"
+  pod 'CapacitorCordova', :path => "#{NODE_MODULES}/@capacitor/ios"
+  pod 'CapacitorCommunityAppleSignIn', :path => "#{NODE_MODULES}/@capacitor-community/apple-sign-in"
+  pod 'CapacitorFirebaseAuthentication', :path => "#{NODE_MODULES}/@capacitor-firebase/authentication"
+  pod 'CapacitorFirebaseCrashlytics', :path => "#{NODE_MODULES}/@capacitor-firebase/crashlytics"
+  pod 'CapacitorFirebaseMessaging', :path => "#{NODE_MODULES}/@capacitor-firebase/messaging"
+  pod 'CapacitorFirebasePerformance', :path => "#{NODE_MODULES}/@capacitor-firebase/performance"
+  pod 'CapacitorActionSheet', :path => "#{NODE_MODULES}/@capacitor/action-sheet"
+  pod 'CapacitorApp', :path => "#{NODE_MODULES}/@capacitor/app"
+  pod 'CapacitorBrowser', :path => "#{NODE_MODULES}/@capacitor/browser"
+  pod 'CapacitorCamera', :path => "#{NODE_MODULES}/@capacitor/camera"
+  pod 'CapacitorDevice', :path => "#{NODE_MODULES}/@capacitor/device"
+  pod 'CapacitorDialog', :path => "#{NODE_MODULES}/@capacitor/dialog"
+  pod 'CapacitorFilesystem', :path => "#{NODE_MODULES}/@capacitor/filesystem"
+  pod 'CapacitorGeolocation', :path => "#{NODE_MODULES}/@capacitor/geolocation"
+  pod 'CapacitorHaptics', :path => "#{NODE_MODULES}/@capacitor/haptics"
+  pod 'CapacitorKeyboard', :path => "#{NODE_MODULES}/@capacitor/keyboard"
+  pod 'CapacitorNetwork', :path => "#{NODE_MODULES}/@capacitor/network"
+  pod 'CapacitorPreferences', :path => "#{NODE_MODULES}/@capacitor/preferences"
+  pod 'CapacitorPushNotifications', :path => "#{NODE_MODULES}/@capacitor/push-notifications"
+  pod 'CapacitorShare', :path => "#{NODE_MODULES}/@capacitor/share"
+  pod 'CapacitorSplashScreen', :path => "#{NODE_MODULES}/@capacitor/splash-screen"
+  pod 'CapacitorStatusBar', :path => "#{NODE_MODULES}/@capacitor/status-bar"
+  pod 'CapawesomeCapacitorBadge', :path => "#{NODE_MODULES}/@capawesome/capacitor-badge"
+  pod 'CapgoNativePurchases', :path => "#{NODE_MODULES}/@capgo/native-purchases"
+  pod 'RecognizebvCapacitorPluginMsauth', :path => "#{NODE_MODULES}/@recognizebv/capacitor-plugin-msauth"
+  pod 'CapacitorNativeBiometric', :path => "#{NODE_MODULES}/capacitor-native-biometric"
 end
 
 target 'App' do
   capacitor_pods
   # Add your Pods here
-  pod 'CapacitorFirebaseAuthentication/Google', :path => '../../../../node_modules/@capacitor-firebase/authentication'
+  pod 'CapacitorFirebaseAuthentication/Google', :path => "#{NODE_MODULES}/@capacitor-firebase/authentication"
 end
 
 post_install do |installer|
@@ -71,7 +80,7 @@ post_install do |installer|
   # The patched file lives in ios/patches/ (committed to git) and is applied here after
   # every pod install, since npm install may reset node_modules.
   patch_src = File.expand_path('../patches/GoogleAuthProviderHandler.swift', __dir__)
-  patch_dst = File.expand_path('../../../../node_modules/@capacitor-firebase/authentication/ios/Plugin/Handlers/GoogleAuthProviderHandler.swift', __dir__)
+  patch_dst = File.join(NODE_MODULES, '@capacitor-firebase/authentication/ios/Plugin/Handlers/GoogleAuthProviderHandler.swift')
   if File.exist?(patch_src) && File.exist?(patch_dst)
     FileUtils.cp(patch_src, patch_dst)
     puts "✅ Patched GoogleAuthProviderHandler.swift (GIDServerClientID fix)"

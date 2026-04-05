@@ -5,23 +5,29 @@
  * Runs once before all tests to establish authentication state.
  * Creates a logged-in session that other tests can reuse.
  *
+ * Uses the Playwright project-based setup API (1.37+):
+ * - Matched via `testMatch: /global\.setup\.ts/` in playwright.config.ts
+ * - Depended on by browser projects via `dependencies: ['setup']`
+ *
  * @see https://playwright.dev/docs/auth
  */
 
-import { chromium, FullConfig } from '@playwright/test';
+import { test as setup } from '@playwright/test';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 import path from 'path';
 import fs from 'fs';
+
+// ESM-compatible __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * Auth storage state path
  */
 const AUTH_FILE = path.join(__dirname, '.auth', 'user.json');
 
-/**
- * Global setup function
- * Performs authentication and saves state for reuse
- */
-async function globalSetup(config: FullConfig): Promise<void> {
+setup('global auth setup', async ({ page }) => {
   // Ensure .auth directory exists
   const authDir = path.dirname(AUTH_FILE);
   if (!fs.existsSync(authDir)) {
@@ -37,21 +43,16 @@ async function globalSetup(config: FullConfig): Promise<void> {
     console.log('⚠️  No E2E credentials provided, skipping auth setup');
     console.log('   Set E2E_TEST_USER_EMAIL and E2E_TEST_USER_PASSWORD to enable');
 
-    // Create empty auth state
+    // Create empty auth state so all tests can start without ENOENT
     fs.writeFileSync(AUTH_FILE, JSON.stringify({ cookies: [], origins: [] }));
     return;
   }
 
-  const baseURL = config.projects[0].use.baseURL || 'http://localhost:4500';
+  const baseURL = process.env['E2E_BASE_URL'] || 'http://localhost:4500';
 
   console.log('🔐 Setting up authentication state...');
   console.log(`   Base URL: ${baseURL}`);
   console.log(`   User: ${email}`);
-
-  // Launch browser for authentication
-  const browser = await chromium.launch();
-  const context = await browser.newContext();
-  const page = await context.newPage();
 
   try {
     // Navigate to login page
@@ -88,8 +89,8 @@ async function globalSetup(config: FullConfig): Promise<void> {
     console.log('✅ Authentication successful');
     console.log(`   Redirected to: ${page.url()}`);
 
-    // Save authentication state
-    await context.storageState({ path: AUTH_FILE });
+    // Save authentication state via the page's context
+    await page.context().storageState({ path: AUTH_FILE });
     console.log(`   State saved to: ${AUTH_FILE}`);
   } catch (error) {
     console.error('❌ Authentication setup failed:', error);
@@ -101,9 +102,5 @@ async function globalSetup(config: FullConfig): Promise<void> {
 
     // Create empty auth state so tests can still run unauthenticated
     fs.writeFileSync(AUTH_FILE, JSON.stringify({ cookies: [], origins: [] }));
-  } finally {
-    await browser.close();
   }
-}
-
-export default globalSetup;
+});

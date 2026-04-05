@@ -562,7 +562,6 @@ export class SettingsService {
    */
   private updateSectionsWithPreferences(): void {
     const prefs = this._preferences();
-    const subscription = this._subscription();
 
     this._sections.update((sections) =>
       sections.map((section) => ({

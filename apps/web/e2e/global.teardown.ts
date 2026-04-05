@@ -4,25 +4,31 @@
  *
  * Runs once after all tests complete.
  * Cleanup authentication state and test artifacts.
+ *
+ * Uses the Playwright project-based teardown API (1.37+):
+ * - Matched via `testMatch: /global\.teardown\.ts/` in playwright.config.ts
+ * - Triggered by the `setup` project's `teardown: 'teardown'` option
  */
 
-import { FullConfig } from '@playwright/test';
+import { test as teardown } from '@playwright/test';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 import path from 'path';
 import fs from 'fs';
 
-/**
- * Global teardown function
- * Performs cleanup after all tests complete
- */
-async function globalTeardown(_config: FullConfig): Promise<void> {
+// ESM-compatible __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const AUTH_FILE = path.join(__dirname, '.auth', 'user.json');
+
+teardown('global teardown', async () => {
   console.log('🧹 Running global teardown...');
 
   // Optionally clean up auth state in CI
   if (process.env['CI']) {
-    const authFile = path.join(__dirname, '.auth', 'user.json');
-
-    if (fs.existsSync(authFile)) {
-      fs.unlinkSync(authFile);
+    if (fs.existsSync(AUTH_FILE)) {
+      fs.unlinkSync(AUTH_FILE);
       console.log('   Cleaned up auth state');
     }
   }
@@ -33,6 +39,4 @@ async function globalTeardown(_config: FullConfig): Promise<void> {
   // - Clean up temporary files
 
   console.log('✅ Teardown complete');
-}
-
-export default globalTeardown;
+});

@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, computed, output } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, output } from '@angular/core';
 import { LOGO_PATHS } from '@nxt1/design-tokens/assets';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';

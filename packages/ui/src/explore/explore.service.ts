@@ -478,10 +478,6 @@ export class ExploreService {
     this.setFiltersForTab('feed', defaults);
     this.setFiltersForTab('news', defaults);
     this._defaultFiltersInitialized = true;
-    this._defaultFilterValues = {
-      ...(defaults.sport ? { sport: defaults.sport } : {}),
-      ...(defaults.state ? { state: defaults.state } : {}),
-    };
 
     this.logger.info('Default filters initialized from user context', { sport, state });
   }
@@ -505,8 +501,6 @@ export class ExploreService {
   }
 
   private _defaultFiltersInitialized = false;
-  /** Auto-initialized defaults (from user profile) — excluded from active filter count */
-  private _defaultFilterValues: { sport?: string; state?: string } = {};
 
   private normalizeFilters(filters: ExploreFilters): ExploreFilters {
     return {

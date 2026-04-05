@@ -144,12 +144,7 @@ import type { SidenavSportProfile, UserDisplayInput, UserDisplayFallback } from 
  * Desktop sidebar sections - Main navigation structure.
  * Matches YouTube/Twitter sectioned sidebar pattern.
  */
-/** Sidebar shows only the core social platforms (YouTube/TikTok live in the site footer). */
-const SIDEBAR_SOCIAL_PLATFORMS = new Set(['twitter', 'instagram', 'facebook']);
-
-const FOLLOW_US_ITEMS: readonly DesktopSidebarItem[] = DEFAULT_SOCIAL_LINKS.filter((s) =>
-  SIDEBAR_SOCIAL_PLATFORMS.has(s.id)
-).map((social) => ({
+const FOLLOW_US_ITEMS: readonly DesktopSidebarItem[] = DEFAULT_SOCIAL_LINKS.map((social) => ({
   id: `follow-${social.id}`,
   label: social.label,
   icon: social.icon,
@@ -251,7 +246,6 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
  * Named WEB_* to avoid shadowing the @nxt1/ui LOGGED_OUT_SIDEBAR_SECTIONS export.
  */
 const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
-  // ── Top-level pages ──
   {
     id: 'main',
     items: [
@@ -264,13 +258,6 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
         route: '/explore',
       },
     ],
-  },
-
-  // ── Follow Us ──
-  {
-    id: 'follow-us',
-    label: 'Follow Us',
-    items: FOLLOW_US_ITEMS,
   },
 ];
 

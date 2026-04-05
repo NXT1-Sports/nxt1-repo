@@ -1377,3 +1377,9 @@ export * from './usage';
 // ============================================
 
 export * from './sport-landing';
+
+// ============================================
+// CREATE POST (Post Authoring Types & Constants)
+// ============================================
+
+export * from './create-post';

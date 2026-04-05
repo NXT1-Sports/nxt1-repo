@@ -563,13 +563,14 @@ export class ExploreShellWebComponent implements OnInit, AfterViewInit, OnDestro
     void this.ensureFeedLoadedForTab(this.explore.activeTab());
   }
 
-  /** Apply user's sport/state as default filters for Discover & Pulse */
-  private readonly _initDefaultFilters = effect(() => {
-    const u = this.user();
-    if (u) {
-      this.explore.initializeDefaultFilters(u.sport, u.state);
-    }
-  });
+  constructor() {
+    effect(() => {
+      const u = this.user();
+      if (u) {
+        this.explore.initializeDefaultFilters(u.sport, u.state);
+      }
+    });
+  }
 
   ngAfterViewInit(): void {
     // Register center portal and clear any stale right-side action in the global top nav

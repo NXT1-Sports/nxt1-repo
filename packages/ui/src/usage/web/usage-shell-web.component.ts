@@ -41,7 +41,7 @@ import {
   OnDestroy,
   type TemplateRef,
 } from '@angular/core';
-import { isPlatformBrowser, CommonModule } from '@angular/common';
+import { isPlatformBrowser } from '@angular/common';
 import {
   NxtSectionNavWebComponent,
   type SectionNavChangeEvent,

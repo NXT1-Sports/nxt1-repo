@@ -471,6 +471,12 @@ export class ExploreShellComponent implements OnInit {
       locateOutline,
       funnelOutline,
     });
+    effect(() => {
+      const u = this.user();
+      if (u) {
+        this.explore.initializeDefaultFilters(u.sport, u.state);
+      }
+    });
   }
 
   protected readonly explore = inject(ExploreService);
@@ -542,14 +548,6 @@ export class ExploreShellComponent implements OnInit {
     }
     void this.ensureFeedLoadedForTab(this.explore.activeTab());
   }
-
-  /** Apply user's sport/state as default filters for Discover & Pulse */
-  private readonly _initDefaultFilters = effect(() => {
-    const u = this.user();
-    if (u) {
-      this.explore.initializeDefaultFilters(u.sport, u.state);
-    }
-  });
 
   protected onAvatarClick(): void {
     this.haptics.impact('light');

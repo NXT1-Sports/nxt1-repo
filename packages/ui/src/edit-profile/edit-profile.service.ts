@@ -26,7 +26,7 @@ import type {
   ProfileCompletionData,
   ProfileCompletionTier,
 } from '@nxt1/core';
-import { PROFILE_COMPLETION_TIERS, getCompletionTier, getNextTier } from '@nxt1/core';
+import { PROFILE_COMPLETION_TIERS, getNextTier } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
