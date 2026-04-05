@@ -112,7 +112,7 @@
     "@capacitor/ios": "^8.0.1",
     "@capacitor/android": "^8.0.1",
     "chokidar": "^4.0.3",
-    "fast-xml-parser": ">=5.3.6"
+    "fast-xml-parser": ">=5.5.10"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
