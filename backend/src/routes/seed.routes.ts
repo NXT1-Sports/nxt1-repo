@@ -427,8 +427,7 @@ router.delete(
     const ops: BatchOp[] = [];
 
     // Helper: delete all docs in a sub-collection query (will be re-enabled when needed)
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    async function collectDeletions(
+    async function _collectDeletions(
       col: FirebaseFirestore.CollectionReference,
       prefix: string
     ): Promise<void> {

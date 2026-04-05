@@ -145,11 +145,13 @@ router.get('/feed', appGuard, async (req: Request, res: Response) => {
     const tab = parseActivityTab(requestedTab) ?? ACTIVITY_DEFAULT_TAB;
     const page = Math.max(Number(req.query['page']) || 1, 1);
     const limit = clampPageSize(req.query['limit']);
-    const sortBy = VALID_SORT_FIELDS.includes(req.query['sortBy'] as string)
-      ? (req.query['sortBy'] as string)
+    const sortBy = (VALID_SORT_FIELDS as readonly string[]).includes(req.query['sortBy'] as string)
+      ? (req.query['sortBy'] as 'timestamp' | 'priority')
       : 'timestamp';
-    const sortOrder = VALID_SORT_ORDERS.includes(req.query['sortOrder'] as string)
-      ? (req.query['sortOrder'] as string)
+    const sortOrder = (VALID_SORT_ORDERS as readonly string[]).includes(
+      req.query['sortOrder'] as string
+    )
+      ? (req.query['sortOrder'] as 'asc' | 'desc')
       : 'desc';
     const isReadFilter = req.query['isRead'];
     const priority = req.query['priority'] as string | undefined;

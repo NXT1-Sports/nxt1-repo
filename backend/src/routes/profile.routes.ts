@@ -1613,7 +1613,7 @@ router.post(
               | 'organization',
             sport: newSport.sport as string,
             createdBy: userId,
-            creatorRole: userRole as 'athlete' | 'coach' | 'director' | 'scout',
+            creatorRole: userRole as 'athlete' | 'coach' | 'director' | 'media',
             creatorName:
               `${currentData['firstName'] || ''} ${currentData['lastName'] || ''}`.trim(),
             creatorEmail: currentData['email'] || '',

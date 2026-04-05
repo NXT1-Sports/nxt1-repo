@@ -798,7 +798,7 @@ router.get(
             ? (user.updatedAt as { toDate(): Date }).toDate().toISOString()
             : new Date().toISOString(),
       // Include raw user data for sport switching
-      rawUser: user,
+      rawUser: user as unknown as Record<string, unknown>,
       activeSportIndex: editingSportIndex,
     };
 

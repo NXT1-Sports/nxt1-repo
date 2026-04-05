@@ -53,7 +53,8 @@ export class EditProfileService {
       sportIndex?: number
     ) => Promise<{
       success: boolean;
-      data?: unknown;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data?: any;
       error?: string;
     }>;
     updateSection: (
@@ -63,7 +64,8 @@ export class EditProfileService {
       sportIndex?: number
     ) => Promise<{
       success: boolean;
-      data?: unknown;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data?: any;
       error?: string;
     }>;
     updateActiveSportIndex: (
@@ -71,7 +73,8 @@ export class EditProfileService {
       activeSportIndex: number
     ) => Promise<{
       success: boolean;
-      data?: unknown;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data?: any;
       error?: string;
     }>;
     uploadPhoto: (
@@ -108,7 +111,8 @@ export class EditProfileService {
   private readonly _error = signal<string | null>(null);
   private readonly _dirtyFields = signal<Set<string>>(new Set());
   private readonly _validationErrors = signal<Record<string, string>>({});
-  private readonly _rawUserData = signal<unknown>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private readonly _rawUserData = signal<any>(null);
   private readonly _activeSportIndex = signal<number>(0);
   private readonly _showCompletionCelebration = signal(false);
   private readonly _lastUnlockedTier = signal<ProfileCompletionTier | null>(null);
@@ -237,22 +241,25 @@ export class EditProfileService {
     getProfile: (
       userId: string,
       sportIndex?: number
-    ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ) => Promise<{ success: boolean; data?: any; error?: string }>;
     updateSection: (
       userId: string,
       sectionId: string,
       data: Record<string, unknown>,
       sportIndex?: number
-    ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ) => Promise<{ success: boolean; data?: any; error?: string }>;
     updateActiveSportIndex: (
       userId: string,
       activeSportIndex: number
-    ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ) => Promise<{ success: boolean; data?: any; error?: string }>;
     uploadPhoto: (
       userId: string,
       type: 'profile' | 'banner',
       file: File | Blob
-    ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
+    ) => Promise<{ success: boolean; data?: { url: string; xpAwarded?: number }; error?: string }>;
   }): void {
     this.api = api;
     this.logger.debug('API service configured');
