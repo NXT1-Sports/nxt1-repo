@@ -38,6 +38,7 @@ import {
   viewChild,
   ElementRef,
   effect,
+  output,
   PLATFORM_ID,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
@@ -56,6 +57,8 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AGENT_X_OPERATION_CHAT_TEST_IDS } from '@nxt1/core/testing';
 import { AgentXInputComponent } from './agent-x-input.component';
 import { AGENT_X_API_BASE_URL, AgentXJobService } from './agent-x-job.service';
+import { NxtMediaViewerService } from '../components/media-viewer/media-viewer.service';
+import type { MediaViewerItem } from '../components/media-viewer/media-viewer.types';
 import { KeyboardService } from '../services/keyboard/keyboard.service';
 import {
   AgentXActionCardComponent,
@@ -77,6 +80,21 @@ export interface OperationQuickAction {
   readonly description?: string;
 }
 
+/** Shape of a pending file staged for upload (preview shown above input). */
+interface PendingFile {
+  readonly file: File;
+  readonly previewUrl: string | null; // objectURL for images, null for docs/video
+  readonly isImage: boolean;
+  readonly isVideo: boolean;
+}
+
+/** Attachment preview shown inside a sent message. */
+interface MessageAttachment {
+  readonly url: string;
+  readonly type: 'image' | 'video' | 'doc';
+  readonly name: string;
+}
+
 /** Shape of a single chat message inside the operation context. */
 interface OperationMessage {
   readonly id: string;
@@ -85,6 +103,7 @@ interface OperationMessage {
   readonly timestamp: Date;
   readonly imageUrl?: string;
   readonly videoUrl?: string;
+  readonly attachments?: readonly MessageAttachment[];
   readonly isTyping?: boolean;
   readonly error?: boolean;
 }
@@ -175,12 +194,68 @@ interface OperationMessage {
               variant="agent-operation"
               [isOwn]="msg.role === 'user'"
               [content]="msg.content"
-              [imageUrl]="msg.imageUrl"
-              [videoUrl]="msg.videoUrl"
               [isTyping]="!!msg.isTyping"
               [isError]="!!msg.error"
               [isSystem]="msg.role === 'system'"
             />
+            @if (msg.attachments?.length) {
+              <div class="msg-attachments">
+                @for (att of msg.attachments; track att.url) {
+                  <div class="msg-attachment" [class.msg-attachment--media]="att.type !== 'doc'">
+                    @if (att.type === 'image') {
+                      <img
+                        [src]="att.url"
+                        [alt]="att.name"
+                        class="msg-attachment__thumb"
+                        (click)="openAttachmentViewer(msg.attachments!, $index)"
+                      />
+                    } @else if (att.type === 'video') {
+                      <video
+                        [src]="att.url"
+                        class="msg-attachment__thumb"
+                        preload="metadata"
+                        (click)="openAttachmentViewer(msg.attachments!, $index)"
+                      ></video>
+                      <div class="msg-attachment__play">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                          <path d="M8 5v14l11-7L8 5z" />
+                        </svg>
+                      </div>
+                    } @else {
+                      <div
+                        class="msg-attachment__doc"
+                        (click)="openAttachmentViewer(msg.attachments!, $index)"
+                        style="cursor: pointer;"
+                      >
+                        <div
+                          class="msg-attachment__doc-icon-wrap"
+                          [style.background]="getFileColor(att.name, 0.15)"
+                          [style.color]="getFileColor(att.name, 1)"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            width="14"
+                            height="14"
+                          >
+                            <path
+                              d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"
+                            />
+                            <polyline points="14 2 14 8 20 8" />
+                          </svg>
+                        </div>
+                        <div class="msg-attachment__doc-info">
+                          <span class="msg-attachment__doc-name">{{ att.name }}</span>
+                          <span class="msg-attachment__doc-meta">{{ getFileExt(att.name) }}</span>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            }
           </div>
         }
       }
@@ -271,6 +346,77 @@ interface OperationMessage {
       }
     </div>
 
+    <!-- ═══ PENDING FILES PREVIEW ═══ -->
+    @if (pendingFiles().length > 0) {
+      <div class="pending-files-strip">
+        @for (pf of pendingFiles(); track pf.file.name + $index) {
+          <div class="pending-file" [class.pending-file--media]="pf.isImage || pf.isVideo">
+            @if (pf.isImage && pf.previewUrl) {
+              <img
+                [src]="pf.previewUrl"
+                [alt]="pf.file.name"
+                class="pending-file__thumb"
+                (click)="openPendingFileViewer($index)"
+              />
+            } @else if (pf.isVideo && pf.previewUrl) {
+              <video
+                [src]="pf.previewUrl"
+                class="pending-file__thumb"
+                preload="metadata"
+                (click)="openPendingFileViewer($index)"
+              ></video>
+              <div class="pending-file__play">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                  <path d="M8 5v14l11-7L8 5z" />
+                </svg>
+              </div>
+            } @else {
+              <div
+                class="pending-file__doc"
+                (click)="openPendingFileViewer($index)"
+                style="cursor: pointer;"
+              >
+                <div
+                  class="pending-file__doc-icon-wrap"
+                  [style.background]="getFileColor(pf.file.name, 0.15)"
+                  [style.color]="getFileColor(pf.file.name, 1)"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    width="16"
+                    height="16"
+                  >
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" />
+                    <polyline points="14 2 14 8 20 8" />
+                  </svg>
+                </div>
+                <div class="pending-file__doc-info">
+                  <span class="pending-file__doc-name">{{ pf.file.name }}</span>
+                  <span class="pending-file__doc-meta"
+                    >{{ getFileExt(pf.file.name) }} · {{ formatFileSize(pf.file.size) }}</span
+                  >
+                </div>
+              </div>
+            }
+            <button
+              class="pending-file__remove"
+              (click)="removePendingFile($index)"
+              aria-label="Remove file"
+            >
+              <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12">
+                <path
+                  d="M4.11 3.05a.75.75 0 0 0-1.06 1.06L6.94 8l-3.89 3.89a.75.75 0 1 0 1.06 1.06L8 9.06l3.89 3.89a.75.75 0 1 0 1.06-1.06L9.06 8l3.89-3.89a.75.75 0 0 0-1.06-1.06L8 6.94 4.11 3.05z"
+                />
+              </svg>
+            </button>
+          </div>
+        }
+      </div>
+    }
+
     <!-- ═══ INPUT ═══ -->
     <nxt1-agent-x-input
       class="embedded"
@@ -288,7 +434,7 @@ interface OperationMessage {
       #fileInput
       class="file-input-hidden"
       type="file"
-      accept="image/*,.pdf,.doc,.docx,.txt"
+      accept="image/*,video/*,.pdf,.doc,.docx,.txt,.csv,.xls,.xlsx,.ppt,.pptx,.zip,.rar"
       multiple
       (change)="onFileSelected($event)"
     />
@@ -306,11 +452,23 @@ interface OperationMessage {
         background: var(--ion-background-color, var(--nxt1-color-bg-primary, #0a0a0a));
         color: var(--nxt1-color-text-primary, #fff);
 
-        --op-surface: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
-        --op-border: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-        --op-text: var(--nxt1-color-text-primary, #fff);
-        --op-text-secondary: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        --op-text-muted: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        --op-surface: var(
+          --agent-surface,
+          var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04))
+        );
+        --op-border: var(
+          --agent-border,
+          var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08))
+        );
+        --op-text: var(--agent-text-primary, var(--nxt1-color-text-primary, #fff));
+        --op-text-secondary: var(
+          --agent-text-secondary,
+          var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7))
+        );
+        --op-text-muted: var(
+          --agent-text-muted,
+          var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5))
+        );
         --op-primary: var(--nxt1-color-primary, #ccff00);
         --op-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
       }
@@ -329,7 +487,7 @@ interface OperationMessage {
         padding: 16px 20px;
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 20px;
         -webkit-overflow-scrolling: touch;
         /* Adjust for keyboard on mobile - no transition for instant response */
         max-height: calc(100vh - var(--keyboard-offset, 0px) - 200px);
@@ -338,11 +496,16 @@ interface OperationMessage {
       .messages-area--embedded {
         max-height: none;
         min-height: 0;
+        width: 100%;
+        max-width: calc(100% - 48px);
+        margin-left: auto;
+        margin-right: auto;
       }
 
       .msg-row {
         display: flex;
-        gap: 8px;
+        flex-direction: column;
+        gap: 4px;
         max-width: 88%;
         animation: fadeSlideIn 0.25s ease-out;
       }
@@ -360,18 +523,30 @@ interface OperationMessage {
 
       .msg-user {
         margin-left: auto;
-        flex-direction: row-reverse;
+        align-items: flex-end;
       }
 
       .msg-assistant {
         margin-right: auto;
+        align-items: flex-start;
       }
 
       .msg-assistant ::ng-deep nxt1-chat-bubble {
-        background: rgba(255, 255, 255, 0.04);
+        background: var(--op-surface);
         border: 1px solid var(--op-border);
         border-radius: 14px;
         padding: 14px 16px;
+        color: var(--op-text);
+      }
+
+      .msg-user ::ng-deep nxt1-chat-bubble,
+      .msg-user ::ng-deep nxt1-chat-bubble.variant-agent-operation.own {
+        background: var(--op-surface);
+        border: 1px solid var(--op-border);
+        border-radius: 14px;
+        border-bottom-right-radius: 4px;
+        padding: 10px 14px;
+        color: var(--op-text);
       }
 
       .msg-system {
@@ -379,14 +554,257 @@ interface OperationMessage {
         max-width: 100%;
       }
 
+      /* ── MESSAGE ATTACHMENTS (thumbnails in sent messages) ── */
+      .msg-attachments {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 6px;
+        flex-wrap: wrap;
+      }
+
+      .msg-user .msg-attachments {
+        justify-content: flex-end;
+      }
+
+      .msg-attachment {
+        position: relative;
+        height: 56px;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid var(--op-border, rgba(255, 255, 255, 0.08));
+        background: var(--op-surface, rgba(255, 255, 255, 0.04));
+      }
+
+      .msg-attachment--media {
+        width: 56px;
+      }
+
+      .msg-attachment__thumb {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        cursor: pointer;
+      }
+
+      .msg-attachment__play {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.35);
+        color: #fff;
+        pointer-events: none;
+      }
+
+      .msg-attachment__doc {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        min-width: 110px;
+        max-width: 170px;
+        height: 100%;
+        box-sizing: border-box;
+      }
+
+      .msg-attachment__doc-icon-wrap {
+        width: 30px;
+        height: 30px;
+        border-radius: 7px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+
+      .msg-attachment__doc-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .msg-attachment__doc-name {
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--nxt1-color-text-primary, #fff);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.3;
+      }
+
+      .msg-attachment__doc-meta {
+        font-size: 10px;
+        color: var(--op-text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        line-height: 1.2;
+      }
+
+      /* ── PENDING FILES PREVIEW STRIP ── */
+      .pending-files-strip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        margin: 0 32px 6px;
+        overflow-x: auto;
+        flex-shrink: 0;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+        animation: fadeSlideIn 0.2s ease-out;
+        border-radius: var(--nxt1-borderRadius-lg, 16px);
+        border: 1px solid var(--nxt1-color-border-primary, rgba(204, 255, 0, 0.3));
+        box-shadow:
+          0 0 0 2px var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.06)),
+          0 0 16px var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.05));
+        background: var(--op-primary-glow, rgba(204, 255, 0, 0.03));
+      }
+
+      /* Match input-wrapper width: base 48px + .embedded padding 40px + .input-container padding 24px = 112px */
+      :host.agent-x-operation-chat--embedded .pending-files-strip {
+        width: calc(100% - 112px);
+        max-width: calc(100% - 112px);
+        margin-left: auto;
+        margin-right: auto;
+        box-sizing: border-box;
+      }
+
+      .pending-files-strip::-webkit-scrollbar {
+        display: none;
+      }
+
+      .pending-file {
+        position: relative;
+        flex-shrink: 0;
+        height: 64px;
+        border-radius: 10px;
+        overflow: hidden;
+        border: 1px solid var(--op-border, rgba(255, 255, 255, 0.08));
+        background: var(--op-surface, rgba(255, 255, 255, 0.06));
+      }
+
+      .pending-file--media {
+        width: 64px;
+      }
+
+      .pending-file__thumb {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        cursor: pointer;
+      }
+
+      .pending-file__doc {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        min-width: 120px;
+        max-width: 170px;
+        height: 100%;
+        box-sizing: border-box;
+      }
+
+      .pending-file__doc-icon-wrap {
+        width: 32px;
+        height: 32px;
+        border-radius: 7px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+
+      .pending-file__doc-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+        flex: 1;
+      }
+
+      .pending-file__doc-name {
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--nxt1-color-text-primary, #fff);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.3;
+      }
+
+      .pending-file__doc-meta {
+        font-size: 10px;
+        color: var(--op-text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        line-height: 1.2;
+      }
+
+      .pending-file__play {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.35);
+        color: #fff;
+        pointer-events: none;
+      }
+
+      .pending-file__remove {
+        position: absolute;
+        top: 3px;
+        right: 3px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: none;
+        background: rgba(0, 0, 0, 0.65);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        padding: 0;
+        opacity: 0;
+        transition: opacity 0.15s ease;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .pending-file:hover .pending-file__remove,
+      .pending-file__remove:focus-visible {
+        opacity: 1;
+      }
+
+      /* Always show remove button on touch devices */
+      @media (hover: none) {
+        .pending-file__remove {
+          opacity: 1;
+        }
+      }
+
       /* ── EMBEDDED INPUT ── */
       .embedded {
         padding: 12px 20px;
         padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
         flex-shrink: 0;
-        /* Move input up when keyboard opens */
         transform: translateY(calc(-1 * var(--keyboard-offset, 0px)));
         transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+      }
+
+      :host.agent-x-operation-chat--embedded .embedded {
+        width: 100%;
+        max-width: calc(100% - 48px);
+        margin-left: auto;
+        margin-right: auto;
+        box-sizing: border-box;
       }
 
       .file-input-hidden {
@@ -501,7 +919,7 @@ interface OperationMessage {
         padding: 14px 16px;
         border-radius: 14px;
         border: 1px solid var(--op-border);
-        background: rgba(255, 255, 255, 0.04);
+        background: var(--op-surface, rgba(255, 255, 255, 0.04));
         animation: fadeSlideIn 0.3s ease-out;
       }
 
@@ -616,6 +1034,7 @@ export class AgentXOperationChatComponent implements AfterViewInit {
   private readonly keyboard = inject(KeyboardService, { optional: true });
   private readonly platformId = inject(PLATFORM_ID);
   private readonly jobService = inject(AgentXJobService);
+  private readonly mediaViewer = inject(NxtMediaViewerService);
 
   // ============================================
   // INPUTS (from componentProps)
@@ -713,6 +1132,9 @@ export class AgentXOperationChatComponent implements AfterViewInit {
   /** Whether a retry has been initiated (hides banner, shows confirmation). */
   protected readonly retryStarted = signal(false);
 
+  /** Files staged for upload — displayed as previews above the input bar. */
+  protected readonly pendingFiles = signal<PendingFile[]>([]);
+
   /** Whether to show the persistent "Agent X is thinking" indicator. */
   protected readonly showThinking = computed(() => {
     if (this.contextType !== 'operation') return false;
@@ -768,12 +1190,16 @@ export class AgentXOperationChatComponent implements AfterViewInit {
   /** Tracks whether the user has sent at least one message. */
   private readonly hasUserSent = signal(false);
 
+  /** Emitted when the user sends their first message (briefing should hide). */
+  readonly userMessageSent = output<void>();
+
   /** Whether this chat was opened to view a historical thread (suppresses generic welcome). */
   private readonly _isThreadMode = signal(false);
 
   /** Whether the send button should be enabled. */
   protected readonly canSend = computed(
-    () => this.inputValue().trim().length > 0 && !this._loading()
+    () =>
+      (this.inputValue().trim().length > 0 || this.pendingFiles().length > 0) && !this._loading()
   );
 
   /** Human-readable label for the context type badge. */
@@ -922,7 +1348,11 @@ export class AgentXOperationChatComponent implements AfterViewInit {
       }));
 
       this.messages.set(mapped);
-      this.hasUserSent.set(mapped.some((msg) => msg.role === 'user'));
+      const hadUser = mapped.some((msg) => msg.role === 'user');
+      if (hadUser && !this.hasUserSent()) {
+        this.hasUserSent.set(true);
+        this.userMessageSent.emit();
+      }
       this.logger.info('Operation thread loaded', {
         threadId,
         contextId: this.contextId,
@@ -1002,17 +1432,42 @@ export class AgentXOperationChatComponent implements AfterViewInit {
   /** Send the current input as a user message. */
   async send(): Promise<void> {
     const text = this.inputValue().trim();
-    if (!text || this._loading()) return;
+    const files = this.pendingFiles();
+    if ((!text && files.length === 0) || this._loading()) return;
 
     this.inputValue.set('');
-    this.hasUserSent.set(true);
+    if (!this.hasUserSent()) {
+      this.hasUserSent.set(true);
+      this.userMessageSent.emit();
+    }
+
+    // Build display content
+    let displayContent = text;
+    if (files.length > 0 && text) {
+      displayContent = text;
+    } else if (files.length > 0) {
+      displayContent = `📎 ${files.length} file${files.length > 1 ? 's' : ''}`;
+    }
+
+    // Build attachments from pending files (keep URLs alive for display)
+    const attachments: MessageAttachment[] = files
+      .filter((f) => f.previewUrl)
+      .map((f) => ({
+        url: f.previewUrl!,
+        type: f.isImage ? ('image' as const) : f.isVideo ? ('video' as const) : ('doc' as const),
+        name: f.file.name,
+      }));
+
+    // Clear pending state without revoking URLs (they're now owned by the message)
+    this.pendingFiles.set([]);
 
     // Append user message
     this.pushMessage({
       id: this.uid(),
       role: 'user',
-      content: text,
+      content: displayContent,
       timestamp: new Date(),
+      ...(attachments.length > 0 ? { attachments } : {}),
     });
 
     // Show typing indicator
@@ -1026,7 +1481,7 @@ export class AgentXOperationChatComponent implements AfterViewInit {
     this._loading.set(true);
 
     try {
-      await this.callAgentChat(text);
+      await this.callAgentChat(displayContent);
       await this.haptics.notification('success');
     } catch (err) {
       this.logger.error('Chat message failed', err, { contextId: this.contextId });
@@ -1054,35 +1509,144 @@ export class AgentXOperationChatComponent implements AfterViewInit {
     this.fileInput()?.nativeElement.click();
   }
 
-  /** Handle selected files/images and append upload context into chat. */
+  /** Handle selected files/images — stage them as pending previews above input. */
   protected onFileSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
     const files = Array.from(input.files ?? []);
     if (files.length === 0) return;
 
-    this.hasUserSent.set(true);
-
-    const firstThree = files
-      .slice(0, 3)
-      .map((f) => f.name)
-      .join(', ');
-    const suffix = files.length > 3 ? ` +${files.length - 3} more` : '';
-
-    this.pushMessage({
-      id: this.uid(),
-      role: 'user',
-      content: `Uploaded ${files.length} file${files.length > 1 ? 's' : ''}: ${firstThree}${suffix}`,
-      timestamp: new Date(),
+    const newPending: PendingFile[] = files.map((file) => {
+      const isImage = file.type.startsWith('image/');
+      const isVideo = file.type.startsWith('video/');
+      return {
+        file,
+        previewUrl: isImage || isVideo ? URL.createObjectURL(file) : null,
+        isImage,
+        isVideo,
+      };
     });
 
-    this.pushMessage({
-      id: this.uid(),
-      role: 'assistant',
-      content: 'Got it. I can use these files in your request. Tell me what you want me to create.',
-      timestamp: new Date(),
-    });
-
+    this.pendingFiles.update((prev) => [...prev, ...newPending]);
     input.value = '';
+  }
+
+  /** Remove a staged file from the pending preview strip. */
+  protected removePendingFile(index: number): void {
+    this.pendingFiles.update((prev) => {
+      const removed = prev[index];
+      if (removed?.previewUrl) {
+        URL.revokeObjectURL(removed.previewUrl);
+      }
+      return prev.filter((_, i) => i !== index);
+    });
+  }
+
+  /** Open the media viewer for a pending file thumbnail. */
+  protected openPendingFileViewer(index: number): void {
+    const mediaItems: MediaViewerItem[] = this.pendingFiles()
+      .filter((pf) => pf.previewUrl || (!pf.isImage && !pf.isVideo))
+      .map((pf) => {
+        if (pf.isImage || pf.isVideo) {
+          return {
+            url: pf.previewUrl!,
+            type: (pf.isVideo ? 'video' : 'image') as 'image' | 'video' | 'doc',
+            alt: pf.file.name,
+          };
+        }
+        return {
+          url: pf.previewUrl || URL.createObjectURL(pf.file),
+          type: 'doc' as const,
+          name: pf.file.name,
+          size: pf.file.size,
+        };
+      });
+
+    if (!mediaItems.length) return;
+
+    // Map the pending-file index to the viewer index
+    const viewableFiles = this.pendingFiles().filter(
+      (pf) => pf.previewUrl || (!pf.isImage && !pf.isVideo)
+    );
+    const target = this.pendingFiles()[index];
+    const mediaIndex = target ? viewableFiles.indexOf(target) : 0;
+
+    this.mediaViewer.open({
+      items: mediaItems,
+      initialIndex: Math.max(0, mediaIndex),
+      showShare: false,
+      source: 'agent-x-pending',
+    });
+  }
+
+  /** Open the media viewer for a sent message attachment thumbnail. */
+  protected openAttachmentViewer(attachments: readonly MessageAttachment[], index: number): void {
+    const mediaItems: MediaViewerItem[] = attachments.map((att) => {
+      if (att.type === 'image' || att.type === 'video') {
+        return {
+          url: att.url,
+          type: att.type as 'image' | 'video',
+          alt: att.name,
+        };
+      }
+      return {
+        url: att.url,
+        type: 'doc' as const,
+        name: att.name,
+      };
+    });
+
+    if (!mediaItems.length) return;
+
+    this.mediaViewer.open({
+      items: mediaItems,
+      initialIndex: Math.max(0, Math.min(index, mediaItems.length - 1)),
+      source: 'agent-x-chat',
+    });
+  }
+
+  /** Revoke all pending file object URLs (cleanup). */
+  private clearPendingFiles(): void {
+    const files = this.pendingFiles();
+    for (const pf of files) {
+      if (pf.previewUrl) URL.revokeObjectURL(pf.previewUrl);
+    }
+    this.pendingFiles.set([]);
+  }
+
+  // ── File type helpers (doc cards) ──────────────────────
+
+  /** File extension → colour (returns rgba string). */
+  protected getFileColor(filename: string, alpha: number): string {
+    const ext = this.getFileExt(filename).toLowerCase();
+    const colors: Record<string, string> = {
+      pdf: '239, 68, 68', // red
+      doc: '59, 130, 246', // blue
+      docx: '59, 130, 246',
+      xls: '34, 197, 94', // green
+      xlsx: '34, 197, 94',
+      ppt: '249, 115, 22', // orange
+      pptx: '249, 115, 22',
+      txt: '148, 163, 184', // gray
+      csv: '34, 197, 94',
+      zip: '168, 85, 247', // purple
+      rar: '168, 85, 247',
+    };
+    const rgb = colors[ext] ?? '148, 163, 184';
+    return `rgba(${rgb}, ${alpha})`;
+  }
+
+  /** Extract uppercase extension from filename. */
+  protected getFileExt(filename: string): string {
+    const dotIndex = filename.lastIndexOf('.');
+    if (dotIndex < 0) return 'FILE';
+    return filename.slice(dotIndex + 1).toUpperCase();
+  }
+
+  /** Format bytes to human-readable size. */
+  protected formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   // ============================================

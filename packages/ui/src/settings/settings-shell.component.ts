@@ -99,8 +99,8 @@ export interface SettingsUser {
   template: `
     <!-- Portal: center — "Settings" title in top nav (desktop only) -->
     <ng-template #centerPortalContent>
-      <div class="header-portal-settings">
-        <span class="header-portal-title">Settings</span>
+      <div class="nxt1-header-portal">
+        <span class="nxt1-header-portal__title">Settings</span>
       </div>
     </ng-template>
 
@@ -248,25 +248,7 @@ export interface SettingsUser {
         align-items: start;
       }
 
-      /* Header portal styles (desktop only) */
-      .header-portal-settings {
-        display: flex;
-        align-items: center;
-        width: 100%;
-        padding: 0 var(--nxt1-spacing-2, 8px);
-        position: relative;
-      }
-
-      .header-portal-title {
-        font-size: 15px;
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary, #ffffff);
-        letter-spacing: -0.01em;
-        white-space: nowrap;
-        user-select: none;
-        position: absolute;
-        left: var(--nxt1-spacing-2, 8px);
-      }
+      /* Header portal styles (wrapper + title from design-tokens .nxt1-header-portal) */
 
       .settings-content-panel {
         min-width: 0;
@@ -340,7 +322,7 @@ export interface SettingsUser {
           padding: var(--nxt1-spacing-6, 24px) var(--nxt1-spacing-3, 12px);
         }
 
-        .header-portal-settings {
+        .nxt1-header-portal {
           display: none;
         }
       }

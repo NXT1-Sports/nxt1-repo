@@ -49,10 +49,41 @@ export const IMAGE_GENERATION_TIMEOUT_MS = 180_000;
 
 // ─── Request / Response Shapes ──────────────────────────────────────────────
 
+/**
+ * A text content part in a multimodal message.
+ */
+export interface LLMTextContentPart {
+  readonly type: 'text';
+  readonly text: string;
+}
+
+/**
+ * An image URL content part in a multimodal message.
+ * Used to pass images (JPEG, PNG, WebP, GIF) to vision-capable models.
+ */
+export interface LLMImageUrlContentPart {
+  readonly type: 'image_url';
+  readonly image_url: {
+    readonly url: string;
+    readonly detail?: 'auto' | 'low' | 'high';
+  };
+}
+
+/**
+ * Union of all content part types for multimodal messages.
+ */
+export type LLMContentPart = LLMTextContentPart | LLMImageUrlContentPart;
+
 /** A single message in the OpenRouter chat format. */
 export interface LLMMessage {
   readonly role: 'system' | 'user' | 'assistant' | 'tool';
-  readonly content: string | null;
+  /**
+   * Message content. Can be:
+   * - `string` for text-only messages
+   * - `LLMContentPart[]` for multimodal messages (text + images)
+   * - `null` when the assistant uses tool calls with no text
+   */
+  readonly content: string | readonly LLMContentPart[] | null;
   /** Present when the assistant requests a tool call. */
   readonly tool_calls?: readonly LLMToolCall[];
   /** Present when role === 'tool' — ties the result back to the call. */

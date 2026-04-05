@@ -1,8 +1,9 @@
 {
   "compileOnSave": false,
   "compilerOptions": {
+    "ignoreDeprecations": "6.0",
+    "rootDir": ".",
     "baseUrl": "./",
-    "ignoreDeprecations": "5.0",
     "paths": {
       "@app/*": ["src/app/*"],
       "@nxt1/core": ["../../packages/core/src/index.ts"],

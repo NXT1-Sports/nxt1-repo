@@ -51,11 +51,12 @@ export class TelemetryService {
    */
   async checkUsageLimits(
     userId: string,
-    userTier: string
+    _userTier?: string
   ): Promise<{ allowed: boolean; reason?: string; remaining?: Partial<AgentUsageLimits> }> {
-    const limits = AGENT_USAGE_LIMITS.find((l) => l.tier === userTier);
+    // No subscription tiers yet — use single default limits for all users
+    const limits = AGENT_USAGE_LIMITS[0];
     if (!limits) {
-      return { allowed: false, reason: `Unknown tier: ${userTier}` };
+      return { allowed: false, reason: 'No usage limits configured' };
     }
 
     const todayUsage = await this.getTodayUsage(userId);
@@ -92,10 +93,11 @@ export class TelemetryService {
   }
 
   /**
-   * Check if a specific model tier is allowed for the user's subscription.
+   * Check if a specific model tier is allowed.
+   * No subscription tiers yet — all model tiers are allowed for all users.
    */
-  isModelAllowed(userTier: string, modelTier: string): boolean {
-    const limits = AGENT_USAGE_LIMITS.find((l) => l.tier === userTier);
+  isModelAllowed(_userTier: string, modelTier: string): boolean {
+    const limits = AGENT_USAGE_LIMITS[0];
     if (!limits) return false;
     return limits.allowedModelTiers.includes(
       modelTier as 'fast' | 'balanced' | 'reasoning' | 'creative'

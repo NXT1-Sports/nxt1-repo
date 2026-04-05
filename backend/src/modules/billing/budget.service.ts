@@ -1092,10 +1092,10 @@ export async function resolveBillingTarget(
   }
 
   // Director without an active org — log a warning
-  if (role === 'director') {
+  if (role === 'director' || role === 'coach') {
     logger.warn(
-      '[resolveBillingTarget] Director has no active organization, falling back to individual',
-      { userId }
+      '[resolveBillingTarget] Director/Coach has no active organization, falling back to individual',
+      { userId, role }
     );
   }
 
@@ -1266,8 +1266,9 @@ async function resolveUserOrgTarget(
     organizationId = rosterSnap.docs[0]!.data()['organizationId'] as string | undefined;
   }
 
-  // Strategy 2: Fallback for directors — check organizations.ownerId
-  if (!organizationId && role === 'director') {
+  // Strategy 2: Fallback for directors and coaches — check organizations.ownerId
+  // Coaches are set as ownerId during onboarding (same as directors).
+  if (!organizationId && (role === 'director' || role === 'coach')) {
     const orgSnap = await db
       .collection('Organizations')
       .where('ownerId', '==', userId)
@@ -1276,6 +1277,17 @@ async function resolveUserOrgTarget(
 
     if (!orgSnap.empty) {
       organizationId = orgSnap.docs[0]!.id;
+    }
+  }
+
+  // Strategy 3: Fallback for coaches — RosterEntry teamId → Team.organizationId
+  // If the coach has an active roster entry with a teamId but no organizationId
+  // on the entry itself, look up the org via the team document.
+  if (!organizationId && role === 'coach' && !rosterSnap.empty) {
+    const teamId = rosterSnap.docs[0]!.data()['teamId'] as string | undefined;
+    if (teamId) {
+      const teamDoc = await db.collection('Teams').doc(teamId).get();
+      organizationId = teamDoc.data()?.['organizationId'] as string | undefined;
     }
   }
 

@@ -39,6 +39,7 @@ import {
   type AgentXMode,
   type AgentXUserContext,
   type AgentXChatRequest,
+  type AgentXAttachment,
   type AgentDashboardData,
   type AgentDashboardGoal,
   type AgentDashboardPlaybook,
@@ -47,9 +48,15 @@ import {
   type ShellWeeklyPlaybookItem,
   type ShellActiveOperation,
   type ShellCommandCategory,
+  type AutoOpenPanelInstruction,
   AGENT_X_CONFIG,
   AGENT_X_MODES,
   AGENT_X_DEFAULT_MODE,
+  AGENT_X_ENDPOINTS,
+  AGENT_X_ALLOWED_MIME_TYPES,
+  AGENT_X_MAX_ATTACHMENTS,
+  AGENT_X_MAX_FILE_SIZE,
+  resolveAttachmentType,
   ATHLETE_QUICK_TASKS,
   COACH_QUICK_TASKS,
   COLLEGE_QUICK_TASKS,
@@ -68,6 +75,7 @@ import {
 } from './agent-x-job.service';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import type { AgentXPendingFile } from './agent-x-pending-file';
 
 /**
  * Agent X state management service.
@@ -115,6 +123,17 @@ export class AgentXService {
   private readonly _userContext = signal<AgentXUserContext | null>(null);
   /** The MongoDB thread ID for the current conversation (persisted across messages). */
   private readonly _currentThreadId = signal<string | null>(null);
+
+  /** Files staged for upload — shown as previews before the user sends the message. */
+  private readonly _pendingFiles = signal<AgentXPendingFile[]>([]);
+  /** Whether file uploads are currently in progress. */
+  private readonly _uploading = signal(false);
+
+  /**
+   * When the agent's response includes an `autoOpenPanel` instruction,
+   * the service populates this signal so the shell can react via effect().
+   */
+  private readonly _requestedSidePanel = signal<AutoOpenPanelInstruction | null>(null);
 
   /**
    * Pending thread request used by external surfaces (activity, push notifications)
@@ -186,11 +205,25 @@ export class AgentXService {
   /** Message count */
   readonly messageCount = computed(() => this._messages().length);
 
-  /** Can send message (has input and not loading) */
-  readonly canSend = computed(() => this._userMessage().trim().length > 0 && !this._isLoading());
+  /** Can send message (has text or files, and not loading) */
+  readonly canSend = computed(
+    () =>
+      (this._userMessage().trim().length > 0 || this._pendingFiles().length > 0) &&
+      !this._isLoading()
+  );
+
+  /** Files staged for upload, exposed as readonly. */
+  readonly pendingFiles = computed(() => this._pendingFiles());
+
+  /** Whether file uploads are in progress. */
+  readonly uploading = computed(() => this._uploading());
+
+  /** Whether there are any pending files. */
+  readonly hasPendingFiles = computed(() => this._pendingFiles().length > 0);
 
   /** Available modes configuration */
-  readonly modes = signal(AGENT_X_MODES);
+  private readonly _modes = signal(AGENT_X_MODES);
+  readonly modes = computed(() => this._modes());
 
   /**
    * The current MongoDB thread ID.
@@ -201,6 +234,12 @@ export class AgentXService {
 
   /** Pending thread open request for the Agent X shell. */
   readonly pendingThread = computed(() => this._pendingThread());
+
+  /**
+   * Requested side panel content from the agent.
+   * The shell listens to this via effect() and opens the expanded panel automatically.
+   */
+  readonly requestedSidePanel = computed(() => this._requestedSidePanel());
 
   // ============================================
   // DASHBOARD COMPUTED SIGNALS
@@ -349,6 +388,23 @@ export class AgentXService {
   }
 
   // ============================================
+  // STREAM CONTROL
+  // ============================================
+
+  /**
+   * Cancel the active SSE stream (if any) and reset the loading state.
+   * Used by the stop button in the input bar.
+   */
+  cancelStream(): void {
+    if (this.activeStream) {
+      this.activeStream.abort();
+      this.activeStream = null;
+      this._isLoading.set(false);
+      this.logger.info('Stream cancelled by user');
+    }
+  }
+
+  // ============================================
   // TASK MANAGEMENT
   // ============================================
 
@@ -434,6 +490,11 @@ export class AgentXService {
     this._pendingThread.set(null);
   }
 
+  /** Clear the requested side panel after the shell has consumed it. */
+  clearRequestedSidePanel(): void {
+    this._requestedSidePanel.set(null);
+  }
+
   // ============================================
   // THREAD LOADING (DEEP LINK)
   // ============================================
@@ -512,7 +573,8 @@ export class AgentXService {
    */
   async sendMessage(content?: string): Promise<void> {
     const message = content ?? this._userMessage().trim();
-    if (!message || this._isLoading()) return;
+    const hasPendingFiles = this._pendingFiles().length > 0;
+    if ((!message && !hasPendingFiles) || this._isLoading()) return;
 
     // Cancel any in-flight stream before starting a new one
     this.activeStream?.abort();
@@ -524,12 +586,33 @@ export class AgentXService {
 
     await this.haptics.impact('light');
 
+    // ── Upload pending files (requires auth token) ──────────────────────
+    let attachments: AgentXAttachment[] = [];
+    if (hasPendingFiles) {
+      const authToken = await this.getAuthToken?.().catch(() => null);
+      if (!authToken) {
+        this.toast.error('Sign in to upload files');
+        return;
+      }
+      try {
+        attachments = await this._uploadPendingFiles(authToken);
+      } catch {
+        // Error already logged/toasted in _uploadPendingFiles
+        return;
+      }
+    }
+
     // Add user message
     const userMessage: AgentXMessage = {
       id: this.generateId(),
       role: 'user',
-      content: message,
+      content:
+        message ||
+        (attachments.length > 0
+          ? `[${attachments.length} file${attachments.length > 1 ? 's' : ''} attached]`
+          : ''),
       timestamp: new Date(),
+      ...(attachments.length > 0 ? { attachments } : {}),
     };
     this._messages.update((msgs) => [...msgs, userMessage]);
 
@@ -546,7 +629,7 @@ export class AgentXService {
     this._isLoading.set(true);
 
     const request: AgentXChatRequest = {
-      message,
+      message: userMessage.content,
       mode: this._selectedMode(),
       history: this._messages()
         .filter((m) => m.id !== streamingId && !m.isTyping)
@@ -554,9 +637,14 @@ export class AgentXService {
         .map((m) => ({ ...m })),
       userContext: this._userContext() ?? undefined,
       ...(this._currentThreadId() ? { threadId: this._currentThreadId()! } : {}),
+      ...(attachments.length > 0 ? { attachments } : {}),
     };
 
-    this.logger.info('Sending message', { mode: request.mode, threadId: this._currentThreadId() });
+    this.logger.info('Sending message', {
+      mode: request.mode,
+      threadId: this._currentThreadId(),
+      attachments: attachments.length || undefined,
+    });
     this.breadcrumb.trackStateChange('agent-x:sending', { mode: request.mode });
 
     // ── SSE path ────────────────────────────────────────────────────────
@@ -613,6 +701,7 @@ export class AgentXService {
                         inputTokens: evt.usage?.inputTokens,
                         outputTokens: evt.usage?.outputTokens,
                         mode: request.mode,
+                        ...(evt.autoOpenPanel ? { autoOpenPanel: evt.autoOpenPanel } : {}),
                       },
                     }
                   : m
@@ -621,6 +710,12 @@ export class AgentXService {
 
             this._isLoading.set(false);
             this.activeStream = null;
+
+            // If the backend included an autoOpenPanel instruction, surface it
+            if (evt.autoOpenPanel) {
+              this._requestedSidePanel.set(evt.autoOpenPanel);
+              this.logger.info('Agent requested side panel', { type: evt.autoOpenPanel.type });
+            }
 
             this.haptics.notification('success').catch(() => undefined);
             this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_SENT, {
@@ -690,6 +785,14 @@ export class AgentXService {
           )
         );
 
+        // If the backend included an autoOpenPanel instruction, surface it
+        if (response.message!.metadata?.autoOpenPanel) {
+          this._requestedSidePanel.set(response.message!.metadata.autoOpenPanel);
+          this.logger.info('Agent requested side panel (HTTP)', {
+            type: response.message!.metadata.autoOpenPanel.type,
+          });
+        }
+
         await this.haptics.notification('success');
         this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_SENT, {
           mode: this._selectedMode(),
@@ -726,6 +829,140 @@ export class AgentXService {
     );
   }
 
+  // ============================================
+  // FILE ATTACHMENT MANAGEMENT
+  // ============================================
+
+  /**
+   * Stage files for upload. Validates MIME type, size, and attachment count.
+   * Creates preview URLs for images. Call before sendMessage().
+   */
+  addFiles(files: File[]): void {
+    const current = this._pendingFiles();
+
+    for (const file of files) {
+      if (current.length >= AGENT_X_MAX_ATTACHMENTS) {
+        this.toast.error(`Maximum ${AGENT_X_MAX_ATTACHMENTS} attachments allowed`);
+        break;
+      }
+
+      if (!AGENT_X_ALLOWED_MIME_TYPES.includes(file.type)) {
+        this.toast.error(`Unsupported file type: ${file.name}`);
+        this.logger.warn('Rejected unsupported file type', { name: file.name, type: file.type });
+        continue;
+      }
+
+      if (file.size > AGENT_X_MAX_FILE_SIZE) {
+        this.toast.error(`File too large: ${file.name} (max 20 MB)`);
+        this.logger.warn('Rejected oversized file', { name: file.name, sizeBytes: file.size });
+        continue;
+      }
+
+      const previewUrl =
+        file.type.startsWith('image/') && isPlatformBrowser(this.platformId)
+          ? URL.createObjectURL(file)
+          : null;
+      const pending: AgentXPendingFile = {
+        file,
+        previewUrl,
+        type: resolveAttachmentType(file.type),
+      };
+      this._pendingFiles.update((list) => [...list, pending]);
+      this.logger.debug('File staged', { name: file.name, type: pending.type });
+    }
+  }
+
+  /**
+   * Remove a staged file by index.
+   */
+  removeFile(index: number): void {
+    const current = this._pendingFiles();
+    if (index < 0 || index >= current.length) return;
+
+    const removed = current[index];
+    if (removed.previewUrl && isPlatformBrowser(this.platformId)) {
+      URL.revokeObjectURL(removed.previewUrl);
+    }
+    this._pendingFiles.update((list) => list.filter((_, i) => i !== index));
+    this.logger.debug('File removed', { name: removed.file.name });
+  }
+
+  /**
+   * Clear all staged files and revoke preview URLs.
+   */
+  clearPendingFiles(): void {
+    if (isPlatformBrowser(this.platformId)) {
+      for (const f of this._pendingFiles()) {
+        if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
+      }
+    }
+    this._pendingFiles.set([]);
+  }
+
+  /**
+   * Upload all pending files to Firebase Storage via the backend.
+   * Returns an array of AgentXAttachment metadata for inclusion in the chat request.
+   *
+   * Uses raw `fetch` + `FormData` because Angular `HttpClient` does not
+   * support multipart/form-data with the `Authorization` header set via
+   * interceptors in all SSR/mobile environments.
+   *
+   * @internal
+   */
+  private async _uploadPendingFiles(authToken: string): Promise<AgentXAttachment[]> {
+    const files = this._pendingFiles();
+    if (files.length === 0) return [];
+
+    this._uploading.set(true);
+    const attachments: AgentXAttachment[] = [];
+
+    try {
+      for (const pending of files) {
+        const formData = new FormData();
+        formData.append('file', pending.file);
+
+        const response = await fetch(`${this.baseUrl}${AGENT_X_ENDPOINTS.UPLOAD}`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${authToken}` },
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorBody = await response.text().catch(() => 'Upload failed');
+          throw new Error(`Upload failed (${response.status}): ${errorBody}`);
+        }
+
+        const result = (await response.json()) as {
+          success: boolean;
+          data?: { url: string; name: string; mimeType: string; sizeBytes: number };
+          error?: string;
+        };
+
+        if (!result.success || !result.data) {
+          throw new Error(result.error ?? 'Upload failed');
+        }
+
+        attachments.push({
+          id: crypto.randomUUID(),
+          url: result.data.url,
+          name: result.data.name,
+          mimeType: result.data.mimeType,
+          type: resolveAttachmentType(result.data.mimeType),
+          sizeBytes: result.data.sizeBytes,
+        });
+      }
+      this.logger.info('Files uploaded', { count: attachments.length });
+      return attachments;
+    } catch (err) {
+      this.logger.error('File upload failed', err);
+      this.toast.error('Failed to upload attachments');
+      throw err;
+    } finally {
+      this._uploading.set(false);
+      this.clearPendingFiles();
+    }
+  }
+
   /**
    * Clear all messages and reset conversation thread.
    */
@@ -737,6 +974,7 @@ export class AgentXService {
     this._selectedTask.set(null);
     this._userMessage.set('');
     this._currentThreadId.set(null);
+    this.clearPendingFiles();
     this.toast.success('Conversation cleared');
     this.logger.debug('Conversation cleared');
   }

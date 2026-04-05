@@ -79,9 +79,13 @@ import { ExploreSidebarWebComponent } from './explore-sidebar-web.component';
   template: `
     <!-- Portal: center — Explore title + Pulse/Discover tabs -->
     <ng-template #tabsPortalContent>
-      <div class="header-portal-explore">
-        <span class="header-portal-title">Explore</span>
-        <div class="header-portal-tabs" role="tablist" aria-label="Explore tabs">
+      <div class="nxt1-header-portal">
+        <span class="nxt1-header-portal__title">Explore</span>
+        <div
+          class="nxt1-header-portal__center header-portal-tabs"
+          role="tablist"
+          aria-label="Explore tabs"
+        >
           @for (tab of tabOptions(); track tab.id) {
             <button
               type="button"
@@ -330,37 +334,15 @@ import { ExploreSidebarWebComponent } from './explore-sidebar-web.component';
 
       /* ==============================
          HEADER PORTAL — Perplexity-style
-         Centered tabs teleported into top nav
+         Wrapper + title from design-tokens .nxt1-header-portal
          ============================== */
 
-      .header-portal-explore {
-        display: flex;
-        align-items: center;
-        width: 100%;
-        padding: 0 var(--nxt1-spacing-2, 8px);
-        position: relative;
-      }
-
-      .header-portal-title {
-        font-size: 15px;
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary, #ffffff);
-        letter-spacing: -0.01em;
-        white-space: nowrap;
-        user-select: none;
-        position: absolute;
-        left: var(--nxt1-spacing-2, 8px);
-      }
-
       .header-portal-tabs {
-        display: flex;
-        align-items: center;
         gap: var(--nxt1-spacing-1, 4px);
         background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
         border-radius: var(--nxt1-borderRadius-lg, 0.5rem);
         padding: 3px;
         border: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.06));
-        margin: 0 auto;
       }
 
       .header-portal-tab {

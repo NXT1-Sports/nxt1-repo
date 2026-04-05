@@ -10,7 +10,6 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonContent, IonLabel, IonRange, ModalController } from '@ionic/angular/standalone';
-import { NxtIconComponent } from '../components/icon';
 import { NxtFormFieldComponent } from '../components/form-field';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 import { NxtSheetFooterComponent } from '../components/bottom-sheet/sheet-footer.component';
@@ -38,7 +37,6 @@ interface AgentXControlPanelCloseResult {
     IonContent,
     IonLabel,
     IonRange,
-    NxtIconComponent,
     NxtFormFieldComponent,
     NxtSheetHeaderComponent,
     NxtSheetFooterComponent,
@@ -76,22 +74,6 @@ interface AgentXControlPanelCloseResult {
           <p class="panel-intro">{{ subtitle() }}</p>
 
           @if (panel === 'status') {
-            <div
-              class="status-hero"
-              [class.status-hero--warning]="statusTone() === 'warning'"
-              [class.status-hero--critical]="statusTone() === 'critical'"
-            >
-              <div
-                class="status-hero-dot"
-                [class.status-hero-dot--warning]="statusTone() === 'warning'"
-                [class.status-hero-dot--critical]="statusTone() === 'critical'"
-              ></div>
-              <div>
-                <div class="status-hero-label">{{ currentStatus().label }}</div>
-                <p class="status-hero-copy">{{ currentStatus().summary }}</p>
-              </div>
-            </div>
-
             <div class="status-grid">
               @for (status of statusDefinitions; track status.id) {
                 <article
@@ -112,8 +94,6 @@ interface AgentXControlPanelCloseResult {
                       <span class="status-current">Current</span>
                     }
                   </div>
-                  <p class="status-card-summary">{{ status.summary }}</p>
-                  <p class="status-card-detail">{{ status.detail }}</p>
                 </article>
               }
             </div>
@@ -198,32 +178,13 @@ interface AgentXControlPanelCloseResult {
 
           @if (panel === 'goals') {
             <section class="goals-shell">
-              <div class="goals-hero">
-                <span class="goals-count">{{ draftGoals().length }}/3 goals selected</span>
-                <p class="goals-copy">
-                  Pick the top three outcomes you want Agent X optimizing for right now.
-                </p>
-              </div>
+              <p class="goals-subtitle">Add up to 3 goals for Agent X to optimize around.</p>
 
-              <div class="selected-goals">
-                @for (goal of selectedGoalLabels(); track goal.id) {
-                  <div class="selected-goal-pill">
-                    <span>{{ goal.label }}</span>
-                    <button type="button" (click)="toggleGoal(goal.id)" aria-label="Remove goal">
-                      <nxt1-icon name="close" [size]="14" />
-                    </button>
-                  </div>
-                }
-                @if (draftGoals().length === 0) {
-                  <div class="selected-goals-empty">Choose up to three focus areas below.</div>
-                }
-              </div>
-
-              <div class="custom-goal-row">
+              <div class="goals-input-row">
                 <input
-                  class="nxt1-input custom-goal-input"
+                  class="goals-input"
                   type="text"
-                  placeholder="Type a custom goal…"
+                  placeholder="Type a goal"
                   [attr.maxlength]="100"
                   [value]="customGoalText()"
                   [disabled]="draftGoals().length >= 3"
@@ -232,32 +193,62 @@ interface AgentXControlPanelCloseResult {
                 />
                 <button
                   type="button"
-                  class="custom-goal-add-btn"
+                  class="goals-add-btn"
                   [disabled]="!customGoalText().trim() || draftGoals().length >= 3"
                   (click)="addCustomGoal()"
                 >
-                  <nxt1-icon name="send" [size]="18" />
+                  Add
                 </button>
               </div>
 
-              <div class="goal-grid">
-                @for (goal of goalOptions; track goal.id) {
-                  <button
-                    type="button"
-                    class="goal-option"
-                    [class.goal-option--selected]="isGoalSelected(goal.id)"
-                    [disabled]="!isGoalSelected(goal.id) && draftGoals().length >= 3"
-                    (click)="toggleGoal(goal.id)"
-                  >
-                    <div class="goal-option-top">
-                      <span class="goal-option-title">{{ goal.label }}</span>
-                      @if (isGoalSelected(goal.id)) {
-                        <nxt1-icon name="checkmarkCircle" [size]="18" />
-                      }
+              @if (selectedGoalLabels().length > 0) {
+                <div class="goals-pills">
+                  @for (goal of selectedGoalLabels(); track goal.id) {
+                    <div class="goals-pill">
+                      <svg
+                        class="goals-pill-check"
+                        viewBox="0 0 24 24"
+                        width="13"
+                        height="13"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      <span class="goals-pill-text">{{ goal.label }}</span>
+                      <button
+                        type="button"
+                        class="goals-pill-remove"
+                        aria-label="Remove goal"
+                        (click)="toggleGoal(goal.id)"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="11"
+                          height="11"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2.5"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <line x1="18" y1="6" x2="6" y2="18" />
+                          <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                      </button>
                     </div>
-                    <p class="goal-option-copy">{{ goal.description }}</p>
-                  </button>
-                }
+                  }
+                </div>
+              }
+
+              <div class="goals-footer">
+                <span class="goals-counter">{{ draftGoals().length }}/3 selected</span>
+                <button type="button" class="goals-save-btn" (click)="savePanel()">
+                  Save Goals
+                </button>
               </div>
             </section>
           }
@@ -266,26 +257,26 @@ interface AgentXControlPanelCloseResult {
 
       @if (presentation === 'modal') {
         <div class="modal-footer-sticky">
-          @if (panel === 'status') {
+          @if (panel === 'status' || panel === 'goals') {
             <nxt1-modal-footer label="Close" variant="secondary" (action)="dismiss()" />
           } @else {
             <nxt1-modal-footer
-              [label]="panel === 'budget' ? 'Save budget' : 'Save goals'"
+              label="Save budget"
               [loadingLabel]="'Saving...'"
               [loading]="saving()"
-              [disabled]="(panel === 'goals' && draftGoals().length === 0) || saving()"
+              [disabled]="saving()"
               (action)="savePanel()"
             />
           }
         </div>
-      } @else if (panel === 'status') {
+      } @else if (panel === 'status' || panel === 'goals') {
         <nxt1-sheet-footer label="Close" (action)="dismiss()" />
       } @else {
         <nxt1-sheet-footer
-          [label]="panel === 'budget' ? 'Save budget' : 'Save goals'"
+          label="Save budget"
           [loadingLabel]="'Saving...'"
           [loading]="saving()"
-          [disabled]="(panel === 'goals' && draftGoals().length === 0) || saving()"
+          [disabled]="saving()"
           (action)="savePanel()"
         />
       }
@@ -338,6 +329,11 @@ interface AgentXControlPanelCloseResult {
         bottom: 0;
         z-index: 10;
         background: var(--nxt1-color-bg-primary);
+        --nxt1-color-text-onPrimary: #000;
+      }
+
+      nxt1-sheet-footer {
+        --nxt1-color-text-onPrimary: #000;
       }
 
       .panel-body {
@@ -420,7 +416,6 @@ interface AgentXControlPanelCloseResult {
       .budget-copy,
       .goals-copy,
       .toggle-copy,
-      .status-card-detail,
       .goal-option-copy,
       .selected-goals-empty {
         margin: 8px 0 0;
@@ -495,10 +490,9 @@ interface AgentXControlPanelCloseResult {
 
       .status-current {
         background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-on-primary);
+        color: #000;
       }
 
-      .status-card-summary,
       .goal-option-title {
         margin: 12px 0 0;
         font-size: 16px;
@@ -591,30 +585,141 @@ interface AgentXControlPanelCloseResult {
       }
 
       .selected-goals {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
+        display: none;
       }
 
-      .selected-goal-pill {
-        display: inline-flex;
+      .goals-subtitle {
+        margin: 0;
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .goals-input-row {
+        display: flex;
         align-items: center;
         gap: 8px;
-        padding: 8px 12px;
-        border-radius: 9999px;
-        background: var(--nxt1-color-alpha-primary10);
-        border: 1px solid var(--nxt1-color-alpha-primary20);
       }
 
-      .selected-goal-pill button {
+      .goals-input {
+        flex: 1;
+        min-width: 0;
+        height: 40px;
+        padding: 0 14px;
+        border: 1px solid var(--nxt1-color-border-subtle);
+        border-radius: 999px;
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-text-primary);
+        font-size: 14px;
+        outline: none;
+        transition: border-color 0.15s;
+      }
+
+      .goals-input:focus {
+        border-color: var(--nxt1-color-primary);
+      }
+
+      .goals-input:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .goals-add-btn {
+        border: 1px solid var(--nxt1-color-border-subtle);
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-text-primary);
+        border-radius: 999px;
+        height: 40px;
+        min-width: 64px;
+        padding: 0 16px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        flex-shrink: 0;
+        transition:
+          border-color 0.15s,
+          opacity 0.15s;
+      }
+
+      .goals-add-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .goals-add-btn:not(:disabled):hover {
+        border-color: var(--nxt1-color-primary);
+        color: var(--nxt1-color-primary);
+      }
+
+      .goals-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .goals-pill {
         display: inline-flex;
         align-items: center;
-        justify-content: center;
-        border: 0;
-        background: transparent;
-        color: inherit;
-        padding: 0;
+        gap: 6px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: var(--nxt1-color-alpha-primary10, rgba(59, 130, 246, 0.1));
+        border: 1px solid var(--nxt1-color-primary, #3b82f6);
+      }
+
+      .goals-pill-check {
+        flex-shrink: 0;
+        color: var(--nxt1-color-primary);
+      }
+
+      .goals-pill-text {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .goals-pill-remove {
+        background: none;
+        border: none;
+        color: var(--nxt1-color-text-secondary);
         cursor: pointer;
+        padding: 2px;
+        display: flex;
+        border-radius: 999px;
+        transition: color 0.15s;
+      }
+
+      .goals-pill-remove:hover {
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .goals-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .goals-counter {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .goals-save-btn {
+        border: none;
+        background: var(--nxt1-color-primary);
+        color: #000;
+        border-radius: 999px;
+        height: 36px;
+        padding: 0 20px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+      }
+
+      .goals-save-btn:hover {
+        opacity: 0.9;
       }
 
       .goal-option {
@@ -631,43 +736,6 @@ interface AgentXControlPanelCloseResult {
 
       .goal-option:disabled {
         opacity: 0.48;
-        cursor: not-allowed;
-      }
-
-      .custom-goal-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-top: 16px;
-      }
-
-      .custom-goal-input {
-        flex: 1;
-        min-width: 0;
-        border-radius: 14px;
-        font-size: 15px;
-      }
-
-      .custom-goal-add-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 44px;
-        height: 44px;
-        border-radius: 50%;
-        border: none;
-        background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-on-surface, #000);
-        cursor: pointer;
-        flex-shrink: 0;
-        transition:
-          background 0.18s ease,
-          color 0.18s ease;
-      }
-
-      .custom-goal-add-btn:disabled {
-        background: var(--ion-color-step-150, #e0e0e0);
-        color: var(--ion-color-step-400, #999);
         cursor: not-allowed;
       }
 
@@ -716,11 +784,12 @@ export class AgentXControlPanelComponent implements OnInit {
   @Input() panel: AgentXControlPanelKind = 'status';
   @Input() presentation: AgentXControlPanelPresentation = 'modal';
   @Input() required = false;
+  @Input() initialGoals: string[] = [];
 
   readonly title = computed(() => {
     switch (this.panel) {
       case 'status':
-        return 'Agent status';
+        return 'Agent X status';
       case 'budget':
         return 'Agent budget';
       case 'goals':
@@ -731,7 +800,7 @@ export class AgentXControlPanelComponent implements OnInit {
   readonly subtitle = computed(() => {
     switch (this.panel) {
       case 'status':
-        return 'See what Active means, and how degraded or down states should appear across the command center.';
+        return 'Active means Agent X is running normally, Degraded means some actions may be slower, and Down means Agent X is temporarily unavailable.';
       case 'budget':
         return 'Tune the budget ceiling, set an exact amount, and decide if Agent X should auto top-off.';
       case 'goals':
@@ -772,7 +841,10 @@ export class AgentXControlPanelComponent implements OnInit {
     this.draftBudget.set(budgetDollars);
     this.draftAutoTopOffEnabled.set(this.state.autoTopOffEnabled());
     this.draftAutoTopOffAmount.set(this.state.autoTopOffAmount());
-    this.draftGoals.set([...this.state.goals()]);
+
+    // Prefer initialGoals input (passed directly from shell) over state service
+    const goals = this.initialGoals.length > 0 ? this.initialGoals : this.state.goals();
+    this.draftGoals.set([...goals]);
   }
 
   onBudgetSliderInput(

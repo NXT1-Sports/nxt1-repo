@@ -11,6 +11,9 @@ export { ScrapeWebpageTool, ScraperService } from './scraping/index.js';
 
 // Database tools
 export { UpdateAthleteProfileTool } from './database/index.js';
+export { SearchCollegesTool } from './database/index.js';
 
 // Integration tools
 export { SendGmailTool } from './integrations/send-gmail.tool.js';
+export { ScrapeTwitterTool } from './integrations/scrape-twitter.tool.js';
+export { ApifyService } from './integrations/apify.service.js';

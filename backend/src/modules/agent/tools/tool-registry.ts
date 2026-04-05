@@ -33,6 +33,12 @@ import type { BaseTool, ToolResult } from './base.tool.js';
 export class ToolRegistry {
   private readonly tools = new Map<string, BaseTool>();
 
+  /**
+   * Minimum cosine similarity score required for a tool to be selected.
+   * Tune this up to make tool loading stricter, down to make it looser.
+   */
+  static readonly DEFAULT_TOOL_THRESHOLD = 0.35;
+
   /** Register a tool instance. Throws if a tool with the same name already exists. */
   register(tool: BaseTool): void {
     if (this.tools.has(tool.name)) {
@@ -75,6 +81,54 @@ export class ToolRegistry {
     }
 
     return definitions;
+  }
+
+  /**
+   * Evaluate which tools match the current user intent based on semantic similarity.
+   * This prevents injecting irrelevant tools into the LLM context.
+   */
+  async match(
+    intentVector: number[],
+    embedFn: (text: string) => Promise<number[]>,
+    agentId?: AgentIdentifier,
+    threshold: number = ToolRegistry.DEFAULT_TOOL_THRESHOLD
+  ): Promise<readonly AgentToolDefinition[]> {
+    // Filter first by permissions
+    const allowedTools = Array.from(this.tools.values()).filter(
+      (tool) => !agentId || tool.allowedAgents.includes('*') || tool.allowedAgents.includes(agentId)
+    );
+
+    // Compute cosine similarity for all allowed tools
+    type ScoredTool = { tool: BaseTool; score: number };
+    const scoredTools: ScoredTool[] = [];
+
+    // Parallel embedding cache check & matching
+    await Promise.all(
+      allowedTools.map(async (tool) => {
+        try {
+          const score = await tool.matchIntent(intentVector, embedFn);
+          if (score >= threshold) {
+            scoredTools.push({ tool, score });
+          }
+        } catch (err) {
+          // Log issue, but don't blow up the entire RAG pipeline
+          // You can use proper logger if you inject it into ToolRegistry
+          console.warn(`[ToolRegistry] Failed to match intent for tool \${tool.name}`, err);
+        }
+      })
+    );
+
+    // Sort descending by relevance
+    scoredTools.sort((a, b) => b.score - a.score);
+
+    return scoredTools.map(({ tool }) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+      allowedAgents: tool.allowedAgents,
+      isMutation: tool.isMutation,
+      category: tool.category,
+    }));
   }
 
   /** Execute a tool by name with the given input. */

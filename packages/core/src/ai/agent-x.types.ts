@@ -10,6 +10,34 @@
 import type { AgentJobOrigin, AgentYieldState } from './agent.types';
 
 // ============================================
+// ATTACHMENT TYPES
+// ============================================
+
+/**
+ * MIME type categories that Agent X can process via multimodal models.
+ */
+export type AgentXAttachmentType = 'image' | 'video' | 'pdf' | 'csv' | 'doc';
+
+/**
+ * Metadata for a file attached to an Agent X message.
+ * Stored in MongoDB alongside the message — the actual binary lives in Firebase Storage.
+ */
+export interface AgentXAttachment {
+  /** Unique attachment identifier (UUID v4). */
+  readonly id: string;
+  /** Public CDN URL of the uploaded file in Firebase Storage. */
+  readonly url: string;
+  /** Original file name as chosen by the user. */
+  readonly name: string;
+  /** MIME type (e.g. `image/jpeg`, `application/pdf`). */
+  readonly mimeType: string;
+  /** Resolved high-level type for UI rendering and model routing. */
+  readonly type: AgentXAttachmentType;
+  /** File size in bytes. */
+  readonly sizeBytes: number;
+}
+
+// ============================================
 // CHAT TYPES
 // ============================================
 
@@ -36,6 +64,8 @@ export interface AgentXMessage {
   readonly error?: boolean;
   /** Optional image URL (e.g. generated graphic from Agent X) */
   readonly imageUrl?: string;
+  /** File attachments (images, PDFs, CSVs) uploaded with this message. */
+  readonly attachments?: readonly AgentXAttachment[];
   /** Optional metadata */
   readonly metadata?: AgentXMessageMetadata;
   /**
@@ -45,6 +75,16 @@ export interface AgentXMessage {
   readonly yieldState?: AgentYieldState;
   /** The operation ID associated with this yield (needed to approve/reply). */
   readonly operationId?: string;
+}
+
+/**
+ * Instruction for the frontend to auto-open the expanded side panel.
+ * Attached to a message when the agent wants to surface a live view or media.
+ */
+export interface AutoOpenPanelInstruction {
+  readonly type: 'live-view' | 'image' | 'video' | 'doc';
+  readonly url: string;
+  readonly title?: string;
 }
 
 /**
@@ -61,6 +101,8 @@ export interface AgentXMessageMetadata {
   readonly processingTime?: number;
   /** Mode context when message was sent */
   readonly mode?: AgentXMode;
+  /** When present, the frontend should auto-open the expanded side panel with this content. */
+  readonly autoOpenPanel?: AutoOpenPanelInstruction;
 }
 
 // ============================================
@@ -137,6 +179,12 @@ export interface AgentXChatRequest {
    * Resolved by the backend on the `event: thread` SSE frame.
    */
   readonly threadId?: string;
+  /**
+   * File attachments to send alongside the message.
+   * Each attachment must already be uploaded to Firebase Storage;
+   * these contain the CDN URLs + metadata resolved after upload.
+   */
+  readonly attachments?: readonly AgentXAttachment[];
 }
 
 /**
@@ -206,6 +254,8 @@ export interface AgentXStreamDoneEvent {
     readonly totalTokens: number;
     readonly costUsd?: number;
   };
+  /** When present, the frontend should auto-open the expanded side panel. */
+  readonly autoOpenPanel?: AutoOpenPanelInstruction;
 }
 
 /**

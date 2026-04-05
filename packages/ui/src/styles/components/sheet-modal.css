@@ -119,3 +119,37 @@
 .nxt1-sheet-modal--compact {
   --max-height: 50vh;
 }
+
+/* ============================================
+   MEDIA VIEWER MODAL (Tier 3 — Full-Screen)
+   Cinematic black backdrop for immersive media.
+   No breakpoints, no drag handle, no sheet rounding.
+   ============================================ */
+
+.nxt1-media-viewer-modal {
+  --background: #000;
+  --width: 100%;
+  --max-width: 100%;
+  --height: 100%;
+  --border-radius: 0;
+  --box-shadow: none;
+}
+
+.nxt1-media-viewer-modal .modal-wrapper,
+.nxt1-media-viewer-modal .ion-overlay-wrapper {
+  bottom: 0 !important;
+}
+
+.nxt1-media-viewer-modal::part(content) {
+  background: #000;
+  border-radius: 0;
+}
+
+.nxt1-media-viewer-modal::part(handle) {
+  display: none;
+}
+
+.nxt1-media-viewer-modal::part(backdrop) {
+  background: #000;
+  opacity: 1;
+}

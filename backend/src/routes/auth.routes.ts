@@ -1543,8 +1543,13 @@ router.post(
           resolvedTeamId,
         });
       }
-      const connectedSources = userData?.connectedSources as ConnectedSourceRecord[] | undefined;
-      if (connectedSources && connectedSources.length > 0) {
+      // Combine user-level and team-level connected sources.
+      // For coaches/directors, links are stored on the Team doc (not User),
+      // so we must also include teamConnectedSources to trigger the scrape.
+      const userConnectedSources =
+        (userData?.connectedSources as ConnectedSourceRecord[] | undefined) ?? [];
+      const allConnectedSources = [...userConnectedSources, ...teamConnectedSources];
+      if (allConnectedSources.length > 0) {
         try {
           const scrapeResult = await enqueueLinkedAccountScrape(
             db,
@@ -1552,7 +1557,7 @@ router.post(
               userId,
               role: (userData?.role as UserRole) ?? 'athlete',
               sport: primarySportName,
-              linkedAccounts: connectedSources.map((cs) => ({
+              linkedAccounts: allConnectedSources.map((cs) => ({
                 platform: cs.platform,
                 profileUrl: cs.profileUrl,
               })),

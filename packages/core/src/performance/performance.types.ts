@@ -385,6 +385,15 @@ export const TRACE_NAMES = {
   // Connected accounts / Firecrawl traces
   FIRECRAWL_SESSION_START: 'firecrawl_session_start',
   FIRECRAWL_SESSION_COMPLETE: 'firecrawl_session_complete',
+
+  // Intel traces
+  INTEL_ATHLETE_LOAD: 'intel_athlete_load',
+  INTEL_ATHLETE_GENERATE: 'intel_athlete_generate',
+  INTEL_TEAM_LOAD: 'intel_team_load',
+  INTEL_TEAM_GENERATE: 'intel_team_generate',
+
+  // Media viewer traces
+  MEDIA_VIEWER_OPEN: 'media_viewer_open',
 } as const;
 
 export type TraceName = (typeof TRACE_NAMES)[keyof typeof TRACE_NAMES];

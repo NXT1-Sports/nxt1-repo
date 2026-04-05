@@ -730,12 +730,15 @@ export class OnboardingLinkDropStepComponent {
     );
 
     let sportPlatforms: PlatformDefinition[] = [];
-    if (mode === 'link' && sportKey) {
+    if (mode === 'link') {
       sportPlatforms = PLATFORM_REGISTRY.filter((p) => {
         if (p.scope !== 'sport') return false;
         if (p.connectionType !== 'link') return false;
-        if (p.sports.length === 0) return true;
-        return p.sports.some((ps) => sportKey.startsWith(ps) || ps.startsWith(sportKey));
+        // When a sport is selected, filter to matching platforms; otherwise show all
+        if (sportKey && p.sports.length > 0) {
+          return p.sports.some((ps) => sportKey.startsWith(ps) || ps.startsWith(sportKey));
+        }
+        return true;
       });
     }
 
@@ -1277,8 +1280,7 @@ export class OnboardingLinkDropStepComponent {
   }
 
   protected isGroupExpanded(key: string): boolean {
-    if (this.activeMode() === 'signin') return true;
-    return key.startsWith('recommended-') || key === 'custom-links';
+    return true;
   }
 
   private isDuplicateUrl(

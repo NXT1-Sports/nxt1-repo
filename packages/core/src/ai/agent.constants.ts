@@ -197,7 +197,6 @@ export const AGENT_TRIGGER_RULES: readonly AgentTriggerRule[] = [
     name: 'Coach/Scout Profile View',
     description: "A coach or scout viewed the athlete's profile. Agent drafts a follow-up.",
     enabled: true,
-    minTier: 'premium',
     cooldownMs: 3_600_000, // 1 hour — don't spam for repeat views
     intentTemplate:
       '{{viewerName}} ({{viewerRole}}) from {{viewerOrg}} viewed your profile. Draft a personalized follow-up if appropriate.',
@@ -217,7 +216,6 @@ export const AGENT_TRIGGER_RULES: readonly AgentTriggerRule[] = [
     name: 'External Stat Update',
     description: 'Stats changed on an external source (MaxPreps, Hudl, etc.).',
     enabled: true,
-    minTier: 'premium',
     cooldownMs: 86_400_000, // 24 hours
     intentTemplate:
       'New stats detected on {{source}} for {{sport}}. Review and update profile if the numbers improved.',
@@ -248,7 +246,6 @@ export const AGENT_TRIGGER_RULES: readonly AgentTriggerRule[] = [
     name: 'Weekly Recap',
     description: 'Scheduled: compile weekly stats, engagement, and recruiting progress.',
     enabled: true,
-    minTier: 'premium',
     cooldownMs: 604_800_000, // Once per week
     intentTemplate:
       'Generate a comprehensive weekly recap: engagement metrics, recruiting pipeline status, content performance, and recommended next steps.',
@@ -381,33 +378,14 @@ export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
 // ─── AI Telemetry & Usage Limits ────────────────────────────────────────────
 
 /**
- * Per-tier usage limits for AI operations.
- * Controls how much each subscription tier can consume per day.
+ * Default usage limits for AI operations.
+ * No subscription tiers exist yet — all users get the same generous limits
+ * with access to every model tier. When subscriptions are introduced,
+ * expand this back into a per-tier array.
  */
 export const AGENT_USAGE_LIMITS: readonly AgentUsageLimits[] = [
   {
-    tier: 'free',
-    maxCallsPerDay: 15,
-    maxTokensPerDay: 25_000,
-    maxCostPerDay: 0.1,
-    allowedModelTiers: ['fast'],
-  },
-  {
-    tier: 'starter',
-    maxCallsPerDay: 50,
-    maxTokensPerDay: 100_000,
-    maxCostPerDay: 0.5,
-    allowedModelTiers: ['fast', 'balanced'],
-  },
-  {
-    tier: 'premium',
-    maxCallsPerDay: 200,
-    maxTokensPerDay: 500_000,
-    maxCostPerDay: 2.0,
-    allowedModelTiers: ['fast', 'balanced', 'reasoning'],
-  },
-  {
-    tier: 'elite',
+    tier: 'default',
     maxCallsPerDay: 1000,
     maxTokensPerDay: 2_000_000,
     maxCostPerDay: 10.0,

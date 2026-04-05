@@ -26,6 +26,7 @@ import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { GuardrailRunner } from '../guardrails/guardrail-runner.js';
 import type { LLMMessage, LLMToolSchema, LLMToolCall } from '../llm/llm.types.js';
+import type { SkillRegistry } from '../skills/skill-registry.js';
 import { isAgentYield } from '../errors/agent-yield.error.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/comms/ask-user.tool.js';
 import { logger } from '../../../utils/logger.js';
@@ -53,6 +54,16 @@ export abstract class BaseAgent {
   abstract getModelRouting(): ModelRoutingConfig;
 
   /**
+   * Skill names this agent is allowed to dynamically load.
+   * Return an empty array if the agent does not use skills.
+   * At runtime, skills are semantically matched against the user intent
+   * and only relevant ones are injected into the system prompt.
+   */
+  getSkills(): readonly string[] {
+    return [];
+  }
+
+  /**
    * Execute the agent's ReAct loop for a given user intent.
    *
    * Flow:
@@ -68,7 +79,8 @@ export abstract class BaseAgent {
     _toolDefinitions: readonly AgentToolDefinition[],
     llm?: OpenRouterService,
     toolRegistry?: ToolRegistry,
-    guardrailRunner?: GuardrailRunner
+    guardrailRunner?: GuardrailRunner,
+    skillRegistry?: SkillRegistry
   ): Promise<AgentOperationResult> {
     if (!llm || !toolRegistry) {
       throw new Error(
@@ -92,9 +104,40 @@ export abstract class BaseAgent {
         },
       }));
 
-    // Build initial conversation
+    // ── Dynamic Skill Loading ───────────────────────────────────────────
+    let skillBlock = '';
+    const allowedSkillNames = this.getSkills();
+    if (skillRegistry && allowedSkillNames.length > 0) {
+      try {
+        const intentEmbedding = await llm.embed(intent);
+        const matched = await skillRegistry.match(
+          intentEmbedding,
+          (text) => llm.embed(text),
+          allowedSkillNames
+        );
+        if (matched.length > 0) {
+          skillBlock = skillRegistry.buildPromptBlock(matched);
+          logger.info(`[${this.id}] Injected ${matched.length} skill(s) into prompt`, {
+            agentId: this.id,
+            skills: matched.map((m) => m.skill.name),
+          });
+        }
+      } catch (err) {
+        // Skill loading is best-effort — agent can still function without skills
+        logger.warn(`[${this.id}] Skill loading failed — proceeding without skills`, {
+          agentId: this.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // Build initial conversation (with optional skill injection)
+    const systemContent = skillBlock
+      ? `${this.getSystemPrompt(context)}\n${skillBlock}`
+      : this.getSystemPrompt(context);
+
     const messages: LLMMessage[] = [
-      { role: 'system', content: this.getSystemPrompt(context) },
+      { role: 'system', content: systemContent },
       { role: 'user', content: intent },
     ];
 
@@ -137,7 +180,7 @@ export abstract class BaseAgent {
         // so callers (e.g. agent-activity.service) can read imageUrl, storagePath, etc.
         const extractedToolData: Record<string, unknown> = {};
         for (const msg of messages) {
-          if (msg.role === 'tool' && msg.content) {
+          if (msg.role === 'tool' && typeof msg.content === 'string') {
             try {
               const parsed = JSON.parse(msg.content) as Record<string, unknown>;
               if (
@@ -266,7 +309,7 @@ export abstract class BaseAgent {
     // Exhausted iterations — still extract any tool results that completed successfully
     const extractedToolData: Record<string, unknown> = {};
     for (const msg of messages) {
-      if (msg.role === 'tool' && msg.content) {
+      if (msg.role === 'tool' && typeof msg.content === 'string') {
         try {
           const parsed = JSON.parse(msg.content) as Record<string, unknown>;
           if (parsed['success'] === true && parsed['data'] && typeof parsed['data'] === 'object') {

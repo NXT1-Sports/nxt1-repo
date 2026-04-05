@@ -8,6 +8,7 @@ export { TelemetryService } from './telemetry.service.js';
 export { AgentChatService } from './agent-chat.service.js';
 export { AgentGenerationService } from './generation.service.js';
 export type { PlaybookGenerationResult, BriefingGenerationResult } from './generation.service.js';
+export { IntelGenerationService } from './intel.service.js';
 export {
   buildEliteContext,
   getSeasonInfo,

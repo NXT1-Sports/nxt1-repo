@@ -12,5 +12,5 @@ export { monthlyBillingReset } from './monthlyBillingReset';
 export { monthlyOrgInvoice } from './monthlyOrgInvoice';
 export { agentDailyBriefings } from './runDailyBriefings';
 export { expireStaleWalletHolds } from './expireStaleHolds';
-// DISABLED: Temporarily disabled to stop OpenRouter charges (deepseek-r1 fallback billing)
-// export { dailyPulseUpdates } from './dailyPulseUpdates';
+// Only active in production (nxt-1-v2) via environment check inside the function
+export { dailyPulseUpdates } from './dailyPulseUpdates';

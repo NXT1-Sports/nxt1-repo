@@ -626,3 +626,54 @@
   transform: translateZ(0);
   will-change: transform;
 }
+
+/* ============================================
+   HEADER PORTAL — Shared layout for page-specific
+   center content injected via NxtHeaderPortalService.
+   Used by: Explore, Agent X, Help Center, Usage,
+   Settings, Team Profile.
+   ============================================ */
+
+/**
+ * Wrapper: flex row, full-width inside the nav-primary slot.
+ * NOT position:relative — this lets __center anchor to
+ * nav-container for true viewport-centered alignment.
+ */
+.nxt1-header-portal {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0 var(--nxt1-spacing-2, 8px);
+}
+
+/**
+ * Page title: normal flow flex item, stays at the left edge.
+ * z-index ensures it sits above the absolutely-positioned center.
+ */
+.nxt1-header-portal__title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--nxt1-color-text-primary, #ffffff);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  user-select: none;
+  position: relative;
+  z-index: 2;
+}
+
+/**
+ * Center content container: tabs, pills, search, action buttons.
+ * Positioned absolutely relative to nav-container (the nearest
+ * positioned ancestor with position:relative) so it centers
+ * identically on every page regardless of right-side actions width.
+ */
+.nxt1-header-portal__center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  z-index: 1;
+  pointer-events: auto;
+}

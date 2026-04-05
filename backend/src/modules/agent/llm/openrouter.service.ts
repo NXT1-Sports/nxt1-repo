@@ -104,6 +104,7 @@ function buildHeliconeHeaders(
 
 export class OpenRouterService {
   private readonly apiKey: string;
+  private readonly backupApiKey?: string;
   private readonly siteUrl: string;
   private readonly siteName: string;
   private readonly telemetryCallback?: LLMTelemetryCallback;
@@ -114,6 +115,7 @@ export class OpenRouterService {
       throw new Error('OPENROUTER_API_KEY is not set. Add it to your .env file.');
     }
     this.apiKey = apiKey;
+    this.backupApiKey = process.env['OPENROUTER_BACKUP_API_KEY'];
     this.siteUrl = process.env['OPENROUTER_SITE_URL'] ?? 'https://nxt1.com';
     this.siteName = process.env['OPENROUTER_SITE_NAME'] ?? 'NXT1 Sports';
     this.telemetryCallback = options?.onTelemetry;
@@ -391,11 +393,14 @@ export class OpenRouterService {
     let outputTokens = 0;
     let responseModel = model;
 
-    try {
-      const response = await fetch(OPENROUTER_API_URL, {
+    let currentApiKey = this.apiKey;
+    let response: Response;
+
+    const makeStreamRequest = async (key: string) => {
+      return fetch(OPENROUTER_API_URL, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${this.apiKey}`,
+          Authorization: `Bearer ${key}`,
           'HTTP-Referer': this.siteUrl,
           'X-Title': this.siteName,
           'Content-Type': 'application/json',
@@ -404,6 +409,23 @@ export class OpenRouterService {
         body: JSON.stringify(body),
         signal: controller.signal,
       });
+    };
+
+    try {
+      response = await makeStreamRequest(currentApiKey);
+
+      if (
+        !response.ok &&
+        (response.status === 401 || response.status === 402) &&
+        this.backupApiKey
+      ) {
+        logger.warn(
+          '[OpenRouter] Primary API key failed with 401/402, switching to backup key for stream',
+          { status: response.status }
+        );
+        currentApiKey = this.backupApiKey;
+        response = await makeStreamRequest(currentApiKey);
+      }
 
       if (!response.ok) {
         const errorBody = await response.text().catch(() => 'Unknown error');
@@ -584,15 +606,31 @@ export class OpenRouterService {
     telemetryContext?: LLMCompletionOptions['telemetryContext']
   ): Promise<OpenRouterRawResponse> {
     let lastError: Error | undefined;
+    let currentApiKey = this.apiKey;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        return await this.fetchOnce(body, signal, timeoutMs, telemetryContext);
+        return await this.fetchOnce(body, signal, timeoutMs, telemetryContext, currentApiKey);
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
 
         // Abort-first: do not retry user-initiated or external cancellations
         if (signal?.aborted) throw lastError;
+
+        if (
+          lastError instanceof OpenRouterError &&
+          (lastError.status === 401 || lastError.status === 402) &&
+          currentApiKey === this.apiKey &&
+          this.backupApiKey
+        ) {
+          logger.warn('[OpenRouter] Primary API key failed, switching to backup key', {
+            status: lastError.status,
+          });
+          currentApiKey = this.backupApiKey;
+          // We don't sleep, we retry immediately with the backup key, but it increments the attempt counter
+          continue;
+        }
+
         if (!this.isRetryable(lastError)) throw lastError;
 
         // Exponential backoff
@@ -610,7 +648,8 @@ export class OpenRouterService {
     body: Record<string, unknown>,
     signal?: AbortSignal,
     timeoutMs: number = DEFAULT_TIMEOUT_MS,
-    telemetryContext?: LLMCompletionOptions['telemetryContext']
+    telemetryContext?: LLMCompletionOptions['telemetryContext'],
+    apiKey?: string
   ): Promise<OpenRouterRawResponse> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -623,7 +662,7 @@ export class OpenRouterService {
       const response = await fetch(OPENROUTER_API_URL, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${this.apiKey}`,
+          Authorization: `Bearer ${apiKey ?? this.apiKey}`,
           'HTTP-Referer': this.siteUrl,
           'X-Title': this.siteName,
           'Content-Type': 'application/json',

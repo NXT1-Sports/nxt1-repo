@@ -1436,7 +1436,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       role: rawUser?.userType ?? null,
       selectedSports,
       linkSourcesData,
-      scope: 'athlete',
+      scope: rawUser?.userType === 'coach' || rawUser?.userType === 'director' ? 'team' : 'athlete',
     });
 
     if (result.saved && result.updatedLinks) {

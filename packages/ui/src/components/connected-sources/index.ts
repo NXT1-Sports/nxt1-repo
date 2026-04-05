@@ -18,6 +18,7 @@ export {
 } from './connected-accounts-web-modal.component';
 export {
   ConnectedAccountsModalService,
+  CONNECTED_ACCOUNTS_FIREBASE_USER,
   type ConnectedAccountsModalOptions,
   type ConnectedAccountsModalResult,
 } from './connected-accounts-modal.service';

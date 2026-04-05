@@ -23,17 +23,23 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
       <div class="section-header">
         <div>
           <p class="section-subtitle">
-            Set spending limits and receive alerts when you approach or exceed them.
+            @if (readOnly()) {
+              View spending limits and usage for your organization.
+            } @else {
+              Set spending limits and receive alerts when you approach or exceed them.
+            }
           </p>
         </div>
-        <button
-          class="new-budget-btn"
-          [attr.data-testid]="testIds.BUDGET_NEW_BTN"
-          (click)="createBudget.emit()"
-        >
-          <nxt1-icon name="plus" size="16" />
-          New budget
-        </button>
+        @if (!readOnly()) {
+          <button
+            class="new-budget-btn"
+            [attr.data-testid]="testIds.BUDGET_NEW_BTN"
+            (click)="createBudget.emit()"
+          >
+            <nxt1-icon name="plus" size="16" />
+            New budget
+          </button>
+        }
       </div>
 
       <div class="table-container">
@@ -119,14 +125,22 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
                     <td colspan="4">
                       <div class="team-detail">
                         <span class="team-col-name">
-                          <button
-                            class="team-edit-btn"
-                            title="Edit team budget"
-                            (click)="$event.stopPropagation(); editTeamBudget.emit(team.teamId)"
-                          >
-                            {{ team.teamName }}
-                            <nxt1-icon name="create-outline" className="team-edit-icon" size="13" />
-                          </button>
+                          @if (!readOnly()) {
+                            <button
+                              class="team-edit-btn"
+                              title="Edit team budget"
+                              (click)="$event.stopPropagation(); editTeamBudget.emit(team.teamId)"
+                            >
+                              {{ team.teamName }}
+                              <nxt1-icon
+                                name="create-outline"
+                                className="team-edit-icon"
+                                size="13"
+                              />
+                            </button>
+                          } @else {
+                            <span>{{ team.teamName }}</span>
+                          }
                         </span>
                         <span class="team-col-limit">
                           {{
@@ -443,6 +457,8 @@ export class UsageBudgetsComponent {
   protected readonly testIds = USAGE_TEST_IDS;
 
   readonly budgets = input.required<readonly UsageBudget[]>();
+  /** When true, hides all edit/create controls (for non-admin org members) */
+  readonly readOnly = input(false);
 
   readonly createBudget = output<void>();
   readonly editBudget = output<string>();

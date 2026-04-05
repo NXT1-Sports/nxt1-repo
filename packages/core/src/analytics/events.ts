@@ -844,6 +844,28 @@ export const APP_EVENTS = {
   INVITE_RECIPIENT_ADDED: 'invite_recipient_added',
   /** Invite celebration shown */
   INVITE_CELEBRATION_SHOWN: 'invite_celebration_shown',
+
+  // ─── Intel ───
+  /** Athlete Intel report viewed */
+  INTEL_ATHLETE_VIEWED: 'intel_athlete_viewed',
+  /** Team Intel report viewed */
+  INTEL_TEAM_VIEWED: 'intel_team_viewed',
+  /** Athlete Intel report generation triggered */
+  INTEL_ATHLETE_GENERATED: 'intel_athlete_generated',
+  /** Team Intel report generation triggered */
+  INTEL_TEAM_GENERATED: 'intel_team_generated',
+  /** Intel missing data CTA clicked */
+  INTEL_MISSING_DATA_CTA: 'intel_missing_data_cta',
+  /** Intel quick command clicked */
+  INTEL_QUICK_COMMAND: 'intel_quick_command',
+
+  // ─── Media Viewer ───
+  /** Media item viewed in fullscreen media viewer */
+  MEDIA_VIEWED: 'media_viewed',
+  /** Media viewer gallery navigated (swipe/arrow) */
+  MEDIA_VIEWER_NAVIGATED: 'media_viewer_navigated',
+  /** Media viewer share action triggered */
+  MEDIA_VIEWER_SHARED: 'media_viewer_shared',
 } as const;
 
 export type AppEventName = (typeof APP_EVENTS)[keyof typeof APP_EVENTS];

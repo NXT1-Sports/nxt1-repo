@@ -62,6 +62,7 @@ import { UsageHelpContentComponent } from '../usage-help-content.component';
 import { UsageErrorStateComponent } from '../usage-error-state.component';
 import { UsageBottomSheetService } from '../usage-bottom-sheet.service';
 import { AgentXControlPanelComponent, type AgentXControlPanelKind } from '../../agent-x';
+import { BuyCreditsModalComponent } from './buy-credits-modal.component';
 import {
   UsageOverviewComponent,
   UsageSubscriptionsComponent,
@@ -96,50 +97,52 @@ export type { UsageUser };
   template: `
     <!-- Portal: center — "Billing & Usage" title + Action Button in top nav -->
     <ng-template #centerPortalContent>
-      <div class="header-portal-usage">
-        <span class="header-portal-title">Billing & Usage</span>
+      <div class="nxt1-header-portal">
+        <span class="nxt1-header-portal__title">Billing & Usage</span>
 
-        @if (svc.isPersonal()) {
-          <button type="button" class="header-portal-buy-btn" (click)="onBuyCredits()">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            <span>Buy Credits</span>
-          </button>
-        } @else if (svc.isOrg()) {
-          <button type="button" class="header-portal-buy-btn" (click)="onCreateBudget()">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="3"></circle>
-              <path
-                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
-              ></path>
-            </svg>
-            <span>Manage Budget</span>
-          </button>
-        }
+        <div class="nxt1-header-portal__center">
+          @if (svc.isPersonal()) {
+            <button type="button" class="header-portal-buy-btn" (click)="onBuyCredits()">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              <span>Buy Credits</span>
+            </button>
+          } @else if (svc.isOrg() && svc.isOrgAdmin()) {
+            <button type="button" class="header-portal-buy-btn" (click)="onCreateBudget()">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="3"></circle>
+                <path
+                  d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+                ></path>
+              </svg>
+              <span>Manage Budget</span>
+            </button>
+          }
+        </div>
       </div>
     </ng-template>
 
@@ -228,6 +231,7 @@ export type { UsageUser };
                   @if (svc.isOrg()) {
                     <nxt1-usage-budgets
                       [budgets]="svc.budgets()"
+                      [readOnly]="!svc.isOrgAdmin()"
                       (createBudget)="onCreateBudget()"
                       (editBudget)="onEditBudget($event)"
                       (editTeamBudget)="onEditTeamBudget($event)"
@@ -269,6 +273,7 @@ export type { UsageUser };
                 @case ('budgets') {
                   <nxt1-usage-budgets
                     [budgets]="svc.budgets()"
+                    [readOnly]="!svc.isOrgAdmin()"
                     (createBudget)="onCreateBudget()"
                     (editBudget)="onEditBudget($event)"
                     (editTeamBudget)="onEditTeamBudget($event)"
@@ -316,27 +321,8 @@ export type { UsageUser };
 
       /* ==============================
        HEADER PORTAL STYLES
-       Centered title teleported into top nav
+       Wrapper + title from design-tokens .nxt1-header-portal
        ============================== */
-
-      .header-portal-usage {
-        display: flex;
-        align-items: center;
-        width: 100%;
-        padding: 0 var(--nxt1-spacing-2, 8px);
-        position: relative;
-      }
-
-      .header-portal-title {
-        font-size: 15px;
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary, #ffffff);
-        letter-spacing: -0.01em;
-        white-space: nowrap;
-        user-select: none;
-        position: absolute;
-        left: var(--nxt1-spacing-2, 8px);
-      }
 
       .header-portal-buy-btn {
         display: inline-flex;
@@ -355,7 +341,6 @@ export type { UsageUser };
         cursor: pointer;
         transition: all 0.15s ease;
         user-select: none;
-        margin: 0 auto;
       }
 
       .header-portal-buy-btn:hover {
@@ -580,9 +565,16 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
 
   protected async onBuyCredits(): Promise<void> {
     await this.haptics.impact('light');
-    const amountCents = await this.usageBottomSheet.showBuyCreditsOptions();
-    if (amountCents !== null) {
-      await this.svc.buyCredits(amountCents);
+    const ref = this.overlay.open<BuyCreditsModalComponent, number | null>({
+      component: BuyCreditsModalComponent,
+      size: 'sm',
+      backdropDismiss: true,
+      escDismiss: true,
+      ariaLabel: 'Buy Credits',
+    });
+    const result = await ref.closed;
+    if (result.reason === 'close' && result.data !== null && result.data !== undefined) {
+      await this.svc.buyCredits(result.data);
     }
   }
 

@@ -939,6 +939,106 @@ export const ADD_SPORT_TEST_IDS = {
   ERROR_STATE: 'add-sport-error-state',
 } as const;
 
+export const INTEL_TEST_IDS = {
+  /** Athlete Intel section container */
+  ATHLETE_SECTION: 'intel-athlete-section',
+  /** Team Intel section container */
+  TEAM_SECTION: 'intel-team-section',
+  /** Loading skeleton */
+  LOADING_SKELETON: 'intel-loading-skeleton',
+  /** Empty state (no report) */
+  EMPTY_STATE: 'intel-empty-state',
+  /** Error state */
+  ERROR_STATE: 'intel-error-state',
+  /** Generate Intel CTA button */
+  GENERATE_BUTTON: 'intel-generate-button',
+  /** Regenerate button (on existing report) */
+  REGENERATE_BUTTON: 'intel-regenerate-button',
+  /** Intel report container (visible when report loaded) */
+  REPORT_CONTAINER: 'intel-report-container',
+  /** Overall score ring */
+  SCORE_RING: 'intel-score-ring',
+  /** Tier badge */
+  TIER_BADGE: 'intel-tier-badge',
+  /** Scout ratings card */
+  RATINGS_CARD: 'intel-ratings-card',
+  /** Percentile rankings card */
+  PERCENTILE_CARD: 'intel-percentile-card',
+  /** AI brief card */
+  BRIEF_CARD: 'intel-brief-card',
+  /** Strengths list */
+  STRENGTHS_CARD: 'intel-strengths-card',
+  /** Areas for improvement list */
+  IMPROVEMENTS_CARD: 'intel-improvements-card',
+  /** Level projections card */
+  PROJECTIONS_CARD: 'intel-projections-card',
+  /** Measurables grid */
+  MEASURABLES_CARD: 'intel-measurables-card',
+  /** Stats grid */
+  STATS_CARD: 'intel-stats-card',
+  /** Recruiting summary card */
+  RECRUITING_CARD: 'intel-recruiting-card',
+  /** Missing data section */
+  MISSING_DATA_SECTION: 'intel-missing-data-section',
+  /** Missing data CTA button */
+  MISSING_DATA_CTA: 'intel-missing-data-cta',
+  /** Citations section */
+  CITATIONS_SECTION: 'intel-citations-section',
+  /** Quick commands section */
+  QUICK_COMMANDS_SECTION: 'intel-quick-commands-section',
+  /** Quick command button */
+  QUICK_COMMAND_BUTTON: 'intel-quick-command-button',
+  /** Report footer with timestamp */
+  REPORT_FOOTER: 'intel-report-footer',
+  /** Team season outlook card */
+  SEASON_OUTLOOK_CARD: 'intel-season-outlook-card',
+  /** Team identity card */
+  TEAM_IDENTITY_CARD: 'intel-team-identity-card',
+  /** Top prospects section */
+  TOP_PROSPECTS_SECTION: 'intel-top-prospects-section',
+  /** Prospect row (clickable) */
+  PROSPECT_ROW: 'intel-prospect-row',
+  /** Roster depth card */
+  ROSTER_DEPTH_CARD: 'intel-roster-depth-card',
+  /** Season history card */
+  SEASON_HISTORY_CARD: 'intel-season-history-card',
+  /** Recruiting pipeline card */
+  RECRUITING_PIPELINE_CARD: 'intel-recruiting-pipeline-card',
+} as const;
+
+// ============================================
+// MEDIA VIEWER TEST IDS
+// ============================================
+
+export const MEDIA_VIEWER_TEST_IDS = {
+  /** Root overlay container */
+  CONTAINER: 'media-viewer-container',
+  /** Close / dismiss button */
+  CLOSE_BUTTON: 'media-viewer-close-button',
+  /** Share button */
+  SHARE_BUTTON: 'media-viewer-share-button',
+  /** Horizontal scroll track holding all items */
+  TRACK: 'media-viewer-track',
+  /** Individual media slide (image or video) */
+  SLIDE: 'media-viewer-slide',
+  /** Currently visible image element */
+  IMAGE: 'media-viewer-image',
+  /** Currently visible video element */
+  VIDEO: 'media-viewer-video',
+  /** Counter indicator (e.g. "2 / 5") */
+  COUNTER: 'media-viewer-counter',
+  /** Previous navigation arrow */
+  PREV_BUTTON: 'media-viewer-prev-button',
+  /** Next navigation arrow */
+  NEXT_BUTTON: 'media-viewer-next-button',
+  /** Error state when media fails to load */
+  ERROR_STATE: 'media-viewer-error-state',
+  /** Loading skeleton placeholder */
+  LOADING_SKELETON: 'media-viewer-loading-skeleton',
+  /** Caption / alt text display */
+  CAPTION: 'media-viewer-caption',
+} as const;
+
 export const TEST_IDS = {
   AUTH: AUTH_TEST_IDS,
   AUTH_PAGE: AUTH_PAGE_TEST_IDS,
@@ -960,6 +1060,8 @@ export const TEST_IDS = {
   EXPLORE: EXPLORE_TEST_IDS,
   INVITE: INVITE_TEST_IDS,
   ADD_SPORT: ADD_SPORT_TEST_IDS,
+  INTEL: INTEL_TEST_IDS,
+  MEDIA_VIEWER: MEDIA_VIEWER_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript

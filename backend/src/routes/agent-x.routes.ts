@@ -23,6 +23,7 @@
 
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
 import { appGuard, adminGuard, cronGuard } from '../middleware/auth.middleware.js';
+import { uploadRateLimit } from '../middleware/rate-limit.middleware.js';
 import { validateBody } from '../middleware/validation.middleware.js';
 import {
   AskAgentDto,
@@ -43,11 +44,18 @@ import type {
   AgentThreadCategory,
   AgentYieldState,
 } from '@nxt1/core';
-import { getShellContentForRole } from '@nxt1/core';
+import {
+  getShellContentForRole,
+  AGENT_X_ALLOWED_MIME_TYPES,
+  AGENT_X_MAX_FILE_SIZE,
+} from '@nxt1/core';
 import type { AgentChatService } from '../modules/agent/services/agent-chat.service.js';
 import type { ContextBuilder } from '../modules/agent/memory/context-builder.js';
 import type { OpenRouterService } from '../modules/agent/llm/openrouter.service.js';
+import type { LLMMessage, LLMContentPart } from '../modules/agent/llm/llm.types.js';
 import { logger } from '../utils/logger.js';
+import multer from 'multer';
+import { getStorage } from 'firebase-admin/storage';
 import {
   validateJobOrigin,
   mapJobStatus,
@@ -1070,6 +1078,81 @@ router.post('/goals', appGuard, validateBody(SetGoalsDto), async (req: Request, 
   }
 });
 
+// ─── POST /upload — Upload files for Agent X chat attachments ─────────────
+
+const AGENT_X_ALLOWED_MIMES_SET = new Set(AGENT_X_ALLOWED_MIME_TYPES);
+
+const agentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: AGENT_X_MAX_FILE_SIZE },
+  fileFilter: (_req, file, cb) => {
+    if (AGENT_X_ALLOWED_MIMES_SET.has(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`File type ${file.mimetype} not allowed for Agent X attachments`));
+    }
+  },
+});
+
+router.post(
+  '/upload',
+  appGuard,
+  uploadRateLimit,
+  agentUpload.single('file'),
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({ success: false, error: 'No file provided' });
+        return;
+      }
+
+      const bucket = getStorage().bucket();
+      const timestamp = Date.now();
+      const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const storagePath = `agent-x/${user.uid}/${timestamp}_${sanitizedName}`;
+      const storageFile = bucket.file(storagePath);
+
+      await storageFile.save(file.buffer, {
+        metadata: {
+          contentType: file.mimetype,
+          cacheControl: 'public, max-age=31536000',
+        },
+      });
+
+      await storageFile.makePublic();
+      const url = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
+
+      logger.info('Agent X file uploaded', {
+        userId: user.uid,
+        mimeType: file.mimetype,
+        sizeBytes: file.size,
+        storagePath,
+      });
+
+      res.json({
+        success: true,
+        data: {
+          url,
+          name: file.originalname,
+          mimeType: file.mimetype,
+          sizeBytes: file.size,
+        },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Agent X file upload failed', { error: error.message, stack: error.stack });
+      res.status(500).json({ success: false, error: 'Failed to upload file' });
+    }
+  }
+);
+
 // ─── POST /chat — Real conversational Agent X chat (SSE Streaming) ────────
 
 router.post(
@@ -1084,7 +1167,7 @@ router.post(
         return;
       }
 
-      const { message, mode, history, threadId } = req.body as AgentChatRequestDto;
+      const { message, mode, history, threadId, attachments } = req.body as AgentChatRequestDto;
 
       // ── Step 1: Resolve thread (create or verify ownership) ──────────
       let resolvedThreadId: string | undefined;
@@ -1173,9 +1256,7 @@ router.post(
         .join('');
 
       // ── Step 3: Build LLM messages array ─────────────────────────────
-      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-        { role: 'system', content: systemPrompt },
-      ];
+      const messages: LLMMessage[] = [{ role: 'system', content: systemPrompt }];
 
       // Add client-sent conversation history (limit to last 10)
       if (history?.length) {
@@ -1187,7 +1268,25 @@ router.post(
         }
       }
 
-      messages.push({ role: 'user', content: message.trim() });
+      // Build the final user message — multimodal when attachments are present
+      const imageAttachments = (attachments ?? []).filter(
+        (a: { mimeType: string }) =>
+          a.mimeType.startsWith('image/') || a.mimeType === 'application/pdf'
+      );
+
+      if (imageAttachments.length > 0) {
+        // Multimodal message: text + image_url parts for vision models
+        const contentParts: LLMContentPart[] = [{ type: 'text', text: message.trim() }];
+        for (const att of imageAttachments) {
+          contentParts.push({
+            type: 'image_url',
+            image_url: { url: att.url, detail: 'auto' },
+          });
+        }
+        messages.push({ role: 'user', content: contentParts });
+      } else {
+        messages.push({ role: 'user', content: message.trim() });
+      }
 
       // ── Step 4: Stream response via SSE ──────────────────────────────
       //
@@ -2055,6 +2154,58 @@ router.post('/firecrawl/session/disconnect', appGuard, async (req: Request, res:
       stack: error.stack,
     });
     res.status(500).json({ success: false, error: 'Failed to disconnect account' });
+  }
+});
+
+// ─── GET /health — Agent X system health (unauthenticated, highly cached) ─
+// Returns the current operational status of Agent X:
+//   'active'   → All systems go (green dot)
+//   'degraded' → Partial issues, queue delays, or elevated error rates (yellow dot)
+//   'down'     → Offline, execution paused (red dot)
+//
+// The endpoint checks:
+//   1. Whether the BullMQ queue service is connected
+//   2. Whether the LLM (OpenRouter) service is reachable
+//   3. Whether Firestore is responding
+//
+// Cache: CDN-safe 60s cache header. No auth required — lightweight status probe.
+router.get('/health', async (req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=60');
+
+  try {
+    // Check 1: Queue service connected?
+    const queueHealthy = queueService !== null;
+
+    // Check 2: LLM service available?
+    const llmHealthy = llmService !== null;
+
+    // Check 3: Quick Firestore read (uses request-injected db from firebaseContext)
+    let firestoreHealthy = false;
+    try {
+      const { db } = req.firebase!;
+      await db.collection('_health').doc('ping').get();
+      firestoreHealthy = true;
+    } catch {
+      firestoreHealthy = false;
+    }
+
+    // Determine overall status
+    let status: 'active' | 'degraded' | 'down';
+    if (queueHealthy && llmHealthy && firestoreHealthy) {
+      status = 'active';
+    } else if (!queueHealthy && !llmHealthy) {
+      status = 'down';
+    } else {
+      status = 'degraded';
+    }
+
+    res.json({ success: true, data: { status } });
+  } catch (err) {
+    logger.error('[AgentX] Health check failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    // If the health check itself throws, report 'down'
+    res.json({ success: true, data: { status: 'down' } });
   }
 });
 

@@ -51,9 +51,9 @@ export interface HelpNavigateEvent {
   template: `
     <!-- Portal: center — "Help Center" title + search bar in top nav -->
     <ng-template #centerPortalContent>
-      <div class="header-portal-help">
-        <span class="header-portal-title">Help Center</span>
-        <div class="header-portal-search">
+      <div class="nxt1-header-portal">
+        <span class="nxt1-header-portal__title">Help Center</span>
+        <div class="nxt1-header-portal__center header-portal-search">
           <nxt1-icon name="search" [size]="16" class="header-portal-search-icon" />
           <input
             type="search"
@@ -294,26 +294,7 @@ export interface HelpNavigateEvent {
         padding-bottom: var(--nxt1-spacing-16);
       }
 
-      /* Header portal styles */
-      .header-portal-help {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 100%;
-        padding: 0 var(--nxt1-spacing-2, 8px);
-        position: relative;
-      }
-
-      .header-portal-title {
-        font-size: 15px;
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary, #ffffff);
-        letter-spacing: -0.01em;
-        white-space: nowrap;
-        user-select: none;
-        position: absolute;
-        left: var(--nxt1-spacing-2, 8px);
-      }
+      /* Header portal styles (wrapper + title from design-tokens .nxt1-header-portal) */
 
       .header-portal-search {
         position: relative;
@@ -393,11 +374,11 @@ export interface HelpNavigateEvent {
           display: none;
         }
 
-        .header-portal-help {
+        .nxt1-header-portal {
           justify-content: flex-start;
         }
 
-        .header-portal-title {
+        .nxt1-header-portal__title {
           position: static;
         }
 
