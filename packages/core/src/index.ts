@@ -1383,3 +1383,9 @@ export * from './sport-landing';
 // ============================================
 
 export * from './create-post';
+
+// ============================================
+// INTEL (AI-Generated Profile Intelligence)
+// ============================================
+
+export * from './intel';

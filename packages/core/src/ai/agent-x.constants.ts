@@ -11,6 +11,7 @@ import type {
   AgentXConfig,
   AgentXModeConfig,
   AgentXQuickTask,
+  AgentXAttachmentType,
   ShellCommandCategory,
   ShellContentForRole,
 } from './agent-x.types';
@@ -548,6 +549,46 @@ export function getShellContentForRole(role: string | null | undefined): ShellCo
 }
 
 // ============================================
+// FILE ATTACHMENT CONSTANTS
+// ============================================
+
+/**
+ * Allowed MIME types for Agent X file attachments.
+ */
+export const AGENT_X_ALLOWED_MIME_TYPES: readonly string[] = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'application/pdf',
+  'text/csv',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+] as const;
+
+/** Maximum number of attachments per message. */
+export const AGENT_X_MAX_ATTACHMENTS = 5;
+
+/** Maximum single file size in bytes (20 MB). */
+export const AGENT_X_MAX_FILE_SIZE = 20 * 1024 * 1024;
+
+/**
+ * Resolve a MIME type to the high-level `AgentXAttachmentType`.
+ */
+export function resolveAttachmentType(mimeType: string): AgentXAttachmentType {
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType === 'application/pdf') return 'pdf';
+  if (
+    mimeType === 'text/csv' ||
+    mimeType === 'application/vnd.ms-excel' ||
+    mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  )
+    return 'csv';
+  return 'doc';
+}
+
+// ============================================
 // API CONFIGURATION
 // ============================================
 
@@ -556,27 +597,31 @@ export function getShellContentForRole(role: string | null | undefined): ShellCo
  */
 export const AGENT_X_ENDPOINTS = {
   /** Chat completion endpoint */
-  CHAT: '/api/v1/agent-x/chat',
+  CHAT: '/agent-x/chat',
+  /** Upload file attachment for chat */
+  UPLOAD: '/agent-x/upload',
   /** Get quick tasks endpoint */
-  TASKS: '/api/v1/agent-x/tasks',
+  TASKS: '/agent-x/tasks',
   /** Get conversation history */
-  HISTORY: '/api/v1/agent-x/history',
+  HISTORY: '/agent-x/history',
   /** Clear conversation */
-  CLEAR: '/api/v1/agent-x/clear',
+  CLEAR: '/agent-x/clear',
   /** Aggregated dashboard (briefing + playbook + operations) */
-  DASHBOARD: '/api/v1/agent-x/dashboard',
+  DASHBOARD: '/agent-x/dashboard',
   /** Set or update user goals */
-  GOALS: '/api/v1/agent-x/goals',
+  GOALS: '/agent-x/goals',
   /** Generate or regenerate the weekly playbook */
-  PLAYBOOK_GENERATE: '/api/v1/agent-x/playbook/generate',
+  PLAYBOOK_GENERATE: '/agent-x/playbook/generate',
   /** Update the status of a single playbook item */
-  PLAYBOOK_ITEM_STATUS: '/api/v1/agent-x/playbook/item',
+  PLAYBOOK_ITEM_STATUS: '/agent-x/playbook/item',
   /** Generate or refresh the AI daily briefing */
-  BRIEFING_GENERATE: '/api/v1/agent-x/briefing/generate',
+  BRIEFING_GENERATE: '/agent-x/briefing/generate',
   /** Operations activity log (paginated job history) */
-  OPERATIONS_LOG: '/api/v1/agent-x/operations-log',
+  OPERATIONS_LOG: '/agent-x/operations-log',
   /** Get messages for a specific thread */
-  THREAD_MESSAGES: '/api/v1/agent-x/threads',
+  THREAD_MESSAGES: '/agent-x/threads',
+  /** System health probe (unauthenticated, cached) */
+  HEALTH: '/agent-x/health',
 } as const;
 
 /**

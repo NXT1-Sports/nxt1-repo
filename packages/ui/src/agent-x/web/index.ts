@@ -9,5 +9,9 @@
  * ⭐ WEB ONLY — Use agent-x/index.ts for mobile (Ionic) ⭐
  */
 
-export { AgentXShellWebComponent, type AgentXUser } from './agent-x-shell-web.component';
+export {
+  AgentXShellWebComponent,
+  type AgentXUser,
+  type ExpandedSidePanelContent,
+} from './agent-x-shell-web.component';
 export { AgentXWelcomeWebComponent } from './agent-x-welcome-web.component';

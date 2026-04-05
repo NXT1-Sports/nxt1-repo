@@ -14,15 +14,16 @@ import {
   viewChild,
   ElementRef,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { NxtIconComponent } from '../components/icon/icon.component';
 import type { AgentXQuickTask } from '@nxt1/core';
+import { AGENT_X_ALLOWED_MIME_TYPES } from '@nxt1/core';
+import type { AgentXPendingFile } from './agent-x-pending-file';
 
 @Component({
   selector: 'nxt1-agent-x-input',
   standalone: true,
-  imports: [CommonModule, FormsModule, NxtIconComponent],
+  imports: [FormsModule, NxtIconComponent],
   template: `
     <div class="input-container" [class.has-messages]="hasMessages()">
       <!-- Selected Task Pill -->
@@ -40,6 +41,36 @@ import type { AgentXQuickTask } from '@nxt1/core';
         </div>
       }
 
+      <!-- Pending File Previews -->
+      @if (pendingFiles().length > 0) {
+        <div class="attachment-strip">
+          @for (pending of pendingFiles(); track $index) {
+            <div class="attachment-preview" [title]="pending.file.name">
+              @if (pending.previewUrl) {
+                <img
+                  [src]="pending.previewUrl"
+                  [alt]="pending.file.name"
+                  class="attachment-thumb"
+                />
+              } @else {
+                <div class="attachment-file-icon">
+                  <nxt1-icon name="document" [size]="20" />
+                </div>
+              }
+              <button
+                type="button"
+                class="attachment-remove"
+                (click)="onRemoveFile($index)"
+                aria-label="Remove file"
+              >
+                <nxt1-icon name="close" [size]="12" />
+              </button>
+              <span class="attachment-name">{{ pending.file.name }}</span>
+            </div>
+          }
+        </div>
+      }
+
       <div class="input-wrapper nxt1-shared-animated-glass-input">
         <button
           type="button"
@@ -49,6 +80,25 @@ import type { AgentXQuickTask } from '@nxt1/core';
         >
           <nxt1-icon name="plus" [size]="20" />
         </button>
+
+        <button
+          type="button"
+          class="attach-btn"
+          (click)="fileInput.click()"
+          [disabled]="uploading()"
+          aria-label="Attach file"
+        >
+          <nxt1-icon name="attachment" [size]="20" />
+        </button>
+
+        <input
+          #fileInput
+          type="file"
+          multiple
+          [accept]="acceptTypes"
+          class="file-input-hidden"
+          (change)="onFilesSelected($event)"
+        />
 
         <textarea
           #messageInput
@@ -61,7 +111,7 @@ import type { AgentXQuickTask } from '@nxt1/core';
           class="message-input"
         ></textarea>
 
-        @if (isLoading()) {
+        @if (isLoading() || uploading()) {
           <button
             type="button"
             class="primary-btn stop"
@@ -212,6 +262,114 @@ import type { AgentXQuickTask } from '@nxt1/core';
 
       .plus-btn:hover {
         background: var(--agent-surface-hover, rgba(255, 255, 255, 0.04));
+      }
+
+      .attach-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        flex: 0 0 32px;
+        border-radius: 50%;
+        border: none;
+        background: transparent;
+        color: var(--agent-text-secondary, rgba(255, 255, 255, 0.7));
+        cursor: pointer;
+        transition:
+          background-color 0.2s ease,
+          color 0.2s ease;
+      }
+
+      .attach-btn:active {
+        transform: scale(0.97);
+      }
+
+      .attach-btn:hover {
+        background: var(--agent-surface-hover, rgba(255, 255, 255, 0.04));
+      }
+
+      .attach-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .file-input-hidden {
+        display: none;
+      }
+
+      .attachment-strip {
+        display: flex;
+        gap: 0.5rem;
+        padding: 0 0.75rem;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+
+      .attachment-strip::-webkit-scrollbar {
+        display: none;
+      }
+
+      .attachment-preview {
+        position: relative;
+        flex: 0 0 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.25rem;
+        width: 64px;
+      }
+
+      .attachment-thumb {
+        width: 56px;
+        height: 56px;
+        border-radius: 8px;
+        object-fit: cover;
+        border: 1px solid var(--agent-input-border, rgba(255, 255, 255, 0.08));
+      }
+
+      .attachment-file-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 56px;
+        height: 56px;
+        border-radius: 8px;
+        background: var(--agent-surface-hover, rgba(255, 255, 255, 0.04));
+        border: 1px solid var(--agent-input-border, rgba(255, 255, 255, 0.08));
+        color: var(--agent-text-secondary, rgba(255, 255, 255, 0.7));
+      }
+
+      .attachment-remove {
+        position: absolute;
+        top: -4px;
+        right: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: none;
+        background: var(--nxt1-color-error, #ff4444);
+        color: #fff;
+        cursor: pointer;
+        transition: transform 0.15s ease;
+      }
+
+      .attachment-remove:active {
+        transform: scale(0.9);
+      }
+
+      .attachment-name {
+        font-size: 0.625rem;
+        color: var(--agent-text-secondary, rgba(255, 255, 255, 0.7));
+        max-width: 60px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: center;
       }
 
       .input-wrapper {
@@ -378,6 +536,8 @@ export class AgentXInputComponent {
   readonly canSend = input<boolean>(false);
   readonly userMessage = input<string>('');
   readonly placeholder = input<string>('Type a message');
+  readonly pendingFiles = input<readonly AgentXPendingFile[]>([]);
+  readonly uploading = input<boolean>(false);
 
   // ============================================
   // OUTPUTS
@@ -388,16 +548,20 @@ export class AgentXInputComponent {
   readonly stop = output<void>();
   readonly removeTask = output<void>();
   readonly toggleTasks = output<void>();
+  readonly filesAdded = output<File[]>();
+  readonly fileRemoved = output<number>();
+
+  // ============================================
+  // CONSTANTS
+  // ============================================
+
+  protected readonly acceptTypes = AGENT_X_ALLOWED_MIME_TYPES.join(',');
 
   // ============================================
   // VIEW CHILD
   // ============================================
 
   private readonly inputRef = viewChild<ElementRef>('messageInput');
-
-  constructor() {
-    /* noop */
-  }
 
   // ============================================
   // HANDLERS
@@ -416,18 +580,26 @@ export class AgentXInputComponent {
     }
   }
 
-  protected onSend(): void {
+  protected onPrimaryAction(): void {
     if (this.canSend()) {
       this.send.emit();
     }
   }
 
-  protected onPrimaryAction(): void {
-    this.onSend();
-  }
-
   protected onStopAction(): void {
     this.stop.emit();
+  }
+
+  protected onFilesSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (input.files?.length) {
+      this.filesAdded.emit(Array.from(input.files));
+      input.value = ''; // Reset so re-selecting same file triggers change
+    }
+  }
+
+  protected onRemoveFile(index: number): void {
+    this.fileRemoved.emit(index);
   }
 
   // ============================================

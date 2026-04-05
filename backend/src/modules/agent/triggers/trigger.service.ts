@@ -68,11 +68,11 @@ export class AgentTriggerService {
    *
    * Flow:
    * 1. Find the matching trigger rule.
-   * 2. Validate the rule is enabled and the user qualifies.
-   * 3. Check cooldown (has this trigger fired recently for this user?).
-   * 4. Check the user's trigger preferences (opt-in, muted triggers, quiet hours).
-   * 5. Synthesize the intent string from the rule's template + event data.
-   * 6. Enqueue an AgentJobPayload to the Worker Queue.
+   * 2. Check cooldown (has this trigger fired recently for this user?).
+   * 3. Check the user's trigger preferences (opt-in, muted triggers, quiet hours).
+   * 4. Synthesize the intent string from the rule's template + event data.
+   * 5. Enqueue an AgentJobPayload to the Worker Queue.
+   * 6. Record the trigger timestamp for cooldown tracking.
    */
   async processTrigger(event: AgentTriggerEvent): Promise<{ enqueued: boolean; reason?: string }> {
     // ── Step 1: Find the trigger rule ─────────────────────────────────────
@@ -85,20 +85,7 @@ export class AgentTriggerService {
       return { enqueued: false, reason: `Trigger "${rule.name}" is disabled.` };
     }
 
-    // ── Step 2: Check user subscription tier ──────────────────────────────
-    if (rule.minTier) {
-      const userDoc = await this.db.collection('Users').doc(event.userId).get();
-      const tier = (userDoc.data()?.['subscriptionTier'] ?? 'free') as string;
-      const tierRank: Record<string, number> = { free: 0, starter: 1, premium: 2, elite: 3 };
-      if ((tierRank[tier] ?? 0) < (tierRank[rule.minTier] ?? 0)) {
-        return {
-          enqueued: false,
-          reason: `User tier "${tier}" insufficient for "${rule.name}" (requires ${rule.minTier}).`,
-        };
-      }
-    }
-
-    // ── Step 3: Check cooldown ────────────────────────────────────────────
+    // ── Step 2: Check cooldown ────────────────────────────────────────────
     if (rule.cooldownMs > 0) {
       const lastFired = await this.getLastTriggerTimestamp(event.userId, event.type);
       if (lastFired && Date.now() - lastFired < rule.cooldownMs) {
@@ -111,7 +98,7 @@ export class AgentTriggerService {
       }
     }
 
-    // ── Step 4: Check user preferences ────────────────────────────────────
+    // ── Step 3: Check user preferences ────────────────────────────────────
     const preferences = await this.getUserTriggerPreferences(event.userId);
 
     if (!preferences.autonomousEnabled) {
@@ -126,10 +113,10 @@ export class AgentTriggerService {
       return { enqueued: false, reason: 'Quiet hours active. Job will be deferred.' };
     }
 
-    // ── Step 5: Synthesize intent from template ───────────────────────────
+    // ── Step 4: Synthesize intent from template ───────────────────────────
     const intent = this.synthesizeIntent(rule.intentTemplate, event.eventData);
 
-    // ── Step 6: Build and enqueue the job payload ─────────────────────────
+    // ── Step 5: Build and enqueue the job payload ─────────────────────────
     const payload: AgentJobPayload = {
       operationId: this.generateOperationId(),
       userId: event.userId,
@@ -142,7 +129,7 @@ export class AgentTriggerService {
 
     await this.enqueueJob(payload);
 
-    // ── Step 7: Record the trigger timestamp for cooldown tracking ────────
+    // ── Step 6: Record the trigger timestamp for cooldown tracking ────────
     await this.setLastTriggerTimestamp(event.userId, event.type, Date.now());
 
     logger.info('[AgentTrigger] Job enqueued', {

@@ -30,6 +30,7 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import { AgentXControlPanelStateService } from './agent-x-control-panel-state.service';
 
 /**
  * Injection token for the Agent X API base URL.
@@ -93,6 +94,7 @@ export class AgentXJobService {
   private readonly logger = inject(NxtLoggingService).child('AgentXJobService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly controlPanelState = inject(AgentXControlPanelStateService);
 
   private readonly baseUrl = `${inject(AGENT_X_API_BASE_URL)}/agent-x`;
 
@@ -142,6 +144,7 @@ export class AgentXJobService {
     } catch (err) {
       this.logger.error('Failed to enqueue Agent X job', err);
       void this.breadcrumb.trackStateChange('agent-x-job:enqueue-error');
+      this.controlPanelState.reportExecutionFailure();
       return null;
     }
   }

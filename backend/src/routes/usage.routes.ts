@@ -241,6 +241,56 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     const target = await resolveBillingTarget(db, userId);
     const billingCtx = target.context;
 
+    // ── Determine admin status ──
+    // Org admins: directors, org owners, or members of org.admins[]
+    // Team admins: members of team.adminIds[] or team.createdBy
+    let isOrgAdmin = false;
+    let isTeamAdmin = false;
+
+    if (target.type === 'organization' && target.organizationId) {
+      const userDoc = await db.collection('Users').doc(userId).get();
+      const role = userDoc.data()?.['role'] as string | undefined;
+      const orgDoc = await db.collection('Organizations').doc(target.organizationId).get();
+      const orgData = orgDoc.data();
+
+      if (orgData) {
+        const ownerId = orgData['ownerId'] as string | undefined;
+        const admins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
+        const adminIds = admins.map((a) => a.userId).filter(Boolean);
+        isOrgAdmin = role === 'director' || ownerId === userId || adminIds.includes(userId);
+      }
+
+      // Check team admin via roster entry → team.adminIds
+      if (!isOrgAdmin) {
+        const rosterSnap = await db
+          .collection('RosterEntries')
+          .where('userId', '==', userId)
+          .where('status', '==', 'active')
+          .limit(1)
+          .get();
+        if (!rosterSnap.empty) {
+          const teamId = rosterSnap.docs[0]!.data()['teamId'] as string | undefined;
+          if (teamId) {
+            const teamDoc = await db.collection('Teams').doc(teamId).get();
+            const teamData = teamDoc.data();
+            const teamAdminIds: string[] = Array.isArray(teamData?.['adminIds'])
+              ? (teamData!['adminIds'] as string[])
+              : teamData?.['createdBy']
+                ? [teamData['createdBy'] as string]
+                : [];
+            isTeamAdmin = teamAdminIds.includes(userId);
+          }
+        }
+      } else {
+        // Org admins are implicitly team admins
+        isTeamAdmin = true;
+      }
+    } else {
+      // Individual users are their own "admin"
+      isOrgAdmin = true;
+      isTeamAdmin = true;
+    }
+
     // Fetch usage events for the resolved target
     const eventsDocs = await fetchUsageEvents(
       db,
@@ -523,13 +573,16 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       productDetails,
       topItems,
       breakdownRows,
-      paymentHistory,
-      paymentMethods,
-      billingInfo,
+      // Non-admin org members: mask sensitive financial data
+      paymentHistory: isOrgAdmin ? paymentHistory : [],
+      paymentMethods: isOrgAdmin ? paymentMethods : [],
+      billingInfo: isOrgAdmin ? billingInfo : null,
       coupon: null,
       budgets,
       billingEntity: billingCtx.billingEntity,
       paymentProvider: billingCtx.paymentProvider,
+      isOrgAdmin,
+      isTeamAdmin,
     };
 
     return res.json({ success: true, data: dashboard });
@@ -829,6 +882,25 @@ router.get('/payment-methods', appGuard, async (req: Request, res: Response) => 
 
     // Resolve billing target (director → org, otherwise individual)
     const target = await resolveBillingTarget(db, userId);
+
+    // ── Guard: Only org admins can view payment methods for an organization ──
+    if (target.type === 'organization' && target.organizationId) {
+      const billingCtx = await getBillingContext(db, userId);
+      const isOrg = billingCtx?.billingEntity === 'organization';
+      if (isOrg) {
+        const userDoc = await db.collection('Users').doc(userId).get();
+        const role = userDoc.data()?.['role'] as string | undefined;
+        const orgDoc = await db.collection('Organizations').doc(target.organizationId).get();
+        const orgData = orgDoc.data();
+        const ownerId = orgData?.['ownerId'] as string | undefined;
+        const admins = (orgData?.['admins'] as Array<{ userId: string }>) ?? [];
+        const adminIds = admins.map((a) => a.userId).filter(Boolean);
+        const isAdmin = role === 'director' || ownerId === userId || adminIds.includes(userId);
+        if (!isAdmin) {
+          return res.json({ success: true, data: [] });
+        }
+      }
+    }
 
     const customerDoc = await db
       .collection(COLLECTIONS.STRIPE_CUSTOMERS)
@@ -1382,10 +1454,26 @@ router.post('/portal-session', appGuard, async (req: Request, res: Response) => 
     let customerEmail = email;
 
     if (billingCtx?.billingEntity === 'organization' && billingCtx.organizationId) {
-      // Director / org-billed: open portal for the org's Stripe customer
-      customerUserId = `org:${billingCtx.organizationId}`;
+      // ── Guard: Only org admins can access the Stripe Customer Portal ──
+      const userDoc = await db.collection('Users').doc(userId).get();
+      const role = userDoc.data()?.['role'] as string | undefined;
       const orgDoc = await db.collection('Organizations').doc(billingCtx.organizationId).get();
       const orgData = orgDoc.data();
+      const ownerId = orgData?.['ownerId'] as string | undefined;
+      const admins = (orgData?.['admins'] as Array<{ userId: string }>) ?? [];
+      const adminIds = admins.map((a) => a.userId).filter(Boolean);
+      const isAdmin = role === 'director' || ownerId === userId || adminIds.includes(userId);
+
+      if (!isAdmin) {
+        logger.warn('[POST /portal-session] Non-admin attempted to access Stripe portal', {
+          userId,
+          organizationId: billingCtx.organizationId,
+        });
+        return res.status(403).json({ error: 'Only organization admins can manage billing' });
+      }
+
+      // Director / org-billed: open portal for the org's Stripe customer
+      customerUserId = `org:${billingCtx.organizationId}`;
       customerEmail =
         (orgData?.['billingEmail'] as string) || (orgData?.['email'] as string) || email;
       logger.info('[POST /portal-session] Resolved director to org customer', {

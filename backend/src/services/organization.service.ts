@@ -119,6 +119,7 @@ export class OrganizationService {
 
     const orgData = {
       name: input.name,
+      nameLower: input.name.toLowerCase(),
       type: input.type,
       status: OrganizationStatus.ACTIVE,
       location: input.location || null,
@@ -139,6 +140,9 @@ export class OrganizationService {
 
     const docRef = await this.db.collection(this.COLLECTION).add(orgData);
     const doc = await docRef.get();
+
+    // Purge search cache so the new org appears in results immediately
+    await this.invalidateSearchCache();
 
     logger.info('[OrganizationService] Organization created', { orgId: docRef.id });
 
@@ -208,7 +212,10 @@ export class OrganizationService {
     };
 
     // Only update provided fields
-    if (input.name !== undefined) updateData['name'] = input.name;
+    if (input.name !== undefined) {
+      updateData['name'] = input.name;
+      updateData['nameLower'] = input.name.toLowerCase();
+    }
     if (input.type !== undefined) updateData['type'] = input.type;
     if (input.status !== undefined) updateData['status'] = input.status;
     if (input.location !== undefined) updateData['location'] = input.location;
@@ -308,11 +315,11 @@ export class OrganizationService {
   }
 
   /**
-   * Search organizations by name prefix (case-insensitive via lowercased comparison).
-   * Firestore doesn't support full-text search, so we use >= / < range query
-   * on the name field for prefix matching, then filter client-side.
+   * Search organizations by name prefix (case-insensitive).
+   * Uses a `nameLower` field with Firestore >= / <= range query for
+   * efficient prefix matching directly at the database level.
    *
-   * Optionally filter by state.
+   * Optionally filter by state or type.
    */
   async searchOrganizations(
     query: string,
@@ -323,44 +330,50 @@ export class OrganizationService {
     }
   ): Promise<Organization[]> {
     const limit = Math.min(options?.limit ?? 20, 50);
-    const cacheKey = `org:search:${query.toLowerCase()}:${options?.state ?? ''}:${options?.type ?? ''}:${limit}`;
+    const queryLower = query.toLowerCase();
+    const cacheKey = `org:search:${queryLower}:${options?.state ?? ''}:${options?.type ?? ''}:${limit}`;
 
     const cached = await getCache()?.get<Organization[]>(cacheKey);
     if (cached) {
       return cached;
     }
 
-    // Firestore range query for prefix matching
-    // We query a broader set and filter in memory for case-insensitive matching
-    let ref = this.db
+    // Over-fetch when applying in-memory filters so we don't
+    // miss valid results hidden behind non-matching docs.
+    const hasInMemoryFilters = !!options?.type || !!options?.state;
+    const fetchLimit = hasInMemoryFilters ? limit * 5 : limit;
+
+    // Firestore prefix range query on the nameLower field.
+    // '\uf8ff' is a very high Unicode char that acts as an upper bound
+    // so "glen" matches "glenoak", "glendale", etc.
+    const ref: FirebaseFirestore.Query = this.db
       .collection(this.COLLECTION)
-      .where('status', '==', OrganizationStatus.ACTIVE)
-      .limit(limit * 3); // Over-fetch to account for client-side filtering
-
-    if (options?.type) {
-      ref = ref.where('type', '==', options.type);
-    }
-
-    if (options?.state) {
-      ref = ref.where('location.state', '==', options.state);
-    }
+      .where('nameLower', '>=', queryLower)
+      .where('nameLower', '<=', queryLower + '\uf8ff')
+      .limit(fetchLimit);
 
     const snapshot = await ref.get();
-    const queryLower = query.toLowerCase();
 
-    const orgs = snapshot.docs
-      .map(docToOrganization)
-      .filter((org) => org.name.toLowerCase().includes(queryLower))
-      .slice(0, limit);
+    let orgs = snapshot.docs.map(docToOrganization);
 
-    // Cache for 15 minutes
-    await getCache()?.set(cacheKey, orgs, { ttl: ORG_CACHE_TTL });
+    // Apply optional filters in-memory (avoids composite index requirement)
+    if (options?.type) {
+      orgs = orgs.filter((org) => org.type === options.type);
+    }
+    if (options?.state) {
+      orgs = orgs.filter((org) => org.location?.state === options.state);
+    }
+
+    orgs = orgs.slice(0, limit);
+
+    // Cache for 5 minutes (short TTL so new orgs appear quickly)
+    await getCache()?.set(cacheKey, orgs, { ttl: 300 });
 
     return orgs;
   }
 
   /**
-   * Invalidate cache for organization
+   * Invalidate cache for a specific organization and its admin lists.
    */
   private async invalidateCache(orgId: string): Promise<void> {
     const cache = getCache();
@@ -372,6 +385,27 @@ export class OrganizationService {
     const org = await this.getOrganizationById(orgId);
     for (const admin of org.admins) {
       await cache.del(CACHE_KEYS.USER_ORGS(admin.userId));
+    }
+
+    // Purge search cache so name/type changes reflect immediately
+    await this.invalidateSearchCache();
+  }
+
+  /**
+   * Purge all org search result caches.
+   * Uses prefix-based deletion so any cached search query is cleared.
+   */
+  private async invalidateSearchCache(): Promise<void> {
+    const cache = getCache();
+    if (!cache) return;
+
+    // If the cache adapter supports pattern deletion, use it.
+    // Otherwise this is a best-effort no-op — the 5-minute TTL
+    // ensures stale entries expire quickly regardless.
+    if (typeof (cache as unknown as Record<string, unknown>)['delByPrefix'] === 'function') {
+      await (cache as unknown as { delByPrefix: (prefix: string) => Promise<void> }).delByPrefix(
+        'org:search:'
+      );
     }
   }
 }

@@ -481,6 +481,14 @@ export const dailyPulseUpdates = onSchedule(
     secrets: [OPENROUTER_API_KEY],
   },
   async () => {
+    // SECURITY: Only run the pulse in production to avoid duplicate AI costs
+    if (process.env['GCLOUD_PROJECT'] !== 'nxt-1-v2') {
+      logger.info(
+        `[Pulse] Skipping run in ${process.env['GCLOUD_PROJECT']} (only runs in production)`
+      );
+      return;
+    }
+
     logger.info('[Pulse] Starting daily pulse updates');
     const startMs = Date.now();
 

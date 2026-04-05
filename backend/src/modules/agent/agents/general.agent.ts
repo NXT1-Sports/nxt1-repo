@@ -45,7 +45,6 @@ export class GeneralAgent extends BaseAgent {
       '- Athletes can build verified profiles with stats from MaxPreps, Hudl, 247Sports, and 50+ sources.',
       '- Agent X background operations run automatically: scraping stats, drafting recruiter emails, generating graphics.',
       '- Users can trigger agent operations from the chat or via autonomous triggers (profile views, stat updates, etc.).',
-      '- Subscription tiers: Free (15 ops/day) → Starter → Premium → Elite (1,000 ops/day, all model tiers).',
       '',
       '## Response Style',
       '- Keep answers under 200 words unless the user needs a detailed breakdown.',

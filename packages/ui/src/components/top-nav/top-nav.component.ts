@@ -184,7 +184,7 @@ import type {
             </div>
           } @else if (config().showLogo === false && headerPortal.centerContent()) {
             <!-- Portal: Contextual page content (tabs, breadcrumbs, page title) -->
-            <div class="nav-center-portal flex w-full min-w-0 items-center justify-center">
+            <div class="nav-center-portal flex w-full min-w-0 items-center">
               <ng-container *ngTemplateOutlet="headerPortal.centerContent()!" />
             </div>
           } @else {

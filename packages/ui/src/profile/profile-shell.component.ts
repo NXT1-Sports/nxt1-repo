@@ -87,10 +87,10 @@ import { ProfileTimelineComponent } from './profile-timeline.component';
 import { ProfileSkeletonComponent } from './profile-skeleton.component';
 import {
   ProfileMobileHeroComponent,
-  ProfileOverviewComponent,
   ProfileContactComponent,
   ProfileVerificationBannerComponent,
 } from './components';
+import { AthleteIntelComponent } from '../intel/athlete-intel.component';
 import { ProfileGenerationBannerComponent } from './profile-generation-banner.component';
 import { ProfileGenerationStateService } from './profile-generation-state.service';
 
@@ -114,7 +114,7 @@ export interface ProfileShellUser {
     NxtOptionScrollerComponent,
     NxtSectionNavWebComponent,
     ProfileMobileHeroComponent,
-    ProfileOverviewComponent,
+    AthleteIntelComponent,
     ProfileTimelineComponent,
     ProfileSkeletonComponent,
     ProfileContactComponent,
@@ -194,10 +194,21 @@ export interface ProfileShellUser {
 
         <!-- ═══ PROFILE CONTENT ═══ -->
         @else if (profile.user()) {
-          <!-- Halftone accent background (same as web profile) -->
-          <div class="halftone-bg" aria-hidden="true">
-            <div class="halftone-dots"></div>
-            <div class="halftone-fade"></div>
+          <div class="profile-container__bg" [style.--team-accent]="teamAccentColor()">
+            @if (bgVariant === 'modern') {
+              <div class="modern-bg" aria-hidden="true">
+                <div class="modern-base"></div>
+                <div class="modern-lanes"></div>
+                <div class="modern-glow"></div>
+                <div class="modern-vignette"></div>
+              </div>
+            } @else {
+              <!-- Halftone accent background (legacy variant) -->
+              <div class="halftone-bg" aria-hidden="true">
+                <div class="halftone-dots"></div>
+                <div class="halftone-fade"></div>
+              </div>
+            }
           </div>
 
           <!-- Mobile Hero: Carousel + Identity + Stats -->
@@ -242,11 +253,10 @@ export interface ProfileShellUser {
 
             @switch (profile.activeTab()) {
               @case ('intel') {
-                <nxt1-profile-overview
-                  [activeSideTab]="activeSideTab()"
-                  (editProfileClick)="editProfileClick.emit()"
-                  (teamClick)="teamClick.emit($event)"
-                  (addAwardClick)="editProfileClick.emit()"
+                <nxt1-athlete-intel
+                  [userId]="profile.user()!.uid"
+                  [isOwnProfile]="profile.isOwnProfile()"
+                  (missingDataAction)="editProfileClick.emit()"
                 />
               }
 
@@ -302,7 +312,7 @@ export interface ProfileShellUser {
         --m-text: var(--nxt1-color-text-primary, #ffffff);
         --m-text-2: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         --m-text-3: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.45));
-        --m-accent: var(--nxt1-color-primary, #d4ff00);
+        --m-accent: var(--team-accent, var(--nxt1-color-primary, #d4ff00));
       }
 
       .profile-content {
@@ -378,7 +388,107 @@ export interface ProfileShellUser {
         padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
       }
 
-      /* ─── HALFTONE ACCENT BACKGROUND ─── */
+      .profile-container__bg {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      /* ─── SPORTY CLEAN BACKGROUND (default variant) ─── */
+
+      .modern-bg {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        z-index: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+
+      .modern-base {
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--m-accent) 10%, rgba(255, 255, 255, 0.01)) 0%,
+            transparent 40%
+          ),
+          linear-gradient(
+            135deg,
+            transparent 0%,
+            color-mix(in srgb, var(--m-accent) 5%, transparent) 60%,
+            transparent 100%
+          );
+        opacity: 0.96;
+      }
+
+      .modern-lanes {
+        position: absolute;
+        inset: -10% -28% 40% -8%;
+        background: repeating-linear-gradient(
+          -58deg,
+          transparent 0 18px,
+          color-mix(in srgb, var(--m-accent) 16%, transparent) 18px 20px,
+          transparent 20px 42px
+        );
+        clip-path: polygon(0% 0%, 100% 0%, 82% 100%, 0% 100%);
+        mask-image: linear-gradient(
+          180deg,
+          rgba(0, 0, 0, 0.96) 0%,
+          rgba(0, 0, 0, 0.72) 44%,
+          transparent 100%
+        );
+        -webkit-mask-image: linear-gradient(
+          180deg,
+          rgba(0, 0, 0, 0.96) 0%,
+          rgba(0, 0, 0, 0.72) 44%,
+          transparent 100%
+        );
+        opacity: 0.76;
+      }
+
+      .modern-glow {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(
+            ellipse 88% 58% at 50% 10%,
+            color-mix(in srgb, var(--m-accent) 18%, transparent) 0%,
+            color-mix(in srgb, var(--m-accent) 8%, transparent) 40%,
+            transparent 76%
+          ),
+          linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--m-accent) 5%, transparent) 0%,
+            transparent 42%
+          );
+      }
+
+      .modern-vignette {
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(
+            180deg,
+            rgba(6, 8, 12, 0.12) 0%,
+            transparent 22%,
+            transparent 78%,
+            rgba(6, 8, 12, 0.18) 100%
+          ),
+          linear-gradient(
+            90deg,
+            rgba(6, 8, 12, 0.04) 0%,
+            transparent 18%,
+            transparent 82%,
+            rgba(6, 8, 12, 0.1) 100%
+          );
+      }
+
+      /* ─── HALFTONE ACCENT BACKGROUND (legacy variant) ─── */
 
       .halftone-bg {
         position: fixed;
@@ -431,6 +541,9 @@ export interface ProfileShellUser {
       }
 
       @media (prefers-reduced-motion: reduce) {
+        .modern-lanes,
+        .modern-glow,
+        .modern-vignette,
         .halftone-dots,
         .halftone-fade {
           opacity: 0.5;
@@ -570,6 +683,12 @@ export class ProfileShellComponent implements OnInit {
   private readonly logger = inject(NxtLoggingService).child('ProfileShell');
   private readonly bottomSheet = inject(NxtBottomSheetService);
   protected readonly generation = inject(ProfileGenerationStateService);
+
+  protected readonly bgVariant: 'modern' | 'halftone' = 'modern';
+  protected readonly teamAccentColor = computed(() => {
+    const user = this.profile.user();
+    return user?.school?.primaryColor ?? 'var(--nxt1-color-primary, #d4ff00)';
+  });
 
   // ============================================
   // INPUTS

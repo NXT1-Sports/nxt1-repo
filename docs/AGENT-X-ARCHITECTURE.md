@@ -161,3 +161,290 @@ If you are modifying Agent X code, you **must** adhere to these 2026 standards:
       merge active background jobs (from Firestore) with historic completed
       items (from the backend endpoints) to give users a seamless view of "What
       Agent X is doing" and "What Agent X has done."
+
+---
+
+## 6. Dynamic Skill Loading (Domain Knowledge RAG)
+
+> **CRITICAL PATTERN** — Do NOT hardcode domain-specific rules (rubrics,
+> templates, calendars) inside agent system prompts. All domain knowledge lives
+> in `Skills` and is loaded dynamically at runtime.
+
+### 6.1 What Problem Does This Solve?
+
+Without skills, every coordinator agent needs a massive system prompt containing
+every possible rule for every possible task. This causes:
+
+- **Token waste** — Injecting scouting rubric rules into every email-writing
+  request
+- **Context dilution** — A 4,000-token system prompt leaves less space for
+  reasoning
+- **Tight coupling** — Changing the email template means editing the agent class
+- **Stale rules** — No single source of truth; rules drift across multiple
+  agents
+
+**The solution:** Rules live in skills, skills are stored as vectors at runtime,
+and only the rules relevant to the current intent are injected.
+
+---
+
+### 6.2 Architecture Overview
+
+```
+User Intent (plain text)
+       │
+       ▼
+OpenRouterService.embed()          ← 1536-dim vector of the intent
+       │
+       ▼
+SkillRegistry.match()
+  ├── For each allowed skill:
+  │     └── skill.matchIntent()
+  │           ├── Lazily embed skill.description (cached in RAM after first call)
+  │           └── cosineSimilarity(intentVector, skillVector) → score
+  │
+  ├── Filter: score ≥ DEFAULT_SKILL_THRESHOLD (0.35)
+  └── Sort: descending similarity
+       │
+       ▼
+SkillRegistry.buildPromptBlock()   ← Formats matched skills into Markdown
+       │
+       ▼
+Appended to system prompt          ← Only injected for THIS invocation
+       │
+       ▼
+LLM ReAct Loop (BaseAgent.execute())
+```
+
+---
+
+### 6.3 File Structure
+
+```
+backend/src/modules/agent/skills/
+├── index.ts                       # Barrel export — all public symbols
+├── base.skill.ts                  # Abstract BaseSkill + cosineSimilarity + DEFAULT_SKILL_THRESHOLD
+├── skill-registry.ts              # SkillRegistry class — register / match / buildPromptBlock
+├── evaluation/
+│   └── scouting-rubric.skill.ts  # Scout report format, 1–100 grading scale, evaluation rules
+├── copywriting/
+│   └── outreach-copywriting.skill.ts  # Email templates, subject lines, target list building
+├── compliance/
+│   └── compliance-rulebook.skill.ts   # NCAA/NAIA/NJCAA calendar, eligibility cutoffs, verdict format
+├── brand/
+│   ├── static-graphic-style.skill.ts  # Promo cards, player cards, typography, color palettes
+│   ├── video-highlight-style.skill.ts # Highlight reel structure, pacing, broadcast aesthetic
+│   └── social-caption-style.skill.ts  # Caption voice, hashtag strategy, platform rules
+└── __tests__/
+    └── skill-system.spec.ts       # 17 unit tests (cosine similarity, matchIntent, registry)
+```
+
+---
+
+### 6.4 Skill Lifecycle (Step by Step)
+
+#### Step 1 — Server Boot (`bootstrap.ts`)
+
+```ts
+const skillRegistry = new SkillRegistry();
+skillRegistry.register(new ScoutingRubricSkill());
+skillRegistry.register(new OutreachCopywritingSkill());
+skillRegistry.register(new ComplianceRulebookSkill());
+skillRegistry.register(new StaticGraphicStyleSkill());
+skillRegistry.register(new VideoHighlightStyleSkill());
+skillRegistry.register(new SocialCaptionStyleSkill());
+
+const router = new AgentRouter(
+  llm,
+  toolRegistry,
+  contextBuilder,
+  guardrailRunner,
+  skillRegistry
+);
+```
+
+All 6 skills are registered. Their description embeddings are **not** computed
+yet — they are lazily loaded.
+
+#### Step 2 — Task Dispatch (`AgentRouter`)
+
+The `AgentRouter` passes the `skillRegistry` instance as the 5th argument to
+every `agent.execute()` call.
+
+#### Step 3 — Coordinator Declares Its Skills (`BaseAgent.getSkills()`)
+
+Each coordinator overrides `getSkills()` to declare which skills it is permitted
+to use:
+
+```ts
+// PerformanceCoordinatorAgent
+override getSkills(): readonly string[] {
+  return ['scouting_rubric'];
+}
+
+// BrandMediaCoordinatorAgent
+override getSkills(): readonly string[] {
+  return ['static_graphic_style', 'video_highlight_style', 'social_caption_style'];
+}
+```
+
+Agents that don't use skills (e.g., `GeneralAgent`, `DataCoordinatorAgent`)
+inherit the default:
+
+```ts
+// BaseAgent default — no skills
+getSkills(): readonly string[] {
+  return [];
+}
+```
+
+#### Step 4 — Intent Embedding (`BaseAgent.execute()`)
+
+```ts
+const intentEmbedding = await llm.embed(intent);
+```
+
+The user's intent string (e.g., _"Generate a scout report for Marcus Allen"_) is
+sent to `openai/text-embedding-3-small` and returned as a 1536-dimensional
+vector.
+
+#### Step 5 — Semantic Matching (`SkillRegistry.match()`)
+
+```ts
+const matched = await skillRegistry.match(
+  intentEmbedding,
+  (text) => llm.embed(text),
+  allowedSkillNames // Only skills from getSkills()
+);
+```
+
+For each allowed skill:
+
+1. Check if `skill._embedding` is cached. If not, embed `skill.description` once
+   and store it.
+2. Compute `cosineSimilarity(intentEmbedding, skill._embedding)`.
+3. If score ≥ `0.35`, include in results.
+
+Results are sorted **descending by similarity** so the most relevant skill
+context appears first.
+
+**Cosine Similarity Formula:**
+$$\cos(\theta) = \frac{A \cdot B}{\|A\| \times \|B\|}$$
+
+Returns `1.0` for identical direction, `0.0` for orthogonal, `-1.0` for
+opposite. Embeddings from the same model with semantically related text reliably
+score `0.5–0.9`.
+
+#### Step 6 — Prompt Injection (`SkillRegistry.buildPromptBlock()`)
+
+```ts
+skillBlock = skillRegistry.buildPromptBlock(matched);
+```
+
+Produces a Markdown block:
+
+```markdown
+## Loaded Skills (dynamically matched to this task)
+
+### Skill: scouting_rubric (relevance: 0.82)
+
+## Scout Report Format
+
+When generating a scout report, always follow this structure:
+
+### [Name] — [Position] | [School] | Class of [Year]
+
+**Overall Grade: [X]/100** ...
+```
+
+This is **appended to the bottom of the system prompt**, directly before the LLM
+call.
+
+#### Step 7 — Graceful Degradation
+
+The entire embedding + matching flow is wrapped in a `try/catch` inside
+`execute()`. If the embedding API is unavailable, the agent logs a warning and
+proceeds using its base system prompt. Each coordinator's prompt contains
+fallback instructions:
+
+> _"If a 'Loaded Skills' section appears below, follow it exactly. If no skills
+> are loaded, [graceful fallback behavior]."_
+
+---
+
+### 6.5 Adding a New Skill
+
+**1. Create the skill file:**
+
+```ts
+// backend/src/modules/agent/skills/[category]/my-new.skill.ts
+import { BaseSkill, type SkillCategory } from '../base.skill.js';
+
+export class MyNewSkill extends BaseSkill {
+  readonly name = 'my_new_skill'; // Unique snake_case identifier
+  readonly description = // THIS IS WHAT GETS EMBEDDED
+    'Concise description of what relevant intents look like. Include key domain words.';
+  readonly category: SkillCategory = 'strategy';
+
+  getPromptContext(_params?: Record<string, unknown>): string {
+    return `## My Rules\n- Rule 1\n- Rule 2`; // Injected verbatim into prompt
+  }
+}
+```
+
+> **Critical:** The `description` field must read like a sentence that would
+> appear near the user intents it should match. It directly determines semantic
+> matching accuracy. Do NOT write it as a title — write it as a semantically
+> rich paragraph.
+
+**2. Export from the barrel:**
+
+```ts
+// backend/src/modules/agent/skills/index.ts
+export { MyNewSkill } from './strategy/my-new.skill.js';
+```
+
+**3. Register in bootstrap:**
+
+```ts
+// backend/src/modules/agent/queue/bootstrap.ts
+import { ..., MyNewSkill } from '../skills/index.js';
+
+skillRegistry.register(new MyNewSkill());
+```
+
+**4. Declare in the coordinator:**
+
+```ts
+override getSkills(): readonly string[] {
+  return ['my_new_skill'];
+}
+```
+
+**5. Write tests** (see `__tests__/skill-system.spec.ts` for patterns).
+
+---
+
+### 6.6 Skill Reference Table
+
+| Skill Name              | Coordinator            | Category      | What It Injects                                                              |
+| ----------------------- | ---------------------- | ------------- | ---------------------------------------------------------------------------- |
+| `scouting_rubric`       | PerformanceCoordinator | `evaluation`  | Scout report Markdown table, 1–100 grade scale, evaluation rules             |
+| `outreach_copywriting`  | RecruitingCoordinator  | `copywriting` | Email subject formula, 150-word body rules, 4-step campaign sequencing       |
+| `compliance_rulebook`   | ComplianceCoordinator  | `compliance`  | NCAA/NAIA/NJCAA calendar, GPA/SAT cutoffs, ✅/⚠️/🚫 verdict format           |
+| `static_graphic_style`  | BrandMediaCoordinator  | `brand`       | ESPN/Bleacher Report aesthetic, typography, color palettes, layout rules     |
+| `video_highlight_style` | BrandMediaCoordinator  | `brand`       | Highlight reel structure, pacing, broadcast overlay style, tech requirements |
+| `social_caption_style`  | BrandMediaCoordinator  | `brand`       | Caption voice/tone, hashtag strategy, platform-specific rules (IG/X/TikTok)  |
+
+---
+
+### 6.7 Key Design Decisions & Rationale
+
+| Decision                                         | Why                                                                                                                                                              |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Embedding threshold `0.35`**                   | Empirically safe for 1536-dim space. High enough to avoid irrelevant matches; low enough to catch paraphrased intents. Tune per skill if needed.                 |
+| **`import type { SkillRegistry }` in BaseAgent** | No circular dependency: `SkillRegistry → BaseSkill`, never `→ BaseAgent`. Type-only import is erased at compile time; runtime value flows through the parameter. |
+| **`buildPromptBlock` is an instance method**     | Callers already hold the `skillRegistry` instance. Instance method eliminates a redundant class import at call sites.                                            |
+| **Skill description is prose, not a title**      | The embedding model scores semantic similarity. Prose descriptions produce vectors that cluster near real user intent strings; short titles do not.              |
+| **All 6 skills imported from barrel**            | Single import line in bootstrap. Adding a new skill never requires touching bootstrap's import block, just the `register()` call.                                |
+| **Coordinator declares `getSkills()`**           | The coordinator — not the registry — decides scope. This prevents a `ComplianceRulebookSkill` from being loaded into a brand graphics task.                      |

@@ -21,6 +21,9 @@ import {
   ArrayMaxSize,
   IsNumber,
   Matches,
+  IsUUID,
+  IsUrl,
+  IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -84,6 +87,33 @@ export class AskAgentDto {
   metadata?: Record<string, string | number | boolean>;
 }
 
+export class ChatAttachmentDto {
+  @IsUUID('4')
+  @IsNotEmpty()
+  id!: string;
+
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsNotEmpty()
+  url!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  mimeType!: string;
+
+  @IsIn(['image', 'video', 'pdf', 'csv', 'doc'])
+  @IsNotEmpty()
+  type!: string;
+
+  @IsNumber()
+  @Min(1)
+  @Max(20 * 1024 * 1024) // 20 MB
+  sizeBytes!: number;
+}
+
 export class AgentChatRequestDto {
   @IsString()
   @IsNotEmpty()
@@ -109,6 +139,13 @@ export class AgentChatRequestDto {
   @IsObject()
   @IsOptional()
   userContext?: Record<string, unknown>;
+
+  @IsArray()
+  @IsOptional()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => ChatAttachmentDto)
+  attachments?: ChatAttachmentDto[];
 }
 
 export class AgentChatDto {

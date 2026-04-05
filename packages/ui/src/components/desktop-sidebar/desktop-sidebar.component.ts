@@ -1269,6 +1269,10 @@ export class NxtDesktopSidebarComponent {
       .subscribe((event) => {
         this._currentRoute.set(event.urlAfterRedirects);
         this.restoreNavScrollPosition();
+        // Auto-collapse on /agent (Agent X fills the full workspace)
+        if (event.urlAfterRedirects === '/agent' || event.urlAfterRedirects.startsWith('/agent?')) {
+          this._isCollapsed.set(true);
+        }
       });
 
     // Initialize from storage (browser only)
@@ -1276,6 +1280,11 @@ export class NxtDesktopSidebarComponent {
       this.loadCollapsedState();
       this.initializeNavScrollPersistence();
       this.restoreNavScrollPosition();
+      // Force collapse on initial load if already on /agent
+      const url = this.router.url;
+      if (url === '/agent' || url.startsWith('/agent?')) {
+        this._isCollapsed.set(true);
+      }
     });
   }
 

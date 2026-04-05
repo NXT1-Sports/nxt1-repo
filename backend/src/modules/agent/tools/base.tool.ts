@@ -54,8 +54,49 @@ export abstract class BaseTool {
   /** Which sub-agents are allowed to invoke this tool. '*' = all. */
   readonly allowedAgents: readonly (AgentIdentifier | '*')[] = ['*'];
 
+  /**
+   * Cached vector embedding of the tool's description.
+   * Loaded lazily on first access.
+   */
+  _embedding?: number[];
+
   /** Execute the tool with validated input. */
   abstract execute(input: Record<string, unknown>): Promise<ToolResult>;
+
+  // ─── Helper Methods for Tool RAG ────────────────────────────────────
+
+  /**
+   * Lazily computes and caches the embedding vector for semantic matching.
+   * Callers pass the embedding function (LLM adapter).
+   */
+  async matchIntent(
+    intentVector: number[],
+    embedFn: (text: string) => Promise<number[]>
+  ): Promise<number> {
+    if (!this._embedding) {
+      // Create a rich context string for the embedding model to improve matching
+      const contextText = `Tool Name: ${this.name}\nDescription: ${this.description}\nCategory: ${this.category}`;
+      this._embedding = await embedFn(contextText);
+    }
+    return this.cosineSimilarity(intentVector, this._embedding);
+  }
+
+  /**
+   * Computes the cosine similarity between two vectors.
+   * Range is [-1, 1], where 1 is identical.
+   */
+  private cosineSimilarity(a: number[], b: number[]): number {
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    for (let i = 0; i < a.length; i++) {
+      dotProduct += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
+    }
+    if (normA === 0 || normB === 0) return 0;
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  }
 
   // ─── Shared Input Helpers ─────────────────────────────────────────────
 

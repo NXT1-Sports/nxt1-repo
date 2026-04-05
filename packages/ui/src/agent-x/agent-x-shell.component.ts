@@ -548,10 +548,15 @@ export interface WeeklyPlaybookItem {
       [canSend]="agentX.canSend()"
       [userMessage]="agentX.getUserMessage()"
       [placeholder]="'Message A Coordinator'"
+      [pendingFiles]="agentX.pendingFiles()"
+      [uploading]="agentX.uploading()"
       (messageChange)="agentX.setUserMessage($event)"
       (send)="onSendMessage()"
+      (stop)="agentX.cancelStream()"
       (removeTask)="agentX.clearTask()"
       (toggleTasks)="onToggleTasks()"
+      (filesAdded)="agentX.addFiles($event)"
+      (fileRemoved)="agentX.removeFile($event)"
     />
   `,
   styles: [
@@ -1884,6 +1889,20 @@ export class AgentXShellComponent {
 
   protected async openControlPanel(panel: AgentXControlPanelKind, required = false): Promise<void> {
     await this.haptics.impact('light');
+
+    const goalIds =
+      panel === 'goals'
+        ? this.agentX
+            .goals()
+            .map((goal) =>
+              goal.id.startsWith('custom') && goal.text ? `custom:${goal.text}` : goal.id
+            )
+        : [];
+
+    if (panel === 'goals') {
+      this.controlPanelState.hydrateGoals(goalIds);
+    }
+
     this.controlPanelState.notePanelOpened(panel, 'sheet');
 
     const result = await this.bottomSheet.openSheet<{
@@ -1895,6 +1914,7 @@ export class AgentXShellComponent {
         panel,
         presentation: 'sheet',
         required,
+        ...(panel === 'goals' ? { initialGoals: goalIds } : {}),
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

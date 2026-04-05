@@ -123,6 +123,13 @@ export { NxtListRowComponent } from './components/list-row';
 export { NxtListSectionComponent } from './components/list-section';
 export { NxtMediaGalleryComponent } from './components/media-gallery';
 export {
+  NxtMediaViewerService,
+  NxtMediaViewerContentComponent,
+  type MediaViewerItem,
+  type MediaViewerConfig,
+  type MediaViewerResult,
+} from './components/media-viewer';
+export {
   NxtHistoryTimelineComponent,
   type HistoryTimelineEntry,
   type HistoryTimelineEmptyConfig,
@@ -1406,3 +1413,14 @@ export {
   NxtRecruitmentPillarsSectionComponent,
   type RecruitmentPillar,
 } from './components/recruitment-pillars-section';
+
+// ============================================
+// INTEL (AI-Generated Intelligence Reports)
+// ============================================
+export {
+  IntelApiClient,
+  INTEL_API_BASE_URL,
+  IntelService,
+  AthleteIntelComponent,
+  TeamIntelComponent,
+} from './intel';

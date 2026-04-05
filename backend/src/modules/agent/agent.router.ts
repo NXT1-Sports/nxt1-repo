@@ -34,6 +34,7 @@ import type { ToolRegistry } from './tools/tool-registry.js';
 import type { ContextBuilder } from './memory/context-builder.js';
 import type { BaseAgent } from './agents/base.agent.js';
 import type { GuardrailRunner } from './guardrails/guardrail-runner.js';
+import type { SkillRegistry } from './skills/skill-registry.js';
 import { PlannerAgent } from './agents/planner.agent.js';
 import { isAgentYield, AgentYieldException } from './errors/agent-yield.error.js';
 import { SemanticCacheService } from './memory/semantic-cache.service.js';
@@ -60,7 +61,8 @@ export class AgentRouter {
     private readonly llm: OpenRouterService,
     private readonly toolRegistry: ToolRegistry,
     private readonly contextBuilder: ContextBuilder,
-    private readonly guardrailRunner?: GuardrailRunner
+    private readonly guardrailRunner?: GuardrailRunner,
+    private readonly skillRegistry?: SkillRegistry
   ) {
     this.planner = new PlannerAgent(llm);
     this.semanticCache = new SemanticCacheService(llm);
@@ -177,14 +179,29 @@ export class AgentRouter {
       this.emitUpdate(onUpdate, operationId, 'acting', `Routing directly to ${payload.agent}...`);
 
       try {
-        const toolDefs = this.toolRegistry.getDefinitions(directAgent.id);
+        let toolDefs = this.toolRegistry.getDefinitions(directAgent.id);
+
+        // Dynamically filter tools by semantic intent matching, if intent embedding succceeds.
+        try {
+          const intentEmbedding = await this.llm.embed(enrichedIntent);
+          // Reassign toolDefs based on RAG. Tools without relevance are trimmed.
+          toolDefs = await this.toolRegistry.match(
+            intentEmbedding,
+            (t) => this.llm.embed(t),
+            directAgent.id
+          );
+        } catch (e) {
+          // Ensure we don't blow up DAG execution if embedding service is down.
+        }
+
         const result = await directAgent.execute(
           enrichedIntent,
           context,
           toolDefs,
           this.llm,
           this.toolRegistry,
-          this.guardrailRunner
+          this.guardrailRunner,
+          this.skillRegistry
         );
 
         this.emitUpdate(onUpdate, operationId, 'completed', result.summary);
@@ -343,7 +360,18 @@ export class AgentRouter {
               );
             }
 
-            const toolDefs = this.toolRegistry.getDefinitions(agent.id);
+            // Dynamic Tool RAG: filter tools by semantic relevance to this task's intent
+            let toolDefs = this.toolRegistry.getDefinitions(agent.id);
+            try {
+              const intentEmbedding = await this.llm.embed(taskIntent);
+              toolDefs = await this.toolRegistry.match(
+                intentEmbedding,
+                (t) => this.llm.embed(t),
+                agent.id
+              );
+            } catch {
+              // Embedding unavailable — fall back to all permitted tools
+            }
 
             const result = await agent.execute(
               taskIntent,
@@ -351,7 +379,8 @@ export class AgentRouter {
               toolDefs,
               this.llm,
               this.toolRegistry,
-              this.guardrailRunner
+              this.guardrailRunner,
+              this.skillRegistry
             );
 
             taskResults.set(task.id, result);
@@ -474,7 +503,18 @@ export class AgentRouter {
     const enrichedIntent = this.enrichIntentWithContext(intent, userContext, payload.context);
 
     try {
-      const toolDefs = this.toolRegistry.getDefinitions(agent.id);
+      let toolDefs = this.toolRegistry.getDefinitions(agent.id);
+
+      try {
+        const intentEmbedding = await this.llm.embed(enrichedIntent);
+        toolDefs = await this.toolRegistry.match(
+          intentEmbedding,
+          (t) => this.llm.embed(t),
+          agent.id
+        );
+      } catch (err) {
+        // Ignore embedding failures during resume and pass all possible tools.
+      }
 
       // Design note (V1): We intentionally restart the agent's ReAct loop
       // from scratch rather than injecting the saved message array directly.
@@ -494,7 +534,8 @@ export class AgentRouter {
         toolDefs,
         this.llm,
         this.toolRegistry,
-        this.guardrailRunner
+        this.guardrailRunner,
+        this.skillRegistry
       );
 
       this.emitUpdate(onUpdate, operationId, 'completed', result.summary);

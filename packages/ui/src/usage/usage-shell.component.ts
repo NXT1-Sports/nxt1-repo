@@ -217,6 +217,7 @@ export interface UsageUser {
                     @if (svc.isOrg()) {
                       <nxt1-usage-budgets
                         [budgets]="svc.budgets()"
+                        [readOnly]="!svc.isOrgAdmin()"
                         (createBudget)="onCreateBudget()"
                         (editBudget)="onEditBudget($event)"
                         (editTeamBudget)="onEditTeamBudget($event)"
@@ -258,6 +259,7 @@ export interface UsageUser {
                   @case ('budgets') {
                     <nxt1-usage-budgets
                       [budgets]="svc.budgets()"
+                      [readOnly]="!svc.isOrgAdmin()"
                       (createBudget)="onCreateBudget()"
                       (editBudget)="onEditBudget($event)"
                       (editTeamBudget)="onEditTeamBudget($event)"

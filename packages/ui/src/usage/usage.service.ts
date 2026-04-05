@@ -100,6 +100,8 @@ export class UsageService implements OnDestroy {
   private readonly _historyHasMore = signal(true);
   private readonly _isLoadingMore = signal(false);
   private readonly _activeSection = signal<UsageSection>('overview');
+  private readonly _isOrgAdmin = signal(false);
+  private readonly _isTeamAdmin = signal(false);
 
   constructor() {
     // Auto-poll overview every 5 s while an agent job has an active hold.
@@ -153,6 +155,11 @@ export class UsageService implements OnDestroy {
   readonly historyHasMore = computed(() => this._historyHasMore());
   readonly activeSection = computed(() => this._activeSection());
 
+  /** Whether the current user is an admin of the organization */
+  readonly isOrgAdmin = computed(() => this._isOrgAdmin());
+  /** Whether the current user is an admin of their assigned team */
+  readonly isTeamAdmin = computed(() => this._isTeamAdmin());
+
   // ============================================
   // BILLING MODEL SIGNALS (B2C vs B2B)
   // ============================================
@@ -166,12 +173,18 @@ export class UsageService implements OnDestroy {
     return entity === 'organization' || entity === 'team';
   });
 
-  /** Dynamic section nav — hides org-only sections for personal users */
+  /** Dynamic section nav — hides org-only sections for personal users and admin-only sections for non-admin org members */
   readonly sectionNavs = computed((): readonly UsageSectionNav[] => {
     if (this.isPersonal()) {
       // B2C: hide metered-usage chart, budgets, and payment-info
       return USAGE_SECTION_NAVS.filter(
         (n) => n.id !== 'metered-usage' && n.id !== 'budgets' && n.id !== 'payment-info'
+      );
+    }
+    if (this.isOrg() && !this.isOrgAdmin()) {
+      // Non-admin org members: hide payment-history and payment-info (sensitive financial data)
+      return USAGE_SECTION_NAVS.filter(
+        (n) => n.id !== 'payment-history' && n.id !== 'payment-info'
       );
     }
     return USAGE_SECTION_NAVS;
@@ -336,6 +349,8 @@ export class UsageService implements OnDestroy {
       this._coupon.set(dashboard.coupon);
       this._budgets.set(dashboard.budgets);
       this._billingContext.set(billingCtx);
+      this._isOrgAdmin.set(dashboard.isOrgAdmin ?? true);
+      this._isTeamAdmin.set(dashboard.isTeamAdmin ?? true);
       this._historyPage.set(1);
       this._historyHasMore.set(dashboard.paymentHistory.length >= USAGE_HISTORY_PAGE_SIZE);
 

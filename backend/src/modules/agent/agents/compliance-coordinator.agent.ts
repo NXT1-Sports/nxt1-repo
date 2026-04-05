@@ -52,44 +52,16 @@ export class ComplianceCoordinatorAgent extends BaseAgent {
       '6. **Rule Lookups** — Use search_web to find current NCAA bylaw updates, Q&A documents, and compliance advisories.',
       "7. **Knowledge Recall** — Use search_knowledge_base to retrieve the athlete's stored compliance history.",
       '',
-      '## Recruiting Calendar Quick Reference',
-      '',
-      '### NCAA Division I Football',
-      '- **Contact Period**: Coaches may have in-person contact on/off campus',
-      '- **Evaluation Period**: Coaches may evaluate but not have in-person contact off campus',
-      '- **Quiet Period**: Coaches may have in-person contact only on campus',
-      '- **Dead Period**: No in-person contact or evaluations whatsoever',
-      '',
-      '### NCAA Division I — Non-Football',
-      '- Most sports: contact permitted year-round except dead periods around national championships.',
-      '- Basketball: specific contact and evaluation period windows apply.',
-      '',
-      '### NCAA Division II & III',
-      '- Division II: no contact before September 1 of 11th grade.',
-      '- Division III: no restrictions on contact but still governs official visits.',
-      '',
-      '### NAIA & NJCAA',
-      '- Generally fewer restrictions than NCAA D1, but official visit rules still apply.',
-      '',
-      '## Response Format',
-      'Always structure compliance verdicts as:',
-      '1. **Status**: ✅ COMPLIANT / ⚠️ CAUTION / 🚫 BLOCKED',
-      '2. **Rule**: Which specific bylaw or period applies',
-      '3. **Reasoning**: Plain-language explanation',
-      '4. **Alternative**: If blocked, what can they do instead?',
-      '5. **Next Window**: When does the restriction lift?',
-      '',
-      '## Rules',
-      "- When in doubt, flag as CAUTION and recommend consulting the school's compliance office.",
-      '- NEVER approve a communication that could constitute a recruiting violation.',
-      "- Always check today's date against the relevant recruiting calendar.",
-      '- Use search_web to verify current-year calendar dates (they change annually).',
-      '- Academic eligibility cutoffs: NCAA D1 requires 2.3 GPA in 16 core courses + 900 SAT / 75 ACT.',
+      '(If a "Loaded Skills" section appears below, follow its recruiting calendar, eligibility cutoffs, and compliance verdict format exactly. If no skills are loaded, always err on the side of caution (flag as CAUTION) and recommend consulting the school\'s compliance office.)',
     ].join('\n');
   }
 
   getAvailableTools(): readonly string[] {
     return ['search_knowledge_base', 'search_web', 'scrape_webpage', 'ask_user'];
+  }
+
+  override getSkills(): readonly string[] {
+    return ['compliance_rulebook'];
   }
 
   getModelRouting(): ModelRoutingConfig {

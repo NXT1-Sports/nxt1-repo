@@ -9,8 +9,11 @@
 // Types
 export type {
   ChatRole,
+  AgentXAttachmentType,
+  AgentXAttachment,
   AgentXMessage,
   AgentXMessageMetadata,
+  AutoOpenPanelInstruction,
   QuickTaskCategory,
   AgentXQuickTask,
   AgentXMode,
@@ -52,19 +55,6 @@ export type {
   AgentXStreamCallbacks,
 } from './agent-x.types';
 
-// Content types (mode-specific)
-export type {
-  AgentXDraftStatus,
-  AgentXDraft,
-  AgentXTemplateCategory,
-  AgentXTemplate,
-  AgentXBundle,
-  AgentXTaskPriority,
-  AgentXTaskItem,
-  AgentXCreativeModeContent,
-  AgentXActionModeContent,
-} from './agent-x-content.types';
-
 // Constants
 export {
   AGENT_X_CONFIG,
@@ -78,12 +68,30 @@ export {
   AGENT_X_RATE_LIMITS,
   AGENT_X_CACHE_KEYS,
   AGENT_X_CACHE_TTL,
+  // Attachment constants & helpers
+  AGENT_X_ALLOWED_MIME_TYPES,
+  AGENT_X_MAX_ATTACHMENTS,
+  AGENT_X_MAX_FILE_SIZE,
+  resolveAttachmentType,
   // Role-specific shell content
   ATHLETE_COORDINATORS,
   TEAM_COORDINATORS,
   RECRUITER_COORDINATORS,
   getShellContentForRole,
 } from './agent-x.constants';
+
+// Content types (mode-specific)
+export type {
+  AgentXDraftStatus,
+  AgentXDraft,
+  AgentXTemplateCategory,
+  AgentXTemplate,
+  AgentXBundle,
+  AgentXTaskPriority,
+  AgentXTaskItem,
+  AgentXCreativeModeContent,
+  AgentXActionModeContent,
+} from './agent-x-content.types';
 
 // Content constants (mode-specific)
 export {

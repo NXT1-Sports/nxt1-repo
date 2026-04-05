@@ -652,7 +652,7 @@ export interface AgentAgentUsage {
   readonly costUsd: number;
 }
 
-/** Per-tier usage limits.  */
+/** Per-tier usage limits. Currently a single 'default' tier for all users. */
 export interface AgentUsageLimits {
   readonly tier: string;
   /** Max LLM calls per day. */
@@ -661,6 +661,6 @@ export interface AgentUsageLimits {
   readonly maxTokensPerDay: number;
   /** Max cost in USD per day. */
   readonly maxCostPerDay: number;
-  /** Allowed model tiers (e.g., free = ['fast'], premium = ['fast','balanced','reasoning','creative']). */
+  /** Allowed model tiers. Currently all tiers are allowed for every user. */
   readonly allowedModelTiers: readonly ModelTier[];
 }

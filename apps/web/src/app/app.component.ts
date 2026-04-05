@@ -6,6 +6,7 @@ import {
   computed,
   OnInit,
   afterNextRender,
+  effect,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterOutlet, NavigationEnd } from '@angular/router';
@@ -23,6 +24,7 @@ import type { ILogger } from '@nxt1/core/logging';
 import { filter } from 'rxjs/operators';
 import { AnalyticsService } from './core/services/analytics.service';
 import { WebVitalsService } from './core/services/web-vitals.service';
+import { AuthFlowService } from './features/auth/services/auth-flow.service';
 
 /**
  * Root Application Component
@@ -54,9 +56,15 @@ export class AppComponent implements OnInit {
   private readonly analytics = inject(AnalyticsService);
   protected readonly downloadBar = inject(NxtAppDownloadBarService);
   private readonly webVitals = inject(WebVitalsService);
+  private readonly authFlow = inject(AuthFlowService);
 
   /** Theme service — injected at root so it initializes on every route (including 404) */
   private readonly theme = inject(NxtThemeService);
+
+  /** Sync auth state to download bar — hide for logged-in users */
+  private readonly authSyncEffect = effect(() => {
+    this.downloadBar.setAuthenticated(this.authFlow.isAuthenticated());
+  });
 
   // ============================================
   // STATE SIGNALS

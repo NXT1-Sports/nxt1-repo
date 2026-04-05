@@ -327,6 +327,32 @@ router.get(
     const hydrationService = getHydrationService(db);
     const user = await hydrationService.hydrateUser(rawUser);
 
+    // For coach/director roles, connected sources live on the Team doc.
+    // Merge them into the user profile so the frontend sees them.
+    const isTeamRole = user.role === 'coach' || user.role === 'director';
+    const activeSportData = user.sports?.[user.activeSportIndex ?? 0] ?? user.sports?.[0];
+    const teamId = activeSportData?.team?.teamId;
+    if (isTeamRole && teamId) {
+      try {
+        const teamDoc = await db.collection('Teams').doc(teamId).get();
+        if (teamDoc.exists) {
+          const teamData = teamDoc.data();
+          if (
+            Array.isArray(teamData?.['connectedSources']) &&
+            teamData['connectedSources'].length > 0
+          ) {
+            user.connectedSources = teamData['connectedSources'];
+          }
+        }
+      } catch (err) {
+        logger.warn('[Profile] /me failed to fetch team connected sources', {
+          userId,
+          teamId,
+          err,
+        });
+      }
+    }
+
     await cache.set(cacheKey, user, { ttl: CACHE_TTL.PROFILES });
     logger.debug('[Profile] /me cache set', { userId });
 
@@ -1191,6 +1217,28 @@ router.get(
     const hydrationService = getHydrationService(db);
     const user = await hydrationService.hydrateUser(rawUser);
 
+    // For coach/director roles, connected sources live on the Team doc.
+    // Merge them so callers (including auth sync) see the correct sources.
+    const isTeamRole = user.role === 'coach' || user.role === 'director';
+    const activeSportData = user.sports?.[user.activeSportIndex ?? 0] ?? user.sports?.[0];
+    const teamId = activeSportData?.team?.teamId;
+    if (isTeamRole && teamId) {
+      try {
+        const teamDoc = await db.collection('Teams').doc(teamId).get();
+        if (teamDoc.exists) {
+          const teamData = teamDoc.data();
+          if (
+            Array.isArray(teamData?.['connectedSources']) &&
+            teamData['connectedSources'].length > 0
+          ) {
+            user.connectedSources = teamData['connectedSources'];
+          }
+        }
+      } catch (err) {
+        logger.warn('[Profile] Failed to fetch team connected sources', { userId, teamId, err });
+      }
+    }
+
     await cache.set(cacheKey, user, { ttl: CACHE_TTL.PROFILES });
     logger.debug('[Profile] Profile cache set', { userId });
 
@@ -1782,6 +1830,59 @@ router.delete(
 
     logger.info('[Profile] Sport removed', { userId, sportIndex });
     res.json({ success: true, data: null });
+  })
+);
+
+// ─── Intel Report Routes ────────────────────────────────────────────────────
+
+/**
+ * GET /:userId/intel
+ * Fetch the stored athlete Intel report (public, cached).
+ */
+router.get(
+  '/:userId/intel',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId } = req.params as { userId: string };
+    const db = req.firebase!.db;
+
+    const { IntelGenerationService } = await import('../modules/agent/services/intel.service.js');
+    const intelService = new IntelGenerationService();
+    const report = await intelService.getAthleteIntel(userId, db);
+
+    res.json({ success: true, data: report });
+  })
+);
+
+/**
+ * POST /:userId/intel/generate
+ * Trigger on-demand athlete Intel generation (authenticated, own profile only).
+ */
+router.post(
+  '/:userId/intel/generate',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId } = req.params as { userId: string };
+    const userId_auth = req.user!.uid;
+    const db = req.firebase!.db;
+
+    if (userId_auth !== userId) {
+      sendError(res, forbiddenError('owner'));
+      return;
+    }
+
+    const { IntelGenerationService } = await import('../modules/agent/services/intel.service.js');
+    const intelService = new IntelGenerationService();
+    const report = await intelService.generateAthleteIntel(userId, db);
+
+    logger.info('[Profile] Intel generated', { userId });
+    res.json({
+      success: true,
+      status: 'ready',
+      message: 'Intel report generated successfully',
+      reportId: report['id'],
+      data: report,
+    });
   })
 );
 

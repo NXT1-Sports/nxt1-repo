@@ -861,6 +861,16 @@ function isUserTeamAdmin(teamCode: TeamCode, userId?: string): boolean {
 }
 
 /**
+ * Check if user is a team coach
+ */
+function isUserTeamCoach(teamCode: TeamCode, userId?: string): boolean {
+  if (!userId) return false;
+
+  const member = teamCode.members?.find((m) => m.id === userId);
+  return member?.role === ROLE.coach;
+}
+
+/**
  * Check if user is team member
  */
 function isUserTeamMember(teamCode: TeamCode, userId?: string): boolean {
@@ -1007,7 +1017,7 @@ export async function mapTeamCodeToProfile(
   // Permissions
   const isTeamAdmin = isUserTeamAdmin(teamCode, userId);
   const isMember = isUserTeamMember(teamCode, userId);
-  const canEdit = isTeamAdmin;
+  const canEdit = isTeamAdmin || isUserTeamCoach(teamCode, userId);
 
   // Posts — fetch from shared Posts collection using teamId
   const recentPosts = firestore ? await fetchTeamPosts(teamCode.id || '', firestore) : [];

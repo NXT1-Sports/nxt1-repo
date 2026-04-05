@@ -387,6 +387,10 @@ export interface UsageDashboardData {
   readonly billingEntity: BillingEntity;
   /** How this context is funded */
   readonly paymentProvider: PaymentProviderType;
+  /** Whether the current user is an admin of the organization (owner or in admins array) */
+  readonly isOrgAdmin: boolean;
+  /** Whether the current user is an admin of their assigned team */
+  readonly isTeamAdmin: boolean;
 }
 
 // ============================================

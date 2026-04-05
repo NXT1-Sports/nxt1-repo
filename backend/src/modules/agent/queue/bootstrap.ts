@@ -49,9 +49,12 @@ import {
   WriteCalendarEventsTool,
   WriteAthleteVideosTool,
   SearchKnowledgeBaseTool,
+  SearchCollegesTool,
 } from '../tools/database/index.js';
 import { GenerateImageTool } from '../tools/media/index.js';
 import { WebSearchTool } from '../tools/integrations/web-search.tool.js';
+import { ScrapeTwitterTool } from '../tools/integrations/scrape-twitter.tool.js';
+import { ApifyService } from '../tools/integrations/apify.service.js';
 import { AskUserTool } from '../tools/comms/ask-user.tool.js';
 import {
   ScheduleRecurringTaskTool,
@@ -68,6 +71,15 @@ import {
   AntiHallucinationGuardrail,
   ToneEnforcementGuardrail,
 } from '../guardrails/index.js';
+import {
+  SkillRegistry,
+  ScoutingRubricSkill,
+  OutreachCopywritingSkill,
+  ComplianceRulebookSkill,
+  StaticGraphicStyleSkill,
+  VideoHighlightStyleSkill,
+  SocialCaptionStyleSkill,
+} from '../skills/index.js';
 import {
   DataCoordinatorAgent,
   PerformanceCoordinatorAgent,
@@ -209,6 +221,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteRecruitingActivityTool(stagingDb));
   toolRegistry.register(new WriteCalendarEventsTool(stagingDb));
   toolRegistry.register(new WriteAthleteVideosTool(stagingDb));
+  toolRegistry.register(new SearchCollegesTool());
   toolRegistry.register(new GenerateImageTool(llm));
 
   // ── 1a. Vector memory & knowledge tools ──────────────────────────────
@@ -216,6 +229,15 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WebSearchTool());
   toolRegistry.register(new SearchKnowledgeBaseTool(vectorMemory));
   toolRegistry.register(new AskUserTool());
+
+  // ── 1b. Twitter/X scraping (Apify-hosted Scweet actor) ──────────────
+  try {
+    const apifyService = new ApifyService();
+    toolRegistry.register(new ScrapeTwitterTool(apifyService));
+    logger.info('Twitter/X scraping tool registered (Apify)');
+  } catch {
+    logger.warn('APIFY_API_TOKEN not configured — scrape_twitter tool disabled');
+  }
 
   const contextBuilder = new ContextBuilder();
 
@@ -226,8 +248,17 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     new ToneEnforcementGuardrail(),
   ]);
 
+  // ── 1c. Skill Registry (dynamic domain knowledge injection) ─────────
+  const skillRegistry = new SkillRegistry();
+  skillRegistry.register(new ScoutingRubricSkill());
+  skillRegistry.register(new OutreachCopywritingSkill());
+  skillRegistry.register(new ComplianceRulebookSkill());
+  skillRegistry.register(new StaticGraphicStyleSkill());
+  skillRegistry.register(new VideoHighlightStyleSkill());
+  skillRegistry.register(new SocialCaptionStyleSkill());
+
   // ── 2. Wire the AgentRouter with all sub-agents ───────────────────
-  const router = new AgentRouter(llm, toolRegistry, contextBuilder, guardrailRunner);
+  const router = new AgentRouter(llm, toolRegistry, contextBuilder, guardrailRunner, skillRegistry);
   router.registerAgent(new DataCoordinatorAgent());
   router.registerAgent(new PerformanceCoordinatorAgent());
   router.registerAgent(new RecruitingCoordinatorAgent());

@@ -84,6 +84,7 @@ export class NxtAppDownloadBarService {
   private rafId: number | null = null;
   private mutationTimeout: ReturnType<typeof setTimeout> | null = null;
   private readonly _hasFooter = signal(false);
+  private readonly _isAuthenticated = signal(false);
 
   // ============================================
   // PUBLIC COMPUTED SIGNALS
@@ -98,10 +99,15 @@ export class NxtAppDownloadBarService {
   /**
    * Whether the download bar DOM should be mounted.
    * Keeps the element in the DOM so CSS transitions can play on hide.
-   * Conditions: initialized, not dismissed, not native, browser.
+   * Conditions: initialized, not dismissed, not native, not authenticated, browser.
    */
   readonly shouldRender = computed(
-    () => this._initialized() && !this._dismissed() && !this.platform.isNative() && this.isBrowser
+    () =>
+      this._initialized() &&
+      !this._dismissed() &&
+      !this._isAuthenticated() &&
+      !this.platform.isNative() &&
+      this.isBrowser
   );
 
   /**
@@ -162,6 +168,14 @@ export class NxtAppDownloadBarService {
     this.destroyRef.onDestroy(() => {
       this.cleanup();
     });
+  }
+
+  /**
+   * Set the authentication state. When true, the download bar is hidden.
+   * Call this from the root component to sync with the app's auth state.
+   */
+  setAuthenticated(value: boolean): void {
+    this._isAuthenticated.set(value);
   }
 
   /**

@@ -75,6 +75,28 @@
 @import '@nxt1/ui/styles/components/ionic-modal';
 
 /* ============================================
+   MEDIA VIEWER OVERLAY (NxtOverlayService)
+   Fullscreen, black, no decoration — cinematic.
+   Targets panel class set by NxtMediaViewerService.
+   ============================================ */
+.nxt1-media-viewer-overlay {
+  background: #000 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  max-height: 100vh !important;
+  max-height: 100dvh !important;
+}
+
+.nxt1-media-viewer-overlay::before {
+  display: none !important;
+}
+
+/* ============================================
    IONIC INPUT FOCUS FIX (Global)
    Remove native browser focus outline from inputs inside
    Ionic components. Ionic handles focus indication via 

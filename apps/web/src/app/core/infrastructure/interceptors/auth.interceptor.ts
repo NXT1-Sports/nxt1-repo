@@ -47,10 +47,15 @@ const PUBLIC_ENDPOINTS = [
 ];
 
 /**
- * Check if a URL is a public endpoint
+ * Check if a URL is a public endpoint.
+ * Strips the API base URL first so that e.g. "/feed" only matches
+ * the social feed path, not "/activity/feed".
  */
 function isPublicEndpoint(url: string): boolean {
-  return PUBLIC_ENDPOINTS.some((endpoint) => url.includes(endpoint));
+  const baseIndex = url.indexOf(environment.apiURL);
+  const apiPath = baseIndex !== -1 ? url.slice(baseIndex + environment.apiURL.length) : url;
+
+  return PUBLIC_ENDPOINTS.some((endpoint) => apiPath.startsWith(endpoint));
 }
 
 /**

@@ -47,6 +47,7 @@ import {
   NEWS_API_BASE_URL,
   NEWS_API_ADAPTER,
   PERFORMANCE_ADAPTER,
+  INTEL_API_BASE_URL,
 } from '@nxt1/ui';
 // Mobile-specific Activity API adapter (uses CapacitorHttpAdapter + auth)
 import { ActivityApiService as MobileActivityApiService } from './features/activity/services/activity-api.service';
@@ -217,6 +218,9 @@ export const appConfig: ApplicationConfig = {
 
     // Usage API base URL
     { provide: USAGE_API_BASE_URL, useFactory: () => environment.apiUrl },
+
+    // Intel API base URL
+    { provide: INTEL_API_BASE_URL, useFactory: () => environment.apiUrl },
 
     // Settings persistence adapter (connects SettingsService → backend API)
     { provide: SETTINGS_PERSISTENCE_ADAPTER, useExisting: SettingsApiService },

@@ -326,6 +326,25 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
+     * Check the Agent X system health status.
+     *
+     * Unauthenticated, CDN-cached (60s). Used by the status dot to determine
+     * whether Agent X is operational, degraded, or down.
+     *
+     * @returns Current system status ('active' | 'degraded' | 'down')
+     */
+    async checkHealth(): Promise<'active' | 'degraded' | 'down'> {
+      try {
+        const response = await http.get<ApiResponse<{ status: 'active' | 'degraded' | 'down' }>>(
+          endpoint(AGENT_X_ENDPOINTS.HEALTH)
+        );
+        return response.success && response.data ? response.data.status : 'degraded';
+      } catch {
+        return 'down';
+      }
+    },
+
+    /**
      * Stream a chat response using the backend SSE endpoint.
      *
      * Connects to `POST /agent-x/chat` with `Accept: text/event-stream`.

@@ -539,7 +539,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'instagram',
     label: 'Instagram',
-    icon: 'instagram',
+    icon: 'link',
     connectionType: 'link',
     category: 'social',
     scope: 'global',
@@ -549,7 +549,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'twitter',
     label: 'X',
-    icon: 'twitter',
+    icon: 'link',
     connectionType: 'link',
     category: 'social',
     scope: 'global',
@@ -559,7 +559,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'tiktok',
     label: 'TikTok',
-    icon: 'tiktok',
+    icon: 'link',
     connectionType: 'link',
     category: 'social',
     scope: 'global',
@@ -569,7 +569,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'youtube',
     label: 'YouTube',
-    icon: 'youtube',
+    icon: 'link',
     connectionType: 'link',
     category: 'social',
     scope: 'global',
@@ -612,7 +612,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'krossover',
     label: 'Krossover',
-    icon: 'videocam',
+    icon: 'link',
     connectionType: 'link',
     category: 'film',
     scope: 'sport',
@@ -622,7 +622,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'veo',
     label: 'Veo',
-    icon: 'videocam',
+    icon: 'link',
     connectionType: 'link',
     category: 'film',
     scope: 'sport',
@@ -632,7 +632,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'ballertv',
     label: 'BallerTV',
-    icon: 'videocam',
+    icon: 'link',
     connectionType: 'link',
     category: 'film',
     scope: 'sport',
@@ -642,7 +642,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'nfhsnetwork',
     label: 'NFHS Network',
-    icon: 'videocam',
+    icon: 'link',
     connectionType: 'link',
     category: 'film',
     scope: 'sport',
@@ -652,7 +652,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'sportsengineplay',
     label: 'SportsEngine Play',
-    icon: 'videocam',
+    icon: 'link',
     connectionType: 'link',
     category: 'film',
     scope: 'sport',
@@ -662,7 +662,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'vimeo',
     label: 'Vimeo',
-    icon: 'videocam',
+    icon: 'link',
     connectionType: 'link',
     category: 'film',
     scope: 'global',
@@ -674,7 +674,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'ncsa',
     label: 'NCSA',
-    icon: 'recruiting-service',
+    icon: 'link',
     connectionType: 'link',
     category: 'recruiting',
     scope: 'sport',
@@ -684,7 +684,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'fieldlevel',
     label: 'FieldLevel',
-    icon: 'recruiting-service',
+    icon: 'link',
     connectionType: 'link',
     category: 'recruiting',
     scope: 'sport',
@@ -694,7 +694,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'captainu',
     label: 'CaptainU',
-    icon: 'recruiting-service',
+    icon: 'link',
     connectionType: 'link',
     category: 'recruiting',
     scope: 'sport',
@@ -704,7 +704,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'sportsrecruits',
     label: 'SportsRecruits',
-    icon: 'recruiting-service',
+    icon: 'link',
     connectionType: 'link',
     category: 'recruiting',
     scope: 'sport',
@@ -714,7 +714,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'streamlineathletes',
     label: 'Streamline Athletes',
-    icon: 'recruiting-service',
+    icon: 'link',
     connectionType: 'link',
     category: 'recruiting',
     scope: 'sport',
@@ -724,7 +724,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'recruitlook',
     label: 'RecruitLook',
-    icon: 'recruiting-service',
+    icon: 'link',
     connectionType: 'link',
     category: 'recruiting',
     scope: 'sport',
@@ -734,7 +734,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'collegeathtrack',
     label: 'College Ath Track',
-    icon: 'recruiting-service',
+    icon: 'link',
     connectionType: 'link',
     category: 'recruiting',
     scope: 'sport',
@@ -744,7 +744,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'connectlax',
     label: 'ConnectLAX',
-    icon: 'recruiting-service',
+    icon: 'link',
     connectionType: 'link',
     category: 'recruiting',
     scope: 'sport',
@@ -754,7 +754,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'imlcarecruits',
     label: 'IMLCA Recruits',
-    icon: 'recruiting-service',
+    icon: 'link',
     connectionType: 'link',
     category: 'recruiting',
     scope: 'sport',
@@ -764,7 +764,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'berecruited',
     label: 'BeRecruited',
-    icon: 'recruiting-service',
+    icon: 'link',
     connectionType: 'link',
     category: 'recruiting',
     scope: 'sport',
@@ -1154,51 +1154,56 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     platform: 'ncaaeligibility',
     label: 'NCAA Eligibility Center',
     icon: 'link',
-    connectionType: 'link',
+    connectionType: 'signin',
     category: 'academic',
     scope: 'global',
     sports: [],
-    placeholder: 'NCAA Eligibility Center URL',
+    placeholder: 'Sign in to NCAA Eligibility Center',
+    loginUrl: 'https://web3.ncaa.org/ecwr3/',
   },
   {
     platform: 'naiaeligibility',
     label: 'NAIA Eligibility Center',
     icon: 'link',
-    connectionType: 'link',
+    connectionType: 'signin',
     category: 'academic',
     scope: 'global',
     sports: [],
-    placeholder: 'NAIA Eligibility Center URL',
+    placeholder: 'Sign in to NAIA Eligibility Center',
+    loginUrl: 'https://play.mynaia.org/',
   },
   {
     platform: 'parchment',
     label: 'Parchment',
     icon: 'link',
-    connectionType: 'link',
+    connectionType: 'signin',
     category: 'academic',
     scope: 'global',
     sports: [],
-    placeholder: 'Parchment profile URL',
+    placeholder: 'Sign in to Parchment',
+    loginUrl: 'https://www.parchment.com/u/auth/login',
   },
   {
     platform: 'collegeboard',
     label: 'College Board',
     icon: 'link',
-    connectionType: 'link',
+    connectionType: 'signin',
     category: 'academic',
     scope: 'global',
     sports: [],
-    placeholder: 'College Board URL',
+    placeholder: 'Sign in to College Board',
+    loginUrl: 'https://account.collegeboard.org/login/login',
   },
   {
     platform: 'act',
     label: 'ACT',
     icon: 'link',
-    connectionType: 'link',
+    connectionType: 'signin',
     category: 'academic',
     scope: 'global',
     sports: [],
-    placeholder: 'ACT account URL',
+    placeholder: 'Sign in to ACT',
+    loginUrl: 'https://my.act.org/account/signin',
   },
 
   // ---- Contact / Website surfaces (mirrors contact/official profile surfaces) ----
@@ -1279,7 +1284,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'instagram_signin',
     label: 'Instagram',
-    icon: 'instagram',
+    icon: 'link',
     connectionType: 'signin',
     category: 'social',
     scope: 'global',
@@ -1290,7 +1295,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'twitter_signin',
     label: 'X',
-    icon: 'twitter',
+    icon: 'link',
     connectionType: 'signin',
     category: 'social',
     scope: 'global',
@@ -1301,7 +1306,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'tiktok_signin',
     label: 'TikTok',
-    icon: 'tiktok',
+    icon: 'link',
     connectionType: 'signin',
     category: 'social',
     scope: 'global',
@@ -1312,7 +1317,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'youtube_signin',
     label: 'YouTube',
-    icon: 'youtube',
+    icon: 'link',
     connectionType: 'signin',
     category: 'social',
     scope: 'global',
@@ -1356,7 +1361,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'ncsa_signin',
     label: 'NCSA',
-    icon: 'recruiting-service',
+    icon: 'link',
     connectionType: 'signin',
     category: 'recruiting',
     scope: 'global',
@@ -1367,7 +1372,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'fieldlevel_signin',
     label: 'FieldLevel',
-    icon: 'recruiting-service',
+    icon: 'link',
     connectionType: 'signin',
     category: 'recruiting',
     scope: 'global',
@@ -1378,7 +1383,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   {
     platform: 'sportsrecruits_signin',
     label: 'SportsRecruits',
-    icon: 'recruiting-service',
+    icon: 'link',
     connectionType: 'signin',
     category: 'recruiting',
     scope: 'global',
@@ -1441,17 +1446,6 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     placeholder: 'Sign in to GameChanger',
     loginUrl: 'https://gc.com/login',
   },
-  {
-    platform: 'ncaaeligibility_signin',
-    label: 'NCAA Eligibility Center',
-    icon: 'link',
-    connectionType: 'signin',
-    category: 'academic',
-    scope: 'global',
-    sports: [],
-    placeholder: 'Sign in to NCAA Eligibility Center',
-    loginUrl: 'https://web3.ncaa.org/ecwr3/',
-  },
 ] as const;
 
 /** Category display info */
@@ -1499,6 +1493,8 @@ export const PLATFORM_FAVICON_DOMAINS: Readonly<Record<string, string>> = {
   streamlineathletes: 'streamlineathletes.com',
   recruitlook: 'recruitlook.com',
   connectlax: 'connectlax.com',
+  collegeathtrack: 'collegeathtrack.com',
+  imlcarecruits: 'imlcarecruits.com',
   berecruited: 'berecruited.com',
   // Stats & Metrics
   maxpreps: 'maxpreps.com',
@@ -1552,7 +1548,6 @@ export const PLATFORM_FAVICON_DOMAINS: Readonly<Record<string, string>> = {
   rivals_signin: 'rivals.com',
   on3_signin: 'on3.com',
   gamechanger_signin: 'gc.com',
-  ncaaeligibility_signin: 'eligibilitycenter.org',
 } as const;
 
 /**

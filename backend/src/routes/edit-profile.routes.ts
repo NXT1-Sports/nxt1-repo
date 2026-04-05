@@ -147,8 +147,19 @@ async function deleteFromStorage(
  * Map User document to EditProfileFormData
  * @param user - User document
  * @param sportIndex - Optional sport index to load (defaults to activeSportIndex)
+ * @param connectedSourcesOverride - Optional connected sources to use instead of user's (e.g. team sources for coaches)
  */
-function userToEditProfileFormData(user: User, sportIndex?: number): EditProfileFormData {
+function userToEditProfileFormData(
+  user: User,
+  sportIndex?: number,
+  connectedSourcesOverride?: Array<{
+    platform: string;
+    profileUrl: string;
+    displayOrder?: number;
+    scopeType?: string;
+    scopeId?: string;
+  }>
+): EditProfileFormData {
   // Get sport data - use provided sportIndex or fall back to activeSportIndex
   const targetIndex = sportIndex ?? user.activeSportIndex ?? 0;
   const activeSport = user.sports?.[targetIndex] ?? user.sports?.[0];
@@ -215,12 +226,12 @@ function userToEditProfileFormData(user: User, sportIndex?: number): EditProfile
         : undefined,
     },
     socialLinks: {
-      links: (user.connectedSources ?? []).map((cs) => ({
+      links: (connectedSourcesOverride ?? user.connectedSources ?? []).map((cs) => ({
         platform: cs.platform,
         url: cs.profileUrl,
         username: undefined, // connectedSources uses profileUrl only
         displayOrder: cs.displayOrder ?? 0,
-        scopeType: cs.scopeType,
+        scopeType: cs.scopeType as 'global' | 'sport' | 'team' | undefined,
         scopeId: cs.scopeId,
       })),
     },
@@ -781,7 +792,37 @@ router.get(
 
     // Parse sportIndex from query param
     const sportIndex = sportIndexParam !== undefined ? parseInt(sportIndexParam, 10) : undefined;
-    const formData = userToEditProfileFormData(user, sportIndex);
+
+    // For coach/director roles, connected sources live on the Team doc (not User doc)
+    const isTeamRole = user.role === 'coach' || user.role === 'director';
+    const activeSportData =
+      user.sports?.[sportIndex ?? user.activeSportIndex ?? 0] ?? user.sports?.[0];
+    const teamId = activeSportData?.team?.teamId;
+    let teamConnectedSources:
+      | Array<{
+          platform: string;
+          profileUrl: string;
+          displayOrder?: number;
+          scopeType?: string;
+          scopeId?: string;
+        }>
+      | undefined;
+
+    if (isTeamRole && teamId) {
+      try {
+        const teamDoc = await db.collection('Teams').doc(teamId).get();
+        if (teamDoc.exists) {
+          const teamData = teamDoc.data();
+          if (Array.isArray(teamData?.['connectedSources'])) {
+            teamConnectedSources = teamData['connectedSources'];
+          }
+        }
+      } catch (err) {
+        logger.warn('[EditProfile] Failed to fetch team connected sources', { uid, teamId, err });
+      }
+    }
+
+    const formData = userToEditProfileFormData(user, sportIndex, teamConnectedSources);
     const completion = calculateProfileCompletion(formData);
 
     // Determine which sport index is being edited
@@ -924,6 +965,38 @@ router.put(
       updates,
       userSportsBeforeUpdate: user.sports,
     });
+
+    // For coach/director roles, connected sources belong on the Team doc, not User doc
+    const isTeamRole = user.role === 'coach' || user.role === 'director';
+    const activeSportData =
+      user.sports?.[sportIndex ?? user.activeSportIndex ?? 0] ?? user.sports?.[0];
+    const teamId = activeSportData?.team?.teamId;
+
+    if (sectionId === 'social-links' && isTeamRole && teamId && updates['connectedSources']) {
+      // Write connected sources to Team doc instead of User doc
+      try {
+        await db.collection('Teams').doc(teamId).update({
+          connectedSources: updates['connectedSources'],
+          updatedAt: new Date(),
+        });
+        logger.info('[EditProfile] Connected sources saved to Team doc', {
+          userId: uid,
+          teamId,
+          count: Array.isArray(updates['connectedSources'])
+            ? updates['connectedSources'].length
+            : 0,
+        });
+      } catch (err) {
+        logger.error('[EditProfile] Failed to save connected sources to Team doc', {
+          userId: uid,
+          teamId,
+          err,
+        });
+        throw err;
+      }
+      // Remove connectedSources from user updates — they live on the Team doc
+      delete updates['connectedSources'];
+    }
 
     // Log the exact raw updates object for debugging
     logger.debug('[EditProfile] RAW updates object being sent to Firestore:', {

@@ -24,7 +24,11 @@ import {
   computed,
   signal,
   OnInit,
+  AfterViewInit,
+  OnDestroy,
   PLATFORM_ID,
+  viewChild,
+  type TemplateRef,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import {
@@ -54,14 +58,14 @@ import {
 import { NxtImageCarouselComponent } from '../../components/image-carousel';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { NxtLoggingService } from '../../services/logging/logging.service';
+import { NxtHeaderPortalService } from '../../services/header-portal';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../../components/bottom-sheet';
 import type { BottomSheetAction } from '../../components/bottom-sheet/bottom-sheet.types';
 import { TeamProfileService } from '../team-profile.service';
 
 // ─── Extracted Section Components ───
-import { TeamPageHeaderComponent } from './team-page-header.component';
 import { TeamMobileHeroComponent } from './team-mobile-hero.component';
-import { TeamOverviewWebComponent } from './team-overview-web.component';
+import { TeamIntelComponent } from '../../intel/team-intel.component';
 import { TeamRosterWebComponent } from './team-roster-web.component';
 import { type ScheduleRow } from '@nxt1/core';
 import { mapTeamStatsToGameLogs, buildSeasonRecordMap } from '@nxt1/core';
@@ -82,9 +86,8 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
     NxtSectionNavWebComponent,
     NxtImageCarouselComponent,
     // Extracted section components
-    TeamPageHeaderComponent,
     TeamMobileHeroComponent,
-    TeamOverviewWebComponent,
+    TeamIntelComponent,
     TeamRosterWebComponent,
     TeamTimelineWebComponent,
     TeamContactWebComponent,
@@ -92,6 +95,117 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
     TeamProfileSkeletonComponent,
   ],
   template: `
+    <!-- Portal: center — Team name + subtitle teleported into top nav -->
+    <ng-template #teamPortalContent>
+      <div class="header-portal-team">
+        <button
+          type="button"
+          class="header-portal-back-btn"
+          aria-label="Go back"
+          (click)="backClick.emit()"
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
+        @if (teamProfile.team()?.logoUrl) {
+          <nxt1-image
+            class="header-portal-logo"
+            [src]="teamProfile.team()!.logoUrl!"
+            [alt]="teamProfile.team()!.teamName"
+            [width]="32"
+            [height]="32"
+            variant="avatar"
+            fit="contain"
+            [showPlaceholder]="false"
+          />
+        } @else {
+          <div class="header-portal-logo-fallback">
+            <nxt1-icon name="shield" [size]="16" />
+          </div>
+        }
+        <div class="header-portal-name-block">
+          <span class="header-portal-title">{{ portalTeamName() }}</span>
+          @if (portalTeamSubtitle()) {
+            <span class="header-portal-subtitle">{{ portalTeamSubtitle() }}</span>
+          }
+        </div>
+        @if (teamProfile.canEdit()) {
+          <button
+            type="button"
+            class="header-portal-action-btn"
+            (click)="manageTeamClick.emit()"
+            aria-label="Manage team"
+          >
+            <nxt1-icon name="settings" [size]="13" />
+            Manage Team
+          </button>
+        }
+      </div>
+    </ng-template>
+
+    <!-- Portal: right — Share + QR icon buttons in top nav (before bell) -->
+    <ng-template #teamRightPortalContent>
+      <button
+        type="button"
+        class="nav-action-btn"
+        aria-label="Share team"
+        (click)="shareClick.emit()"
+      >
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+          <path d="M16 6l-4-4-4 4" />
+          <path d="M12 2v13" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="nav-action-btn"
+        aria-label="QR code"
+        (click)="qrCodeClick.emit()"
+      >
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M3 3h7v7H3V3z" />
+          <path d="M14 3h7v7h-7V3z" />
+          <path d="M3 14h7v7H3v-7z" />
+          <path d="M14 14h3v3h-3v-3z" />
+          <path d="M20 14v3h-3" />
+          <path d="M14 20h3v1" />
+          <path d="M20 20h1v1" />
+        </svg>
+      </button>
+    </ng-template>
+
     <main class="team-profile-main">
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
@@ -110,28 +224,27 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
       }
       <!-- Content State -->
       @else if (isContentReady()) {
-        <div class="madden-stage">
-          <!-- Faded halftone accent background -->
-          <div class="stage-halftone-bg" aria-hidden="true">
-            <div class="stage-halftone-dots" [style.--team-accent]="teamAccentColor()"></div>
-            <div class="stage-halftone-fade" [style.--team-accent]="teamAccentColor()"></div>
-          </div>
+        <div class="madden-stage" [style.--team-accent]="teamAccentColor()">
+          <!-- Background variant: modern clean gradient (default) -->
+          @if (bgVariant === 'modern') {
+            <div class="stage-modern-bg" aria-hidden="true">
+              <div class="stage-modern-base"></div>
+              <div class="stage-modern-lanes"></div>
+              <div class="stage-modern-glow"></div>
+              <div class="stage-modern-vignette"></div>
+            </div>
+          } @else {
+            <!-- Background variant: legacy halftone dots -->
+            <div class="stage-halftone-bg" aria-hidden="true">
+              <div class="stage-halftone-dots"></div>
+              <div class="stage-halftone-fade"></div>
+            </div>
+          }
 
           <!-- ═══ SPLIT: LEFT CONTENT | RIGHT TEAM BRANDING ═══ -->
           <div class="madden-split">
             <!-- LEFT SIDE: Header + Tabs + Content -->
             <div class="madden-split-left">
-              <!-- Desktop Header (extracted component) -->
-              @if (teamProfile.team()) {
-                <div class="madden-header-top-pad hidden md:block">
-                  <nxt1-team-page-header
-                    [isTeamAdmin]="isTeamAdmin()"
-                    (back)="backClick.emit()"
-                    (manageTeam)="manageTeamClick.emit()"
-                  />
-                </div>
-              }
-
               <!-- Mobile Hero (extracted component) -->
               @if (teamProfile.team()) {
                 <div class="md:hidden">
@@ -173,9 +286,10 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
                       @if (activeSideTab() === 'contact') {
                         <nxt1-team-contact-web (manageTeam)="manageTeamClick.emit()" />
                       } @else {
-                        <nxt1-team-overview-web
-                          [activeSideTab]="activeSideTab()"
-                          (manageTeam)="manageTeamClick.emit()"
+                        <nxt1-team-intel
+                          [teamId]="teamProfile.team()!.id"
+                          [canGenerate]="teamProfile.canEdit()"
+                          (missingDataAction)="manageTeamClick.emit()"
                         />
                       }
                     }
@@ -207,28 +321,6 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
             <!-- RIGHT SIDE: Team image + team info -->
             <div class="madden-split-right">
               <div class="madden-right-stack">
-                <!-- ─── ACTION GRID ─── -->
-                <div class="right-action-grid">
-                  <button
-                    type="button"
-                    class="right-action-btn"
-                    (click)="shareClick.emit()"
-                    aria-label="Share team"
-                  >
-                    <nxt1-icon name="share" [size]="20" />
-                    <span>Share Team</span>
-                  </button>
-                  <button
-                    type="button"
-                    class="right-action-btn"
-                    (click)="qrCodeClick.emit()"
-                    aria-label="Open QR code"
-                  >
-                    <nxt1-icon name="qrCode" [size]="20" />
-                    <span>QR Code</span>
-                  </button>
-                </div>
-
                 @if (teamProfile.galleryImages().length > 0) {
                   <div class="carousel-glow-wrap">
                     <div class="carousel-glow-border" aria-hidden="true"></div>
@@ -423,7 +515,112 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
         flex-shrink: 0;
       }
 
-      /* ─── HALFTONE BACKGROUND ─── */
+      /* ─── SPORTY CLEAN BACKGROUND (default variant) ─── */
+      .stage-modern-bg {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        pointer-events: none;
+        overflow: hidden;
+      }
+
+      .stage-modern-base {
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--m-accent) 8%, rgba(255, 255, 255, 0.01)) 0%,
+            rgba(255, 255, 255, 0.01) 16%,
+            transparent 44%
+          ),
+          linear-gradient(
+            120deg,
+            transparent 0%,
+            color-mix(in srgb, var(--m-accent) 4%, transparent) 58%,
+            transparent 100%
+          );
+        opacity: 0.95;
+      }
+
+      .stage-modern-lanes {
+        position: absolute;
+        inset: -12% -8% 10% 34%;
+        background: repeating-linear-gradient(
+          -62deg,
+          transparent 0 22px,
+          color-mix(in srgb, var(--m-accent) 18%, transparent) 22px 24px,
+          transparent 24px 56px
+        );
+        clip-path: polygon(16% 0%, 100% 0%, 100% 100%, 0% 100%);
+        mask-image: linear-gradient(
+          to left,
+          rgba(0, 0, 0, 1) 0%,
+          rgba(0, 0, 0, 0.82) 18%,
+          rgba(0, 0, 0, 0.34) 54%,
+          transparent 100%
+        );
+        -webkit-mask-image: linear-gradient(
+          to left,
+          rgba(0, 0, 0, 1) 0%,
+          rgba(0, 0, 0, 0.82) 18%,
+          rgba(0, 0, 0, 0.34) 54%,
+          transparent 100%
+        );
+        opacity: 0.82;
+        transform: skewX(-14deg);
+        transform-origin: right center;
+      }
+
+      .stage-modern-glow {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(
+            ellipse 56% 64% at 84% 22%,
+            color-mix(in srgb, var(--m-accent) 20%, transparent) 0%,
+            color-mix(in srgb, var(--m-accent) 10%, transparent) 36%,
+            transparent 74%
+          ),
+          linear-gradient(
+            100deg,
+            transparent 16%,
+            color-mix(in srgb, var(--m-accent) 7%, transparent) 62%,
+            transparent 100%
+          );
+        opacity: 0.95;
+      }
+
+      .stage-modern-vignette {
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(
+            180deg,
+            rgba(6, 8, 12, 0.18) 0%,
+            transparent 20%,
+            transparent 74%,
+            rgba(6, 8, 12, 0.18) 100%
+          ),
+          linear-gradient(
+            90deg,
+            rgba(6, 8, 12, 0.08) 0%,
+            transparent 24%,
+            transparent 72%,
+            rgba(6, 8, 12, 0.16) 100%
+          );
+      }
+
+      /* Respect motion preferences */
+      @media (prefers-reduced-motion: reduce) {
+        .stage-modern-lanes,
+        .stage-modern-glow,
+        .stage-modern-vignette {
+          opacity: 0.5;
+        }
+      }
+
+      /* ─── HALFTONE BACKGROUND (legacy variant) ─── */
       .stage-halftone-bg {
         position: absolute;
         inset: 0;
@@ -500,8 +697,103 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
         min-height: 0;
         padding: 0 16px 12px 0;
       }
-      .madden-header-top-pad {
-        padding-top: 20px;
+      /* ─── HEADER PORTAL — Perplexity-style team identity in top nav ─── */
+      .header-portal-team {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 0 var(--nxt1-spacing-2, 8px);
+      }
+      .header-portal-back-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        border: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
+        color: var(--nxt1-color-text-primary, #ffffff);
+        cursor: pointer;
+        transition: all 0.15s ease;
+        flex-shrink: 0;
+        padding: 0;
+      }
+      .header-portal-back-btn:hover {
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        border-color: rgba(255, 255, 255, 0.14);
+      }
+      .header-portal-back-btn:active {
+        transform: scale(0.95);
+      }
+      .header-portal-logo {
+        width: 32px;
+        height: 32px;
+        border-radius: var(--nxt1-radius-md, 8px);
+        flex-shrink: 0;
+      }
+      .header-portal-logo-fallback {
+        width: 32px;
+        height: 32px;
+        border-radius: var(--nxt1-radius-md, 8px);
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--nxt1-color-text-tertiary);
+        flex-shrink: 0;
+      }
+      .header-portal-name-block {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        gap: 1px;
+        flex: 1;
+      }
+      .header-portal-title {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .header-portal-subtitle {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .header-portal-action-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        flex-shrink: 0;
+        margin-left: auto;
+        padding: 6px 14px;
+        border-radius: var(--nxt1-radius-md, 8px);
+        border: 1.5px solid var(--nxt1-color-border-secondary, rgba(255, 255, 255, 0.2));
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
+        color: var(--nxt1-color-text-primary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        white-space: nowrap;
+      }
+      .header-portal-action-btn:hover {
+        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.1));
+        border-color: var(--nxt1-color-border-primary, rgba(255, 255, 255, 0.35));
+      }
+      .header-portal-action-btn:active {
+        transform: scale(0.97);
       }
       .madden-right-stack {
         display: flex;
@@ -863,6 +1155,86 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
           overflow-y: visible;
           max-width: 100vw;
         }
+        /* Mobile modern background — center glow for portrait */
+        .stage-modern-bg {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          height: 100dvh;
+          z-index: 0;
+        }
+        .stage-modern-base {
+          background:
+            linear-gradient(
+              180deg,
+              color-mix(in srgb, var(--m-accent) 10%, rgba(255, 255, 255, 0.01)) 0%,
+              transparent 40%
+            ),
+            linear-gradient(
+              135deg,
+              transparent 0%,
+              color-mix(in srgb, var(--m-accent) 5%, transparent) 60%,
+              transparent 100%
+            );
+        }
+        .stage-modern-lanes {
+          inset: -10% -28% 40% -8%;
+          clip-path: polygon(0% 0%, 100% 0%, 82% 100%, 0% 100%);
+          transform: none;
+          background: repeating-linear-gradient(
+            -58deg,
+            transparent 0 18px,
+            color-mix(in srgb, var(--m-accent) 16%, transparent) 18px 20px,
+            transparent 20px 42px
+          );
+          mask-image: linear-gradient(
+            180deg,
+            rgba(0, 0, 0, 0.96) 0%,
+            rgba(0, 0, 0, 0.72) 44%,
+            transparent 100%
+          );
+          -webkit-mask-image: linear-gradient(
+            180deg,
+            rgba(0, 0, 0, 0.96) 0%,
+            rgba(0, 0, 0, 0.72) 44%,
+            transparent 100%
+          );
+          opacity: 0.76;
+        }
+        .stage-modern-glow {
+          background:
+            radial-gradient(
+              ellipse 88% 58% at 50% 10%,
+              color-mix(in srgb, var(--m-accent) 18%, transparent) 0%,
+              color-mix(in srgb, var(--m-accent) 8%, transparent) 40%,
+              transparent 76%
+            ),
+            linear-gradient(
+              180deg,
+              color-mix(in srgb, var(--m-accent) 5%, transparent) 0%,
+              transparent 42%
+            );
+        }
+        .stage-modern-vignette {
+          background:
+            linear-gradient(
+              180deg,
+              rgba(6, 8, 12, 0.12) 0%,
+              transparent 22%,
+              transparent 78%,
+              rgba(6, 8, 12, 0.18) 100%
+            ),
+            linear-gradient(
+              90deg,
+              rgba(6, 8, 12, 0.04) 0%,
+              transparent 18%,
+              transparent 82%,
+              rgba(6, 8, 12, 0.1) 100%
+            );
+        }
+        /* Mobile halftone overrides (legacy variant) */
         .stage-halftone-dots {
           background-image: radial-gradient(
             circle,
@@ -1002,13 +1374,19 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class TeamProfileShellWebComponent implements OnInit {
+export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDestroy {
   protected readonly teamProfile = inject(TeamProfileService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('TeamProfileShellWeb');
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly headerPortal = inject(NxtHeaderPortalService);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly isBrowser = isPlatformBrowser(this.platformId);
+
+  // Template refs for portal content
+  private readonly teamPortalContent = viewChild<TemplateRef<unknown>>('teamPortalContent');
+  private readonly teamRightPortalContent =
+    viewChild<TemplateRef<unknown>>('teamRightPortalContent');
 
   // ============================================
   // INPUTS
@@ -1147,6 +1525,41 @@ export class TeamProfileShellWebComponent implements OnInit {
     )
   );
 
+  /** Portal: cleaned team name for the top nav header */
+  protected readonly portalTeamName = computed(() => {
+    const team = this.teamProfile.team();
+    if (!team) return '';
+    const teamName = team.teamName?.trim() ?? '';
+    if (!teamName) return '';
+    const sport = team.sport?.trim();
+    const withoutHighSchool = teamName.replace(/\bhigh\s+school\b/gi, '').trim();
+    const withoutSport = sport
+      ? withoutHighSchool
+          .replace(new RegExp(`\\b${sport.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b`, 'gi'), '')
+          .trim()
+      : withoutHighSchool;
+    const baseName = withoutSport.replace(/\s{2,}/g, ' ').trim();
+    const cleanName = baseName || teamName;
+    const mascot = team.branding?.mascot?.trim();
+    if (!mascot) return cleanName;
+    if (cleanName.toLowerCase().endsWith(mascot.toLowerCase())) return cleanName;
+    return `${cleanName} ${mascot}`;
+  });
+
+  /** Portal: team type + sport subtitle for top nav header */
+  protected readonly portalTeamSubtitle = computed(() => {
+    const team = this.teamProfile.team();
+    if (!team) return '';
+    const typeLabel = team.teamType
+      ? team.teamType
+          .split('-')
+          .map((p: string) => p.charAt(0).toUpperCase() + p.slice(1))
+          .join(' ')
+      : '';
+    const sportLabel = team.sport?.trim() ?? '';
+    return `${typeLabel} ${sportLabel}`.trim();
+  });
+
   /** Header subtitle: sport · location · conference · record */
   protected readonly headerSubtitle = computed(() => {
     const team = this.teamProfile.team();
@@ -1159,6 +1572,13 @@ export class TeamProfileShellWebComponent implements OnInit {
     if (record) parts.push(record);
     return parts.join(' · ');
   });
+
+  /**
+   * Background variant toggle.
+   * - 'modern'   — clean team-color gradient (current default)
+   * - 'halftone' — legacy recruiting-card halftone dots
+   */
+  protected readonly bgVariant: 'modern' | 'halftone' = 'modern';
 
   /** Team accent color from branding */
   protected readonly teamAccentColor = computed(() => {
@@ -1313,6 +1733,17 @@ export class TeamProfileShellWebComponent implements OnInit {
       this.teamProfile.startLoading();
       this.teamProfile.loadTeam(slug, isAdmin);
     }
+  }
+
+  ngAfterViewInit(): void {
+    const centerTpl = this.teamPortalContent();
+    if (centerTpl) this.headerPortal.setCenterContent(centerTpl);
+    const rightTpl = this.teamRightPortalContent();
+    if (rightTpl) this.headerPortal.setRightContent(rightTpl);
+  }
+
+  ngOnDestroy(): void {
+    this.headerPortal.clearAll();
   }
 
   // ============================================

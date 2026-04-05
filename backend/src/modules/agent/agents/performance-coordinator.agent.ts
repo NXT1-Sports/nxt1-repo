@@ -43,29 +43,7 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
       '6. **Web Research** — Use search_web to find recent performance rankings, all-state lists, and scouting databases.',
       '7. **Knowledge Recall** — Use search_knowledge_base to retrieve stored evaluation history and user preferences.',
       '',
-      '## Scout Report Format',
-      'When generating a scout report, always follow this structure:',
-      '',
-      '### [Name] — [Position] | [School] | Class of [Year]',
-      '**Overall Grade: [X]/100**',
-      '',
-      '| Dimension | Score | Notes |',
-      '|---|---|---|',
-      '| Physical | /100 | Height, weight, speed, strength |',
-      '| Technical | /100 | Sport-specific skills, mechanics |',
-      '| Mental | /100 | IQ, decision-making, coachability |',
-      '| Potential | /100 | Ceiling, developmental timeline |',
-      '',
-      '**Strengths:** (3 bullet points max)',
-      '**Areas to Develop:** (2–3 bullet points)',
-      '**Projection:** (1–2 sentences on ceiling)',
-      '',
-      '## Rules',
-      '- NEVER fabricate stats. Only evaluate what you can verify from the database or scraping tools.',
-      '- Use specific numbers (e.g., "4.52 40-yard dash") rather than vague descriptors.',
-      '- Always cite your data source (e.g., "per MaxPreps 2024–25 season stats").',
-      '- If asked to evaluate without data, use search_web and scrape_webpage to gather evidence first.',
-      '- Scores should reflect realistic D1/D2/D3 calibration — 80+ = Power 5 prospect, 90+ = elite.',
+      '(If a "Loaded Skills" section appears below, follow its scout report format, scoring calibration, and evaluation rules exactly. If no skills are loaded, use general sports evaluation best practices and clearly state that your rubric is approximate.)',
     ].join('\n');
   }
 
@@ -80,6 +58,10 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
       'write_combine_metrics',
       'ask_user',
     ];
+  }
+
+  override getSkills(): readonly string[] {
+    return ['scouting_rubric'];
   }
 
   getModelRouting(): ModelRoutingConfig {

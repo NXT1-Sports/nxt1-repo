@@ -25,6 +25,7 @@ import {
   effect,
 } from '@angular/core';
 import { Router } from '@angular/router';
+import { EditProfileApiService } from '../../core/services/edit-profile-api.service';
 import {
   SettingsShellComponent,
   type SettingsUser,
@@ -73,6 +74,7 @@ export class SettingsComponent implements OnInit {
   private readonly platform = inject(NxtPlatformService);
   private readonly toast = inject(NxtToastService);
   private readonly router = inject(Router);
+  private readonly editProfileApi = inject(EditProfileApiService);
   private readonly logger = inject(NxtLoggingService).child('SettingsComponent');
   private readonly modal = inject(NxtModalService);
   private readonly seo = inject(SeoService);
@@ -216,7 +218,10 @@ export class SettingsComponent implements OnInit {
       role: (user.role as OnboardingUserType) ?? null,
       selectedSports: user.selectedSports ?? [],
       linkSourcesData,
-      scope: 'athlete' as const,
+      scope:
+        user.role === 'coach' || user.role === 'director'
+          ? ('team' as const)
+          : ('athlete' as const),
     };
   });
 
@@ -287,6 +292,49 @@ export class SettingsComponent implements OnInit {
           this.toast.success(`Password reset link sent to ${email}`);
         } else {
           this.toast.error('Unable to send password reset email. Please try again.');
+        }
+        break;
+      }
+
+      case 'saveConnectedAccounts': {
+        const user = this.authService.user();
+        if (!user) {
+          this.toast.error('Unable to save: user not found.');
+          return;
+        }
+        const data = (
+          event as SettingsActionEvent & {
+            data?: {
+              updatedLinks?: readonly {
+                platform: string;
+                url: string;
+                username?: string;
+                scopeType?: string;
+                scopeId?: string;
+                displayOrder: number;
+              }[];
+            };
+          }
+        ).data;
+        if (!data?.updatedLinks) {
+          this.logger.warn('saveConnectedAccounts: no updatedLinks in event data');
+          return;
+        }
+        this.logger.info('Saving connected accounts from settings', {
+          count: data.updatedLinks.length,
+        });
+        const result = await this.editProfileApi.updateSection(user.uid, 'social-links', {
+          links: data.updatedLinks,
+        });
+        if (result.success) {
+          this.toast.success('Connected accounts updated');
+          // Re-sync the AppUser signal so the settings UI reflects the new links immediately
+          await this.authService.refreshUserProfile();
+        } else {
+          this.logger.error('Failed to save connected accounts', undefined, {
+            error: result.error,
+          });
+          this.toast.error(result.error ?? 'Failed to save connected accounts');
         }
         break;
       }

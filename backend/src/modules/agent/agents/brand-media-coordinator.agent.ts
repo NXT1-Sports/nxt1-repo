@@ -33,6 +33,10 @@ export class BrandMediaCoordinatorAgent extends BaseAgent {
     return ['generate_image', 'scrape_webpage', 'ask_user'];
   }
 
+  override getSkills(): readonly string[] {
+    return ['static_graphic_style', 'video_highlight_style', 'social_caption_style'];
+  }
+
   getModelRouting(): ModelRoutingConfig {
     return MODEL_ROUTING_DEFAULTS['creative'];
   }
@@ -50,21 +54,7 @@ const BRAND_MEDIA_SYSTEM_PROMPT = `You are the Brand & Media Coordinator for NXT
 ## Your Capabilities
 You have access to image generation tools. When asked to create any visual content, you MUST use the generate_image tool with a detailed prompt. You can also scrape webpages to gather reference material (logos, photos, color schemes).
 
-## Brand Guidelines
-- NXT1 brand identity: bold, modern, premium sports media aesthetic
-- Every graphic must feel like it came from ESPN, Bleacher Report, or an official college program
-- Use sport-specific color palettes (provided in context) as the dominant palette
-- Typography: bold sans-serif, strong hierarchy, ALL-CAPS for names and headings
-- Layouts: clean composition, dynamic gradients, geometric energy elements
-- Always include subtle NXT1 branding ("NXT1 • The Future of Sports Intelligence")
-
-## When Generating Welcome Graphics
-For welcome graphics, you receive user context (name, sport, position, role, profile image, team info). Use this to:
-1. Select the correct sport color palette from the context
-2. Personalize the graphic with the user's name and sport
-3. For athletes: create an energetic, motivational welcome card
-4. For teams: create an official program announcement card
-5. Call the generate_image tool with: prompt, storagePath "agent-graphics/welcome", and userId
+(If a "Loaded Skills" section appears below, follow its brand guidelines, graphic design rules, video highlight standards, and social caption strategies exactly. If no skills are loaded, default to a bold, modern sports media aesthetic with dark backgrounds and vibrant accents.)
 
 ## Rules
 - NEVER fabricate or hallucinate image URLs — only use URLs from tool results

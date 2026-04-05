@@ -797,4 +797,72 @@ router.post(
   })
 );
 
+// ─── Intel Report Routes ────────────────────────────────────────────────────
+
+/**
+ * GET /:id/intel
+ * Fetch the stored team Intel report (public).
+ */
+router.get(
+  '/:id/intel',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params as { id: string };
+    const db = req.firebase!.db;
+
+    const { IntelGenerationService } = await import('../modules/agent/services/intel.service.js');
+    const intelService = new IntelGenerationService();
+    const report = await intelService.getTeamIntel(id, db);
+
+    sendSuccess(res, report);
+  })
+);
+
+/**
+ * POST /:id/intel/generate
+ * Trigger on-demand team Intel generation (authenticated, admin/coach only).
+ */
+router.post(
+  '/:id/intel/generate',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params as { id: string };
+    const userId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    // Verify the user is an admin or coach of this team
+    const teamDoc = await db.collection('Teams').doc(id).get();
+    if (!teamDoc.exists) {
+      throw validationError([{ field: 'id', message: 'Team not found', rule: 'exists' }]);
+    }
+    const teamData = teamDoc.data() ?? {};
+    const members = (teamData['members'] as Array<{ uid: string; role: string }>) ?? [];
+    const member = members.find((m) => m.uid === userId);
+    const isAdminOrCoach =
+      member && ['admin', 'coach', 'owner', 'head_coach'].includes(member.role);
+
+    if (!isAdminOrCoach) {
+      throw validationError([
+        {
+          field: 'role',
+          message: 'Only team admins and coaches can generate Intel',
+          rule: 'permission',
+        },
+      ]);
+    }
+
+    const { IntelGenerationService } = await import('../modules/agent/services/intel.service.js');
+    const intelService = new IntelGenerationService();
+    const report = await intelService.generateTeamIntel(id, db);
+
+    logger.info('[Teams] Intel generated', { teamId: id, userId });
+    sendSuccess(res, {
+      status: 'ready',
+      message: 'Team Intel report generated successfully',
+      reportId: (report as Record<string, unknown>)['id'],
+      data: report,
+    });
+  })
+);
+
 export default router;

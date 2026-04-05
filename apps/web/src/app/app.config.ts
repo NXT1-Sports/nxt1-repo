@@ -83,8 +83,10 @@ import { provideWebPush } from './core/services/web-push.service';
 import { NEWS_API_BASE_URL, NEWS_API_ADAPTER } from '@nxt1/ui/news';
 import { NewsApiAdapterService } from './features/news/services/news-api-adapter.service';
 import { TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui/team-profile';
+import { INTEL_API_BASE_URL } from '@nxt1/ui/intel';
 import { MANAGE_TEAM_API_BASE_URL } from '@nxt1/ui/manage-team';
 import { AGENT_X_API_BASE_URL, AGENT_X_AUTH_TOKEN_FACTORY } from '@nxt1/ui/agent-x';
+import { CONNECTED_ACCOUNTS_FIREBASE_USER } from '@nxt1/ui/components/connected-sources';
 import { ACTIVITY_API_BASE_URL, ACTIVITY_API_ADAPTER } from '@nxt1/ui/activity';
 import { INVITE_API_BASE_URL } from '@nxt1/ui/invite';
 import { MESSAGES_API_BASE_URL } from '@nxt1/ui/messages';
@@ -112,7 +114,7 @@ import { providePerformance, getPerformance } from '@angular/fire/performance';
 
 // Auth service with injection token pattern
 import { AUTH_SERVICE, BrowserAuthService } from './features/auth';
-import { AuthFlowService } from './features/auth/services';
+import { AuthFlowService, type IAuthService } from './features/auth/services';
 
 // Settings persistence adapter (connects SettingsService → backend API)
 import { SETTINGS_PERSISTENCE_ADAPTER, APP_VERSION } from '@nxt1/ui/settings';
@@ -287,6 +289,9 @@ export const appConfig: ApplicationConfig = {
     // Team Profile API base URL
     { provide: TEAM_PROFILE_API_BASE_URL, useFactory: () => environment.apiURL },
 
+    // Intel API base URL
+    { provide: INTEL_API_BASE_URL, useFactory: () => environment.apiURL },
+
     // Manage Team API base URL
     { provide: MANAGE_TEAM_API_BASE_URL, useFactory: () => environment.apiURL },
 
@@ -301,6 +306,15 @@ export const appConfig: ApplicationConfig = {
       provide: AGENT_X_AUTH_TOKEN_FACTORY,
       useFactory: (authFlow: AuthFlowService) => () => authFlow.getIdToken(),
       deps: [AuthFlowService],
+    },
+
+    // Connected Accounts OAuth state — provides Firebase providerData so the
+    // modal service can auto-mark Google / Microsoft as connected when the user
+    // is signed in with those providers (without every call-site doing it manually).
+    {
+      provide: CONNECTED_ACCOUNTS_FIREBASE_USER,
+      useFactory: (auth: IAuthService) => () => auth.firebaseUser()?.providerData ?? [],
+      deps: [AUTH_SERVICE],
     },
 
     // Activity API base URL

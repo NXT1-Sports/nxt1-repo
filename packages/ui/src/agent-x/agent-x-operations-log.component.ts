@@ -192,35 +192,33 @@ export const OPERATIONS_LOG_TEST_IDS = {
                 [class.log-entry--awaiting]="entry.status === 'awaiting_input'"
                 (click)="onEntryTap(entry)"
               >
-                <!-- Status indicator -->
-                <span
-                  class="log-entry-status"
-                  [class.log-entry-status--complete]="entry.status === 'complete'"
-                  [class.log-entry-status--error]="entry.status === 'error'"
-                  [class.log-entry-status--cancelled]="entry.status === 'cancelled'"
-                  [class.log-entry-status--active]="entry.status === 'in-progress'"
-                  [class.log-entry-status--awaiting]="entry.status === 'awaiting_input'"
-                >
-                  @switch (entry.status) {
-                    @case ('complete') {
-                      <nxt1-icon name="checkmarkCircle" [size]="14" />
+                <!-- Status indicator (hidden for completed entries) -->
+                @if (entry.status !== 'complete') {
+                  <span
+                    class="log-entry-status"
+                    [class.log-entry-status--error]="entry.status === 'error'"
+                    [class.log-entry-status--cancelled]="entry.status === 'cancelled'"
+                    [class.log-entry-status--active]="entry.status === 'in-progress'"
+                    [class.log-entry-status--awaiting]="entry.status === 'awaiting_input'"
+                  >
+                    @switch (entry.status) {
+                      @case ('error') {
+                        <nxt1-icon name="alertCircle" [size]="14" />
+                      }
+                      @case ('cancelled') {
+                        <nxt1-icon name="close" [size]="14" />
+                      }
+                      @case ('in-progress') {
+                        <span class="log-entry-spinner">
+                          <nxt1-icon name="refresh" [size]="14" />
+                        </span>
+                      }
+                      @case ('awaiting_input') {
+                        <nxt1-icon name="hand-left" [size]="14" />
+                      }
                     }
-                    @case ('error') {
-                      <nxt1-icon name="alertCircle" [size]="14" />
-                    }
-                    @case ('cancelled') {
-                      <nxt1-icon name="close" [size]="14" />
-                    }
-                    @case ('in-progress') {
-                      <span class="log-entry-spinner">
-                        <nxt1-icon name="refresh" [size]="14" />
-                      </span>
-                    }
-                    @case ('awaiting_input') {
-                      <nxt1-icon name="hand-left" [size]="14" />
-                    }
-                  }
-                </span>
+                  </span>
+                }
 
                 <!-- Content -->
                 <div class="log-entry-content">
@@ -235,7 +233,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
                     }
                     @if (entry.isScheduled) {
                       <span class="log-entry-scheduled">
-                        <nxt1-icon name="timer" [size]="10" />
+                        <nxt1-icon name="calendar" [size]="10" />
                         Scheduled
                       </span>
                     }
@@ -678,6 +676,9 @@ export class AgentXOperationsLogComponent {
   /** Emitted when close button is tapped (for inline/web usage). */
   readonly closePanel = output<void>();
 
+  /** Emitted when an entry is tapped in embedded mode (parent handles navigation). */
+  readonly entryTap = output<OperationLogEntry>();
+
   /** When true, hides the sheet header and filters (used when embedded in sidebar). */
   readonly embedded = input(false);
 
@@ -841,6 +842,12 @@ export class AgentXOperationsLogComponent {
       status: entry.status,
       item_category: entry.category,
     });
+
+    // In embedded mode (desktop rail), delegate to parent via output
+    if (this.embedded()) {
+      this.entryTap.emit(entry);
+      return;
+    }
 
     // If the operation is linked to a persisted thread, open that exact conversation.
     if (entry.threadId) {
