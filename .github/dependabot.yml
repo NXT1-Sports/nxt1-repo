@@ -6,14 +6,8 @@
 
 version: 2
 
-registries:
-  npm-registry:
-    type: npm-registry
-    url: https://registry.npmjs.org
-    replaces-base: true
-
 updates:
-  # Root package.json
+  # Root package.json (covers all npm workspaces: packages/*, apps/*, backend)
   - package-ecosystem: 'npm'
     directory: '/'
     schedule:
@@ -26,11 +20,14 @@ updates:
       angular:
         patterns:
           - '@angular*'
-          - '@angular-devkit*'
       ionic:
         patterns:
           - '@ionic*'
           - '@capacitor*'
+      firebase:
+        patterns:
+          - 'firebase*'
+          - '@firebase*'
       dev-dependencies:
         dependency-type: 'development'
         update-types:
@@ -38,11 +35,30 @@ updates:
           - 'patch'
     commit-message:
       prefix: 'chore(deps)'
+      include: 'scope'
     labels:
       - 'dependencies'
       - 'automated'
-    reviewers:
-      - 'nxt1-team'
+
+  # E2E tests (separate lockfile, not in npm workspaces)
+  - package-ecosystem: 'npm'
+    directory: '/apps/web/e2e'
+    schedule:
+      interval: 'weekly'
+      day: 'monday'
+      time: '09:00'
+      timezone: 'America/New_York'
+    open-pull-requests-limit: 5
+    groups:
+      playwright:
+        patterns:
+          - '@playwright*'
+    commit-message:
+      prefix: 'chore(deps)'
+      include: 'scope'
+    labels:
+      - 'dependencies'
+      - 'automated'
 
   # GitHub Actions
   - package-ecosystem: 'github-actions'
