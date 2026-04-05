@@ -27,14 +27,14 @@
     "firebase-admin": "^13.6.0",
     "firebase-functions": "^7.0.5",
     "lodash": "^4.17.21",
-    "nodemailer": "^8.0.1",
+    "nodemailer": "^8.0.4",
     "sharp": "^0.34.5",
     "stripe": "^17.7.0"
   },
   "devDependencies": {
     "@types/lodash": "^4.17.13",
     "@types/node": "^25.2.3",
-    "@types/nodemailer": "^7.0.9",
+    "@types/nodemailer": "^8.0.0",
     "@vitest/coverage-v8": "^4.0.18",
     "@vitest/ui": "^4.0.18",
     "firebase-functions-test": "^3.3.0",
