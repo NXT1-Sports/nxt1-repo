@@ -2,119 +2,120 @@
   "name": "@nxt1/core",
   "version": "1.0.0",
   "description": "NXT1 Core - Pure TypeScript shared library for all platforms",
-  "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
     },
     "./models": {
       "types": "./dist/models/index.d.ts",
-      "import": "./dist/models/index.mjs",
-      "require": "./dist/models/index.js"
+      "import": "./dist/models/index.js",
+      "require": "./dist/models/index.cjs"
     },
     "./constants": {
       "types": "./dist/constants/index.d.ts",
-      "import": "./dist/constants/index.mjs",
-      "require": "./dist/constants/index.js"
+      "import": "./dist/constants/index.js",
+      "require": "./dist/constants/index.cjs"
     },
     "./api": {
       "types": "./dist/api/index.d.ts",
-      "import": "./dist/api/index.mjs",
-      "require": "./dist/api/index.js"
+      "import": "./dist/api/index.js",
+      "require": "./dist/api/index.cjs"
     },
     "./helpers": {
       "types": "./dist/helpers/index.d.ts",
-      "import": "./dist/helpers/index.mjs",
-      "require": "./dist/helpers/index.js"
+      "import": "./dist/helpers/index.js",
+      "require": "./dist/helpers/index.cjs"
     },
     "./validation": {
       "types": "./dist/validation/index.d.ts",
-      "import": "./dist/validation/index.mjs",
-      "require": "./dist/validation/index.js"
+      "import": "./dist/validation/index.js",
+      "require": "./dist/validation/index.cjs"
     },
     "./auth": {
       "types": "./dist/auth/index.d.ts",
-      "import": "./dist/auth/index.mjs",
-      "require": "./dist/auth/index.js"
+      "import": "./dist/auth/index.js",
+      "require": "./dist/auth/index.cjs"
     },
     "./storage": {
       "types": "./dist/storage/index.d.ts",
-      "import": "./dist/storage/index.mjs",
-      "require": "./dist/storage/index.js"
+      "import": "./dist/storage/index.js",
+      "require": "./dist/storage/index.cjs"
     },
     "./platform": {
       "types": "./dist/platform/index.d.ts",
-      "import": "./dist/platform/index.mjs",
-      "require": "./dist/platform/index.js"
+      "import": "./dist/platform/index.js",
+      "require": "./dist/platform/index.cjs"
     },
     "./analytics": {
       "types": "./dist/analytics/index.d.ts",
-      "import": "./dist/analytics/index.mjs",
-      "require": "./dist/analytics/index.js"
+      "import": "./dist/analytics/index.js",
+      "require": "./dist/analytics/index.cjs"
     },
     "./cache": {
       "types": "./dist/cache/index.d.ts",
-      "import": "./dist/cache/index.mjs",
-      "require": "./dist/cache/index.js"
+      "import": "./dist/cache/index.js",
+      "require": "./dist/cache/index.cjs"
     },
     "./errors": {
       "types": "./dist/errors/index.d.ts",
-      "import": "./dist/errors/index.mjs",
-      "require": "./dist/errors/index.js"
+      "import": "./dist/errors/index.js",
+      "require": "./dist/errors/index.cjs"
     },
     "./errors/express": {
       "types": "./dist/errors/express.middleware.d.ts",
-      "import": "./dist/errors/express.middleware.mjs",
-      "require": "./dist/errors/express.middleware.js"
+      "import": "./dist/errors/express.middleware.js",
+      "require": "./dist/errors/express.middleware.cjs"
     },
     "./logging": {
       "types": "./dist/logging/index.d.ts",
-      "import": "./dist/logging/index.mjs",
-      "require": "./dist/logging/index.js"
+      "import": "./dist/logging/index.js",
+      "require": "./dist/logging/index.cjs"
     },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
-      "import": "./dist/testing/index.mjs",
-      "require": "./dist/testing/index.js"
+      "import": "./dist/testing/index.js",
+      "require": "./dist/testing/index.cjs"
     },
     "./geolocation": {
       "types": "./dist/geolocation/index.d.ts",
-      "import": "./dist/geolocation/index.mjs",
-      "require": "./dist/geolocation/index.js"
+      "import": "./dist/geolocation/index.js",
+      "require": "./dist/geolocation/index.cjs"
     },
     "./crashlytics": {
       "types": "./dist/crashlytics/index.d.ts",
-      "import": "./dist/crashlytics/index.mjs",
-      "require": "./dist/crashlytics/index.js"
+      "import": "./dist/crashlytics/index.js",
+      "require": "./dist/crashlytics/index.cjs"
     },
     "./performance": {
       "types": "./dist/performance/index.d.ts",
-      "import": "./dist/performance/index.mjs",
-      "require": "./dist/performance/index.js"
+      "import": "./dist/performance/index.js",
+      "require": "./dist/performance/index.cjs"
     },
     "./feed": {
       "types": "./dist/feed/index.d.ts",
-      "import": "./dist/feed/index.mjs",
-      "require": "./dist/feed/index.js"
+      "import": "./dist/feed/index.js",
+      "require": "./dist/feed/index.cjs"
     },
     "./create-post": {
       "types": "./dist/create-post/index.d.ts",
-      "import": "./dist/create-post/index.mjs",
-      "require": "./dist/create-post/index.js"
+      "import": "./dist/create-post/index.js",
+      "require": "./dist/create-post/index.cjs"
     },
     "./onboarding": {
       "types": "./dist/onboarding/index.d.ts",
-      "import": "./dist/onboarding/index.mjs",
-      "require": "./dist/onboarding/index.js"
+      "import": "./dist/onboarding/index.js",
+      "require": "./dist/onboarding/index.cjs"
     },
     "./ai": {
       "types": "./dist/ai/index.d.ts",
-      "import": "./dist/ai/index.mjs",
-      "require": "./dist/ai/index.js"
+      "import": "./dist/ai/index.js",
+      "require": "./dist/ai/index.cjs"
     }
   },
   "files": [

@@ -25,6 +25,9 @@ export default defineConfig({
     'src/ai/index.ts', // AI definitions
   ],
   format: ['cjs', 'esm'],
+  outExtension({ format }) {
+    return { js: format === 'cjs' ? '.cjs' : '.js' };
+  },
   dts: false,
   // Enable splitting to deduplicate shared code across entry points
   // This prevents dual-package issues where classes like NxtApiError
