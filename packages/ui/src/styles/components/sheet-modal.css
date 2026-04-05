@@ -1,7 +1,7 @@
 /**
  * @fileoverview NXT1 Sheet Modal Styles
  * @module @nxt1/ui/styles/components/sheet-modal
- * @version 1.0.0
+ * @version 2.0.0
  *
  * Generic draggable bottom sheet modal styles.
  * Reusable for any feature that needs a native-style sheet modal:
@@ -14,8 +14,19 @@
  * Features:
  * - Native drag handle bar at top
  * - Multiple breakpoints (drag to resize)
- * - Platform-adaptive (iOS rounded, Android square)
+ * - Platform-adaptive (iOS rounded, Android material)
+ * - Backdrop blur for premium depth-of-field feel
+ * - iOS glassmorphism with translucent surface
+ * - Spring-curve animation (matches auth modal transitions)
+ * - Reduced-motion accessibility support
+ * - Safe area handling for notched devices
  * - 100% theme-aware using NXT1 design tokens
+ *
+ * Style Parity:
+ * These styles are designed to match the same visual language used by
+ * the auth onboarding modal (auth-modal.css) and NxtBottomSheetService
+ * (bottom-sheet.css), ensuring a consistent native feel across all
+ * sheet-based surfaces in the app.
  *
  * Usage:
  * ```typescript
@@ -50,10 +61,12 @@
 
 .nxt1-sheet-modal::part(content) {
   background: var(--nxt1-color-bg-primary);
+  border-top: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
 }
 
 /* ============================================
    NATIVE DRAG HANDLE (Grabber Bar)
+   Matches auth-modal.css handle dimensions
    ============================================ */
 
 .nxt1-sheet-modal::part(handle) {
@@ -67,10 +80,13 @@
 
 /* ============================================
    BACKDROP STYLING
+   Uses blur for depth-of-field (matches auth modal)
    ============================================ */
 
 .nxt1-sheet-modal::part(backdrop) {
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.6);
+  -webkit-backdrop-filter: blur(var(--nxt1-blur-sm, 4px));
+  backdrop-filter: blur(var(--nxt1-blur-sm, 4px));
 }
 
 /* ============================================
@@ -87,9 +103,18 @@
   border-top-right-radius: var(--nxt1-borderRadius-2xl, 1.5rem);
 }
 
+/* iOS glassmorphism — translucent surface with system blur (premium feel) */
+@supports (backdrop-filter: blur(40px)) {
+  .nxt1-sheet-modal--ios::part(content) {
+    background: var(--nxt1-color-surface-glass, rgba(28, 28, 30, 0.85));
+    -webkit-backdrop-filter: blur(var(--nxt1-blur-xl, 40px));
+    backdrop-filter: blur(var(--nxt1-blur-xl, 40px));
+  }
+}
+
 /* ============================================
    ANDROID PLATFORM STYLES
-   Slightly rounded, material shadow
+   Material Design 3 — rounded top, elevation shadow
    ============================================ */
 
 .nxt1-sheet-modal--android {
@@ -100,6 +125,21 @@
 .nxt1-sheet-modal--android::part(content) {
   border-top-left-radius: var(--nxt1-borderRadius-lg, 1rem);
   border-top-right-radius: var(--nxt1-borderRadius-lg, 1rem);
+}
+
+/* ============================================
+   ANIMATION — Spring-curve entrance
+   Matches auth-modal.css transition curve
+   ============================================ */
+
+.nxt1-sheet-modal.modal-sheet {
+  --animation-timing-function: var(--nxt1-easing-spring, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+.nxt1-sheet-modal .modal-wrapper {
+  transition:
+    transform 300ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 300ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /* ============================================
@@ -118,4 +158,27 @@
 /* Compact variant (max 50% height) */
 .nxt1-sheet-modal--compact {
   --max-height: 50vh;
+}
+
+/* ============================================
+   SAFE AREA HANDLING
+   Ensures content clears notched device insets
+   ============================================ */
+
+.nxt1-sheet-modal {
+  --padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ============================================
+   ACCESSIBILITY — Reduced Motion
+   ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  .nxt1-sheet-modal {
+    --animation-duration: 0.01ms !important;
+  }
+
+  .nxt1-sheet-modal .modal-wrapper {
+    transition: none !important;
+  }
 }
