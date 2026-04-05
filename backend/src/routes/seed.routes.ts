@@ -427,6 +427,7 @@ router.delete(
     const ops: BatchOp[] = [];
 
     // Helper: delete all docs in a sub-collection query (will be re-enabled when needed)
+    // @ts-expect-error TS6133 intentionally unused, kept for future use
     async function _collectDeletions(
       col: FirebaseFirestore.CollectionReference,
       prefix: string
