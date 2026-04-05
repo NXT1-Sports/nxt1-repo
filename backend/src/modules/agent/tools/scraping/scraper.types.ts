@@ -64,6 +64,14 @@ export const BLOCKED_DOMAINS = [
   '0:0:0:0:0:0:0:1', // IPv6 loopback (expanded)
   '[::ffff:169.254.169.254]', // IPv4-mapped IPv6 metadata
   '[::ffff:127.0.0.1]', // IPv4-mapped IPv6 loopback
+  // Social media platforms (require authentication)
+  'instagram.com',
+  'twitter.com',
+  'x.com',
+  'tiktok.com',
+  'facebook.com',
+  'threads.net',
+  'snapchat.com',
 ] as const;
 
 /** Domains we know how to scrape well (for logging/analytics). */

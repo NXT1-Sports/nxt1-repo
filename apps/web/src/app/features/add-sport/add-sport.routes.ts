@@ -13,8 +13,7 @@ import { Routes } from '@angular/router';
 export const ADD_SPORT_ROUTES: Routes = [
   {
     path: '',
-    loadComponent: () =>
-      import('./add-sport.component').then((m) => m.AddSportComponent),
+    loadComponent: () => import('./add-sport.component').then((m) => m.AddSportComponent),
     title: 'Add Sport | NXT1 Sports',
   },
 ];

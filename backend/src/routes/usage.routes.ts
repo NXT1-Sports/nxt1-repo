@@ -54,7 +54,8 @@ function toISOString(val: unknown): string {
   if (typeof val === 'string') return val;
   if (val instanceof Date) return val.toISOString();
   // Firestore Timestamp
-  if (typeof (val as any).toDate === 'function') return (val as any).toDate().toISOString();
+  const tsVal = val as Record<string, unknown>;
+  if (typeof tsVal['toDate'] === 'function') return (tsVal['toDate'] as () => Date)().toISOString();
   return new Date().toISOString();
 }
 import type {

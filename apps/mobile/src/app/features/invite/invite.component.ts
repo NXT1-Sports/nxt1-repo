@@ -14,7 +14,6 @@ import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@a
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import { InviteShellComponent, InviteService, type InviteUser } from '@nxt1/ui';
 import type { InviteType } from '@nxt1/core';
-import { AuthFlowService } from '../auth/services/auth-flow.service';
 import { ProfileService } from '../../core/services/profile.service';
 
 @Component({

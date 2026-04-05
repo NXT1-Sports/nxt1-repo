@@ -33,7 +33,6 @@ import {
   computed,
   signal,
   DestroyRef,
-  effect,
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { toSignal, toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';

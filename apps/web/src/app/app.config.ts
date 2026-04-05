@@ -106,7 +106,7 @@ import { ActivityApiService as WebActivityApiService } from './features/activity
 // - Storage: NOT imported - file uploads go through backend API (security)
 // - Analytics/Performance: Lazy-loaded after LCP (see AppComponent)
 import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
-import { provideAuth, getAuth, Auth } from '@angular/fire/auth';
+import { provideAuth, getAuth } from '@angular/fire/auth';
 import { provideAnalytics, getAnalytics } from '@angular/fire/analytics';
 import { providePerformance, getPerformance } from '@angular/fire/performance';
 

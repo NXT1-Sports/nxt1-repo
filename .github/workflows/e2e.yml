@@ -134,6 +134,9 @@ jobs:
         run: npx playwright install --with-deps ${{ matrix.browser }}
         working-directory: apps/web
 
+      - name: Create auth state placeholder
+        run: mkdir -p apps/web/e2e/.auth && echo '{"cookies":[],"origins":[]}' > apps/web/e2e/.auth/user.json
+
       - name: Run E2E Tests
         run: npx playwright test --project=${{ matrix.browser }}
         working-directory: apps/web/e2e
@@ -243,6 +246,9 @@ jobs:
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
         working-directory: apps/web
+
+      - name: Create auth state placeholder
+        run: mkdir -p apps/web/e2e/.auth && echo '{"cookies":[],"origins":[]}' > apps/web/e2e/.auth/user.json
 
       - name: Run Mobile E2E Tests
         run: npx playwright test --project=mobile-chrome --project=mobile-safari

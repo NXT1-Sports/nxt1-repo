@@ -126,7 +126,9 @@ export class FirecrawlSignInService {
           platform: request.platform,
         });
         // Best-effort cleanup — release the browser session so it doesn't leak until TTL
-        this.cancelSession(session.sessionId).catch(() => {});
+        this.cancelSession(session.sessionId).catch(() => {
+          /* noop */
+        });
         this._activePlatform.set(null);
         return false;
       }

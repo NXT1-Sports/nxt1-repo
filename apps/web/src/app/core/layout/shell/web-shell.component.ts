@@ -72,7 +72,6 @@ import {
   type TopNavSelectEvent,
   type TopNavUserMenuEvent,
   createTopNavConfig,
-  DEFAULT_USER_MENU_ITEMS,
 } from '@nxt1/ui/components/top-nav';
 import {
   NxtMobileFooterComponent,
@@ -80,7 +79,6 @@ import {
   type FooterTabSelectEvent,
   type FooterScrollToTopEvent,
   type FooterConfig,
-  AGENT_X_LEFT_FOOTER_TABS,
   buildDynamicFooterTabs,
   updateTabBadge,
   createFooterConfig,
@@ -129,7 +127,6 @@ import {
   DEFAULT_SOCIAL_LINKS,
   DEFAULT_SPORTS,
   formatSportDisplayName,
-  isTeamRole,
   normalizeSportKey,
   buildUserDisplayContext,
   shouldShowUsage,

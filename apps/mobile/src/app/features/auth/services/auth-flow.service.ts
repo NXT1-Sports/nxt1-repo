@@ -1079,7 +1079,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       this.logger.error('Account deletion failed', {
         error: err,
         message,
-        status: (err as any)?.status,
+        status: (err as Record<string, unknown>)?.['status'],
       });
       backendError = message;
     }

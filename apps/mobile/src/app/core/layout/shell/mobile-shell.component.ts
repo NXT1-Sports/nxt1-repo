@@ -91,7 +91,6 @@ import {
   type SidenavSportProfile,
   type SocialLink,
   type SidenavToggleEvent,
-  AGENT_X_LEFT_FOOTER_TABS,
   DEFAULT_SIDENAV_ITEMS,
   DEFAULT_SOCIAL_LINKS,
   createFooterConfig,
@@ -103,14 +102,8 @@ import {
   SIDENAV_WIDTHS,
   SIDENAV_ANIMATION,
 } from '@nxt1/ui';
-import {
-  AUTH_ROUTES,
-  formatSportDisplayName,
-  isTeamRole,
-  shouldShowUsage,
-  buildUserDisplayContext,
-} from '@nxt1/core';
-import type { UserDisplayInput, UserDisplayFallback, InviteTeam } from '@nxt1/core';
+import { AUTH_ROUTES, formatSportDisplayName, isTeamRole, shouldShowUsage } from '@nxt1/core';
+import type { InviteTeam } from '@nxt1/core';
 import { AuthFlowService } from '../../../features/auth/services/auth-flow.service';
 import { ProfileService } from '../../../core/services/profile.service';
 
@@ -681,7 +674,9 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   private scheduleEarlyRetry(): void {
     this.cancelEarlyRetry();
     this.earlyRetryTimer = setTimeout(() => {
-      this.activityService.refreshBadges().catch(() => {});
+      this.activityService.refreshBadges().catch(() => {
+        /* noop */
+      });
       this.earlyRetryTimer = null;
     }, 5_000);
   }

@@ -207,11 +207,13 @@ export default defineConfig({
     // -------------------------------------------------------------------------
     {
       name: 'setup',
+      testDir: __dirname,
       testMatch: /global\.setup\.ts/,
       teardown: 'teardown',
     },
     {
       name: 'teardown',
+      testDir: __dirname,
       testMatch: /global\.teardown\.ts/,
     },
 

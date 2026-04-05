@@ -18,7 +18,6 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
-import { firstValueFrom } from 'rxjs';
 import { ProfileService } from '../../profile/services/profile.service';
 import {
   Auth,
@@ -537,7 +536,7 @@ export class BrowserAuthService implements IAuthService {
       this.logger.error('Backend deletion failed', {
         error: err,
         message: backendError,
-        status: (err as any)?.status,
+        status: (err as Record<string, unknown>)?.['status'],
       });
     }
 

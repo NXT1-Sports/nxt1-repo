@@ -202,7 +202,9 @@ describe('AddSportService', () => {
       expect(service.agentXMessage()).toContain('adding to your profile');
 
       // Advance to step 1
-      service.onSportChange({ sports: [{ sport: 'Basketball', positions: [] }] });
+      service.onSportChange({
+        sports: [{ sport: 'Basketball', isPrimary: false, team: { name: '' }, positions: [] }],
+      });
       service.onContinue();
       expect(service.agentXMessage()).toContain('Connect your accounts');
     });
@@ -214,14 +216,16 @@ describe('AddSportService', () => {
 
   describe('form data', () => {
     it('should update sport form data', () => {
-      const data = { sports: [{ sport: 'Football', positions: ['QB'] }] };
+      const data = {
+        sports: [{ sport: 'Football', isPrimary: false, team: { name: '' }, positions: ['QB'] }],
+      };
       service.onSportChange(data);
       expect(service.sportFormData()).toEqual(data);
     });
 
     it('should update link sources form data', () => {
       const data = { links: [{ platform: 'hudl', connected: true, url: 'https://hudl.com/p' }] };
-      service.onLinkSourcesChange(data as any);
+      service.onLinkSourcesChange(data as Parameters<typeof service.onLinkSourcesChange>[0]);
       expect(service.linkSourcesFormData()).toEqual(data);
     });
 
@@ -229,12 +233,16 @@ describe('AddSportService', () => {
       service.initialize();
       expect(service.isCurrentStepValid()).toBe(false);
 
-      service.onSportChange({ sports: [{ sport: 'Baseball', positions: [] }] });
+      service.onSportChange({
+        sports: [{ sport: 'Baseball', isPrimary: false, team: { name: '' }, positions: [] }],
+      });
       expect(service.isCurrentStepValid()).toBe(true);
     });
 
     it('should compute selectedSportNames', () => {
-      service.onSportChange({ sports: [{ sport: 'Soccer', positions: [] }] });
+      service.onSportChange({
+        sports: [{ sport: 'Soccer', isPrimary: false, team: { name: '' }, positions: [] }],
+      });
       expect(service.selectedSportNames()).toEqual(['Soccer']);
     });
   });
@@ -246,7 +254,9 @@ describe('AddSportService', () => {
   describe('navigation', () => {
     beforeEach(() => {
       service.initialize();
-      service.onSportChange({ sports: [{ sport: 'Basketball', positions: [] }] });
+      service.onSportChange({
+        sports: [{ sport: 'Basketball', isPrimary: false, team: { name: '' }, positions: [] }],
+      });
     });
 
     it('should advance to link-sources on continue from sport step', () => {
@@ -291,7 +301,9 @@ describe('AddSportService', () => {
   describe('save (via onContinue on last step)', () => {
     beforeEach(() => {
       service.initialize();
-      service.onSportChange({ sports: [{ sport: 'Basketball', positions: ['PG'] }] });
+      service.onSportChange({
+        sports: [{ sport: 'Basketball', isPrimary: false, team: { name: '' }, positions: ['PG'] }],
+      });
       service.onContinue(); // advance to link-sources
     });
 
@@ -344,7 +356,7 @@ describe('AddSportService', () => {
 
     it('should skip save without sport data', async () => {
       // Reset sport data
-      service.onSportChange({ sports: [] } as any);
+      service.onSportChange({ sports: [] } as Parameters<typeof service.onSportChange>[0]);
       service.onContinue();
 
       await vi.waitFor(() => {
@@ -360,7 +372,7 @@ describe('AddSportService', () => {
           { platform: 'hudl', connected: true, url: 'https://hudl.com/profile/1' },
           { platform: 'twitter', connected: false, url: '' },
         ],
-      } as any);
+      } as Parameters<typeof service.onLinkSourcesChange>[0]);
 
       service.onContinue();
       await vi.waitFor(() => {
@@ -385,7 +397,9 @@ describe('AddSportService', () => {
   describe('onSkip', () => {
     it('should trigger save on last step', async () => {
       service.initialize();
-      service.onSportChange({ sports: [{ sport: 'Tennis', positions: [] }] });
+      service.onSportChange({
+        sports: [{ sport: 'Tennis', isPrimary: false, team: { name: '' }, positions: [] }],
+      });
       service.onContinue(); // advance to link-sources (last step)
 
       service.onSkip();

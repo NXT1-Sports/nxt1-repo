@@ -626,7 +626,7 @@ export class OnboardingService {
           const sportEntry = createEmptySportEntry(teamData.sport, true);
           sportEntry.team.name = teamData.teamName;
           // Keep raw TeamTypeApi value — backend createSportProfile validates against VALID_TEAM_TYPES
-          sportEntry.team.type = teamData.teamType as any;
+          sportEntry.team.type = teamData.teamType as typeof sportEntry.team.type;
           // Pass teamId so backend can look up organizationId from the Teams collection
           if (teamData.teamId) {
             sportEntry.team.teamId = teamData.teamId;

@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 
 describe('Activity Routes', () => {
-  let router: any;
+  let router: ReturnType<typeof import('express').Router>;
 
   beforeAll(async () => {
     const module = await import('../../routes/activity.routes.js');
@@ -33,11 +33,12 @@ describe('Activity Routes', () => {
     const stack = router.stack;
 
     // Extract route paths from the router stack
-    const routes = stack
-      .filter((layer: any) => layer.route)
-      .map((layer: any) => ({
-        path: layer.route.path,
-        methods: Object.keys(layer.route.methods),
+    type ExpressLayer = { route?: { path: string; methods: Record<string, boolean> } };
+    const routes = (stack as ExpressLayer[])
+      .filter((layer) => layer.route)
+      .map((layer) => ({
+        path: layer.route!.path,
+        methods: Object.keys(layer.route!.methods),
       }));
 
     // Verify all expected endpoints exist
@@ -55,7 +56,7 @@ describe('Activity Routes', () => {
 
     for (const expected of expectedRoutes) {
       const found = routes.find(
-        (r: any) => r.path === expected.path && r.methods.includes(expected.method)
+        (r) => r.path === expected.path && r.methods.includes(expected.method)
       );
       expect(found, `Expected ${expected.method.toUpperCase()} ${expected.path}`).toBeTruthy();
     }

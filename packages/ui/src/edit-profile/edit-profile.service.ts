@@ -53,7 +53,7 @@ export class EditProfileService {
       sportIndex?: number
     ) => Promise<{
       success: boolean;
-      data?: any;
+      data?: unknown;
       error?: string;
     }>;
     updateSection: (
@@ -63,7 +63,7 @@ export class EditProfileService {
       sportIndex?: number
     ) => Promise<{
       success: boolean;
-      data?: any;
+      data?: unknown;
       error?: string;
     }>;
     updateActiveSportIndex: (
@@ -71,7 +71,7 @@ export class EditProfileService {
       activeSportIndex: number
     ) => Promise<{
       success: boolean;
-      data?: any;
+      data?: unknown;
       error?: string;
     }>;
     uploadPhoto: (
@@ -108,7 +108,7 @@ export class EditProfileService {
   private readonly _error = signal<string | null>(null);
   private readonly _dirtyFields = signal<Set<string>>(new Set());
   private readonly _validationErrors = signal<Record<string, string>>({});
-  private readonly _rawUserData = signal<any | null>(null);
+  private readonly _rawUserData = signal<unknown>(null);
   private readonly _activeSportIndex = signal<number>(0);
   private readonly _showCompletionCelebration = signal(false);
   private readonly _lastUnlockedTier = signal<ProfileCompletionTier | null>(null);
@@ -237,22 +237,22 @@ export class EditProfileService {
     getProfile: (
       userId: string,
       sportIndex?: number
-    ) => Promise<{ success: boolean; data?: any; error?: string }>;
+    ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
     updateSection: (
       userId: string,
       sectionId: string,
       data: Record<string, unknown>,
       sportIndex?: number
-    ) => Promise<{ success: boolean; data?: any; error?: string }>;
+    ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
     updateActiveSportIndex: (
       userId: string,
       activeSportIndex: number
-    ) => Promise<{ success: boolean; data?: any; error?: string }>;
+    ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
     uploadPhoto: (
       userId: string,
       type: 'profile' | 'banner',
       file: File | Blob
-    ) => Promise<{ success: boolean; data?: any; error?: string }>;
+    ) => Promise<{ success: boolean; data?: unknown; error?: string }>;
   }): void {
     this.api = api;
     this.logger.debug('API service configured');

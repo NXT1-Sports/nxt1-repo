@@ -124,7 +124,9 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   // ── 0. Kill-switch: set AGENT_ENGINE_DISABLED=true in .env to skip entirely ──
   if (process.env['AGENT_ENGINE_DISABLED'] === 'true') {
     logger.warn('⚠️  AGENT_ENGINE_DISABLED=true — Agent Engine skipped.');
-    return async () => {};
+    return async () => {
+      /* noop shutdown */
+    };
   }
 
   // ── 0b. Redis availability check ─────────────────────────────────────
@@ -147,7 +149,9 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     }
     // Do NOT throw — let the server start so all other routes keep working.
     // Agent routes return 503 when queueService/jobRepository are null.
-    return async () => {};
+    return async () => {
+      /* noop shutdown */
+    };
   }
   // ── 1. Core services ─────────────────────────────────────────────────
   const telemetry = new TelemetryService();

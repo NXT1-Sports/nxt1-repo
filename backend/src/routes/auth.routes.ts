@@ -2711,7 +2711,7 @@ router.post(
           });
           res.status(tokenResponse.status).json({
             error: 'token_exchange_failed',
-            message: `Failed to exchange Microsoft authorization code: ${(errorData as any).error_description || tokenResponse.statusText}`,
+            message: `Failed to exchange Microsoft authorization code: ${(errorData as Record<string, unknown>)['error_description'] || tokenResponse.statusText}`,
           });
           return;
         }

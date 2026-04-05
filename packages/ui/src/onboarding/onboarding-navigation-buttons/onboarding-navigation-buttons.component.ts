@@ -51,18 +51,20 @@ import { NxtPlatformService } from '../../services/platform';
       [class]="
         isMobile()
           ? mobileLayout === 'row'
-            ? 'flex w-full mt-0 items-center justify-end gap-2 p-0'
-            : 'flex w-full mt-0 flex-col gap-0 p-0'
+            ? 'mt-0 flex w-full items-center justify-end gap-2 p-0'
+            : 'mt-0 flex w-full flex-col gap-0 p-0'
           : compact
-            ? 'flex w-full mt-0 items-center justify-end gap-3'
-            : 'flex w-full mt-6 items-center justify-end gap-3'
+            ? 'mt-0 flex w-full items-center justify-end gap-3'
+            : 'mt-6 flex w-full items-center justify-end gap-3'
       "
     >
       <!-- Back Button (optional) -->
       @if (showBack) {
         <button
           type="button"
-          [class]="'nxt1-back-btn ' + (compact ? 'rounded-full px-5 py-2.5' : 'rounded-lg px-6 py-3')"
+          [class]="
+            'nxt1-back-btn ' + (compact ? 'rounded-full px-5 py-2.5' : 'rounded-lg px-6 py-3')
+          "
           [disabled]="loading"
           (click)="backClick.emit()"
           [attr.data-testid]="backTestId"
@@ -77,7 +79,9 @@ import { NxtPlatformService } from '../../services/platform';
       @if (showSkip && !isLastStep) {
         <button
           type="button"
-          [class]="'nxt1-skip-btn ' + (compact ? 'rounded-full px-5 py-2.5' : 'rounded-lg px-6 py-3')"
+          [class]="
+            'nxt1-skip-btn ' + (compact ? 'rounded-full px-5 py-2.5' : 'rounded-lg px-6 py-3')
+          "
           [disabled]="loading"
           (click)="skipClick.emit()"
           [attr.data-testid]="skipTestId"

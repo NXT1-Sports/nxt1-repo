@@ -27,7 +27,7 @@ import {
   type AnimationDirection,
 } from '@nxt1/ui';
 
-import type { SportFormData, LinkSourcesFormData, LinkSourceEntry } from '@nxt1/core/api';
+import type { SportFormData, LinkSourcesFormData } from '@nxt1/core/api';
 
 import type { ConnectedSource } from '@nxt1/core/models';
 

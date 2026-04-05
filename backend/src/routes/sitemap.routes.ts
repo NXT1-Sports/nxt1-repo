@@ -16,6 +16,7 @@
 import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 import { logger } from '../utils/logger.js';
 import { CollegeModel } from '../models/college.model.js';
+import mongoose from 'mongoose';
 
 const router: ExpressRouter = Router();
 
@@ -183,16 +184,21 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
     // 4. Colleges (from MongoDB)
     // ──────────────────────────────────────────
     try {
-      const colleges = await CollegeModel.find({}, '_id').lean().limit(5000).exec();
+      // Only query MongoDB if the connection is established (readyState === 1)
+      if (mongoose.connection.readyState === 1) {
+        const colleges = await CollegeModel.find({}, '_id').lean().limit(5000).exec();
 
-      logger.info(`[${requestId}] Found ${colleges.length} colleges`);
+        logger.info(`[${requestId}] Found ${colleges.length} colleges`);
 
-      for (const college of colleges) {
-        entries.push({
-          loc: `${baseUrl}/colleges/${college._id.toString()}`,
-          changefreq: 'monthly',
-          priority: 0.7,
-        });
+        for (const college of colleges) {
+          entries.push({
+            loc: `${baseUrl}/colleges/${college._id.toString()}`,
+            changefreq: 'monthly',
+            priority: 0.7,
+          });
+        }
+      } else {
+        logger.debug(`[${requestId}] MongoDB not connected — skipping colleges`);
       }
     } catch (error) {
       logger.error(`[${requestId}] Error fetching colleges`, { error });

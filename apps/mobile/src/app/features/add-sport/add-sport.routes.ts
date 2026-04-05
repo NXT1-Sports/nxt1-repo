@@ -21,8 +21,7 @@ export const ADD_SPORT_ROUTES: Routes = [
       { path: '', redirectTo: 'sport', pathMatch: 'full' },
       {
         path: 'sport',
-        loadComponent: () =>
-          import('./steps/sport.page').then((m) => m.AddSportSportStepPage),
+        loadComponent: () => import('./steps/sport.page').then((m) => m.AddSportSportStepPage),
         title: 'Add Sport | NXT1 Sports',
       },
       {

@@ -1544,11 +1544,11 @@ router.post(
         }
       } else {
         // Fallback to legacy teamCode on user document if they are from v1
-        const teamCodeObj = currentData['teamCode'] as any;
-        if (teamCodeObj?.teamName) {
-          inheritedTeamName = teamCodeObj.teamName;
-          inheritedTeamType = teamCodeObj.teamType || 'club';
-          inheritedOrgId = teamCodeObj.organizationId || '';
+        const teamCodeObj = currentData['teamCode'] as Record<string, unknown> | undefined;
+        if (teamCodeObj?.['teamName']) {
+          inheritedTeamName = teamCodeObj['teamName'] as string;
+          inheritedTeamType = (teamCodeObj['teamType'] as string) || 'club';
+          inheritedOrgId = (teamCodeObj['organizationId'] as string) || '';
         }
       }
 
@@ -1613,7 +1613,7 @@ router.post(
               | 'organization',
             sport: newSport.sport as string,
             createdBy: userId,
-            creatorRole: userRole as any,
+            creatorRole: userRole as 'athlete' | 'coach' | 'director' | 'scout',
             creatorName:
               `${currentData['firstName'] || ''} ${currentData['lastName'] || ''}`.trim(),
             creatorEmail: currentData['email'] || '',
@@ -1649,9 +1649,9 @@ router.post(
         );
 
         // 4. Append team slug to coach.managedTeamCodes (lightweight routing cache)
-        const coachData = (currentData['coach'] as any) || {};
-        const currentManaged: string[] = Array.isArray(coachData.managedTeamCodes)
-          ? coachData.managedTeamCodes
+        const coachData = (currentData['coach'] as Record<string, unknown>) || {};
+        const currentManaged: string[] = Array.isArray(coachData['managedTeamCodes'])
+          ? (coachData['managedTeamCodes'] as string[])
           : [];
         const newSlug = team.slug ?? team.unicode ?? team.id;
         if (newSlug && !currentManaged.includes(newSlug)) {

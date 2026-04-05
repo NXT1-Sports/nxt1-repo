@@ -1027,12 +1027,14 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
         secondaryPositions: data?.sportsInfo?.secondaryPositions,
         activeSportIndex,
         allSportsCount: allSports?.length,
-        allSportsData: allSports?.map((s: any, i: number) => ({
-          index: i,
-          sport: s.sport,
-          jerseyNumber: s.jerseyNumber,
-          positions: s.positions,
-        })),
+        allSportsData: allSports?.map(
+          (s: { sport: string; jerseyNumber?: string; positions?: string[] }, i: number) => ({
+            index: i,
+            sport: s.sport,
+            jerseyNumber: s.jerseyNumber,
+            positions: s.positions,
+          })
+        ),
       });
     });
   }
@@ -1059,7 +1061,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       rawSport: sport,
       activeSportIndex,
       totalSports: allSports?.length,
-      allSportsNames: allSports?.map((s: any) => s.sport),
+      allSportsNames: allSports?.map((s: { sport: string }) => s.sport),
       jerseyNumber: data?.sportsInfo?.jerseyNumber,
       primaryPosition: data?.sportsInfo?.primaryPosition,
       sportsInfoFull: data?.sportsInfo,

@@ -124,7 +124,7 @@ import {
   OnboardingAnalyticsService,
 } from '../../services';
 import { EditProfileApiService } from '../../../../core/services/edit-profile-api.service';
-import { AgentXJobService, ProfileGenerationStateService } from '@nxt1/ui';
+import { ProfileGenerationStateService } from '@nxt1/ui';
 import type { OnboardingProfileData } from '@nxt1/core/auth';
 import { NxtThemeService } from '@nxt1/ui';
 import { HapticsService, NxtToastService, NxtLoggingService, NxtPlatformService } from '@nxt1/ui';
@@ -1026,7 +1026,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
       if (teamData?.sport && teamData?.teamName) {
         const sportEntry = createEmptySportEntry(teamData.sport, true);
         sportEntry.team.name = teamData.teamName;
-        sportEntry.team.type = teamData.teamType as any;
+        sportEntry.team.type = teamData.teamType as typeof sportEntry.team.type;
 
         const sportData: SportFormData = {
           sports: [sportEntry],

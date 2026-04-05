@@ -423,7 +423,9 @@ export class AgentRouter {
     const allCompleted = mutableTasks.every((t) => t.status === 'completed');
     if (allCompleted && taskResults.size > 0) {
       // Fire-and-forget — never block the response for cache storage
-      this.semanticCache.store(intent, aggregatedResult).catch(() => {});
+      this.semanticCache.store(intent, aggregatedResult).catch(() => {
+        /* noop */
+      });
     }
 
     return aggregatedResult;

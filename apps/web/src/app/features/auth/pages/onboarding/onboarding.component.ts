@@ -983,7 +983,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
           // We have full team data - create complete sport entry
           const sportEntry = createEmptySportEntry(teamData.sport, true);
           sportEntry.team.name = teamData.teamName;
-          sportEntry.team.type = teamData.teamType as any;
+          sportEntry.team.type = teamData.teamType as typeof sportEntry.team.type;
 
           const sportData: SportFormData = {
             sports: [sportEntry],

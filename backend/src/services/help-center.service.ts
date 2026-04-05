@@ -58,7 +58,7 @@ function toArticle(doc: unknown): HelpArticle {
     typeof (doc as { toObject?: () => unknown }).toObject === 'function'
       ? (doc as { toObject: () => Record<string, unknown> }).toObject()
       : (doc as Record<string, unknown>);
-  const { _id, isPublished, __v, ...rest } = obj;
+  const { _id, isPublished: _isPublished, __v, ...rest } = obj;
   return { id: String(_id), ...rest } as HelpArticle;
 }
 
@@ -68,7 +68,7 @@ function toFaq(doc: unknown): FaqItem {
     typeof (doc as { toObject?: () => unknown }).toObject === 'function'
       ? (doc as { toObject: () => Record<string, unknown> }).toObject()
       : (doc as Record<string, unknown>);
-  const { _id, isPublished, __v, ...rest } = obj;
+  const { _id, isPublished: _isPublished2, __v, ...rest } = obj;
   return { id: String(_id), ...rest } as FaqItem;
 }
 

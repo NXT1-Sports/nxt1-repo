@@ -43,15 +43,31 @@ export class IonToggle {}
 
 export class AlertController {
   async create() {
-    return { present: async () => {}, dismiss: async () => {}, onDidDismiss: async () => ({}) };
+    return {
+      present: async () => {
+        /* noop */
+      },
+      dismiss: async () => {
+        /* noop */
+      },
+      onDidDismiss: async () => ({}),
+    };
   }
 }
 
 export class MenuController {
-  async open() {}
-  async close() {}
-  async toggle() {}
-  async enable() {}
+  async open() {
+    /* noop */
+  }
+  async close() {
+    /* noop */
+  }
+  async toggle() {
+    /* noop */
+  }
+  async enable() {
+    /* noop */
+  }
   async isOpen() {
     return false;
   }
@@ -62,14 +78,30 @@ export class MenuController {
 
 export class ModalController {
   async create() {
-    return { present: async () => {}, dismiss: async () => {} };
+    return {
+      present: async () => {
+        /* noop */
+      },
+      dismiss: async () => {
+        /* noop */
+      },
+    };
   }
-  async dismiss() {}
+  async dismiss() {
+    /* noop */
+  }
 }
 
 export class ToastController {
   async create() {
-    return { present: async () => {}, dismiss: async () => {} };
+    return {
+      present: async () => {
+        /* noop */
+      },
+      dismiss: async () => {
+        /* noop */
+      },
+    };
   }
 }
 

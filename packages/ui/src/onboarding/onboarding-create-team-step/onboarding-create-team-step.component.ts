@@ -198,7 +198,10 @@ export class Nxt1OnboardingCreateTeamStepComponent {
     );
   }
 
-  protected updateField(field: keyof CreateTeamProfileFormData, value: any): void {
+  protected updateField(
+    field: keyof CreateTeamProfileFormData,
+    value: CreateTeamProfileFormData[keyof CreateTeamProfileFormData]
+  ): void {
     if (this.disabled()) return;
 
     switch (field) {

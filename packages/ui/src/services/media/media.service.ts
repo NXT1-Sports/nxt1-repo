@@ -167,7 +167,13 @@ export class NxtMediaService {
 
     try {
       if (isCapacitor()) {
-        return await this.shareNative(options.data, fullFileName, format, options.title, options.text);
+        return await this.shareNative(
+          options.data,
+          fullFileName,
+          format,
+          options.title,
+          options.text
+        );
       }
       return await this.shareWeb(options.data, fullFileName, format, options.title, options.text);
     } catch (err) {
@@ -211,12 +217,16 @@ export class NxtMediaService {
       });
 
       // Clean up temp file
-      await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => { /* noop */ });
+      await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {
+        /* noop */
+      });
       return { success: true, path: 'Photos' };
     } catch {
       // Fallback: if @capacitor-community/media isn't installed,
       // the file is already saved in cache — inform the user
-      this.logger.info('Media plugin unavailable, file saved to app cache', { path: tempResult.uri });
+      this.logger.info('Media plugin unavailable, file saved to app cache', {
+        path: tempResult.uri,
+      });
       return { success: true, path: tempResult.uri };
     }
   }
@@ -252,7 +262,9 @@ export class NxtMediaService {
     });
 
     // Clean up temp file
-    await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => { /* noop */ });
+    await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {
+      /* noop */
+    });
 
     return {
       success: true,
@@ -314,9 +326,7 @@ export class NxtMediaService {
 
     // Fallback: copy image to clipboard
     try {
-      await navigator.clipboard.write([
-        new ClipboardItem({ [mimeType]: blob }),
-      ]);
+      await navigator.clipboard.write([new ClipboardItem({ [mimeType]: blob })]);
       this.toast.success('Image copied to clipboard');
       return { success: true };
     } catch {
@@ -377,9 +387,11 @@ export class NxtMediaService {
    * Lazy load the @capacitor-community/media plugin.
    * This is optional — falls back gracefully if not installed.
    */
-  private async loadMediaPlugin(): Promise<{ MediaPlugin: { savePhoto: (opts: { path: string; album?: string }) => Promise<void> } }> {
+  private async loadMediaPlugin(): Promise<{
+    MediaPlugin: { savePhoto: (opts: { path: string; album?: string }) => Promise<void> };
+  }> {
     // Dynamic import of optional peer dependency — caught at runtime if not installed
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const mod = await (Function('return import("@capacitor-community/media")')() as Promise<any>);
     const MediaPlugin = mod.Media ?? mod.default ?? mod;
     return { MediaPlugin };

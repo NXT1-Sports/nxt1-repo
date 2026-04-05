@@ -2,7 +2,7 @@
  * @fileoverview Users Routes
  * @module @nxt1/backend/routes/users
  *
- * User search routes 
+ * User search routes
  * Matches CREATE_POST_API_ENDPOINTS.SEARCH_USERS
  */
 

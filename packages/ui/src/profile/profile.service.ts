@@ -52,7 +52,7 @@ export class ProfileService {
       activeSportIndex: number
     ) => Promise<{
       success: boolean;
-      data?: any;
+      data?: unknown;
       error?: string;
     }>;
   };
@@ -821,7 +821,7 @@ export class ProfileService {
       activeSportIndex: number
     ) => Promise<{
       success: boolean;
-      data?: any;
+      data?: unknown;
       error?: string;
     }>;
   }): void {

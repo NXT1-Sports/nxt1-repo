@@ -19,7 +19,7 @@ import { Capacitor } from '@capacitor/core';
 import { NxtLoggingService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 import type { HttpAdapter, HttpRequestConfig, HttpAdapterError } from '@nxt1/core';
-import { parseApiError, getErrorMessage } from '@nxt1/core/errors';
+import { parseApiError } from '@nxt1/core/errors';
 
 /**
  * Token provider function type

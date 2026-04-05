@@ -29,7 +29,6 @@ import {
   requiresAuth,
   isValidationError,
   getFieldErrors,
-  type ApiErrorDetail,
 } from '@nxt1/core/errors';
 import type { InboxEmailProvider } from '@nxt1/core';
 import { environment } from '../../../../environments/environment';
@@ -274,7 +273,7 @@ export class WebEmailConnectionService {
                 reject(new Error('No authorization code received from Microsoft'));
               }
             }
-          } catch (e) {
+          } catch {
             // Cross-origin error - popup not on our domain yet, continue polling
           }
         }, 500); // Check every 500ms
@@ -423,7 +422,7 @@ export class WebEmailConnectionService {
                 reject(new Error('No authorization code received from Yahoo'));
               }
             }
-          } catch (e) {
+          } catch {
             // Cross-origin error - popup not on our domain yet, continue polling
           }
         }, 500); // Check every 500ms
@@ -539,11 +538,12 @@ export class WebEmailConnectionService {
 
     // Log detailed error for debugging
     if (error && typeof error === 'object') {
+      const errObj = error as Record<string, unknown>;
       this.logger.error('Detailed error:', {
-        name: (error as any).name,
-        message: (error as any).message,
-        stack: (error as any).stack,
-        response: (error as any).response,
+        name: errObj['name'],
+        message: errObj['message'],
+        stack: errObj['stack'],
+        response: errObj['response'],
       });
     }
 

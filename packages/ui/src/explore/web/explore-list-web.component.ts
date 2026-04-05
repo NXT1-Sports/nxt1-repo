@@ -108,13 +108,22 @@ const STATE_ICON_PATHS: Record<string, string> = {
     @else {
       <div class="explore-list__results" [attr.data-testid]="testIds.LIST_CONTAINER">
         @for (item of items(); track item.id) {
-          <nxt1-explore-item-web [item]="item" [attr.data-testid]="testIds.LIST_ITEM + '-' + item.id" (itemClick)="onItemClick($event)" />
+          <nxt1-explore-item-web
+            [item]="item"
+            [attr.data-testid]="testIds.LIST_ITEM + '-' + item.id"
+            (itemClick)="onItemClick($event)"
+          />
         }
       </div>
 
       <!-- Infinite Scroll Sentinel -->
       @if (hasMore()) {
-        <div #scrollSentinel class="scroll-sentinel" [attr.data-testid]="testIds.LOAD_MORE_TRIGGER" aria-hidden="true"></div>
+        <div
+          #scrollSentinel
+          class="scroll-sentinel"
+          [attr.data-testid]="testIds.LOAD_MORE_TRIGGER"
+          aria-hidden="true"
+        ></div>
       }
 
       <!-- Loading More Indicator -->

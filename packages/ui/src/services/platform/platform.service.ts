@@ -423,7 +423,7 @@ export class NxtPlatformService {
         const durationMap = { light: 10, medium: 20, heavy: 30 };
         navigator.vibrate(durationMap[style]);
       }
-    } catch (error) {
+    } catch {
       // Haptic feedback failures are non-critical; suppress silently
     }
   }
@@ -442,7 +442,7 @@ export class NxtPlatformService {
       } else if ('vibrate' in navigator) {
         navigator.vibrate(5);
       }
-    } catch (error) {
+    } catch {
       // Haptic feedback failures are non-critical; suppress silently
     }
   }
@@ -470,7 +470,7 @@ export class NxtPlatformService {
         };
         navigator.vibrate(patterns[type]);
       }
-    } catch (error) {
+    } catch {
       // Haptic feedback failures are non-critical; suppress silently
     }
   }

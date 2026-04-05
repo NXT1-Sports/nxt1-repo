@@ -12,7 +12,6 @@ import {
   ChangeDetectionStrategy,
   inject,
   OnInit,
-  computed,
   AfterViewInit,
   OnDestroy,
   viewChild,

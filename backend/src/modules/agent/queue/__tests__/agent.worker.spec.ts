@@ -32,6 +32,46 @@ vi.mock('bullmq', () => {
   return { Worker: MockWorker, Job: class {} };
 });
 
+// ─── Mock Firebase ─────────────────────────────────────────────────────────
+
+const mockFirestoreSnapshot = {
+  empty: true,
+  docs: [] as unknown[],
+  size: 0,
+  forEach: () => undefined,
+};
+const mockFirestoreRef = {
+  collection: function () {
+    return mockFirestoreRef;
+  },
+  doc: function () {
+    return mockFirestoreRef;
+  },
+  where: function () {
+    return mockFirestoreRef;
+  },
+  orderBy: function () {
+    return mockFirestoreRef;
+  },
+  limit: function () {
+    return mockFirestoreRef;
+  },
+  get: async () => mockFirestoreSnapshot,
+  set: async () => undefined,
+  add: async () => ({ id: 'test-id' }),
+  update: async () => undefined,
+  delete: async () => undefined,
+};
+const mockFirestore = {
+  ...mockFirestoreRef,
+  batch: () => ({
+    set: () => undefined,
+    update: () => undefined,
+    delete: () => undefined,
+    commit: async () => undefined,
+  }),
+} as unknown as FirebaseFirestore.Firestore;
+
 // ─── Import after mocks ────────────────────────────────────────────────────
 
 const { AgentWorker } = await import('../agent.worker.js');
@@ -49,10 +89,7 @@ function makePayload(overrides?: Partial<AgentJobPayload>): AgentJobPayload {
   };
 }
 
-function makeMockJob(
-  payload: AgentJobPayload,
-  environment: 'staging' | 'production' = 'production'
-) {
+function makeMockJob(payload: AgentJobPayload, environment: 'staging' | 'production' = 'staging') {
   return {
     id: payload.operationId,
     data: {
@@ -101,6 +138,8 @@ describe('AgentWorker', () => {
       mockRouter as never,
       mockJobRepo as never,
       mockJobRepo as never,
+      null as never,
+      mockFirestore,
       'redis://localhost:6379'
     );
   });
@@ -223,6 +262,8 @@ describe('AgentWorker', () => {
         mockRouter as never,
         mockJobRepo as never,
         mockJobRepo as never,
+        null as never,
+        mockFirestore,
         'redis://localhost:6379'
       );
       await worker.shutdown();
@@ -236,6 +277,8 @@ describe('AgentWorker', () => {
         mockRouter as never,
         mockJobRepo as never,
         mockJobRepo as never,
+        null as never,
+        mockFirestore,
         'redis://localhost:6379'
       );
       expect(worker.isRunning()).toBe(true);

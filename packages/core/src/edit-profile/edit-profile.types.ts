@@ -343,7 +343,7 @@ export interface EditProfileData {
   readonly formData: EditProfileFormData;
   readonly completion: ProfileCompletionData;
   readonly lastUpdated: string;
-  readonly rawUser?: any; // User type from @nxt1/core
+  readonly rawUser?: Record<string, unknown>; // User type from @nxt1/core
   readonly activeSportIndex?: number;
 }
 

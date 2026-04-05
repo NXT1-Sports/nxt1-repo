@@ -1,1 +1,1 @@
-console.log("Checking edit tool");
+console.log('Checking edit tool');

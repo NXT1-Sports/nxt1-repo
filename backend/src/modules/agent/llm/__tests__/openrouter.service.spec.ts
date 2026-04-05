@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OpenRouterService } from '../openrouter.service.js';
-import { MODEL_CATALOGUE, MODEL_FALLBACK_CHAIN } from '../llm.types.js';
+import { MODEL_CATALOGUE } from '../llm.types.js';
 
 // ─── Mock Setup ─────────────────────────────────────────────────────────────
 

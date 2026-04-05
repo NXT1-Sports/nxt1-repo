@@ -395,7 +395,9 @@ export class AgentXInputComponent {
 
   private readonly inputRef = viewChild<ElementRef>('messageInput');
 
-  constructor() {}
+  constructor() {
+    /* noop */
+  }
 
   // ============================================
   // HANDLERS

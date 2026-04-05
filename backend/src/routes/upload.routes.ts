@@ -856,6 +856,29 @@ router.post(
 );
 
 /**
+ * POST /upload/graphic
+ *
+ * Upload graphic/image asset.
+ */
+router.post(
+  '/graphic',
+  upload.single('file'),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { userId } = req.body;
+
+    if (!userId) {
+      throw fieldError('userId', 'User ID is required', 'required');
+    }
+
+    if (!req.file) {
+      throw fieldError('file', 'File is required', 'required');
+    }
+
+    res.status(501).json({ success: false, error: 'Not implemented' });
+  })
+);
+
+/**
  * DELETE /upload/:filePath
  *
  * Delete uploaded file from storage (path param version for core API compatibility).

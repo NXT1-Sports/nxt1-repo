@@ -161,20 +161,23 @@ async function scrapeArticleMetadata(url: string): Promise<ScrapedMetadata> {
 
     // --- Extract og:image ---
     let imageUrl: string | undefined;
-    
+
     // First try to find a real semantic image in the article body (filters out most header logos)
     let bodyImage =
       $('article img').first().attr('src') ||
       $('figure img').first().attr('src') ||
       $('.article-content img').first().attr('src');
-      
+
     if (bodyImage) {
       if (bodyImage.startsWith('//')) bodyImage = `https:${bodyImage}`;
       else if (bodyImage.startsWith('/')) bodyImage = `${origin}${bodyImage}`;
       else if (!bodyImage.startsWith('http')) bodyImage = `${origin}/${bodyImage}`;
-      
+
       // Basic heuristic to avoid header/footer logos that might sneak in
-      if (!bodyImage.toLowerCase().includes('logo') && !bodyImage.toLowerCase().includes('spinner')) {
+      if (
+        !bodyImage.toLowerCase().includes('logo') &&
+        !bodyImage.toLowerCase().includes('spinner')
+      ) {
         imageUrl = bodyImage;
       }
     }
@@ -189,11 +192,11 @@ async function scrapeArticleMetadata(url: string): Promise<ScrapedMetadata> {
       if (ogImage && ogImage.startsWith('http')) {
         // Prevent known generic fallback logos from being used
         const lowerOg = ogImage.toLowerCase();
-        const isGenericLogo = 
-          lowerOg.includes('default') || 
-          lowerOg.includes('logo') || 
+        const isGenericLogo =
+          lowerOg.includes('default') ||
+          lowerOg.includes('logo') ||
           lowerOg.includes('placeholder');
-          
+
         if (!isGenericLogo) {
           imageUrl = ogImage;
         }

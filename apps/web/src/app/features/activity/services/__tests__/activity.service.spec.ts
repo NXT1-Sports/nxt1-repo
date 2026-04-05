@@ -99,23 +99,21 @@ const createApiMock = () => ({
     success: true,
     items: [],
     pagination: { page: 1, limit: 20, total: 0, totalPages: 0, hasMore: false },
-    badges: { all: 0, inbox: 0, agent: 0, alerts: 0 },
+    badges: { alerts: 0 },
   } satisfies ActivityFeedResponse),
   getItem: vi.fn().mockResolvedValue(null),
   markRead: vi.fn().mockResolvedValue({
     success: true,
     count: 0,
-    badges: { all: 0, inbox: 0, agent: 0, alerts: 0 },
+    badges: { alerts: 0 },
   }),
   markAllRead: vi.fn().mockResolvedValue({
     success: true,
     count: 0,
-    badges: { all: 0, inbox: 0, agent: 0, alerts: 0 },
+    badges: { alerts: 0 },
   }),
-  getBadges: vi.fn().mockResolvedValue({ all: 0, inbox: 0, agent: 0, alerts: 0 }),
-  getSummary: vi
-    .fn()
-    .mockResolvedValue({ totalUnread: 0, badges: { all: 0, inbox: 0, agent: 0, alerts: 0 } }),
+  getBadges: vi.fn().mockResolvedValue({ alerts: 0 }),
+  getSummary: vi.fn().mockResolvedValue({ totalUnread: 0, badges: { alerts: 0 } }),
   archive: vi.fn().mockResolvedValue({ success: true, count: 1 }),
   restore: vi.fn().mockResolvedValue({ success: true, count: 1 }),
 });
@@ -150,7 +148,7 @@ const MOCK_ITEM: ActivityItem = {
 const MOCK_ITEM_2: ActivityItem = {
   id: 'act-2',
   type: 'agent_task',
-  tab: 'agent',
+  tab: 'alerts',
   priority: 'high',
   title: 'Agent X completed task',
   body: 'Your highlight reel is ready',
@@ -163,14 +161,14 @@ const MOCK_FEED_RESPONSE: ActivityFeedResponse = {
   success: true,
   items: [MOCK_ITEM, MOCK_ITEM_2],
   pagination: { page: 1, limit: 20, total: 2, totalPages: 1, hasMore: false },
-  badges: { all: 3, inbox: 1, agent: 1, alerts: 1 },
+  badges: { alerts: 1 },
 };
 
 const MOCK_FEED_PAGE_2: ActivityFeedResponse = {
   success: true,
   items: [{ ...MOCK_ITEM, id: 'act-3', title: 'Page 2 item' }],
   pagination: { page: 2, limit: 20, total: 3, totalPages: 2, hasMore: false },
-  badges: { all: 3, inbox: 1, agent: 1, alerts: 1 },
+  badges: { alerts: 1 },
 };
 
 // ============================================
@@ -262,13 +260,13 @@ describe('ActivityService', () => {
   // ===========================================================================
 
   describe('loadFeed()', () => {
-    it('should load items from API for agent tab', async () => {
+    it('should load items from API for alerts tab', async () => {
       apiMock.getFeed.mockResolvedValue(MOCK_FEED_RESPONSE);
 
-      await service.loadFeed('agent');
+      await service.loadFeed('alerts');
 
       expect(apiMock.getFeed).toHaveBeenCalledWith({
-        tab: 'agent',
+        tab: 'alerts',
         page: 1,
         limit: expect.any(Number),
       });
@@ -281,7 +279,7 @@ describe('ActivityService', () => {
 
       await service.loadFeed('alerts');
 
-      expect(service.badges()).toEqual({ all: 3, inbox: 1, agent: 1, alerts: 1 });
+      expect(service.badges()).toEqual({ alerts: 1 });
     });
 
     it('should set active tab', async () => {
@@ -293,7 +291,7 @@ describe('ActivityService', () => {
     it('should handle API failure gracefully (inner catch swallows)', async () => {
       apiMock.getFeed.mockRejectedValue(new Error('Network error'));
 
-      await service.loadFeed('agent');
+      await service.loadFeed('alerts');
 
       // Inner try/catch swallows API errors and falls back to empty items
       expect(service.error()).toBeNull();
@@ -301,16 +299,16 @@ describe('ActivityService', () => {
       expect(service.isLoading()).toBe(false);
     });
 
-    it('should call API for inbox tab', async () => {
-      await service.loadFeed('inbox');
+    it('should call API for alerts tab', async () => {
+      await service.loadFeed('alerts');
 
-      expect(apiMock.getFeed).toHaveBeenCalledWith(expect.objectContaining({ tab: 'inbox' }));
+      expect(apiMock.getFeed).toHaveBeenCalledWith(expect.objectContaining({ tab: 'alerts' }));
     });
 
-    it('should load conversations for all tab', async () => {
+    it('should load feed for alerts tab', async () => {
       apiMock.getFeed.mockResolvedValue(MOCK_FEED_RESPONSE);
 
-      await service.loadFeed('all');
+      await service.loadFeed('alerts');
 
       expect(apiMock.getFeed).toHaveBeenCalled();
       // loadConversations is disabled pending backend /messages route availability
@@ -337,7 +335,7 @@ describe('ActivityService', () => {
         ...MOCK_FEED_RESPONSE,
         pagination: { page: 1, limit: 20, total: 3, totalPages: 2, hasMore: true },
       });
-      await service.loadFeed('agent');
+      await service.loadFeed('alerts');
 
       // Load more
       apiMock.getFeed.mockResolvedValueOnce(MOCK_FEED_PAGE_2);
@@ -349,7 +347,7 @@ describe('ActivityService', () => {
 
     it('should not load more when no more pages', async () => {
       apiMock.getFeed.mockResolvedValue(MOCK_FEED_RESPONSE); // hasMore: false
-      await service.loadFeed('agent');
+      await service.loadFeed('alerts');
 
       await service.loadMore();
 
@@ -436,7 +434,7 @@ describe('ActivityService', () => {
         ...MOCK_FEED_RESPONSE,
         items: [MOCK_ITEM_2], // Already read
       });
-      await service.loadFeed('agent');
+      await service.loadFeed('alerts');
 
       await service.markAllRead();
 
@@ -478,7 +476,7 @@ describe('ActivityService', () => {
 
   describe('refreshBadges()', () => {
     it('should update badges from API', async () => {
-      const newBadges = { all: 5, inbox: 2, agent: 2, alerts: 1 };
+      const newBadges = { alerts: 1 };
       apiMock.getBadges.mockResolvedValue(newBadges);
 
       await service.refreshBadges();
@@ -501,14 +499,12 @@ describe('ActivityService', () => {
   // ===========================================================================
 
   describe('switchTab()', () => {
-    it('should switch tab and load feed', async () => {
+    it('should stay on alerts tab (only tab available)', async () => {
       apiMock.getFeed.mockResolvedValue(MOCK_FEED_RESPONSE);
 
-      await service.switchTab('agent');
+      await service.switchTab('alerts');
 
-      expect(service.activeTab()).toBe('agent');
-      expect(apiMock.getFeed).toHaveBeenCalled();
-      expect(hapticsMock.impact).toHaveBeenCalledWith('light');
+      expect(service.activeTab()).toBe('alerts');
     });
 
     it('should not switch if already on same tab', async () => {
@@ -541,7 +537,7 @@ describe('ActivityService', () => {
       apiMock.getFeed.mockResolvedValue(MOCK_FEED_RESPONSE);
       await service.loadFeed('alerts');
 
-      // badges: { all: 3, inbox: 1, agent: 1, alerts: 1 }
+      // badges: { alerts: 1 }
       // totalUnread reads the 'alerts' key from badges
       expect(service.totalUnread()).toBe(1);
     });
@@ -551,7 +547,7 @@ describe('ActivityService', () => {
         ...MOCK_FEED_RESPONSE,
         pagination: { page: 1, limit: 20, total: 40, totalPages: 2, hasMore: true },
       });
-      await service.loadFeed('agent');
+      await service.loadFeed('alerts');
 
       expect(service.hasMore()).toBe(true);
     });

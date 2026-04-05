@@ -2521,7 +2521,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       });
 
       await this.agentX.setGoals(dashboardGoals);
-      this.agentX.generateBriefing(true).catch(() => {});
+      this.agentX.generateBriefing(true).catch(() => {
+        /* noop */
+      });
     }
   }
 

@@ -510,7 +510,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
         ),
         distinctUntilChanged((a, b) => a.mode === b.mode && a.param === b.param && a.uid === b.uid),
         tap(() => this.profileService.startLoading()),
-        switchMap(({ mode, param, uid }) => {
+        switchMap(({ mode, param, uid: _uid }) => {
           if (mode === 'me') {
             // uid is always defined here (fetchSource blocks when uid is missing)
             return this.apiProfileService.getMe();

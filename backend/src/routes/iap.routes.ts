@@ -246,7 +246,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
   } else if (req.rawBody) {
     try {
       parsedBody = JSON.parse(req.rawBody) as { signedPayload?: string };
-    } catch (_parseErr) {
+    } catch {
       return res.status(400).json({ success: false, error: 'Invalid JSON body' });
     }
   }

@@ -95,12 +95,16 @@ setup('global auth setup', async ({ page }) => {
   } catch (error) {
     console.error('❌ Authentication setup failed:', error);
 
-    // Save screenshot for debugging
-    const screenshotPath = path.join(authDir, 'setup-failure.png');
-    await page.screenshot({ path: screenshotPath, fullPage: true });
-    console.log(`   Screenshot saved: ${screenshotPath}`);
+    // Save screenshot for debugging (best-effort — browser may be closed)
+    try {
+      const screenshotPath = path.join(authDir, 'setup-failure.png');
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      console.log(`   Screenshot saved: ${screenshotPath}`);
+    } catch {
+      console.warn('   Could not save failure screenshot');
+    }
 
-    // Create empty auth state so tests can still run unauthenticated
+    // Always create empty auth state so downstream tests can start
     fs.writeFileSync(AUTH_FILE, JSON.stringify({ cookies: [], origins: [] }));
   }
 });

@@ -289,7 +289,7 @@ export function createAuthStateManager(storage: StorageAdapter): AuthStateManage
           // The auth service will handle refresh or sign-out
           emitEvent('SESSION_EXPIRED');
         }
-      } catch (error) {
+      } catch {
         // Store error in state — consumers (auth-flow service) handle logging
         updateState({ error: 'Failed to restore auth state' });
       } finally {

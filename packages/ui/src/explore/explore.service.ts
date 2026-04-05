@@ -222,7 +222,9 @@ export class ExploreService {
         this.api
           .getTabCounts(query)
           .then((counts) => this._tabCounts.set(counts))
-          .catch(() => {});
+          .catch(() => {
+            /* noop */
+          });
         this.addToRecentSearches(query);
       }
 

@@ -139,7 +139,7 @@ export class EditProfileApiService {
     activeSportIndex: number
   ): Promise<{
     success: boolean;
-    data?: any;
+    data?: unknown;
     error?: string;
   }> {
     try {

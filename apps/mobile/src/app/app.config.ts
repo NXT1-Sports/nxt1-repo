@@ -27,7 +27,7 @@ import {
   indexedDBLocalPersistence,
   initializeAuth,
 } from '@angular/fire/auth';
-import { provideFunctions, getFunctions, connectFunctionsEmulator } from '@angular/fire/functions';
+import { provideFunctions, getFunctions } from '@angular/fire/functions';
 import { Capacitor } from '@capacitor/core';
 
 // Shared Angular infrastructure from @nxt1/ui
