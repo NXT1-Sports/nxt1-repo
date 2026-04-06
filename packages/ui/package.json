@@ -82,13 +82,13 @@
     }
   },
   "devDependencies": {
-    "@angular/cdk": "^21.1.4",
-    "@angular/common": "^21.1.4",
+    "@angular/cdk": "^21.2.5",
+    "@angular/common": "^21.2.7",
     "@angular/compiler": "^21.1.4",
-    "@angular/compiler-cli": "^21.1.4",
+    "@angular/compiler-cli": "^21.2.7",
     "@angular/core": "^21.1.4",
-    "@angular/forms": "^21.1.4",
-    "@angular/router": "^21.1.4",
+    "@angular/forms": "^21.2.7",
+    "@angular/router": "^21.2.7",
     "@ionic/angular": "^8.5.0",
     "ionicons": "^8.0.13",
     "ng-packagr": "^21.0.0",
