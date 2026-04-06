@@ -1,8 +1,7 @@
 {
   "compileOnSave": false,
   "compilerOptions": {
-    "ignoreDeprecations": "6.0",
-    "rootDir": ".",
+    "ignoreDeprecations": "5.0",
     "baseUrl": "./",
     "paths": {
       "@app/*": ["src/app/*"],

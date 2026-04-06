@@ -638,7 +638,7 @@ export class NxtMediaViewerContentComponent implements OnInit {
     this.close.emit(data);
     // modalCtrl.dismiss() only works when opened via Ionic bottom sheet.
     // When opened via NxtOverlayService, no Ionic modal exists on the stack.
-    this.modalCtrl?.dismiss(data, 'dismiss').catch((_e) => {});
+    this.modalCtrl?.dismiss(data, 'dismiss').catch(() => undefined);
   }
 
   share(): void {
@@ -649,7 +649,7 @@ export class NxtMediaViewerContentComponent implements OnInit {
     });
     const data = { lastIndex: this.currentIndex(), item: this.currentItem() };
     this.close.emit(data);
-    this.modalCtrl?.dismiss(data, 'share').catch((_e) => {});
+    this.modalCtrl?.dismiss(data, 'share').catch(() => undefined);
   }
 
   onMediaError(index: number): void {

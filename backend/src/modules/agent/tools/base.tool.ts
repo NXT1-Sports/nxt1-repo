@@ -58,7 +58,7 @@ export abstract class BaseTool {
    * Cached vector embedding of the tool's description.
    * Loaded lazily on first access.
    */
-  _embedding?: number[];
+  _embedding?: readonly number[];
 
   /** Execute the tool with validated input. */
   abstract execute(input: Record<string, unknown>): Promise<ToolResult>;
@@ -70,8 +70,8 @@ export abstract class BaseTool {
    * Callers pass the embedding function (LLM adapter).
    */
   async matchIntent(
-    intentVector: number[],
-    embedFn: (text: string) => Promise<number[]>
+    intentVector: readonly number[],
+    embedFn: (text: string) => Promise<readonly number[]>
   ): Promise<number> {
     if (!this._embedding) {
       // Create a rich context string for the embedding model to improve matching
@@ -85,7 +85,7 @@ export abstract class BaseTool {
    * Computes the cosine similarity between two vectors.
    * Range is [-1, 1], where 1 is identical.
    */
-  private cosineSimilarity(a: number[], b: number[]): number {
+  private cosineSimilarity(a: readonly number[], b: readonly number[]): number {
     let dotProduct = 0;
     let normA = 0;
     let normB = 0;

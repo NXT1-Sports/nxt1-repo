@@ -190,7 +190,7 @@ export class AgentRouter {
             (t) => this.llm.embed(t),
             directAgent.id
           );
-        } catch (_e) {
+        } catch {
           // Ensure we don't blow up DAG execution if embedding service is down.
         }
 
@@ -512,7 +512,7 @@ export class AgentRouter {
           (t) => this.llm.embed(t),
           agent.id
         );
-      } catch (_err) {
+      } catch {
         // Ignore embedding failures during resume and pass all possible tools.
       }
 

@@ -88,8 +88,8 @@ export class ToolRegistry {
    * This prevents injecting irrelevant tools into the LLM context.
    */
   async match(
-    intentVector: number[],
-    embedFn: (text: string) => Promise<number[]>,
+    intentVector: readonly number[],
+    embedFn: (text: string) => Promise<readonly number[]>,
     agentId?: AgentIdentifier,
     threshold: number = ToolRegistry.DEFAULT_TOOL_THRESHOLD
   ): Promise<readonly AgentToolDefinition[]> {

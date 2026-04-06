@@ -1046,10 +1046,12 @@ export class AthleteIntelComponent {
   });
 
   /** Load Intel reactively when userId becomes available / changes. */
-  private readonly loadEffect = effect(() => {
-    const id = this.userId();
-    if (id) this.intel.loadAthleteIntel(id);
-  });
+  constructor() {
+    effect(() => {
+      const id = this.userId();
+      if (id) this.intel.loadAthleteIntel(id);
+    });
+  }
 
   protected onGenerate(): void {
     this.intel.generateAthleteIntel(this.userId());

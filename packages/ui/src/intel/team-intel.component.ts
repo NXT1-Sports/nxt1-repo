@@ -895,10 +895,12 @@ export class TeamIntelComponent {
   });
 
   /** Load Intel reactively when teamId becomes available / changes. */
-  private readonly loadEffect = effect(() => {
-    const id = this.teamId();
-    if (id) this.intel.loadTeamIntel(id);
-  });
+  constructor() {
+    effect(() => {
+      const id = this.teamId();
+      if (id) this.intel.loadTeamIntel(id);
+    });
+  }
 
   protected onGenerate(): void {
     this.intel.generateTeamIntel(this.teamId());

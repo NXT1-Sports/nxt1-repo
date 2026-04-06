@@ -32,6 +32,7 @@ import {
   ChangeDetectionStrategy,
   Input,
   AfterViewInit,
+  OnDestroy,
   inject,
   signal,
   computed,
@@ -1023,7 +1024,7 @@ interface OperationMessage {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AgentXOperationChatComponent implements AfterViewInit {
+export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private readonly modalCtrl = inject(ModalController);
   private readonly http = inject(HttpClient);
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
@@ -1605,7 +1606,7 @@ export class AgentXOperationChatComponent implements AfterViewInit {
   }
 
   /** Revoke all pending file object URLs (cleanup). */
-  private clearPendingFiles(): void {
+  private _clearPendingFiles(): void {
     const files = this.pendingFiles();
     for (const pf of files) {
       if (pf.previewUrl) URL.revokeObjectURL(pf.previewUrl);
@@ -1613,7 +1614,9 @@ export class AgentXOperationChatComponent implements AfterViewInit {
     this.pendingFiles.set([]);
   }
 
-  // ── File type helpers (doc cards) ──────────────────────
+  ngOnDestroy(): void {
+    this._clearPendingFiles();
+  }
 
   /** File extension → colour (returns rgba string). */
   protected getFileColor(filename: string, alpha: number): string {
