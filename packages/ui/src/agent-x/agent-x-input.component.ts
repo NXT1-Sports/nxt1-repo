@@ -182,6 +182,7 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
         flex-direction: column;
         align-items: stretch;
         gap: 0.5rem;
+        min-width: 0;
         pointer-events: auto;
       }
 
@@ -325,7 +326,7 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
 
       .input-wrapper {
         display: flex;
-        align-items: center;
+        align-items: flex-end;
         gap: 0.5rem;
         background: var(--agent-input-bg);
         border: 1px solid var(--agent-input-border);
@@ -353,6 +354,7 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
 
       .message-input {
         flex: 1;
+        display: block;
         background: transparent;
         border: none;
         outline: none;
@@ -365,8 +367,13 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
         max-height: 120px;
         min-height: 24px;
         padding: 0;
-        align-self: center;
-        overflow: hidden;
+        align-self: stretch;
+        overflow-y: auto;
+        scrollbar-width: none;
+      }
+
+      .message-input::-webkit-scrollbar {
+        display: none;
       }
 
       .message-input:focus {
@@ -388,6 +395,7 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
         width: 34px;
         height: 34px;
         flex: 0 0 34px;
+        align-self: flex-end;
         background: transparent;
         color: var(--agent-text-secondary, rgba(255, 255, 255, 0.7));
         border: none;
@@ -415,6 +423,10 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
         background: transparent;
         cursor: pointer;
         opacity: 1;
+      }
+
+      .plus-btn {
+        align-self: flex-end;
       }
 
       .primary-btn.stop:active {

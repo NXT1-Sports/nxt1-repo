@@ -461,6 +461,16 @@ export interface AgentXStreamThreadEvent {
 }
 
 /**
+ * Payload of the `event: title_updated` SSE frame.
+ * Sent after the backend auto-generates a concise conversation title
+ * using a cheap/fast model. Only emitted on the first turn of a new thread.
+ */
+export interface AgentXStreamTitleUpdatedEvent {
+  readonly threadId: string;
+  readonly title: string;
+}
+
+/**
  * Payload of the `event: delta` SSE frame.
  * One frame per token chunk emitted by the LLM.
  */
@@ -542,6 +552,8 @@ export interface AgentXStreamCallbacks {
   onStep?: (event: AgentXStreamStepEvent) => void;
   /** Called when the backend embeds a rich interactive card (planner, table, etc.). */
   onCard?: (event: AgentXStreamCardEvent) => void;
+  /** Called when the backend auto-generates a concise title for a new conversation thread. */
+  onTitleUpdated?: (event: AgentXStreamTitleUpdatedEvent) => void;
 }
 
 /**

@@ -62,7 +62,12 @@ import {
   COLLEGE_QUICK_TASKS,
 } from '@nxt1/core';
 import { createAgentXApi } from '@nxt1/core/ai';
-import type { AgentXToolStep, AgentXStreamStepEvent, AgentXStreamCardEvent } from '@nxt1/core/ai';
+import type {
+  AgentXToolStep,
+  AgentXStreamStepEvent,
+  AgentXStreamCardEvent,
+  AgentXStreamTitleUpdatedEvent,
+} from '@nxt1/core/ai';
 import { AgentXOperationEventService } from './agent-x-operation-event.service';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
@@ -724,6 +729,17 @@ export class AgentXService {
                   : m
               )
             );
+          },
+
+          onTitleUpdated: (evt: AgentXStreamTitleUpdatedEvent) => {
+            // The backend auto-generated a concise title for this new thread.
+            // Notify any listeners (e.g. operations log sidebar) so the UI
+            // updates instantly without a full refetch.
+            this.logger.info('Thread title auto-generated', {
+              threadId: evt.threadId,
+              title: evt.title,
+            });
+            this.operationEventService.emitTitleUpdated(evt.threadId, evt.title);
           },
 
           onDone: (evt) => {

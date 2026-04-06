@@ -37,7 +37,9 @@ import {
   computed,
   input,
   output,
+  DestroyRef,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { ModalController } from '@ionic/angular/standalone';
@@ -50,6 +52,7 @@ import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service'
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { AGENT_X_API_BASE_URL } from './agent-x-job.service';
 import { AgentXOperationChatComponent } from './agent-x-operation-chat.component';
+import { AgentXOperationEventService } from './agent-x-operation-event.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { OperationLogEntry, OperationLogStatus, OperationsLogResponse } from '@nxt1/core';
 
@@ -667,6 +670,12 @@ export class AgentXOperationsLogComponent {
   /** Base API URL (provided by app.config.ts per environment). */
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
 
+  /** Operation event service — used to receive real-time title updates. */
+  private readonly operationEventService = inject(AgentXOperationEventService);
+
+  /** DestroyRef for auto-unsubscribing observables. */
+  private readonly destroyRef = inject(DestroyRef);
+
   /** Optional ModalController — available when hosted inside Ionic bottom sheet, null on web. */
   private readonly modalCtrl = inject(ModalController, { optional: true });
 
@@ -771,6 +780,17 @@ export class AgentXOperationsLogComponent {
 
   constructor() {
     this.loadOperations();
+
+    // Subscribe to real-time title updates from the Agent X SSE stream.
+    // When the backend auto-generates a title for a new thread, update
+    // the matching entry in the local list so the sidebar reflects it instantly.
+    this.operationEventService.titleUpdated$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((evt) => {
+        this._operations.update((ops) =>
+          ops.map((op) => (op.threadId === evt.threadId ? { ...op, title: evt.title } : op))
+        );
+      });
   }
 
   /** Public refresh — callable from parent via viewChild. */

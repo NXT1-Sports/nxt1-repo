@@ -41,6 +41,19 @@ import type {
 import { AgentThreadModel } from '../../../models/agent-thread.model.js';
 import { AgentMessageModel } from '../../../models/agent-message.model.js';
 import { logger } from '../../../utils/logger.js';
+import type { OpenRouterService } from '../llm/openrouter.service.js';
+
+/**
+ * System prompt for auto-generating short conversation titles.
+ * Uses a cheap/fast model to summarize the user's intent into 3-6 words.
+ */
+const TITLE_GENERATION_PROMPT = `You are a concise title generator. Given a user message and optionally an assistant reply from a sports AI platform, generate a short descriptive title (3-6 words) that captures the user's intent. Rules:
+- Output ONLY the title text, nothing else
+- No quotes, no punctuation at the end
+- Use title case
+- Be specific to the content (e.g. "Ohio D2 College Search" not "College Question")
+- If sports-related, include the sport/context when relevant
+- Maximum 50 characters`;
 
 // ─── Service ────────────────────────────────────────────────────────────────
 
@@ -130,6 +143,71 @@ export class AgentChatService {
       { $set: { title, updatedAt: new Date().toISOString() } }
     ).exec();
     return result.modifiedCount > 0;
+  }
+
+  /**
+   * Auto-generate a concise thread title using a cheap/fast LLM model.
+   *
+   * Called asynchronously (fire-and-forget) after the first assistant response
+   * in a new thread. Only runs on the first turn — subsequent messages do not
+   * regenerate the title.
+   *
+   * @returns The generated title, or `null` if generation failed.
+   */
+  async generateThreadTitle(
+    threadId: string,
+    userId: string,
+    userMessage: string,
+    assistantReply: string,
+    llmService: OpenRouterService
+  ): Promise<string | null> {
+    try {
+      // Only generate for threads that still have the raw-prompt placeholder title
+      const thread = await this.getThread(threadId, userId);
+      if (!thread) return null;
+
+      // Skip if the title has already been manually renamed by the user
+      // (i.e. it no longer matches the truncated first prompt)
+      const promptPrefix = userMessage.trim().slice(0, 80);
+      if (thread.title !== promptPrefix && thread.title !== 'New Conversation') {
+        return null;
+      }
+
+      const result = await llmService.complete(
+        [
+          { role: 'system', content: TITLE_GENERATION_PROMPT },
+          {
+            role: 'user',
+            content: `User message: "${userMessage.trim().slice(0, 200)}"\n\nAssistant reply (first 200 chars): "${assistantReply.trim().slice(0, 200)}"`,
+          },
+        ],
+        { tier: 'extraction', maxTokens: 60, temperature: 0.3 }
+      );
+
+      const generatedTitle = result.content
+        .replace(/^["']|["']$/g, '') // strip wrapping quotes
+        .replace(/[.!?]+$/, '') // strip trailing punctuation
+        .trim()
+        .slice(0, 50);
+
+      if (!generatedTitle) return null;
+
+      const updated = await this.updateThreadTitle(threadId, userId, generatedTitle);
+      if (updated) {
+        logger.info('[AgentChatService] Thread title auto-generated', {
+          threadId,
+          title: generatedTitle,
+        });
+      }
+
+      return generatedTitle;
+    } catch (err) {
+      logger.warn('[AgentChatService] Failed to auto-generate thread title', {
+        threadId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
   }
 
   // ─── Message Operations ─────────────────────────────────────────────────

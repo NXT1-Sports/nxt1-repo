@@ -467,6 +467,7 @@ interface OperationMessage {
         display: flex;
         flex-direction: column;
         height: 100%;
+        min-height: 0;
         overflow: hidden;
         background: var(--ion-background-color, var(--nxt1-color-bg-primary, #0a0a0a));
         color: var(--nxt1-color-text-primary, #fff);
@@ -493,6 +494,8 @@ interface OperationMessage {
       }
 
       :host.agent-x-operation-chat--embedded {
+        flex: 1 1 auto;
+        height: auto;
         min-height: 0;
         border: 1px solid var(--op-border);
         border-radius: var(--nxt1-radius-2xl, 20px);
@@ -501,7 +504,8 @@ interface OperationMessage {
 
       /* ── MESSAGES ── */
       .messages-area {
-        flex: 1;
+        flex: 1 1 auto;
+        min-height: 0;
         overflow-y: auto;
         padding: 16px 20px;
         display: flex;
@@ -515,10 +519,12 @@ interface OperationMessage {
       .messages-area--embedded {
         max-height: none;
         min-height: 0;
+        flex: 1 1 auto;
         width: 100%;
         max-width: calc(100% - 48px);
         margin-left: auto;
         margin-right: auto;
+        padding-bottom: 8px;
       }
 
       .msg-row {

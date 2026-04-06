@@ -39,9 +39,11 @@ import {
   afterNextRender,
   AfterViewInit,
   OnDestroy,
+  DestroyRef,
   TemplateRef,
   viewChild,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 
 import { NxtIconComponent } from '../../components/icon';
@@ -52,6 +54,7 @@ import { AgentXService } from '../agent-x.service';
 import { AgentXDashboardSkeletonComponent } from '../agent-x-dashboard-skeleton.component';
 import { AgentXControlPanelComponent } from '../agent-x-control-panel.component';
 import { AgentXOperationsLogComponent } from '../agent-x-operations-log.component';
+import { AgentXOperationEventService } from '../agent-x-operation-event.service';
 import {
   AgentXOperationChatComponent,
   type OperationQuickAction,
@@ -3178,6 +3181,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
   private readonly headerPortal = inject(NxtHeaderPortalService);
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly operationEventService = inject(AgentXOperationEventService);
+  private readonly destroyRef = inject(DestroyRef);
 
   // Portal template refs
   private readonly agentTitlePortal = viewChild<TemplateRef<unknown>>('agentTitlePortal');

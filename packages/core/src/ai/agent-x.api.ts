@@ -33,6 +33,7 @@ import type {
   ShellWeeklyPlaybookItem,
   AgentXStreamCallbacks,
   AgentXStreamThreadEvent,
+  AgentXStreamTitleUpdatedEvent,
   AgentXStreamDeltaEvent,
   AgentXStreamDoneEvent,
   AgentXStreamErrorEvent,
@@ -450,6 +451,19 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
                       card['payload'] != null
                     ) {
                       callbacks.onCard?.(card as unknown as AgentXStreamCardEvent);
+                    }
+                    break;
+                  }
+                  case 'title_updated': {
+                    const titleEvt = payload as Record<string, unknown>;
+                    if (
+                      titleEvt &&
+                      typeof titleEvt['threadId'] === 'string' &&
+                      typeof titleEvt['title'] === 'string'
+                    ) {
+                      callbacks.onTitleUpdated?.(
+                        titleEvt as unknown as AgentXStreamTitleUpdatedEvent
+                      );
                     }
                     break;
                   }

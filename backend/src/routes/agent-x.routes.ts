@@ -1237,6 +1237,7 @@ router.post(
 
       // ── Step 1: Resolve thread (create or verify ownership) ──────────
       let resolvedThreadId: string | undefined;
+      const isNewThread = !threadId; // Track if this is the first message (new thread)
       if (chatService) {
         try {
           resolvedThreadId = await resolveThread(chatService, user.uid, threadId, message);
@@ -1599,6 +1600,35 @@ router.post(
           logger.warn('Failed to persist assistant reply to MongoDB', {
             error: chatErr instanceof Error ? chatErr.message : String(chatErr),
             userId: user.uid,
+          });
+        }
+      }
+
+      // ── Step 5b: Auto-generate thread title for new conversations ────
+      // Uses a cheap/fast model (extraction tier) to summarize the user's
+      // intent into a 3-6 word title, matching ChatGPT/Copilot behavior.
+      // Runs inline (before done event) so the title_updated SSE frame
+      // reaches the client while the stream is still open.
+      let generatedTitle: string | null = null;
+      if (isNewThread && chatService && llmService && resolvedThreadId && responseContent) {
+        try {
+          generatedTitle = await chatService.generateThreadTitle(
+            resolvedThreadId,
+            user.uid,
+            message,
+            responseContent,
+            llmService
+          );
+          if (generatedTitle) {
+            res.write(
+              `event: title_updated\ndata: ${JSON.stringify({ threadId: resolvedThreadId, title: generatedTitle })}\n\n`
+            );
+          }
+        } catch (titleErr) {
+          // Title generation is non-critical — never block the response
+          logger.warn('Title generation failed', {
+            error: titleErr instanceof Error ? titleErr.message : String(titleErr),
+            threadId: resolvedThreadId,
           });
         }
       }
