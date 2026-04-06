@@ -41,6 +41,7 @@ import {
   OnDestroy,
   TemplateRef,
   viewChild,
+  DestroyRef,
 } from '@angular/core';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 
@@ -73,6 +74,8 @@ import {
 } from '@nxt1/core/ai';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../fab/agent-x-logo.constants';
 import type { OnboardingUserType } from '@nxt1/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { AgentXOperationEventService } from '../agent-x-operation-event.service';
 
 /**
  * Content descriptor for the expanded side panel.
@@ -3185,6 +3188,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly operationsLog = viewChild(AgentXOperationsLogComponent);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
+  private readonly operationEventService = inject(AgentXOperationEventService);
+  private readonly destroyRef = inject(DestroyRef);
   private desktopSessionCounter = 0;
 
   // ============================================
