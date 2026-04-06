@@ -30,18 +30,21 @@ export function getStripeConfig(environment: 'staging' | 'production'): StripeCo
     logger.warn(`⚠️  Stripe secret key not configured for ${environment} - billing disabled`);
   }
 
-  // Safety check: prevent using live key outside production
-  if (secretKey && process.env['NODE_ENV'] !== 'production' && secretKey.includes('live')) {
+  // Safety check: live key must not be used for the staging billing environment.
+  // We intentionally check `environment` (the Stripe target), not NODE_ENV, because
+  // the backend may run without NODE_ENV set in local/container dev while still
+  // legitimately connecting to the production Stripe account.
+  if (secretKey && environment === 'staging' && secretKey.includes('live')) {
     throw new Error(
-      `❌ STRIPE SAFETY: Live Stripe key detected in non-production environment (${process.env['NODE_ENV']}). ` +
+      '❌ STRIPE SAFETY: Live Stripe key detected for staging billing environment. ' +
         'Use STRIPE_TEST_SECRET_KEY for staging/development.'
     );
   }
 
-  // Warning: using test key in production
-  if (secretKey && process.env['NODE_ENV'] === 'production' && secretKey.includes('test')) {
+  // Warning: test key in production billing environment
+  if (secretKey && environment === 'production' && secretKey.includes('test')) {
     logger.warn(
-      '⚠️  STRIPE SAFETY: Test Stripe key detected in production environment. Verify this is intentional.'
+      '⚠️  STRIPE SAFETY: Test Stripe key detected in production billing environment. Verify this is intentional.'
     );
   }
 

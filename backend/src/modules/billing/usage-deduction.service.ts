@@ -182,10 +182,13 @@ export async function executeBillingDeduction(
       },
       environment ?? 'production'
     ).catch((e: unknown) => {
-      logger.warn('[billing] Failed to write usage event — spend already recorded', {
-        operationId,
-        error: e instanceof Error ? e.message : String(e),
-      });
+      logger.warn(
+        '[billing] Failed to write usage event audit trail — spend was already recorded',
+        {
+          operationId,
+          error: e instanceof Error ? e.message : String(e),
+        }
+      );
     });
 
     logger.info('[billing] Deduction completed', {
