@@ -47,17 +47,14 @@ import { DebouncedEventWriter } from './event-writer.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
 import { isAgentYield } from '../errors/agent-yield.error.js';
 import { notifyYield } from '../services/yield-notifier.service.js';
-import { getAndClearJobCost } from './job-cost-tracker.js';
-import { calculateChargeAmount, estimateChargeAmountSync } from '../../billing/pricing.service.js';
+import { estimateChargeAmountSync } from '../../billing/pricing.service.js';
 import {
-  recordSpend,
   getBillingContext,
   createWalletHold,
-  captureWalletHold,
   releaseWalletHold,
 } from '../../billing/budget.service.js';
-import { recordUsageEvent } from '../../billing/usage.service.js';
 import { UsageFeature } from '../../billing/types/index.js';
+import { executeBillingDeduction } from '../../billing/usage-deduction.service.js';
 import {
   logAgentTaskCompletion,
   logAgentTaskFailure,
@@ -428,89 +425,16 @@ export class AgentWorker {
       });
     });
 
-    // Billing deduction: use in-process cost accumulated via onTelemetry callback
-    // (each LLM call adds its estimated cost to the tracker, bypassing the Helicone REST API
-    // which requires a matching org key that may differ from the proxy auth key).
-    void (async () => {
-      try {
-        const totalCostUsd = getAndClearJobCost(payload.operationId);
-        logger.info('[billing] Job cost from local tracker', {
-          operationId: payload.operationId,
-          totalCostUsd,
-        });
-        if (totalCostUsd <= 0) {
-          // Release IAP hold so funds are not permanently locked
-          if (iapHoldId) {
-            releaseWalletHold(billingDb, iapHoldId).catch((e: unknown) => {
-              logger.warn('[billing] Failed to release IAP hold on zero cost', {
-                holdId: iapHoldId,
-                error: e instanceof Error ? e.message : String(e),
-              });
-            });
-          }
-          return;
-        }
-        const { chargeAmountCents } = await calculateChargeAmount(billingDb, totalCostUsd, feature);
-        if (chargeAmountCents > 0) {
-          if (iapHoldId) {
-            // Capture hold: atomically release pendingHoldsCents + deduct actual cost
-            await captureWalletHold(billingDb, iapHoldId, chargeAmountCents);
-          } else {
-            await recordSpend(billingDb, payload.userId, chargeAmountCents);
-          }
-          // Write usage event for audit trail (visible in Director billing history)
-          const jobEnvironment = job.data.environment;
-          recordUsageEvent(
-            billingDb,
-            {
-              userId: payload.userId,
-              teamId: payload.userId, // fallback: use userId if no teamId on payload
-              feature: UsageFeature.ACTIVITY_USAGE,
-              quantity: 1,
-              unitCostSnapshot: chargeAmountCents,
-              currency: 'usd',
-              stripePriceId: '',
-              jobId: payload.operationId,
-              dynamicCostCents: chargeAmountCents,
-              rawProviderCostUsd: totalCostUsd,
-              metadata: { operationId: payload.operationId, agent: payload.agent },
-            },
-            jobEnvironment
-          ).catch((e: unknown) => {
-            logger.warn('[billing] Failed to write usage event — spend already recorded', {
-              operationId: payload.operationId,
-              error: e instanceof Error ? e.message : String(e),
-            });
-          });
-          logger.info('[billing] Deducted charge for completed job', {
-            operationId: payload.operationId,
-            userId: payload.userId,
-            actualCostUsd: totalCostUsd,
-            chargeAmountCents,
-            feature,
-            via: iapHoldId ? 'captureWalletHold' : 'recordSpend',
-          });
-        } else if (iapHoldId) {
-          // No charge — release hold so funds are available again
-          await releaseWalletHold(billingDb, iapHoldId);
-        }
-      } catch (billingErr) {
-        logger.warn('[billing] Deduction failed — job result unaffected', {
-          operationId: payload.operationId,
-          userId: payload.userId,
-          error: billingErr instanceof Error ? billingErr.message : String(billingErr),
-        });
-        // Best-effort: release IAP hold to avoid permanently locked funds
-        if (iapHoldId) {
-          releaseWalletHold(billingDb, iapHoldId).catch((e: unknown) => {
-            logger.warn('[billing] Failed to release IAP hold after billing error', {
-              holdId: iapHoldId,
-              error: e instanceof Error ? e.message : String(e),
-            });
-          });
-        }
-      }
-    })();
+    // Billing deduction: use centralized pipeline
+    void executeBillingDeduction({
+      db: billingDb,
+      userId: payload.userId,
+      operationId: payload.operationId,
+      feature: UsageFeature.ACTIVITY_USAGE,
+      environment: job.data.environment,
+      iapHoldId: iapHoldId ?? undefined,
+      metadata: { agent: payload.agent },
+    });
 
     // Dispatch activity feed item + push notification (fire-and-forget)
     try {

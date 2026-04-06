@@ -27,6 +27,12 @@ export enum UsageFeature {
 
   // ── AI & Agent X ────────────────────
   ACTIVITY_USAGE = 'activity-usage',
+  CHAT_CONVERSATION = 'chat-conversation',
+  PLAYBOOK_GENERATION = 'playbook-generation',
+  BRIEFING_GENERATION = 'briefing-generation',
+  SCOUT_REPORT = 'scout-report',
+  ATHLETE_INTEL = 'athlete-intel',
+  TEAM_INTEL = 'team-intel',
 
   // ── Communication ───────────────────
   EMAIL_CAMPAIGN = 'email-campaign',

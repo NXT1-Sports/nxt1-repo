@@ -579,8 +579,10 @@ function buildCoachIdentity(
   const coach = userData['coach'] as Record<string, unknown> | undefined;
   const title = (coach && str(coach['title'])) || 'Coach';
   const team = str(userData['teamName']);
+  const level = resolveCoachingLevel(userData);
 
   const parts: string[] = [`${name} is a ${title}`];
+  if (level) parts.push(`at the ${level} level`);
   if (sport) parts.push(`for ${sport}`);
   if (team) parts.push(`at ${team}`);
   if (location) parts.push(`in ${location}`);
@@ -682,6 +684,60 @@ function buildAcademics(userData: Record<string, unknown>): string {
 // ─── Role-Specific Deep Context ─────────────────────────────────────────────
 
 /**
+ * Resolve the coaching level from the user's team type.
+ * Checks sports[0].team.type → subscription.teamCode.teamType.
+ * Returns a display-friendly label or empty string.
+ */
+function resolveCoachingLevel(userData: Record<string, unknown>): string {
+  // Try sports array first (primary sport team type)
+  const sports = userData['sports'];
+  if (Array.isArray(sports) && sports.length > 0) {
+    const first = sports[0] as Record<string, unknown> | undefined;
+    const team = first?.['team'] as Record<string, unknown> | undefined;
+    const type = team && str(team['type']);
+    if (type) return coachingLevelLabel(type);
+  }
+
+  // Try subscription team code
+  const sub = userData['subscription'] as Record<string, unknown> | undefined;
+  const teamCode = sub?.['teamCode'] as Record<string, unknown> | undefined;
+  const teamType = teamCode && str(teamCode['teamType']);
+  if (teamType) return coachingLevelLabel(teamType);
+
+  return '';
+}
+
+/** Map team type slugs to display-friendly coaching level labels. */
+function coachingLevelLabel(type: string): string {
+  switch (type.toLowerCase()) {
+    case 'high-school':
+    case 'high_school':
+    case 'hs':
+      return 'high school';
+    case 'middle-school':
+    case 'middle_school':
+    case 'ms':
+      return 'middle school';
+    case 'club':
+      return 'club';
+    case 'college':
+      return 'college';
+    case 'juco':
+      return 'junior college';
+    case 'organization':
+      return 'organization';
+    default:
+      return type;
+  }
+}
+
+/** Check if the coaching level represents a college/recruiting-focused role. */
+function isCollegeLevelCoach(userData: Record<string, unknown>): boolean {
+  const level = resolveCoachingLevel(userData);
+  return level === 'college' || level === 'junior college';
+}
+
+/**
  * Build role-specific supplementary context beyond the identity line.
  * Returns `null` if there is nothing meaningful to add.
  */
@@ -716,16 +772,35 @@ function buildAthleteRoleContext(userData: Record<string, unknown>): string | nu
 
 function buildCoachRoleContext(userData: Record<string, unknown>): string | null {
   const coach = userData['coach'] as Record<string, unknown> | undefined;
-  if (!coach) return null;
+  const lines: string[] = [];
 
-  const managedTeams = coach['managedTeamCodes'];
-  if (Array.isArray(managedTeams) && managedTeams.length > 1) {
-    return (
-      `This coach manages ${managedTeams.length} teams.` +
-      ` Consider tasks that span team management, roster coordination, and cross-team scheduling.`
+  // Coaching level context — critical for differentiating HS/club vs college
+  const level = resolveCoachingLevel(userData);
+  if (level && !isCollegeLevelCoach(userData)) {
+    lines.push(
+      `This is a ${level} coach. Focus on player development, team culture, game preparation,` +
+        ` parent communication, and program building. Do NOT suggest college-level recruiting tasks` +
+        ` like scouting prospects or managing a recruiting pipeline — that is not relevant for ${level} coaches.`
+    );
+  } else if (isCollegeLevelCoach(userData)) {
+    lines.push(
+      `This is a ${level} coach. Recruiting, prospect evaluation, compliance,` +
+        ` and roster management are key priorities alongside game preparation and player development.`
     );
   }
-  return null;
+
+  // Multi-team management
+  if (coach) {
+    const managedTeams = coach['managedTeamCodes'];
+    if (Array.isArray(managedTeams) && managedTeams.length > 1) {
+      lines.push(
+        `This coach manages ${managedTeams.length} teams.` +
+          ` Consider tasks that span team management, roster coordination, and cross-team scheduling.`
+      );
+    }
+  }
+
+  return lines.length > 0 ? lines.join(' ') : null;
 }
 
 function buildParentRoleContext(userData: Record<string, unknown>): string | null {
@@ -814,6 +889,21 @@ const ROLE_HABITS: Readonly<Record<string, RecurringHabitMenu>> = {
       'Audit your team depth chart and check for roster updates',
     ],
     offSeason: [
+      'Review player development plans and update training goals',
+      'Audit roster academic standing and eligibility compliance',
+      'Update offseason training plans and share with athletes',
+    ],
+    general: ['Review your team analytics dashboard for the week'],
+  },
+
+  /** College/JUCO coaches get recruiting-focused habits. */
+  coach_college: {
+    inSeason: [
+      'Review updated athlete profiles and recent stat uploads from your roster',
+      'Generate or review opponent scout report for the upcoming matchup',
+      'Audit your team depth chart and check for roster updates',
+    ],
+    offSeason: [
       'Review your recruiting prospect board and update evaluations',
       'Audit roster academic standing and eligibility compliance',
       'Update offseason training plans and share with athletes',
@@ -865,13 +955,22 @@ const ROLE_HABITS: Readonly<Record<string, RecurringHabitMenu>> = {
 /**
  * Build the recurring habit instruction block for the LLM prompt.
  * Returns a formatted string telling the AI which habits to choose from.
+ *
+ * @param userData - Optional user data for coaching level differentiation.
  */
 export function getRecurringHabitsPrompt(
   role: string,
   sportRaw?: string,
-  now: Date = new Date()
+  now: Date = new Date(),
+  userData?: Record<string, unknown>
 ): string {
-  const menu = ROLE_HABITS[role] ?? ROLE_HABITS['athlete'];
+  // For coaches, use college-specific habits when applicable
+  let menuKey = role;
+  if (role === 'coach' && userData && isCollegeLevelCoach(userData)) {
+    menuKey = 'coach_college';
+  }
+
+  const menu = ROLE_HABITS[menuKey] ?? ROLE_HABITS[role] ?? ROLE_HABITS['athlete'];
   const season = sportRaw ? getSeasonInfo(sportRaw, now) : null;
 
   const isInSeason = season?.phase === 'In-Season' || season?.phase === 'Post-Season / Playoffs';

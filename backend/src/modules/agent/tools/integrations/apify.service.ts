@@ -3,13 +3,13 @@
  * @module @nxt1/backend/modules/agent/tools/integrations
  *
  * Wraps the Apify Client SDK to trigger and consume the `altimis/scweet` actor
- * for scraping tweets, profile timelines, and followers from Twitter/X.
+ * for scraping tweets and profile timelines from Twitter/X.
  *
  * Architecture:
  * - Uses the official `apify-client` SDK (handles retries, pagination, auth).
  * - Runs the actor **synchronously** via `actor.call()` which waits for the
  *   run to finish and returns the run metadata. We then fetch the dataset.
- * - For short scrapes (limit ≤ 200) this completes in ~30–90 seconds.
+ * - For short scrapes (max_items ≤ 200) this completes in ~30–90 seconds.
  * - For large scrapes the caller should set a generous timeout or use
  *   `startRun()` + `waitForRun()` + `getDatasetItems()` for async polling.
  *
@@ -20,6 +20,14 @@
  *
  * Configuration:
  * Set the `APIFY_API_TOKEN` environment variable.
+ *
+ * Scweet Actor API (2026):
+ * - source_mode: "search" | "profiles" | "auto"
+ * - search_query: raw advanced query string (for search mode)
+ * - profile_urls: array of @handle or x.com URLs (for profiles mode)
+ * - max_items: global run target (minimum enforced: 100)
+ * - since / until: date or UTC timestamp window
+ * - search_sort: "Top" | "Latest" (default: "Latest")
  */
 
 import { ApifyClient } from 'apify-client';
@@ -33,14 +41,11 @@ const SCWEET_ACTOR_ID = 'altimis/scweet';
 /** Maximum tweet limit per request to prevent runaway costs. */
 const MAX_TWEET_LIMIT = 500;
 
-/** Default tweet limit if none specified. */
-const DEFAULT_TWEET_LIMIT = 50;
+/** Default tweet limit if none specified (Scweet enforces minimum of 100). */
+const DEFAULT_TWEET_LIMIT = 100;
 
-/** Maximum follower limit per request. */
-const MAX_FOLLOWER_LIMIT = 1000;
-
-/** Default follower limit. */
-const DEFAULT_FOLLOWER_LIMIT = 100;
+/** Scweet enforces a minimum of 100 items per run. */
+const MIN_ITEMS_PER_RUN = 100;
 
 /** Timeout for synchronous actor runs (5 minutes). */
 const ACTOR_CALL_TIMEOUT_SECS = 300;
@@ -53,6 +58,53 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+/** Raw Scweet actor output item (2026 schema). */
+export interface ScweetRawItem {
+  readonly id: string;
+  readonly handle: string;
+  readonly text?: string;
+  readonly tweet_url?: string;
+  readonly favorite_count?: number;
+  readonly retweet_count?: number;
+  readonly reply_count?: number;
+  readonly source_root?: string;
+  readonly source_value?: string;
+  readonly collected_at_utc?: string;
+  readonly user?: {
+    readonly name?: string;
+    readonly handle?: string;
+    readonly description?: string;
+    readonly followers_count?: number;
+    readonly friends_count?: number;
+    readonly verified?: boolean;
+    readonly is_blue_verified?: boolean;
+    readonly profile_image_url_https?: string;
+    readonly statuses_count?: number;
+    readonly location?: string;
+    readonly created_at?: string;
+    readonly [key: string]: unknown;
+  };
+  readonly tweet?: {
+    readonly rest_id?: string;
+    readonly created_at?: string;
+    readonly text?: string;
+    readonly tweet_url?: string;
+    readonly favorite_count?: number;
+    readonly retweet_count?: number;
+    readonly reply_count?: number;
+    readonly quote_count?: number;
+    readonly view_count?: string;
+    readonly bookmark_count?: number;
+    readonly hashtags?: readonly string[];
+    readonly mentions?: readonly string[];
+    readonly lang?: string;
+    readonly media?: readonly Record<string, unknown>[];
+    readonly [key: string]: unknown;
+  };
+  readonly [key: string]: unknown;
+}
+
+/** Normalized tweet for LLM consumption. */
 export interface ScweetTweet {
   readonly id: string;
   readonly text: string;
@@ -65,6 +117,7 @@ export interface ScweetTweet {
   readonly [key: string]: unknown;
 }
 
+/** Normalized user info extracted from tweet data. */
 export interface ScweetUser {
   readonly username: string;
   readonly name: string;
@@ -123,18 +176,38 @@ export class ApifyService {
 
     const since = this.validateDate(options.since);
     const until = this.validateDate(options.until);
-    const limit = this.clampLimit(options.limit ?? DEFAULT_TWEET_LIMIT, MAX_TWEET_LIMIT);
+    const maxItems = this.clampLimit(options.limit ?? DEFAULT_TWEET_LIMIT, MAX_TWEET_LIMIT);
 
-    logger.info('[ApifyService] Searching tweets', { query: query.slice(0, 100), limit, since });
+    // Append language filter to the query if specified (Scweet uses Twitter
+    // advanced search syntax, e.g. "lang:en")
+    let searchQuery = query.trim();
+    if (options.language && !/\blang:\w+/.test(searchQuery)) {
+      searchQuery += ` lang:${options.language}`;
+    }
 
-    return this.runActor<ScweetTweet>({
-      mode: 'search',
-      words: query.trim(),
+    logger.info('[ApifyService] Searching tweets', {
+      query: searchQuery.slice(0, 100),
+      maxItems,
+      since,
+    });
+
+    const result = await this.runActor({
+      source_mode: 'search',
+      search_query: searchQuery,
       ...(since && { since }),
       ...(until && { until }),
-      limit,
-      ...(options.language && { lang: options.language }),
+      max_items: maxItems,
+      search_sort: 'Latest',
     });
+
+    if (!result.success) {
+      return { ...result, items: [] };
+    }
+
+    return {
+      ...result,
+      items: (result.items as readonly ScweetRawItem[]).map((item) => this.normalizeToTweet(item)),
+    };
   }
 
   /**
@@ -149,43 +222,85 @@ export class ApifyService {
       return this.emptyResult('No valid usernames provided');
     }
 
-    const limit = this.clampLimit(options.limit ?? DEFAULT_TWEET_LIMIT, MAX_TWEET_LIMIT);
+    const maxItems = this.clampLimit(options.limit ?? DEFAULT_TWEET_LIMIT, MAX_TWEET_LIMIT);
 
-    logger.info('[ApifyService] Fetching profile tweets', { usernames: sanitized, limit });
+    logger.info('[ApifyService] Fetching profile tweets', { usernames: sanitized, maxItems });
 
-    return this.runActor<ScweetTweet>({
-      mode: 'profile_tweets',
-      users: sanitized,
-      limit,
+    // Scweet accepts @handle or full URLs in profile_urls
+    const profileUrls = sanitized.map((u) => `@${u}`);
+
+    const result = await this.runActor({
+      source_mode: 'profiles',
+      profile_urls: profileUrls,
+      max_items: maxItems,
     });
+
+    if (!result.success) {
+      return { ...result, items: [] };
+    }
+
+    return {
+      ...result,
+      items: (result.items as readonly ScweetRawItem[]).map((item) => this.normalizeToTweet(item)),
+    };
   }
 
   /**
-   * Fetch followers of one or more users.
+   * Extract user info from profile tweet results.
+   *
+   * Note: The Scweet actor no longer has a dedicated "followers" mode.
+   * This method fetches profile tweets and extracts the user metadata
+   * embedded in each tweet's `user` object, deduplicating by handle.
    */
   async getFollowers(
     usernames: readonly string[],
     options: { limit?: number } = {}
   ): Promise<ApifyRunResult<ScweetUser>> {
-    const sanitized = this.sanitizeUsernames(usernames);
-    if (sanitized.length === 0) {
-      return this.emptyResult('No valid usernames provided');
+    // Scweet no longer supports a dedicated followers mode.
+    // We fetch profile tweets and extract user objects as a best-effort fallback.
+    logger.warn(
+      '[ApifyService] getFollowers is deprecated — Scweet no longer supports follower scraping. ' +
+        'Returning profile metadata extracted from tweets instead.'
+    );
+
+    const result = await this.getProfileTweets(usernames, options);
+    if (!result.success) {
+      return { ...result, items: [] };
     }
 
-    const limit = this.clampLimit(options.limit ?? DEFAULT_FOLLOWER_LIMIT, MAX_FOLLOWER_LIMIT);
+    // Extract unique user info from the raw items
+    const seen = new Set<string>();
+    const users: ScweetUser[] = [];
 
-    logger.info('[ApifyService] Fetching followers', { usernames: sanitized, limit });
+    for (const tweet of result.items) {
+      const username = tweet.username;
+      if (username && !seen.has(username)) {
+        seen.add(username);
+        users.push({
+          username,
+          name: ((tweet as unknown as Record<string, unknown>)['name'] as string) ?? username,
+          bio: undefined,
+          followers_count: undefined,
+          following_count: undefined,
+          verified: false,
+          profile_image_url: undefined,
+        });
+      }
+    }
 
-    return this.runActor<ScweetUser>({
-      mode: 'followers',
-      users: sanitized,
-      limit,
-    });
+    return {
+      success: true,
+      runId: result.runId,
+      datasetId: result.datasetId,
+      items: users,
+      itemCount: users.length,
+      durationMs: result.durationMs,
+    };
   }
 
   // ─── Internal ──────────────────────────────────────────────────────────
 
-  private async runActor<T>(input: Record<string, unknown>): Promise<ApifyRunResult<T>> {
+  private async runActor(input: Record<string, unknown>): Promise<ApifyRunResult<ScweetRawItem>> {
     const startMs = Date.now();
 
     try {
@@ -208,7 +323,7 @@ export class ApifyService {
         success: true,
         runId: run.id,
         datasetId: run.defaultDatasetId,
-        items: items as unknown as readonly T[],
+        items: items as unknown as readonly ScweetRawItem[],
         itemCount: items.length,
         durationMs,
       };
@@ -219,7 +334,7 @@ export class ApifyService {
       logger.error('[ApifyService] Actor run failed', {
         error: message,
         durationMs,
-        mode: input['mode'],
+        sourceMode: input['source_mode'],
       });
 
       return {
@@ -232,6 +347,24 @@ export class ApifyService {
         error: message,
       };
     }
+  }
+
+  /**
+   * Normalize a raw Scweet item into the ScweetTweet format expected by
+   * the ScrapeTwitterTool and LLM context.
+   */
+  private normalizeToTweet(raw: ScweetRawItem): ScweetTweet {
+    const tweet = raw.tweet;
+    return {
+      id: tweet?.rest_id ?? raw.id ?? '',
+      text: tweet?.text ?? raw.text ?? '',
+      username: raw.handle ?? raw.user?.handle ?? '',
+      timestamp: tweet?.created_at ?? raw.collected_at_utc ?? '',
+      retweets: tweet?.retweet_count ?? raw.retweet_count ?? 0,
+      likes: tweet?.favorite_count ?? raw.favorite_count ?? 0,
+      replies: tweet?.reply_count ?? raw.reply_count ?? 0,
+      url: tweet?.tweet_url ?? raw.tweet_url ?? '',
+    };
   }
 
   /**
@@ -253,10 +386,11 @@ export class ApifyService {
   }
 
   /**
-   * Clamp a limit to [1, max].
+   * Clamp a limit to [MIN_ITEMS_PER_RUN, max].
+   * Scweet enforces a minimum of 100 items per run.
    */
   private clampLimit(value: number, max: number): number {
-    return Math.max(1, Math.min(Math.floor(value), max));
+    return Math.max(MIN_ITEMS_PER_RUN, Math.min(Math.floor(value), max));
   }
 
   /**

@@ -241,33 +241,39 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     const target = await resolveBillingTarget(db, userId);
     const billingCtx = target.context;
 
-    // ── Determine admin status ──
-    // Org admins: directors, org owners, or members of org.admins[]
-    // Team admins: members of team.adminIds[] or team.createdBy
-    let isOrgAdmin = false;
-    let isTeamAdmin = false;
+    // ── Parallelize independent queries ──
+    // Group 1: Admin status (needs userId + target)
+    // Group 2: Usage events (needs target + timeframe)
+    // Group 3: Payment logs (needs target)
+    // All three are independent — run in parallel.
 
-    if (target.type === 'organization' && target.organizationId) {
-      const userDoc = await db.collection('Users').doc(userId).get();
-      const role = userDoc.data()?.['role'] as string | undefined;
-      const orgDoc = await db.collection('Organizations').doc(target.organizationId).get();
-      const orgData = orgDoc.data();
+    const adminCheckPromise = (async (): Promise<{ isOrgAdmin: boolean; isTeamAdmin: boolean }> => {
+      if (target.type === 'organization' && target.organizationId) {
+        const [userDoc, orgDoc] = await Promise.all([
+          db.collection('Users').doc(userId).get(),
+          db.collection('Organizations').doc(target.organizationId).get(),
+        ]);
+        const role = userDoc.data()?.['role'] as string | undefined;
+        const orgData = orgDoc.data();
 
-      if (orgData) {
-        const ownerId = orgData['ownerId'] as string | undefined;
-        const admins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
-        const adminIds = admins.map((a) => a.userId).filter(Boolean);
-        isOrgAdmin = role === 'director' || ownerId === userId || adminIds.includes(userId);
-      }
+        let orgAdmin = false;
+        if (orgData) {
+          const ownerId = orgData['ownerId'] as string | undefined;
+          const admins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
+          const adminIds = admins.map((a) => a.userId).filter(Boolean);
+          orgAdmin = role === 'director' || ownerId === userId || adminIds.includes(userId);
+        }
 
-      // Check team admin via roster entry → team.adminIds
-      if (!isOrgAdmin) {
+        if (orgAdmin) return { isOrgAdmin: true, isTeamAdmin: true };
+
+        // Check team admin via roster entry → team.adminIds
         const rosterSnap = await db
           .collection('RosterEntries')
           .where('userId', '==', userId)
           .where('status', '==', 'active')
           .limit(1)
           .get();
+
         if (!rosterSnap.empty) {
           const teamId = rosterSnap.docs[0]!.data()['teamId'] as string | undefined;
           if (teamId) {
@@ -278,21 +284,17 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
               : teamData?.['createdBy']
                 ? [teamData['createdBy'] as string]
                 : [];
-            isTeamAdmin = teamAdminIds.includes(userId);
+            return { isOrgAdmin: false, isTeamAdmin: teamAdminIds.includes(userId) };
           }
         }
-      } else {
-        // Org admins are implicitly team admins
-        isTeamAdmin = true;
-      }
-    } else {
-      // Individual users are their own "admin"
-      isOrgAdmin = true;
-      isTeamAdmin = true;
-    }
 
-    // Fetch usage events for the resolved target
-    const eventsDocs = await fetchUsageEvents(
+        return { isOrgAdmin: false, isTeamAdmin: false };
+      }
+      // Individual users are their own "admin"
+      return { isOrgAdmin: true, isTeamAdmin: true };
+    })();
+
+    const eventsPromise = fetchUsageEvents(
       db,
       target,
       start.toISOString(),
@@ -300,6 +302,22 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       true,
       1000
     );
+
+    const paymentLogsPromise = db
+      .collection(COLLECTIONS.PAYMENT_LOGS)
+      .where('userId', '==', target.billingUserId)
+      .orderBy('createdAt', 'desc')
+      .limit(USAGE_HISTORY_PAGE_SIZE)
+      .get();
+
+    // Run all three in parallel
+    const [adminResult, eventsDocs, paymentLogsSnap] = await Promise.all([
+      adminCheckPromise,
+      eventsPromise,
+      paymentLogsPromise,
+    ]);
+
+    const { isOrgAdmin, isTeamAdmin } = adminResult;
 
     // Aggregate usage by feature
     const featureUsage = new Map<string, number>();
@@ -433,14 +451,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       });
     }
 
-    // Payment history from paymentLogs (use billing target userId for org lookups)
-    const paymentLogsSnap = await db
-      .collection(COLLECTIONS.PAYMENT_LOGS)
-      .where('userId', '==', target.billingUserId)
-      .orderBy('createdAt', 'desc')
-      .limit(USAGE_HISTORY_PAGE_SIZE)
-      .get();
-
+    // Payment history from the already-fetched paymentLogsSnap (parallelized above)
     const paymentLogDocs = paymentLogsSnap.docs;
 
     const paymentHistory: UsagePaymentHistoryRecord[] = paymentLogDocs.map((doc) => {
@@ -460,60 +471,67 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       };
     });
 
-    // Payment methods and billing info from Stripe (use billing target userId for org lookups)
+    // Payment methods and billing info from Stripe — skip for non-admins (data is masked anyway)
     let paymentMethods: UsagePaymentMethod[] = [];
     let billingInfo: UsageBillingInfo | null = null;
-    try {
-      const customerDoc = await db
-        .collection(COLLECTIONS.STRIPE_CUSTOMERS)
-        .where('userId', '==', target.billingUserId)
-        .where('environment', '==', environment)
-        .limit(1)
-        .get();
+    if (isOrgAdmin) {
+      try {
+        const customerDoc = await db
+          .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+          .where('userId', '==', target.billingUserId)
+          .where('environment', '==', environment)
+          .limit(1)
+          .get();
 
-      if (!customerDoc.empty) {
-        const customerId = customerDoc.docs[0]?.data()['stripeCustomerId'] as string;
-        const stripe = getStripeClient(environment);
-        const methods = await stripe.paymentMethods.list({
-          customer: customerId,
-          type: 'card',
-        });
+        if (!customerDoc.empty) {
+          const customerId = customerDoc.docs[0]?.data()['stripeCustomerId'] as string;
+          const stripe = getStripeClient(environment);
 
-        const customer = await stripe.customers.retrieve(customerId);
-        const defaultMethodId =
-          typeof customer !== 'string' && !customer.deleted
-            ? typeof customer.invoice_settings?.default_payment_method === 'string'
-              ? customer.invoice_settings.default_payment_method
-              : customer.invoice_settings?.default_payment_method?.id
-            : undefined;
+          // Parallelize the two Stripe API calls (each can take 3-5s)
+          const [methods, customer] = await Promise.all([
+            stripe.paymentMethods.list({ customer: customerId, type: 'card' }),
+            stripe.customers.retrieve(customerId),
+          ]);
 
-        paymentMethods = methods.data.map((m) => ({
-          id: m.id,
-          type: 'card' as const,
-          provider: 'stripe' as const,
-          label: `${(m.card?.brand ?? 'card').charAt(0).toUpperCase() + (m.card?.brand ?? 'card').slice(1)} ending in ${m.card?.last4 ?? '****'}`,
-          last4: m.card?.last4 ?? null,
-          brand: m.card?.brand ?? null,
-          expiryMonth: m.card?.exp_month ?? null,
-          expiryYear: m.card?.exp_year ?? null,
-          isDefault: m.id === defaultMethodId,
-          email: null,
-          addedAt: new Date(m.created * 1000).toISOString(),
-        }));
+          const defaultMethodId =
+            typeof customer !== 'string' && !customer.deleted
+              ? typeof customer.invoice_settings?.default_payment_method === 'string'
+                ? customer.invoice_settings.default_payment_method
+                : customer.invoice_settings?.default_payment_method?.id
+              : undefined;
 
-        if (typeof customer !== 'string' && !customer.deleted && customer.address) {
-          const addr = customer.address;
-          const cityStateZip = [addr.city, addr.state, addr.postal_code].filter(Boolean).join(', ');
-          billingInfo = {
-            name: customer.name ?? '',
-            addressLine1: addr.line1 ?? '',
-            addressLine2: addr.line2 ? `${addr.line2}, ${cityStateZip}` : cityStateZip,
-            country: addr.country ?? '',
-          };
+          paymentMethods = methods.data.map((m) => ({
+            id: m.id,
+            type: 'card' as const,
+            provider: 'stripe' as const,
+            label: `${(m.card?.brand ?? 'card').charAt(0).toUpperCase() + (m.card?.brand ?? 'card').slice(1)} ending in ${m.card?.last4 ?? '****'}`,
+            last4: m.card?.last4 ?? null,
+            brand: m.card?.brand ?? null,
+            expiryMonth: m.card?.exp_month ?? null,
+            expiryYear: m.card?.exp_year ?? null,
+            isDefault: m.id === defaultMethodId,
+            email: null,
+            addedAt: new Date(m.created * 1000).toISOString(),
+          }));
+
+          if (typeof customer !== 'string' && !customer.deleted && customer.address) {
+            const addr = customer.address;
+            const cityStateZip = [addr.city, addr.state, addr.postal_code]
+              .filter(Boolean)
+              .join(', ');
+            billingInfo = {
+              name: customer.name ?? '',
+              addressLine1: addr.line1 ?? '',
+              addressLine2: addr.line2 ? `${addr.line2}, ${cityStateZip}` : cityStateZip,
+              country: addr.country ?? '',
+            };
+          }
         }
+      } catch (err) {
+        logger.warn('[GET /dashboard] Failed to fetch payment methods from Stripe', {
+          error: err,
+        });
       }
-    } catch (err) {
-      logger.warn('[GET /dashboard] Failed to fetch payment methods from Stripe', { error: err });
     }
 
     // Budgets from billing context

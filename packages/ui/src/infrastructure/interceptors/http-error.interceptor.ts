@@ -94,8 +94,31 @@ export function httpErrorInterceptor(options: HttpErrorInterceptorOptions = {}):
 
     return next(req).pipe(
       catchError((error: HttpErrorResponse) => {
-        // Parse error using @nxt1/core/errors
-        const apiError = parseApiError(error);
+        // Extract the actual backend response body from HttpErrorResponse.
+        // Angular wraps the body in `error.error`; our backend returns
+        // `{ success: false, error: string, code?: string }`.
+        const body = error.error as Record<string, unknown> | string | null;
+        const backendMessage =
+          body && typeof body === 'object' && typeof body['error'] === 'string'
+            ? body['error']
+            : null;
+        const backendCode =
+          body && typeof body === 'object' && typeof body['code'] === 'string'
+            ? (body['code'] as string)
+            : undefined;
+
+        // Parse error using @nxt1/core/errors, then patch in the real
+        // status code and backend message that parseApiError can't access.
+        const apiError = parseApiError(
+          backendCode ? { code: backendCode, message: backendMessage ?? error.statusText } : error
+        );
+        apiError.statusCode = error.status;
+        if (backendMessage) {
+          apiError.message = backendMessage;
+        }
+        if (backendCode) {
+          apiError.details = { ...apiError.details, billingCode: backendCode };
+        }
 
         // Log error for debugging
         logHttpError(req, error, apiError, logger);
@@ -214,6 +237,11 @@ function showErrorNotification(
 
   // Skip validation errors (handled by form validation UI)
   if (apiError.code === API_ERROR_CODES.VAL_INVALID_INPUT) {
+    return;
+  }
+
+  // Skip 402 Payment Required (handled by billing UI / feature services)
+  if (status === 402) {
     return;
   }
 

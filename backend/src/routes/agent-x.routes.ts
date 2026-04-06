@@ -72,12 +72,23 @@ import {
   hasPaymentMethod,
   resolveBillingTarget,
   COLLECTIONS,
+  executeBillingDeduction,
+  UsageFeature,
 } from '../modules/billing/index.js';
+import crypto from 'node:crypto';
 
-/** Lazy singleton for content generation — avoids eager init at import time. */
+/**
+ * Lazy singleton for content generation.
+ * Re-creates if the llmService changes (e.g. after `setAgentDependencies`),
+ * ensuring the generation service always uses the telemetry-wired LLM instance.
+ */
 let _generationService: AgentGenerationService | null = null;
+let _generationServiceLlm: OpenRouterService | null | undefined = undefined;
 function getGenerationService(): AgentGenerationService {
-  if (!_generationService) _generationService = new AgentGenerationService();
+  if (!_generationService || _generationServiceLlm !== llmService) {
+    _generationService = new AgentGenerationService(llmService ?? undefined);
+    _generationServiceLlm = llmService;
+  }
   return _generationService;
 }
 
@@ -260,37 +271,51 @@ router.post('/ask', appGuard, validateBody(AskAgentDto), async (req: Request, re
       // IAP wallet: check prepaid balance
       const budgetResult = await checkBudget(db, user.uid, 0);
       if (!budgetResult.allowed) {
-        res.status(402).json({ success: false, error: budgetResult.reason, code: 'WALLET_EMPTY' });
-        return;
-      }
-    } else {
-      // Org/Team: must have a card on file before running jobs
-      const customerQuery = await db
-        .collection(COLLECTIONS.STRIPE_CUSTOMERS)
-        .where('userId', '==', billingTarget.billingUserId)
-        .where('environment', '==', env)
-        .limit(1)
-        .get();
-
-      const customerId = customerQuery.empty
-        ? null
-        : ((customerQuery.docs[0]!.data()['stripeCustomerId'] as string | undefined) ?? null);
-
-      if (!customerId || !(await hasPaymentMethod(customerId, env))) {
         res.status(402).json({
           success: false,
-          error: 'Add a payment method in Settings → Billing to use Agent X',
-          code: 'NO_PAYMENT_METHOD',
+          error: 'Your Agent X balance has run out. Add funds in Settings → Billing to continue.',
+          code: 'WALLET_EMPTY',
         });
         return;
       }
+    } else {
+      // Determine if this user is the billing admin (director/owner) or a team member
+      const isBillingAdmin =
+        billingTarget.billingUserId === user.uid ||
+        billingTarget.billingUserId === `org:${billingCtx.organizationId}`;
 
-      // Monthly budget check
-      const budgetResult = await checkBudget(db, user.uid, 0, billingCtx.teamId);
+      // Org/Team: check monthly budget FIRST against the org master context.
+      // Pass billingTarget.billingUserId (= "org:<orgId>") so checkBudget reads
+      // the org billing context directly, not the user's individual context.
+      const budgetResult = await checkBudget(db, billingTarget.billingUserId, 0);
       if (!budgetResult.allowed) {
-        res
-          .status(402)
-          .json({ success: false, error: budgetResult.reason, code: 'BUDGET_EXCEEDED' });
+        // Budget exhausted — check if they have a payment method for continued usage
+        const customerQuery = await db
+          .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+          .where('userId', '==', billingTarget.billingUserId)
+          .where('environment', '==', env)
+          .limit(1)
+          .get();
+
+        const customerId = customerQuery.empty
+          ? null
+          : ((customerQuery.docs[0]!.data()['stripeCustomerId'] as string | undefined) ?? null);
+
+        if (!customerId || !(await hasPaymentMethod(customerId, env))) {
+          const error = isBillingAdmin
+            ? 'Your free Agent X budget has been used. Add a payment method in Settings to continue.'
+            : "Your team's Agent X budget has been used. Contact your program admin to add a payment method.";
+          res.status(402).json({
+            success: false,
+            error,
+            code: 'BUDGET_EXCEEDED_NO_PAYMENT',
+          });
+        } else {
+          const error = isBillingAdmin
+            ? 'Your monthly Agent X budget has been reached. Increase it in Settings.'
+            : "Your team's monthly Agent X budget has been reached. Contact your program admin to increase it.";
+          res.status(402).json({ success: false, error, code: 'BUDGET_EXCEEDED' });
+        }
         return;
       }
     }
@@ -1226,8 +1251,12 @@ router.post(
   appGuard,
   validateBody(AgentChatRequestDto),
   async (req: Request, res: Response) => {
+    // Billing context — defined outside try so catch can access for rage-quit billing
+    const chatOperationId = `chat-${crypto.randomUUID()}`;
+    const chatUser = getAuthUser(req);
+
     try {
-      const user = getAuthUser(req);
+      const user = chatUser;
       if (!user?.uid) {
         res.status(401).json({ success: false, error: 'Unauthorized' });
         return;
@@ -1431,6 +1460,11 @@ router.post(
                 maxTokens: 2048,
                 temperature: 0.7,
                 ...(chatTools.length > 0 ? { tools: chatTools } : {}),
+                telemetryContext: {
+                  operationId: chatOperationId,
+                  userId: user.uid,
+                  agentId: 'general' as const,
+                },
               },
               (delta) => {
                 if (delta.content) {
@@ -1649,9 +1683,38 @@ router.post(
       });
 
       res.end();
+
+      // ── Step 7: Billing deduction (fire-and-forget) ────────────────────
+      // Captures all accumulated LLM costs from the agentic loop (including
+      // tool-call re-streams and title generation) via the job-cost-tracker.
+      const { db: billingDb } = req.firebase!;
+      void executeBillingDeduction({
+        db: billingDb,
+        userId: user.uid,
+        operationId: chatOperationId,
+        feature: UsageFeature.CHAT_CONVERSATION,
+        environment: (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'production') as
+          | 'production'
+          | 'staging',
+        metadata: { threadId: resolvedThreadId, model, mode },
+      });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       logger.error('Agent X chat failed', { error: error.message, stack: error.stack });
+
+      // Bill for any partial streaming cost even on error (rage-quit protection)
+      if (req.firebase?.db && chatUser?.uid) {
+        void executeBillingDeduction({
+          db: req.firebase.db,
+          userId: chatUser.uid,
+          operationId: chatOperationId,
+          feature: UsageFeature.CHAT_CONVERSATION,
+          environment: (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'production') as
+            | 'production'
+            | 'staging',
+          metadata: { error: true },
+        });
+      }
 
       // If headers haven't been sent yet, return JSON error
       if (!res.headersSent) {
@@ -1674,6 +1737,7 @@ router.post(
 // ─── POST /playbook/generate — Generate or regenerate weekly playbook ─────
 
 router.post('/playbook/generate', appGuard, async (req: Request, res: Response) => {
+  const playbookOpId = `playbook-${crypto.randomUUID()}`;
   try {
     const user = getAuthUser(req);
     if (!user?.uid) {
@@ -1681,7 +1745,25 @@ router.post('/playbook/generate', appGuard, async (req: Request, res: Response) 
       return;
     }
 
-    const result = await getGenerationService().generatePlaybook(user.uid, req.firebase?.db);
+    const result = await getGenerationService().generatePlaybook(
+      user.uid,
+      req.firebase?.db,
+      playbookOpId
+    );
+
+    // Billing deduction (fire-and-forget)
+    if (req.firebase?.db) {
+      void executeBillingDeduction({
+        db: req.firebase.db,
+        userId: user.uid,
+        operationId: playbookOpId,
+        feature: UsageFeature.PLAYBOOK_GENERATION,
+        environment: (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'production') as
+          | 'production'
+          | 'staging',
+      });
+    }
+
     res.json({ success: true, data: result });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
@@ -1779,6 +1861,7 @@ router.post(
   appGuard,
   validateBody(GenerateBriefingDto),
   async (req: Request, res: Response) => {
+    const briefingOpId = `briefing-${crypto.randomUUID()}`;
     try {
       const user = getAuthUser(req);
       if (!user?.uid) {
@@ -1790,8 +1873,23 @@ router.post(
       const result = await getGenerationService().generateBriefing(
         user.uid,
         force,
-        req.firebase?.db
+        req.firebase?.db,
+        briefingOpId
       );
+
+      // Billing deduction (fire-and-forget)
+      if (req.firebase?.db) {
+        void executeBillingDeduction({
+          db: req.firebase.db,
+          userId: user.uid,
+          operationId: briefingOpId,
+          feature: UsageFeature.BRIEFING_GENERATION,
+          environment: (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'production') as
+            | 'production'
+            | 'staging',
+        });
+      }
+
       res.json({ success: true, data: result });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));

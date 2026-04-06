@@ -52,7 +52,7 @@ import { NxtBrowserService } from '../services/browser/browser.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBottomSheetService } from '../components/bottom-sheet';
-import { AgentXJobService } from '../agent-x/agent-x-job.service';
+import { AgentXJobService, isEnqueueFailure } from '../agent-x/agent-x-job.service';
 import {
   SETTINGS_PERSISTENCE_ADAPTER,
   type SettingsPersistenceAdapter,
@@ -402,9 +402,13 @@ export class SettingsService {
         requestedAccounts,
       });
 
-      if (!job) {
-        this.toast.error('Unable to start re-sync right now. Please try again.');
-        this.logger.warn('Connected accounts re-sync enqueue returned null');
+      if (isEnqueueFailure(job)) {
+        this.toast.error(
+          job.reason === 'billing'
+            ? job.message
+            : 'Unable to start re-sync right now. Please try again.'
+        );
+        this.logger.warn('Connected accounts re-sync enqueue failed', { reason: job.reason });
         return;
       }
 

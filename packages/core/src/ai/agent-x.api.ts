@@ -385,7 +385,17 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
           });
 
           if (!response.ok || !response.body) {
-            callbacks.onError({ error: `HTTP ${response.status}: ${response.statusText}` });
+            // Parse the response body for structured error info (402 billing, etc.)
+            let errorMsg = `HTTP ${response.status}: ${response.statusText}`;
+            let code: string | undefined;
+            try {
+              const body = (await response.json()) as Record<string, unknown>;
+              if (typeof body['error'] === 'string') errorMsg = body['error'];
+              if (typeof body['code'] === 'string') code = body['code'] as string;
+            } catch {
+              /* response may not be JSON */
+            }
+            callbacks.onError({ error: errorMsg, status: response.status, code });
             return;
           }
 

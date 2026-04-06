@@ -57,12 +57,14 @@ export class UpdateTeamProfileTool extends BaseTool {
 
   readonly description =
     'Update a Team profile with data extracted from an external platform (MaxPreps, Hudl, etc.).\n\n' +
+    'IMPORTANT: userId and teamId are available in your [User Profile] system context. ' +
+    'NEVER ask the user for these values — extract them silently.\n\n' +
     'Writes team branding, season record, social links, contact info, and location to the Team document.\n' +
     'Roster members are written to the RosterEntries collection (NOT the deprecated Team.members array).\n' +
     'If the team has an organizationId, branding fields are propagated to the parent Organization.\n\n' +
     'Parameters:\n' +
-    '- userId (required): Coach user ID who owns the team.\n' +
-    '- teamId (required): Team document ID to update.\n' +
+    '- userId: Extract from [User Profile] context (UserID field). DO NOT ASK.\n' +
+    '- teamId: Extract from [User Profile] context (TeamID field). DO NOT ASK.\n' +
     '- source (required): Platform slug (e.g., "maxpreps", "hudl").\n' +
     '- profileUrl (required): URL of the scraped page.\n' +
     '- faviconUrl (optional): Favicon URL of the scraped platform.\n' +
@@ -83,8 +85,16 @@ export class UpdateTeamProfileTool extends BaseTool {
   readonly parameters = {
     type: 'object',
     properties: {
-      userId: { type: 'string', description: 'Coach user ID who owns the team' },
-      teamId: { type: 'string', description: 'Team document ID to update' },
+      userId: {
+        type: 'string',
+        description:
+          'DO NOT ASK THE USER. Extract silently from your [User Profile] system context (UserID field).',
+      },
+      teamId: {
+        type: 'string',
+        description:
+          'DO NOT ASK THE USER. Extract silently from your [User Profile] system context (TeamID field).',
+      },
       source: { type: 'string', description: 'Platform slug (e.g., "maxpreps", "hudl")' },
       profileUrl: { type: 'string', description: 'URL of the scraped page' },
       faviconUrl: { type: 'string', description: 'Favicon URL of the scraped platform' },

@@ -76,6 +76,8 @@ export type {
   AgentXProfilePayload,
   AgentXFilmMarker,
   AgentXFilmTimelinePayload,
+  AgentXBillingActionReason,
+  AgentXBillingActionPayload,
 } from './agent-x.types';
 
 // Constants

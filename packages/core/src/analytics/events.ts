@@ -776,6 +776,15 @@ export const APP_EVENTS = {
   USAGE_TEAM_BUDGET_UPDATED: 'usage_team_budget_updated',
   /** User redeemed a coupon */
   USAGE_COUPON_REDEEMED: 'usage_coupon_redeemed',
+
+  // ── Agent X Billing Card ──
+  /** Agent X billing action card rendered in chat */
+  AGENT_X_BILLING_CARD_VIEWED: 'agent_x_billing_card_viewed',
+  /** User clicked a CTA on the Agent X billing card */
+  AGENT_X_BILLING_CARD_CTA_CLICKED: 'agent_x_billing_card_cta_clicked',
+  /** User successfully completed a purchase from the billing card */
+  AGENT_X_BILLING_CARD_PURCHASE_COMPLETED: 'agent_x_billing_card_purchase_completed',
+
   /** User downloaded a receipt */
   USAGE_RECEIPT_DOWNLOADED: 'usage_receipt_downloaded',
   /** User downloaded an invoice */

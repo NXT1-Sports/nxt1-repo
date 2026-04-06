@@ -14,6 +14,8 @@ export {
   AgentXJobService,
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
+  isEnqueueFailure,
+  type EnqueueFailure,
 } from './agent-x-job.service';
 export {
   AgentXOperationEventService,
@@ -112,3 +114,7 @@ export {
 export { AgentXDraftCardComponent, type DraftSubmittedEvent } from './agent-x-draft-card.component';
 export { AgentXProfileCardComponent } from './agent-x-profile-card.component';
 export { AgentXFilmTimelineCardComponent } from './agent-x-film-timeline-card.component';
+export {
+  AgentXBillingActionCardComponent,
+  type BillingActionResolvedEvent,
+} from './agent-x-billing-action-card.component';

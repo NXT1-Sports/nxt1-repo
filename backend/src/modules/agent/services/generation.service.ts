@@ -19,6 +19,7 @@ import {
   getRecurringHabitsPrompt,
   resolvePrimarySport,
 } from './elite-context.js';
+import type { OpenRouterService } from '../llm/openrouter.service.js';
 
 // ─── Shared Helpers ─────────────────────────────────────────────────────────
 
@@ -79,6 +80,18 @@ export interface BriefingGenerationResult {
 // ─── Generation Service ─────────────────────────────────────────────────────
 
 export class AgentGenerationService {
+  /**
+   * Optional telemetry-wired LLM instance injected from bootstrap.
+   * When provided, all LLM calls accumulate cost in the job-cost-tracker
+   * (keyed by operationId) so billing deduction can pick them up.
+   * When absent, falls back to creating a blind instance (legacy behavior).
+   */
+  private readonly llmService?: OpenRouterService;
+
+  constructor(llmService?: OpenRouterService) {
+    this.llmService = llmService;
+  }
+
   private get db(): Firestore {
     return getFirestore();
   }
@@ -93,7 +106,11 @@ export class AgentGenerationService {
    * Reads user profile + goals from Firestore, calls OpenRouter LLM,
    * persists result, and prunes old playbooks (keep 10).
    */
-  async generatePlaybook(uid: string, dbOverride?: Firestore): Promise<PlaybookGenerationResult> {
+  async generatePlaybook(
+    uid: string,
+    dbOverride?: Firestore,
+    operationId?: string
+  ): Promise<PlaybookGenerationResult> {
     const db = this.resolveDb(dbOverride);
     const userDoc = await db.collection('Users').doc(uid).get();
     const userData = userDoc.data() ?? {};
@@ -105,7 +122,12 @@ export class AgentGenerationService {
 
     // ── Resolve primary sport for habit menu ──────────────────────────────
     const primarySport = resolvePrimarySport(userData);
-    const recurringHabitsBlock = getRecurringHabitsPrompt(role, primarySport || undefined);
+    const recurringHabitsBlock = getRecurringHabitsPrompt(
+      role,
+      primarySport || undefined,
+      new Date(),
+      userData
+    );
 
     if (agentGoals.length === 0) {
       throw new Error('Set at least one goal before generating a playbook');
@@ -232,8 +254,13 @@ export class AgentGenerationService {
     let playbookItems: ShellWeeklyPlaybookItem[] = [];
 
     try {
-      const { OpenRouterService } = await import('../llm/openrouter.service.js');
-      const llm = new OpenRouterService();
+      let llm: OpenRouterService;
+      if (this.llmService) {
+        llm = this.llmService;
+      } else {
+        const mod = await import('../llm/openrouter.service.js');
+        llm = new mod.OpenRouterService();
+      }
       const llmResult = await llm.complete(
         [
           {
@@ -248,6 +275,9 @@ export class AgentGenerationService {
           maxTokens: 2048,
           temperature: 0.7,
           jsonMode: true,
+          ...(operationId
+            ? { telemetryContext: { operationId, userId: uid, agentId: 'general' as const } }
+            : {}),
         }
       );
 
@@ -394,7 +424,8 @@ export class AgentGenerationService {
   async generateBriefing(
     uid: string,
     force = false,
-    dbOverride?: Firestore
+    dbOverride?: Firestore,
+    operationId?: string
   ): Promise<BriefingGenerationResult> {
     const db = this.resolveDb(dbOverride);
     // ── Check if a fresh briefing already exists (skip unless forced) ────
@@ -508,8 +539,13 @@ export class AgentGenerationService {
     let briefingPreviewText = `Good morning, ${displayName || 'athlete'}. Here's your daily focus.`;
 
     try {
-      const { OpenRouterService } = await import('../llm/openrouter.service.js');
-      const llm = new OpenRouterService();
+      let llm: OpenRouterService;
+      if (this.llmService) {
+        llm = this.llmService;
+      } else {
+        const mod = await import('../llm/openrouter.service.js');
+        llm = new mod.OpenRouterService();
+      }
       const llmResult = await llm.complete(
         [
           {
@@ -524,6 +560,9 @@ export class AgentGenerationService {
           maxTokens: 1024,
           temperature: 0.7,
           jsonMode: true,
+          ...(operationId
+            ? { telemetryContext: { operationId, userId: uid, agentId: 'general' as const } }
+            : {}),
         }
       );
 

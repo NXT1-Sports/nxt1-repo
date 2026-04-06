@@ -218,7 +218,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   }
 
   toolRegistry.register(new UpdateAthleteProfileTool(stagingDb));
-  toolRegistry.register(new UpdateTeamProfileTool());
+  toolRegistry.register(new UpdateTeamProfileTool(stagingDb));
   toolRegistry.register(new WriteCoreIdentityTool(stagingDb));
   toolRegistry.register(new WriteCombineMetricsTool(stagingDb));
   toolRegistry.register(new WriteSeasonStatsTool(stagingDb));

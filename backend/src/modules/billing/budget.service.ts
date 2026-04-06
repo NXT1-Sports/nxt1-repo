@@ -358,6 +358,32 @@ export async function recordSpend(
 }
 
 /**
+ * Record spend for an org-billed user across all three levels, bypassing
+ * getOrCreateBillingContext so a stale individual billing context does not
+ * prevent the org master budget from being incremented.
+ *
+ * Levels updated:
+ *   1. User's own billing context  (per-user spend analytics)
+ *   2. Team sub-allocation         (if teamId provided and allocation exists)
+ *   3. Organization master budget  (currentPeriodSpend on the org billing context)
+ */
+export async function recordOrgSpend(
+  db: Firestore,
+  userId: string,
+  organizationId: string,
+  teamId: string | undefined,
+  costCents: number
+): Promise<void> {
+  if (!Number.isInteger(costCents) || costCents <= 0) return;
+
+  await Promise.all([
+    updateSpend(db, userId, costCents),
+    ...(teamId ? [updateTeamAllocationSpend(db, teamId, costCents)] : []),
+    updateOrgSpend(db, organizationId, costCents),
+  ]);
+}
+
+/**
  * Increment current period spend for a user and check thresholds.
  */
 async function updateSpend(db: Firestore, userId: string, costCents: number): Promise<void> {

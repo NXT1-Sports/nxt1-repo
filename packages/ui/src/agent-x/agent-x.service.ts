@@ -67,6 +67,8 @@ import type {
   AgentXStreamStepEvent,
   AgentXStreamCardEvent,
   AgentXStreamTitleUpdatedEvent,
+  AgentXBillingActionReason,
+  AgentXRichCard,
 } from '@nxt1/core/ai';
 import { AgentXOperationEventService } from './agent-x-operation-event.service';
 import { HapticsService } from '../services/haptics/haptics.service';
@@ -79,6 +81,7 @@ import {
   AgentXJobService,
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
+  isEnqueueFailure,
 } from './agent-x-job.service';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -789,7 +792,12 @@ export class AgentXService {
 
           onError: (evt) => {
             this.logger.error('Stream error', evt.error);
-            this._replaceWithError(streamingId);
+            if (evt.status === 402) {
+              const reason = this._mapBillingCode(evt.code);
+              this._replaceWithBillingCard(streamingId, reason, evt.error);
+            } else {
+              this._replaceWithError(streamingId);
+            }
             this._isLoading.set(false);
             this.activeStream = null;
             this.haptics.notification('error').catch(() => undefined);
@@ -858,7 +866,14 @@ export class AgentXService {
     } catch (error) {
       this.logger.error('Send message failed (HTTP fallback)', error);
       await this.haptics.notification('error');
-      this._replaceWithError(streamingId);
+      const httpErr = error as { status?: number; error?: { code?: string; error?: string } };
+      if (httpErr.status === 402) {
+        const body = httpErr.error ?? {};
+        const reason = this._mapBillingCode(body.code);
+        this._replaceWithBillingCard(streamingId, reason, body.error);
+      } else {
+        this._replaceWithError(streamingId);
+      }
     } finally {
       this._isLoading.set(false);
     }
@@ -881,6 +896,62 @@ export class AgentXService {
           : m
       )
     );
+  }
+
+  /**
+   * Map a backend billing error code to a billing-action card reason.
+   * @internal
+   */
+  private _mapBillingCode(code?: string): AgentXBillingActionReason {
+    switch (code) {
+      case 'WALLET_EMPTY':
+        return 'insufficient_funds';
+      case 'NO_PAYMENT_METHOD':
+        return 'payment_method_required';
+      case 'BUDGET_EXCEEDED':
+        return 'limit_reached';
+      default:
+        return 'insufficient_funds';
+    }
+  }
+
+  /**
+   * Replace the placeholder streaming message with a billing-action rich card
+   * instead of a generic error. This lets the user resolve the billing issue
+   * inline in the chat timeline (top-up wallet, add payment method, etc.).
+   * @internal
+   */
+  private _replaceWithBillingCard(
+    streamingId: string,
+    reason: AgentXBillingActionReason,
+    description?: string
+  ): void {
+    const card: AgentXRichCard = {
+      type: 'billing-action',
+      title: 'Action Required',
+      payload: {
+        reason,
+        description,
+      },
+    };
+
+    this._messages.update((msgs) =>
+      msgs.map((m) =>
+        m.id === streamingId
+          ? {
+              ...m,
+              content:
+                description ?? 'I need you to resolve a billing issue before I can continue.',
+              isTyping: false,
+              cards: [card],
+            }
+          : m
+      )
+    );
+
+    this.logger.info('Billing action card injected', { reason });
+    this.breadcrumb.trackStateChange('agent-x:billing-card-shown', { reason });
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_BILLING_CARD_VIEWED, { reason });
   }
 
   // ============================================
@@ -952,11 +1023,16 @@ export class AgentXService {
     // Step 1: Enqueue the job in BullMQ
     const result = await this.jobService.enqueue(intent, context);
 
-    if (!result) {
-      this.logger.error('Failed to enqueue background job');
-      this._replaceWithError(streamingId);
+    if (isEnqueueFailure(result)) {
+      this.logger.error('Failed to enqueue background job', { reason: result.reason });
       this._isLoading.set(false);
       await this.haptics.notification('error');
+      if (result.reason === 'billing') {
+        const reason = this._mapBillingCode(result.code);
+        this._replaceWithBillingCard(streamingId, reason, result.message);
+      } else {
+        this._replaceWithError(streamingId);
+      }
       return;
     }
 
@@ -1511,7 +1587,7 @@ export class AgentXService {
       goalId: item.goal?.id,
     });
 
-    if (result) {
+    if (!isEnqueueFailure(result)) {
       // Update the item status to in-progress
       this._weeklyPlaybook.update((items) =>
         items.map((i) => (i.id === item.id ? { ...i, status: 'in-progress' as const } : i))
@@ -1538,7 +1614,7 @@ export class AgentXService {
       // Start polling to track this new operation
       this.manageOperationsPolling(this._activeOperations());
     } else {
-      this.toast.error('Failed to start this action');
+      this.toast.error(result.message);
     }
   }
 

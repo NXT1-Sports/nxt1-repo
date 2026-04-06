@@ -49,12 +49,15 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { createAgentXApi, type AgentXApi } from '@nxt1/core/ai';
 import type {
+  AgentXAttachment,
   AgentXChatRequest,
   AgentXToolStep,
   AgentXRichCard,
+  AgentXBillingActionReason,
   AgentXStreamStepEvent,
   AgentXStreamCardEvent,
 } from '@nxt1/core/ai';
+import { AGENT_X_ENDPOINTS, resolveAttachmentType } from '@nxt1/core/ai';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 import { NxtChatBubbleComponent } from '../components/chat-bubble';
@@ -79,6 +82,7 @@ import {
   type ActionCardApprovalEvent,
   type ActionCardReplyEvent,
 } from './agent-x-action-card.component';
+import type { BillingActionResolvedEvent } from './agent-x-billing-action-card.component';
 import type { AgentYieldState } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './fab/agent-x-logo.constants';
 
@@ -215,10 +219,11 @@ interface OperationMessage {
               [isSystem]="msg.role === 'system'"
               [steps]="msg.steps ?? []"
               [cards]="msg.cards ?? []"
+              (billingActionResolved)="onBillingActionResolved($event)"
             />
             @if (msg.attachments?.length) {
               <div class="msg-attachments">
-                @for (att of msg.attachments; track att.url) {
+                @for (att of msg.attachments; track att.name + $index) {
                   <div class="msg-attachment" [class.msg-attachment--media]="att.type !== 'doc'">
                     @if (att.type === 'image') {
                       <img
@@ -1516,14 +1521,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       displayContent = `📎 ${files.length} file${files.length > 1 ? 's' : ''}`;
     }
 
-    // Build attachments from pending files (keep URLs alive for display)
-    const attachments: MessageAttachment[] = files
-      .filter((f) => f.previewUrl)
-      .map((f) => ({
-        url: f.previewUrl!,
-        type: f.isImage ? ('image' as const) : f.isVideo ? ('video' as const) : ('doc' as const),
-        name: f.file.name,
-      }));
+    // Build display attachments from ALL pending files (images, videos, AND docs)
+    const displayAttachments: MessageAttachment[] = files.map((f) => ({
+      url: f.previewUrl ?? '',
+      type: f.isImage ? ('image' as const) : f.isVideo ? ('video' as const) : ('doc' as const),
+      name: f.file.name,
+    }));
 
     // Clear pending state without revoking URLs (they're now owned by the message)
     this.pendingFiles.set([]);
@@ -1534,7 +1537,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       role: 'user',
       content: displayContent,
       timestamp: new Date(),
-      ...(attachments.length > 0 ? { attachments } : {}),
+      ...(displayAttachments.length > 0 ? { attachments: displayAttachments } : {}),
     });
 
     // Show typing indicator
@@ -1548,7 +1551,20 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this._loading.set(true);
 
     try {
-      await this.callAgentChat(displayContent);
+      // Upload files to Firebase Storage and get AgentXAttachment metadata
+      let uploadedAttachments: AgentXAttachment[] = [];
+      if (files.length > 0) {
+        const authToken = await this.getAuthToken?.().catch(() => null);
+        if (authToken) {
+          uploadedAttachments = await this._uploadFiles(files, authToken);
+        } else {
+          this.logger.warn('No auth token — files will not be sent to AI', {
+            count: files.length,
+          });
+        }
+      }
+
+      await this.callAgentChat(displayContent, uploadedAttachments);
       await this.haptics.notification('success');
       this.responseComplete.emit();
     } catch (err) {
@@ -1607,6 +1623,67 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       }
       return prev.filter((_, i) => i !== index);
     });
+  }
+
+  /**
+   * Upload pending files to Firebase Storage via the backend upload endpoint.
+   * Returns AgentXAttachment metadata for inclusion in the chat request.
+   * @internal
+   */
+  private async _uploadFiles(
+    files: readonly PendingFile[],
+    authToken: string
+  ): Promise<AgentXAttachment[]> {
+    const uploaded: AgentXAttachment[] = [];
+
+    for (const pending of files) {
+      const formData = new FormData();
+      formData.append('file', pending.file);
+
+      const response = await fetch(`${this.baseUrl}${AGENT_X_ENDPOINTS.UPLOAD}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => 'Upload failed');
+        this.logger.error('File upload failed', errText, {
+          name: pending.file.name,
+          status: response.status,
+        });
+        continue; // Skip failed files, still send the rest
+      }
+
+      const result = (await response.json()) as {
+        success: boolean;
+        data?: { url: string; name: string; mimeType: string; sizeBytes: number };
+        error?: string;
+      };
+
+      if (!result.success || !result.data) {
+        this.logger.error('File upload returned error', result.error, {
+          name: pending.file.name,
+        });
+        continue;
+      }
+
+      uploaded.push({
+        id: crypto.randomUUID(),
+        url: result.data.url,
+        name: result.data.name,
+        mimeType: result.data.mimeType,
+        type: resolveAttachmentType(result.data.mimeType),
+        sizeBytes: result.data.sizeBytes,
+      });
+    }
+
+    this.logger.info('Files uploaded for operation chat', {
+      attempted: files.length,
+      succeeded: uploaded.length,
+    });
+
+    return uploaded;
   }
 
   /** Open the media viewer for a pending file thumbnail. */
@@ -1760,7 +1837,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * Falls back to a standard HTTP POST when streaming is unavailable
    * (SSR, missing auth token, mobile Capacitor without ReadableStream).
    */
-  private async callAgentChat(userInput: string): Promise<void> {
+  private async callAgentChat(
+    userInput: string,
+    attachments: AgentXAttachment[] = []
+  ): Promise<void> {
     // Build conversation history from local messages (exclude typing indicators)
     const request = {
       message: userInput,
@@ -1773,6 +1853,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           content: m.content,
           timestamp: new Date(),
         })),
+      ...(attachments.length > 0 ? { attachments } : {}),
     } satisfies AgentXChatRequest;
 
     // ── SSE streaming path ────────────────────────────────────────────
@@ -1884,6 +1965,16 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           },
 
           onError: (evt) => {
+            this.activeStream = null;
+
+            // ── 402 billing gate → inject billing action card ──
+            if (evt.status === 402) {
+              const reason = this._mapBillingCode(evt.code);
+              this._injectBillingCard(reason, evt.error);
+              resolve(); // Resolved (not rejected) — user can act on the card
+              return;
+            }
+
             this.logger.error('Stream error', evt.error);
             this.breadcrumb.trackStateChange('agent-x-operation-chat:stream-error', {
               contextId: this.contextId,
@@ -1895,7 +1986,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
               timestamp: new Date(),
               error: true,
             });
-            this.activeStream = null;
             reject(new Error(evt.error));
           },
         },
@@ -1910,22 +2000,34 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * @internal
    */
   private async _sendViaHttp(request: AgentXChatRequest): Promise<void> {
-    const response = await this.api.sendMessage(request);
+    try {
+      const response = await this.api.sendMessage(request);
 
-    if (response.success && response.message) {
-      this.replaceTyping({
-        id: response.message.id ?? this.uid(),
-        role: 'assistant',
-        content: response.message.content,
-        timestamp: new Date(),
-      });
-      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_SENT, {
-        contextType: this.contextType,
-        contextId: this.contextId,
-        streaming: false,
-      });
-    } else {
-      throw new Error(response.error ?? 'No response from Agent X');
+      if (response.success && response.message) {
+        this.replaceTyping({
+          id: response.message.id ?? this.uid(),
+          role: 'assistant',
+          content: response.message.content,
+          timestamp: new Date(),
+        });
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_SENT, {
+          contextType: this.contextType,
+          contextId: this.contextId,
+          streaming: false,
+        });
+      } else {
+        throw new Error(response.error ?? 'No response from Agent X');
+      }
+    } catch (httpErr: unknown) {
+      // ── 402 billing gate → inject billing action card ──
+      const status = (httpErr as { status?: number }).status;
+      if (status === 402) {
+        const body = (httpErr as { error?: { code?: string; error?: string } }).error;
+        const reason = this._mapBillingCode(body?.code);
+        this._injectBillingCard(reason, body?.error);
+        return; // Handled — no rethrow
+      }
+      throw httpErr;
     }
   }
 
@@ -1951,6 +2053,28 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   // ============================================
   // ACTION CARD (HITL) HANDLERS
   // ============================================
+
+  /** Handle billing card resolution (top-up completed, dismissed, etc.). */
+  protected onBillingActionResolved(event: BillingActionResolvedEvent): void {
+    this.logger.info('Billing action resolved (operation chat)', {
+      reason: event.reason,
+      completed: event.completed,
+    });
+    this.breadcrumb.trackUserAction('billing-card-resolved', {
+      reason: event.reason,
+      completed: event.completed,
+      source: 'operation-chat',
+    });
+
+    if (event.completed) {
+      this.pushMessage({
+        id: this.uid(),
+        role: 'system',
+        content: '✅ Billing updated — you can resend your message.',
+        timestamp: new Date(),
+      });
+    }
+  }
 
   /** Handle approval/rejection from the action card. */
   protected async onApproveAction(event: ActionCardApprovalEvent): Promise<void> {
@@ -2049,6 +2173,49 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return typeof crypto !== 'undefined' && crypto.randomUUID
       ? crypto.randomUUID()
       : `op-msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  // ============================================
+  // BILLING 402 HELPERS
+  // ============================================
+
+  /** Map backend billing code to frontend billing-action reason. @internal */
+  private _mapBillingCode(code?: string): AgentXBillingActionReason {
+    switch (code) {
+      case 'WALLET_EMPTY':
+        return 'insufficient_funds';
+      case 'NO_PAYMENT_METHOD':
+        return 'payment_method_required';
+      case 'BUDGET_EXCEEDED':
+        return 'limit_reached';
+      default:
+        return 'insufficient_funds';
+    }
+  }
+
+  /**
+   * Replace the typing indicator with a billing-action rich card so the user
+   * can resolve the billing issue inline without leaving the operation chat.
+   * @internal
+   */
+  private _injectBillingCard(reason: AgentXBillingActionReason, description?: string): void {
+    const card: AgentXRichCard = {
+      type: 'billing-action',
+      title: 'Action Required',
+      payload: { reason, description },
+    };
+
+    this.replaceTyping({
+      id: this.uid(),
+      role: 'assistant',
+      content: description ?? 'I need you to resolve a billing issue before I can continue.',
+      timestamp: new Date(),
+      cards: [card],
+    });
+
+    this.logger.info('Billing action card injected (operation chat)', { reason });
+    this.breadcrumb.trackStateChange('agent-x-operation-chat:billing-card-shown', { reason });
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_BILLING_CARD_VIEWED, { reason });
   }
 
   /**

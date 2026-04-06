@@ -57,10 +57,11 @@ export class TeamServiceAdapter {
   async getUserTeams(userId: string): Promise<Team[]> {
     logger.debug('[TeamAdapter] Getting user teams', { userId });
 
-    // Query RosterEntries
+    // Query RosterEntries — include PENDING so coaches who just onboarded
+    // (status defaults to PENDING until org admin approves) still resolve.
     const rosterEntries = await this.rosterService.getUserTeams({
       userId,
-      status: [RosterEntryStatus.ACTIVE],
+      status: [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING],
     });
 
     logger.debug('[TeamAdapter] Found user teams', {

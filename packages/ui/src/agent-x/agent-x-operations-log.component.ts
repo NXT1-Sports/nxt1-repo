@@ -787,6 +787,13 @@ export class AgentXOperationsLogComponent {
     this.operationEventService.titleUpdated$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((evt) => {
+        this.logger.debug('Applying title update to operations list', {
+          threadId: evt.threadId,
+          title: evt.title,
+        });
+        this.breadcrumb.trackStateChange('operations-log:title-updated', {
+          threadId: evt.threadId,
+        });
         this._operations.update((ops) =>
           ops.map((op) => (op.threadId === evt.threadId ? { ...op, title: evt.title } : op))
         );

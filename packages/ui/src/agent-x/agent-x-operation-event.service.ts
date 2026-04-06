@@ -133,6 +133,7 @@ export class AgentXOperationEventService {
    * update the thread title in real-time without a full API refetch.
    */
   emitTitleUpdated(threadId: string, title: string): void {
+    this.logger.debug('Emitting thread title update', { threadId, title });
     this._titleUpdated$.next({ threadId, title });
   }
 

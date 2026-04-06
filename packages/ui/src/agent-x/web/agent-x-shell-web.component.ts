@@ -3196,6 +3196,17 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     if (centerTpl) this.headerPortal.setCenterContent(centerTpl);
     const rightTpl = this.agentRightPortal();
     if (rightTpl) this.headerPortal.setRightContent(rightTpl);
+
+    // Subscribe to real-time title updates — update the active desktop session
+    // title when the backend auto-generates a concise thread title.
+    this.operationEventService.titleUpdated$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((evt) => {
+        const current = this.activeDesktopSession();
+        if (current && current.threadId === evt.threadId) {
+          this.activeDesktopSession.set({ ...current, contextTitle: evt.title });
+        }
+      });
   }
 
   ngOnDestroy(): void {

@@ -72,6 +72,20 @@ interface EnqueueResponse {
   readonly error?: string;
 }
 
+/** Result returned when enqueue fails. */
+export interface EnqueueFailure {
+  readonly reason: 'billing' | 'server' | 'unknown';
+  readonly message: string;
+  readonly code?: string;
+}
+
+/** Type guard: check if result is a failure (not a success). */
+export function isEnqueueFailure(
+  result: { jobId: string; operationId: string } | EnqueueFailure
+): result is EnqueueFailure {
+  return 'reason' in result;
+}
+
 /** Response from the /agent-x/status/:id endpoint. */
 interface JobStatusResponse {
   readonly success: boolean;
@@ -108,7 +122,7 @@ export class AgentXJobService {
   async enqueue(
     intent: string,
     context?: Record<string, unknown>
-  ): Promise<{ jobId: string; operationId: string } | null> {
+  ): Promise<{ jobId: string; operationId: string } | EnqueueFailure> {
     this.logger.info('Enqueuing Agent X job', { intent: intent.slice(0, 80) });
     void this.breadcrumb.trackStateChange('agent-x-job:enqueuing', {
       intent: intent.slice(0, 80),
@@ -125,7 +139,7 @@ export class AgentXJobService {
       if (!response.success || !response.data) {
         this.logger.warn('Agent X enqueue failed', { error: response.error });
         void this.breadcrumb.trackStateChange('agent-x-job:enqueue-failed');
-        return null;
+        return { reason: 'unknown', message: response.error || 'Failed to start action' };
       }
 
       this.logger.info('Agent X job enqueued', {
@@ -142,10 +156,36 @@ export class AgentXJobService {
 
       return response.data;
     } catch (err) {
+      // Check for billing errors (402) — not a server issue
+      const apiError = err as {
+        statusCode?: number;
+        message?: string;
+        code?: string;
+        details?: Record<string, unknown>;
+      };
+      if (apiError.statusCode === 402) {
+        const billingCode = (apiError.details?.['billingCode'] as string) ?? apiError.code;
+        this.logger.warn('Agent X billing gate blocked job', {
+          code: billingCode,
+          message: apiError.message,
+        });
+        void this.breadcrumb.trackStateChange('agent-x-job:billing-blocked', {
+          code: billingCode,
+        });
+        return {
+          reason: 'billing',
+          message: apiError.message || 'Payment required to use Agent X',
+          code: apiError.code,
+        };
+      }
+
       this.logger.error('Failed to enqueue Agent X job', err);
       void this.breadcrumb.trackStateChange('agent-x-job:enqueue-error');
       this.controlPanelState.reportExecutionFailure();
-      return null;
+      return {
+        reason: 'server',
+        message: apiError.message || 'Failed to start action',
+      };
     }
   }
 
@@ -266,12 +306,14 @@ export class AgentXJobService {
 
     const result = await this.enqueue(intent, { retryOf: operationId });
 
-    if (result) {
-      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATION_RETRIED, {
-        originalOperationId: operationId,
-        newOperationId: result.operationId,
-      });
+    if (isEnqueueFailure(result)) {
+      return null;
     }
+
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATION_RETRIED, {
+      originalOperationId: operationId,
+      newOperationId: result.operationId,
+    });
 
     return result;
   }

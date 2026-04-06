@@ -260,7 +260,8 @@ export type AgentXRichCardType =
   | 'parameter-form'
   | 'draft'
   | 'profile'
-  | 'film-timeline';
+  | 'film-timeline'
+  | 'billing-action';
 
 /** A single item in a planner checklist card. */
 export interface AgentXPlannerItem {
@@ -291,6 +292,7 @@ export interface AgentXRichCard {
     | AgentXDraftPayload
     | AgentXProfilePayload
     | AgentXFilmTimelinePayload
+    | AgentXBillingActionPayload
     | Record<string, unknown>;
 }
 
@@ -446,6 +448,26 @@ export interface AgentXFilmTimelinePayload {
   readonly markers: readonly AgentXFilmMarker[];
 }
 
+// ── Billing Action ──
+
+/** Why Agent X is surfacing a billing action card. */
+export type AgentXBillingActionReason =
+  | 'insufficient_funds'
+  | 'payment_method_required'
+  | 'limit_reached';
+
+/** Payload for the `billing-action` card type. */
+export interface AgentXBillingActionPayload {
+  /** The reason this card was surfaced. */
+  readonly reason: AgentXBillingActionReason;
+  /** Estimated cost (in cents) that the operation requires. */
+  readonly amountNeededCents?: number;
+  /** The user's current wallet balance (in cents). */
+  readonly currentBalanceCents?: number;
+  /** Human-readable explanation of why the operation was paused. */
+  readonly description?: string;
+}
+
 // ============================================
 // SSE STREAMING TYPES
 // ============================================
@@ -500,6 +522,10 @@ export interface AgentXStreamDoneEvent {
  */
 export interface AgentXStreamErrorEvent {
   readonly error: string;
+  /** HTTP status code when the error originated from the initial HTTP response. */
+  readonly status?: number;
+  /** Machine-readable error code (e.g. `WALLET_EMPTY`, `NO_PAYMENT_METHOD`, `BUDGET_EXCEEDED`). */
+  readonly code?: string;
 }
 
 /**
@@ -533,6 +559,7 @@ export interface AgentXStreamCardEvent {
     | AgentXConfirmationPayload
     | AgentXCitationsPayload
     | AgentXParameterFormPayload
+    | AgentXBillingActionPayload
     | Record<string, unknown>;
 }
 

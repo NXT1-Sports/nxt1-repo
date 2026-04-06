@@ -18,3 +18,4 @@ export * from './iap-webhook.service.js';
 export * from './cost-resolver.service.js';
 export * from './helicone-webhook.service.js';
 export * from './platform-config.service.js';
+export * from './usage-deduction.service.js';

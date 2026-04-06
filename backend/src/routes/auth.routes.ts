@@ -1209,7 +1209,9 @@ router.post(
                   ? RosterRole.HEAD_COACH
                   : RosterRole.ATHLETE;
             const rosterStatus =
-              role === 'director' ? RosterEntryStatus.ACTIVE : RosterEntryStatus.PENDING;
+              role === 'director' || role === 'coach'
+                ? RosterEntryStatus.ACTIVE
+                : RosterEntryStatus.PENDING;
 
             await rosterEntryService.createRosterEntry(
               {
@@ -1260,7 +1262,9 @@ router.post(
                   ? RosterRole.HEAD_COACH
                   : RosterRole.ATHLETE;
             const rosterStatus =
-              role === 'director' ? RosterEntryStatus.ACTIVE : RosterEntryStatus.PENDING;
+              role === 'director' || role === 'coach'
+                ? RosterEntryStatus.ACTIVE
+                : RosterEntryStatus.PENDING;
 
             try {
               await rosterEntryService.createRosterEntry({

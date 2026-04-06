@@ -33,6 +33,10 @@ import {
 } from '../../agent-x/agent-x-draft-card.component';
 import { AgentXProfileCardComponent } from '../../agent-x/agent-x-profile-card.component';
 import { AgentXFilmTimelineCardComponent } from '../../agent-x/agent-x-film-timeline-card.component';
+import {
+  AgentXBillingActionCardComponent,
+  type BillingActionResolvedEvent,
+} from '../../agent-x/agent-x-billing-action-card.component';
 import { NxtMarkdownComponent } from '../markdown/markdown.component';
 
 /** Visual variant controlling sizing, colors, and border‑radius. */
@@ -51,6 +55,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
     AgentXDraftCardComponent,
     AgentXProfileCardComponent,
     AgentXFilmTimelineCardComponent,
+    AgentXBillingActionCardComponent,
     NxtMarkdownComponent,
   ],
   host: {
@@ -131,6 +136,11 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
           <nxt1-agent-x-film-timeline-card
             [card]="card"
             (markerClicked)="filmMarkerClicked.emit($event)"
+          />
+        } @else if (card.type === 'billing-action') {
+          <nxt1-agent-x-billing-action-card
+            [card]="card"
+            (actionResolved)="billingActionResolved.emit($event)"
           />
         }
       }
@@ -487,4 +497,7 @@ export class NxtChatBubbleComponent {
 
   /** Emitted when a film timeline marker is clicked (sends timeMs). */
   readonly filmMarkerClicked = output<number>();
+
+  /** Emitted when a billing action card CTA is resolved. */
+  readonly billingActionResolved = output<BillingActionResolvedEvent>();
 }

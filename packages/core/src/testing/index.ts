@@ -686,6 +686,20 @@ export const AGENT_X_ACTION_CARD_TEST_IDS = {
 } as const;
 
 /**
+ * Agent X Billing Action Card test IDs.
+ */
+export const AGENT_X_BILLING_CARD_TEST_IDS = {
+  CARD: 'agent-billing-card',
+  HEADER: 'agent-billing-card-header',
+  REASON_BADGE: 'agent-billing-card-reason',
+  BALANCE_DISPLAY: 'agent-billing-card-balance',
+  AMOUNT_NEEDED: 'agent-billing-card-amount-needed',
+  DESCRIPTION: 'agent-billing-card-description',
+  CTA_PRIMARY: 'agent-billing-card-cta-primary',
+  CTA_SECONDARY: 'agent-billing-card-cta-secondary',
+} as const;
+
+/**
  * Agent X Operation Chat failure banner test IDs.
  */
 export const AGENT_X_OPERATION_CHAT_TEST_IDS = {
@@ -1053,6 +1067,7 @@ export const TEST_IDS = {
   ACTIVITY: ACTIVITY_TEST_IDS,
   USAGE: USAGE_TEST_IDS,
   AGENT_X_ACTION_CARD: AGENT_X_ACTION_CARD_TEST_IDS,
+  AGENT_X_BILLING_CARD: AGENT_X_BILLING_CARD_TEST_IDS,
   AGENT_X_OPERATION_CHAT: AGENT_X_OPERATION_CHAT_TEST_IDS,
   NEWS: NEWS_TEST_IDS,
   FEED_CARD: FEED_CARD_TEST_IDS,
