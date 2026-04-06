@@ -6,6 +6,8 @@
  * Generates lowercase token arrays for efficient array-contains queries.
  */
 
+import { logger } from './logger.js';
+
 /**
  * Normalize text for search indexing
  * - Convert to lowercase
@@ -326,7 +328,9 @@ export async function batchUpdateSearchIndexes(
           searchIndexUpdatedAt: new Date().toISOString(),
         });
       } catch (error) {
-        console.error(`Error processing ${collection}/${doc.id}:`, error);
+        logger.error(`Error processing ${collection}/${doc.id}`, {
+          error: error instanceof Error ? error.message : String(error),
+        });
         errors++;
       }
     }
@@ -335,7 +339,7 @@ export async function batchUpdateSearchIndexes(
     updated += snapshot.size;
     lastDoc = snapshot.docs[snapshot.docs.length - 1];
 
-    console.log(`Updated ${updated} documents in ${collection}`);
+    logger.info(`Updated ${updated} documents in ${collection}`);
   }
 
   return { updated, errors };

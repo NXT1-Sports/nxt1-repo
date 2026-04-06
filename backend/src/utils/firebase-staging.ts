@@ -7,6 +7,7 @@ import admin from 'firebase-admin';
 import type { Firestore } from 'firebase-admin/firestore';
 import type { Auth } from 'firebase-admin/auth';
 import type { Storage } from 'firebase-admin/storage';
+import { logger } from './logger.js';
 
 // Initialize Firebase Admin for Staging
 let stagingApp: admin.app.App;
@@ -19,7 +20,7 @@ if (!admin.apps.find((app) => app?.name === 'staging')) {
   const storageBucket = process.env['STAGING_FIREBASE_STORAGE_BUCKET'];
 
   if (!projectId || !clientEmail || !privateKey) {
-    console.warn('⚠️  STAGING_FIREBASE_PROJECT_ID / CLIENT_EMAIL / PRIVATE_KEY not configured');
+    logger.warn('STAGING_FIREBASE_PROJECT_ID / CLIENT_EMAIL / PRIVATE_KEY not configured');
   }
 
   stagingApp = admin.initializeApp(
