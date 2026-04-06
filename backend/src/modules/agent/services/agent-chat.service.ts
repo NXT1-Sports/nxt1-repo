@@ -184,7 +184,7 @@ export class AgentChatService {
         { tier: 'extraction', maxTokens: 60, temperature: 0.3 }
       );
 
-      const generatedTitle = result.content
+      const generatedTitle = (result.content ?? '')
         .replace(/^["']|["']$/g, '') // strip wrapping quotes
         .replace(/[.!?]+$/, '') // strip trailing punctuation
         .trim()

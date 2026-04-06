@@ -49,6 +49,7 @@ export type {
   OperationsLogResponse,
   // SSE streaming types
   AgentXStreamThreadEvent,
+  AgentXStreamTitleUpdatedEvent,
   AgentXStreamDeltaEvent,
   AgentXStreamDoneEvent,
   AgentXStreamErrorEvent,
