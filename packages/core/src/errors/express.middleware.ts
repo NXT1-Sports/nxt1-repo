@@ -44,10 +44,9 @@ import {
   NxtApiError,
   type ApiErrorResponse,
   type ApiErrorDetail,
-  parseApiError,
-  createApiError,
   generateTraceId,
-} from './index';
+} from './error.types.js';
+import { parseApiError, createApiError } from './error.factory.js';
 
 // ============================================
 // TYPES

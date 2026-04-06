@@ -45,14 +45,3 @@ export { NxtXpArenaLeaderboardComponent } from './xp-arena-leaderboard.component
 // ============================================
 
 export { XpService } from './xp.service';
-
-// ============================================
-// MOCK DATA (for development)
-// ============================================
-
-export {
-  MOCK_ATHLETE_XP_TASKS,
-  MOCK_COACH_XP_TASKS,
-  MOCK_ATHLETE_PROGRESS,
-  MOCK_COACH_PROGRESS,
-} from './xp.mock-data';

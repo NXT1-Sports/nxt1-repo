@@ -16,10 +16,28 @@ import type { ModelTier, AgentIdentifier } from '@nxt1/core';
  * This is the ONLY place model IDs are defined — change here to swap models globally.
  */
 export const MODEL_CATALOGUE: Record<ModelTier, string> = {
-  fast: 'anthropic/claude-3.5-haiku',
-  balanced: 'anthropic/claude-3.5-sonnet',
-  reasoning: 'anthropic/claude-3.5-sonnet',
-  creative: 'anthropic/claude-3.5-sonnet',
+  // ── Text Tiers ──────────────────────────────────────────────────────────
+  routing: 'anthropic/claude-3.5-sonnet',
+  extraction: 'anthropic/claude-haiku-4-5',
+  data_heavy: 'qwen/qwen3.6-plus:free',
+  evaluator: 'minimax/minimax-m2.7',
+  compliance: 'openai/gpt-4o',
+  copywriting: 'anthropic/claude-3.5-sonnet',
+  prompt_engineering: 'anthropic/claude-3.5-sonnet',
+  chat: 'anthropic/claude-haiku-4-5',
+  task_automation: 'anthropic/claude-3.5-sonnet',
+
+  // ── Media Tiers ─────────────────────────────────────────────────────────
+  image_generation: 'google/gemini-3-pro-image-preview',
+  video_generation: 'google/gemini-3-pro-image-preview', // placeholder until video models available
+  vision_analysis: 'openai/gpt-4o',
+  audio_analysis: 'openai/gpt-4o',
+  voice_generation: 'openai/gpt-4o-mini', // placeholder until TTS models available
+  music_generation: 'openai/gpt-4o-mini', // placeholder until music models available
+
+  // ── Utility Tiers ──────────────────────────────────────────────────────
+  embedding: 'openai/text-embedding-3-small',
+  moderation: 'meta-llama/llama-guard-3-8b',
 } as const;
 
 /**
@@ -31,10 +49,49 @@ export const MODEL_CATALOGUE: Record<ModelTier, string> = {
  * progressively cheaper / smaller models that are more likely to succeed.
  */
 export const MODEL_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
-  fast: ['anthropic/claude-3.5-haiku', 'openai/gpt-4o-mini'],
-  balanced: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'anthropic/claude-3.5-haiku'],
-  reasoning: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'anthropic/claude-3.5-haiku'],
-  creative: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o'],
+  // ── Text Tiers ──────────────────────────────────────────────────────────
+  routing: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
+  extraction: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus:free'],
+  data_heavy: ['qwen/qwen3.6-plus:free', 'anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini'],
+  evaluator: ['minimax/minimax-m2.7', 'anthropic/claude-3.5-sonnet', 'openai/gpt-4o'],
+  compliance: ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet', 'anthropic/claude-haiku-4-5'],
+  copywriting: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'qwen/qwen3.6-plus:free'],
+  prompt_engineering: [
+    'anthropic/claude-3.5-sonnet',
+    'openai/gpt-4o',
+    'anthropic/claude-haiku-4-5',
+  ],
+  chat: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus:free'],
+  task_automation: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
+
+  // ── Media Tiers ─────────────────────────────────────────────────────────
+  image_generation: ['google/gemini-3-pro-image-preview'],
+  video_generation: ['google/gemini-3-pro-image-preview'],
+  vision_analysis: ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet'],
+  audio_analysis: ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet'],
+  voice_generation: ['openai/gpt-4o-mini'],
+  music_generation: ['openai/gpt-4o-mini'],
+
+  // ── Utility Tiers ──────────────────────────────────────────────────────
+  embedding: ['openai/text-embedding-3-small'],
+  moderation: ['meta-llama/llama-guard-3-8b', 'openai/gpt-4o-mini'],
+} as const;
+
+/**
+ * Maps billing-facing tier names to their corresponding MODEL_CATALOGUE key.
+ * Used by the billing pipeline (cost-resolver, platform-config) to look up
+ * the model slug for pre-auth cost estimation without repeating model strings.
+ *
+ * 'fast'      → cheapest / fastest text model  (chat tier)
+ * 'balanced'  → default quality text model     (routing tier)
+ * 'reasoning' → instruction-following tasks    (task_automation tier)
+ * 'creative'  → high-temperature writing tasks (copywriting tier)
+ */
+export const BILLING_TIER_MAP: Record<string, keyof typeof MODEL_CATALOGUE> = {
+  fast: 'chat',
+  balanced: 'routing',
+  reasoning: 'task_automation',
+  creative: 'copywriting',
 } as const;
 
 /**
@@ -221,7 +278,7 @@ export interface ImageGenerationResult {
 
 // ─── Streaming Types ────────────────────────────────────────────────────────
 
-/** Options for streaming completions (same as LLMCompletionOptions, excluding tool calling). */
+/** Options for streaming completions with optional tool calling. */
 export interface LLMStreamOptions {
   /** Which model tier to use. */
   readonly tier: ModelTier;
@@ -231,6 +288,8 @@ export interface LLMStreamOptions {
   readonly maxTokens?: number;
   /** Sampling temperature (0-2). */
   readonly temperature?: number;
+  /** Tool schemas for function calling (optional — enables agentic streaming). */
+  readonly tools?: readonly LLMToolSchema[];
   /** Abort signal for cancellation. */
   readonly signal?: AbortSignal;
   /** Telemetry context — passed through to the onTelemetry callback. */
@@ -249,6 +308,12 @@ export interface LLMStreamDelta {
   readonly content: string;
   /** True when this is the final chunk (stream is done). */
   readonly done: boolean;
+  /** Name of the tool being called (present only in tool_call chunks). */
+  readonly toolName?: string;
+  /** Accumulated arguments JSON fragment for the tool call. */
+  readonly toolArgs?: string;
+  /** Unique index of the tool call within the response (OpenRouter uses this). */
+  readonly toolCallIndex?: number;
 }
 
 /** Final metadata returned after the stream completes. */
@@ -257,6 +322,8 @@ export interface LLMStreamResult {
   readonly content: string;
   /** The model that served the request. */
   readonly model: string;
+  /** Tool calls the assistant wants to make (empty if pure text response). */
+  readonly toolCalls: readonly LLMToolCall[];
   /** Token usage (only available after stream completes). */
   readonly usage: {
     readonly inputTokens: number;

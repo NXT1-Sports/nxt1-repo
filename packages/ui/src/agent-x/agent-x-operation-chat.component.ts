@@ -41,11 +41,20 @@ import {
   effect,
   output,
   PLATFORM_ID,
+  DestroyRef,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { createAgentXApi, type AgentXApi } from '@nxt1/core/ai';
+import type {
+  AgentXChatRequest,
+  AgentXToolStep,
+  AgentXRichCard,
+  AgentXStreamStepEvent,
+  AgentXStreamCardEvent,
+} from '@nxt1/core/ai';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 import { NxtChatBubbleComponent } from '../components/chat-bubble';
@@ -57,7 +66,11 @@ import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AGENT_X_OPERATION_CHAT_TEST_IDS } from '@nxt1/core/testing';
 import { AgentXInputComponent } from './agent-x-input.component';
-import { AGENT_X_API_BASE_URL, AgentXJobService } from './agent-x-job.service';
+import {
+  AGENT_X_API_BASE_URL,
+  AGENT_X_AUTH_TOKEN_FACTORY,
+  AgentXJobService,
+} from './agent-x-job.service';
 import { NxtMediaViewerService } from '../components/media-viewer/media-viewer.service';
 import type { MediaViewerItem } from '../components/media-viewer/media-viewer.types';
 import { KeyboardService } from '../services/keyboard/keyboard.service';
@@ -107,6 +120,8 @@ interface OperationMessage {
   readonly attachments?: readonly MessageAttachment[];
   readonly isTyping?: boolean;
   readonly error?: boolean;
+  readonly steps?: readonly AgentXToolStep[];
+  readonly cards?: readonly AgentXRichCard[];
 }
 
 @Component({
@@ -198,6 +213,8 @@ interface OperationMessage {
               [isTyping]="!!msg.isTyping"
               [isError]="!!msg.error"
               [isSystem]="msg.role === 'system'"
+              [steps]="msg.steps ?? []"
+              [cards]="msg.cards ?? []"
             />
             @if (msg.attachments?.length) {
               <div class="msg-attachments">
@@ -429,6 +446,7 @@ interface OperationMessage {
       [placeholder]="'Start your agent'"
       (messageChange)="inputValue.set($event)"
       (send)="send()"
+      (stop)="cancelStream()"
       (toggleTasks)="onUploadClick()"
     />
     <input
@@ -1036,6 +1054,23 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly jobService = inject(AgentXJobService);
   private readonly mediaViewer = inject(NxtMediaViewerService);
+  private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
+  private readonly destroyRef = inject(DestroyRef);
+
+  /** Pure API factory — used for SSE streaming. */
+  private readonly api: AgentXApi = createAgentXApi(
+    {
+      get: <T>(url: string) => firstValueFrom(this.http.get<T>(url)),
+      post: <T>(url: string, body: unknown) => firstValueFrom(this.http.post<T>(url, body)),
+      put: <T>(url: string, body: unknown) => firstValueFrom(this.http.put<T>(url, body)),
+      patch: <T>(url: string, body: unknown) => firstValueFrom(this.http.patch<T>(url, body)),
+      delete: <T>(url: string) => firstValueFrom(this.http.delete<T>(url)),
+    },
+    this.baseUrl
+  );
+
+  /** Active SSE abort controller — cancelled on destroy or when a new message starts. */
+  private activeStream: AbortController | null = null;
 
   // ============================================
   // INPUTS (from componentProps)
@@ -1194,6 +1229,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Emitted when the user sends their first message (briefing should hide). */
   readonly userMessageSent = output<void>();
 
+  /** Emitted after a chat response completes (stream done or HTTP returned). */
+  readonly responseComplete = output<void>();
+
   /** Whether this chat was opened to view a historical thread (suppresses generic welcome). */
   private readonly _isThreadMode = signal(false);
 
@@ -1231,6 +1269,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private readonly actionCardRef = viewChild<AgentXActionCardComponent>('actionCard');
 
   constructor() {
+    // Abort any in-flight SSE stream when the component is destroyed
+    this.destroyRef.onDestroy(() => {
+      this.activeStream?.abort();
+      this.activeStream = null;
+    });
+
     // Auto-scroll when messages change
     effect(() => {
       const msgs = this.messages();
@@ -1430,6 +1474,22 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  /**
+   * Cancel the active SSE stream (if any) and reset loading state.
+   * Bound to the stop button in the input bar.
+   */
+  cancelStream(): void {
+    if (this.activeStream) {
+      this.activeStream.abort();
+      this.activeStream = null;
+      this._loading.set(false);
+      this.logger.info('Stream cancelled by user');
+      this.breadcrumb.trackStateChange('agent-x-operation-chat:stream-cancelled', {
+        contextId: this.contextId,
+      });
+    }
+  }
+
   /** Send the current input as a user message. */
   async send(): Promise<void> {
     const text = this.inputValue().trim();
@@ -1484,6 +1544,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     try {
       await this.callAgentChat(displayContent);
       await this.haptics.notification('success');
+      this.responseComplete.emit();
     } catch (err) {
       this.logger.error('Chat message failed', err, { contextId: this.contextId });
       await this.haptics.notification('error');
@@ -1682,32 +1743,168 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     ];
   }
 
-  /** Send user message to backend Agent X chat and replace typing indicator with response. */
+  /**
+   * Send user message to backend Agent X chat.
+   *
+   * Uses real SSE streaming (via `createAgentXApi.streamMessage`) when running
+   * in a browser with an available auth token. Tokens are appended to the
+   * typing-indicator message in real time via `onDelta`, producing a fluid
+   * "typing" effect.
+   *
+   * Falls back to a standard HTTP POST when streaming is unavailable
+   * (SSR, missing auth token, mobile Capacitor without ReadableStream).
+   */
   private async callAgentChat(userInput: string): Promise<void> {
     // Build conversation history from local messages (exclude typing indicators)
-    const history = this.messages()
-      .filter((m) => !m.isTyping && m.role !== 'system')
-      .slice(-10)
-      .map((m) => ({ role: m.role, content: m.content }));
+    const request = {
+      message: userInput,
+      history: this.messages()
+        .filter((m) => !m.isTyping && m.role !== 'system')
+        .slice(-10)
+        .map((m) => ({
+          id: this.uid(),
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          timestamp: new Date(),
+        })),
+    } satisfies AgentXChatRequest;
 
-    const rawResponse = await firstValueFrom(
-      this.http.post(
-        `${this.baseUrl}/agent-x/chat`,
+    // ── SSE streaming path ────────────────────────────────────────────
+    const authToken = await this.getAuthToken?.().catch(() => null);
+
+    this.breadcrumb.trackStateChange('agent-x-operation-chat:sending', {
+      contextId: this.contextId,
+      streaming: !!(authToken && isPlatformBrowser(this.platformId)),
+    });
+
+    if (authToken && isPlatformBrowser(this.platformId)) {
+      await this._sendViaStream(request, authToken);
+    } else {
+      // ── Fallback: standard HTTP POST (SSR / mobile / no token) ─────
+      await this._sendViaHttp(request);
+    }
+  }
+
+  /**
+   * SSE streaming path — connects via raw fetch + ReadableStream.
+   * Appends tokens to the typing-indicator message in real time.
+   * @internal
+   */
+  private _sendViaStream(request: AgentXChatRequest, authToken: string): Promise<void> {
+    // Cancel any previous in-flight stream
+    this.activeStream?.abort();
+    this.activeStream = null;
+
+    const streamingId = 'typing'; // The ID used by the existing typing indicator
+
+    return new Promise<void>((resolve, reject) => {
+      this.activeStream = this.api.streamMessage(
+        request,
         {
-          message: userInput,
-          mode: this.contextType === 'operation' ? 'operations' : undefined,
-          history,
-          userContext: {
-            operationContext: this.contextTitle,
-            contextType: this.contextType,
-            contextId: this.contextId,
+          onThread: (evt) => {
+            this.logger.debug('Stream thread resolved', { threadId: evt.threadId });
+          },
+
+          onDelta: (evt) => {
+            // Append the new token to the typing indicator in-place
+            this.messages.update((msgs) =>
+              msgs.map((m) =>
+                m.id === streamingId
+                  ? { ...m, content: m.content + evt.content, isTyping: false }
+                  : m
+              )
+            );
+          },
+
+          onStep: (evt: AgentXStreamStepEvent) => {
+            this.messages.update((msgs) =>
+              msgs.map((m) => {
+                if (m.id !== streamingId) return m;
+                const prev = m.steps ?? [];
+                const idx = prev.findIndex((s) => s.id === evt.id);
+                const step: AgentXToolStep = {
+                  id: evt.id,
+                  label: evt.label,
+                  status: evt.status,
+                  detail: evt.detail,
+                };
+                const next =
+                  idx >= 0 ? prev.map((s, i) => (i === idx ? step : s)) : [...prev, step];
+                return { ...m, steps: next };
+              })
+            );
+          },
+
+          onCard: (evt: AgentXStreamCardEvent) => {
+            this.messages.update((msgs) =>
+              msgs.map((m) =>
+                m.id === streamingId
+                  ? {
+                      ...m,
+                      cards: [
+                        ...(m.cards ?? []),
+                        { type: evt.type, title: evt.title, payload: evt.payload },
+                      ],
+                    }
+                  : m
+              )
+            );
+          },
+
+          onDone: (evt) => {
+            // Freeze the final message — replace typing indicator with permanent ID
+            const finalId = this.uid();
+            this.messages.update((msgs) =>
+              msgs.map((m) => (m.id === streamingId ? { ...m, id: finalId, isTyping: false } : m))
+            );
+
+            this.activeStream = null;
+            this.breadcrumb.trackStateChange('agent-x-operation-chat:stream-complete', {
+              contextId: this.contextId,
+              model: evt.model,
+            });
+            this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_SENT, {
+              contextType: this.contextType,
+              contextId: this.contextId,
+              streaming: true,
+              model: evt.model,
+            });
+            this.logger.info('Stream complete', {
+              model: evt.model,
+              outputTokens: evt.usage?.outputTokens,
+              threadId: evt.threadId,
+            });
+            resolve();
+          },
+
+          onError: (evt) => {
+            this.logger.error('Stream error', evt.error);
+            this.breadcrumb.trackStateChange('agent-x-operation-chat:stream-error', {
+              contextId: this.contextId,
+            });
+            this.replaceTyping({
+              id: this.uid(),
+              role: 'assistant',
+              content: 'Something went wrong. Please try again.',
+              timestamp: new Date(),
+              error: true,
+            });
+            this.activeStream = null;
+            reject(new Error(evt.error));
           },
         },
-        { responseType: 'text' }
-      )
-    );
+        authToken,
+        this.baseUrl
+      );
+    });
+  }
 
-    const response = this.parseChatResponse(rawResponse);
+  /**
+   * Fallback HTTP POST path — used when streaming is unavailable.
+   * @internal
+   */
+  private async _sendViaHttp(request: AgentXChatRequest): Promise<void> {
+    const response = await this.api.sendMessage(request);
 
     if (response.success && response.message) {
       this.replaceTyping({
@@ -1719,102 +1916,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_SENT, {
         contextType: this.contextType,
         contextId: this.contextId,
+        streaming: false,
       });
     } else {
       throw new Error(response.error ?? 'No response from Agent X');
     }
-  }
-
-  /**
-   * Parse chat endpoint payloads that may be JSON or SSE text.
-   * Mobile can receive `text/event-stream`, which cannot be parsed by HttpClient JSON mode.
-   */
-  private parseChatResponse(raw: string): {
-    success: boolean;
-    message?: { id: string; content: string; metadata?: Record<string, unknown> };
-    threadId?: string;
-    error?: string;
-  } {
-    const text = raw?.trim();
-    if (!text) {
-      return { success: false, error: 'Empty response from Agent X' };
-    }
-
-    // First, attempt plain JSON payload parsing.
-    try {
-      return JSON.parse(text) as {
-        success: boolean;
-        message?: { id: string; content: string; metadata?: Record<string, unknown> };
-        threadId?: string;
-        error?: string;
-      };
-    } catch {
-      // Not JSON; fall through to SSE frame parsing.
-    }
-
-    let threadId: string | undefined;
-    let content = '';
-    let doneModel: string | undefined;
-    let sseError: string | undefined;
-
-    const frames = text
-      .split('\n\n')
-      .map((f) => f.trim())
-      .filter(Boolean);
-    for (const frame of frames) {
-      let eventType = 'message';
-      let dataLine = '';
-
-      for (const line of frame.split('\n')) {
-        if (line.startsWith('event:')) {
-          eventType = line.slice('event:'.length).trim();
-        } else if (line.startsWith('data:')) {
-          dataLine = line.slice('data:'.length).trim();
-        }
-      }
-
-      if (!dataLine) continue;
-
-      try {
-        const payload = JSON.parse(dataLine) as {
-          threadId?: string;
-          content?: string;
-          model?: string;
-          error?: string;
-        };
-
-        if (eventType === 'thread' && payload.threadId) {
-          threadId = payload.threadId;
-        } else if (eventType === 'delta' && payload.content) {
-          content += payload.content;
-        } else if (eventType === 'done') {
-          if (payload.threadId) threadId = payload.threadId;
-          if (payload.model) doneModel = payload.model;
-        } else if (eventType === 'error') {
-          sseError = payload.error ?? 'Agent X stream error';
-        }
-      } catch {
-        // Ignore malformed frames and continue parsing remaining events.
-      }
-    }
-
-    if (sseError) {
-      return { success: false, error: sseError, threadId };
-    }
-
-    if (content.length > 0) {
-      return {
-        success: true,
-        threadId,
-        message: {
-          id: this.uid(),
-          content,
-          metadata: doneModel ? { model: doneModel } : undefined,
-        },
-      };
-    }
-
-    return { success: false, error: 'Unable to parse Agent X response', threadId };
   }
 
   /** Append a message to the local history. */

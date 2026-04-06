@@ -93,34 +93,29 @@ const inFlightRequests = new Map<string, Observable<HttpEvent<unknown>>>();
  */
 const DEFAULT_TTL_CONFIG: CacheTTLConfig[] = [
   // Activity - Short TTL (real-time notifications)
-  { pattern: /\/api\/v1\/activity\/feed/, ttl: CACHE_CONFIG.SHORT_TTL },
-  { pattern: /\/api\/v1\/activity\/badges/, ttl: 30_000 }, // 30 seconds for badges
-  { pattern: /\/api\/v1\/activity\/summary/, ttl: CACHE_CONFIG.SHORT_TTL },
-
-  // Agent X - Short TTL (tasks rarely change, history is user-specific)
-  { pattern: /\/api\/v1\/agent-x\/tasks/, ttl: CACHE_CONFIG.MEDIUM_TTL },
-  { pattern: /\/api\/v1\/agent-x\/history/, ttl: CACHE_CONFIG.SHORT_TTL },
+  { pattern: /\/activity\/feed/, ttl: CACHE_CONFIG.SHORT_TTL },
+  { pattern: /\/activity\/badges/, ttl: 30_000 }, // 30 seconds for badges
+  { pattern: /\/activity\/summary/, ttl: CACHE_CONFIG.SHORT_TTL },
 
   // Explore - Medium TTL (search results, trending)
-  { pattern: /\/api\/v1\/explore\/search/, ttl: 5 * 60_000 }, // 5 minutes
-  { pattern: /\/api\/v1\/explore\/trending/, ttl: 30 * 60_000 }, // 30 minutes
-  { pattern: /\/api\/v1\/explore\/suggestions/, ttl: CACHE_CONFIG.SHORT_TTL },
-  { pattern: /\/api\/v1\/explore\/counts/, ttl: CACHE_CONFIG.SHORT_TTL },
+  { pattern: /\/explore\/search/, ttl: 5 * 60_000 }, // 5 minutes
+  { pattern: /\/explore\/trending/, ttl: 30 * 60_000 }, // 30 minutes
+  { pattern: /\/explore\/suggestions/, ttl: CACHE_CONFIG.SHORT_TTL },
+  { pattern: /\/explore\/counts/, ttl: CACHE_CONFIG.SHORT_TTL },
 
   // Colleges - Long TTL (static data)
-  { pattern: /\/api\/v1\/college/, ttl: CACHE_CONFIG.LONG_TTL },
+  { pattern: /\/college\//, ttl: CACHE_CONFIG.LONG_TTL },
 
   // Profiles - Medium TTL
-  // Note: core profile API routes to /auth/profile/:id (not /api/v1/profile)
   { pattern: /\/auth\/profile/, ttl: CACHE_CONFIG.MEDIUM_TTL },
-  { pattern: /\/api\/v1\/profile/, ttl: CACHE_CONFIG.MEDIUM_TTL },
+  { pattern: /\/profile\//, ttl: CACHE_CONFIG.MEDIUM_TTL },
 
   // Teams - Medium TTL
-  { pattern: /\/api\/v1\/team/, ttl: CACHE_CONFIG.MEDIUM_TTL },
+  { pattern: /\/team\//, ttl: CACHE_CONFIG.MEDIUM_TTL },
 
   // Static data - Extended TTL
-  { pattern: /\/api\/v1\/sports/, ttl: CACHE_CONFIG.EXTENDED_TTL },
-  { pattern: /\/api\/v1\/positions/, ttl: CACHE_CONFIG.EXTENDED_TTL },
+  { pattern: /\/sports/, ttl: CACHE_CONFIG.EXTENDED_TTL },
+  { pattern: /\/positions/, ttl: CACHE_CONFIG.EXTENDED_TTL },
 ];
 
 /**
@@ -134,9 +129,8 @@ const DEFAULT_EXCLUDE_URLS: RegExp[] = [
   /\/stripe\//,
   /\/paypal\//,
   /\/admin\//,
-  // Agent X chat is never cached (user messages)
-  /\/api\/v1\/agent-x\/chat/,
-  /\/api\/v1\/agent-x\/clear/,
+  // Agent X — all endpoints are dynamic & user-specific, never cache
+  /\/agent-x\//,
 ];
 
 /**

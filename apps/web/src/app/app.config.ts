@@ -85,7 +85,11 @@ import { NewsApiAdapterService } from './features/news/services/news-api-adapter
 import { TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui/team-profile';
 import { INTEL_API_BASE_URL } from '@nxt1/ui/intel';
 import { MANAGE_TEAM_API_BASE_URL } from '@nxt1/ui/manage-team';
-import { AGENT_X_API_BASE_URL, AGENT_X_AUTH_TOKEN_FACTORY } from '@nxt1/ui/agent-x';
+import {
+  AGENT_X_API_BASE_URL,
+  AGENT_X_AUTH_TOKEN_FACTORY,
+  FIRESTORE_ADAPTER,
+} from '@nxt1/ui/agent-x';
 import { CONNECTED_ACCOUNTS_FIREBASE_USER } from '@nxt1/ui/components/connected-sources';
 import { ACTIVITY_API_BASE_URL, ACTIVITY_API_ADAPTER } from '@nxt1/ui/activity';
 import { INVITE_API_BASE_URL } from '@nxt1/ui/invite';
@@ -104,13 +108,22 @@ import { ActivityApiService as WebActivityApiService } from './features/activity
 // IMPORTANT: Only import what's actually used in browser bundle
 // - FirebaseApp: Required for Firebase initialization
 // - Auth: Required for authentication (BrowserAuthService uses it)
-// - Firestore: NOT imported - only used in SSR via firebase/firestore SDK
+// - Firestore: Required for Agent X live operation events (onSnapshot)
 // - Storage: NOT imported - file uploads go through backend API (security)
 // - Analytics/Performance: Lazy-loaded after LCP (see AppComponent)
 import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
 import { provideAuth, getAuth } from '@angular/fire/auth';
 import { provideAnalytics, getAnalytics } from '@angular/fire/analytics';
 import { providePerformance, getPerformance } from '@angular/fire/performance';
+import {
+  provideFirestore,
+  getFirestore,
+  Firestore,
+  collection,
+  query,
+  orderBy as firestoreOrderBy,
+  onSnapshot as firestoreOnSnapshot,
+} from '@angular/fire/firestore';
 
 // Auth service with injection token pattern
 import { AUTH_SERVICE, BrowserAuthService } from './features/auth';
@@ -251,9 +264,33 @@ export const appConfig: ApplicationConfig = {
     provideAuth(() => getAuth()),
     provideAnalytics(() => getAnalytics()),
     providePerformance(() => getPerformance()),
-    // NOTE: Firestore and Storage are NOT provided in browser bundle:
-    // - Firestore: Only used during SSR via firebase/firestore SDK (ServerAuthService)
-    // - Storage: File uploads go through backend API for security
+    provideFirestore(() => getFirestore()),
+    // NOTE: Storage is NOT provided in browser bundle —
+    // file uploads go through backend API for security
+
+    // Firestore adapter for Agent X live operation events (onSnapshot)
+    {
+      provide: FIRESTORE_ADAPTER,
+      useFactory: (firestore: Firestore) => ({
+        onSnapshot: (
+          path: string,
+          orderByField: string,
+          onNext: (docs: ReadonlyArray<Record<string, unknown>>) => void,
+          onError: (error: Error) => void
+        ) => {
+          const ref = collection(firestore, path);
+          const q = query(ref, firestoreOrderBy(orderByField));
+          return firestoreOnSnapshot(
+            q,
+            (snap) => {
+              onNext(snap.docs.map((d) => d.data()));
+            },
+            onError
+          );
+        },
+      }),
+      deps: [Firestore],
+    },
 
     // ============================================
     // AUTH SERVICE (Injection Token Pattern)

@@ -48,7 +48,6 @@ import { LEGAL_URLS } from '@nxt1/core';
       </a>
     </p>
   `,
-  styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AuthTermsDisclaimerComponent {

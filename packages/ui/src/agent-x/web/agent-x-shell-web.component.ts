@@ -461,7 +461,8 @@ interface AgentXDesktopSession {
                 [yieldState]="session.yieldState ?? null"
                 [operationStatus]="session.operationStatus ?? null"
                 [errorMessage]="session.errorMessage ?? null"
-                (userMessageSent)="desktopChatActive.set(true)"
+                (userMessageSent)="onUserMessageSent()"
+                (responseComplete)="onResponseComplete()"
               />
             }
           </div>
@@ -3181,6 +3182,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   // Portal template refs
   private readonly agentTitlePortal = viewChild<TemplateRef<unknown>>('agentTitlePortal');
   private readonly agentRightPortal = viewChild<TemplateRef<unknown>>('agentRightPortal');
+  private readonly operationsLog = viewChild(AgentXOperationsLogComponent);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
   private desktopSessionCounter = 0;
@@ -3587,6 +3589,21 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    */
   protected onNewSession(): void {
     this.resetToDefaultDesktopSession();
+  }
+
+  /**
+   * Handle first user message sent in a session — mark chat active.
+   */
+  protected onUserMessageSent(): void {
+    this.desktopChatActive.set(true);
+  }
+
+  /**
+   * Handle chat response complete — refresh the operations log so the
+   * new session/thread appears in the sidebar.
+   */
+  protected onResponseComplete(): void {
+    this.operationsLog()?.refresh();
   }
 
   /**

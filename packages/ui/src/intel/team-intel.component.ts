@@ -148,14 +148,16 @@ const TIER_COLORS: Readonly<Record<string, string>> = {
           }
         </div>
 
-        <div class="intel-brief-card" [attr.data-testid]="testIds.SEASON_OUTLOOK_CARD">
-          <h3 class="intel-card-title">Season Outlook</h3>
-          <p class="intel-brief-text">{{ report()!.seasonOutlook }}</p>
-        </div>
+        <div class="intel-grid intel-grid--intro">
+          <div class="intel-brief-card" [attr.data-testid]="testIds.SEASON_OUTLOOK_CARD">
+            <h3 class="intel-card-title">Season Outlook</h3>
+            <p class="intel-brief-text">{{ report()!.seasonOutlook }}</p>
+          </div>
 
-        <div class="intel-brief-card" [attr.data-testid]="testIds.TEAM_IDENTITY_CARD">
-          <h3 class="intel-card-title">Team Identity</h3>
-          <p class="intel-brief-text">{{ report()!.teamIdentity }}</p>
+          <div class="intel-brief-card" [attr.data-testid]="testIds.TEAM_IDENTITY_CARD">
+            <h3 class="intel-card-title">Team Identity</h3>
+            <p class="intel-brief-text">{{ report()!.teamIdentity }}</p>
+          </div>
         </div>
 
         <!-- Strengths & Areas for Improvement -->
@@ -190,113 +192,126 @@ const TIER_COLORS: Readonly<Record<string, string>> = {
           </div>
         </div>
 
-        <!-- Top Prospects -->
-        @if (report()!.topProspects.length > 0) {
-          <div class="intel-data-card" [attr.data-testid]="testIds.TOP_PROSPECTS_SECTION">
-            <h3 class="intel-card-title">
-              <nxt1-icon name="star" [size]="16" />
-              Top Prospects
-            </h3>
-            <div class="intel-prospects-list">
-              @for (prospect of report()!.topProspects; track prospect.userId) {
-                <div
-                  class="intel-prospect-row"
-                  [attr.data-testid]="testIds.PROSPECT_ROW"
-                  role="button"
-                  tabindex="0"
-                  (click)="prospectClick.emit(prospect)"
-                  (keydown.enter)="prospectClick.emit(prospect)"
-                >
-                  <div
-                    class="intel-prospect-score"
-                    [style.--tier-color]="prospectTierColor(prospect)"
-                  >
-                    {{ prospect.overallScore }}
-                  </div>
-                  <div class="intel-prospect-info">
-                    <span class="intel-prospect-name">{{ prospect.name }}</span>
-                    <span class="intel-prospect-meta">
-                      {{ prospect.position }} · {{ prospect.classYear }}
-                    </span>
-                  </div>
-                  <span class="intel-prospect-tier" [style.color]="prospectTierColor(prospect)">
-                    {{ prospect.tierClassification }}
-                  </span>
+        @if (report()!.topProspects.length > 0 || report()!.seasonHistory.length > 0) {
+          <div class="intel-grid intel-grid--analysis">
+            <!-- Top Prospects -->
+            @if (report()!.topProspects.length > 0) {
+              <div class="intel-data-card" [attr.data-testid]="testIds.TOP_PROSPECTS_SECTION">
+                <h3 class="intel-card-title">
+                  <nxt1-icon name="star" [size]="16" />
+                  Top Prospects
+                </h3>
+                <div class="intel-prospects-list">
+                  @for (prospect of report()!.topProspects; track prospect.userId) {
+                    <div
+                      class="intel-prospect-row"
+                      [attr.data-testid]="testIds.PROSPECT_ROW"
+                      role="button"
+                      tabindex="0"
+                      (click)="prospectClick.emit(prospect)"
+                      (keydown.enter)="prospectClick.emit(prospect)"
+                    >
+                      <div
+                        class="intel-prospect-score"
+                        [style.--tier-color]="prospectTierColor(prospect)"
+                      >
+                        {{ prospect.overallScore }}
+                      </div>
+                      <div class="intel-prospect-info">
+                        <span class="intel-prospect-name">{{ prospect.name }}</span>
+                        <span class="intel-prospect-meta">
+                          {{ prospect.position }} · {{ prospect.classYear }}
+                        </span>
+                      </div>
+                      <span class="intel-prospect-tier" [style.color]="prospectTierColor(prospect)">
+                        {{ prospect.tierClassification }}
+                      </span>
+                    </div>
+                  }
                 </div>
-              }
-            </div>
-          </div>
-        }
+              </div>
+            }
 
-        <!-- Roster Depth Summary -->
-        @if (report()!.rosterDepthSummary) {
-          <div class="intel-brief-card" [attr.data-testid]="testIds.ROSTER_DEPTH_CARD">
-            <h3 class="intel-card-title">Roster Depth</h3>
-            <p class="intel-brief-text">{{ report()!.rosterDepthSummary }}</p>
-            @if (classBreakdownEntries().length > 0) {
-              <div class="intel-class-breakdown">
-                @for (entry of classBreakdownEntries(); track entry.label) {
-                  <div class="intel-class-item">
-                    <span class="intel-class-val">{{ entry.count }}</span>
-                    <span class="intel-class-label">{{ entry.label }}</span>
-                  </div>
-                }
+            <!-- Season History -->
+            @if (report()!.seasonHistory.length > 0) {
+              <div class="intel-data-card" [attr.data-testid]="testIds.SEASON_HISTORY_CARD">
+                <h3 class="intel-card-title">Season History</h3>
+                <div class="intel-season-list">
+                  @for (season of report()!.seasonHistory; track season.season) {
+                    <div class="intel-season-item">
+                      <div class="intel-season-header">
+                        <span class="intel-season-year">{{ season.season }}</span>
+                        <span class="intel-season-record">{{ season.record }}</span>
+                        @if (season.conference) {
+                          <span class="intel-season-conf">{{ season.conference }}</span>
+                        }
+                      </div>
+                      @if (season.highlights.length > 0) {
+                        <ul class="intel-season-highlights">
+                          @for (h of season.highlights; track h) {
+                            <li>{{ h }}</li>
+                          }
+                        </ul>
+                      }
+                    </div>
+                  }
+                </div>
               </div>
             }
           </div>
         }
 
-        <!-- Season History -->
-        @if (report()!.seasonHistory.length > 0) {
-          <div class="intel-data-card" [attr.data-testid]="testIds.SEASON_HISTORY_CARD">
-            <h3 class="intel-card-title">Season History</h3>
-            <div class="intel-season-list">
-              @for (season of report()!.seasonHistory; track season.season) {
-                <div class="intel-season-item">
-                  <div class="intel-season-header">
-                    <span class="intel-season-year">{{ season.season }}</span>
-                    <span class="intel-season-record">{{ season.record }}</span>
-                    @if (season.conference) {
-                      <span class="intel-season-conf">{{ season.conference }}</span>
+        @if (
+          report()!.rosterDepthSummary ||
+          report()!.historicalNarrative ||
+          report()!.recruitingPipeline ||
+          report()!.competitiveAnalysis
+        ) {
+          <div class="intel-grid intel-grid--support">
+            <!-- Roster Depth Summary -->
+            @if (report()!.rosterDepthSummary) {
+              <div class="intel-brief-card" [attr.data-testid]="testIds.ROSTER_DEPTH_CARD">
+                <h3 class="intel-card-title">Roster Depth</h3>
+                <p class="intel-brief-text">{{ report()!.rosterDepthSummary }}</p>
+                @if (classBreakdownEntries().length > 0) {
+                  <div class="intel-class-breakdown">
+                    @for (entry of classBreakdownEntries(); track entry.label) {
+                      <div class="intel-class-item">
+                        <span class="intel-class-val">{{ entry.count }}</span>
+                        <span class="intel-class-label">{{ entry.label }}</span>
+                      </div>
                     }
                   </div>
-                  @if (season.highlights.length > 0) {
-                    <ul class="intel-season-highlights">
-                      @for (h of season.highlights; track h) {
-                        <li>{{ h }}</li>
-                      }
-                    </ul>
-                  }
-                </div>
-              }
-            </div>
-          </div>
-        }
+                }
+              </div>
+            }
 
-        <!-- Historical Narrative -->
-        @if (report()!.historicalNarrative) {
-          <div class="intel-brief-card">
-            <h3 class="intel-card-title">Historical Narrative</h3>
-            <p class="intel-brief-text">{{ report()!.historicalNarrative }}</p>
-          </div>
-        }
+            <!-- Historical Narrative -->
+            @if (report()!.historicalNarrative) {
+              <div class="intel-brief-card">
+                <h3 class="intel-card-title">Historical Narrative</h3>
+                <p class="intel-brief-text">{{ report()!.historicalNarrative }}</p>
+              </div>
+            }
 
-        <!-- Recruiting Pipeline -->
-        @if (report()!.recruitingPipeline) {
-          <div class="intel-brief-card" [attr.data-testid]="testIds.RECRUITING_PIPELINE_CARD">
-            <h3 class="intel-card-title">
-              <nxt1-icon name="school" [size]="16" />
-              Recruiting Pipeline
-            </h3>
-            <p class="intel-brief-text">{{ report()!.recruitingPipeline }}</p>
-          </div>
-        }
+            <!-- Recruiting Pipeline -->
+            @if (report()!.recruitingPipeline) {
+              <div class="intel-brief-card" [attr.data-testid]="testIds.RECRUITING_PIPELINE_CARD">
+                <h3 class="intel-card-title">
+                  <nxt1-icon name="school" [size]="16" />
+                  Recruiting Pipeline
+                </h3>
+                <p class="intel-brief-text">{{ report()!.recruitingPipeline }}</p>
+              </div>
+            }
 
-        <!-- Competitive Analysis -->
-        @if (report()!.competitiveAnalysis) {
-          <div class="intel-brief-card">
-            <h3 class="intel-card-title">Competitive Analysis</h3>
-            <p class="intel-brief-text">{{ report()!.competitiveAnalysis }}</p>
+            <!-- Competitive Analysis -->
+            @if (report()!.competitiveAnalysis) {
+              <div class="intel-brief-card">
+                <h3 class="intel-card-title">Competitive Analysis</h3>
+                <p class="intel-brief-text">{{ report()!.competitiveAnalysis }}</p>
+              </div>
+            }
           </div>
         }
 
@@ -375,39 +390,74 @@ const TIER_COLORS: Readonly<Record<string, string>> = {
   `,
   styles: [
     `
+      :host {
+        display: block;
+        --intel-surface: var(--nxt1-ui-bg-card, var(--m-surface, rgba(255, 255, 255, 0.04)));
+        --intel-surface-elevated: var(
+          --nxt1-color-surface-200,
+          var(--m-surface-2, rgba(255, 255, 255, 0.06))
+        );
+        --intel-border: var(--nxt1-ui-border-subtle, var(--m-border, rgba(255, 255, 255, 0.08)));
+        --intel-border-strong: var(--nxt1-ui-border-default, rgba(255, 255, 255, 0.12));
+        --intel-text: var(--nxt1-ui-text-primary, var(--m-text, #ffffff));
+        --intel-text-secondary: var(
+          --nxt1-ui-text-secondary,
+          var(--m-text-2, rgba(255, 255, 255, 0.7))
+        );
+        --intel-text-muted: var(--nxt1-ui-text-muted, var(--m-text-3, rgba(255, 255, 255, 0.45)));
+        --intel-accent: var(--nxt1-ui-primary, var(--m-accent, #d4ff00));
+        --intel-radius: var(--nxt1-ui-radius-lg, 14px);
+        --intel-radius-sm: var(--nxt1-ui-radius-default, 12px);
+        --intel-shadow: var(--nxt1-ui-shadow-sm, 0 10px 28px rgba(0, 0, 0, 0.14));
+      }
+
       /* ─── Layout ─── */
       .intel-section {
         display: flex;
         flex-direction: column;
-        gap: 16px;
-        padding: 0 0 24px;
+        gap: var(--nxt1-spacing-5, 20px);
+        padding: var(--nxt1-spacing-1, 4px) 0 var(--nxt1-spacing-6, 24px);
+      }
+      .intel-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--nxt1-spacing-4, 16px);
+        align-items: start;
+      }
+      .intel-grid > * {
+        min-width: 0;
+      }
+      .intel-grid > :only-child {
+        grid-column: 1 / -1;
+      }
+      .intel-grid--support {
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       }
 
       /* ─── Skeleton ─── */
       .intel-skeleton {
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        gap: var(--nxt1-spacing-4, 16px);
+      }
+      .intel-skeleton-header,
+      .intel-skeleton-brief,
+      .intel-skeleton-cards,
+      .intel-skeleton-ratings {
+        border-radius: var(--intel-radius-sm);
+        background: var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08));
       }
       .intel-skeleton-header {
         height: 64px;
-        border-radius: 12px;
-        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
       }
       .intel-skeleton-brief {
         height: 100px;
-        border-radius: 12px;
-        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
       }
       .intel-skeleton-cards {
         height: 200px;
-        border-radius: 12px;
-        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
       }
       .intel-skeleton-ratings {
         height: 160px;
-        border-radius: 12px;
-        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
       }
       .animate-pulse {
         animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
@@ -422,7 +472,7 @@ const TIER_COLORS: Readonly<Record<string, string>> = {
         }
       }
 
-      /* ─── Empty State (Madden pattern — matches team-timeline / team-roster) ─── */
+      /* ─── Empty State ─── */
       .madden-empty {
         display: flex;
         flex-direction: column;
@@ -430,95 +480,72 @@ const TIER_COLORS: Readonly<Record<string, string>> = {
         justify-content: center;
         text-align: center;
         padding: 48px 24px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
+        color: var(--intel-text-secondary);
       }
       .madden-empty h3 {
-        font-size: 16px;
-        font-weight: 700;
-        color: var(--m-text);
+        font-size: var(--nxt1-fontSize-base, 1rem);
+        font-weight: var(--nxt1-fontWeight-bold, 700);
+        color: var(--intel-text);
         margin: 16px 0 8px;
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        letter-spacing: 0.02em;
       }
       .madden-empty__icon {
         width: 80px;
         height: 80px;
         border-radius: 50%;
-        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
-        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        background: var(--intel-surface-elevated);
+        border: 1px solid var(--intel-border);
         display: flex;
         align-items: center;
         justify-content: center;
         margin-bottom: 4px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.4));
+        color: var(--intel-text-muted);
       }
       .madden-empty p {
-        font-size: 14px;
-        color: var(--m-text-2);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--intel-text-secondary);
         margin: 0;
         max-width: 280px;
+        line-height: var(--nxt1-lineHeight-relaxed, 1.625);
       }
       .madden-cta-btn {
         margin-top: 12px;
         padding: 10px 24px;
-        background: var(--nxt1-color-primary);
+        background: var(--intel-accent);
         border: none;
-        border-radius: 9999px;
-        color: #000;
-        font-size: 14px;
-        font-weight: 700;
+        border-radius: var(--nxt1-ui-radius-full, 9999px);
+        color: var(--nxt1-color-text-onPrimary, #000000);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-bold, 700);
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        letter-spacing: 0.02em;
         cursor: pointer;
-        transition: all 0.2s ease;
+        transition:
+          transform var(--nxt1-ui-transition-fast, 150ms) ease,
+          filter var(--nxt1-ui-transition-fast, 150ms) ease,
+          box-shadow var(--nxt1-ui-transition-fast, 150ms) ease;
       }
       .madden-cta-btn:hover {
-        filter: brightness(1.1);
+        filter: brightness(1.08);
+        box-shadow: var(--nxt1-glow-sm, 0 0 0 1px rgba(204, 255, 0, 0.12));
       }
       .madden-cta-btn:active {
         filter: brightness(0.95);
+        transform: translateY(1px);
       }
       .madden-cta-btn:disabled {
         opacity: 0.6;
         pointer-events: none;
       }
 
-      /* ─── CTA / Spinner ─── */
-      .intel-cta-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 10px 20px;
-        border-radius: 10px;
-        border: none;
-        cursor: pointer;
-        font-size: 14px;
-        font-weight: 600;
-        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
-        color: var(--m-text, #ffffff);
-        transition:
-          background 0.15s ease,
-          transform 0.1s ease;
-      }
-      .intel-cta-btn:hover {
-        background: var(--m-surface, rgba(255, 255, 255, 0.04));
-      }
-      .intel-cta-btn:active {
-        transform: scale(0.97);
-      }
-      .intel-cta-btn--generate {
-        background: var(--nxt1-color-primary, #ccff00);
-        color: #000;
-      }
-      .intel-cta-btn--generate:hover {
-        filter: brightness(1.1);
-      }
-      .intel-cta-btn:disabled {
-        opacity: 0.6;
-        pointer-events: none;
-      }
+      /* ─── Spinner ─── */
       .intel-spinner {
         display: inline-block;
         width: 16px;
         height: 16px;
-        border: 2px solid var(--m-text-3, rgba(255, 255, 255, 0.3));
-        border-top-color: var(--m-text, #ffffff);
+        border: 2px solid var(--intel-text-muted);
+        border-top-color: var(--intel-text);
         border-radius: 50%;
         animation: spin 0.6s linear infinite;
       }
@@ -537,9 +564,17 @@ const TIER_COLORS: Readonly<Record<string, string>> = {
         display: flex;
         align-items: center;
         gap: 14px;
-        padding: 16px;
-        border-radius: 12px;
-        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
+        padding: var(--nxt1-spacing-4, 16px);
+        border-radius: var(--intel-radius);
+        border: 1px solid color-mix(in srgb, var(--intel-accent) 16%, var(--intel-border-strong));
+        background:
+          linear-gradient(
+            160deg,
+            color-mix(in srgb, var(--intel-accent) 10%, transparent),
+            transparent 42%
+          ),
+          var(--intel-surface);
+        box-shadow: var(--intel-shadow);
       }
       .intel-header-info {
         display: flex;
@@ -548,63 +583,72 @@ const TIER_COLORS: Readonly<Record<string, string>> = {
         flex: 1;
       }
       .intel-team-name {
-        font-size: 18px;
-        font-weight: 800;
-        color: var(--m-text, #ffffff);
+        font-size: var(--nxt1-fontSize-xl, 1.5rem);
+        font-weight: var(--nxt1-fontWeight-bold, 700);
+        color: var(--intel-text);
         margin: 0;
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        letter-spacing: 0.01em;
       }
       .intel-sport-label {
-        font-size: 13px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--intel-text-secondary);
       }
       .intel-regen-btn {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-        border: none;
+        width: 34px;
+        height: 34px;
+        border-radius: var(--intel-radius-sm);
+        border: 1px solid var(--intel-border);
         cursor: pointer;
-        background: var(--m-surface, rgba(255, 255, 255, 0.04));
-        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
-        transition: background 0.15s ease;
+        background: var(--intel-surface-elevated);
+        color: var(--intel-text-secondary);
+        transition:
+          background var(--nxt1-ui-transition-fast, 150ms) ease,
+          color var(--nxt1-ui-transition-fast, 150ms) ease,
+          border-color var(--nxt1-ui-transition-fast, 150ms) ease;
       }
       .intel-regen-btn:hover {
-        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
-        color: var(--m-text, #ffffff);
+        background: color-mix(in srgb, var(--intel-accent) 10%, var(--intel-surface-elevated));
+        color: var(--intel-text);
+        border-color: color-mix(in srgb, var(--intel-accent) 30%, var(--intel-border));
       }
       .intel-regen-btn:disabled {
         opacity: 0.5;
         pointer-events: none;
       }
 
-      /* ─── Card shared ─── */
+      /* ─── Shared Surfaces ─── */
       .intel-brief-card,
       .intel-list-card,
       .intel-data-card,
       .intel-missing-data,
       .intel-citations,
       .intel-quick-commands {
-        padding: 16px;
-        border-radius: 12px;
-        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
+        padding: var(--nxt1-spacing-4, 16px);
+        border-radius: var(--intel-radius);
+        background: var(--intel-surface);
+        border: 1px solid var(--intel-border);
+        box-shadow: var(--intel-shadow);
       }
       .intel-card-title {
         display: flex;
         align-items: center;
         gap: 6px;
-        font-size: 13px;
-        font-weight: 700;
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        font-weight: var(--nxt1-fontWeight-bold, 700);
         text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
-        margin: 0 0 12px;
+        letter-spacing: var(--nxt1-letterSpacing-wider, 0.05em);
+        color: var(--intel-text-muted);
+        margin: 0 0 var(--nxt1-spacing-3, 12px);
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
       }
       .intel-brief-text {
-        font-size: 14px;
-        line-height: 1.6;
-        color: var(--m-text, #ffffff);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        line-height: var(--nxt1-lineHeight-relaxed, 1.625);
+        color: var(--intel-text-secondary);
         margin: 0;
       }
 
@@ -614,20 +658,29 @@ const TIER_COLORS: Readonly<Record<string, string>> = {
         grid-template-columns: 1fr 1fr;
         gap: 12px;
       }
-      @media (max-width: 640px) {
-        .intel-two-col {
-          grid-template-columns: 1fr;
-        }
-      }
       .intel-bullet-list {
         margin: 0;
         padding: 0 0 0 18px;
-        font-size: 13px;
-        line-height: 1.7;
-        color: var(--m-text, #ffffff);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        line-height: var(--nxt1-lineHeight-relaxed, 1.625);
+        color: var(--intel-text-secondary);
+      }
+      .intel-list-card--strengths {
+        border-color: color-mix(
+          in srgb,
+          var(--nxt1-color-success, #22c55e) 22%,
+          var(--intel-border)
+        );
       }
       .intel-list-card--strengths .intel-card-title {
         color: var(--nxt1-color-success, #22c55e);
+      }
+      .intel-list-card--improve {
+        border-color: color-mix(
+          in srgb,
+          var(--nxt1-color-warning, #f59e0b) 22%,
+          var(--intel-border)
+        );
       }
       .intel-list-card--improve .intel-card-title {
         color: var(--nxt1-color-warning, #f59e0b);
@@ -643,62 +696,76 @@ const TIER_COLORS: Readonly<Record<string, string>> = {
         display: flex;
         align-items: center;
         gap: 12px;
-        padding: 10px;
-        border-radius: 8px;
+        padding: 10px 12px;
+        border-radius: var(--intel-radius-sm);
         cursor: pointer;
-        background: var(--m-surface, rgba(255, 255, 255, 0.04));
-        transition: background 0.15s ease;
+        background: var(--intel-surface-elevated);
+        border: 1px solid var(--intel-border);
+        transition:
+          background var(--nxt1-ui-transition-fast, 150ms) ease,
+          border-color var(--nxt1-ui-transition-fast, 150ms) ease,
+          transform var(--nxt1-ui-transition-fast, 150ms) ease;
       }
       .intel-prospect-row:hover {
-        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
+        background: color-mix(in srgb, var(--intel-accent) 7%, var(--intel-surface-elevated));
+        border-color: color-mix(in srgb, var(--intel-accent) 24%, var(--intel-border));
+        transform: translateY(-1px);
       }
       .intel-prospect-score {
-        width: 36px;
-        height: 36px;
+        width: 38px;
+        height: 38px;
         border-radius: 50%;
         flex-shrink: 0;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 14px;
-        font-weight: 800;
-        color: var(--m-text, #ffffff);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-bold, 700);
+        color: var(--intel-text);
         background: color-mix(
           in srgb,
           var(--tier-color, #6366f1) 30%,
-          var(--m-surface, rgba(255, 255, 255, 0.04))
+          var(--intel-surface-elevated)
         );
         border: 2px solid var(--tier-color, #6366f1);
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
       }
       .intel-prospect-info {
         flex: 1;
         display: flex;
         flex-direction: column;
         gap: 2px;
+        min-width: 0;
       }
       .intel-prospect-name {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--m-text, #ffffff);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-bold, 700);
+        color: var(--intel-text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .intel-prospect-meta {
-        font-size: 12px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        color: var(--intel-text-secondary);
       }
       .intel-prospect-tier {
-        font-size: 11px;
-        font-weight: 700;
+        font-size: var(--nxt1-fontSize-2xs, 0.625rem);
+        font-weight: var(--nxt1-fontWeight-bold, 700);
         text-transform: uppercase;
-        letter-spacing: 0.3px;
+        letter-spacing: var(--nxt1-letterSpacing-wide, 0.025em);
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        flex-shrink: 0;
       }
 
       /* ─── Class Breakdown ─── */
       .intel-class-breakdown {
         display: flex;
+        flex-wrap: wrap;
         gap: 20px;
         margin-top: 12px;
         padding-top: 12px;
-        border-top: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        border-top: 1px solid var(--intel-border);
       }
       .intel-class-item {
         display: flex;
@@ -706,14 +773,17 @@ const TIER_COLORS: Readonly<Record<string, string>> = {
         align-items: center;
       }
       .intel-class-val {
-        font-size: 18px;
-        font-weight: 800;
-        color: var(--m-text, #ffffff);
+        font-size: var(--nxt1-fontSize-lg, 1.25rem);
+        font-weight: var(--nxt1-fontWeight-bold, 700);
+        color: var(--intel-text);
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
       }
       .intel-class-label {
-        font-size: 11px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
+        font-size: var(--nxt1-fontSize-2xs, 0.625rem);
+        color: var(--intel-text-muted);
         text-transform: uppercase;
+        letter-spacing: var(--nxt1-letterSpacing-wide, 0.025em);
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
       }
 
       /* ─── Season History ─── */
@@ -723,36 +793,39 @@ const TIER_COLORS: Readonly<Record<string, string>> = {
         gap: 12px;
       }
       .intel-season-item {
-        padding: 10px;
-        border-radius: 8px;
-        background: var(--m-surface, rgba(255, 255, 255, 0.04));
+        padding: 10px 12px;
+        border-radius: var(--intel-radius-sm);
+        background: var(--intel-surface-elevated);
+        border: 1px solid var(--intel-border);
       }
       .intel-season-header {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: 10px;
         margin-bottom: 6px;
       }
       .intel-season-year {
-        font-size: 14px;
-        font-weight: 700;
-        color: var(--m-text, #ffffff);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-bold, 700);
+        color: var(--intel-text);
       }
       .intel-season-record {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--m-accent, #d4ff00);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
+        color: var(--intel-accent);
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
       }
       .intel-season-conf {
-        font-size: 12px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        color: var(--intel-text-secondary);
       }
       .intel-season-highlights {
         margin: 0;
         padding: 0 0 0 18px;
-        font-size: 12px;
-        line-height: 1.6;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        line-height: var(--nxt1-lineHeight-relaxed, 1.625);
+        color: var(--intel-text-secondary);
       }
 
       /* ─── Missing Data ─── */
@@ -766,38 +839,46 @@ const TIER_COLORS: Readonly<Record<string, string>> = {
         align-items: center;
         gap: 12px;
         padding: 12px;
-        border-radius: 8px;
-        background: var(--m-surface, rgba(255, 255, 255, 0.04));
+        border-radius: var(--intel-radius-sm);
+        background: var(--intel-surface-elevated);
+        border: 1px solid var(--intel-border);
       }
       .intel-missing-info {
         flex: 1;
         display: flex;
         flex-direction: column;
         gap: 2px;
+        min-width: 0;
       }
       .intel-missing-title {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--m-text, #ffffff);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-bold, 700);
+        color: var(--intel-text);
       }
       .intel-missing-desc {
-        font-size: 12px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        color: var(--intel-text-secondary);
+        line-height: var(--nxt1-lineHeight-normal, 1.5);
       }
       .intel-missing-cta {
-        padding: 6px 14px;
-        border-radius: 8px;
+        padding: 7px 14px;
+        border-radius: var(--intel-radius-sm);
         border: none;
         cursor: pointer;
-        font-size: 12px;
-        font-weight: 600;
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        font-weight: var(--nxt1-fontWeight-bold, 700);
         white-space: nowrap;
-        background: var(--nxt1-color-primary, #ccff00);
-        color: #000;
-        transition: filter 0.15s ease;
+        background: var(--intel-accent);
+        color: var(--nxt1-color-text-onPrimary, #000000);
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        letter-spacing: 0.02em;
+        transition:
+          filter var(--nxt1-ui-transition-fast, 150ms) ease,
+          transform var(--nxt1-ui-transition-fast, 150ms) ease;
       }
       .intel-missing-cta:hover {
-        filter: brightness(1.15);
+        filter: brightness(1.08);
+        transform: translateY(-1px);
       }
 
       /* ─── Citations ─── */
@@ -808,12 +889,16 @@ const TIER_COLORS: Readonly<Record<string, string>> = {
       }
       .intel-citation-badge {
         display: inline-block;
-        padding: 4px 10px;
-        border-radius: 6px;
-        font-size: 11px;
-        font-weight: 600;
-        background: var(--m-surface, rgba(255, 255, 255, 0.04));
-        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
+        padding: 5px 10px;
+        border-radius: 999px;
+        font-size: var(--nxt1-fontSize-2xs, 0.625rem);
+        font-weight: var(--nxt1-fontWeight-bold, 700);
+        background: var(--intel-surface-elevated);
+        color: var(--intel-text-secondary);
+        border: 1px solid var(--intel-border);
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
       }
 
       /* ─── Quick Commands ─── */
@@ -827,16 +912,21 @@ const TIER_COLORS: Readonly<Record<string, string>> = {
         align-items: center;
         gap: 12px;
         padding: 12px;
-        border-radius: 10px;
-        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
-        background: transparent;
-        color: var(--m-text, #ffffff);
+        border-radius: var(--intel-radius-sm);
+        border: 1px solid var(--intel-border);
+        background: var(--intel-surface-elevated);
+        color: var(--intel-text);
         cursor: pointer;
         text-align: left;
-        transition: background 0.15s ease;
+        transition:
+          background var(--nxt1-ui-transition-fast, 150ms) ease,
+          border-color var(--nxt1-ui-transition-fast, 150ms) ease,
+          transform var(--nxt1-ui-transition-fast, 150ms) ease;
       }
       .intel-command-btn:hover {
-        background: var(--m-surface, rgba(255, 255, 255, 0.04));
+        background: color-mix(in srgb, var(--intel-accent) 8%, var(--intel-surface-elevated));
+        border-color: color-mix(in srgb, var(--intel-accent) 28%, var(--intel-border));
+        transform: translateY(-1px);
       }
       .intel-command-text {
         display: flex;
@@ -844,22 +934,68 @@ const TIER_COLORS: Readonly<Record<string, string>> = {
         gap: 2px;
       }
       .intel-command-label {
-        font-size: 13px;
-        font-weight: 600;
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-bold, 700);
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        letter-spacing: 0.01em;
       }
       .intel-command-desc {
-        font-size: 12px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        color: var(--intel-text-secondary);
+        line-height: var(--nxt1-lineHeight-normal, 1.5);
+      }
+
+      /* ─── Shared Focus ─── */
+      .madden-cta-btn:focus-visible,
+      .intel-regen-btn:focus-visible,
+      .intel-command-btn:focus-visible,
+      .intel-missing-cta:focus-visible,
+      .intel-prospect-row:focus-visible {
+        outline: none;
+        box-shadow:
+          0 0 0 2px var(--nxt1-color-focus-ringOffset, rgba(10, 10, 10, 1)),
+          0 0 0 4px var(--nxt1-color-focus-ring, rgba(204, 255, 0, 0.5));
       }
 
       /* ─── Footer ─── */
       .intel-footer {
         text-align: center;
-        padding: 8px 0;
+        padding: 4px 0 0;
       }
       .intel-footer-text {
-        font-size: 11px;
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
+        font-size: var(--nxt1-fontSize-2xs, 0.625rem);
+        color: var(--intel-text-muted);
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        letter-spacing: var(--nxt1-letterSpacing-wide, 0.025em);
+        text-transform: uppercase;
+      }
+
+      @media (max-width: 900px) {
+        .intel-grid,
+        .intel-two-col {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .intel-header,
+        .intel-prospect-row,
+        .intel-missing-item,
+        .intel-command-btn {
+          align-items: flex-start;
+        }
+        .intel-header {
+          flex-wrap: wrap;
+        }
+        .intel-missing-item {
+          flex-wrap: wrap;
+        }
+        .intel-missing-cta {
+          width: 100%;
+        }
+        .intel-prospect-tier {
+          margin-left: 50px;
+        }
       }
     `,
   ],

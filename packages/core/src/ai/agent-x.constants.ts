@@ -561,9 +561,12 @@ export const AGENT_X_ALLOWED_MIME_TYPES: readonly string[] = [
   'image/webp',
   'image/gif',
   'application/pdf',
+  'text/plain',
   'text/csv',
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ] as const;
 
 /** Maximum number of attachments per message. */

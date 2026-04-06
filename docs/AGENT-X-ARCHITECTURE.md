@@ -448,3 +448,95 @@ override getSkills(): readonly string[] {
 | **Skill description is prose, not a title**      | The embedding model scores semantic similarity. Prose descriptions produce vectors that cluster near real user intent strings; short titles do not.              |
 | **All 6 skills imported from barrel**            | Single import line in bootstrap. Adding a new skill never requires touching bootstrap's import block, just the `register()` call.                                |
 | **Coordinator declares `getSkills()`**           | The coordinator — not the registry — decides scope. This prevents a `ComplianceRulebookSkill` from being loaded into a brand graphics task.                      |
+
+---
+
+## 7. Global Document Knowledge Base (MongoDB Atlas Vector Search)
+
+While "Skills" (Section 6) provide hardcoded, categorical prompt guidelines, the
+**Global Document Knowledge Base** provides dynamic, document-level factual
+retrieval. This system allows Agent X to ground its responses in verified domain
+data (NCAA/NAIA/NJCAA eligibility manuals, recruiting calendars, NIL
+regulations, and platform guides).
+
+### 7.1 Architecture Overview
+
+The system uses a pure Retrieval-Augmented Generation (RAG) pipeline backed by
+**MongoDB Atlas Vector Search** and **OpenAI `text-embedding-3-small`**
+embeddings (1536 dimensions).
+
+1. **Ingestion Pipeline (`KnowledgeIngestionService`)**:
+   - Accepts raw text (up to 5MB) via an `adminGuard`-protected REST API.
+   - Computes a SHA-256 content hash for deduplication.
+   - Chunks text intelligently (paragraph-aware, 2048 chars max, 256 char
+     overlap).
+   - Generates embeddings in concurrent batches (limit 10).
+   - Upserts into the `agentGlobalKnowledge` collection and increments the
+     document `version` to seamlessly replace stale chunks.
+
+2. **Retrieval Pipeline (`KnowledgeRetrievalService`)**:
+   - Embeds the user's intent.
+   - Executes a MongoDB `$vectorSearch` pipeline against the
+     `agent_global_knowledge_vector_index`.
+   - Filters results client-side by a strict cosine similarity score threshold
+     (default `0.70`).
+   - Builds a dense, token-optimized Markdown block citing the original
+     `sourceRef` and `title`.
+
+3. **Agent Integration (`GlobalKnowledgeSkill`)**:
+   - The knowledge base is hooked into the agent pipeline exactly like a
+     standard Skill.
+   - `GlobalKnowledgeSkill` extends `BaseSkill` but overrides `matchIntent()` to
+     _always_ return `true` with a similarity of `0.80`.
+   - Instead of returning a hardcoded string in `getPromptContext()`,
+     `BaseAgent.execute()` detects the skill and eagerly triggers
+     `await m.skill.retrieveForIntent(intent)` before prompt assembly.
+
+### 7.2 Mongoose Schema & Atlas Index
+
+Documents are stored permanently (no TTL) in the `AgentGlobalKnowledge` model.
+
+**Required Atlas Search Index (`agent_global_knowledge_vector_index`)**:
+
+```json
+{
+  "fields": [
+    {
+      "type": "vector",
+      "path": "embedding",
+      "numDimensions": 1536,
+      "similarity": "cosine"
+    },
+    {
+      "type": "filter",
+      "path": "category"
+    },
+    {
+      "type": "filter",
+      "path": "version"
+    }
+  ]
+}
+```
+
+### 7.3 Admin REST API
+
+Administrators manage the knowledge base via `/api/v1/knowledge/*` (all require
+`adminGuard`):
+
+- `POST /ingest` — Submit text/Markdown to be chunked, embedded, and stored.
+- `GET /documents` — List all unique ingested documents.
+- `GET /stats` — Retrieve category breakdowns and total chunk counts.
+- `POST /query` — Test the semantic retrieval pipeline directly.
+- `DELETE /source` — Purge a document by its original `sourceRef`.
+- `DELETE /category` — Purge an entire category.
+
+### 7.4 Types & Categories
+
+Shared types live in `@nxt1/core` (`packages/core/src/ai/agent.types.ts`). The
+`KnowledgeCategory` dictates the semantic grouping:
+
+- `ncaa_rules`, `naia_rules`, `njcaa_rules`, `eligibility`
+- `recruiting_calendar`, `transfer_portal`, `nil`, `compliance`
+- `platform_guide`, `help_center`
+- `sport_rules`, `training`, `nutrition`, `mental_performance`

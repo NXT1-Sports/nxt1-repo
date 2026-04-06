@@ -20,7 +20,7 @@
  * ```ts
  * const llm = new OpenRouterService();
  * const result = await llm.complete(messages, {
- *   tier: 'balanced',
+ *   tier: 'chat',
  *   maxTokens: 2048,
  *   temperature: 0.7,
  * });
@@ -45,6 +45,7 @@ import {
   IMAGE_MODEL,
   IMAGE_GENERATION_TIMEOUT_MS,
 } from './llm.types.js';
+import { AGENT_MODEL_PRICING } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -159,6 +160,23 @@ export class OpenRouterService {
         // Never retry on user abort
         if (options.signal?.aborted) throw lastError;
 
+        // Smart 429 retry: rate-limited models get one extra chance with backoff
+        // before we cascade to the next fallback (preserves quality tier).
+        if (lastError instanceof OpenRouterError && lastError.status === 429) {
+          logger.warn('[OpenRouter] 429 rate limited — retrying same model after backoff', {
+            model,
+            tier: options.tier,
+            chainPosition: `${i + 1}/${chain.length}`,
+          });
+          await this.sleep(RETRY_DELAY_MS * 3); // 4.5s backoff for rate limits
+          try {
+            return await this.completeWithModel(messages, options, model);
+          } catch (retryErr) {
+            lastError = retryErr instanceof Error ? retryErr : new Error(String(retryErr));
+            // Fall through to next model in chain
+          }
+        }
+
         // If this was a transient error (5xx, 429), fetchWithRetry already
         // exhausted its retry budget for this same model. Fall through to
         // the next model in the chain.
@@ -169,6 +187,8 @@ export class OpenRouterService {
           failedModel: model,
           nextModel: chain[i + 1],
           tier: options.tier,
+          chainPosition: `${i + 1}/${chain.length}`,
+          errorType: lastError instanceof OpenRouterError ? `HTTP ${lastError.status}` : 'unknown',
           error: lastError.message,
         });
       }
@@ -328,6 +348,13 @@ export class OpenRouterService {
     const inputTokens = raw.usage?.prompt_tokens ?? 0;
     const outputTokens = raw.usage?.completion_tokens ?? 0;
 
+    const costUsd = this.estimateCost(
+      model,
+      inputTokens,
+      outputTokens,
+      raw.usage?.total_cost ?? raw.usage?.cost
+    );
+
     const result: ImageGenerationResult = {
       imageBase64,
       mimeType,
@@ -335,7 +362,7 @@ export class OpenRouterService {
       model: raw.model ?? model,
       usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens },
       latencyMs,
-      costUsd: this.estimateCost(model, inputTokens, outputTokens),
+      costUsd,
     };
 
     // Emit telemetry
@@ -365,6 +392,10 @@ export class OpenRouterService {
    * completes, the returned `LLMStreamResult` contains the complete response,
    * token usage, latency, and cost — ready for persistence and telemetry.
    *
+   * If the primary model fails with a retryable error (429, 5xx), the request
+   * is automatically retried with the next model in the tier's fallback chain
+   * — matching the behaviour of `complete()`.
+   *
    * @param messages - The conversation history.
    * @param options  - Model tier, temperature, max tokens.
    * @param onDelta  - Called for every text fragment as it arrives.
@@ -375,7 +406,57 @@ export class OpenRouterService {
     options: LLMStreamOptions,
     onDelta: (delta: LLMStreamDelta) => void
   ): Promise<LLMStreamResult> {
-    const model = options.modelOverride ?? MODEL_CATALOGUE[options.tier];
+    // If caller specified an exact model override, skip fallback chain
+    if (options.modelOverride) {
+      return this._completeStreamWithModel(messages, options, onDelta, options.modelOverride);
+    }
+
+    // Build fallback chain: primary model + alternatives for this tier
+    const chain = MODEL_FALLBACK_CHAIN[options.tier] ?? [MODEL_CATALOGUE[options.tier]];
+    let lastError: Error | undefined;
+
+    for (let i = 0; i < chain.length; i++) {
+      const model = chain[i];
+      try {
+        return await this._completeStreamWithModel(messages, options, onDelta, model);
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+
+        // Never retry on user abort
+        if (options.signal?.aborted) throw lastError;
+
+        const isLastModel = i === chain.length - 1;
+        if (isLastModel) throw lastError;
+
+        const statusCode = lastError instanceof OpenRouterError ? lastError.status : undefined;
+        const isRetryable = statusCode != null && RETRYABLE_STATUS_CODES.has(statusCode);
+
+        if (!isRetryable) throw lastError;
+
+        logger.warn('[OpenRouter] Stream model failed, trying fallback', {
+          failedModel: model,
+          nextModel: chain[i + 1],
+          tier: options.tier,
+          chainPosition: `${i + 1}/${chain.length}`,
+          errorType: statusCode ? `HTTP ${statusCode}` : 'unknown',
+          error: lastError.message,
+        });
+      }
+    }
+
+    throw lastError ?? new Error('OpenRouter stream failed: no models available');
+  }
+
+  /**
+   * Execute a streaming completion with a specific model (no fallback logic).
+   * @internal
+   */
+  private async _completeStreamWithModel(
+    messages: readonly LLMMessage[],
+    options: LLMStreamOptions,
+    onDelta: (delta: LLMStreamDelta) => void,
+    model: string
+  ): Promise<LLMStreamResult> {
     const startMs = Date.now();
 
     const body = this.buildStreamRequestBody(messages, model, options);
@@ -392,6 +473,10 @@ export class OpenRouterService {
     let inputTokens = 0;
     let outputTokens = 0;
     let responseModel = model;
+    let reportedCostUsd: number | undefined;
+
+    // Accumulate tool calls from streamed deltas (indexed by tool_call index)
+    const pendingToolCalls = new Map<number, { id: string; name: string; args: string }>();
 
     let currentApiKey = this.apiKey;
     let response: Response;
@@ -468,9 +553,38 @@ export class OpenRouterService {
             if (chunk.model) responseModel = chunk.model;
 
             const delta = chunk.choices?.[0]?.delta;
+
+            // ── Text content tokens ──
             if (delta?.content) {
               fullContent += delta.content;
               onDelta({ content: delta.content, done: false });
+            }
+
+            // ── Tool call chunks ──
+            if (delta?.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                if (tc.index == null) continue;
+
+                // Accumulate tool call data across chunks
+                const existing = pendingToolCalls.get(tc.index);
+                if (existing) {
+                  if (tc.function?.arguments) existing.args += tc.function.arguments;
+                } else {
+                  pendingToolCalls.set(tc.index, {
+                    id: tc.id ?? `call_${tc.index}`,
+                    name: tc.function?.name ?? '',
+                    args: tc.function?.arguments ?? '',
+                  });
+                }
+
+                onDelta({
+                  content: '',
+                  done: false,
+                  toolCallIndex: tc.index,
+                  toolName: tc.function?.name ?? undefined,
+                  toolArgs: tc.function?.arguments ?? undefined,
+                });
+              }
             }
 
             // Capture finish reason
@@ -481,6 +595,7 @@ export class OpenRouterService {
             if (chunk.usage) {
               inputTokens = chunk.usage.prompt_tokens ?? 0;
               outputTokens = chunk.usage.completion_tokens ?? 0;
+              reportedCostUsd = chunk.usage.total_cost ?? chunk.usage.cost;
             }
           } catch {
             // Skip malformed JSON lines — non-critical during streaming
@@ -496,7 +611,14 @@ export class OpenRouterService {
     }
 
     const latencyMs = Date.now() - startMs;
-    const costUsd = this.estimateCost(responseModel, inputTokens, outputTokens);
+    const costUsd = this.estimateCost(responseModel, inputTokens, outputTokens, reportedCostUsd);
+
+    // Convert accumulated tool calls into LLMToolCall[] format
+    const toolCalls: LLMToolCall[] = Array.from(pendingToolCalls.values()).map((tc) => ({
+      id: tc.id,
+      type: 'function' as const,
+      function: { name: tc.name, arguments: tc.args },
+    }));
 
     // Emit telemetry
     this.telemetryCallback?.({
@@ -508,13 +630,14 @@ export class OpenRouterService {
       outputTokens,
       costUsd,
       latencyMs,
-      hadToolCall: false,
+      hadToolCall: toolCalls.length > 0,
       timestamp: new Date().toISOString(),
     });
 
     return {
       content: fullContent,
       model: responseModel,
+      toolCalls,
       usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens },
       latencyMs,
       costUsd,
@@ -529,9 +652,20 @@ export class OpenRouterService {
     model: string,
     options: LLMCompletionOptions
   ): Record<string, unknown> {
+    let processedMessages = messages;
+
+    // Universal JSON Enforcement: Models that natively support response_format
+    // (Anthropic, OpenAI) use the API parameter. For all other models (MiniMax,
+    // Qwen, Llama, Gemini, etc.), we inject a system prompt suffix to enforce
+    // JSON output, since they may silently ignore response_format.
+    const supportsNativeJson = model.startsWith('anthropic/') || model.startsWith('openai/');
+    if (options.jsonMode && !supportsNativeJson) {
+      processedMessages = this.injectJsonSystemPrompt(messages);
+    }
+
     const body: Record<string, unknown> = {
       model,
-      messages: messages.map((m) => this.serializeMessage(m)),
+      messages: processedMessages.map((m) => this.serializeMessage(m)),
       max_tokens: options.maxTokens ?? 2048,
       temperature: options.temperature ?? 0.7,
     };
@@ -557,6 +691,22 @@ export class OpenRouterService {
   }
 
   /**
+   * Inject a JSON enforcement suffix into the system prompt for models that
+   * don't reliably support `response_format: { type: 'json_object' }`.
+   */
+  private injectJsonSystemPrompt(messages: readonly LLMMessage[]): LLMMessage[] {
+    const JSON_SUFFIX =
+      '\n\nIMPORTANT: You MUST respond with valid JSON only. No markdown, no code fences, no explanatory text. Output raw JSON.';
+
+    return messages.map((msg) => {
+      if (msg.role === 'system' && typeof msg.content === 'string') {
+        return { ...msg, content: msg.content + JSON_SUFFIX };
+      }
+      return msg;
+    });
+  }
+
+  /**
    * Build the request body for a streaming completion.
    * Sets `stream: true` and requests usage in the final chunk.
    */
@@ -574,6 +724,12 @@ export class OpenRouterService {
       // OpenRouter includes usage in the final streamed chunk when requested
       stream_options: { include_usage: true },
     };
+
+    // Inject tools if provided (enables agentic function-calling in streams)
+    if (options.tools?.length) {
+      streamBody['tools'] = options.tools;
+      streamBody['tool_choice'] = 'auto';
+    }
 
     // Same Bedrock avoidance as non-streaming path
     if (model.startsWith('anthropic/')) {
@@ -825,7 +981,12 @@ export class OpenRouterService {
         totalTokens: inputTokens + outputTokens,
       },
       latencyMs,
-      costUsd: this.estimateCost(requestedModel, inputTokens, outputTokens),
+      costUsd: this.estimateCost(
+        requestedModel,
+        inputTokens,
+        outputTokens,
+        raw.usage?.total_cost ?? raw.usage?.cost
+      ),
       finishReason: choice.finish_reason ?? 'unknown',
     };
   }
@@ -889,16 +1050,21 @@ export class OpenRouterService {
    * Rough cost estimation based on known OpenRouter pricing.
    * These are approximate — actual billing comes from the OpenRouter dashboard.
    */
-  private estimateCost(model: string, inputTokens: number, outputTokens: number): number {
-    // Pricing per 1M tokens (input / output) — update as prices change
-    const pricing: Record<string, [number, number]> = {
-      'anthropic/claude-3.5-haiku': [0.8, 4.0],
-      'anthropic/claude-3.5-sonnet': [3.0, 15.0],
-      'openai/gpt-4o': [2.5, 10.0],
-      'openai/gpt-4o-mini': [0.15, 0.6],
-    };
+  private estimateCost(
+    model: string,
+    inputTokens: number,
+    outputTokens: number,
+    apiReportedCostUsd?: number
+  ): number {
+    // If the API provided the exact wholesale cost in the response payload, trust it implicitly.
+    // This allows us to bypass stale local token math and avoids unnecessary Helicone true-ups.
+    if (typeof apiReportedCostUsd === 'number' && apiReportedCostUsd > 0) {
+      return apiReportedCostUsd;
+    }
 
-    const [inputRate, outputRate] = pricing[model] ?? [3.0, 15.0];
+    const pricing = AGENT_MODEL_PRICING[model];
+    const inputRate = pricing?.input ?? 3.0;
+    const outputRate = pricing?.output ?? 15.0;
     return (inputTokens * inputRate + outputTokens * outputRate) / 1_000_000;
   }
 }
@@ -926,6 +1092,8 @@ interface OpenRouterRawResponse {
     readonly prompt_tokens?: number;
     readonly completion_tokens?: number;
     readonly total_tokens?: number;
+    readonly total_cost?: number;
+    readonly cost?: number;
   };
 }
 
@@ -964,6 +1132,15 @@ interface OpenRouterStreamChunk {
     readonly delta?: {
       readonly role?: string;
       readonly content?: string;
+      readonly tool_calls?: readonly {
+        readonly index: number;
+        readonly id?: string;
+        readonly type?: string;
+        readonly function?: {
+          readonly name?: string;
+          readonly arguments?: string;
+        };
+      }[];
     };
     readonly finish_reason?: string | null;
   }[];
@@ -971,5 +1148,7 @@ interface OpenRouterStreamChunk {
     readonly prompt_tokens?: number;
     readonly completion_tokens?: number;
     readonly total_tokens?: number;
+    readonly total_cost?: number;
+    readonly cost?: number;
   };
 }

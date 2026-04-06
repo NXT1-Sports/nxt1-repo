@@ -773,6 +773,28 @@ export class AgentXOperationsLogComponent {
     this.loadOperations();
   }
 
+  /** Public refresh — callable from parent via viewChild. */
+  async refresh(): Promise<void> {
+    await this.silentRefresh();
+  }
+
+  /**
+   * Silent refresh — re-fetches operations without showing loading skeleton.
+   * Called by parent (via viewChild) after a chat response completes.
+   */
+  private async silentRefresh(): Promise<void> {
+    try {
+      const url = `${this.baseUrl}/agent-x/operations-log?limit=50`;
+      const response = await firstValueFrom(this.http.get<OperationsLogResponse>(url));
+
+      if (response.success && response.data) {
+        this._operations.set(response.data);
+      }
+    } catch {
+      // Silent refresh failures are non-critical
+    }
+  }
+
   /** Fetch operations from the backend API. */
   protected async loadOperations(): Promise<void> {
     this._loading.set(true);

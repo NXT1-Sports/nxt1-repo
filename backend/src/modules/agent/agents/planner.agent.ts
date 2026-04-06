@@ -109,12 +109,12 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
   }
 
   /**
-   * Uses the "balanced" model tier for planning — structured JSON extraction
-   * must be reliable. Claude Haiku at 512 tokens produces garbled JSON on
-   * multi-task plans; Sonnet at 1024 tokens is accurate and still fast.
+   * Uses the "routing" tier — structured JSON extraction for task decomposition.
+   * Sonnet at 1024 tokens produces reliable JSON plans; Haiku is too error-prone
+   * for multi-task dependency graphs.
    */
   getModelRouting(): ModelRoutingConfig {
-    return { ...MODEL_ROUTING_DEFAULTS['balanced'], maxTokens: 1024 };
+    return { ...MODEL_ROUTING_DEFAULTS['routing'], maxTokens: 1024 };
   }
 
   /**

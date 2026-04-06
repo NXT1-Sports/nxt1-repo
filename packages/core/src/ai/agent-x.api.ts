@@ -36,6 +36,8 @@ import type {
   AgentXStreamDeltaEvent,
   AgentXStreamDoneEvent,
   AgentXStreamErrorEvent,
+  AgentXStreamStepEvent,
+  AgentXStreamCardEvent,
 } from './agent-x.types';
 import type { AgentMessage } from './chat.types';
 import { AGENT_X_ENDPOINTS } from './agent-x.constants';
@@ -428,6 +430,29 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
                   case 'delta':
                     callbacks.onDelta(payload as AgentXStreamDeltaEvent);
                     break;
+                  case 'step': {
+                    const step = payload as Record<string, unknown>;
+                    if (
+                      step &&
+                      typeof step['id'] === 'string' &&
+                      typeof step['label'] === 'string'
+                    ) {
+                      callbacks.onStep?.(step as unknown as AgentXStreamStepEvent);
+                    }
+                    break;
+                  }
+                  case 'card': {
+                    const card = payload as Record<string, unknown>;
+                    if (
+                      card &&
+                      typeof card['type'] === 'string' &&
+                      typeof card['title'] === 'string' &&
+                      card['payload'] != null
+                    ) {
+                      callbacks.onCard?.(card as unknown as AgentXStreamCardEvent);
+                    }
+                    break;
+                  }
                   case 'done':
                     callbacks.onDone(payload as AgentXStreamDoneEvent);
                     break;

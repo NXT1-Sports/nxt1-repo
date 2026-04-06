@@ -8,7 +8,7 @@
  * - Help center queries and documentation lookups
  * - Tasks the router can't confidently classify
  *
- * Uses the "balanced" model tier.
+ * Uses the "chat" model tier.
  */
 
 import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
@@ -64,7 +64,11 @@ export class GeneralAgent extends BaseAgent {
     return ['search_knowledge_base', 'search_web', 'scrape_webpage', 'ask_user'];
   }
 
+  override getSkills(): readonly string[] {
+    return ['global_knowledge'];
+  }
+
   getModelRouting(): ModelRoutingConfig {
-    return MODEL_ROUTING_DEFAULTS['balanced'];
+    return MODEL_ROUTING_DEFAULTS['chat'];
   }
 }

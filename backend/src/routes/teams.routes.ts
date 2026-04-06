@@ -21,7 +21,7 @@ import {
   InviteMemberDto,
 } from '../dtos/teams.dto.js';
 import { asyncHandler, sendSuccess } from '@nxt1/core/errors/express';
-import { validationError } from '@nxt1/core/errors';
+import { forbiddenError, validationError } from '@nxt1/core/errors';
 import { ROLE } from '@nxt1/core/models';
 import * as teamCodeService from '../services/team-code.service.js';
 import { createTeamAdapter } from '../services/team-adapter.service.js';
@@ -830,25 +830,51 @@ router.post(
     const userId = req.user!.uid;
     const db = req.firebase!.db;
 
-    // Verify the user is an admin or coach of this team
-    const teamDoc = await db.collection('Teams').doc(id).get();
-    if (!teamDoc.exists) {
+    // Verify the user is an admin/coach in either the current RosterEntries
+    // architecture or the legacy embedded members array.
+    const teamAdapter = createTeamAdapter(db);
+    let teamWithMembers: Awaited<ReturnType<typeof teamAdapter.getTeamWithMembers>>;
+
+    try {
+      teamWithMembers = await teamAdapter.getTeamWithMembers(id);
+    } catch {
       throw validationError([{ field: 'id', message: 'Team not found', rule: 'exists' }]);
     }
-    const teamData = teamDoc.data() ?? {};
-    const members = (teamData['members'] as Array<{ uid: string; role: string }>) ?? [];
-    const member = members.find((m) => m.uid === userId);
-    const isAdminOrCoach =
-      member && ['admin', 'coach', 'owner', 'head_coach'].includes(member.role);
 
-    if (!isAdminOrCoach) {
-      throw validationError([
-        {
-          field: 'role',
-          message: 'Only team admins and coaches can generate Intel',
-          rule: 'permission',
-        },
-      ]);
+    const legacyMembers =
+      (
+        teamWithMembers as unknown as {
+          members?: Array<{
+            id?: string;
+            uid?: string;
+            role?: string;
+          }>;
+        }
+      ).members ?? [];
+    const roster = teamWithMembers.roster ?? [];
+    const privilegedLegacyRoles = new Set([
+      'admin',
+      'coach',
+      'owner',
+      'head_coach',
+      'head-coach',
+      'assistant-coach',
+    ]);
+    const privilegedRosterRoles = new Set(['owner', 'head-coach', 'assistant-coach']);
+
+    const hasLegacyPermission = legacyMembers.some((member) => {
+      const memberId = member.id ?? member.uid;
+      const role = member.role?.toLowerCase();
+      return memberId === userId && !!role && privilegedLegacyRoles.has(role);
+    });
+
+    const hasRosterPermission = roster.some((entry) => {
+      const role = String(entry.role ?? '').toLowerCase();
+      return entry.userId === userId && privilegedRosterRoles.has(role);
+    });
+
+    if (!hasLegacyPermission && !hasRosterPermission) {
+      throw forbiddenError('permission');
     }
 
     const { IntelGenerationService } = await import('../modules/agent/services/intel.service.js');

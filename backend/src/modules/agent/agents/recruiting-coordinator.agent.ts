@@ -10,7 +10,7 @@
  * - Optimizing email subject lines and messaging
  * - Transfer portal search and prospect pipeline management
  *
- * Uses the "creative" model tier for email copy generation.
+ * Uses the "copywriting" model tier for email copy generation.
  */
 
 import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
@@ -51,10 +51,10 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
   }
 
   override getSkills(): readonly string[] {
-    return ['outreach_copywriting'];
+    return ['outreach_copywriting', 'global_knowledge'];
   }
 
   getModelRouting(): ModelRoutingConfig {
-    return MODEL_ROUTING_DEFAULTS['creative'];
+    return MODEL_ROUTING_DEFAULTS['copywriting'];
   }
 }

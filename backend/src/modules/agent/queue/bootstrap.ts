@@ -60,9 +60,11 @@ import {
   ScheduleRecurringTaskTool,
   ListRecurringTasksTool,
   CancelRecurringTaskTool,
+  EnqueueHeavyTaskTool,
 } from '../tools/automation/index.js';
 import { ContextBuilder } from '../memory/context-builder.js';
 import { VectorMemoryService } from '../memory/vector.service.js';
+import { KnowledgeRetrievalService } from '../memory/knowledge-retrieval.service.js';
 import { AgentChatService } from '../services/agent-chat.service.js';
 import { TelemetryService } from '../services/telemetry.service.js';
 import { GuardrailRunner } from '../guardrails/guardrail-runner.js';
@@ -79,6 +81,7 @@ import {
   StaticGraphicStyleSkill,
   VideoHighlightStyleSkill,
   SocialCaptionStyleSkill,
+  GlobalKnowledgeSkill,
 } from '../skills/index.js';
 import {
   DataCoordinatorAgent,
@@ -89,6 +92,7 @@ import {
   GeneralAgent,
 } from '../agents/index.js';
 import { setAgentDependencies } from '../../../routes/agent-x.routes.js';
+import { setKnowledgeDependencies } from '../../../routes/knowledge.routes.js';
 import { setWelcomeDependencies } from '../../../services/agent-welcome.service.js';
 import { setScrapeDependencies } from '../../../services/agent-scrape.service.js';
 import { stagingDb } from '../../../utils/firebase-staging.js';
@@ -257,6 +261,10 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new VideoHighlightStyleSkill());
   skillRegistry.register(new SocialCaptionStyleSkill());
 
+  // Global Knowledge Base — dynamic vector retrieval at runtime
+  const knowledgeRetrieval = new KnowledgeRetrievalService(llm);
+  skillRegistry.register(new GlobalKnowledgeSkill(knowledgeRetrieval));
+
   // ── 2. Wire the AgentRouter with all sub-agents ───────────────────
   const router = new AgentRouter(llm, toolRegistry, contextBuilder, guardrailRunner, skillRegistry);
   router.registerAgent(new DataCoordinatorAgent());
@@ -276,6 +284,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new ScheduleRecurringTaskTool(queueService, stagingDb));
   toolRegistry.register(new ListRecurringTasksTool(queueService, stagingDb));
   toolRegistry.register(new CancelRecurringTaskTool(queueService, stagingDb));
+  toolRegistry.register(new EnqueueHeavyTaskTool(queueService));
 
   // ── 4. Start the background worker ────────────────────────────────────
   // The worker wraps the AgentRouter and additionally persists
@@ -295,7 +304,9 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     chatService: agentChatService,
     contextBuilder,
     llmService: llm,
+    toolRegistry,
   });
+  setKnowledgeDependencies(llm);
   setWelcomeDependencies({ queueService, jobRepository, chatService: agentChatService });
   setScrapeDependencies({ queueService, jobRepository, chatService: agentChatService });
 

@@ -65,6 +65,8 @@ import {
               [imageUrl]="message.imageUrl"
               [isTyping]="!!message.isTyping"
               [isError]="!!message.error"
+              [steps]="message.steps ?? []"
+              [cards]="message.cards ?? []"
             />
           </div>
         }

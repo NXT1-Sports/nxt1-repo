@@ -11,7 +11,7 @@
  * - Tracking academic eligibility (GPA, core courses, test scores)
  * - Managing official and unofficial visit schedules
  *
- * Uses the "reasoning" model tier for rule interpretation.
+ * Uses the "compliance" model tier for rule interpretation.
  */
 
 import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
@@ -61,10 +61,10 @@ export class ComplianceCoordinatorAgent extends BaseAgent {
   }
 
   override getSkills(): readonly string[] {
-    return ['compliance_rulebook'];
+    return ['compliance_rulebook', 'global_knowledge'];
   }
 
   getModelRouting(): ModelRoutingConfig {
-    return MODEL_ROUTING_DEFAULTS['reasoning'];
+    return MODEL_ROUTING_DEFAULTS['compliance'];
   }
 }

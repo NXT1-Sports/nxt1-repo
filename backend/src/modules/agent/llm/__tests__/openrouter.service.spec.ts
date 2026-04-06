@@ -14,7 +14,7 @@ import { MODEL_CATALOGUE } from '../llm.types.js';
 
 const MOCK_RESPONSE = {
   id: 'gen-test-001',
-  model: 'anthropic/claude-3.5-haiku',
+  model: 'anthropic/claude-haiku-4-5',
   choices: [
     {
       index: 0,
@@ -107,7 +107,7 @@ describe('OpenRouterService', () => {
         { role: 'system', content: 'You are a test agent.' },
         { role: 'user', content: 'Hello' },
       ],
-      { tier: 'fast', maxTokens: 512, temperature: 0.5 }
+      { tier: 'extraction', maxTokens: 512, temperature: 0.5 }
     );
 
     // Verify fetch was called with correct URL and headers
@@ -123,7 +123,7 @@ describe('OpenRouterService', () => {
 
     // Verify the request body
     const body = JSON.parse(options.body as string);
-    expect(body.model).toBe(MODEL_CATALOGUE['fast']);
+    expect(body.model).toBe(MODEL_CATALOGUE['extraction']);
     expect(body.messages).toHaveLength(2);
     expect(body.max_tokens).toBe(512);
     expect(body.temperature).toBe(0.5);
@@ -131,7 +131,7 @@ describe('OpenRouterService', () => {
     // Verify the parsed result
     expect(result.content).toBe('Hello from the mock LLM.');
     expect(result.toolCalls).toHaveLength(0);
-    expect(result.model).toBe('anthropic/claude-3.5-haiku');
+    expect(result.model).toBe('anthropic/claude-haiku-4-5');
     expect(result.usage.inputTokens).toBe(50);
     expect(result.usage.outputTokens).toBe(10);
     expect(result.usage.totalTokens).toBe(60);
@@ -141,15 +141,15 @@ describe('OpenRouterService', () => {
   });
 
   it('should resolve model tier to correct slug', async () => {
-    await service.complete([{ role: 'user', content: 'test' }], { tier: 'balanced' });
+    await service.complete([{ role: 'user', content: 'test' }], { tier: 'chat' });
 
     const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
-    expect(body.model).toBe(MODEL_CATALOGUE['balanced']);
+    expect(body.model).toBe(MODEL_CATALOGUE['chat']);
   });
 
   it('should allow modelOverride to bypass tier resolution', async () => {
     await service.complete([{ role: 'user', content: 'test' }], {
-      tier: 'fast',
+      tier: 'extraction',
       modelOverride: 'openai/gpt-4o',
     });
 
@@ -168,7 +168,7 @@ describe('OpenRouterService', () => {
     );
 
     const result = await service.complete([{ role: 'user', content: 'Get player stats' }], {
-      tier: 'balanced',
+      tier: 'chat',
       tools: [
         {
           type: 'function',
@@ -210,7 +210,7 @@ describe('OpenRouterService', () => {
       },
     ];
 
-    await service.complete([{ role: 'user', content: 'test' }], { tier: 'fast', tools });
+    await service.complete([{ role: 'user', content: 'test' }], { tier: 'extraction', tools });
 
     const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
     expect(body.tools).toEqual(tools);
@@ -220,7 +220,10 @@ describe('OpenRouterService', () => {
   // ─── JSON Mode ──────────────────────────────────────────────────────────
 
   it('should set response_format when jsonMode is true', async () => {
-    await service.complete([{ role: 'user', content: 'test' }], { tier: 'fast', jsonMode: true });
+    await service.complete([{ role: 'user', content: 'test' }], {
+      tier: 'extraction',
+      jsonMode: true,
+    });
 
     const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
     expect(body.response_format).toEqual({ type: 'json_object' });
@@ -230,7 +233,7 @@ describe('OpenRouterService', () => {
 
   it('should send system + user messages via prompt()', async () => {
     const result = await service.prompt('You are a planner.', 'Analyze my highlight tape.', {
-      tier: 'fast',
+      tier: 'extraction',
     });
 
     const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
@@ -245,18 +248,19 @@ describe('OpenRouterService', () => {
   // ─── Error Handling ─────────────────────────────────────────────────────
 
   it('should throw OpenRouterError when ALL models in fallback chain fail', async () => {
-    // With fallback, the fast tier tries haiku then gpt-4o-mini.
+    // With fallback, the extraction tier tries haiku then gpt-4o-mini then qwen.
     // fetchWithRetry does MAX_RETRIES=2 per model → 3 calls each.
+    // Smart 429 retry adds one extra attempt per model with ~4.5s backoff.
     // Mock enough 429 responses for all models in the chain.
-    const totalCalls = 20; // generous buffer for all models × retries
+    const totalCalls = 40; // generous buffer for all models × retries × smart 429
     for (let i = 0; i < totalCalls; i++) {
       fetchSpy.mockResolvedValueOnce(new Response('Rate limit exceeded', { status: 429 }));
     }
 
     await expect(
-      service.complete([{ role: 'user', content: 'test' }], { tier: 'fast' })
+      service.complete([{ role: 'user', content: 'test' }], { tier: 'extraction' })
     ).rejects.toThrow('OpenRouter API error 429');
-  }, 30_000);
+  }, 120_000);
 
   it('should fallback to next model on non-200 response', async () => {
     // Override default mock: return 429 for all calls
@@ -278,7 +282,9 @@ describe('OpenRouterService', () => {
       return new Response('Rate limit exceeded', { status: 429 });
     });
 
-    const result = await service.complete([{ role: 'user', content: 'test' }], { tier: 'fast' });
+    const result = await service.complete([{ role: 'user', content: 'test' }], {
+      tier: 'extraction',
+    });
     expect(result.content).toBe('Hello from the mock LLM.');
   }, 30_000);
 
@@ -294,7 +300,7 @@ describe('OpenRouterService', () => {
     );
 
     await expect(
-      service.complete([{ role: 'user', content: 'test' }], { tier: 'fast' })
+      service.complete([{ role: 'user', content: 'test' }], { tier: 'extraction' })
     ).rejects.toThrow('OpenRouter returned no choices');
   });
 
@@ -310,7 +316,9 @@ describe('OpenRouterService', () => {
         })
       );
 
-    const result = await service.complete([{ role: 'user', content: 'test' }], { tier: 'fast' });
+    const result = await service.complete([{ role: 'user', content: 'test' }], {
+      tier: 'extraction',
+    });
 
     expect(result.content).toBe('Hello from the mock LLM.');
     expect(fetchSpy).toHaveBeenCalledTimes(2);
@@ -328,7 +336,9 @@ describe('OpenRouterService', () => {
         })
       );
 
-    const result = await service.complete([{ role: 'user', content: 'test' }], { tier: 'fast' });
+    const result = await service.complete([{ role: 'user', content: 'test' }], {
+      tier: 'extraction',
+    });
     expect(result.content).toBe('Hello from the mock LLM.');
     // 1 call for haiku (400, no retry) + 1 for gpt-4o-mini (success)
     expect(fetchSpy).toHaveBeenCalledTimes(2);
@@ -339,8 +349,8 @@ describe('OpenRouterService', () => {
 
     await expect(
       service.complete([{ role: 'user', content: 'test' }], {
-        tier: 'fast',
-        modelOverride: 'anthropic/claude-3.5-haiku',
+        tier: 'extraction',
+        modelOverride: 'anthropic/claude-haiku-4-5',
       })
     ).rejects.toThrow('OpenRouter API error 400');
 
@@ -357,11 +367,13 @@ describe('OpenRouterService', () => {
       onTelemetry: telemetrySpy,
     });
 
-    await serviceWithTelemetry.complete([{ role: 'user', content: 'test' }], { tier: 'fast' });
+    await serviceWithTelemetry.complete([{ role: 'user', content: 'test' }], {
+      tier: 'extraction',
+    });
 
     expect(telemetrySpy).toHaveBeenCalledTimes(1);
     const record = telemetrySpy.mock.calls[0][0];
-    expect(record.model).toBe('anthropic/claude-3.5-haiku');
+    expect(record.model).toBe('anthropic/claude-haiku-4-5');
     expect(record.inputTokens).toBe(50);
     expect(record.outputTokens).toBe(10);
     expect(record.costUsd).toBeGreaterThan(0);
@@ -372,7 +384,9 @@ describe('OpenRouterService', () => {
   // ─── Cost Estimation ───────────────────────────────────────────────────
 
   it('should estimate cost based on known pricing', async () => {
-    const result = await service.complete([{ role: 'user', content: 'test' }], { tier: 'fast' });
+    const result = await service.complete([{ role: 'user', content: 'test' }], {
+      tier: 'extraction',
+    });
 
     // Haiku: $0.80/M input + $4.00/M output
     // 50 input + 10 output = (50*0.80 + 10*4.00) / 1_000_000
@@ -400,7 +414,7 @@ describe('OpenRouterService', () => {
         },
         { role: 'tool', content: '{"result":"ok"}', tool_call_id: 'call_1' },
       ],
-      { tier: 'fast' }
+      { tier: 'extraction' }
     );
 
     const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);

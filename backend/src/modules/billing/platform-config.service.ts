@@ -12,6 +12,7 @@
 
 import type { Firestore } from 'firebase-admin/firestore';
 import { logger } from '../../utils/logger.js';
+import { MODEL_CATALOGUE, BILLING_TIER_MAP } from '../agent/llm/llm.types.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ export interface PlatformBillingConfig {
   /**
    * Model tier → model slug mapping for cost estimation.
    * Keys: 'fast', 'balanced', 'reasoning', 'creative'
-   * Values: OpenRouter model slugs (e.g. 'anthropic/claude-3.5-haiku')
+   * Values: OpenRouter model slugs (e.g. 'anthropic/claude-haiku-4-5')
    */
   modelTierMap: Record<string, string>;
 
@@ -75,12 +76,9 @@ const FALLBACK_CONFIG: PlatformBillingConfig = {
   aiMarginMultiplier: 3.0,
   minCostCents: 1,
   lowBalanceThresholdCents: 200, // $2.00
-  modelTierMap: {
-    fast: 'anthropic/claude-3.5-haiku',
-    balanced: 'anthropic/claude-3.5-sonnet',
-    reasoning: 'anthropic/claude-3.5-sonnet',
-    creative: 'anthropic/claude-3.5-sonnet',
-  },
+  modelTierMap: Object.fromEntries(
+    Object.entries(BILLING_TIER_MAP).map(([billing, tier]) => [billing, MODEL_CATALOGUE[tier]])
+  ),
   fallbackInputRatePerMillion: 3.0,
   fallbackOutputRatePerMillion: 15.0,
   defaultIndividualBudget: 2000, // $20

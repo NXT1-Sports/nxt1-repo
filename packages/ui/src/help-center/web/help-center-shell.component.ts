@@ -53,15 +53,17 @@ export interface HelpNavigateEvent {
     <ng-template #centerPortalContent>
       <div class="nxt1-header-portal">
         <span class="nxt1-header-portal__title">Help Center</span>
-        <div class="nxt1-header-portal__center header-portal-search">
-          <nxt1-icon name="search" [size]="16" class="header-portal-search-icon" />
-          <input
-            type="search"
-            [ngModel]="helpService.searchQuery()"
-            (ngModelChange)="onSearch($event)"
-            placeholder="Search help articles..."
-            class="header-portal-search-input"
-          />
+        <div class="nxt1-header-portal__center">
+          <div class="header-portal-search">
+            <nxt1-icon name="search" [size]="16" class="header-portal-search-icon" />
+            <input
+              type="search"
+              [ngModel]="helpService.searchQuery()"
+              (ngModelChange)="onSearch($event)"
+              placeholder="Search help articles..."
+              class="header-portal-search-input"
+            />
+          </div>
         </div>
       </div>
     </ng-template>
@@ -299,7 +301,7 @@ export interface HelpNavigateEvent {
       .header-portal-search {
         position: relative;
         width: 100%;
-        max-width: 320px;
+        max-width: 400px;
       }
 
       .header-portal-search-icon {

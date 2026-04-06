@@ -43,6 +43,7 @@ import {
 } from './queue.types.js';
 import { AgentQueueService } from './queue.service.js';
 import { AgentJobRepository } from './job.repository.js';
+import { DebouncedEventWriter } from './event-writer.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
 import { isAgentYield } from '../errors/agent-yield.error.js';
 import { notifyYield } from '../services/yield-notifier.service.js';
@@ -208,18 +209,28 @@ export class AgentWorker {
       });
     };
 
+    // ── Debounced Event Writer: streams granular events to Firestore subcollection ──
+    // The frontend subscribes to `agentJobs/{operationId}/events` via onSnapshot
+    // to render a live "watch it work" chat experience.
+    const eventWriter = new DebouncedEventWriter(repo, payload.operationId);
+    const onStreamEvent = eventWriter.emit.bind(eventWriter);
+
     // Execute the full agent pipeline (with overall timeout)
     let result;
     try {
       const userFirestore = this.getUserFirestore(job);
-      const routerPromise = this.router.run(payload, onUpdate, userFirestore);
+      const routerPromise = this.router.run(payload, onUpdate, userFirestore, onStreamEvent);
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error('Agent job timed out after 5 minutes')), JOB_TIMEOUT_MS);
       });
       result = await Promise.race([routerPromise, timeoutPromise]);
     } catch (err) {
+      // Flush any buffered deltas before handling the error
+      await eventWriter.flush().catch(() => {});
+
       // ── Yield handling: agent needs user input or approval ─────────────
       if (isAgentYield(err)) {
+        await eventWriter.dispose();
         const yieldPayload = err.payload;
         const now = new Date();
         const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours
@@ -323,6 +334,11 @@ export class AgentWorker {
       }
 
       const message = err instanceof Error ? err.message : 'Agent pipeline error';
+
+      // Write terminal 'done' event with error so frontend's Firestore listener knows to stop
+      eventWriter.emit({ type: 'done', success: false, error: message });
+      await eventWriter.dispose();
+
       // Write failure to Firestore before re-throwing so BullMQ records the error
       await repo.markFailed(payload.operationId, message).catch((fsErr: unknown) => {
         logger.warn('Failed to write failure to Firestore', {
@@ -358,6 +374,11 @@ export class AgentWorker {
 
       throw err;
     }
+
+    // ── Flush remaining deltas and write terminal 'done' event ──────────
+    await eventWriter.flush().catch(() => {});
+    eventWriter.emit({ type: 'done', success: true, message: result.summary });
+    await eventWriter.dispose();
 
     // Mark 100% in BullMQ
     const completedProgress: AgentJobProgress = {

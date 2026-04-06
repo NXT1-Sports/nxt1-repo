@@ -156,3 +156,5 @@ for (const file of files) {
   fs.writeFileSync(file, content);
   console.log(`Updated ${file}`);
 }
+
+// Note: Patched typescript.js referencedFiles bounds check to gracefully ignore rather than throw DEBUG error.

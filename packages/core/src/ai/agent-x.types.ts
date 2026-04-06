@@ -75,6 +75,16 @@ export interface AgentXMessage {
   readonly yieldState?: AgentYieldState;
   /** The operation ID associated with this yield (needed to approve/reply). */
   readonly operationId?: string;
+  /**
+   * Inline tool execution steps displayed as a Copilot-style accordion.
+   * Populated in real time as the backend executes tools during a streaming response.
+   */
+  readonly steps?: readonly AgentXToolStep[];
+  /**
+   * Rich interactive cards embedded in the message (e.g. planner checklist).
+   * Rendered as standalone UI components inside the chat bubble.
+   */
+  readonly cards?: readonly AgentXRichCard[];
 }
 
 /**
@@ -220,6 +230,223 @@ export interface AgentXUserContext {
 }
 
 // ============================================
+// TOOL STEP & RICH CARD TYPES
+// ============================================
+
+/** Execution status of a single tool step. */
+export type AgentXToolStepStatus = 'pending' | 'active' | 'success' | 'error';
+
+/**
+ * A single tool execution step shown as an inline log in the chat bubble.
+ * Rendered in a Copilot-style accordion: spinner when active, checkmark on success.
+ */
+export interface AgentXToolStep {
+  /** Unique step identifier (UUID). */
+  readonly id: string;
+  /** Short human-readable label (e.g. "Searching athlete database…"). */
+  readonly label: string;
+  /** Current execution status — updated in real time via SSE. */
+  readonly status: AgentXToolStepStatus;
+  /** Optional detail text shown when the accordion is expanded. */
+  readonly detail?: string;
+}
+
+/** Card type discriminator for rich inline cards. */
+export type AgentXRichCardType =
+  | 'planner'
+  | 'confirmation'
+  | 'data-table'
+  | 'citations'
+  | 'parameter-form'
+  | 'draft'
+  | 'profile'
+  | 'film-timeline';
+
+/** A single item in a planner checklist card. */
+export interface AgentXPlannerItem {
+  /** Unique ID for this checklist item. */
+  readonly id: string;
+  /** Human-readable step description. */
+  readonly label: string;
+  /** Whether the step is complete. */
+  readonly done: boolean;
+}
+
+/**
+ * A rich interactive card rendered inline in the chat timeline.
+ * The `type` discriminator determines which Angular component is projected.
+ */
+export interface AgentXRichCard {
+  /** Card type — drives Angular component selection. */
+  readonly type: AgentXRichCardType;
+  /** Card title (shown as header). */
+  readonly title: string;
+  /** Type-specific payload. */
+  readonly payload:
+    | AgentXPlannerPayload
+    | AgentXDataTablePayload
+    | AgentXConfirmationPayload
+    | AgentXCitationsPayload
+    | AgentXParameterFormPayload
+    | AgentXDraftPayload
+    | AgentXProfilePayload
+    | AgentXFilmTimelinePayload
+    | Record<string, unknown>;
+}
+
+// ── Planner ──
+
+/** Payload for the `planner` card type. */
+export interface AgentXPlannerPayload {
+  /** Ordered list of checklist items. */
+  readonly items: readonly AgentXPlannerItem[];
+}
+
+// ── Data Table ──
+
+/** Column definition for the `data-table` card type. */
+export interface AgentXDataTableColumn {
+  /** Machine-readable key (matches row value keys). */
+  readonly key: string;
+  /** Human-visible column header. */
+  readonly label: string;
+  /** Optional text alignment. */
+  readonly align?: 'left' | 'center' | 'right';
+}
+
+/** Payload for the `data-table` card type. */
+export interface AgentXDataTablePayload {
+  /** Column definitions (order determines display order). */
+  readonly columns: readonly AgentXDataTableColumn[];
+  /** Row data — each row is a key/value map matching column keys. */
+  readonly rows: readonly Record<string, string | number | boolean | undefined>[];
+}
+
+// ── Confirmation ──
+
+/** A single action button in the `confirmation` card. */
+export interface AgentXConfirmationAction {
+  /** Machine-readable action identifier. */
+  readonly id: string;
+  /** Human-visible button label. */
+  readonly label: string;
+  /** Visual style variant. */
+  readonly variant: 'primary' | 'secondary' | 'destructive';
+}
+
+/** Payload for the `confirmation` card type. */
+export interface AgentXConfirmationPayload {
+  /** Descriptive message body. */
+  readonly message: string;
+  /** Available action buttons (max 3). */
+  readonly actions: readonly AgentXConfirmationAction[];
+}
+
+// ── Citations ──
+
+/** A single citation/source reference. */
+export interface AgentXCitation {
+  /** Unique citation identifier. */
+  readonly id: string;
+  /** Display label (e.g. article title, page name). */
+  readonly label: string;
+  /** Destination URL. */
+  readonly url: string;
+  /** Optional favicon or icon URL. */
+  readonly iconUrl?: string;
+}
+
+/** Payload for the `citations` card type. */
+export interface AgentXCitationsPayload {
+  /** Ordered list of cited source references. */
+  readonly sources: readonly AgentXCitation[];
+}
+
+// ── Parameter Form ──
+
+/** A single form field in the `parameter-form` card. */
+export interface AgentXParameterField {
+  /** Machine-readable field key (submitted in the form payload). */
+  readonly key: string;
+  /** Human-visible label. */
+  readonly label: string;
+  /** Input type. */
+  readonly type: 'text' | 'number' | 'select' | 'toggle';
+  /** Default value (pre-filled in the form). */
+  readonly defaultValue?: string | number | boolean;
+  /** Options list (required when type = 'select'). */
+  readonly options?: readonly string[];
+  /** Optional placeholder text. */
+  readonly placeholder?: string;
+}
+
+/** Payload for the `parameter-form` card type. */
+export interface AgentXParameterFormPayload {
+  /** Ordered list of form fields. */
+  readonly fields: readonly AgentXParameterField[];
+  /** Label for the submit button. */
+  readonly submitLabel: string;
+}
+
+// ── Draft ──
+
+/** Payload for the `draft` card type (outreach editor). */
+export interface AgentXDraftPayload {
+  /** The draft body content (editable by the user). */
+  readonly content: string;
+  /** Optional email subject line (editable by the user). */
+  readonly subject?: string;
+  /** Number of recipients (display-only context). */
+  readonly recipientsCount?: number;
+}
+
+// ── Profile ──
+
+/** A single stat displayed in the profile micro-card. */
+export interface AgentXProfileStat {
+  /** Stat label (e.g. "Height", "GPA", "40yd"). */
+  readonly label: string;
+  /** Stat value (e.g. "6'2\"", "3.8", "4.45s"). */
+  readonly value: string;
+}
+
+/** Payload for the `profile` card type (player snapshot). */
+export interface AgentXProfilePayload {
+  /** Platform user ID (used for "View Profile" navigation). */
+  readonly userId: string;
+  /** Display name. */
+  readonly name: string;
+  /** Avatar CDN URL. */
+  readonly avatarUrl?: string;
+  /** Primary position (e.g. "Point Guard", "Wide Receiver"). */
+  readonly position?: string;
+  /** Graduation year. */
+  readonly gradYear?: number;
+  /** Ordered key stats shown below the name. */
+  readonly stats?: readonly AgentXProfileStat[];
+}
+
+// ── Film Timeline ──
+
+/** A single timestamped marker in a film analysis. */
+export interface AgentXFilmMarker {
+  /** Timestamp in milliseconds from video start. */
+  readonly timeMs: number;
+  /** Short human-readable annotation. */
+  readonly label: string;
+  /** Optional sentiment/category for visual styling. */
+  readonly sentiment?: 'positive' | 'negative' | 'neutral';
+}
+
+/** Payload for the `film-timeline` card type (video analyst). */
+export interface AgentXFilmTimelinePayload {
+  /** The video ID this timeline annotates (for parent scrub control). */
+  readonly videoId: string;
+  /** Ordered list of timestamped markers. */
+  readonly markers: readonly AgentXFilmMarker[];
+}
+
+// ============================================
 // SSE STREAMING TYPES
 // ============================================
 
@@ -266,6 +493,40 @@ export interface AgentXStreamErrorEvent {
 }
 
 /**
+ * Payload of the `event: step` SSE frame.
+ * Sent when the backend begins, updates, or completes a tool execution step.
+ */
+export interface AgentXStreamStepEvent {
+  /** Unique step identifier. */
+  readonly id: string;
+  /** Short human-readable label (e.g. "Querying athlete stats…"). */
+  readonly label: string;
+  /** Current step status — `active` when starting, `success`/`error` when done. */
+  readonly status: AgentXToolStepStatus;
+  /** Optional expanded detail (e.g. "Found 24 matching athletes"). */
+  readonly detail?: string;
+}
+
+/**
+ * Payload of the `event: card` SSE frame.
+ * Sent when the backend wants to embed a rich interactive card in the chat.
+ */
+export interface AgentXStreamCardEvent {
+  /** Card type discriminator. */
+  readonly type: AgentXRichCardType;
+  /** Card title. */
+  readonly title: string;
+  /** Type-specific payload (e.g. planner checklist items). */
+  readonly payload:
+    | AgentXPlannerPayload
+    | AgentXDataTablePayload
+    | AgentXConfirmationPayload
+    | AgentXCitationsPayload
+    | AgentXParameterFormPayload
+    | Record<string, unknown>;
+}
+
+/**
  * Callbacks consumed by `streamMessage()` in the API factory.
  */
 export interface AgentXStreamCallbacks {
@@ -277,6 +538,10 @@ export interface AgentXStreamCallbacks {
   onDone: (event: AgentXStreamDoneEvent) => void;
   /** Called if the stream encounters an error. */
   onError: (event: AgentXStreamErrorEvent) => void;
+  /** Called when a tool execution step starts, updates, or completes. */
+  onStep?: (event: AgentXStreamStepEvent) => void;
+  /** Called when the backend embeds a rich interactive card (planner, table, etc.). */
+  onCard?: (event: AgentXStreamCardEvent) => void;
 }
 
 /**

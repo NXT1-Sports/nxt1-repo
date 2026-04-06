@@ -99,9 +99,7 @@ export class TelemetryService {
   isModelAllowed(_userTier: string, modelTier: string): boolean {
     const limits = AGENT_USAGE_LIMITS[0];
     if (!limits) return false;
-    return limits.allowedModelTiers.includes(
-      modelTier as 'fast' | 'balanced' | 'reasoning' | 'creative'
-    );
+    return (limits.allowedModelTiers as readonly string[]).includes(modelTier);
   }
 
   /**

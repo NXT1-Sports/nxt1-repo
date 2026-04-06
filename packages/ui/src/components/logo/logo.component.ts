@@ -62,7 +62,6 @@ export type Theme = 'light' | 'dark' | string; // 'string' allows custom themes 
     class: 'inline-block leading-none',
     '[class.block]': 'isBlock',
   },
-  styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtLogoComponent {

@@ -45,6 +45,10 @@ export enum AgentModel {
 }
 
 export class ChatMessageDto {
+  @IsString()
+  @IsOptional()
+  id?: string;
+
   @IsEnum(AgentRole)
   @IsNotEmpty()
   role!: AgentRole;

@@ -24,3 +24,6 @@ export { ComplianceRulebookSkill } from './compliance/compliance-rulebook.skill.
 export { StaticGraphicStyleSkill } from './brand/static-graphic-style.skill.js';
 export { VideoHighlightStyleSkill } from './brand/video-highlight-style.skill.js';
 export { SocialCaptionStyleSkill } from './brand/social-caption-style.skill.js';
+
+// Knowledge (dynamic vector retrieval)
+export { GlobalKnowledgeSkill } from './knowledge/global-knowledge.skill.js';

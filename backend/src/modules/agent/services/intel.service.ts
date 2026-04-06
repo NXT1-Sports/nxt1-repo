@@ -168,7 +168,7 @@ export class IntelGenerationService {
           { role: 'user', content: prompt },
         ],
         {
-          tier: 'balanced',
+          tier: 'evaluator',
           maxTokens: 4096,
           temperature: 0.6,
           jsonMode: true,
@@ -271,7 +271,7 @@ export class IntelGenerationService {
           { role: 'user', content: prompt },
         ],
         {
-          tier: 'balanced',
+          tier: 'evaluator',
           maxTokens: 4096,
           temperature: 0.6,
           jsonMode: true,

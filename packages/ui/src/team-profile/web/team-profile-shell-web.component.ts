@@ -263,19 +263,28 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
               </nav>
 
               <!-- Content Area: Side tabs + scrollable content -->
-              <div class="madden-content-layer">
+              <div
+                class="madden-content-layer"
+                [class.madden-content-layer--no-side-nav]="!showSideNav()"
+              >
                 <!-- LEFT SIDE NAV COLUMN -->
-                <div class="madden-side-nav-column">
-                  <nxt1-section-nav-web
-                    [items]="sideTabItems()"
-                    [activeId]="activeSideTab()"
-                    ariaLabel="Section navigation"
-                    (selectionChange)="onSectionNavChange($event)"
-                  />
-                </div>
+                @if (showSideNav()) {
+                  <div class="madden-side-nav-column">
+                    <nxt1-section-nav-web
+                      [items]="sideTabItems()"
+                      [activeId]="activeSideTab()"
+                      ariaLabel="Section navigation"
+                      (selectionChange)="onSectionNavChange($event)"
+                    />
+                  </div>
+                }
 
                 <!-- MAIN CONTENT AREA — Each tab renders its own extracted component -->
-                <section class="madden-content-scroll" aria-live="polite">
+                <section
+                  class="madden-content-scroll"
+                  [class.madden-content-scroll--wide]="useFullWidthIntelLayout()"
+                  aria-live="polite"
+                >
                   <nxt1-profile-verification-banner
                     [activeTab]="teamProfile.activeTab()"
                     [activeSideTab]="activeSideTab()"
@@ -841,6 +850,10 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
         padding-top: var(--nxt1-spacing-2, 8px);
         padding-left: calc(var(--shell-content-padding-x, 32px) - 4px);
       }
+      .madden-content-layer--no-side-nav {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0;
+      }
       .madden-side-nav-column {
         position: relative;
         display: flex;
@@ -880,6 +893,12 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
       .madden-content-scroll > * {
         width: 100%;
         max-width: 660px;
+      }
+      .madden-content-scroll--wide {
+        align-items: stretch;
+      }
+      .madden-content-scroll--wide > * {
+        max-width: none;
       }
       .madden-content-scroll::-webkit-scrollbar {
         width: 6px;
@@ -1630,6 +1649,10 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     return TEAM_PROFILE_EMPTY_STATES[tab] || TEAM_PROFILE_EMPTY_STATES['intel'];
   });
 
+  protected readonly useFullWidthIntelLayout = computed(
+    () => this.teamProfile.activeTab() === 'intel'
+  );
+
   /** Unique season labels derived from team schedule events (most recent first). */
   protected readonly scheduleSeasons = computed<readonly string[]>(() => {
     const seen = new Set<string>();
@@ -1652,12 +1675,7 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     const tab = this.teamProfile.activeTab();
 
     const sections: Record<string, SectionNavItem[]> = {
-      intel: [
-        { id: 'about', label: 'About' },
-        { id: 'staff', label: 'Staff' },
-        { id: 'team-history', label: 'Team History' },
-        { id: 'sponsors', label: 'Sponsors' },
-      ],
+      intel: [],
       timeline: [
         {
           id: 'pinned',
@@ -1700,6 +1718,8 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
 
     return sections[tab] ?? sections['intel'];
   });
+
+  protected readonly showSideNav = computed(() => this.sideTabItems().length > 0);
 
   /** Active side tab */
   private readonly _activeSideTab = signal<string>('');

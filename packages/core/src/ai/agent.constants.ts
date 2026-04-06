@@ -112,14 +112,45 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
 // ─── Model Routing Defaults ─────────────────────────────────────────────────
 
 export const MODEL_ROUTING_DEFAULTS: Record<string, ModelRoutingConfig> = {
-  /** Fast intent classification & JSON extraction. */
-  fast: { tier: 'fast', maxTokens: 512, temperature: 0 },
-  /** Default conversational responses. */
-  balanced: { tier: 'balanced', maxTokens: 2048, temperature: 0.7 },
-  /** Complex reasoning: scouting evaluations, compliance checks. */
-  reasoning: { tier: 'reasoning', maxTokens: 4096, temperature: 0.3 },
-  /** Creative generation: email copy, social captions, graphic prompts. */
-  creative: { tier: 'creative', maxTokens: 2048, temperature: 0.9 },
+  // ── Text Tiers ──────────────────────────────────────────────────────────
+  /** Fast JSON routing & multi-agent dispatching (Planner). */
+  routing: { tier: 'routing', maxTokens: 1024, temperature: 0 },
+  /** Structured data extraction: HTML → JSON, CSV parsing, schema mapping. */
+  extraction: { tier: 'extraction', maxTokens: 4096, temperature: 0 },
+  /** Massive-context aggregation: play-by-play, bulk stats, scraping. */
+  data_heavy: { tier: 'data_heavy', maxTokens: 8192, temperature: 0 },
+  /** Deep analytical evaluation: scout reports, biometrics, progression. */
+  evaluator: { tier: 'evaluator', maxTokens: 4096, temperature: 0.3 },
+  /** Factual rule validation: NCAA compliance, eligibility, transfer portal. */
+  compliance: { tier: 'compliance', maxTokens: 4096, temperature: 0 },
+  /** Human-sounding copywriting: recruiting emails, social captions, press. */
+  copywriting: { tier: 'copywriting', maxTokens: 2048, temperature: 0.9 },
+  /** Creative prompt engineering: text-to-image/video prompt generation. */
+  prompt_engineering: { tier: 'prompt_engineering', maxTokens: 2048, temperature: 0.9 },
+  /** Lightweight conversational chat: general Q&A, platform help. */
+  chat: { tier: 'chat', maxTokens: 2048, temperature: 0.7 },
+  /** Temporal orchestration: campaign scheduling, recurring tasks. */
+  task_automation: { tier: 'task_automation', maxTokens: 2048, temperature: 0.3 },
+
+  // ── Media Tiers ─────────────────────────────────────────────────────────
+  /** Image creation: brand graphics, scout report visuals, promo art. */
+  image_generation: { tier: 'image_generation', maxTokens: 4096, temperature: 0.7 },
+  /** Video creation: highlight reels, commitment announcements. */
+  video_generation: { tier: 'video_generation', maxTokens: 4096, temperature: 0.7 },
+  /** Image/document understanding: OCR, stat sheet reading, film stills. */
+  vision_analysis: { tier: 'vision_analysis', maxTokens: 4096, temperature: 0 },
+  /** Audio understanding: game broadcasts, interview clips, coach calls. */
+  audio_analysis: { tier: 'audio_analysis', maxTokens: 4096, temperature: 0 },
+  /** Text-to-speech: AI sportscaster voiceovers, highlight narration. */
+  voice_generation: { tier: 'voice_generation', maxTokens: 1024, temperature: 0.5 },
+  /** AI music: hype beats, highlight reel background tracks. */
+  music_generation: { tier: 'music_generation', maxTokens: 1024, temperature: 0.7 },
+
+  // ── Utility Tiers ──────────────────────────────────────────────────────
+  /** Text-to-vector embedding for semantic search. */
+  embedding: { tier: 'embedding', maxTokens: 0, temperature: 0 },
+  /** Content safety classification: prompt injection, toxic content. */
+  moderation: { tier: 'moderation', maxTokens: 512, temperature: 0 },
 } as const;
 
 // ─── Guardrail Descriptors ──────────────────────────────────────────────────
@@ -389,7 +420,25 @@ export const AGENT_USAGE_LIMITS: readonly AgentUsageLimits[] = [
     maxCallsPerDay: 1000,
     maxTokensPerDay: 2_000_000,
     maxCostPerDay: 10.0,
-    allowedModelTiers: ['fast', 'balanced', 'reasoning', 'creative'],
+    allowedModelTiers: [
+      'routing',
+      'extraction',
+      'data_heavy',
+      'evaluator',
+      'compliance',
+      'copywriting',
+      'prompt_engineering',
+      'chat',
+      'task_automation',
+      'image_generation',
+      'video_generation',
+      'vision_analysis',
+      'audio_analysis',
+      'voice_generation',
+      'music_generation',
+      'embedding',
+      'moderation',
+    ],
   },
 ] as const;
 
@@ -400,11 +449,17 @@ export const AGENT_USAGE_LIMITS: readonly AgentUsageLimits[] = [
  */
 export const AGENT_MODEL_PRICING: Record<string, { input: number; output: number }> = {
   'anthropic/claude-3.5-sonnet': { input: 3.0, output: 15.0 },
+  'anthropic/claude-haiku-4-5': { input: 0.8, output: 4.0 },
   'anthropic/claude-3-haiku': { input: 0.25, output: 1.25 },
   'openai/gpt-4o': { input: 2.5, output: 10.0 },
   'openai/gpt-4o-mini': { input: 0.15, output: 0.6 },
   'google/gemini-2.0-flash': { input: 0.1, output: 0.4 },
+  'google/gemini-3-pro-image-preview': { input: 1.25, output: 5.0 },
   'meta-llama/llama-3.1-70b': { input: 0.5, output: 0.7 },
+  'meta-llama/llama-guard-3-8b': { input: 0.2, output: 0.2 },
+  'minimax/minimax-m2.7': { input: 0.3, output: 1.2 },
+  'openai/text-embedding-3-small': { input: 0.02, output: 0.0 },
+  'qwen/qwen3.6-plus:free': { input: 0.0, output: 0.0 },
 } as const;
 
 /** @deprecated Use OPERATION_STATUS_LABELS directly — all statuses are now included. */

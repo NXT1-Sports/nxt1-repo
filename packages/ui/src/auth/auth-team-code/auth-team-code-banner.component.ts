@@ -86,7 +86,6 @@ export type TeamCodeBannerVariant = 'full' | 'compact';
       }
     }
   `,
-  styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AuthTeamCodeBannerComponent {

@@ -26,8 +26,18 @@ import {
   getAuth,
   indexedDBLocalPersistence,
   initializeAuth,
+  Auth,
 } from '@angular/fire/auth';
 import { provideFunctions, getFunctions } from '@angular/fire/functions';
+import {
+  provideFirestore,
+  getFirestore,
+  Firestore,
+  collection,
+  query,
+  orderBy as firestoreOrderBy,
+  onSnapshot as firestoreOnSnapshot,
+} from '@angular/fire/firestore';
 import { Capacitor } from '@capacitor/core';
 
 // Shared Angular infrastructure from @nxt1/ui
@@ -38,6 +48,8 @@ import {
   ANALYTICS_ADAPTER,
   httpErrorInterceptor,
   AGENT_X_API_BASE_URL,
+  AGENT_X_AUTH_TOKEN_FACTORY,
+  FIRESTORE_ADAPTER,
   ACTIVITY_API_BASE_URL,
   ACTIVITY_API_ADAPTER,
   ANALYTICS_API_BASE_URL,
@@ -155,6 +167,7 @@ export const appConfig: ApplicationConfig = {
     // Firebase - use custom auth initialization for native platforms
     provideFirebaseApp(() => initializeApp(environment.firebase)),
     provideAuth(() => getAuthWithPersistence()),
+    provideFirestore(() => getFirestore()),
     provideFunctions(() => {
       const functions = getFunctions();
       // Connect to emulator in development if needed
@@ -194,6 +207,37 @@ export const appConfig: ApplicationConfig = {
 
     // Agent X API base URL
     { provide: AGENT_X_API_BASE_URL, useFactory: () => environment.apiUrl },
+
+    // Agent X Auth Token Factory (for SSE uploads and fallback requests)
+    {
+      provide: AGENT_X_AUTH_TOKEN_FACTORY,
+      useFactory: (auth: Auth) => () => auth.currentUser?.getIdToken() ?? Promise.resolve(null),
+      deps: [Auth],
+    },
+
+    // Agent X live background operation events (onSnapshot adapter)
+    {
+      provide: FIRESTORE_ADAPTER,
+      useFactory: (firestore: Firestore) => ({
+        onSnapshot: (
+          path: string,
+          orderByField: string,
+          onNext: (docs: ReadonlyArray<Record<string, unknown>>) => void,
+          onError: (error: Error) => void
+        ) => {
+          const ref = collection(firestore, path);
+          const q = query(ref, firestoreOrderBy(orderByField));
+          return firestoreOnSnapshot(
+            q,
+            (snap) => {
+              onNext(snap.docs.map((d) => d.data()));
+            },
+            onError
+          );
+        },
+      }),
+      deps: [Firestore],
+    },
 
     // Activity API base URL
     { provide: ACTIVITY_API_BASE_URL, useFactory: () => environment.apiUrl },

@@ -147,6 +147,77 @@ export type AgentMemoryCategory =
   | 'performance_data'
   | 'system';
 
+// ─── Global Knowledge Base ──────────────────────────────────────────────────
+
+/** Categories for the global domain knowledge base. */
+export type KnowledgeCategory =
+  | 'ncaa_rules'
+  | 'naia_rules'
+  | 'njcaa_rules'
+  | 'eligibility'
+  | 'recruiting_calendar'
+  | 'compliance'
+  | 'platform_guide'
+  | 'help_center'
+  | 'sport_rules'
+  | 'training'
+  | 'nutrition'
+  | 'mental_performance'
+  | 'nil'
+  | 'transfer_portal'
+  | 'general';
+
+/** Source type describing how a knowledge document was ingested. */
+export type KnowledgeSourceType = 'pdf' | 'url' | 'manual' | 'help_center' | 'api';
+
+/** A single chunk stored in the global knowledge base. */
+export interface KnowledgeEntry {
+  readonly id: string;
+  readonly content: string;
+  readonly category: KnowledgeCategory;
+  readonly source: KnowledgeSourceType;
+  readonly title: string;
+  /** The original URL, file path, or reference for traceability. */
+  readonly sourceRef?: string;
+  /** Zero-based chunk index within the original document. */
+  readonly chunkIndex: number;
+  /** Total number of chunks the original document was split into. */
+  readonly totalChunks: number;
+  readonly metadata?: Record<string, unknown>;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  /** The version of this document (incremented on re-ingestion). */
+  readonly version: number;
+}
+
+/** A retrieval result with its cosine similarity score. */
+export interface KnowledgeRetrievalResult {
+  readonly entry: KnowledgeEntry;
+  readonly score: number;
+}
+
+/** Options for ingesting a document into the knowledge base. */
+export interface KnowledgeIngestionRequest {
+  readonly content: string;
+  readonly category: KnowledgeCategory;
+  readonly source: KnowledgeSourceType;
+  readonly title: string;
+  readonly sourceRef?: string;
+  readonly metadata?: Record<string, unknown>;
+  /** Maximum tokens per chunk (default: 512). */
+  readonly chunkSize?: number;
+  /** Overlap tokens between chunks for context continuity (default: 64). */
+  readonly chunkOverlap?: number;
+}
+
+/** Result of a knowledge ingestion operation. */
+export interface KnowledgeIngestionResult {
+  readonly chunksCreated: number;
+  readonly title: string;
+  readonly category: KnowledgeCategory;
+  readonly version: number;
+}
+
 /** A session-scoped context object (stored in Redis, not vector DB). */
 export interface AgentSessionContext {
   readonly sessionId: string;
@@ -192,8 +263,76 @@ export interface GuardrailDescriptor {
 
 // ─── Model Routing ──────────────────────────────────────────────────────────
 
-/** Hint for the model router to pick the right LLM. */
-export type ModelTier = 'fast' | 'balanced' | 'reasoning' | 'creative';
+// ── Text Tiers ──────────────────────────────────────────────────────────────
+// Each tier maps to a specific LLM optimized for that workload.
+
+/** Fast, reliable JSON routing & multi-agent dispatching (Planner). */
+type TextTierRouting = 'routing';
+/** Structured data extraction: HTML → JSON, CSV parsing, schema mapping. */
+type TextTierExtraction = 'extraction';
+/** Massive-context data aggregation: play-by-play logs, bulk stats ingestion. */
+type TextTierDataHeavy = 'data_heavy';
+/** Deep analytical evaluation: scout reports, biometrics, progression curves. */
+type TextTierEvaluator = 'evaluator';
+/** Factual rule validation: NCAA compliance, eligibility, transfer portal. */
+type TextTierCompliance = 'compliance';
+/** Human-sounding copywriting: recruiting emails, social captions, press. */
+type TextTierCopywriting = 'copywriting';
+/** Creative prompt engineering: text-to-image/video prompt generation. */
+type TextTierPromptEngineering = 'prompt_engineering';
+/** Lightweight conversational chat: general Q&A, platform help. */
+type TextTierChat = 'chat';
+/** Temporal orchestration: campaign scheduling, recurring tasks, calendar. */
+type TextTierTaskAutomation = 'task_automation';
+
+/** All text-generation model tiers. */
+export type TextModelTier =
+  | TextTierRouting
+  | TextTierExtraction
+  | TextTierDataHeavy
+  | TextTierEvaluator
+  | TextTierCompliance
+  | TextTierCopywriting
+  | TextTierPromptEngineering
+  | TextTierChat
+  | TextTierTaskAutomation;
+
+// ── Media Tiers ─────────────────────────────────────────────────────────────
+
+/** Image creation: brand graphics, scout report visuals, promo art. */
+type MediaTierImageGeneration = 'image_generation';
+/** Video creation: highlight reels, commitment announcements. */
+type MediaTierVideoGeneration = 'video_generation';
+/** Image/document understanding: OCR, stat sheet reading, film stills. */
+type MediaTierVisionAnalysis = 'vision_analysis';
+/** Audio understanding: game broadcasts, interview clips, coach calls. */
+type MediaTierAudioAnalysis = 'audio_analysis';
+/** Text-to-speech: AI sportscaster voiceovers, highlight narration. */
+type MediaTierVoiceGeneration = 'voice_generation';
+/** AI music: hype beats, highlight reel soundtracks. */
+type MediaTierMusicGeneration = 'music_generation';
+
+/** All media-generation model tiers. */
+export type MediaModelTier =
+  | MediaTierImageGeneration
+  | MediaTierVideoGeneration
+  | MediaTierVisionAnalysis
+  | MediaTierAudioAnalysis
+  | MediaTierVoiceGeneration
+  | MediaTierMusicGeneration;
+
+// ── Utility Tiers ───────────────────────────────────────────────────────────
+
+/** Text-to-vector embedding for semantic search (MongoDB Atlas Vector Search). */
+type UtilityTierEmbedding = 'embedding';
+/** Content safety classification: prompt injection, toxic content filtering. */
+type UtilityTierModeration = 'moderation';
+
+/** All utility/infrastructure model tiers. */
+export type UtilityModelTier = UtilityTierEmbedding | UtilityTierModeration;
+
+/** Union of ALL model tiers across text, media, and utility. */
+export type ModelTier = TextModelTier | MediaModelTier | UtilityModelTier;
 
 /** Configuration for a model routing decision. */
 export interface ModelRoutingConfig {
@@ -584,6 +723,10 @@ export interface AgentUserContext {
   readonly coachProgram?: string;
   readonly coachDivision?: string;
   readonly coachSport?: string;
+
+  // ── Team Context (from active sport) ──────────────────────────
+  readonly teamId?: string;
+  readonly organizationId?: string;
 }
 
 /** A third-party account the user has connected (Gmail, Twitter, Hudl, etc.). */
@@ -663,4 +806,56 @@ export interface AgentUsageLimits {
   readonly maxCostPerDay: number;
   /** Allowed model tiers. Currently all tiers are allowed for every user. */
   readonly allowedModelTiers: readonly ModelTier[];
+}
+
+// ─── Job Event Types (Firestore Subcollection) ─────────────────────────────
+
+/**
+ * Event types written to the `agentJobs/{operationId}/events` subcollection.
+ * The frontend subscribes via Firestore `onSnapshot` to render live UI.
+ *
+ * @see backend/src/modules/agent/queue/job.repository.ts — canonical source
+ */
+export type JobEventType =
+  | 'step_active'
+  | 'step_done'
+  | 'step_error'
+  | 'delta'
+  | 'tool_call'
+  | 'tool_result'
+  | 'done';
+
+/**
+ * A single event document stored in `agentJobs/{operationId}/events/{autoId}`.
+ * The frontend reads these via `onSnapshot`, ordered by `seq`, to reconstruct
+ * the live agent execution as a chat-like experience.
+ *
+ * 100% portable — mirrors the backend Firestore shape without importing
+ * firebase-admin types.
+ */
+export interface JobEvent {
+  /** Monotonically increasing sequence number (0-based). */
+  readonly seq: number;
+  /** What kind of event this is. */
+  readonly type: JobEventType;
+  /** Agent identifier if known (e.g. 'recruiting', 'performance'). */
+  readonly agentId?: string;
+  /** Human-readable message for the UI. */
+  readonly message?: string;
+  /** Accumulated LLM text for `delta` events. */
+  readonly text?: string;
+  /** Tool name for `tool_call` / `tool_result` events. */
+  readonly toolName?: string;
+  /** Tool arguments (JSON string) for `tool_call` events. */
+  readonly toolArgs?: string;
+  /** Tool result summary for `tool_result` events. */
+  readonly toolResult?: Record<string, unknown>;
+  /** Whether the tool_result was a success. */
+  readonly toolSuccess?: boolean;
+  /** Whether the job finished successfully (for `done` events). */
+  readonly success?: boolean;
+  /** Error message for `step_error` / `done` events. */
+  readonly error?: string;
+  /** Server timestamp (Firestore Timestamp — reads as { seconds, nanoseconds }). */
+  readonly createdAt?: unknown;
 }

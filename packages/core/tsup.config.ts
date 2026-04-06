@@ -23,6 +23,7 @@ export default defineConfig({
     'src/onboarding/index.ts', // Onboarding navigation and link-drop types
     'src/performance/index.ts', // Performance tracing abstraction
     'src/ai/index.ts', // AI definitions
+    'src/team-profile/index.ts', // Team profile types and API
   ],
   format: ['cjs', 'esm'],
   outExtension({ format }) {

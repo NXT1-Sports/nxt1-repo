@@ -116,6 +116,11 @@
       "types": "./dist/ai/index.d.ts",
       "import": "./dist/ai/index.js",
       "require": "./dist/ai/index.cjs"
+    },
+    "./team-profile": {
+      "types": "./dist/team-profile/index.d.ts",
+      "import": "./dist/team-profile/index.js",
+      "require": "./dist/team-profile/index.cjs"
     }
   },
   "files": [

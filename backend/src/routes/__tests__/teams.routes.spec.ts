@@ -23,6 +23,8 @@ describe('Teams Routes', () => {
         { path: '/:id', method: 'get' },
         { path: '/code/:teamCode', method: 'get' },
         { path: '/by-slug/:slug', method: 'get' },
+        { path: '/:id/intel', method: 'get' },
+        { path: '/:id/intel/generate', method: 'post' },
         { path: '/:id', method: 'patch' },
         { path: '/:teamCode/join', method: 'post' },
         { path: '/:id/invite', method: 'post' },
@@ -30,7 +32,7 @@ describe('Teams Routes', () => {
         { path: '/:teamId/events', method: 'get' },
         { path: '/:id/view', method: 'post' },
       ],
-      11
+      13
     );
   });
 });

@@ -244,7 +244,7 @@ export class AgentGenerationService {
           { role: 'user', content: prompt },
         ],
         {
-          tier: 'fast',
+          tier: 'chat',
           maxTokens: 2048,
           temperature: 0.7,
           jsonMode: true,
@@ -520,7 +520,7 @@ export class AgentGenerationService {
           { role: 'user', content: promptLines },
         ],
         {
-          tier: 'fast',
+          tier: 'chat',
           maxTokens: 1024,
           temperature: 0.7,
           jsonMode: true,

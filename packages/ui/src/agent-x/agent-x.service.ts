@@ -62,6 +62,8 @@ import {
   COLLEGE_QUICK_TASKS,
 } from '@nxt1/core';
 import { createAgentXApi } from '@nxt1/core/ai';
+import type { AgentXToolStep, AgentXStreamStepEvent, AgentXStreamCardEvent } from '@nxt1/core/ai';
+import { AgentXOperationEventService } from './agent-x-operation-event.service';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
@@ -94,6 +96,7 @@ export class AgentXService {
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
   private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
   private readonly jobService = inject(AgentXJobService);
+  private readonly operationEventService = inject(AgentXOperationEventService);
 
   /** Pure API factory instance — used for SSE streaming and non-streaming calls. */
   private readonly api = createAgentXApi(
@@ -688,6 +691,41 @@ export class AgentXService {
             );
           },
 
+          onStep: (evt: AgentXStreamStepEvent) => {
+            this._messages.update((msgs) =>
+              msgs.map((m) => {
+                if (m.id !== streamingId) return m;
+                const prev = m.steps ?? [];
+                const idx = prev.findIndex((s) => s.id === evt.id);
+                const step: AgentXToolStep = {
+                  id: evt.id,
+                  label: evt.label,
+                  status: evt.status,
+                  detail: evt.detail,
+                };
+                const next =
+                  idx >= 0 ? prev.map((s, i) => (i === idx ? step : s)) : [...prev, step];
+                return { ...m, steps: next };
+              })
+            );
+          },
+
+          onCard: (evt: AgentXStreamCardEvent) => {
+            this._messages.update((msgs) =>
+              msgs.map((m) =>
+                m.id === streamingId
+                  ? {
+                      ...m,
+                      cards: [
+                        ...(m.cards ?? []),
+                        { type: evt.type, title: evt.title, payload: evt.payload },
+                      ],
+                    }
+                  : m
+              )
+            );
+          },
+
           onDone: (evt) => {
             // Freeze the final message with metadata
             this._messages.update((msgs) =>
@@ -827,6 +865,161 @@ export class AgentXService {
           : m
       )
     );
+  }
+
+  // ============================================
+  // BACKGROUND JOB PATH (BullMQ + Firestore Live Events)
+  // ============================================
+
+  /**
+   * Send a message as a background BullMQ job with live Firestore event streaming.
+   *
+   * This is the "Optimistic Background Pattern": the job is enqueued in BullMQ
+   * for reliability, and the frontend subscribes to Firestore
+   * `agentJobs/{operationId}/events` via `onSnapshot` to stream real-time
+   * tool steps, content deltas, and completion events back into the chat UI.
+   *
+   * Use this for heavy operations (batch emails, highlight reels, multi-agent plans)
+   * that may take 30s–5min and shouldn't hold an SSE connection.
+   *
+   * @param intent - Natural language description of the task
+   * @param context - Optional context data for the agent
+   */
+  async sendBackgroundMessage(intent: string, context?: Record<string, unknown>): Promise<void> {
+    if (!intent.trim() || this._isLoading()) return;
+
+    await this.haptics.impact('light');
+
+    // Add user message to chat
+    const userMessage: AgentXMessage = {
+      id: this.generateId(),
+      role: 'user',
+      content: intent,
+      timestamp: new Date(),
+    };
+    this._messages.update((msgs) => [...msgs, userMessage]);
+
+    // Add typing placeholder
+    const streamingId = this.generateId();
+    const typingMessage: AgentXMessage = {
+      id: streamingId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+      isTyping: true,
+    };
+    this._messages.update((msgs) => [...msgs, typingMessage]);
+    this._isLoading.set(true);
+
+    this.logger.info('Sending background message', { intent: intent.slice(0, 80) });
+    this.breadcrumb.trackStateChange('agent-x:background-sending', {
+      intent: intent.slice(0, 80),
+    });
+
+    await this._sendViaBackground(intent, streamingId, context);
+  }
+
+  /**
+   * Background job path — enqueues via BullMQ, subscribes via Firestore onSnapshot.
+   *
+   * Mirrors the same signal updates as `_sendViaStream()` (onDelta, onStep,
+   * onDone, onError callbacks) so the chat UI looks identical regardless of
+   * whether the job ran via SSE or BullMQ background.
+   *
+   * @internal
+   */
+  private async _sendViaBackground(
+    intent: string,
+    streamingId: string,
+    context?: Record<string, unknown>
+  ): Promise<void> {
+    // Step 1: Enqueue the job in BullMQ
+    const result = await this.jobService.enqueue(intent, context);
+
+    if (!result) {
+      this.logger.error('Failed to enqueue background job');
+      this._replaceWithError(streamingId);
+      this._isLoading.set(false);
+      await this.haptics.notification('error');
+      return;
+    }
+
+    const { operationId } = result;
+    this.logger.info('Background job enqueued, subscribing to events', {
+      operationId,
+      jobId: result.jobId,
+    });
+
+    // Step 2: Subscribe to Firestore live events
+    const sub = this.operationEventService.subscribe(operationId, {
+      onDelta: (text: string) => {
+        this._messages.update((msgs) =>
+          msgs.map((m) =>
+            m.id === streamingId ? { ...m, content: m.content + text, isTyping: false } : m
+          )
+        );
+      },
+
+      onStep: (step: AgentXToolStep) => {
+        this._messages.update((msgs) =>
+          msgs.map((m) => {
+            if (m.id !== streamingId) return m;
+            const prev = m.steps ?? [];
+            const idx = prev.findIndex((s) => s.id === step.id);
+            const next = idx >= 0 ? prev.map((s, i) => (i === idx ? step : s)) : [...prev, step];
+            return { ...m, steps: next };
+          })
+        );
+      },
+
+      onDone: (evt) => {
+        // Freeze the final message
+        this._messages.update((msgs) =>
+          msgs.map((m) =>
+            m.id === streamingId
+              ? {
+                  ...m,
+                  isTyping: false,
+                  ...(evt.message ? { content: m.content || evt.message } : {}),
+                  metadata: {
+                    mode: this._selectedMode(),
+                    operationId,
+                  },
+                }
+              : m
+          )
+        );
+
+        this._isLoading.set(false);
+        this.haptics.notification(evt.success ? 'success' : 'error').catch(() => undefined);
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_SENT, {
+          mode: this._selectedMode(),
+          streaming: false,
+          background: true,
+          operationId,
+          success: evt.success,
+        });
+        this.logger.info('Background job completed', {
+          operationId,
+          success: evt.success,
+        });
+
+        // Refresh dashboard to pick up new operation status
+        void this.pollDashboard();
+      },
+
+      onError: (message: string) => {
+        this.logger.error('Background event stream error', message, { operationId });
+        this._replaceWithError(streamingId);
+        this._isLoading.set(false);
+        this.haptics.notification('error').catch(() => undefined);
+      },
+    });
+
+    // Ensure cleanup on service destroy
+    this.destroyRef.onDestroy(() => {
+      sub.unsubscribe();
+    });
   }
 
   // ============================================

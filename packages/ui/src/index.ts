@@ -100,6 +100,7 @@ export {
 // ============================================
 export { NxtLogoComponent, type LogoSize, type LogoVariant } from './components/logo';
 export { NxtChatBubbleComponent, type ChatBubbleVariant } from './components/chat-bubble';
+export { NxtMarkdownComponent } from './components/markdown';
 export { ScheduleBoardComponent } from './components/schedule-board';
 export { StatsDashboardComponent } from './components/stats-dashboard';
 export { NewsBoardComponent } from './components/news-board';
@@ -505,6 +506,9 @@ export {
   AgentXJobService,
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
+  // Firestore Adapter (operation events)
+  FIRESTORE_ADAPTER,
+  type FirestoreAdapter,
 } from './agent-x';
 
 // ============================================
@@ -1126,11 +1130,6 @@ export {
   // Landing Page (Public marketing)
   NxtXpLandingComponent,
   NxtXpDashboardPreviewComponent,
-  // Mock Data (Development Only)
-  MOCK_ATHLETE_XP_TASKS,
-  MOCK_COACH_XP_TASKS,
-  MOCK_ATHLETE_PROGRESS,
-  MOCK_COACH_PROGRESS,
 } from './xp';
 
 // ============================================

@@ -146,3 +146,14 @@ export interface RecurringJobInfo {
   /** ISO timestamp of when the schedule was created. */
   readonly createdAt: string;
 }
+
+/**
+ * Granular stream event written to the `events` subcollection
+ * simulating an SSE stream for the Optimistic Background Pattern.
+ */
+export type AgentJobEvent =
+  | { type: 'step_active'; tool: string; input: Record<string, unknown>; timestamp: number }
+  | { type: 'step_success'; tool: string; result: string; timestamp: number }
+  | { type: 'step_error'; tool: string; error: string; timestamp: number }
+  | { type: 'delta'; text: string; timestamp: number }
+  | { type: 'done'; timestamp: number };

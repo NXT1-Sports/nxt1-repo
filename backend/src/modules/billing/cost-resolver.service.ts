@@ -20,6 +20,7 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import { AGENT_MODEL_PRICING } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
+import { MODEL_CATALOGUE, BILLING_TIER_MAP } from '../agent/llm/llm.types.js';
 import { getPlatformConfig, type PlatformBillingConfig } from './platform-config.service.js';
 
 // ─── Configuration ──────────────────────────────────────────────────────────
@@ -99,15 +100,8 @@ export function estimateMaxCost(
   maxOutputTokens: number = 2048,
   estimatedInputTokens: number = 500
 ): number {
-  // Use the most expensive model in the tier for a conservative estimate
-  const MODEL_TIER_MAP: Record<string, string> = {
-    fast: 'anthropic/claude-3.5-haiku',
-    balanced: 'anthropic/claude-3.5-sonnet',
-    reasoning: 'anthropic/claude-3.5-sonnet',
-    creative: 'anthropic/claude-3.5-sonnet',
-  };
-
-  const modelSlug = MODEL_TIER_MAP[modelTier] ?? 'anthropic/claude-3.5-sonnet';
+  const catalogueKey = BILLING_TIER_MAP[modelTier] ?? 'routing';
+  const modelSlug = MODEL_CATALOGUE[catalogueKey];
   const pricing = AGENT_MODEL_PRICING[modelSlug];
 
   if (!pricing) {

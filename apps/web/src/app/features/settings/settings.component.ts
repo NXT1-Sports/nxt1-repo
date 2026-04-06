@@ -63,7 +63,6 @@ import { SettingsConfirmModalComponent } from './settings-confirm-modal.componen
       />
     </div>
   `,
-  styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SettingsComponent implements OnInit {

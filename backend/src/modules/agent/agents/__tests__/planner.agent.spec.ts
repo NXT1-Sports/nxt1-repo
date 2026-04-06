@@ -18,7 +18,7 @@ function createMockLLM(content: string): OpenRouterService {
     prompt: vi.fn().mockResolvedValue({
       content,
       toolCalls: [],
-      model: 'anthropic/claude-3.5-haiku',
+      model: 'anthropic/claude-haiku-4-5',
       usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
       latencyMs: 200,
       costUsd: 0.0001,
@@ -166,7 +166,7 @@ describe('PlannerAgent', () => {
     // Options should include jsonMode
     expect(callArgs[2]).toMatchObject({
       jsonMode: true,
-      tier: 'balanced',
+      tier: 'routing',
     });
   });
 
@@ -186,7 +186,7 @@ describe('PlannerAgent', () => {
       prompt: vi.fn().mockResolvedValue({
         content: null,
         toolCalls: [],
-        model: 'anthropic/claude-3.5-haiku',
+        model: 'anthropic/claude-haiku-4-5',
         usage: { inputTokens: 10, outputTokens: 0, totalTokens: 10 },
         latencyMs: 100,
         costUsd: 0,
@@ -382,12 +382,12 @@ describe('PlannerAgent', () => {
     expect(planner.getAvailableTools()).toEqual([]);
   });
 
-  it('should use balanced model tier with 1024 maxTokens', () => {
+  it('should use routing model tier with 1024 maxTokens', () => {
     const llm = createMockLLM('{}');
     const planner = new PlannerAgent(llm);
 
     const routing = planner.getModelRouting();
-    expect(routing.tier).toBe('balanced');
+    expect(routing.tier).toBe('routing');
     expect(routing.maxTokens).toBe(1024);
   });
 });

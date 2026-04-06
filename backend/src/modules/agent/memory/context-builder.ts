@@ -38,8 +38,10 @@
  */
 
 import type { AgentUserContext, AgentConnectedAccount } from '@nxt1/core';
+import { getFirestore } from 'firebase-admin/firestore';
 import { getUserById, type UserData } from '../../../services/users.service.js';
 import { getCacheService, CACHE_TTL } from '../../../services/cache.service.js';
+import { TeamServiceAdapter } from '../../../services/team-adapter.service.js';
 import { AgentMessageModel } from '../../../models/agent-message.model.js';
 import { AgentThreadModel } from '../../../models/agent-thread.model.js';
 import { logger } from '../../../utils/logger.js';
@@ -124,7 +126,35 @@ export class ContextBuilder {
     }
 
     // ── Step 3: Map the raw Firestore doc to AgentUserContext ─────────────
-    const context = this.mapUserToContext(userId, user);
+    let context = this.mapUserToContext(userId, user);
+
+    // ── Step 3b: Resolve teamId via RosterEntries if not on user doc ─────
+    if (!context.teamId) {
+      try {
+        const db = firestore ?? getFirestore();
+        const teamAdapter = new TeamServiceAdapter(db);
+        const userTeams = await teamAdapter.getUserTeams(userId);
+
+        if (userTeams.length > 0) {
+          const activeTeam = userTeams[0];
+          context = {
+            ...context,
+            teamId: activeTeam.id,
+            organizationId: activeTeam.organizationId ?? context.organizationId,
+          };
+          logger.info('[ContextBuilder] Resolved teamId via RosterEntries', {
+            userId,
+            teamId: activeTeam.id,
+            organizationId: activeTeam.organizationId,
+          });
+        }
+      } catch (teamErr) {
+        logger.warn('[ContextBuilder] Failed to resolve team for user', {
+          userId,
+          error: teamErr instanceof Error ? teamErr.message : String(teamErr),
+        });
+      }
+    }
 
     // ── Step 4: Cache the assembled context ───────────────────────────────
     try {
@@ -168,8 +198,10 @@ export class ContextBuilder {
   compressToPrompt(context: AgentUserContext): string {
     const lines: string[] = [];
 
+    const teamPart = context.teamId ? ` | TeamID: ${context.teamId}` : '';
+    const orgPart = context.organizationId ? ` | OrgID: ${context.organizationId}` : '';
     lines.push(
-      `User: ${context.displayName} | Role: ${context.role} | Tier: ${context.subscriptionTier} | UserID: ${context.userId}`
+      `User: ${context.displayName} | Role: ${context.role} | Tier: ${context.subscriptionTier} | UserID: ${context.userId}${teamPart}${orgPart}`
     );
 
     if (context.sport) {
@@ -296,6 +328,11 @@ export class ContextBuilder {
     const school =
       (user['highSchool'] as string | undefined) ?? (athlete?.['highSchool'] as string | undefined);
 
+    // ── Team context (from active sport profile) ─────────────────────────
+    const activeSportTeam = activeSport?.['team'] as Record<string, unknown> | undefined;
+    const teamId = activeSportTeam?.['teamId'] as string | undefined;
+    const organizationId = activeSportTeam?.['organizationId'] as string | undefined;
+
     // ── Coach-specific ────────────────────────────────────────────────────
     const coach = user['coach'] as Record<string, unknown> | undefined;
     const coachProgram = coach?.['organization'] as string | undefined;
@@ -348,6 +385,10 @@ export class ContextBuilder {
 
       // Connected accounts
       connectedAccounts,
+
+      // Team context
+      teamId,
+      organizationId,
 
       // Coach-specific
       coachProgram,

@@ -18,7 +18,7 @@ const NEWS_COLLECTION = 'News';
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const ARTICLE_TTL_DAYS = 14;
 const SEARCH_MODEL = 'perplexity/sonar';
-const SUMMARY_MODEL = 'anthropic/claude-3.5-haiku';
+const SUMMARY_MODEL = 'anthropic/claude-haiku-4-5';
 const TARGET_ARTICLE_COUNT = 18;
 const MAX_RETRIES = 2;
 

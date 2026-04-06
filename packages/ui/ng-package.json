@@ -8,7 +8,9 @@
     "@nxt1/core",
     "@nxt1/design-tokens",
     "@stripe/stripe-js",
-    "capacitor-native-biometric"
+    "capacitor-native-biometric",
+    "marked",
+    "dompurify"
   ],
   "assets": []
 }

@@ -15,6 +15,13 @@ export {
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
 } from './agent-x-job.service';
+export {
+  AgentXOperationEventService,
+  FIRESTORE_ADAPTER,
+  type FirestoreAdapter,
+  type OperationEventCallbacks,
+  type OperationEventSubscription,
+} from './agent-x-operation-event.service';
 
 // Components
 export {
@@ -88,3 +95,20 @@ export {
 export { AgentXFabComponent } from './fab';
 export { AgentXFabChatPanelComponent } from './fab';
 export { AgentXFabService, type FabPanelState } from './fab';
+
+// Rich card components
+export { AgentXToolStepsComponent } from './agent-x-tool-steps.component';
+export { AgentXPlannerCardComponent } from './agent-x-planner-card.component';
+export { AgentXDataTableCardComponent } from './agent-x-data-table-card.component';
+export {
+  AgentXConfirmationCardComponent,
+  type ConfirmationActionEvent,
+} from './agent-x-confirmation-card.component';
+export { AgentXCitationsCardComponent } from './agent-x-citations-card.component';
+export {
+  AgentXParameterFormCardComponent,
+  type ParameterFormSubmitEvent,
+} from './agent-x-parameter-form-card.component';
+export { AgentXDraftCardComponent, type DraftSubmittedEvent } from './agent-x-draft-card.component';
+export { AgentXProfileCardComponent } from './agent-x-profile-card.component';
+export { AgentXFilmTimelineCardComponent } from './agent-x-film-timeline-card.component';

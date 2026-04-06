@@ -13,7 +13,27 @@
  * ⭐ SHARED — Works on web and mobile ⭐
  */
 
-import { Component, ChangeDetectionStrategy, input } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
+import type { AgentXToolStep, AgentXRichCard } from '@nxt1/core/ai';
+import { AgentXToolStepsComponent } from '../../agent-x/agent-x-tool-steps.component';
+import { AgentXPlannerCardComponent } from '../../agent-x/agent-x-planner-card.component';
+import { AgentXDataTableCardComponent } from '../../agent-x/agent-x-data-table-card.component';
+import {
+  AgentXConfirmationCardComponent,
+  type ConfirmationActionEvent,
+} from '../../agent-x/agent-x-confirmation-card.component';
+import { AgentXCitationsCardComponent } from '../../agent-x/agent-x-citations-card.component';
+import {
+  AgentXParameterFormCardComponent,
+  type ParameterFormSubmitEvent,
+} from '../../agent-x/agent-x-parameter-form-card.component';
+import {
+  AgentXDraftCardComponent,
+  type DraftSubmittedEvent,
+} from '../../agent-x/agent-x-draft-card.component';
+import { AgentXProfileCardComponent } from '../../agent-x/agent-x-profile-card.component';
+import { AgentXFilmTimelineCardComponent } from '../../agent-x/agent-x-film-timeline-card.component';
+import { NxtMarkdownComponent } from '../markdown/markdown.component';
 
 /** Visual variant controlling sizing, colors, and border‑radius. */
 export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | 'agent-fab';
@@ -21,6 +41,18 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
 @Component({
   selector: 'nxt1-chat-bubble',
   standalone: true,
+  imports: [
+    AgentXToolStepsComponent,
+    AgentXPlannerCardComponent,
+    AgentXDataTableCardComponent,
+    AgentXConfirmationCardComponent,
+    AgentXCitationsCardComponent,
+    AgentXParameterFormCardComponent,
+    AgentXDraftCardComponent,
+    AgentXProfileCardComponent,
+    AgentXFilmTimelineCardComponent,
+    NxtMarkdownComponent,
+  ],
   host: {
     '[class.variant-message]': 'variant() === "message"',
     '[class.variant-agent-chat]': 'variant() === "agent-chat"',
@@ -38,8 +70,15 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
     } @else if (isSystem()) {
       <p class="bubble-text bubble-text--system">{{ content() }}</p>
     } @else {
+      @if (steps().length) {
+        <nxt1-agent-x-tool-steps [steps]="steps()" />
+      }
       @if (content()) {
-        <p class="bubble-text">{{ content() }}</p>
+        @if (isOwn()) {
+          <p class="bubble-text">{{ content() }}</p>
+        } @else {
+          <nxt1-markdown [content]="content()" />
+        }
       }
       @if (imageUrl()) {
         <div class="bubble-media">
@@ -60,6 +99,40 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
             preload="metadata"
           ></video>
         </div>
+      }
+      @for (card of cards(); track $index) {
+        @if (card.type === 'planner') {
+          <nxt1-agent-x-planner-card
+            [card]="card"
+            (itemToggled)="plannerItemToggled.emit($event)"
+          />
+        } @else if (card.type === 'data-table') {
+          <nxt1-agent-x-data-table-card [card]="card" />
+        } @else if (card.type === 'confirmation') {
+          <nxt1-agent-x-confirmation-card
+            [card]="card"
+            (actionSelected)="confirmationAction.emit($event)"
+          />
+        } @else if (card.type === 'citations') {
+          <nxt1-agent-x-citations-card
+            [card]="card"
+            (citationClicked)="citationClicked.emit($event)"
+          />
+        } @else if (card.type === 'parameter-form') {
+          <nxt1-agent-x-parameter-form-card
+            [card]="card"
+            (formSubmitted)="parameterFormSubmitted.emit($event)"
+          />
+        } @else if (card.type === 'draft') {
+          <nxt1-agent-x-draft-card [card]="card" (draftSubmitted)="draftSubmitted.emit($event)" />
+        } @else if (card.type === 'profile') {
+          <nxt1-agent-x-profile-card [card]="card" (profileClicked)="profileClicked.emit($event)" />
+        } @else if (card.type === 'film-timeline') {
+          <nxt1-agent-x-film-timeline-card
+            [card]="card"
+            (markerClicked)="filmMarkerClicked.emit($event)"
+          />
+        }
       }
     }
     <ng-content />
@@ -387,4 +460,31 @@ export class NxtChatBubbleComponent {
 
   /** Last message in a consecutive group (message variant). */
   readonly isLastInGroup = input(true);
+
+  /** Inline tool execution steps shown above text (Copilot-style). */
+  readonly steps = input<readonly AgentXToolStep[]>([]);
+
+  /** Rich cards rendered below text content. */
+  readonly cards = input<readonly AgentXRichCard[]>([]);
+
+  /** Emitted when a planner card item is toggled. */
+  readonly plannerItemToggled = output<string>();
+
+  /** Emitted when a confirmation card action is selected. */
+  readonly confirmationAction = output<ConfirmationActionEvent>();
+
+  /** Emitted when a citation pill is clicked (sends citation ID). */
+  readonly citationClicked = output<string>();
+
+  /** Emitted when a parameter form card is submitted. */
+  readonly parameterFormSubmitted = output<ParameterFormSubmitEvent>();
+
+  /** Emitted when a draft card is approved and sent. */
+  readonly draftSubmitted = output<DraftSubmittedEvent>();
+
+  /** Emitted when a profile card "View Profile" is clicked (sends userId). */
+  readonly profileClicked = output<string>();
+
+  /** Emitted when a film timeline marker is clicked (sends timeMs). */
+  readonly filmMarkerClicked = output<number>();
 }

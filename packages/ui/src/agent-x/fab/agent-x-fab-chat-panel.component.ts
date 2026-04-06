@@ -203,6 +203,8 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './agent-x-logo.constant
                   [imageUrl]="message.imageUrl"
                   [isTyping]="!!message.isTyping"
                   [isError]="!!message.error"
+                  [steps]="message.steps ?? []"
+                  [cards]="message.cards ?? []"
                 />
               </div>
             }

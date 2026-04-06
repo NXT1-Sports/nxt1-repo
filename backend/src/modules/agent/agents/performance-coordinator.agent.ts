@@ -10,7 +10,7 @@
  * - Position-specific stat breakdowns
  * - Opponent scouting and roster analysis
  *
- * Uses the "reasoning" model tier for complex analysis tasks.
+ * Uses the "evaluator" model tier for complex analysis tasks.
  */
 
 import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
@@ -61,10 +61,10 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
   }
 
   override getSkills(): readonly string[] {
-    return ['scouting_rubric'];
+    return ['scouting_rubric', 'global_knowledge'];
   }
 
   getModelRouting(): ModelRoutingConfig {
-    return MODEL_ROUTING_DEFAULTS['reasoning'];
+    return MODEL_ROUTING_DEFAULTS['evaluator'];
   }
 }

@@ -15,10 +15,11 @@
  * and writes clean data to the database so other coordinators
  * (Performance, Recruiting) can operate on verified, structured records.
  *
- * Uses the "fast" model tier — extraction tasks require speed over creativity.
+ * Uses the "data_heavy" model tier — extraction tasks require massive context at low cost.
  */
 
 import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
+import { MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
 import { BaseAgent } from './base.agent.js';
 
 export class DataCoordinatorAgent extends BaseAgent {
@@ -255,9 +256,10 @@ export class DataCoordinatorAgent extends BaseAgent {
   }
 
   getModelRouting(): ModelRoutingConfig {
-    // The LLM mostly relays pre-parsed data to write tools — speed over creativity.
-    // Using 'fast' tier (Haiku) with generous maxTokens because season stats
-    // and game logs can be large JSON payloads in tool call arguments.
-    return { tier: 'fast', maxTokens: 4096, temperature: 0 };
+    // Uses the "data_heavy" tier — Qwen 3.6 Plus (Free, 1M context) handles
+    // massive season stats, game logs, and bulk scraping at zero cost.
+    // No modelOverride needed: the tier system resolves to Qwen directly
+    // with Haiku/GPT-4o-mini as fallbacks.
+    return MODEL_ROUTING_DEFAULTS['data_heavy'];
   }
 }

@@ -238,7 +238,7 @@ export class SemanticCacheService {
   /**
    * Personalize a cached response for the current user.
    *
-   * Uses a cheap, fast model (`fast` tier = claude-3.5-haiku / gpt-4o-mini)
+   * Uses a cheap, fast model (`fast` tier = claude-haiku-4-5 / gpt-4o-mini)
    * to rewrite the cached summary so it addresses the user by name, references
    * their sport/position/school, and matches their role. The factual content
    * stays identical — only the delivery is personalized.
@@ -305,7 +305,7 @@ export class SemanticCacheService {
       const startMs = Date.now();
 
       const completion = await this.llm.complete(messages, {
-        tier: 'fast',
+        tier: 'chat',
         temperature: 0.4,
         maxTokens: 2048,
         telemetryContext: {

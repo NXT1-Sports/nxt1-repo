@@ -27,6 +27,8 @@ import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { GuardrailRunner } from '../guardrails/guardrail-runner.js';
 import type { LLMMessage, LLMToolSchema, LLMToolCall } from '../llm/llm.types.js';
 import type { SkillRegistry } from '../skills/skill-registry.js';
+import type { OnStreamEvent } from '../queue/event-writer.js';
+import { GlobalKnowledgeSkill } from '../skills/knowledge/global-knowledge.skill.js';
 import { isAgentYield } from '../errors/agent-yield.error.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/comms/ask-user.tool.js';
 import { logger } from '../../../utils/logger.js';
@@ -80,7 +82,8 @@ export abstract class BaseAgent {
     llm?: OpenRouterService,
     toolRegistry?: ToolRegistry,
     guardrailRunner?: GuardrailRunner,
-    skillRegistry?: SkillRegistry
+    skillRegistry?: SkillRegistry,
+    onStreamEvent?: OnStreamEvent
   ): Promise<AgentOperationResult> {
     if (!llm || !toolRegistry) {
       throw new Error(
@@ -116,6 +119,12 @@ export abstract class BaseAgent {
           allowedSkillNames
         );
         if (matched.length > 0) {
+          // Trigger retrieval for GlobalKnowledgeSkill before building prompt
+          for (const m of matched) {
+            if (m.skill instanceof GlobalKnowledgeSkill) {
+              await m.skill.retrieveForIntent(intent);
+            }
+          }
           skillBlock = skillRegistry.buildPromptBlock(matched);
           logger.info(`[${this.id}] Injected ${matched.length} skill(s) into prompt`, {
             agentId: this.id,
@@ -155,7 +164,8 @@ export abstract class BaseAgent {
         agentId: this.id,
         iteration: iteration + 1,
       });
-      const result = await llm.complete(messages, {
+
+      const llmOptions = {
         tier: routing.tier,
         maxTokens: routing.maxTokens,
         temperature: routing.temperature,
@@ -167,7 +177,25 @@ export abstract class BaseAgent {
             agentId: this.id,
           },
         }),
-      });
+      };
+
+      // Use streaming when onStreamEvent is provided so deltas flow to Firestore.
+      // Otherwise fall back to non-streaming for backward compatibility (e.g. /chat SSE).
+      const result = onStreamEvent
+        ? await llm.completeStream(messages, llmOptions, (delta) => {
+            if (delta.content) {
+              onStreamEvent({ type: 'delta', text: delta.content, agentId: this.id });
+            }
+            if (delta.toolName) {
+              onStreamEvent({
+                type: 'tool_call',
+                agentId: this.id,
+                toolName: delta.toolName,
+                toolArgs: delta.toolArgs,
+              });
+            }
+          })
+        : await llm.complete(messages, llmOptions);
 
       // If the LLM responded with text and no tool calls → we're done
       if (result.toolCalls.length === 0) {
@@ -221,6 +249,14 @@ export abstract class BaseAgent {
           agentId: this.id,
           tool: toolCall.function.name,
           args: toolCall.function.arguments,
+        });
+
+        // Emit step_active so the UI shows the tool is running
+        onStreamEvent?.({
+          type: 'step_active',
+          agentId: this.id,
+          toolName: toolCall.function.name,
+          message: `Running ${toolCall.function.name}...`,
         });
 
         let observation = await this.executeTool(
@@ -290,6 +326,34 @@ export abstract class BaseAgent {
             responseLength: observation.length,
           });
         }
+
+        // Emit tool_result so the UI can render the tool card
+        if (onStreamEvent) {
+          let toolSuccess = false;
+          let toolResult: Record<string, unknown> | undefined;
+          try {
+            const parsed = JSON.parse(observation) as Record<string, unknown>;
+            toolSuccess = parsed['success'] === true;
+            toolResult =
+              typeof parsed['data'] === 'object' && parsed['data'] !== null
+                ? (parsed['data'] as Record<string, unknown>)
+                : undefined;
+          } catch {
+            // Not JSON — mark as success if non-empty
+            toolSuccess = observation.length > 0;
+          }
+          onStreamEvent({
+            type: 'tool_result',
+            agentId: this.id,
+            toolName: toolCall.function.name,
+            toolSuccess,
+            toolResult,
+            message: toolSuccess
+              ? `${toolCall.function.name} completed`
+              : `${toolCall.function.name} failed`,
+          });
+        }
+
         messages.push({
           role: 'tool',
           content: observation,

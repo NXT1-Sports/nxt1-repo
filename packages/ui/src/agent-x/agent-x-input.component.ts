@@ -81,25 +81,6 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
           <nxt1-icon name="plus" [size]="20" />
         </button>
 
-        <button
-          type="button"
-          class="attach-btn"
-          (click)="fileInput.click()"
-          [disabled]="uploading()"
-          aria-label="Attach file"
-        >
-          <nxt1-icon name="attachment" [size]="20" />
-        </button>
-
-        <input
-          #fileInput
-          type="file"
-          multiple
-          [accept]="acceptTypes"
-          class="file-input-hidden"
-          (change)="onFilesSelected($event)"
-        />
-
         <textarea
           #messageInput
           [ngModel]="userMessage()"
@@ -262,36 +243,6 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
 
       .plus-btn:hover {
         background: var(--agent-surface-hover, rgba(255, 255, 255, 0.04));
-      }
-
-      .attach-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 32px;
-        height: 32px;
-        flex: 0 0 32px;
-        border-radius: 50%;
-        border: none;
-        background: transparent;
-        color: var(--agent-text-secondary, rgba(255, 255, 255, 0.7));
-        cursor: pointer;
-        transition:
-          background-color 0.2s ease,
-          color 0.2s ease;
-      }
-
-      .attach-btn:active {
-        transform: scale(0.97);
-      }
-
-      .attach-btn:hover {
-        background: var(--agent-surface-hover, rgba(255, 255, 255, 0.04));
-      }
-
-      .attach-btn:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
       }
 
       .file-input-hidden {

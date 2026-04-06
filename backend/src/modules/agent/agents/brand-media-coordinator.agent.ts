@@ -14,7 +14,7 @@
  * This is the SINGLE SOURCE OF TRUTH for all visual/media content generation.
  * All future graphic, image, and creative pipelines route through this agent.
  *
- * Uses the "creative" model tier and connects to media generation tools.
+ * Uses the "prompt_engineering" model tier and connects to media generation tools.
  */
 
 import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
@@ -34,11 +34,16 @@ export class BrandMediaCoordinatorAgent extends BaseAgent {
   }
 
   override getSkills(): readonly string[] {
-    return ['static_graphic_style', 'video_highlight_style', 'social_caption_style'];
+    return [
+      'static_graphic_style',
+      'video_highlight_style',
+      'social_caption_style',
+      'global_knowledge',
+    ];
   }
 
   getModelRouting(): ModelRoutingConfig {
-    return MODEL_ROUTING_DEFAULTS['creative'];
+    return MODEL_ROUTING_DEFAULTS['prompt_engineering'];
   }
 }
 

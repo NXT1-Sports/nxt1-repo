@@ -42,7 +42,9 @@
   "dependencies": {
     "@nxt1/core": "*",
     "@nxt1/design-tokens": "*",
-    "@stripe/stripe-js": "^5.10.0"
+    "@stripe/stripe-js": "^5.10.0",
+    "marked": "^17.0.0",
+    "dompurify": "^3.0.0"
   },
   "peerDependencies": {
     "@angular/cdk": "^21.0.0",

@@ -52,7 +52,29 @@ export type {
   AgentXStreamDeltaEvent,
   AgentXStreamDoneEvent,
   AgentXStreamErrorEvent,
+  AgentXStreamStepEvent,
+  AgentXStreamCardEvent,
   AgentXStreamCallbacks,
+  // Tool step & rich card types
+  AgentXToolStepStatus,
+  AgentXToolStep,
+  AgentXRichCardType,
+  AgentXPlannerItem,
+  AgentXPlannerPayload,
+  AgentXRichCard,
+  AgentXDataTableColumn,
+  AgentXDataTablePayload,
+  AgentXConfirmationAction,
+  AgentXConfirmationPayload,
+  AgentXCitation,
+  AgentXCitationsPayload,
+  AgentXParameterField,
+  AgentXParameterFormPayload,
+  AgentXDraftPayload,
+  AgentXProfileStat,
+  AgentXProfilePayload,
+  AgentXFilmMarker,
+  AgentXFilmTimelinePayload,
 } from './agent-x.types';
 
 // Constants
@@ -166,6 +188,12 @@ export type {
   AgentToolCallRecord,
   AgentMemoryEntry,
   AgentMemoryCategory,
+  KnowledgeCategory,
+  KnowledgeSourceType,
+  KnowledgeEntry,
+  KnowledgeRetrievalResult,
+  KnowledgeIngestionRequest,
+  KnowledgeIngestionResult,
   AgentSessionContext,
   AgentSessionMessage,
   GuardrailVerdict,
@@ -202,6 +230,8 @@ export type {
   AgentModelUsage,
   AgentAgentUsage,
   AgentUsageLimits,
+  JobEventType,
+  JobEvent,
 } from './agent.types';
 
 // Agentic constants

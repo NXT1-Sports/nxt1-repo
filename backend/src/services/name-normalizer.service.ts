@@ -116,7 +116,7 @@ export async function normalizeProgramName(rawName: string): Promise<string> {
     const llm = new OpenRouterService();
 
     const result = await llm.prompt(SYSTEM_PROMPT, preNormalized, {
-      tier: 'fast',
+      tier: 'extraction',
       maxTokens: 100,
       temperature: 0,
     });

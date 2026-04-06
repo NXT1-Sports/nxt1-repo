@@ -52,7 +52,8 @@ import {
 import type { AgentChatService } from '../modules/agent/services/agent-chat.service.js';
 import type { ContextBuilder } from '../modules/agent/memory/context-builder.js';
 import type { OpenRouterService } from '../modules/agent/llm/openrouter.service.js';
-import type { LLMMessage, LLMContentPart } from '../modules/agent/llm/llm.types.js';
+import type { LLMMessage, LLMContentPart, LLMToolSchema } from '../modules/agent/llm/llm.types.js';
+import type { ToolRegistry } from '../modules/agent/tools/tool-registry.js';
 import { logger } from '../utils/logger.js';
 import multer from 'multer';
 import { getStorage } from 'firebase-admin/storage';
@@ -144,6 +145,32 @@ let jobRepository: import('../modules/agent/queue/job.repository.js').AgentJobRe
 let chatService: AgentChatService | null = null;
 let contextBuilder: ContextBuilder | null = null;
 let llmService: OpenRouterService | null = null;
+let toolRegistryRef: ToolRegistry | null = null;
+
+/**
+ * Maximum agentic loop iterations per chat request.
+ * Each iteration = one LLM call + optional tool execution.
+ * Prevents runaway loops from consuming excessive resources.
+ */
+const MAX_AGENTIC_TURNS = 6;
+
+/**
+ * Convert a raw tool function name (e.g. `getAthleteStats`) into a
+ * user-friendly label (e.g. "Getting athlete stats…").
+ * Falls back to titlecasing the snake/camel name.
+ */
+function humanizeToolName(name: string): string {
+  if (!name) return 'Processing…';
+  // Convert camelCase / snake_case to space-separated words
+  const words = name
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/_/g, ' ')
+    .trim()
+    .toLowerCase();
+  if (!words) return 'Processing…';
+  // Capitalize first letter and add ellipsis
+  return words.charAt(0).toUpperCase() + words.slice(1) + '…';
+}
 
 /**
  * Called once at server startup to inject the queue + repo singletons.
@@ -155,12 +182,14 @@ export function setAgentDependencies(deps: {
   chatService: AgentChatService;
   contextBuilder: ContextBuilder;
   llmService: OpenRouterService;
+  toolRegistry?: ToolRegistry;
 }): void {
   queueService = deps.queueService;
   jobRepository = deps.jobRepository;
   chatService = deps.chatService;
   contextBuilder = deps.contextBuilder;
   llmService = deps.llmService;
+  if (deps.toolRegistry) toolRegistryRef = deps.toolRegistry;
 }
 
 const router: ExpressRouter = Router();
@@ -332,6 +361,43 @@ router.get('/status/:id', appGuard, async (req: Request, res: Response) => {
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('Failed to get job status', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to get status' });
+  }
+});
+
+// ─── GET /events/:id — Replay job events (for reconnection) ──────────────
+
+router.get('/events/:id', appGuard, async (req: Request, res: Response) => {
+  try {
+    if (!jobRepository) {
+      res.status(503).json({ success: false, error: 'Agent queue not initialized' });
+      return;
+    }
+
+    const { id } = req.params;
+    if (!id || typeof id !== 'string') {
+      res.status(400).json({ success: false, error: 'Job ID is required' });
+      return;
+    }
+
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    // Verify the job belongs to this user
+    const job = await jobRepository.getById(id);
+    if (!job || job.userId !== user.uid) {
+      res.status(404).json({ success: false, error: 'Job not found' });
+      return;
+    }
+
+    const events = await jobRepository.getJobEvents(id);
+    res.json({ success: true, data: events });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to get job events', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to get events' });
   }
 });
 
@@ -1250,6 +1316,9 @@ router.post(
         threadHistoryStr ? `\n${threadHistoryStr}` : '',
         `\nBe concise, actionable, and sports-aware. Format responses with markdown and bullet points when listing items.`,
         `You can: create highlight reels, draft recruiting emails, generate scout reports, analyze film, build graphics, manage recruiting outreach, evaluate prospects, and handle NCAA compliance questions.`,
+        `\n[Tool Usage Rules]`,
+        `- When calling tools, extract userId, teamId, and organizationId from the [User Profile] above. NEVER ask the user for their UserID, TeamID, or OrgID — you already have them.`,
+        `- If a required parameter is available in the user profile context, use it directly.`,
         mode ? `\nThe user is currently in "${mode}" mode.` : '',
       ]
         .filter(Boolean)
@@ -1268,16 +1337,27 @@ router.post(
         }
       }
 
-      // Build the final user message — multimodal when attachments are present
-      const imageAttachments = (attachments ?? []).filter(
+      // Build the final user message — multimodal when attachments are present.
+      // OpenRouter natively supports images, PDFs, CSVs, and Word documents when
+      // passed as file URLs inside content parts — no backend parsing required.
+      const fileAttachments = (attachments ?? []).filter(
         (a: { mimeType: string }) =>
-          a.mimeType.startsWith('image/') || a.mimeType === 'application/pdf'
+          a.mimeType.startsWith('image/') ||
+          a.mimeType === 'application/pdf' ||
+          a.mimeType === 'text/csv' ||
+          a.mimeType === 'text/plain' ||
+          a.mimeType === 'application/vnd.ms-excel' ||
+          a.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+          a.mimeType === 'application/msword' ||
+          a.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
       );
 
-      if (imageAttachments.length > 0) {
-        // Multimodal message: text + image_url parts for vision models
+      if (fileAttachments.length > 0) {
+        // Multimodal message: text + file URL parts passed to OpenRouter.
+        // OpenRouter accepts image, PDF, CSV, and doc URLs in the image_url field
+        // and routes them to the appropriate native or OCR processing engine.
         const contentParts: LLMContentPart[] = [{ type: 'text', text: message.trim() }];
-        for (const att of imageAttachments) {
+        for (const att of fileAttachments) {
           contentParts.push({
             type: 'image_url',
             image_url: { url: att.url, detail: 'auto' },
@@ -1288,14 +1368,20 @@ router.post(
         messages.push({ role: 'user', content: message.trim() });
       }
 
-      // ── Step 4: Stream response via SSE ──────────────────────────────
+      // ── Step 4: Stream agentic response via SSE ──────────────────────
       //
       // SSE Protocol:
       //   event: delta    → { content: "token fragment" }
+      //   event: step     → { id, label, status: "active"|"success"|"error" }
       //   event: done     → { threadId, model, usage }
       //   event: error    → { error: "message" }
       //
       // The frontend reads these events via EventSource or fetch + ReadableStream.
+      //
+      // AGENTIC LOOP: We pass all registered tools to the LLM. If the LLM
+      // responds with tool_calls instead of content, we execute them, feed
+      // results back as role: "tool" messages, and re-stream. This repeats
+      // up to MAX_AGENTIC_TURNS to prevent infinite loops.
       //
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -1313,26 +1399,176 @@ router.post(
       let responseContent = '';
       let model = 'unknown';
       let tokenUsage: { inputTokens: number; outputTokens: number; model: string } | undefined;
+      let stepCounter = 0;
+
+      // Build LLM tool schemas from the registry (read-only tools only for chat safety)
+      const chatTools: LLMToolSchema[] = [];
+      if (toolRegistryRef) {
+        const defs = toolRegistryRef.getDefinitions();
+        for (const def of defs) {
+          chatTools.push({
+            type: 'function',
+            function: {
+              name: def.name,
+              description: def.description,
+              parameters: def.parameters,
+            },
+          });
+        }
+      }
 
       if (llmService) {
         try {
-          const streamResult = await llmService.completeStream(
-            messages,
-            { tier: 'balanced', maxTokens: 1024, temperature: 0.7 },
-            (delta) => {
-              if (delta.content) {
-                res.write(`event: delta\ndata: ${JSON.stringify({ content: delta.content })}\n\n`);
-              }
-            }
-          );
+          // ── Agentic loop: stream → detect tool calls → execute → re-stream ──
+          for (let turn = 0; turn < MAX_AGENTIC_TURNS; turn++) {
+            const activeToolSteps = new Map<number, { id: string; name: string }>();
 
-          responseContent = streamResult.content;
-          model = streamResult.model;
-          tokenUsage = {
-            inputTokens: streamResult.usage.inputTokens,
-            outputTokens: streamResult.usage.outputTokens,
-            model: streamResult.model,
-          };
+            const streamResult = await llmService.completeStream(
+              messages,
+              {
+                tier: 'chat',
+                maxTokens: 2048,
+                temperature: 0.7,
+                ...(chatTools.length > 0 ? { tools: chatTools } : {}),
+              },
+              (delta) => {
+                if (delta.content) {
+                  res.write(
+                    `event: delta\ndata: ${JSON.stringify({ content: delta.content })}\n\n`
+                  );
+                }
+
+                // Emit real-time step indicators when the LLM starts calling a tool
+                if (delta.toolName != null && delta.toolCallIndex != null) {
+                  const stepId = `step-${stepCounter++}`;
+                  activeToolSteps.set(delta.toolCallIndex, { id: stepId, name: delta.toolName });
+
+                  res.write(
+                    `event: step\ndata: ${JSON.stringify({
+                      id: stepId,
+                      label: humanizeToolName(delta.toolName),
+                      status: 'active',
+                    })}\n\n`
+                  );
+                }
+              }
+            );
+
+            model = streamResult.model;
+            tokenUsage = {
+              inputTokens: (tokenUsage?.inputTokens ?? 0) + streamResult.usage.inputTokens,
+              outputTokens: (tokenUsage?.outputTokens ?? 0) + streamResult.usage.outputTokens,
+              model: streamResult.model,
+            };
+
+            // ── No tool calls → final answer received, break ──
+            if (streamResult.toolCalls.length === 0) {
+              responseContent += streamResult.content;
+
+              // Mark any lingering step indicators as complete
+              for (const [, step] of activeToolSteps) {
+                res.write(
+                  `event: step\ndata: ${JSON.stringify({
+                    id: step.id,
+                    label: humanizeToolName(step.name),
+                    status: 'success',
+                  })}\n\n`
+                );
+              }
+              break;
+            }
+
+            // ── Tool calls detected → execute each and continue ──
+            // Append the assistant's tool-calling message to the conversation
+            messages.push({
+              role: 'assistant',
+              content: streamResult.content || null,
+              tool_calls: streamResult.toolCalls,
+            });
+
+            // Execute tools in parallel (all I/O-bound — safe to parallelize)
+            const toolResults = await Promise.all(
+              streamResult.toolCalls.map(async (tc) => {
+                const stepInfo = [...activeToolSteps.values()].find(
+                  (s) => s.name === tc.function.name
+                );
+
+                try {
+                  let parsedArgs: Record<string, unknown> = {};
+                  try {
+                    parsedArgs = JSON.parse(tc.function.arguments);
+                  } catch {
+                    // LLM occasionally produces malformed JSON — treat as empty input
+                    logger.warn('Malformed tool arguments from LLM', {
+                      tool: tc.function.name,
+                      args: tc.function.arguments.slice(0, 200),
+                    });
+                  }
+
+                  const result = toolRegistryRef
+                    ? await toolRegistryRef.execute(tc.function.name, parsedArgs)
+                    : { success: false, error: 'Tool registry unavailable' };
+
+                  // Mark step as success
+                  if (stepInfo) {
+                    res.write(
+                      `event: step\ndata: ${JSON.stringify({
+                        id: stepInfo.id,
+                        label: humanizeToolName(stepInfo.name),
+                        status: result.success ? 'success' : 'error',
+                      })}\n\n`
+                    );
+                  }
+
+                  return {
+                    role: 'tool' as const,
+                    tool_call_id: tc.id,
+                    content: JSON.stringify(result.success ? result.data : { error: result.error }),
+                  };
+                } catch (toolErr) {
+                  logger.error('Tool execution failed', {
+                    tool: tc.function.name,
+                    error: toolErr instanceof Error ? toolErr.message : String(toolErr),
+                  });
+
+                  // Mark step as error
+                  if (stepInfo) {
+                    res.write(
+                      `event: step\ndata: ${JSON.stringify({
+                        id: stepInfo.id,
+                        label: humanizeToolName(stepInfo.name),
+                        status: 'error',
+                      })}\n\n`
+                    );
+                  }
+
+                  return {
+                    role: 'tool' as const,
+                    tool_call_id: tc.id,
+                    content: JSON.stringify({
+                      error: toolErr instanceof Error ? toolErr.message : 'Tool execution failed',
+                    }),
+                  };
+                }
+              })
+            );
+
+            // Append all tool results to the conversation for the next turn
+            for (const result of toolResults) {
+              messages.push(result);
+            }
+
+            // Accumulate any partial content from the tool-calling turn
+            if (streamResult.content) {
+              responseContent += streamResult.content;
+            }
+
+            logger.info('Agentic turn completed', {
+              turn: turn + 1,
+              toolsCalled: streamResult.toolCalls.map((tc) => tc.function.name),
+              userId: user.uid,
+            });
+          }
         } catch (llmErr) {
           logger.warn('OpenRouter streaming failed, using fallback', {
             error: llmErr instanceof Error ? llmErr.message : String(llmErr),

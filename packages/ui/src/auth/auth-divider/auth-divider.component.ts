@@ -19,7 +19,6 @@ import { CommonModule } from '@angular/common';
       <span class="bg-border-subtle h-px flex-1"></span>
     </div>
   `,
-  styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AuthDividerComponent {

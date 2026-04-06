@@ -35,6 +35,7 @@ import type { ContextBuilder } from './memory/context-builder.js';
 import type { BaseAgent } from './agents/base.agent.js';
 import type { GuardrailRunner } from './guardrails/guardrail-runner.js';
 import type { SkillRegistry } from './skills/skill-registry.js';
+import type { OnStreamEvent } from './queue/event-writer.js';
 import { PlannerAgent } from './agents/planner.agent.js';
 import { isAgentYield, AgentYieldException } from './errors/agent-yield.error.js';
 import { SemanticCacheService } from './memory/semantic-cache.service.js';
@@ -106,7 +107,8 @@ export class AgentRouter {
   async run(
     payload: AgentJobPayload,
     onUpdate?: (update: AgentJobUpdate) => void,
-    firestore?: FirebaseFirestore.Firestore
+    firestore?: FirebaseFirestore.Firestore,
+    onStreamEvent?: OnStreamEvent
   ): Promise<AgentOperationResult> {
     const { operationId, userId, intent } = payload;
 
@@ -118,7 +120,7 @@ export class AgentRouter {
       | undefined;
 
     if (yieldState) {
-      return this.runResumed(payload, yieldState, onUpdate, firestore);
+      return this.runResumed(payload, yieldState, onUpdate, firestore, onStreamEvent);
     }
 
     // ── Step 1: Build context ─────────────────────────────────────────────
@@ -201,7 +203,8 @@ export class AgentRouter {
           this.llm,
           this.toolRegistry,
           this.guardrailRunner,
-          this.skillRegistry
+          this.skillRegistry,
+          onStreamEvent
         );
 
         this.emitUpdate(onUpdate, operationId, 'completed', result.summary);
@@ -380,7 +383,8 @@ export class AgentRouter {
               this.llm,
               this.toolRegistry,
               this.guardrailRunner,
-              this.skillRegistry
+              this.skillRegistry,
+              onStreamEvent
             );
 
             taskResults.set(task.id, result);
@@ -470,7 +474,8 @@ export class AgentRouter {
     payload: AgentJobPayload,
     yieldState: import('@nxt1/core').AgentYieldState,
     onUpdate?: (update: AgentJobUpdate) => void,
-    firestore?: FirebaseFirestore.Firestore
+    firestore?: FirebaseFirestore.Firestore,
+    onStreamEvent?: OnStreamEvent
   ): Promise<AgentOperationResult> {
     const { operationId, userId, intent } = payload;
     this.emitUpdate(onUpdate, operationId, 'acting', 'Resuming from your response...');
@@ -535,7 +540,8 @@ export class AgentRouter {
         this.llm,
         this.toolRegistry,
         this.guardrailRunner,
-        this.skillRegistry
+        this.skillRegistry,
+        onStreamEvent
       );
 
       this.emitUpdate(onUpdate, operationId, 'completed', result.summary);

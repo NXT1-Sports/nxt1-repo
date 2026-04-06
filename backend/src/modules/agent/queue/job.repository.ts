@@ -35,8 +35,64 @@ import type { AgentJobProgress } from './queue.types.js';
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const COLLECTION = 'agentJobs' as const;
+const EVENTS_SUBCOLLECTION = 'events' as const;
 const ACTIVE_JOB_RETENTION_DAYS = 14;
 const TERMINAL_JOB_RETENTION_DAYS = 30;
+
+// ─── Job Event Types (Subcollection: agentJobs/{operationId}/events) ────────
+
+/**
+ * Event types written to the `events` subcollection.
+ * The frontend subscribes via `onSnapshot` to render live UI.
+ *
+ * - `step_active`  — A new step/tool has started executing
+ * - `step_done`    — A step/tool completed successfully
+ * - `step_error`   — A step/tool failed
+ * - `delta`        — Debounced text chunk from the LLM stream
+ * - `tool_call`    — LLM requested a tool invocation
+ * - `tool_result`  — Tool execution produced a result
+ * - `done`         — The entire job finished (success or failure)
+ */
+export type JobEventType =
+  | 'step_active'
+  | 'step_done'
+  | 'step_error'
+  | 'delta'
+  | 'tool_call'
+  | 'tool_result'
+  | 'done';
+
+/**
+ * A single event document stored in `agentJobs/{operationId}/events/{autoId}`.
+ * The frontend reads these via `onSnapshot`, ordered by `seq`, to reconstruct
+ * the live agent execution as a chat-like experience.
+ */
+export interface JobEvent {
+  /** Monotonically increasing sequence number (0-based). */
+  readonly seq: number;
+  /** What kind of event this is. */
+  readonly type: JobEventType;
+  /** Agent identifier if known (e.g. 'recruiting', 'performance'). */
+  readonly agentId?: string;
+  /** Human-readable message for the UI. */
+  readonly message?: string;
+  /** Accumulated LLM text for `delta` events. */
+  readonly text?: string;
+  /** Tool name for `tool_call` / `tool_result` events. */
+  readonly toolName?: string;
+  /** Tool arguments (JSON string) for `tool_call` events. */
+  readonly toolArgs?: string;
+  /** Tool result summary for `tool_result` events. */
+  readonly toolResult?: Record<string, unknown>;
+  /** Whether the tool_result was a success. */
+  readonly toolSuccess?: boolean;
+  /** Whether the job finished successfully (for `done` events). */
+  readonly success?: boolean;
+  /** Error message for `step_error` / `done` events. */
+  readonly error?: string;
+  /** Server timestamp set by Firestore. */
+  readonly createdAt: FirebaseFirestore.Timestamp;
+}
 
 function ttlFromNow(days: number): FirebaseFirestore.Timestamp {
   const expiresAtMs = Date.now() + days * 24 * 60 * 60 * 1000;
@@ -207,5 +263,64 @@ export class AgentJobRepository {
     const doc = await this.db.collection(COLLECTION).doc(operationId).get();
 
     return doc.exists ? (doc.data() as AgentJobDocument) : null;
+  }
+
+  // ─── Event Subcollection (Real-Time Streaming) ──────────────────────────
+
+  /**
+   * Append a single event to the `events` subcollection.
+   * The frontend listens to this subcollection via `onSnapshot` to render
+   * live step-by-step updates without holding open an SSE connection.
+   *
+   * Uses auto-generated document IDs — ordering is guaranteed by the `seq` field.
+   */
+  async writeJobEvent(operationId: string, event: Omit<JobEvent, 'createdAt'>): Promise<void> {
+    await this.db
+      .collection(COLLECTION)
+      .doc(operationId)
+      .collection(EVENTS_SUBCOLLECTION)
+      .add({
+        ...event,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+  }
+
+  /**
+   * Batch-write multiple events in a single Firestore commit.
+   * Used by the debounced writer to flush accumulated deltas efficiently.
+   */
+  async writeJobEventBatch(
+    operationId: string,
+    events: ReadonlyArray<Omit<JobEvent, 'createdAt'>>
+  ): Promise<void> {
+    if (events.length === 0) return;
+
+    const batch = this.db.batch();
+    const parentRef = this.db.collection(COLLECTION).doc(operationId);
+
+    for (const event of events) {
+      const docRef = parentRef.collection(EVENTS_SUBCOLLECTION).doc();
+      batch.set(docRef, {
+        ...event,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
+  }
+
+  /**
+   * Read all events for a job, ordered by sequence number.
+   * Used for replay when the frontend reconnects mid-job.
+   */
+  async getJobEvents(operationId: string): Promise<JobEvent[]> {
+    const snapshot = await this.db
+      .collection(COLLECTION)
+      .doc(operationId)
+      .collection(EVENTS_SUBCOLLECTION)
+      .orderBy('seq', 'asc')
+      .get();
+
+    return snapshot.docs.map((doc) => doc.data() as JobEvent);
   }
 }

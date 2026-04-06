@@ -52,6 +52,7 @@ import editProfileRoutes from './routes/edit-profile.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import locationsRoutes from './routes/locations.routes.js';
 import agentXRoutes from './routes/agent-x.routes.js';
+import knowledgeRoutes from './routes/knowledge.routes.js';
 import messagesRoutes from './routes/messages.routes.js';
 
 import { bootstrapAgentQueue } from './modules/agent/queue/bootstrap.js';
@@ -299,6 +300,7 @@ async function setupApplication() {
     { path: '/help-center', rateLimitType: 'api', handler: helpCenterRoutes },
     { path: '/profile', rateLimitType: 'api', handler: editProfileRoutes },
     { path: '/agent-x', rateLimitType: 'api', handler: agentXRoutes },
+    { path: '/knowledge', rateLimitType: 'api', handler: knowledgeRoutes },
     { path: '/users', rateLimitType: 'api', handler: usersRoutes },
     { path: '/locations', rateLimitType: 'api', handler: locationsRoutes },
     // Messages routes
