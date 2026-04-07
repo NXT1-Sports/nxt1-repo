@@ -71,8 +71,37 @@ The NXT1 monorepo uses GitHub Actions for CI/CD with the following pipelines:
 
 ## GitHub Secrets & Variables Setup
 
-Navigate to **Settings → Secrets and variables → Actions** in your GitHub
-repository.
+> **Organization vs Repository Secrets**
+>
+> Since NXT1 is a GitHub **Organization**, secrets should be stored at
+> **organization level** so they can be shared across all repos without
+> duplication:
+>
+> - **Org-level secrets**:
+>   `github.com/organizations/NXT1/settings/secrets/actions`
+>
+>   Store here: `FIREBASE_SERVICE_ACCOUNT_STAGING`,
+>   `FIREBASE_SERVICE_ACCOUNT_PROD`, `FIREBASE_SERVICE_ACCOUNT`, `GCP_SA_KEY`,
+>   `TURBO_TOKEN`, `SLACK_WEBHOOK_URL`, `ANTHROPIC_API_KEY`, `CODECOV_TOKEN`,
+>   `SNYK_TOKEN`, `MATCH_PASSWORD`, `MATCH_GIT_URL`,
+>   `MATCH_GIT_BASIC_AUTHORIZATION`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID`,
+>   `APPLE_API_KEY`, `APPLE_TEAM_ID`, `ANDROID_KEYSTORE_BASE64`,
+>   `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`,
+>   `GOOGLE_PLAY_JSON_KEY`, `FIREBASE_IOS_APP_ID`, `FIREBASE_ANDROID_APP_ID`
+>
+> - **Repo-level secrets** (repo-specific, keep at repo level): Nothing in this
+>   project needs to be repo-only.
+> - **Org-level variables** (`vars`): `TURBO_TEAM`, `N8N_WEBHOOK_URL`,
+>   `FIREBASE_PROJECT_ID`, `GCP_PROJECT_ID`, `GCP_REGION`
+>
+> When creating org secrets, set **Repository access** to "All repositories" (or
+> restrict to `nxt1-repo` specifically).
+>
+> ⚠️ If a secret exists at both org and repo level, the **repo-level one takes
+> precedence**. Delete repo-level duplicates after migrating to org level.
+
+Navigate to **Organization Settings → Secrets and variables → Actions** to
+manage org-level secrets.
 
 ### Required Secrets
 

@@ -4,7 +4,10 @@ on:
   push:
     branches: [main]
     paths:
-      - 'monorepo/**'
+      - 'apps/web/**'
+      - 'backend/**'
+      - 'apps/functions/**'
+      - 'packages/**'
   workflow_dispatch:
     inputs:
       environment:
@@ -33,7 +36,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: '22'
   CI: true
 
 jobs:
@@ -58,16 +61,16 @@ jobs:
         with:
           filters: |
             web:
-              - 'monorepo/apps/web/**'
-              - 'monorepo/packages/core/**'
+              - 'apps/web/**'
+              - 'packages/core/**'
             backend:
-              - 'monorepo/backend/**'
-              - 'monorepo/packages/core/**'
+              - 'backend/**'
+              - 'packages/core/**'
             functions:
-              - 'monorepo/apps/functions/**'
-              - 'monorepo/packages/core/**'
+              - 'apps/functions/**'
+              - 'packages/core/**'
             core:
-              - 'monorepo/packages/core/**'
+              - 'packages/core/**'
 
   # ============================================================================
   # BUILD ALL PACKAGES
@@ -85,35 +88,32 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: monorepo/package-lock.json
 
       - name: Install dependencies
-        working-directory: monorepo
         run: npm ci
 
       - name: Build all packages
-        working-directory: monorepo
         run: npm run build
 
       - name: Upload web artifacts
         uses: actions/upload-artifact@v4
         with:
           name: web-dist
-          path: monorepo/apps/web/dist
+          path: apps/web/dist
           retention-days: 1
 
       - name: Upload backend artifacts
         uses: actions/upload-artifact@v4
         with:
           name: backend-dist
-          path: monorepo/backend/dist
+          path: backend/dist
           retention-days: 1
 
       - name: Upload functions artifacts
         uses: actions/upload-artifact@v4
         with:
           name: functions-dist
-          path: monorepo/apps/functions/lib
+          path: apps/functions/lib
           retention-days: 1
 
   # ============================================================================
@@ -137,7 +137,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: web-dist
-          path: monorepo/apps/web/dist
+          path: apps/web/dist
 
       - name: Deploy to Firebase Hosting
         id: deploy
@@ -147,7 +147,7 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           projectId: ${{ vars.FIREBASE_PROJECT_ID }}
           channelId: ${{ github.event.inputs.environment == 'production' && 'live' || 'staging' }}
-          entryPoint: monorepo/apps/web
+          entryPoint: apps/web
 
   # ============================================================================
   # DEPLOY BACKEND (Google Cloud Run)
@@ -169,7 +169,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: backend-dist
-          path: monorepo/backend/dist
+          path: backend/dist
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -185,7 +185,7 @@ jobs:
         run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev
 
       - name: Build and push Docker image
-        working-directory: monorepo/backend
+        working-directory: backend
         run: |
           docker build -t ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/nxt1/backend:${{ github.sha }} .
           docker push ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/nxt1/backend:${{ github.sha }}
@@ -224,16 +224,15 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: monorepo/package-lock.json
 
       - name: Download functions artifacts
         uses: actions/download-artifact@v4
         with:
           name: functions-dist
-          path: monorepo/apps/functions/lib
+          path: apps/functions/lib
 
       - name: Install dependencies
-        working-directory: monorepo/apps/functions
+        working-directory: apps/functions
         run: npm ci --production
 
       - name: Deploy to Firebase Functions
@@ -242,7 +241,7 @@ jobs:
           args: deploy --only functions
         env:
           GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          PROJECT_PATH: monorepo/apps/functions
+          PROJECT_PATH: apps/functions
           PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
 
   # ============================================================================

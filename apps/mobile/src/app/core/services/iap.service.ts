@@ -32,6 +32,8 @@ import type { Product } from '@capgo/native-purchases';
 import { NxtToastService } from '@nxt1/ui';
 import { NxtLoggingService } from '@nxt1/ui';
 import { USAGE_API_BASE_URL } from '@nxt1/ui';
+import { NxtBottomSheetService } from '@nxt1/ui';
+import type { BottomSheetAction } from '@nxt1/ui';
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
@@ -81,6 +83,8 @@ export class IapService {
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('IapService');
   private readonly baseUrl = inject(USAGE_API_BASE_URL);
+
+  private readonly bottomSheet = inject(NxtBottomSheetService);
 
   // ── Reactive state ──────────────────────────────────────────────────────
   readonly products = signal<readonly IapProductDisplay[]>([]);
@@ -178,6 +182,47 @@ export class IapService {
     } finally {
       this.purchasing.set(false);
     }
+  }
+
+  /**
+   * Show a bottom sheet with available IAP products and trigger purchase on selection.
+   * Fetches products from StoreKit if not yet loaded.
+   *
+   * Used as the `buyCreditsHandler` override in `UsageShellComponent` on iOS
+   * so that tapping "Buy Credits" opens Apple IAP instead of Stripe.
+   */
+  async showProductsAndPurchase(): Promise<void> {
+    // Ensure products are loaded
+    if (this.products().length === 0) {
+      await this.fetchProducts();
+    }
+
+    const products = this.products();
+    if (products.length === 0) {
+      this.toast.error('Unable to load available credit packages. Please try again.');
+      return;
+    }
+
+    const result = await this.bottomSheet.show<BottomSheetAction>({
+      title: 'Buy Credits',
+      icon: 'card-outline',
+      subtitle: 'Purchased via Apple In-App Purchase',
+      actions: products.map((p) => ({
+        label: `${p.credits.toLocaleString()} Credits — ${p.priceString}`,
+        role: 'primary' as const,
+      })),
+    });
+
+    if (!result?.confirmed) return;
+
+    const selectedLabel = (result.data as BottomSheetAction | undefined)?.label;
+    const selectedProduct = products.find(
+      (p) => `${p.credits.toLocaleString()} Credits — ${p.priceString}` === selectedLabel
+    );
+
+    if (!selectedProduct) return;
+
+    await this.purchase(selectedProduct.productId);
   }
 
   // ============================================================

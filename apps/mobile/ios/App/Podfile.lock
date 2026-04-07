@@ -9,52 +9,52 @@ PODS:
     - GoogleUtilities/Environment (~> 8.0)
     - GoogleUtilities/UserDefaults (~> 8.0)
     - PromisesObjC (~> 2.4)
-  - Capacitor (8.1.0):
+  - Capacitor (8.3.0):
     - CapacitorCordova
-  - CapacitorActionSheet (8.0.1):
+  - CapacitorActionSheet (8.1.1):
     - Capacitor
-  - CapacitorApp (8.0.1):
+  - CapacitorApp (8.1.0):
     - Capacitor
-  - CapacitorBrowser (8.0.1):
+  - CapacitorBrowser (8.0.3):
     - Capacitor
-  - CapacitorCamera (8.0.1):
+  - CapacitorCamera (8.0.2):
     - Capacitor
   - CapacitorCommunityAppleSignIn (7.1.0):
     - Capacitor
-  - CapacitorCordova (8.1.0)
-  - CapacitorDevice (8.0.1):
+  - CapacitorCordova (8.3.0)
+  - CapacitorDevice (8.0.2):
     - Capacitor
   - CapacitorDialog (8.0.1):
     - Capacitor
-  - CapacitorFilesystem (8.1.1):
+  - CapacitorFilesystem (8.1.2):
     - Capacitor
-    - IONFilesystemLib (~> 1.1.0)
-  - CapacitorFirebaseAuthentication (8.0.1):
+    - IONFilesystemLib (~> 1.1.1)
+  - CapacitorFirebaseAuthentication (8.2.0):
     - Capacitor
-    - CapacitorFirebaseAuthentication/Lite (= 8.0.1)
+    - CapacitorFirebaseAuthentication/Lite (= 8.2.0)
     - FirebaseAuth (~> 12.7.0)
-  - CapacitorFirebaseAuthentication/Google (8.0.1):
+  - CapacitorFirebaseAuthentication/Google (8.2.0):
     - Capacitor
     - FirebaseAuth (~> 12.7.0)
     - GoogleSignIn (= 9.0.0)
-  - CapacitorFirebaseAuthentication/Lite (8.0.1):
+  - CapacitorFirebaseAuthentication/Lite (8.2.0):
     - Capacitor
     - FirebaseAuth (~> 12.7.0)
-  - CapacitorFirebaseCrashlytics (8.0.1):
+  - CapacitorFirebaseCrashlytics (8.2.0):
     - Capacitor
     - FirebaseCrashlytics (~> 12.7.0)
-  - CapacitorFirebaseMessaging (8.1.0):
+  - CapacitorFirebaseMessaging (8.2.0):
     - Capacitor
     - FirebaseMessaging (~> 12.7.0)
-  - CapacitorFirebasePerformance (8.0.1):
+  - CapacitorFirebasePerformance (8.2.0):
     - Capacitor
     - FirebasePerformance (~> 12.7.0)
-  - CapacitorGeolocation (8.1.0):
+  - CapacitorGeolocation (8.2.0):
     - Capacitor
-    - IONGeolocationLib (= 2.0.0)
-  - CapacitorHaptics (8.0.0):
+    - IONGeolocationLib (= 2.1.0)
+  - CapacitorHaptics (8.0.2):
     - Capacitor
-  - CapacitorKeyboard (8.0.0):
+  - CapacitorKeyboard (8.0.2):
     - Capacitor
   - CapacitorNativeBiometric (0.0.1):
     - Capacitor
@@ -62,13 +62,13 @@ PODS:
     - Capacitor
   - CapacitorPreferences (8.0.1):
     - Capacitor
-  - CapacitorPushNotifications (8.0.1):
+  - CapacitorPushNotifications (8.0.3):
     - Capacitor
   - CapacitorShare (8.0.1):
     - Capacitor
   - CapacitorSplashScreen (8.0.1):
     - Capacitor
-  - CapacitorStatusBar (8.0.1):
+  - CapacitorStatusBar (8.0.2):
     - Capacitor
   - CapawesomeCapacitorBadge (8.0.1):
     - Capacitor
@@ -186,8 +186,8 @@ PODS:
     - AppAuth/Core (~> 2.0)
     - GTMSessionFetcher/Core (< 4.0, >= 3.3)
   - GTMSessionFetcher/Core (3.5.0)
-  - IONFilesystemLib (1.1.0)
-  - IONGeolocationLib (2.0.0)
+  - IONFilesystemLib (1.1.2)
+  - IONGeolocationLib (2.1.0)
   - MSAL (1.9.0):
     - MSAL/app-lib (= 1.9.0)
   - MSAL/app-lib (1.9.0)
@@ -325,30 +325,30 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   AppAuth: 1c1a8afa7e12f2ec3a294d9882dfa5ab7d3cb063
   AppCheckCore: cc8fd0a3a230ddd401f326489c99990b013f0c4f
-  Capacitor: 47b825120c6b8b6d6f9f053e9350a8960d436710
-  CapacitorActionSheet: ee54b5b22a54dbe82c44582a6c0fca4a60c5595b
-  CapacitorApp: 942306cd1acf7774a00e89a3986af3a67c8cad7a
-  CapacitorBrowser: e72e572d5dbdbb854fda5950586a2451e981f2d6
-  CapacitorCamera: fcacb82cc319e62f8d8c93e20f3f70e2464efe5e
+  Capacitor: 22e541237135648c9aa736232bb4d2eec35fddcb
+  CapacitorActionSheet: c3394c32eb29990e73e9c6c5677e3b31eb46ad3f
+  CapacitorApp: 449ffe26375e96f8aaaee625ac6e01e5c57c8650
+  CapacitorBrowser: c987c73d09d8bd3b5ec13f06338b1e14d5d2be69
+  CapacitorCamera: 66bb9c4ea1703a5acf2a328bac0e613d278c399c
   CapacitorCommunityAppleSignIn: 271cb2860576fd2961508bbfa7a82117d93eadca
-  CapacitorCordova: e8b76fd95fc1e157775abc484c59cc0de464095d
-  CapacitorDevice: ff033fa0c4ec19f5e059a073769a9b2347e69f57
+  CapacitorCordova: 2e1e2bb93b2f365309dc4ff18b72b9a69a7814a9
+  CapacitorDevice: 14cba6f88d1c3074cbf825fea977c8c526453ff8
   CapacitorDialog: 854c5dac405081cae697c177ca43bcaa95ae67bf
-  CapacitorFilesystem: f2b2caa158383b3f568383b33e47296f7c48c470
-  CapacitorFirebaseAuthentication: cb5ddfd40d28ae8522b9af25741ba62eaa939501
-  CapacitorFirebaseCrashlytics: 9498eaa61bdcc42971392747c221a407c38ddc5e
-  CapacitorFirebaseMessaging: 000e9eb39f2cebcf89afeff5c9e056980ed0014e
-  CapacitorFirebasePerformance: 859956f5d5716d57d5dc98332dc2ee460f8a0158
-  CapacitorGeolocation: 7132de914f9d853ec4642dc1d36e4e2018a4e8a8
-  CapacitorHaptics: 2079d9fa04c5a71e18663b4722323c304c58245c
-  CapacitorKeyboard: d7868c079a4d5277a3deca27a10a488fcbbb8b69
+  CapacitorFilesystem: 2db285a1ac6e475cc27cae2e1bea999000f9e2be
+  CapacitorFirebaseAuthentication: 86cbfa7b8d839acb36c774cc88b4b9f62df4db9e
+  CapacitorFirebaseCrashlytics: beb78c76d06bce7bb658038a93c12eb18b36cf09
+  CapacitorFirebaseMessaging: 09f9402613a755af4ef37c6ce2fd7b4c02250246
+  CapacitorFirebasePerformance: 483b53d0e2134479fe635e3b61ec5d6967602874
+  CapacitorGeolocation: b36f6287bfc9f2eefa04dc900496f2c8ae666136
+  CapacitorHaptics: 296f771ecd89c7a1bd92a7b6826a7d268e2e70f5
+  CapacitorKeyboard: 8aa4f4ae80b2c92f92c07bf0181c464c2e7f5ff0
   CapacitorNativeBiometric: 78cf21304251a512e4597437325b5e9b0cd9f7b3
   CapacitorNetwork: 8812ce60d11fb63d8f2e4ba51a49b2e59892ebe2
   CapacitorPreferences: cca2021f386efb75947c850334447d9ff22b14f1
-  CapacitorPushNotifications: 99644101c6a82036e459929b6d897ee1cb27d97f
+  CapacitorPushNotifications: e4437b4ec1b2070685bf032c210f346432214c5f
   CapacitorShare: 0c58305114538568059bfc07111f22dcb9cb2a82
   CapacitorSplashScreen: 4b46c72298db552b3c57ce021ef028b6dc7f1fa7
-  CapacitorStatusBar: 32206abd53b14f339763da26f71286deaa891e16
+  CapacitorStatusBar: 01d5763b4ed720de5ce2edbc938de6a98f4c8f32
   CapawesomeCapacitorBadge: 0a65ef36db6c236b41f324df5a2f12fe8cdd4a29
   CapgoNativePurchases: 392b4d2b7f5f0de946176e0ed4304f134f736b2f
   FirebaseABTesting: 72e4636929660d40844f2a4db15be9d551fc27d6
@@ -371,8 +371,8 @@ SPEC CHECKSUMS:
   GoogleUtilities: 00c88b9a86066ef77f0da2fab05f65d7768ed8e1
   GTMAppAuth: 217a876b249c3c585a54fd6f73e6b58c4f5c4238
   GTMSessionFetcher: 5aea5ba6bd522a239e236100971f10cb71b96ab6
-  IONFilesystemLib: 50b9a0f3052a9b40b9bedb43f328a8fe222f9f87
-  IONGeolocationLib: a5e40b54edc2ee9902036eda5aaa41ddf07bb68d
+  IONFilesystemLib: 21a63377696b2d8fab5632ecfb7d2ac67bddb68a
+  IONGeolocationLib: 6a7b6f76063fb1b01cfb14fae7d0f526e3c9b271
   MSAL: 1a32a1070ccf55d9641d31edd8869ea2b5a78beb
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
   PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47
@@ -380,6 +380,6 @@ SPEC CHECKSUMS:
   RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
   RecognizebvCapacitorPluginMsauth: c108ed22d9d2329bc729661356f9fce24354e2c2
 
-PODFILE CHECKSUM: ba7b414f2d9bc8276703bfb4e968e5d1147fe3e1
+PODFILE CHECKSUM: 6b99975f3baeb6f6bf4661b14e6a66a89acda827
 
 COCOAPODS: 1.16.2

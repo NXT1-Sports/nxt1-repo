@@ -528,6 +528,13 @@ export class UsageShellComponent implements OnInit {
   /** Whether to show the page header (back arrow + title). Hide on desktop web. */
   readonly showPageHeader = input<boolean>(true);
 
+  /**
+   * Optional override for the "Buy Credits" action.
+   * When provided, this function is called instead of the default Stripe flow.
+   * Use this on mobile to trigger Apple IAP instead of opening a Stripe URL.
+   */
+  readonly buyCreditsHandler = input<(() => Promise<void>) | null>(null);
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -621,6 +628,11 @@ export class UsageShellComponent implements OnInit {
 
   protected async onBuyCredits(): Promise<void> {
     await this.haptics.impact('light');
+    const handler = this.buyCreditsHandler();
+    if (handler) {
+      await handler();
+      return;
+    }
     const amountCents = await this.usageBottomSheet.showBuyCreditsOptions();
     if (amountCents !== null) {
       await this.svc.buyCredits(amountCents);
