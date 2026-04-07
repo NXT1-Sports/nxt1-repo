@@ -663,6 +663,9 @@ export interface TopNavDropdownItem {
 
   /** Description text shown below label */
   description?: string;
+
+  /** Accessibility label */
+  ariaLabel?: string;
 }
 
 /**
