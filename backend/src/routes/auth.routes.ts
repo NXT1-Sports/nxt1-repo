@@ -2444,7 +2444,9 @@ router.post(
     const googleClientId = req.isStaging
       ? (process.env['STAGING_CLIENT_ID'] ?? process.env['CLIENT_ID'] ?? '')
       : (process.env['CLIENT_ID'] ?? '');
-    const googleClientSecret = process.env['CLIENT_SECRET'] ?? '';
+    const googleClientSecret = req.isStaging
+      ? (process.env['STAGING_CLIENT_SECRET'] ?? process.env['CLIENT_SECRET'] ?? '')
+      : (process.env['CLIENT_SECRET'] ?? '');
 
     logger.debug('[Google Connect Gmail] Environment config', {
       isStaging: req.isStaging,

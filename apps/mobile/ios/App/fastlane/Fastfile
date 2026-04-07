@@ -6,7 +6,7 @@
 default_platform(:ios)
 
 # App configuration
-APP_IDENTIFIER = "com.nxt1.sports"
+APP_IDENTIFIER = "com.nxt1sports.nxt1"
 APPLE_ID = ENV["APPLE_ID"] || "developer@nxt1.app"
 TEAM_ID = ENV["APPLE_TEAM_ID"]
 

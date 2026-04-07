@@ -66,7 +66,9 @@ function resolveGoogleCredentials(db: Firestore): { clientId: string; clientSecr
   const clientId = isStaging
     ? (process.env['STAGING_CLIENT_ID'] ?? process.env['CLIENT_ID'] ?? '')
     : (process.env['CLIENT_ID'] ?? '');
-  const clientSecret = process.env['CLIENT_SECRET'] ?? '';
+  const clientSecret = isStaging
+    ? (process.env['STAGING_CLIENT_SECRET'] ?? process.env['CLIENT_SECRET'] ?? '')
+    : (process.env['CLIENT_SECRET'] ?? '');
   return { clientId, clientSecret };
 }
 
