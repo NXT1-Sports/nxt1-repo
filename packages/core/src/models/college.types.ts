@@ -22,6 +22,21 @@ export interface CollegeSportInfo {
 }
 
 /**
+ * College coaching staff contact (from the `contacts` MongoDB collection).
+ * Each contact is linked to a College via the `contacts` ObjectId array.
+ */
+export interface CollegeContact {
+  _id: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phoneNumber?: string;
+  position?: string;
+  sport?: string;
+  twitter?: string;
+}
+
+/**
  * Complete college entity
  */
 export interface College {

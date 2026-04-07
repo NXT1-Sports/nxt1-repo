@@ -50,7 +50,7 @@ import {
   type AgentXControlPanelKind,
 } from './agent-x-control-panel-state.service';
 
-import { AgentXInputComponent } from './agent-x-input.component';
+import { AgentXPromptInputComponent } from './agent-x-prompt-input.component';
 import {
   AgentXOperationChatComponent,
   type OperationQuickAction,
@@ -134,7 +134,7 @@ export interface WeeklyPlaybookItem {
     NxtIconComponent,
     NxtStateViewComponent,
     AgentXDashboardSkeletonComponent,
-    AgentXInputComponent,
+    AgentXPromptInputComponent,
   ],
   template: `
     <!-- ═══ PAGE HEADER — Agent X Logo Centered ═══ -->
@@ -430,7 +430,7 @@ export interface WeeklyPlaybookItem {
     </section>
 
     <!-- ═══ INPUT BAR — Fixed above footer ═══ -->
-    <nxt1-agent-x-input
+    <nxt1-agent-x-prompt-input
       [hasMessages]="false"
       [selectedTask]="agentX.selectedTask()"
       [isLoading]="agentX.isLoading()"

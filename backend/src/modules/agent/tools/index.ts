@@ -10,7 +10,7 @@ export { ToolRegistry } from './tool-registry.js';
 export { ScrapeWebpageTool, ScraperService } from './scraping/index.js';
 
 // Database tools
-export { SearchCollegesTool } from './database/index.js';
+export { SearchCollegesTool, SearchCollegeCoachesTool } from './database/index.js';
 
 // Integration tools
 export { SendEmailTool } from './integrations/send-email.tool.js';

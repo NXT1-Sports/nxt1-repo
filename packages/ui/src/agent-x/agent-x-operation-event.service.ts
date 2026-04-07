@@ -32,7 +32,7 @@
  * ```
  */
 
-import { Injectable, inject, InjectionToken } from '@angular/core';
+import { Injectable, inject, InjectionToken, NgZone } from '@angular/core';
 import type {
   JobEvent,
   AgentXToolStep,
@@ -132,6 +132,7 @@ export class AgentXOperationEventService {
   private readonly logger = inject(NxtLoggingService).child('OperationEventService');
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly firestoreAdapter = inject(FIRESTORE_ADAPTER, { optional: true });
+  private readonly ngZone = inject(NgZone);
 
   /** Active subscriptions by operationId. */
   private readonly activeSubs = new Map<string, () => void>();
@@ -157,7 +158,11 @@ export class AgentXOperationEventService {
    */
   emitTitleUpdated(threadId: string, title: string): void {
     this.logger.debug('Emitting thread title update', { threadId, title });
-    this._titleUpdated$.next({ threadId, title });
+    // Run inside NgZone so change detection fires — the SSE ReadableStream
+    // reader.read() callback executes outside the Angular zone (native
+    // promise not patched by zone.js), so without this, signal writes in
+    // the subscriber never trigger a CD tick.
+    this.ngZone.run(() => this._titleUpdated$.next({ threadId, title }));
   }
 
   /**
@@ -170,7 +175,8 @@ export class AgentXOperationEventService {
     timestamp: string
   ): void {
     this.logger.debug('Emitting operation status update', { threadId, status });
-    this._operationStatusUpdated$.next({ threadId, status, timestamp });
+    // Run inside NgZone — same reason as emitTitleUpdated above.
+    this.ngZone.run(() => this._operationStatusUpdated$.next({ threadId, status, timestamp }));
   }
 
   /**

@@ -14,3 +14,4 @@
  */
 
 export { GenerateImageTool } from './generate-image.tool.js';
+export { AnalyzeVideoTool } from './analyze-video.tool.js';

@@ -31,6 +31,7 @@ export const MODEL_CATALOGUE: Record<ModelTier, string> = {
   image_generation: 'google/gemini-3-pro-image-preview',
   video_generation: 'google/gemini-3-pro-image-preview', // placeholder until video models available
   vision_analysis: 'openai/gpt-4o',
+  video_analysis: 'google/gemini-2.5-flash',
   audio_analysis: 'openai/gpt-4o',
   voice_generation: 'openai/gpt-4o-mini', // placeholder until TTS models available
   music_generation: 'openai/gpt-4o-mini', // placeholder until music models available
@@ -68,6 +69,7 @@ export const MODEL_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
   image_generation: ['google/gemini-3-pro-image-preview'],
   video_generation: ['google/gemini-3-pro-image-preview'],
   vision_analysis: ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet'],
+  video_analysis: ['google/gemini-2.5-flash', 'google/gemini-2.5-pro'],
   audio_analysis: ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet'],
   voice_generation: ['openai/gpt-4o-mini'],
   music_generation: ['openai/gpt-4o-mini'],
@@ -104,6 +106,9 @@ export const IMAGE_MODEL = 'google/gemini-3-pro-image-preview' as const;
 /** Timeout for image generation requests (models are slow). */
 export const IMAGE_GENERATION_TIMEOUT_MS = 180_000;
 
+/** Timeout for video analysis requests (large file processing + long context). */
+export const VIDEO_ANALYSIS_TIMEOUT_MS = 300_000;
+
 // ─── Request / Response Shapes ──────────────────────────────────────────────
 
 /**
@@ -127,9 +132,21 @@ export interface LLMImageUrlContentPart {
 }
 
 /**
+ * A video URL content part in a multimodal message.
+ * Used to pass video files (MP4, MPEG, MOV, WebM) or YouTube URLs
+ * to video-capable models (e.g. Gemini) via OpenRouter's native video_url support.
+ */
+export interface LLMVideoUrlContentPart {
+  readonly type: 'video_url';
+  readonly video_url: {
+    readonly url: string;
+  };
+}
+
+/**
  * Union of all content part types for multimodal messages.
  */
-export type LLMContentPart = LLMTextContentPart | LLMImageUrlContentPart;
+export type LLMContentPart = LLMTextContentPart | LLMImageUrlContentPart | LLMVideoUrlContentPart;
 
 /** A single message in the OpenRouter chat format. */
 export interface LLMMessage {

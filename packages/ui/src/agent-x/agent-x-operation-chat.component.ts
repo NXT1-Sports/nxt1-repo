@@ -76,7 +76,7 @@ import { NxtToastService } from '../services/toast/toast.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AGENT_X_OPERATION_CHAT_TEST_IDS } from '@nxt1/core/testing';
-import { AgentXInputComponent } from './agent-x-input.component';
+import { AgentXPromptInputComponent } from './agent-x-prompt-input.component';
 import {
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
@@ -154,7 +154,7 @@ interface OperationMessage {
     NxtChatBubbleComponent,
     NxtIconComponent,
     NxtDragDropDirective,
-    AgentXInputComponent,
+    AgentXPromptInputComponent,
     AgentXActionCardComponent,
   ],
   template: `
@@ -467,7 +467,7 @@ interface OperationMessage {
       }
 
       <!-- ═══ INPUT ═══ -->
-      <nxt1-agent-x-input
+      <nxt1-agent-x-prompt-input
         class="embedded"
         [hasMessages]="messages().length > 0"
         [selectedTask]="null"
@@ -2395,6 +2395,13 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             );
           },
 
+          onPanel: (evt) => {
+            this.agentXService.requestAutoOpenPanel(evt);
+            this.logger.info('Forwarded panel event to AgentXService (immediate)', {
+              type: evt.type,
+            });
+          },
+
           onDone: (evt) => {
             const tid = this._resolvedThreadId();
             if (tid) {
@@ -2423,9 +2430,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
               model: evt.model,
             });
             // Surface autoOpenPanel instruction to the shell via the central service
-            if (evt.autoOpenPanel) {
+            // (fallback — the panel SSE event should have already surfaced it)
+            if (evt.autoOpenPanel && !this.agentXService.requestedSidePanel()) {
               this.agentXService.requestAutoOpenPanel(evt.autoOpenPanel);
-              this.logger.info('Forwarded autoOpenPanel to AgentXService', {
+              this.logger.info('Forwarded autoOpenPanel to AgentXService (done fallback)', {
                 type: evt.autoOpenPanel.type,
               });
             }

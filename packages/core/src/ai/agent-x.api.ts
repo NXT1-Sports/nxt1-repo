@@ -40,6 +40,7 @@ import type {
   AgentXStreamStepEvent,
   AgentXStreamCardEvent,
   AgentXStreamOperationEvent,
+  AutoOpenPanelInstruction,
 } from './agent-x.types';
 import type { AgentMessage } from './chat.types';
 import { AGENT_X_ENDPOINTS } from './agent-x.constants';
@@ -513,6 +514,17 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
                   case 'done':
                     callbacks.onDone(payload as AgentXStreamDoneEvent);
                     break;
+                  case 'panel': {
+                    const panel = payload as Record<string, unknown>;
+                    if (
+                      panel &&
+                      typeof panel['type'] === 'string' &&
+                      typeof panel['url'] === 'string'
+                    ) {
+                      callbacks.onPanel?.(panel as unknown as AutoOpenPanelInstruction);
+                    }
+                    break;
+                  }
                   case 'error':
                     callbacks.onError(payload as AgentXStreamErrorEvent);
                     break;

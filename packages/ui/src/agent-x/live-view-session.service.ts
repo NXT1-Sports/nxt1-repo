@@ -63,6 +63,15 @@ export class LiveViewSessionService {
   /** Whether any session is currently active. */
   readonly hasActiveSession = computed(() => this._activeSession() !== null);
 
+  /**
+   * Externally signal that a live-view session is being prepared (e.g. the
+   * backend tool has started but hasn't returned a session yet). The header
+   * button observes `loading()` to show a spinner.
+   */
+  setLoading(value: boolean): void {
+    this._loading.set(value);
+  }
+
   // ─── Session Lifecycle ────────────────────────────────────────────────
 
   /**
@@ -293,6 +302,7 @@ export class LiveViewSessionService {
    */
   adoptSession(session: LiveViewSession): void {
     this._activeSession.set(session);
+    this._loading.set(false);
     this._error.set(null);
     this.logger.info('Adopted live view session from backend', {
       sessionId: session.sessionId,

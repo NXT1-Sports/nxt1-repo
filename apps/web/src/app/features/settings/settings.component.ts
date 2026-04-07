@@ -100,9 +100,9 @@ export class SettingsComponent implements OnInit {
         };
         this.settingsService.setUser(settingsUser);
 
-        // Derive subscription from auth state
+        // Usage-based billing — no tier derivation needed
         const subscription: SettingsSubscription = {
-          tier: user.isPremium ? 'premium' : 'free',
+          tier: 'metered',
           status: 'active',
           currentPeriodEnd: null,
           cancelAtPeriodEnd: false,

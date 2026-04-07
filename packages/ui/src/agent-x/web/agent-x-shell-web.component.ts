@@ -36,9 +36,12 @@ import {
   signal,
   computed,
   effect,
+  untracked,
   afterNextRender,
   AfterViewInit,
   OnDestroy,
+  HostListener,
+  ElementRef,
   TemplateRef,
   viewChild,
   DestroyRef,
@@ -61,7 +64,7 @@ import {
   type OperationQuickAction,
 } from '../agent-x-operation-chat.component';
 import type { DraftSubmittedEvent } from '../agent-x-draft-card.component';
-import { AgentXInputComponent } from '../agent-x-input.component';
+import { AgentXPromptInputComponent } from '../agent-x-prompt-input.component';
 import {
   AgentXControlPanelStateService,
   AGENT_X_GOAL_OPTIONS,
@@ -70,6 +73,7 @@ import {
 import { NxtToastService } from '../../services/toast/toast.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import { NxtLoggingService } from '../../services/logging/logging.service';
+import { NxtPlatformService } from '../../services/platform/platform.service';
 import {
   AgentXOperationEventService,
   type ThreadTitleUpdatedEvent,
@@ -124,6 +128,14 @@ interface AgentXDesktopSession {
   readonly yieldState?: AgentYieldState;
 }
 
+type AgentXDesktopResizablePanel = 'sessions' | 'action-plan' | 'expanded-panel';
+
+interface AgentXDesktopResizeState {
+  readonly panel: AgentXDesktopResizablePanel;
+  readonly startX: number;
+  readonly startWidth: number;
+}
+
 @Component({
   selector: 'nxt1-agent-x-shell-web',
   standalone: true,
@@ -133,7 +145,7 @@ interface AgentXDesktopSession {
     AgentXDashboardSkeletonComponent,
     AgentXOperationsLogComponent,
     AgentXOperationChatComponent,
-    AgentXInputComponent,
+    AgentXPromptInputComponent,
   ],
   template: `
     <!-- Portal: center — Agent X title + centered nav pills -->
@@ -190,50 +202,52 @@ interface AgentXDesktopSession {
               <span class="header-nav-pill-count">{{ playbookTotalCount() }}</span>
             }
           </button>
-          <button
-            type="button"
-            class="header-nav-pill"
-            [class.header-nav-pill--active]="!!expandedSidePanel()"
-            [class.header-nav-pill--loading]="liveView.loading()"
-            [disabled]="liveView.loading()"
-            (click)="toggleDevLiveView()"
-          >
-            @if (liveView.loading()) {
-              <svg
-                class="header-nav-pill-spinner"
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                aria-hidden="true"
-              >
-                <circle cx="12" cy="12" r="10" stroke-opacity="0.25" />
-                <path d="M12 2a10 10 0 0 1 10 10" />
-              </svg>
-            } @else {
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                <line x1="8" y1="21" x2="16" y2="21" />
-                <line x1="12" y1="17" x2="12" y2="21" />
-              </svg>
-            }
-            <span>Live View</span>
-          </button>
+          @if (!platform.isMobile()) {
+            <button
+              type="button"
+              class="header-nav-pill"
+              [class.header-nav-pill--active]="!!expandedSidePanel()"
+              [class.header-nav-pill--loading]="liveView.loading()"
+              [disabled]="liveView.loading()"
+              (click)="toggleDevLiveView()"
+            >
+              @if (liveView.loading()) {
+                <svg
+                  class="header-nav-pill-spinner"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="10" stroke-opacity="0.25" />
+                  <path d="M12 2a10 10 0 0 1 10 10" />
+                </svg>
+              } @else {
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                  <line x1="8" y1="21" x2="16" y2="21" />
+                  <line x1="12" y1="17" x2="12" y2="21" />
+                </svg>
+              }
+              <span>Live View</span>
+            </button>
+          }
         </div>
       </div>
     </ng-template>
@@ -241,6 +255,16 @@ interface AgentXDesktopSession {
     <!-- Portal: right — Status dot + Sources + Budget icons -->
     <ng-template #agentRightPortal>
       <div class="header-portal-actions">
+        @if (platform.isMobile()) {
+          <button
+            type="button"
+            class="header-icon-btn"
+            (click)="onActivityLogClick()"
+            aria-label="Agent Logs"
+          >
+            <nxt1-icon name="time" [size]="20" />
+          </button>
+        }
         <button
           type="button"
           class="header-status-dot-btn"
@@ -310,10 +334,14 @@ interface AgentXDesktopSession {
     </ng-template>
 
     <main
+      #desktopMain
       class="agent-main agent-desktop"
       [class.agent-main--with-sessions]="showSessionsRail()"
       [class.agent-main--with-plan]="showActionPlanModal() && !expandedSidePanel()"
       [class.agent-main--with-expanded-panel]="!!expandedSidePanel()"
+      [class.agent-main--resizing]="isDesktopPanelResizing()"
+      [style.--agent-left-column-width.px]="leftRailWidth()"
+      [style.--agent-right-column-width.px]="activeRightPanelWidth()"
       role="main"
     >
       @if (agentX.dashboardLoading() && !agentX.dashboardLoaded()) {
@@ -334,6 +362,15 @@ interface AgentXDesktopSession {
       } @else if (agentX.dashboardLoaded()) {
         @if (showSessionsRail()) {
           <aside class="agent-column agent-rail-column" aria-label="Sessions and daily operations">
+            <div
+              class="agent-resize-handle agent-resize-handle--right"
+              [class.agent-resize-handle--active]="activeDesktopResize()?.panel === 'sessions'"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize sessions panel"
+              (mousedown)="startDesktopPanelResize('sessions', $event)"
+              (dblclick)="resetDesktopPanelWidth('sessions', $event)"
+            ></div>
             <div class="agent-column-header">
               <div class="agent-column-header-row">
                 <h2 class="agent-column-title">Sessions</h2>
@@ -436,6 +473,15 @@ interface AgentXDesktopSession {
              ═══════════════════════════════════════════ -->
         @if (showActionPlanModal() && !expandedSidePanel()) {
           <aside class="agent-column agent-action-plan-column" aria-label="Today's Action Plan">
+            <div
+              class="agent-resize-handle agent-resize-handle--left"
+              [class.agent-resize-handle--active]="activeDesktopResize()?.panel === 'action-plan'"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize action plan panel"
+              (mousedown)="startDesktopPanelResize('action-plan', $event)"
+              (dblclick)="resetDesktopPanelWidth('action-plan', $event)"
+            ></div>
             <!-- ── Manage Goals Button + Close (opens modal) ── -->
             <div class="inline-goals">
               <button
@@ -637,6 +683,17 @@ interface AgentXDesktopSession {
             aria-label="Expanded panel"
             [attr.data-testid]="lvTestIds.PANEL_CONTAINER"
           >
+            <div
+              class="agent-resize-handle agent-resize-handle--left"
+              [class.agent-resize-handle--active]="
+                activeDesktopResize()?.panel === 'expanded-panel'
+              "
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize live view panel"
+              (mousedown)="startDesktopPanelResize('expanded-panel', $event)"
+              (dblclick)="resetDesktopPanelWidth('expanded-panel', $event)"
+            ></div>
             <div class="agent-column-header" [attr.data-testid]="lvTestIds.HEADER">
               <div class="agent-column-header-row">
                 <h2 class="agent-column-title">{{ expandedPanelTitle() }}</h2>
@@ -1059,7 +1116,7 @@ interface AgentXDesktopSession {
       </section>
 
       <!-- ═══ INPUT BAR ═══ -->
-      <nxt1-agent-x-input
+      <nxt1-agent-x-prompt-input
         [hasMessages]="false"
         [selectedTask]="agentX.selectedTask()"
         [isLoading]="agentX.isLoading()"
@@ -1122,23 +1179,33 @@ interface AgentXDesktopSession {
       }
 
       .agent-main--with-sessions {
-        grid-template-columns: 280px minmax(0, 1fr);
+        grid-template-columns: var(--agent-left-column-width, 280px) minmax(0, 1fr);
       }
 
       .agent-main--with-plan {
-        grid-template-columns: minmax(0, 1fr) 320px;
+        grid-template-columns: minmax(0, 1fr) var(--agent-right-column-width, 320px);
       }
 
       .agent-main--with-sessions.agent-main--with-plan {
-        grid-template-columns: 280px minmax(0, 1fr) 320px;
+        grid-template-columns:
+          var(--agent-left-column-width, 280px)
+          minmax(0, 1fr)
+          var(--agent-right-column-width, 320px);
       }
 
       .agent-main--with-expanded-panel {
-        grid-template-columns: minmax(0, 1fr) clamp(400px, 45vw, 700px);
+        grid-template-columns: minmax(0, 1fr) var(--agent-right-column-width, 540px);
       }
 
       .agent-main--with-sessions.agent-main--with-expanded-panel {
-        grid-template-columns: 280px minmax(0, 1fr) clamp(400px, 45vw, 700px);
+        grid-template-columns:
+          var(--agent-left-column-width, 280px)
+          minmax(0, 1fr)
+          var(--agent-right-column-width, 540px);
+      }
+
+      .agent-main--resizing {
+        cursor: col-resize;
       }
 
       .agent-loading-shell {
@@ -1169,6 +1236,44 @@ interface AgentXDesktopSession {
         overflow: hidden;
         min-width: 0;
         min-height: 0;
+        position: relative;
+      }
+
+      .agent-resize-handle {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 12px;
+        z-index: 5;
+        cursor: col-resize;
+      }
+
+      .agent-resize-handle::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 50%;
+        width: 1px;
+        transform: translateX(-50%);
+        background: transparent;
+        transition:
+          background 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+
+      .agent-resize-handle:hover::before,
+      .agent-resize-handle--active::before {
+        background: var(--agent-primary, #ccff00);
+        box-shadow: 0 0 0 1px var(--agent-primary-glow, rgba(204, 255, 0, 0.1));
+      }
+
+      .agent-resize-handle--right {
+        right: 0;
+      }
+
+      .agent-resize-handle--left {
+        left: 0;
       }
 
       .agent-rail-column {
@@ -1307,8 +1412,8 @@ interface AgentXDesktopSession {
         min-width: 0;
         min-height: 0;
         overflow: hidden;
-        max-width: 820px;
-        margin: 0 auto;
+        max-width: none;
+        margin: 0;
         width: 100%;
       }
 
@@ -1671,6 +1776,10 @@ interface AgentXDesktopSession {
 
       .expanded-panel__iframe--visible {
         opacity: 1;
+      }
+
+      .agent-main--resizing .expanded-panel__iframe {
+        pointer-events: none;
       }
 
       .expanded-panel__loader {
@@ -3082,7 +3191,7 @@ interface AgentXDesktopSession {
       }
 
       /* --- Input Bar (mobile) ---
-         The AgentXInputComponent already has its own position:fixed
+         The AgentXPromptInputComponent already has its own position:fixed
          with footer-aware bottom offset at <767px.
          Do NOT override its positioning — just let it be. */
     `,
@@ -3090,6 +3199,14 @@ interface AgentXDesktopSession {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
+  private static readonly DESKTOP_CHAT_MIN_WIDTH = 120;
+  private static readonly DESKTOP_PANEL_COLLAPSE_THRESHOLD = 72;
+  private static readonly DESKTOP_LEFT_PANEL_DEFAULT_WIDTH = 280;
+  private static readonly DESKTOP_LEFT_PANEL_MIN_WIDTH = 220;
+  private static readonly DESKTOP_ACTION_PLAN_DEFAULT_WIDTH = 320;
+  private static readonly DESKTOP_ACTION_PLAN_MIN_WIDTH = 260;
+  private static readonly DESKTOP_EXPANDED_PANEL_MIN_WIDTH = 400;
+
   protected readonly agentX = inject(AgentXService);
   protected readonly controlPanelState = inject(AgentXControlPanelStateService);
   private readonly logger = inject(NxtLoggingService).child('AgentXShellWeb');
@@ -3099,6 +3216,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly sanitizer = inject(DomSanitizer);
 
   // Portal template refs
+  private readonly desktopMain = viewChild<ElementRef<HTMLElement>>('desktopMain');
   private readonly agentTitlePortal = viewChild<TemplateRef<unknown>>('agentTitlePortal');
   private readonly agentRightPortal = viewChild<TemplateRef<unknown>>('agentRightPortal');
   private readonly operationsLog = viewChild(AgentXOperationsLogComponent);
@@ -3106,6 +3224,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly haptics = inject(HapticsService);
   private readonly operationEventService = inject(AgentXOperationEventService);
   private readonly destroyRef = inject(DestroyRef);
+  protected readonly platform = inject(NxtPlatformService);
   private desktopSessionCounter = 0;
 
   // ============================================
@@ -3132,6 +3251,13 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.headerPortal.clearAll();
+    this.stopDesktopPanelResize();
+
+    // Tear down any active live-view session so Firecrawl releases the
+    // concurrent browser slot immediately (fire-and-forget).
+    if (this.liveView.activeSession()) {
+      this.liveView.closeSession();
+    }
   }
 
   /** Agent X SVG logo path data for inline icon rendering. */
@@ -3171,12 +3297,34 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
   /** Whether the action plan modal is visible (desktop). Starts open. */
   protected readonly showActionPlanModal = signal(true);
+  protected readonly leftRailWidth = signal(
+    AgentXShellWebComponent.DESKTOP_LEFT_PANEL_DEFAULT_WIDTH
+  );
+  protected readonly actionPlanWidth = signal(
+    AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH
+  );
+  protected readonly expandedPanelWidth = signal(this.getDefaultExpandedPanelWidth());
+  protected readonly activeDesktopResize = signal<AgentXDesktopResizeState | null>(null);
+  protected readonly isDesktopPanelResizing = computed(() => this.activeDesktopResize() !== null);
+  protected readonly activeRightPanelWidth = computed(() =>
+    this.expandedSidePanel() ? this.expandedPanelWidth() : this.actionPlanWidth()
+  );
 
   // ── Expanded Side Panel (Firecrawl Live View / Media) ──────────────
-  private static readonly FIRECRAWL_ALLOWED_ORIGINS = [
-    'https://liveview.firecrawl.dev',
-    'https://connect.firecrawl.dev',
-  ];
+
+  /**
+   * Accept any `*.firecrawl.dev` sub-domain so the iframe works with
+   * whichever Firecrawl endpoint generated the interactiveLiveViewUrl
+   * (liveview, connect, interact, regional, etc.).
+   */
+  private static isAllowedFirecrawlOrigin(origin: string): boolean {
+    try {
+      const { hostname } = new URL(origin);
+      return hostname === 'firecrawl.dev' || hostname.endsWith('.firecrawl.dev');
+    } catch {
+      return false;
+    }
+  }
 
   /** Live view session orchestration service. */
   protected readonly liveView = inject(LiveViewSessionService);
@@ -3196,10 +3344,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     if (!panel || panel.type !== 'live-view') return null;
     try {
       const parsed = new URL(panel.url);
-      const allowed = AgentXShellWebComponent.FIRECRAWL_ALLOWED_ORIGINS.some(
-        (origin) => parsed.origin === origin
-      );
-      if (!allowed) return null;
+      if (!AgentXShellWebComponent.isAllowedFirecrawlOrigin(parsed.origin)) {
+        return null;
+      }
       return this.sanitizer.bypassSecurityTrustResourceUrl(panel.url);
     } catch {
       return null;
@@ -3278,6 +3425,213 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     { label: 'Finalizing your playbook' },
   ];
 
+  private getDefaultExpandedPanelWidth(): number {
+    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
+    const idealWidth = Math.round(viewportWidth * 0.45);
+    return Math.max(idealWidth, AgentXShellWebComponent.DESKTOP_EXPANDED_PANEL_MIN_WIDTH);
+  }
+
+  private getDesktopMainWidth(): number {
+    const width = this.desktopMain()?.nativeElement.getBoundingClientRect().width ?? 0;
+    if (width > 0) return width;
+    if (typeof window !== 'undefined') return window.innerWidth;
+    return 1440;
+  }
+
+  private clampWidth(width: number, minWidth: number, maxWidth: number): number {
+    return Math.min(Math.max(width, minWidth), Math.max(minWidth, maxWidth));
+  }
+
+  private getDesktopPanelMaxWidth(panel: AgentXDesktopResizablePanel): number {
+    const mainWidth = this.getDesktopMainWidth();
+    const leftWidth = panel === 'sessions' ? 0 : this.showSessionsRail() ? this.leftRailWidth() : 0;
+    const rightWidth =
+      panel === 'action-plan' || panel === 'expanded-panel'
+        ? 0
+        : this.expandedSidePanel()
+          ? this.expandedPanelWidth()
+          : this.showActionPlanModal()
+            ? this.actionPlanWidth()
+            : 0;
+    const remainingWidth = Math.max(
+      mainWidth - leftWidth - rightWidth - AgentXShellWebComponent.DESKTOP_CHAT_MIN_WIDTH,
+      0
+    );
+
+    switch (panel) {
+      case 'sessions':
+        return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_LEFT_PANEL_MIN_WIDTH);
+      case 'action-plan':
+        return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_ACTION_PLAN_MIN_WIDTH);
+      case 'expanded-panel':
+        return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_EXPANDED_PANEL_MIN_WIDTH);
+    }
+  }
+
+  private collapseDesktopPanel(panel: AgentXDesktopResizablePanel): void {
+    switch (panel) {
+      case 'sessions':
+        this.showSessionsRail.set(false);
+        this.leftRailWidth.set(AgentXShellWebComponent.DESKTOP_LEFT_PANEL_DEFAULT_WIDTH);
+        break;
+      case 'action-plan':
+        this.closeActionPlanModal();
+        this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
+        break;
+      case 'expanded-panel':
+        this.closeExpandedSidePanel();
+        this.expandedPanelWidth.set(this.getDefaultExpandedPanelWidth());
+        break;
+    }
+  }
+
+  private clampDesktopPanelWidths(): void {
+    this.leftRailWidth.set(
+      this.clampWidth(
+        this.leftRailWidth(),
+        AgentXShellWebComponent.DESKTOP_LEFT_PANEL_MIN_WIDTH,
+        this.getDesktopPanelMaxWidth('sessions')
+      )
+    );
+    this.actionPlanWidth.set(
+      this.clampWidth(
+        this.actionPlanWidth(),
+        AgentXShellWebComponent.DESKTOP_ACTION_PLAN_MIN_WIDTH,
+        this.getDesktopPanelMaxWidth('action-plan')
+      )
+    );
+    this.expandedPanelWidth.set(
+      this.clampWidth(
+        this.expandedPanelWidth(),
+        AgentXShellWebComponent.DESKTOP_EXPANDED_PANEL_MIN_WIDTH,
+        this.getDesktopPanelMaxWidth('expanded-panel')
+      )
+    );
+  }
+
+  private setDesktopResizeCursor(active: boolean): void {
+    if (typeof document === 'undefined') return;
+
+    document.body.style.cursor = active ? 'col-resize' : '';
+    document.body.style.userSelect = active ? 'none' : '';
+  }
+
+  private resetDesktopPanelWidths(): void {
+    this.leftRailWidth.set(AgentXShellWebComponent.DESKTOP_LEFT_PANEL_DEFAULT_WIDTH);
+    this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
+    this.expandedPanelWidth.set(this.getDefaultExpandedPanelWidth());
+    this.clampDesktopPanelWidths();
+  }
+
+  protected startDesktopPanelResize(panel: AgentXDesktopResizablePanel, event: MouseEvent): void {
+    if (event.button !== 0 || this.platform.isMobile()) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    this.clampDesktopPanelWidths();
+
+    const startWidth =
+      panel === 'sessions'
+        ? this.leftRailWidth()
+        : panel === 'action-plan'
+          ? this.actionPlanWidth()
+          : this.expandedPanelWidth();
+
+    this.activeDesktopResize.set({
+      panel,
+      startX: event.clientX,
+      startWidth,
+    });
+    this.setDesktopResizeCursor(true);
+  }
+
+  protected resetDesktopPanelWidth(panel: AgentXDesktopResizablePanel, event?: MouseEvent): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+
+    switch (panel) {
+      case 'sessions':
+        this.leftRailWidth.set(AgentXShellWebComponent.DESKTOP_LEFT_PANEL_DEFAULT_WIDTH);
+        break;
+      case 'action-plan':
+        this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
+        break;
+      case 'expanded-panel':
+        this.expandedPanelWidth.set(this.getDefaultExpandedPanelWidth());
+        break;
+    }
+
+    this.clampDesktopPanelWidths();
+  }
+
+  @HostListener('document:mousemove', ['$event'])
+  protected onDesktopPanelResizeMove(event: MouseEvent): void {
+    const resizeState = this.activeDesktopResize();
+    if (!resizeState) return;
+
+    event.preventDefault();
+    const deltaX = event.clientX - resizeState.startX;
+
+    if (resizeState.panel === 'sessions') {
+      const nextWidth = resizeState.startWidth + deltaX;
+      if (nextWidth <= AgentXShellWebComponent.DESKTOP_PANEL_COLLAPSE_THRESHOLD) {
+        this.collapseDesktopPanel('sessions');
+        this.stopDesktopPanelResize();
+        return;
+      }
+
+      this.leftRailWidth.set(
+        this.clampWidth(
+          nextWidth,
+          AgentXShellWebComponent.DESKTOP_LEFT_PANEL_MIN_WIDTH,
+          this.getDesktopPanelMaxWidth('sessions')
+        )
+      );
+      return;
+    }
+
+    const nextWidth = resizeState.startWidth - deltaX;
+
+    if (nextWidth <= AgentXShellWebComponent.DESKTOP_PANEL_COLLAPSE_THRESHOLD) {
+      this.collapseDesktopPanel(resizeState.panel);
+      this.stopDesktopPanelResize();
+      return;
+    }
+
+    if (resizeState.panel === 'action-plan') {
+      this.actionPlanWidth.set(
+        this.clampWidth(
+          nextWidth,
+          AgentXShellWebComponent.DESKTOP_ACTION_PLAN_MIN_WIDTH,
+          this.getDesktopPanelMaxWidth('action-plan')
+        )
+      );
+      return;
+    }
+
+    this.expandedPanelWidth.set(
+      this.clampWidth(
+        nextWidth,
+        AgentXShellWebComponent.DESKTOP_EXPANDED_PANEL_MIN_WIDTH,
+        this.getDesktopPanelMaxWidth('expanded-panel')
+      )
+    );
+  }
+
+  @HostListener('document:mouseup')
+  @HostListener('window:blur')
+  protected stopDesktopPanelResize(): void {
+    if (!this.activeDesktopResize()) return;
+
+    this.activeDesktopResize.set(null);
+    this.setDesktopResizeCursor(false);
+  }
+
+  @HostListener('window:resize')
+  protected onDesktopViewportResize(): void {
+    this.clampDesktopPanelWidths();
+  }
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -3343,8 +3697,16 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.resetToDefaultDesktopSession();
 
     afterNextRender(() => {
+      this.resetDesktopPanelWidths();
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
+    });
+
+    effect(() => {
+      this.showSessionsRail();
+      this.showActionPlanModal();
+      this.expandedSidePanel();
+      untracked(() => this.clampDesktopPanelWidths());
     });
 
     // React to pending thread requests (push notifications, deep links, activity taps)
@@ -3369,6 +3731,16 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       if (!panel) return;
 
       this.agentX.clearRequestedSidePanel();
+
+      // Guard: live view requires a desktop device
+      if (panel.type === 'live-view' && this.platform.isMobile()) {
+        this.liveView.setLoading(false);
+        this.toast.info(
+          'Live View requires a desktop device. Please switch to a desktop browser to use this feature.'
+        );
+        this.logger.info('Live view blocked on mobile device');
+        return;
+      }
 
       try {
         // If the backend included a full session contract, adopt it
@@ -3648,13 +4020,21 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   /** Toggles the Sessions rail column (desktop). */
   protected async toggleSessionsRail(): Promise<void> {
     await this.haptics.impact('light');
-    this.showSessionsRail.update((v) => !v);
+    this.showSessionsRail.update((value) => {
+      if (value) return false;
+      this.leftRailWidth.set(AgentXShellWebComponent.DESKTOP_LEFT_PANEL_DEFAULT_WIDTH);
+      return true;
+    });
   }
 
   /** Toggles the Action Plan right-column panel (desktop). */
   protected async toggleActionPlanPanel(): Promise<void> {
     await this.haptics.impact('light');
-    this.showActionPlanModal.update((v) => !v);
+    this.showActionPlanModal.update((value) => {
+      if (value) return false;
+      this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
+      return true;
+    });
   }
 
   /**
@@ -3662,6 +4042,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    */
   protected async openActionPlanModal(): Promise<void> {
     await this.haptics.impact('light');
+    this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
     this.showActionPlanModal.set(true);
   }
 
@@ -3773,6 +4154,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     if (content.type === 'live-view') {
       this.expandedPanelIframeLoading.set(true);
     }
+    this.expandedPanelWidth.set(this.getDefaultExpandedPanelWidth());
     this.expandedSidePanel.set(content);
   }
 
@@ -3874,6 +4256,21 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       backdropDismiss: true,
       escDismiss: true,
       ariaLabel: 'Agent X Chat',
+    });
+
+    await ref.closed;
+  }
+
+  protected async onActivityLogClick(): Promise<void> {
+    await this.haptics.impact('light');
+
+    const ref = this.overlay.open<AgentXOperationsLogComponent>({
+      component: AgentXOperationsLogComponent,
+      size: 'full',
+      backdropDismiss: true,
+      escDismiss: true,
+      ariaLabel: 'Agent Logs',
+      panelClass: 'agent-x-operations-log-overlay',
     });
 
     await ref.closed;

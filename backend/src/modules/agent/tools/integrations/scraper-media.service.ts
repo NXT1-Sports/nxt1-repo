@@ -246,10 +246,9 @@ export class ScraperMediaService {
         metadata: { cacheControl: CACHE_CONTROL },
       });
 
-      // ── Generate signed URL (7-year read-only) ───────────────────
-      const expires = new Date();
-      expires.setFullYear(expires.getFullYear() + 7);
-      const [signedUrl] = await file.getSignedUrl({ action: 'read', expires });
+      // Make publicly accessible and build direct URL
+      await file.makePublic();
+      const signedUrl = `https://storage.googleapis.com/${bucket.name}/${filePath}`;
 
       const mediaType: 'image' | 'video' = mimeType.startsWith('video/') ? 'video' : 'image';
 
@@ -372,13 +371,9 @@ export class ScraperMediaService {
         const sourceFile = bucket.file(storagePath);
         await sourceFile.copy(bucket.file(destPath));
 
-        // Generate a fresh permanent signed URL (7-year expiry)
-        const expires = new Date();
-        expires.setFullYear(expires.getFullYear() + 7);
-        const [permanentUrl] = await bucket.file(destPath).getSignedUrl({
-          action: 'read',
-          expires,
-        });
+        // Make publicly accessible and build direct URL
+        await bucket.file(destPath).makePublic();
+        const permanentUrl = `https://storage.googleapis.com/${bucket.name}/${destPath}`;
 
         promotedUrls.push(permanentUrl);
         logger.info('[ScraperMediaService] Media promoted', {

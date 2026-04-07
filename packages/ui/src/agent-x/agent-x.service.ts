@@ -78,6 +78,7 @@ import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AGENT_X_API_BASE_URL, AGENT_X_AUTH_TOKEN_FACTORY } from './agent-x-job.service';
+import { LiveViewSessionService } from './live-view-session.service';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import type { AgentXPendingFile } from './agent-x-pending-file';
@@ -99,6 +100,7 @@ export class AgentXService {
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
   private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
   private readonly operationEventService = inject(AgentXOperationEventService);
+  private readonly liveView = inject(LiveViewSessionService);
 
   /** Pure API factory instance — used for SSE streaming and non-streaming calls. */
   private readonly api = createAgentXApi(
@@ -742,6 +744,12 @@ export class AgentXService {
               detail: evt.detail,
             };
 
+            // When the open_live_view tool starts, show the loading spinner
+            // in the header's Live View button immediately.
+            if (evt.label.toLowerCase().includes('live view') && evt.status === 'active') {
+              this.liveView.setLoading(true);
+            }
+
             // Build interleaved parts: upsert into last tool-steps group or start new one
             const last = parts[parts.length - 1];
             if (last?.type === 'tool-steps') {
@@ -814,6 +822,14 @@ export class AgentXService {
             );
           },
 
+          onPanel: (evt) => {
+            // The backend emits a `panel` SSE event immediately when a tool
+            // returns an autoOpenPanel instruction (e.g. open_live_view).
+            // Surface it to the shell ASAP — don't wait for the done event.
+            this._requestedSidePanel.set(evt);
+            this.logger.info('Agent requested side panel (immediate)', { type: evt.type });
+          },
+
           onDone: (evt) => {
             // Freeze the final message with metadata
             this._messages.update((msgs) =>
@@ -837,10 +853,13 @@ export class AgentXService {
             this._isLoading.set(false);
             this.activeStream = null;
 
-            // If the backend included an autoOpenPanel instruction, surface it
-            if (evt.autoOpenPanel) {
+            // If the backend included an autoOpenPanel instruction AND the panel
+            // event didn't already surface it, set it now as a fallback.
+            if (evt.autoOpenPanel && !this._requestedSidePanel()) {
               this._requestedSidePanel.set(evt.autoOpenPanel);
-              this.logger.info('Agent requested side panel', { type: evt.autoOpenPanel.type });
+              this.logger.info('Agent requested side panel (done fallback)', {
+                type: evt.autoOpenPanel.type,
+              });
             }
 
             this.haptics.notification('success').catch(() => undefined);

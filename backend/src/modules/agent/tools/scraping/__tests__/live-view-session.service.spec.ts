@@ -130,13 +130,11 @@ describe('LiveViewSessionService', () => {
           },
         })
       );
-      // Should call interact() to initialize the live view
+      // Should call interact() with a prompt to initialize the live view
       expect(mockInteract).toHaveBeenCalledWith(
         TEST_SESSION_ID,
         expect.objectContaining({
-          language: 'bash',
-          timeout: 30,
-          code: expect.stringContaining('agent-browser wait'),
+          prompt: expect.stringContaining('load'),
         })
       );
     });
@@ -277,9 +275,8 @@ describe('LiveViewSessionService', () => {
         service.startSession(TEST_USER_ID, { url: 'https://www.example.com' })
       ).rejects.toThrow('Firecrawl did not return an interactive live view URL');
 
-      // destroySession calls both stopInteraction and deleteBrowser
+      // destroySession calls stopInteraction (DELETE /v2/scrape/{id}/interact)
       expect(mockStopInteraction).toHaveBeenCalledWith(TEST_SESSION_ID);
-      expect(mockDeleteBrowser).toHaveBeenCalledWith(TEST_SESSION_ID);
     });
 
     it('should throw and clean up when initial interact fails', async () => {
@@ -290,7 +287,6 @@ describe('LiveViewSessionService', () => {
       ).rejects.toThrow('Failed to navigate');
 
       expect(mockStopInteraction).toHaveBeenCalledWith(TEST_SESSION_ID);
-      expect(mockDeleteBrowser).toHaveBeenCalledWith(TEST_SESSION_ID);
     });
 
     it('should retry scrape+interact with saveChanges: false when interact() hits profile lock', async () => {
@@ -326,7 +322,6 @@ describe('LiveViewSessionService', () => {
 
       // destroySession called to clean up the first (failed) session
       expect(mockStopInteraction).toHaveBeenCalledWith(TEST_SESSION_ID);
-      expect(mockDeleteBrowser).toHaveBeenCalledWith(TEST_SESSION_ID);
     });
 
     it('should throw and clean up when Firecrawl returns a hidden execute error', async () => {
@@ -387,8 +382,7 @@ describe('LiveViewSessionService', () => {
       expect(mockInteract).toHaveBeenCalledTimes(2);
       expect(mockInteract.mock.calls[1][1]).toEqual(
         expect.objectContaining({
-          language: 'bash',
-          code: expect.stringContaining('agent-browser open'),
+          code: expect.stringContaining('page.goto'),
         })
       );
     });
@@ -421,7 +415,7 @@ describe('LiveViewSessionService', () => {
       // Should have called interact for init + reload
       expect(mockInteract).toHaveBeenCalledTimes(2);
       const lastCall = mockInteract.mock.calls[1];
-      expect(lastCall[1].code).toContain('agent-browser reload');
+      expect(lastCall[1].code).toContain('page.reload');
     });
   });
 
@@ -436,7 +430,6 @@ describe('LiveViewSessionService', () => {
       await service.closeSession(TEST_SESSION_ID, TEST_USER_ID);
 
       expect(mockStopInteraction).toHaveBeenCalledWith(TEST_SESSION_ID);
-      expect(mockDeleteBrowser).toHaveBeenCalledWith(TEST_SESSION_ID);
       expect(service.isSessionActive(TEST_SESSION_ID)).toBe(false);
     });
 
@@ -498,14 +491,11 @@ describe('LiveViewSessionService', () => {
       await service.startSession('other-user', { url: 'https://www.espn.com' });
 
       mockStopInteraction.mockClear();
-      mockDeleteBrowser.mockClear();
 
       const closed = await service.closeAllUserSessions(TEST_USER_ID);
 
       expect(mockStopInteraction).toHaveBeenCalledTimes(1);
       expect(mockStopInteraction).toHaveBeenCalledWith(TEST_SESSION_ID);
-      expect(mockDeleteBrowser).toHaveBeenCalledTimes(1);
-      expect(mockDeleteBrowser).toHaveBeenCalledWith(TEST_SESSION_ID);
       expect(closed).toBe(1);
     });
 
@@ -513,7 +503,6 @@ describe('LiveViewSessionService', () => {
       const closed = await service.closeAllUserSessions(TEST_USER_ID);
 
       expect(mockStopInteraction).not.toHaveBeenCalled();
-      expect(mockDeleteBrowser).not.toHaveBeenCalled();
       expect(closed).toBe(0);
     });
 
@@ -531,14 +520,11 @@ describe('LiveViewSessionService', () => {
       await service.startSession(TEST_USER_ID, { url: 'https://www.nytimes.com' });
 
       mockStopInteraction.mockClear();
-      mockDeleteBrowser.mockClear();
 
       const closed = await service.closeAllUserSessions(TEST_USER_ID);
 
       expect(mockStopInteraction).toHaveBeenCalledTimes(1);
       expect(mockStopInteraction).toHaveBeenCalledWith('fc-session-second');
-      expect(mockDeleteBrowser).toHaveBeenCalledTimes(1);
-      expect(mockDeleteBrowser).toHaveBeenCalledWith('fc-session-second');
       expect(closed).toBe(1);
     });
 
@@ -597,7 +583,6 @@ describe('LiveViewSessionService', () => {
         TEST_SESSION_ID,
         expect.objectContaining({
           prompt: 'Click the Login button',
-          timeout: 30,
         })
       );
     });

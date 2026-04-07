@@ -86,8 +86,14 @@ export interface LiveViewPromptResult {
 /** Live-view sessions last 10 minutes (longer than sign-in flows). */
 const LIVE_VIEW_TTL_SECONDS = 600;
 
-/** Firecrawl browserExecute timeout in seconds. */
-const BROWSER_EXECUTE_TIMEOUT_SECONDS = 30;
+/**
+ * NOTE: We intentionally do NOT pass a `timeout` parameter to Firecrawl's
+ * `interact()` calls.  The API expects timeout in **seconds**, but the SDK
+ * bug-adds `body.timeout + 5000` as the axios HTTP timeout in milliseconds.
+ * Passing 30 (seconds) → axios caps at 5 030 ms (too short).
+ * Passing 30 000 (ms) → API rejects as "Bad Request" (30 000 s ≈ 8 hours).
+ * Omitting it lets Firecrawl use its server-side default and avoids the SDK bug.
+ */
 
 // ─── Service ────────────────────────────────────────────────────────────────
 
@@ -112,15 +118,18 @@ export class LiveViewSessionService {
     this.profileService = new FirecrawlProfileService(key);
   }
 
-  private quoteShellArg(value: string): string {
-    return `'${value.replace(/'/g, `'"'"'`)}'`;
+  private quoteJsString(value: string): string {
+    return JSON.stringify(value);
   }
 
+  /**
+   * Execute Playwright code in an active scrape interact session.
+   * Uses `language: 'node'` (Playwright) — the default for the interact API.
+   * The `agent-browser` bash CLI is only available in /v2/browser sessions.
+   */
   private async executeBrowserCommand(sessionId: string, code: string): Promise<string> {
     const result: ScrapeExecuteResponse = await this.client.interact(sessionId, {
       code,
-      language: 'bash',
-      timeout: BROWSER_EXECUTE_TIMEOUT_SECONDS,
     });
 
     const hiddenError = result.error?.trim();
@@ -132,22 +141,26 @@ export class LiveViewSessionService {
   }
 
   /**
-   * Fully destroy a Firecrawl session — stop the interaction layer AND
-   * delete the underlying browser to free the concurrent session slot.
+   * Fully destroy a Firecrawl scrape-based session.
    *
-   * `stopInteraction()` alone only detaches the interact layer;
-   * `deleteBrowser()` is required to release the browser and its profile lock.
+   * Per the Firecrawl Interact docs (https://docs.firecrawl.dev/features/interact),
+   * `DELETE /v2/scrape/{scrapeId}/interact` is the correct endpoint to stop
+   * the session and release the concurrent browser slot.  The SDK wraps this
+   * as `stopInteraction()`.
+   *
+   * Note: `deleteBrowser()` maps to `DELETE /v2/browser/{id}` which is a
+   * **different** API for sessions created via `POST /v2/browser`.  Calling it
+   * on scrape-based sessions is a no-op at best and may hold zombie locks.
    */
   private async destroySession(sessionId: string): Promise<void> {
     try {
       await this.client.stopInteraction(sessionId);
-    } catch {
-      /* best-effort */
-    }
-    try {
-      await this.client.deleteBrowser(sessionId);
-    } catch {
-      /* best-effort */
+      logger.info('[LiveViewSession] stopInteraction succeeded', { sessionId });
+    } catch (err) {
+      logger.warn('[LiveViewSession] stopInteraction failed (best-effort)', {
+        sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -318,17 +331,30 @@ export class LiveViewSessionService {
     // Fire an initial interact() call to activate the live-view session
     // and obtain the interactiveLiveViewUrl.
     //
+    // Per the Firecrawl Interact docs, the scrape interact API accepts either:
+    //   - `prompt` for AI-driven actions
+    //   - `code` for Playwright-based control
+    //
+    // We use a simple prompt to wait for the page to finish loading.
+    // (The `agent-browser` bash CLI is only available in /v2/browser sessions.)
+    //
     // If this fails with a profile write-lock (stale session that
     // stopInteraction didn't fully release), retry the entire scrape+interact
     // flow with saveChanges: false so the user isn't blocked.
     let interactiveUrl = '';
     try {
       const initResult: ScrapeExecuteResponse = await this.client.interact(sessionId, {
-        code: 'agent-browser wait --load networkidle',
-        language: 'bash',
-        timeout: BROWSER_EXECUTE_TIMEOUT_SECONDS,
+        prompt: 'Wait for the page to fully load.',
       });
       interactiveUrl = initResult.interactiveLiveViewUrl ?? '';
+
+      // Log the exact URL and its origin so we can verify the frontend whitelist
+      logger.info('[LiveViewSession] interact() returned interactiveLiveViewUrl', {
+        sessionId,
+        interactiveUrl,
+        origin: interactiveUrl ? new URL(interactiveUrl).origin : 'N/A',
+        liveViewUrl: initResult.liveViewUrl ?? 'N/A',
+      });
     } catch (initErr) {
       const initErrMsg = initErr instanceof Error ? initErr.message : String(initErr);
 
@@ -364,11 +390,15 @@ export class LiveViewSessionService {
 
         try {
           const fallbackInit: ScrapeExecuteResponse = await this.client.interact(sessionId, {
-            code: 'agent-browser wait --load networkidle',
-            language: 'bash',
-            timeout: BROWSER_EXECUTE_TIMEOUT_SECONDS,
+            prompt: 'Wait for the page to fully load.',
           });
           interactiveUrl = fallbackInit.interactiveLiveViewUrl ?? '';
+
+          logger.info('[LiveViewSession] Fallback interact() returned interactiveLiveViewUrl', {
+            sessionId,
+            interactiveUrl,
+            origin: interactiveUrl ? new URL(interactiveUrl).origin : 'N/A',
+          });
         } catch (fallbackErr) {
           logger.error('[LiveViewSession] Fallback interact also failed', {
             sessionId,
@@ -477,10 +507,7 @@ export class LiveViewSessionService {
 
     await this.executeBrowserCommand(
       sessionId,
-      [
-        `agent-browser open ${this.quoteShellArg(validatedUrl)}`,
-        'agent-browser wait --load networkidle',
-      ].join(' && ')
+      `await page.goto(${this.quoteJsString(validatedUrl)}, { waitUntil: 'networkidle' });`
     );
 
     return { resolvedUrl: validatedUrl };
@@ -496,7 +523,7 @@ export class LiveViewSessionService {
 
     await this.executeBrowserCommand(
       sessionId,
-      ['agent-browser reload', 'agent-browser wait --load domcontentloaded'].join(' && ')
+      `await page.reload({ waitUntil: 'domcontentloaded' });`
     );
   }
 
@@ -550,9 +577,12 @@ export class LiveViewSessionService {
     logger.info('[LiveViewSession] Extracting content', { sessionId });
 
     const [url, title, content] = await Promise.all([
-      this.executeBrowserCommand(sessionId, 'agent-browser get url'),
-      this.executeBrowserCommand(sessionId, 'agent-browser get title'),
-      this.executeBrowserCommand(sessionId, 'agent-browser snapshot --compact --depth 8'),
+      this.executeBrowserCommand(sessionId, 'const u = page.url(); u'),
+      this.executeBrowserCommand(sessionId, 'const t = await page.title(); t'),
+      this.executeBrowserCommand(
+        sessionId,
+        'const html = await page.content(); const text = html.replace(/<[^>]*>/g, " ").replace(/\\s+/g, " ").trim(); text'
+      ),
     ]);
 
     return {
@@ -578,18 +608,18 @@ export class LiveViewSessionService {
     let code: string;
     switch (action.type) {
       case 'click':
-        code = `agent-browser click ${this.quoteShellArg(action.selector ?? '')}`;
+        code = `await page.click(${this.quoteJsString(action.selector ?? '')});`;
         break;
       case 'type':
-        code = `agent-browser fill ${this.quoteShellArg(action.selector ?? '')} ${this.quoteShellArg(action.text ?? '')}`;
+        code = `await page.fill(${this.quoteJsString(action.selector ?? '')}, ${this.quoteJsString(action.text ?? '')});`;
         break;
       case 'scroll':
         code = action.selector
-          ? `agent-browser scrollintoview ${this.quoteShellArg(action.selector)}`
-          : `agent-browser scroll ${(action.amount ?? 500) < 0 ? 'up' : 'down'} ${Math.abs(action.amount ?? 500)}`;
+          ? `await page.locator(${this.quoteJsString(action.selector)}).scrollIntoViewIfNeeded();`
+          : `await page.mouse.wheel(0, ${action.amount ?? 500});`;
         break;
       case 'wait':
-        code = `agent-browser wait ${Math.min(action.ms ?? 1000, 5000)}`;
+        code = `await page.waitForTimeout(${Math.min(action.ms ?? 1000, 5000)});`;
         break;
       default:
         return {
@@ -630,7 +660,6 @@ export class LiveViewSessionService {
     // AI-driven interactions: https://docs.firecrawl.dev/features/interact
     const result: ScrapeExecuteResponse = await this.client.interact(sessionId, {
       prompt,
-      timeout: BROWSER_EXECUTE_TIMEOUT_SECONDS,
     });
 
     if (!result.success) {

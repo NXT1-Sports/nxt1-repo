@@ -239,7 +239,7 @@ export interface SettingsUserInfo {
  * Subscription info for billing section.
  */
 export interface SettingsSubscription {
-  readonly tier: 'free' | 'pro' | 'premium' | 'team';
+  readonly tier: 'free' | 'pro' | 'premium' | 'team' | 'metered';
   readonly status: 'active' | 'trialing' | 'past_due' | 'canceled' | 'expired';
   readonly currentPeriodEnd: string | null;
   readonly cancelAtPeriodEnd: boolean;

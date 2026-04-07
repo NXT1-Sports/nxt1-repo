@@ -55,10 +55,11 @@ import {
   WriteAthleteVideosTool,
   SearchMemoryTool,
   SearchCollegesTool,
+  SearchCollegeCoachesTool,
   SaveMemoryTool,
   DeleteMemoryTool,
 } from '../tools/database/index.js';
-import { GenerateImageTool } from '../tools/media/index.js';
+import { GenerateImageTool, AnalyzeVideoTool } from '../tools/media/index.js';
 import { DynamicExportTool } from '../tools/data/index.js';
 import { WebSearchTool } from '../tools/integrations/web-search.tool.js';
 import { SendEmailTool } from '../tools/integrations/send-email.tool.js';
@@ -242,7 +243,9 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteCalendarEventsTool(stagingDb));
   toolRegistry.register(new WriteAthleteVideosTool(stagingDb));
   toolRegistry.register(new SearchCollegesTool());
+  toolRegistry.register(new SearchCollegeCoachesTool());
   toolRegistry.register(new GenerateImageTool(llm));
+  toolRegistry.register(new AnalyzeVideoTool(scraperService, llm));
   toolRegistry.register(new DynamicExportTool());
 
   // System tools (cross-cutting infrastructure — available to all agents)

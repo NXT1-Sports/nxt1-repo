@@ -25,6 +25,7 @@ import {
   getBillingContext,
   getOrgTeamAllocations,
   resolveBillingTarget,
+  getPlatformConfig,
   type ResolvedBillingTarget,
 } from '../modules/billing/index.js';
 import { USAGE_PRODUCT_CONFIGS, USAGE_CATEGORY_CONFIGS, USAGE_HISTORY_PAGE_SIZE } from '@nxt1/core';
@@ -58,6 +59,21 @@ function toISOString(val: unknown): string {
   if (typeof tsVal['toDate'] === 'function') return (tsVal['toDate'] as () => Date)().toISOString();
   return new Date().toISOString();
 }
+
+/** Convert Firestore Timestamp, Date, or ISO string to epoch milliseconds.
+ *  Used for numeric sorting of usage events whose `createdAt` may be any of
+ *  these types depending on whether the field has been read-back or is still
+ *  a sentinel. */
+function toMillis(val: unknown): number {
+  if (!val) return 0;
+  if (typeof val === 'number') return val;
+  if (val instanceof Date) return val.getTime();
+  if (typeof val === 'string') return new Date(val).getTime();
+  const tsVal = val as Record<string, unknown>;
+  if (typeof tsVal['toMillis'] === 'function') return (tsVal['toMillis'] as () => number)();
+  if (typeof tsVal['toDate'] === 'function') return (tsVal['toDate'] as () => Date)().getTime();
+  return 0;
+}
 import type {
   UsageOverview,
   UsageChartDataPoint,
@@ -65,6 +81,8 @@ import type {
   UsageTopItem,
   UsageBreakdownRow,
   UsageBreakdownLineItem,
+  UsageBreakdownTeam,
+  UsageBreakdownUser,
   UsagePaymentHistoryRecord,
   UsageBudget,
   UsageDashboardData,
@@ -143,18 +161,276 @@ function getFeatureDisplayName(feature: string): string {
 }
 
 // ============================================
+// BREAKDOWN BUILDER
+// ============================================
+
+/**
+ * Build breakdown rows from usage event documents.
+ *
+ * For **organization** billing targets, events are aggregated into a
+ * nested hierarchy: Day → Team → User → Product.  This lets the UI
+ * render a multi-level drill-down table.
+ *
+ * For **individual** billing targets, events are aggregated into the
+ * flat Day → Product structure (unchanged behaviour).
+ *
+ * Team and user display names are batch-fetched from Firestore
+ * (chunked in groups of 30 for the `.in()` query limit).
+ */
+async function buildBreakdownRows(
+  db: Firestore,
+  eventsDocs: readonly QueryDocumentSnapshot[],
+  target: ResolvedBillingTarget,
+  promoCreditCents = 0
+): Promise<UsageBreakdownRow[]> {
+  const isOrg = target.type === 'organization';
+
+  // ── Collect unique IDs for name lookups ─────────────────────────
+  const userIdSet = new Set<string>();
+  const teamIdSet = new Set<string>();
+
+  // ── Aggregate: day → team → user → feature ─────────────────────
+  // For individuals we skip the team/user level.
+  interface FeatureAgg {
+    qty: number;
+    cost: number;
+  }
+
+  // Org path: day → teamId → userId → feature → FeatureAgg
+  const orgDaily = new Map<string, Map<string, Map<string, Map<string, FeatureAgg>>>>();
+  // Individual path: day → feature → FeatureAgg
+  const indDaily = new Map<string, Map<string, FeatureAgg>>();
+
+  for (const doc of eventsDocs) {
+    const data = doc.data();
+    const dateKey = toISOString(data['createdAt']).slice(0, 10);
+    const feature = data['feature'] as string;
+    const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
+    const qty = data['quantity'] as number;
+
+    if (isOrg) {
+      const evTeamId = (data['teamId'] as string | undefined) ?? 'unknown';
+      const evUserId = (data['userId'] as string | undefined) ?? 'unknown';
+      if (evTeamId !== 'unknown') teamIdSet.add(evTeamId);
+      if (evUserId !== 'unknown') userIdSet.add(evUserId);
+
+      if (!orgDaily.has(dateKey)) orgDaily.set(dateKey, new Map());
+      const teamMap = orgDaily.get(dateKey)!;
+      if (!teamMap.has(evTeamId)) teamMap.set(evTeamId, new Map());
+      const userMap = teamMap.get(evTeamId)!;
+      if (!userMap.has(evUserId)) userMap.set(evUserId, new Map());
+      const featureMap = userMap.get(evUserId)!;
+      const existing = featureMap.get(feature) ?? { qty: 0, cost: 0 };
+      featureMap.set(feature, { qty: existing.qty + qty, cost: existing.cost + cost });
+    } else {
+      if (!indDaily.has(dateKey)) indDaily.set(dateKey, new Map());
+      const featureMap = indDaily.get(dateKey)!;
+      const existing = featureMap.get(feature) ?? { qty: 0, cost: 0 };
+      featureMap.set(feature, { qty: existing.qty + qty, cost: existing.cost + cost });
+    }
+  }
+
+  // ── Batch-fetch display names (org only) ──────────────────────
+  const userNames = new Map<string, string>();
+  const teamNames = new Map<string, string>();
+
+  if (isOrg) {
+    const uIds = Array.from(userIdSet);
+    for (let i = 0; i < uIds.length; i += 30) {
+      const chunk = uIds.slice(i, i + 30);
+      const snap = await db.collection('Users').where('__name__', 'in', chunk).get();
+      for (const d of snap.docs) {
+        const ud = d.data();
+        const first = (ud['firstName'] as string) ?? '';
+        const last = (ud['lastName'] as string) ?? '';
+        userNames.set(d.id, `${first} ${last}`.trim() || d.id);
+      }
+    }
+    const tIds = Array.from(teamIdSet);
+    for (let i = 0; i < tIds.length; i += 30) {
+      const chunk = tIds.slice(i, i + 30);
+      const snap = await db.collection('Teams').where('__name__', 'in', chunk).get();
+      for (const d of snap.docs) {
+        const td = d.data();
+        const tName = (td['teamName'] as string) ?? '';
+        const sport = (td['sport'] as string) ?? (td['sportName'] as string) ?? '';
+        const label = [tName, sport].filter(Boolean).join(' · ') || d.id;
+        teamNames.set(d.id, label);
+      }
+    }
+  }
+
+  // ── Helper: build flat line items from a feature map ────────────
+  function buildLineItems(featureMap: Map<string, FeatureAgg>): UsageBreakdownLineItem[] {
+    const items: UsageBreakdownLineItem[] = [];
+    for (const [feature, { qty, cost }] of featureMap) {
+      const unitCost = qty > 0 ? cost / qty : 0;
+      items.push({
+        sku: getFeatureDisplayName(feature),
+        units: `${qty}`,
+        pricePerUnit: `$${(unitCost / 100).toFixed(2)}`,
+        grossAmount: cost,
+        billedAmount: cost,
+      });
+    }
+    return items;
+  }
+
+  // ── Build response rows ──────────────────────────────────────────
+  // Build chronologically ASC so promotional credit drains from the oldest
+  // entries first. The array is reversed to DESC (newest first) at the end.
+  let remainingCredit = promoCreditCents;
+  const breakdownRows: UsageBreakdownRow[] = [];
+
+  if (isOrg) {
+    for (const [dateKey, teamMap] of Array.from(orgDaily.entries()).sort((a, b) =>
+      a[0].localeCompare(b[0])
+    )) {
+      // First pass: compute gross amounts
+      let dayGross = 0;
+      const rawTeams: Array<{
+        teamId: string;
+        teamGross: number;
+        rawUsers: Array<{
+          userId: string;
+          userGross: number;
+          lineItems: UsageBreakdownLineItem[];
+        }>;
+      }> = [];
+
+      for (const [teamId, userMap] of teamMap) {
+        let teamGross = 0;
+        const rawUsers: Array<{
+          userId: string;
+          userGross: number;
+          lineItems: UsageBreakdownLineItem[];
+        }> = [];
+
+        for (const [userId, featureMap] of userMap) {
+          const lineItems = buildLineItems(featureMap);
+          const userGross = lineItems.reduce((sum, li) => sum + li.grossAmount, 0);
+          teamGross += userGross;
+          rawUsers.push({ userId, userGross, lineItems });
+        }
+
+        rawUsers.sort((a, b) => b.userGross - a.userGross);
+        dayGross += teamGross;
+        rawTeams.push({ teamId, teamGross, rawUsers });
+      }
+
+      rawTeams.sort((a, b) => b.teamGross - a.teamGross);
+
+      // Drain credit at the day level
+      const dayBilled = Math.max(0, dayGross - remainingCredit);
+      const discountedToday = dayGross - dayBilled;
+      remainingCredit = Math.max(0, remainingCredit - dayGross);
+
+      // Second pass: build immutable objects with correct billedAmount
+      const teams: UsageBreakdownTeam[] = rawTeams.map((rt) => {
+        const teamDiscount =
+          discountedToday > 0 && dayGross > 0
+            ? Math.round(discountedToday * (rt.teamGross / dayGross))
+            : 0;
+        const teamBilled = Math.max(0, rt.teamGross - teamDiscount);
+
+        const users: UsageBreakdownUser[] = rt.rawUsers.map((ru) => {
+          const userDiscount =
+            teamDiscount > 0 && rt.teamGross > 0
+              ? Math.round(teamDiscount * (ru.userGross / rt.teamGross))
+              : 0;
+          const userBilled = Math.max(0, ru.userGross - userDiscount);
+
+          const creditedLineItems: UsageBreakdownLineItem[] = ru.lineItems.map((li) => {
+            const liDiscount =
+              userDiscount > 0 && ru.userGross > 0
+                ? Math.round(userDiscount * (li.grossAmount / ru.userGross))
+                : 0;
+            return {
+              ...li,
+              billedAmount: Math.max(0, li.grossAmount - liDiscount),
+            };
+          });
+
+          return {
+            userId: ru.userId,
+            userName: userNames.get(ru.userId) ?? ru.userId,
+            grossAmount: ru.userGross,
+            billedAmount: userBilled,
+            lineItems: creditedLineItems,
+          };
+        });
+
+        return {
+          teamId: rt.teamId,
+          teamName: teamNames.get(rt.teamId) ?? rt.teamId,
+          grossAmount: rt.teamGross,
+          billedAmount: teamBilled,
+          users,
+        };
+      });
+
+      breakdownRows.push({
+        date: dateKey,
+        dateLabel: formatDateLabel(new Date(dateKey + 'T00:00:00')),
+        grossAmount: dayGross,
+        billedAmount: dayBilled,
+        lineItems: [], // Org rows use `teams` instead
+        teams,
+      });
+    }
+  } else {
+    // Individual: flat day → products
+    for (const [dateKey, featureMap] of Array.from(indDaily.entries()).sort((a, b) =>
+      a[0].localeCompare(b[0])
+    )) {
+      const rawLineItems = buildLineItems(featureMap);
+      const dayGross = rawLineItems.reduce((sum, li) => sum + li.grossAmount, 0);
+
+      const dayBilled = Math.max(0, dayGross - remainingCredit);
+      const discountedToday = dayGross - dayBilled;
+      remainingCredit = Math.max(0, remainingCredit - dayGross);
+
+      // Build line items with correct billedAmount (immutable)
+      const lineItems: UsageBreakdownLineItem[] = rawLineItems.map((li) => {
+        const liDiscount =
+          discountedToday > 0 && dayGross > 0
+            ? Math.round(discountedToday * (li.grossAmount / dayGross))
+            : 0;
+        return { ...li, billedAmount: Math.max(0, li.grossAmount - liDiscount) };
+      });
+
+      breakdownRows.push({
+        date: dateKey,
+        dateLabel: formatDateLabel(new Date(dateKey + 'T00:00:00')),
+        grossAmount: dayGross,
+        billedAmount: dayBilled,
+        lineItems,
+      });
+    }
+  }
+
+  // Reverse to newest-first for UI display (DESC)
+  return breakdownRows.reverse();
+}
+
+// ============================================
 // QUERY HELPERS
 // ============================================
 
 /**
  * Fetch usage events for an organization by querying all team IDs.
  * Firestore `.in()` is limited to 30 values, so we chunk and merge.
+ *
+ * IMPORTANT: `startDate` and `endDate` MUST be native `Date` objects so
+ * the Admin SDK converts them to Firestore `Timestamp` values.  Passing
+ * ISO strings causes a type mismatch — strings always sort higher than
+ * timestamps in Firestore, so the range filter silently returns 0 docs.
  */
 async function fetchOrgUsageEvents(
   db: Firestore,
   teamIds: string[],
-  startIso: string,
-  endIso: string,
+  startDate: Date,
+  endDate: Date,
   orderDesc = true,
   limit = 1000
 ): Promise<QueryDocumentSnapshot[]> {
@@ -173,8 +449,8 @@ async function fetchOrgUsageEvents(
       db
         .collection(COLLECTIONS.USAGE_EVENTS)
         .where('teamId', 'in', chunk)
-        .where('createdAt', '>=', startIso)
-        .where('createdAt', '<=', endIso)
+        .where('createdAt', '>=', startDate)
+        .where('createdAt', '<=', endDate)
         .orderBy('createdAt', direction)
         .limit(limit)
         .get()
@@ -183,26 +459,29 @@ async function fetchOrgUsageEvents(
 
   const allDocs = results.flatMap((snap) => snap.docs);
   allDocs.sort((a, b) => {
-    const aDate = a.data()['createdAt'] as string;
-    const bDate = b.data()['createdAt'] as string;
-    return orderDesc ? bDate.localeCompare(aDate) : aDate.localeCompare(bDate);
+    const aMs = toMillis(a.data()['createdAt']);
+    const bMs = toMillis(b.data()['createdAt']);
+    return orderDesc ? bMs - aMs : aMs - bMs;
   });
   return allDocs.slice(0, limit);
 }
 
 /**
  * Fetch usage events for either an org (by teamIds) or an individual (by userId).
+ *
+ * Accepts native `Date` objects — never ISO strings — to guarantee
+ * Firestore Timestamp-compatible range queries.
  */
 async function fetchUsageEvents(
   db: Firestore,
   target: ResolvedBillingTarget,
-  startIso: string,
-  endIso: string,
+  startDate: Date,
+  endDate: Date,
   orderDesc = true,
   limit = 1000
 ): Promise<QueryDocumentSnapshot[]> {
   if (target.type === 'organization' && target.teamIds && target.teamIds.length > 0) {
-    return fetchOrgUsageEvents(db, target.teamIds, startIso, endIso, orderDesc, limit);
+    return fetchOrgUsageEvents(db, target.teamIds, startDate, endDate, orderDesc, limit);
   }
 
   // Individual query — date filtering at the database level
@@ -210,8 +489,8 @@ async function fetchUsageEvents(
   const snap = await db
     .collection(COLLECTIONS.USAGE_EVENTS)
     .where('userId', '==', target.billingUserId)
-    .where('createdAt', '>=', startIso)
-    .where('createdAt', '<=', endIso)
+    .where('createdAt', '>=', startDate)
+    .where('createdAt', '<=', endDate)
     .orderBy('createdAt', direction)
     .limit(limit)
     .get();
@@ -294,14 +573,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       return { isOrgAdmin: true, isTeamAdmin: true };
     })();
 
-    const eventsPromise = fetchUsageEvents(
-      db,
-      target,
-      start.toISOString(),
-      end.toISOString(),
-      true,
-      1000
-    );
+    const eventsPromise = fetchUsageEvents(db, target, start, end, true, 1000);
 
     const paymentLogsPromise = db
       .collection(COLLECTIONS.PAYMENT_LOGS)
@@ -358,12 +630,21 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       }
     }
 
+    // Promotional credit: org accounts receive a $20 credit applied chronologically
+    // against gross usage. The display separates gross spend from what is actually billed.
+    const platformCfgForDashboard = isOrgBilling ? await getPlatformConfig(db) : null;
+    const promoCredit = isOrgBilling
+      ? (billingCtx.promotionalCreditCents ??
+        platformCfgForDashboard?.orgPromotionalCreditCents ??
+        0)
+      : 0;
+
     // Build overview (includes wallet fields for B2C UI fork)
     const overview: UsageOverview = {
       currentMeteredUsage: totalUsageCents,
-      currentIncludedUsage: 0,
+      currentIncludedUsage: Math.min(totalUsageCents, promoCredit),
       nextPaymentDueDate: end.toISOString(),
-      nextPaymentAmount: totalUsageCents,
+      nextPaymentAmount: Math.max(0, totalUsageCents - promoCredit),
       period: {
         start: start.toISOString(),
         end: end.toISOString(),
@@ -376,11 +657,14 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       pendingHoldsCents: billingCtx.pendingHoldsCents ?? 0,
     };
 
-    // Build chart data
+    // Build chart data — stop at today so the line doesn't extend into future days
     const chartData: UsageChartDataPoint[] = [];
     let cumulative = 0;
     const current = new Date(start);
-    while (current <= end) {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    const chartEnd = end < today ? end : today;
+    while (current <= chartEnd) {
       const dateKey = current.toISOString().slice(0, 10);
       cumulative += dailyUsage.get(dateKey) ?? 0;
       chartData.push({
@@ -420,49 +704,8 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
         grossAmount,
       }));
 
-    // Build breakdown rows (daily)
-    const breakdownRows: UsageBreakdownRow[] = [];
-    const dailyEvents = new Map<string, Map<string, { qty: number; cost: number }>>();
-
-    for (const doc of eventsDocs) {
-      const data = doc.data();
-      const dateKey = toISOString(data['createdAt']).slice(0, 10);
-      const feature = data['feature'] as string;
-      const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
-      const qty = data['quantity'] as number;
-
-      if (!dailyEvents.has(dateKey)) dailyEvents.set(dateKey, new Map());
-      const dayMap = dailyEvents.get(dateKey)!;
-      const existing = dayMap.get(feature) ?? { qty: 0, cost: 0 };
-      dayMap.set(feature, { qty: existing.qty + qty, cost: existing.cost + cost });
-    }
-
-    for (const [dateKey, features] of Array.from(dailyEvents.entries()).sort((a, b) =>
-      b[0].localeCompare(a[0])
-    )) {
-      let dayGross = 0;
-      const lineItems: UsageBreakdownLineItem[] = [];
-
-      for (const [feature, { qty, cost }] of features) {
-        dayGross += cost;
-        const unitCost = qty > 0 ? cost / qty : 0;
-        lineItems.push({
-          sku: getFeatureDisplayName(feature),
-          units: `${qty}`,
-          pricePerUnit: `$${(unitCost / 100).toFixed(2)}`,
-          grossAmount: cost,
-          billedAmount: cost,
-        });
-      }
-
-      breakdownRows.push({
-        date: dateKey,
-        dateLabel: formatDateLabel(new Date(dateKey + 'T00:00:00')),
-        grossAmount: dayGross,
-        billedAmount: dayGross,
-        lineItems,
-      });
-    }
+    // Build breakdown rows (daily — org-aware with team/user names)
+    const breakdownRows = await buildBreakdownRows(db, eventsDocs, target, promoCredit);
 
     // Payment history from the already-fetched paymentLogsSnap (parallelized above)
     const paymentLogDocs = paymentLogsSnap.docs;
@@ -644,19 +887,13 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
     const target = await resolveBillingTarget(db, userId);
     const billingCtx = target.context;
 
-    const eventsDocs = await fetchUsageEvents(
-      db,
-      target,
-      start.toISOString(),
-      end.toISOString(),
-      false,
-      10000
-    );
+    const eventsDocs = await fetchUsageEvents(db, target, start, end, false, 10000);
 
     // For IAP wallet users, charges go directly to billingContexts.currentPeriodSpend
     // (deductWallet does not write usageEvents). Use the authoritative source directly.
     const isIapUser =
       billingCtx.billingEntity === 'individual' && billingCtx.paymentProvider === 'iap';
+    const isOrgBilling = billingCtx.billingEntity === 'organization';
 
     let totalUsageCents = 0;
     if (isIapUser) {
@@ -666,13 +903,30 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
         const data = doc.data();
         totalUsageCents += (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
       }
+
+      // For org billing, prefer the atomic counter as the authoritative total.
+      // Usage events may undercount when features lack a Stripe price mapping.
+      if (isOrgBilling) {
+        const authoritative = billingCtx.currentPeriodSpend ?? 0;
+        if (authoritative > totalUsageCents) {
+          totalUsageCents = authoritative;
+        }
+      }
     }
+
+    // Promotional credit for org accounts (quick overview endpoint)
+    const platformCfgForOverview = isOrgBilling ? await getPlatformConfig(db) : null;
+    const promoCreditForOverview = isOrgBilling
+      ? (billingCtx.promotionalCreditCents ??
+        platformCfgForOverview?.orgPromotionalCreditCents ??
+        0)
+      : 0;
 
     const overview: UsageOverview = {
       currentMeteredUsage: totalUsageCents,
-      currentIncludedUsage: 0,
+      currentIncludedUsage: Math.min(totalUsageCents, promoCreditForOverview),
       nextPaymentDueDate: end.toISOString(),
-      nextPaymentAmount: totalUsageCents,
+      nextPaymentAmount: Math.max(0, totalUsageCents - promoCreditForOverview),
       period: {
         start: start.toISOString(),
         end: end.toISOString(),
@@ -711,14 +965,7 @@ router.get('/chart', appGuard, async (req: Request, res: Response) => {
     // Resolve billing target (director → org, otherwise individual)
     const target = await resolveBillingTarget(db, userId);
 
-    const eventsDocs = await fetchUsageEvents(
-      db,
-      target,
-      start.toISOString(),
-      end.toISOString(),
-      false,
-      10000
-    );
+    const eventsDocs = await fetchUsageEvents(db, target, start, end, false, 10000);
 
     const dailyUsage = new Map<string, number>();
     for (const doc of eventsDocs) {
@@ -731,7 +978,10 @@ router.get('/chart', appGuard, async (req: Request, res: Response) => {
     const chartData: UsageChartDataPoint[] = [];
     let cumulative = 0;
     const current = new Date(start);
-    while (current <= end) {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    const chartEnd = end < today ? end : today;
+    while (current <= chartEnd) {
       const dateKey = current.toISOString().slice(0, 10);
       cumulative += dailyUsage.get(dateKey) ?? 0;
       chartData.push({
@@ -767,58 +1017,19 @@ router.get('/breakdown', appGuard, async (req: Request, res: Response) => {
 
     // Resolve billing target (director → org, otherwise individual)
     const target = await resolveBillingTarget(db, userId);
+    const billingCtxForBreakdown = target.context;
+    const isOrgBillingForBreakdown = billingCtxForBreakdown.billingEntity === 'organization';
 
-    const eventsDocs = await fetchUsageEvents(
-      db,
-      target,
-      start.toISOString(),
-      end.toISOString(),
-      true,
-      500
-    );
+    const eventsDocs = await fetchUsageEvents(db, target, start, end, true, 500);
 
-    const dailyEvents = new Map<string, Map<string, { qty: number; cost: number }>>();
+    const platformCfgForBreakdown = isOrgBillingForBreakdown ? await getPlatformConfig(db) : null;
+    const promoCreditForBreakdown = isOrgBillingForBreakdown
+      ? (billingCtxForBreakdown.promotionalCreditCents ??
+        platformCfgForBreakdown?.orgPromotionalCreditCents ??
+        0)
+      : 0;
 
-    for (const doc of eventsDocs) {
-      const data = doc.data();
-      const dateKey = toISOString(data['createdAt']).slice(0, 10);
-      const feature = data['feature'] as string;
-      const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
-      const qty = data['quantity'] as number;
-
-      if (!dailyEvents.has(dateKey)) dailyEvents.set(dateKey, new Map());
-      const dayMap = dailyEvents.get(dateKey)!;
-      const existing = dayMap.get(feature) ?? { qty: 0, cost: 0 };
-      dayMap.set(feature, { qty: existing.qty + qty, cost: existing.cost + cost });
-    }
-
-    const breakdownRows: UsageBreakdownRow[] = [];
-    for (const [dateKey, features] of Array.from(dailyEvents.entries()).sort((a, b) =>
-      b[0].localeCompare(a[0])
-    )) {
-      let dayGross = 0;
-      const lineItems: UsageBreakdownLineItem[] = [];
-
-      for (const [feature, { qty, cost }] of features) {
-        dayGross += cost;
-        const unitCost = qty > 0 ? cost / qty : 0;
-        lineItems.push({
-          sku: getFeatureDisplayName(feature),
-          units: `${qty}`,
-          pricePerUnit: `$${(unitCost / 100).toFixed(2)}`,
-          grossAmount: cost,
-          billedAmount: cost,
-        });
-      }
-
-      breakdownRows.push({
-        date: dateKey,
-        dateLabel: formatDateLabel(new Date(dateKey + 'T00:00:00')),
-        grossAmount: dayGross,
-        billedAmount: dayGross,
-        lineItems,
-      });
-    }
+    const breakdownRows = await buildBreakdownRows(db, eventsDocs, target, promoCreditForBreakdown);
 
     return res.json({ success: true, data: breakdownRows });
   } catch (error) {

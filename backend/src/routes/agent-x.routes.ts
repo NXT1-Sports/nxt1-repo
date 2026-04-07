@@ -80,8 +80,22 @@ import { AgentGenerationService } from '../modules/agent/services/generation.ser
 import { FirecrawlProfileService } from '../modules/agent/tools/scraping/firecrawl-profile.service.js';
 import { LiveViewSessionService } from '../modules/agent/tools/scraping/live-view-session.service.js';
 import { PLATFORM_REGISTRY } from '@nxt1/core';
-import { executeBillingDeduction, UsageFeature } from '../modules/billing/index.js';
+import { executeBillingDeduction, UsageFeature, checkBudget } from '../modules/billing/index.js';
 import crypto from 'node:crypto';
+
+/**
+ * Helper to bypass Google App Engine / Firebase HTTP proxy buffering.
+ * App Engine forcefully buffers the first 4KB+ of an HTTP response, ignoring
+ * X-Accel-Buffering, Cache-Control: no-transform, and socket.setNoDelay().
+ * This dummy payload rapidly fills the proxy buffer forcing it to flush downstream.
+ * Frontend SSE parsers safely ignore any line starting with a colon (:).
+ */
+function forceProxyFlush(res: Response) {
+  if (typeof (res as any).flush === 'function') {
+    (res as any).flush();
+  }
+  res.write(`: ${' '.repeat(4096)}\n\n`);
+}
 
 /**
  * Lazy singleton for content generation.
@@ -1287,6 +1301,21 @@ router.post(
       // results back as role: "tool" messages, and re-stream. This repeats
       // up to MAX_AGENTIC_TURNS to prevent infinite loops.
       //
+
+      // ── Budget preflight — reject before opening SSE stream ──────────
+      // checkBudget(costCents=0) performs a synchronous gate check using the
+      // user's current spend + pending holds vs their budget limit. We resolve
+      // teamId from the billing context internally, so no extra lookup needed.
+      const chatBudgetCheck = await checkBudget(db, user.uid, 0);
+      if (!chatBudgetCheck.allowed) {
+        res.status(402).json({
+          success: false,
+          error: chatBudgetCheck.reason ?? 'Budget limit reached',
+          code: 'BUDGET_EXCEEDED',
+        });
+        return;
+      }
+
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-transform',
@@ -1304,6 +1333,8 @@ router.post(
       if (resolvedThreadId) {
         res.write(`event: thread\ndata: ${JSON.stringify({ threadId: resolvedThreadId })}\n\n`);
 
+        forceProxyFlush(res);
+
         // Emit operation lifecycle event — marks this thread as in-progress
         // in the operations log sidebar in real-time (no polling needed).
         res.write(
@@ -1313,13 +1344,9 @@ router.post(
             timestamp: new Date().toISOString(),
           })}\n\n`
         );
+        logger.info('SSE operation event emitted: in-progress', { threadId: resolvedThreadId });
 
-        // Force-flush the in-progress event to the client immediately.
-        // Without this, Node may hold these ~200 bytes in the socket
-        // write buffer until the LLM starts streaming larger chunks.
-        if (typeof (res as any).flush === 'function') {
-          (res as any).flush();
-        }
+        forceProxyFlush(res);
       }
 
       // Attempt streaming; fall back to non-streaming if LLM service is unavailable
@@ -1384,6 +1411,7 @@ router.post(
                       status: 'active',
                     })}\n\n`
                   );
+                  forceProxyFlush(res);
                 }
               }
             );
@@ -1409,6 +1437,7 @@ router.post(
                   })}\n\n`
                 );
               }
+              if (activeToolSteps.size > 0) forceProxyFlush(res);
               break;
             }
 
@@ -1466,6 +1495,7 @@ router.post(
                       },
                     };
                     res.write(`event: card\ndata: ${JSON.stringify(draftPayload)}\n\n`);
+                    forceProxyFlush(res);
 
                     if (stepInfo) {
                       res.write(
@@ -1475,6 +1505,7 @@ router.post(
                           status: 'success',
                         })}\n\n`
                       );
+                      forceProxyFlush(res);
                     }
 
                     logger.info('HITL yield: draft card emitted for approval', {
@@ -1522,6 +1553,7 @@ router.post(
                                   status: 'active',
                                 })}\n\n`
                               );
+                              forceProxyFlush(res);
                             } catch {
                               // Client disconnected — swallow
                             }
@@ -1553,6 +1585,19 @@ router.post(
                     pendingAutoOpenPanel = (result.data as Record<string, unknown>)[
                       'autoOpenPanel'
                     ] as Record<string, unknown>;
+
+                    // Emit immediately so the frontend can open the panel without
+                    // waiting for the full LLM response to finish.
+                    try {
+                      res.write(`event: panel\ndata: ${JSON.stringify(pendingAutoOpenPanel)}\n\n`);
+                      forceProxyFlush(res);
+                      logger.info('Emitted panel SSE event immediately', {
+                        type: (pendingAutoOpenPanel as Record<string, unknown>)['type'],
+                        userId: user.uid,
+                      });
+                    } catch {
+                      // Client disconnected — swallow
+                    }
                   }
 
                   // Mark step as success
@@ -1564,6 +1609,7 @@ router.post(
                         status: result.success ? 'success' : 'error',
                       })}\n\n`
                     );
+                    forceProxyFlush(res);
                   }
 
                   return {
@@ -1586,6 +1632,7 @@ router.post(
                         status: 'error',
                       })}\n\n`
                     );
+                    forceProxyFlush(res);
                   }
 
                   return {
@@ -1622,6 +1669,7 @@ router.post(
                     timestamp: new Date().toISOString(),
                   })}\n\n`
                 );
+                forceProxyFlush(res);
               }
 
               logger.info('HITL: breaking agentic loop, awaiting user approval', {
@@ -1649,6 +1697,7 @@ router.post(
                   status: 'active',
                 })}\n\n`
               );
+              forceProxyFlush(res);
 
               // 15-second heartbeat keeps the connection alive through proxies/load balancers
               const heartbeatInterval = setInterval(() => {
@@ -1710,6 +1759,7 @@ router.post(
                         timestamp: new Date().toISOString(),
                       })}\n\n`
                     );
+                    forceProxyFlush(res);
 
                     res.end();
 
@@ -1829,6 +1879,7 @@ router.post(
             res.write(
               `event: title_updated\ndata: ${JSON.stringify({ threadId: resolvedThreadId, title: generatedTitle })}\n\n`
             );
+            forceProxyFlush(res);
           }
         } catch (titleErr) {
           // Title generation is non-critical — never block the response
@@ -1867,6 +1918,7 @@ router.post(
             timestamp: new Date().toISOString(),
           })}\n\n`
         );
+        forceProxyFlush(res);
       }
 
       logger.info('Agent X SSE chat completed', {
@@ -1930,6 +1982,7 @@ router.post(
               timestamp: new Date().toISOString(),
             })}\n\n`
           );
+          forceProxyFlush(res);
         }
         res.end();
       }
@@ -2034,6 +2087,18 @@ router.post('/playbook/generate', appGuard, async (req: Request, res: Response) 
     if (!user?.uid) {
       res.status(401).json({ success: false, error: 'Unauthorized' });
       return;
+    }
+
+    if (req.firebase?.db) {
+      const playbookBudgetCheck = await checkBudget(req.firebase.db, user.uid, 0);
+      if (!playbookBudgetCheck.allowed) {
+        res.status(402).json({
+          success: false,
+          error: playbookBudgetCheck.reason ?? 'Budget limit reached',
+          code: 'BUDGET_EXCEEDED',
+        });
+        return;
+      }
     }
 
     const result = await getGenerationService().generatePlaybook(
@@ -2161,6 +2226,19 @@ router.post(
       }
 
       const { force = false } = req.body as { force?: boolean };
+
+      if (req.firebase?.db) {
+        const briefingBudgetCheck = await checkBudget(req.firebase.db, user.uid, 0);
+        if (!briefingBudgetCheck.allowed) {
+          res.status(402).json({
+            success: false,
+            error: briefingBudgetCheck.reason ?? 'Budget limit reached',
+            code: 'BUDGET_EXCEEDED',
+          });
+          return;
+        }
+      }
+
       const result = await getGenerationService().generateBriefing(
         user.uid,
         force,

@@ -236,8 +236,8 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
 
 /**
  * Logged-out variant — Streamlined sidebar for unauthenticated users.
- * Persona-based navigation (Athletes, Programs, Sports) lives in the
- * top header bar so the sidebar stays clean and focused.
+ * Desktop keeps persona navigation in the top header bar, while the
+ * mobile web sidebar mirrors those routes for signed-out users.
  * Auth-required items (Settings) use `action` instead of direct navigation
  * so the web-shell can present the sign-in modal before routing.
  * Named WEB_* to avoid shadowing the @nxt1/ui LOGGED_OUT_SIDEBAR_SECTIONS export.
@@ -255,6 +255,11 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
         route: '/explore',
       },
     ],
+  },
+  {
+    id: 'follow-us',
+    label: 'Follow Us',
+    items: FOLLOW_US_ITEMS,
   },
 ];
 
@@ -325,6 +330,26 @@ const LOGGED_OUT_HEADER_NAV_ITEMS: TopNavItem[] = [
     })),
   },
 ];
+
+const LOGGED_OUT_MOBILE_SIDEBAR_ITEMS: readonly DesktopSidebarItem[] =
+  LOGGED_OUT_HEADER_NAV_ITEMS.map((item) => ({
+    id: item.id,
+    label: item.label,
+    icon: item.icon ?? 'link',
+    route: item.route,
+    href: item.href,
+    ariaLabel: item.ariaLabel,
+    children: item.children?.map((child) => ({
+      id: child.id,
+      label: child.label,
+      icon: child.icon ?? 'link',
+      route: child.route,
+      href: child.href,
+      ariaLabel: child.ariaLabel,
+      disabled: child.disabled,
+    })),
+    disabled: item.disabled,
+  }));
 
 /**
  * User menu dropdown items — profile/account meta only.
@@ -1067,7 +1092,8 @@ export class WebShellComponent {
   readonly mobileSidebarSections = computed(() => {
     const ctx = this._userDisplayContext();
     const showUsage = shouldShowUsage(ctx);
-    return this._baseSidebarSections()
+    const isAuthenticated = this.authFlow.isAuthenticated();
+    const baseSections = this._baseSidebarSections()
       .filter((s) => s.id !== 'follow-us' && s.id !== 'account')
       .map((s) => {
         if (s.id !== 'main') return s;
@@ -1076,6 +1102,7 @@ export class WebShellComponent {
           items: [
             // Agent X and Explore are in the mobile footer — omit here
             ...s.items.filter((item) => item.id !== 'agent' && item.id !== 'explore'),
+            ...(!isAuthenticated ? LOGGED_OUT_MOBILE_SIDEBAR_ITEMS : []),
             ...(showUsage
               ? [{ id: 'usage', label: 'Billing & Usage', icon: 'creditCard', route: '/usage' }]
               : []),
@@ -1084,6 +1111,19 @@ export class WebShellComponent {
           ],
         };
       });
+
+    if (isAuthenticated) {
+      return baseSections;
+    }
+
+    return [
+      ...baseSections,
+      {
+        id: 'follow-us',
+        label: 'Follow Us',
+        items: FOLLOW_US_ITEMS,
+      },
+    ];
   });
 
   /** Mobile sidebar configuration */

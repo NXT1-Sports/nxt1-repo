@@ -15,6 +15,8 @@ export type {
   UsageProductDetail,
   UsageTopItem,
   UsageBreakdownLineItem,
+  UsageBreakdownUser,
+  UsageBreakdownTeam,
   UsageBreakdownRow,
   UsagePaymentHistoryRecord,
   UsageBillingInfo,

@@ -435,6 +435,14 @@
     transform var(--nxt1-nav-transition-fast);
 }
 
+.nxt1-desktop-nav .nav-item-icon,
+.nxt1-desktop-nav .nav-item-label,
+.nxt1-desktop-nav .nav-item-chevron {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
 .nxt1-desktop-nav .nav-item-btn:hover:not(:disabled) {
   background: var(--nxt1-nav-hover-bg);
   color: var(--nxt1-nav-text);

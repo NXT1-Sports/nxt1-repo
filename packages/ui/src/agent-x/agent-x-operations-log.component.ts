@@ -748,6 +748,7 @@ export class AgentXOperationsLogComponent {
   private readonly bottomSheet = inject(NxtBottomSheetService);
 
   /** Emitted when close button is tapped (for inline/web usage). */
+  readonly close = output<void>();
   readonly closePanel = output<void>();
 
   /** Emitted when an entry is tapped in embedded mode (parent handles navigation). */
@@ -1119,6 +1120,7 @@ export class AgentXOperationsLogComponent {
     if (this.modalCtrl) {
       await this.modalCtrl.dismiss(null, 'cancel');
     } else {
+      this.close.emit();
       this.closePanel.emit();
     }
   }

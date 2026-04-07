@@ -83,8 +83,9 @@ import { NxtIconComponent } from '../components/icon';
               [class.user-card__badge--pro]="subscription()?.tier === 'pro'"
               [class.user-card__badge--premium]="subscription()?.tier === 'premium'"
               [class.user-card__badge--team]="subscription()?.tier === 'team'"
+              [class.user-card__badge--metered]="subscription()?.tier === 'metered'"
             >
-              @if (subscription()?.tier !== 'free') {
+              @if (subscription()?.tier !== 'free' && subscription()?.tier !== 'metered') {
                 <nxt1-icon name="star" [size]="10" className="user-card__badge-icon"></nxt1-icon>
               }
               {{ planBadge() }}
@@ -377,6 +378,7 @@ export class SettingsUserCardComponent {
       pro: 'Pro',
       premium: 'Premium',
       team: 'Team',
+      metered: 'Usage-Based',
     };
 
     return planLabels[tier] ?? tier;

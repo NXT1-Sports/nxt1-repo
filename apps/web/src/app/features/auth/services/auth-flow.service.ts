@@ -512,9 +512,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             // Navigate based on onboarding status
             // IMPORTANT: Only redirect if on auth pages or root, don't interrupt user on other pages
             const currentUrl = this.router.url;
-            const isOnAuthPage = currentUrl.includes(AUTH_ROUTES.ROOT);
+            const isCongratulationsPage = currentUrl.includes('congratulations');
+            const isOnAuthPage = currentUrl.includes(AUTH_ROUTES.ROOT) && !isCongratulationsPage;
             const isOnRootPage = currentUrl === '/';
-            const isOnOnboardingPage = currentUrl.includes('/onboarding');
+            const isOnOnboardingPage = currentUrl.includes('/onboarding') && !isCongratulationsPage;
 
             // Only redirect to onboarding if:
             // 1. User hasn't completed onboarding AND

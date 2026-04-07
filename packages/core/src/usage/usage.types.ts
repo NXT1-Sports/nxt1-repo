@@ -183,6 +183,34 @@ export interface UsageBreakdownLineItem {
   readonly billedAmount: number;
 }
 
+/** A user's usage within a team (org breakdown level 3) */
+export interface UsageBreakdownUser {
+  /** Firestore user ID */
+  readonly userId: string;
+  /** Display name */
+  readonly userName: string;
+  /** Total gross amount for this user in cents */
+  readonly grossAmount: number;
+  /** Total billed amount in cents */
+  readonly billedAmount: number;
+  /** Per-product line items */
+  readonly lineItems: readonly UsageBreakdownLineItem[];
+}
+
+/** A team's usage within a day (org breakdown level 2) */
+export interface UsageBreakdownTeam {
+  /** Firestore team ID */
+  readonly teamId: string;
+  /** Display name */
+  readonly teamName: string;
+  /** Total gross amount for this team in cents */
+  readonly grossAmount: number;
+  /** Total billed amount in cents */
+  readonly billedAmount: number;
+  /** Per-user breakdown within this team */
+  readonly users: readonly UsageBreakdownUser[];
+}
+
 /** A single day row in the usage breakdown table */
 export interface UsageBreakdownRow {
   /** ISO date */
@@ -193,8 +221,10 @@ export interface UsageBreakdownRow {
   readonly grossAmount: number;
   /** Total billed amount for the day in cents */
   readonly billedAmount: number;
-  /** Line items (shown when row is expanded) */
+  /** Flat line items — used for individual (non-org) billing */
   readonly lineItems: readonly UsageBreakdownLineItem[];
+  /** Nested team → user → product hierarchy — used for organization billing */
+  readonly teams?: readonly UsageBreakdownTeam[];
 }
 
 // ============================================

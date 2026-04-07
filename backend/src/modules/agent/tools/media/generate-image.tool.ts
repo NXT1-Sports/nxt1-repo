@@ -138,12 +138,9 @@ export class GenerateImageTool extends BaseTool {
         metadata: { cacheControl: 'public, max-age=31536000, immutable' },
       });
 
-      // Generate a long-lived signed URL (7 years).
-      // This works with Uniform Bucket-Level Access and new .firebasestorage.app buckets
-      // where per-object ACLs and download tokens are not supported.
-      const expires = new Date();
-      expires.setFullYear(expires.getFullYear() + 7);
-      const [publicUrl] = await file.getSignedUrl({ action: 'read', expires });
+      // Make publicly accessible and build direct URL
+      await file.makePublic();
+      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${filePath}`;
 
       return {
         success: true,

@@ -717,6 +717,8 @@ export interface AgentXStreamCallbacks {
   onTitleUpdated?: (event: AgentXStreamTitleUpdatedEvent) => void;
   /** Called when the operation lifecycle status changes (in-progress → complete/error/awaiting_input). */
   onOperation?: (event: AgentXStreamOperationEvent) => void;
+  /** Called immediately when a tool emits an autoOpenPanel instruction (before done). */
+  onPanel?: (event: AutoOpenPanelInstruction) => void;
 }
 
 /**

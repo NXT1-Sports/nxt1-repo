@@ -75,7 +75,7 @@ export class UserCancelledError extends Error {
  * Default subscription for users without active billing data.
  */
 const DEFAULT_SUBSCRIPTION: SettingsSubscription = {
-  tier: 'free',
+  tier: 'metered',
   status: 'active',
   currentPeriodEnd: null,
   cancelAtPeriodEnd: false,
@@ -152,8 +152,11 @@ export class SettingsService {
   /** Current error message */
   readonly error = computed(() => this._error());
 
-  /** Whether user is on free plan */
-  readonly isFreePlan = computed(() => this._subscription()?.tier === 'free');
+  /** Whether user is on free plan (not usage-based metered billing) */
+  readonly isFreePlan = computed(() => {
+    const tier = this._subscription()?.tier;
+    return tier === 'free';
+  });
 
   /** Usage percentage for storage */
   readonly storageUsagePercent = computed(() => {

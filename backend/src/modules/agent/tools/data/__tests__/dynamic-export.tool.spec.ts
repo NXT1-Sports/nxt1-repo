@@ -11,9 +11,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // ── Mocks (must precede tool import) ─────────────────────────────────────────
 
 const mockSave = vi.fn().mockResolvedValue(undefined);
-const mockGetSignedUrl = vi.fn().mockResolvedValue(['https://storage.example.com/export.pdf']);
-const mockFile = vi.fn().mockReturnValue({ save: mockSave, getSignedUrl: mockGetSignedUrl });
-const mockBucket = vi.fn().mockReturnValue({ file: mockFile });
+const mockMakePublic = vi.fn().mockResolvedValue(undefined);
+const mockFile = vi.fn().mockReturnValue({ save: mockSave, makePublic: mockMakePublic });
+const mockBucket = vi.fn().mockReturnValue({ file: mockFile, name: 'test-bucket' });
 vi.mock('firebase-admin/storage', () => ({
   getStorage: () => ({ bucket: mockBucket }),
 }));
@@ -147,7 +147,7 @@ describe('DynamicExportTool', () => {
       expect(data['format']).toBe('csv');
       expect(data['rowCount']).toBe(2);
       expect(data['columnCount']).toBe(3);
-      expect(data['downloadUrl']).toBe('https://storage.example.com/export.pdf');
+      expect(data['downloadUrl']).toContain('https://storage.googleapis.com/test-bucket/');
       expect(typeof data['sizeBytes']).toBe('number');
       expect(data['sizeBytes'] as number).toBeGreaterThan(0);
 

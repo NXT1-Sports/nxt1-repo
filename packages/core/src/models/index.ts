@@ -11,6 +11,7 @@
 
 // College model
 export type {
+  CollegeContact,
   CollegeSportInfo,
   College,
   CollegeListItem,

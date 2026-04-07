@@ -26,7 +26,9 @@ export class InteractWithLiveViewTool extends BaseTool {
     "Firecrawl's AI automatically finds elements and interacts with them — no CSS selectors needed. " +
     'The user watches the actions happen in real time in their side panel. ' +
     'Use this INSTEAD of interact_with_webpage when a live view session is already open. ' +
-    "The sessionId is optional — if omitted, the tool automatically finds the user's active session.";
+    "The sessionId is optional — if omitted, the tool automatically finds the user's active session. " +
+    'IMPORTANT: For destructive actions (submit, send, purchase, delete, confirm, etc.), you MUST first ask the user for confirmation ' +
+    'and then call this tool again with confirmed: true. The tool will reject unconfirmed destructive actions.';
 
   readonly parameters = {
     type: 'object' as const,
@@ -48,6 +50,13 @@ export class InteractWithLiveViewTool extends BaseTool {
         type: 'string',
         description:
           "The authenticated user's ID (uid). Extract from the [User Profile] context — NEVER ask the user.",
+      },
+      confirmed: {
+        type: 'boolean',
+        description:
+          'Set to true ONLY after you have explicitly asked the user for confirmation and they agreed. ' +
+          'Required for destructive or irreversible actions (submit, send, purchase, delete, confirm, place order, etc.). ' +
+          'If the action is destructive and confirmed is not true, the tool will reject the call and ask you to confirm with the user first.',
       },
     },
     required: ['prompt', 'userId'],
@@ -71,12 +80,40 @@ export class InteractWithLiveViewTool extends BaseTool {
     this.sessionService = sessionService;
   }
 
+  /** Words in the prompt that indicate a destructive/irreversible action. */
+  private static readonly DESTRUCTIVE_KEYWORDS =
+    /\b(submit|send|confirm|purchase|buy|place\s+order|delete|remove|pay|checkout|sign\s+up|register|apply|publish|post|transfer|authorize|approve)\b/i;
+
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const userId = this.str(input, 'userId');
     const prompt = this.str(input, 'prompt');
+    const confirmed = input['confirmed'] === true;
 
     if (!userId) return this.paramError('userId');
     if (!prompt) return this.paramError('prompt');
+
+    // Guard: require explicit user confirmation for destructive actions
+    if (!confirmed && InteractWithLiveViewTool.DESTRUCTIVE_KEYWORDS.test(prompt)) {
+      const matchedWord =
+        prompt.match(InteractWithLiveViewTool.DESTRUCTIVE_KEYWORDS)?.[0] ?? 'this action';
+      logger.info('[InteractWithLiveViewTool] Destructive action requires confirmation', {
+        userId,
+        matchedWord,
+        prompt: prompt.slice(0, 200),
+      });
+      return {
+        success: true,
+        data: {
+          requiresConfirmation: true,
+          action: matchedWord,
+          prompt,
+          message:
+            `This action involves "${matchedWord}" which could be irreversible. ` +
+            'You MUST ask the user if they want to proceed before calling this tool again with confirmed: true. ' +
+            'Describe exactly what will happen and wait for their explicit approval.',
+        },
+      };
+    }
 
     let sessionId: string;
     try {

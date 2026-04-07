@@ -20,6 +20,7 @@ export { WriteCalendarEventsTool } from './write-calendar-events.tool.js';
 export { WriteAthleteVideosTool } from './write-athlete-videos.tool.js';
 export { SearchMemoryTool } from './search-memory.tool.js';
 export { SearchCollegesTool } from './search-colleges.tool.js';
+export { SearchCollegeCoachesTool } from './search-college-coaches.tool.js';
 export { SaveMemoryTool } from './save-memory.tool.js';
 export { DeleteMemoryTool } from './delete-memory.tool.js';
 export { WriteTeamIdentityTool } from './write-team-identity.tool.js';

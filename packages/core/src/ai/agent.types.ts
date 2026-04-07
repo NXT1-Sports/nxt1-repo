@@ -314,6 +314,8 @@ type MediaTierAudioAnalysis = 'audio_analysis';
 type MediaTierVoiceGeneration = 'voice_generation';
 /** AI music: hype beats, highlight reel soundtracks. */
 type MediaTierMusicGeneration = 'music_generation';
+/** Video understanding: game film analysis, highlight review, play breakdown. */
+type MediaTierVideoAnalysis = 'video_analysis';
 
 /** All media-generation model tiers. */
 export type MediaModelTier =
@@ -322,7 +324,8 @@ export type MediaModelTier =
   | MediaTierVisionAnalysis
   | MediaTierAudioAnalysis
   | MediaTierVoiceGeneration
-  | MediaTierMusicGeneration;
+  | MediaTierMusicGeneration
+  | MediaTierVideoAnalysis;
 
 // ── Utility Tiers ───────────────────────────────────────────────────────────
 

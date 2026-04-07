@@ -1147,6 +1147,7 @@ export async function resolveBillingTarget(
         type: athleteTarget.type,
         billingUserId: athleteTarget.billingUserId,
         organizationId: athleteTarget.organizationId,
+        teamIds: athleteTarget.teamIds,
         expiresAt: Date.now() + BILLING_RESOLUTION_CACHE_TTL_MS,
       });
       return athleteTarget;
@@ -1255,11 +1256,24 @@ async function resolveAthleteOrgTarget(
 
   const billingUserId = orgId ? `org:${orgId}` : `team:${teamId}`;
 
+  // Fetch all team IDs for this org so the usage dashboard can query
+  // usageEvents across the entire organization (same as resolveUserOrgTarget).
+  // Without this, fetchUsageEvents falls through to the individual query path
+  // and queries `userId == 'org:{orgId}'` — which matches zero events.
+  let teamIds: string[] = [teamId];
+  if (orgId) {
+    const teamsSnap = await db.collection('Teams').where('organizationId', '==', orgId).get();
+    teamIds = teamsSnap.docs.map((doc) => doc.id);
+    // Ensure the athlete's own team is always included
+    if (!teamIds.includes(teamId)) teamIds.push(teamId);
+  }
+
   logger.info('[resolveBillingTarget] Resolved athlete to organization billing', {
     userId,
     teamId,
     organizationId: orgId,
     billingUserId,
+    teamCount: teamIds.length,
   });
 
   return {
@@ -1267,6 +1281,7 @@ async function resolveAthleteOrgTarget(
     billingUserId,
     context: athleteCtx,
     organizationId: orgId,
+    teamIds,
   };
 }
 

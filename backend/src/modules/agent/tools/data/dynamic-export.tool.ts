@@ -230,11 +230,10 @@ export class DynamicExportTool extends BaseTool {
         },
       });
 
-      // 7-year signed URL (consistent with other tools)
+      // Make publicly accessible and build direct URL
       progress?.('Creating secure download link…');
-      const expires = new Date();
-      expires.setFullYear(expires.getFullYear() + 7);
-      const [downloadUrl] = await file.getSignedUrl({ action: 'read', expires });
+      await file.makePublic();
+      const downloadUrl = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
 
       return {
         success: true,

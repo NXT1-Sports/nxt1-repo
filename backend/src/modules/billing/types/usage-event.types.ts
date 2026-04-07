@@ -308,6 +308,15 @@ export interface BillingContext {
   /** Stripe subscription ID for Pro plan ($50/m) — null if free tier */
   proSubscriptionId?: string;
 
+  /**
+   * Promotional credit granted to this billing context in cents.
+   * Applied chronologically against `currentMeteredUsage` before computing
+   * `nextPaymentAmount`. Org accounts receive $20 (2000¢) by default via
+   * the platform config `orgPromotionalCreditCents`.
+   * Omitting this field means the platform config default is used.
+   */
+  promotionalCreditCents?: number;
+
   /** Created timestamp */
   createdAt: Timestamp;
 
