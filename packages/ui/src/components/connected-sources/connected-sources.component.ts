@@ -179,9 +179,14 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
       .nxt1-mode-toggle {
         display: flex;
         border-radius: var(--nxt1-borderRadius-lg);
-        background: var(--nxt1-color-surface-200);
+        background: rgba(0, 0, 0, 0.08);
         padding: var(--nxt1-spacing-0-5);
         margin-bottom: var(--nxt1-spacing-5);
+      }
+
+      :host-context([data-base-theme='dark']) .nxt1-mode-toggle,
+      :host-context(.dark) .nxt1-mode-toggle {
+        background: rgba(255, 255, 255, 0.08);
       }
 
       .nxt1-mode-btn {
@@ -202,10 +207,10 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
       }
 
       .nxt1-mode-btn--active {
-        background: var(--nxt1-color-surface-100);
+        background: var(--nxt1-color-bg-primary, #ffffff);
         color: var(--nxt1-color-text-primary);
         font-weight: var(--nxt1-fontWeight-semibold);
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
       }
 
       /* ============================================

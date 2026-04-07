@@ -41,5 +41,5 @@ export const environment = {
 
   // Stripe publishable key (production live mode)
   stripePublishableKey:
-    'pk_live_52MTwFLKBRB9aJio2J4N26ctBXnLKlt2Tw9nfsOf4nxpESY9ODakObjQpUuznFH4rQbuGRWYVOdquttj4fT3djE5U005EPYUTAE',
+    'pk_live_51MTwFLKBRB9aJio2J4N26ctBXnLKlt2Tw9nfsOf4nxpESY9ODakObjQpUuznFH4rQbuGRWYVOdquttj4fT3djE5U005EPYUTAE',
 };
