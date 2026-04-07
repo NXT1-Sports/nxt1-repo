@@ -76,7 +76,7 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
           type="button"
           class="plus-btn"
           (click)="toggleTasks.emit()"
-          aria-label="Open quick actions"
+          [attr.aria-label]="plusButtonAriaLabel()"
         >
           <nxt1-icon name="plus" [size]="20" />
         </button>
@@ -501,6 +501,7 @@ export class AgentXInputComponent {
   readonly placeholder = input<string>('Type a message');
   readonly pendingFiles = input<readonly AgentXPendingFile[]>([]);
   readonly uploading = input<boolean>(false);
+  readonly plusButtonAriaLabel = input<string>('Open quick actions');
 
   // ============================================
   // OUTPUTS

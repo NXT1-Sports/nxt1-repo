@@ -10,6 +10,13 @@ export { AgentGenerationService } from './generation.service.js';
 export type { PlaybookGenerationResult, BriefingGenerationResult } from './generation.service.js';
 export { IntelGenerationService } from './intel.service.js';
 export {
+  ExportService,
+  type ExportColumn,
+  type ExportRow,
+  type CsvExportOptions,
+  type PdfExportOptions,
+} from './export.service.js';
+export {
   buildEliteContext,
   getSeasonInfo,
   getRecurringHabitsPrompt,

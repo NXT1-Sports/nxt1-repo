@@ -4,3 +4,8 @@
  */
 
 export { AgentYieldException, isAgentYield, type AgentYieldPayload } from './agent-yield.error.js';
+export {
+  AgentDelegationException,
+  isAgentDelegation,
+  type AgentDelegationPayload,
+} from './agent-delegation.error.js';

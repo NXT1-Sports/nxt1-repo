@@ -45,6 +45,7 @@ import { ATHLETE_QUICK_TASKS, COACH_QUICK_TASKS } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon/icon.component';
 import { NxtChatBubbleComponent } from '../../components/chat-bubble';
 import { AgentXService } from '../agent-x.service';
+import type { DraftSubmittedEvent } from '../agent-x-draft-card.component';
 import { AgentXFabService } from './agent-x-fab.service';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './agent-x-logo.constants';
 
@@ -205,6 +206,8 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './agent-x-logo.constant
                   [isError]="!!message.error"
                   [steps]="message.steps ?? []"
                   [cards]="message.cards ?? []"
+                  [parts]="message.parts ?? []"
+                  (draftSubmitted)="onDraftSubmitted($event)"
                 />
               </div>
             }
@@ -964,6 +967,14 @@ export class AgentXFabChatPanelComponent {
    */
   protected async onClearChat(): Promise<void> {
     await this.agentX.clearMessages();
+  }
+
+  /**
+   * Handle draft email approval from chat bubble card.
+   */
+  protected async onDraftSubmitted(event: DraftSubmittedEvent): Promise<void> {
+    if (!event.toEmail) return;
+    await this.agentX.sendDraft(event.toEmail, event.subject, event.content);
   }
 
   /**

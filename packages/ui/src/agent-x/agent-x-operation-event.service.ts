@@ -33,7 +33,13 @@
  */
 
 import { Injectable, inject, InjectionToken } from '@angular/core';
-import type { JobEvent, AgentXToolStep, AgentXToolStepStatus } from '@nxt1/core/ai';
+import type {
+  JobEvent,
+  AgentXToolStep,
+  AgentXToolStepStatus,
+  AgentXStreamCardEvent,
+} from '@nxt1/core/ai';
+import type { OperationLogStatus } from '@nxt1/core';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { Subject } from 'rxjs';
@@ -44,6 +50,13 @@ import { Subject } from 'rxjs';
 export interface ThreadTitleUpdatedEvent {
   readonly threadId: string;
   readonly title: string;
+}
+
+/** Emitted when an operation's status changes during the /chat SSE stream. */
+export interface OperationStatusUpdatedEvent {
+  readonly threadId: string;
+  readonly status: OperationLogStatus;
+  readonly timestamp: string;
 }
 
 // ─── Firestore Adapter (Injection Token) ────────────────────────────────────
@@ -98,6 +111,8 @@ export interface OperationEventCallbacks {
   onDelta: (text: string, agentId?: string) => void;
   /** Called when a tool step starts, succeeds, or fails. */
   onStep: (step: AgentXToolStep) => void;
+  /** Called when a rich card (planner, data-table, etc.) should be rendered. */
+  onCard?: (card: AgentXStreamCardEvent) => void;
   /** Called when the entire job finishes (success or failure). */
   onDone: (event: { success: boolean; message?: string; error?: string }) => void;
   /** Called if the Firestore listener encounters an error. */
@@ -129,12 +144,33 @@ export class AgentXOperationEventService {
   readonly titleUpdated$ = this._titleUpdated$.asObservable();
 
   /**
+   * Observable that emits when an operation's status changes during the /chat SSE stream.
+   * The operations log component subscribes to this to update entry statuses in real-time
+   * without polling or Firestore listeners.
+   */
+  private readonly _operationStatusUpdated$ = new Subject<OperationStatusUpdatedEvent>();
+  readonly operationStatusUpdated$ = this._operationStatusUpdated$.asObservable();
+
+  /**
    * Emit a title-updated event so listeners (operations log, shell) can
    * update the thread title in real-time without a full API refetch.
    */
   emitTitleUpdated(threadId: string, title: string): void {
     this.logger.debug('Emitting thread title update', { threadId, title });
     this._titleUpdated$.next({ threadId, title });
+  }
+
+  /**
+   * Emit an operation status change so the operations log sidebar
+   * can update in real-time purely from the /chat SSE stream.
+   */
+  emitOperationStatusUpdated(
+    threadId: string,
+    status: OperationLogStatus,
+    timestamp: string
+  ): void {
+    this.logger.debug('Emitting operation status update', { threadId, status });
+    this._operationStatusUpdated$.next({ threadId, status, timestamp });
   }
 
   /**
@@ -169,6 +205,10 @@ export class AgentXOperationEventService {
     // Track the highest seq we've processed to avoid re-processing on snapshot updates
     let lastProcessedSeq = -1;
 
+    // FIFO queues per tool name so tool_result pairs with the correct tool_call
+    // when the same tool is invoked multiple times in one operation.
+    const pendingStepIds = new Map<string, string[]>();
+
     const collectionPath = `agentJobs/${operationId}/events`;
 
     const unsubscribeFn = this.firestoreAdapter.onSnapshot(
@@ -181,7 +221,7 @@ export class AgentXOperationEventService {
           if (typeof event.seq !== 'number' || event.seq <= lastProcessedSeq) continue;
           lastProcessedSeq = event.seq;
 
-          this.processEvent(event, callbacks, operationId);
+          this.processEvent(event, callbacks, operationId, pendingStepIds);
         }
       },
       (error) => {
@@ -233,7 +273,8 @@ export class AgentXOperationEventService {
   private processEvent(
     event: JobEvent,
     callbacks: OperationEventCallbacks,
-    operationId: string
+    operationId: string,
+    pendingStepIds: Map<string, string[]>
   ): void {
     switch (event.type) {
       case 'delta':
@@ -242,25 +283,42 @@ export class AgentXOperationEventService {
         }
         break;
 
-      case 'step_active':
+      case 'step_active': {
+        const stepId = `${event.toolName ?? 'step'}-${event.seq}`;
+        if (event.toolName) {
+          const queue = pendingStepIds.get(event.toolName) ?? [];
+          queue.push(stepId);
+          pendingStepIds.set(event.toolName, queue);
+        }
         callbacks.onStep({
-          id: event.toolName ?? `step-${event.seq}`,
+          id: stepId,
           label: event.message ?? event.toolName ?? 'Processing...',
           status: 'active' as AgentXToolStepStatus,
         });
         break;
+      }
 
-      case 'tool_call':
+      case 'tool_call': {
+        const stepId = `${event.toolName ?? 'tool'}-${event.seq}`;
+        if (event.toolName) {
+          const queue = pendingStepIds.get(event.toolName) ?? [];
+          queue.push(stepId);
+          pendingStepIds.set(event.toolName, queue);
+        }
         callbacks.onStep({
-          id: event.toolName ?? `tool-${event.seq}`,
+          id: stepId,
           label: `Running ${event.toolName ?? 'tool'}...`,
           status: 'active' as AgentXToolStepStatus,
         });
         break;
+      }
 
-      case 'tool_result':
+      case 'tool_result': {
+        // Pair with the earliest pending step_active/tool_call for this tool
+        const queue = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
+        const stepId = queue?.shift() ?? `${event.toolName ?? 'tool'}-${event.seq}`;
         callbacks.onStep({
-          id: event.toolName ?? `tool-${event.seq}`,
+          id: stepId,
           label:
             event.message ??
             `${event.toolName ?? 'Tool'} ${event.toolSuccess ? 'completed' : 'failed'}`,
@@ -268,22 +326,42 @@ export class AgentXOperationEventService {
           detail: event.toolResult ? this.summarizeToolResult(event.toolResult) : undefined,
         });
         break;
+      }
 
-      case 'step_done':
+      case 'step_done': {
+        const queue = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
+        const stepId = queue?.shift() ?? `${event.toolName ?? 'step'}-${event.seq}`;
         callbacks.onStep({
-          id: event.toolName ?? `step-${event.seq}`,
+          id: stepId,
           label: event.message ?? 'Step completed',
           status: 'success' as AgentXToolStepStatus,
         });
         break;
+      }
 
-      case 'step_error':
+      case 'step_error': {
+        const queue = event.toolName ? pendingStepIds.get(event.toolName) : undefined;
+        const stepId = queue?.shift() ?? `${event.toolName ?? 'step'}-${event.seq}`;
         callbacks.onStep({
-          id: event.toolName ?? `step-${event.seq}`,
+          id: stepId,
           label: event.message ?? event.error ?? 'Step failed',
           status: 'error' as AgentXToolStepStatus,
         });
         break;
+      }
+
+      case 'card': {
+        const cardData = event.cardData;
+        if (
+          cardData &&
+          typeof cardData['type'] === 'string' &&
+          typeof cardData['title'] === 'string' &&
+          cardData['payload'] != null
+        ) {
+          callbacks.onCard?.(cardData as unknown as AgentXStreamCardEvent);
+        }
+        break;
+      }
 
       case 'done':
         this.logger.info('Operation completed', {

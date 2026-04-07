@@ -480,7 +480,6 @@ export {
   // Components
   AgentXShellComponent,
   AgentXWelcomeComponent,
-  AgentXChatComponent,
   AgentXActionCardComponent,
   type ActionCardApprovalEvent,
   type ActionCardReplyEvent,
@@ -928,6 +927,7 @@ export {
 export {
   // Generic swipe gesture handler (framework-agnostic)
   createSwipeGestureHandler,
+  NxtDragDropDirective,
   createGestureConfig,
   DEFAULT_GESTURE_CONFIG,
   // Sidenav-specific gesture service

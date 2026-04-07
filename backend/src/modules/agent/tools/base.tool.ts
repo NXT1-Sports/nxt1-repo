@@ -35,6 +35,30 @@ export interface ToolResult {
   readonly error?: string;
 }
 
+/**
+ * Execution context injected into every tool call by the agent runtime.
+ * Provides identity and session information that tools can use for
+ * scoped storage paths, audit logging, or permission checks — without
+ * relying on the LLM to supply these values (which would be unreliable).
+ */
+export interface ToolExecutionContext {
+  /** The authenticated Firestore UID of the user who owns this agent session. */
+  readonly userId: string;
+  /** The MongoDB thread ID for the current conversation (if available). */
+  readonly threadId?: string;
+  /** The unique session ID for the current agent run. */
+  readonly sessionId?: string;
+  /**
+   * Emit a progress update to the client during long-running tool execution.
+   * The label replaces the current step indicator text in the frontend
+   * (e.g. "Querying 4,200 prospects…", "Generating PDF…").
+   *
+   * Tools should call this at meaningful milestones — not every iteration.
+   * The callback is a no-op when the tool is executed outside an SSE context.
+   */
+  readonly onProgress?: (label: string) => void;
+}
+
 export abstract class BaseTool {
   /** Unique tool name (snake_case). Used in LLM function-calling schemas. */
   abstract readonly name: string;
@@ -60,8 +84,11 @@ export abstract class BaseTool {
    */
   _embedding?: readonly number[];
 
-  /** Execute the tool with validated input. */
-  abstract execute(input: Record<string, unknown>): Promise<ToolResult>;
+  /** Execute the tool with validated input and optional execution context. */
+  abstract execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult>;
 
   // ─── Helper Methods for Tool RAG ────────────────────────────────────
 

@@ -30,7 +30,16 @@ export class BrandMediaCoordinatorAgent extends BaseAgent {
   }
 
   getAvailableTools(): readonly string[] {
-    return ['generate_image', 'scrape_webpage', 'ask_user'];
+    return [
+      'generate_image',
+      'scrape_webpage',
+      'open_live_view',
+      'navigate_live_view',
+      'interact_with_live_view',
+      'read_live_view',
+      'close_live_view',
+      'ask_user',
+    ];
   }
 
   override getSkills(): readonly string[] {

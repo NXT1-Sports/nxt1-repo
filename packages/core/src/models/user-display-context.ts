@@ -32,7 +32,6 @@ export interface UserDisplayInput {
   readonly unicode?: string;
   readonly role?: string | null;
   readonly isPremium?: boolean;
-  readonly planTier?: string | null;
   readonly teamCode?: {
     readonly slug?: string;
     readonly teamName?: string;
@@ -156,7 +155,7 @@ export function buildUserDisplayContext(
   const isTeam = user?.role ? isTeamRole(user.role) : false;
 
   // ── Premium Status ──
-  const isPremium = !!(user?.isPremium || (user?.planTier && user.planTier !== 'free'));
+  const isPremium = !!user?.isPremium;
 
   if (isTeam) {
     return buildTeamContext(user!, personalName, isPremium);

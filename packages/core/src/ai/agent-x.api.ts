@@ -39,6 +39,7 @@ import type {
   AgentXStreamErrorEvent,
   AgentXStreamStepEvent,
   AgentXStreamCardEvent,
+  AgentXStreamOperationEvent,
 } from './agent-x.types';
 import type { AgentMessage } from './chat.types';
 import { AGENT_X_ENDPOINTS } from './agent-x.constants';
@@ -348,6 +349,27 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
+     * Execute a user-approved email draft (HITL send).
+     *
+     * Called after the user reviews/edits an email draft card and taps "Approve & Send".
+     * The backend validates, auto-detects the email provider, and sends via Gmail or Outlook.
+     */
+    async sendDraft(
+      toEmail: string,
+      subject: string,
+      body: string
+    ): Promise<{ messageId: string | null; provider: string; message: string } | null> {
+      try {
+        const response = await http.post<
+          ApiResponse<{ messageId: string | null; provider: string; message: string }>
+        >(endpoint(AGENT_X_ENDPOINTS.SEND_DRAFT), { toEmail, subject, body });
+        return response.success && response.data ? response.data : null;
+      } catch {
+        return null;
+      }
+    },
+
+    /**
      * Stream a chat response using the backend SSE endpoint.
      *
      * Connects to `POST /agent-x/chat` with `Accept: text/event-stream`.
@@ -474,6 +496,17 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
                       callbacks.onTitleUpdated?.(
                         titleEvt as unknown as AgentXStreamTitleUpdatedEvent
                       );
+                    }
+                    break;
+                  }
+                  case 'operation': {
+                    const op = payload as Record<string, unknown>;
+                    if (
+                      op &&
+                      typeof op['threadId'] === 'string' &&
+                      typeof op['status'] === 'string'
+                    ) {
+                      callbacks.onOperation?.(op as unknown as AgentXStreamOperationEvent);
                     }
                     break;
                   }

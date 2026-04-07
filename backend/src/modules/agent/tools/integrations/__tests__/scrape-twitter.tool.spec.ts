@@ -10,15 +10,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ScrapeTwitterTool } from '../scrape-twitter.tool.js';
 import type { ApifyService, ApifyRunResult, ScweetTweet, ScweetUser } from '../apify.service.js';
+import type { ScraperMediaService, PersistedMedia } from '../scraper-media.service.js';
 
-// ─── Mock ApifyService ──────────────────────────────────────────────────────
+// ─── Mock ApifyService ──────────────────────────────────────────────────
 
 function createMockApify(): ApifyService {
   return {
     searchTweets: vi.fn(),
     getProfileTweets: vi.fn(),
     getFollowers: vi.fn(),
+    getInstagramPosts: vi.fn(),
+    getInstagramProfiles: vi.fn(),
+    searchInstagram: vi.fn(),
   } as unknown as ApifyService;
+}
+
+function createMockMedia(): ScraperMediaService {
+  return {
+    persistBatch: vi.fn().mockResolvedValue([]),
+  } as unknown as ScraperMediaService;
 }
 
 const MOCK_TWEET: ScweetTweet = {
@@ -30,6 +40,22 @@ const MOCK_TWEET: ScweetTweet = {
   likes: 450,
   replies: 35,
   url: 'https://x.com/jalensmith/status/1234567890',
+  imageUrls: ['https://pbs.twimg.com/media/tweet_photo1.jpg'],
+  videoUrl: '',
+};
+
+const MOCK_VIDEO_TWEET: ScweetTweet = {
+  ...MOCK_TWEET,
+  id: '1234567891',
+  imageUrls: [],
+  videoUrl: 'https://video.twimg.com/ext_tw_video/1234567891/pu/vid/720x1280/tweet_video.mp4',
+};
+
+const MOCK_NO_MEDIA_TWEET: ScweetTweet = {
+  ...MOCK_TWEET,
+  id: '1234567892',
+  imageUrls: [],
+  videoUrl: '',
 };
 
 const MOCK_USER: ScweetUser = {
@@ -81,11 +107,13 @@ function mockErrorResult(error: string): ApifyRunResult<never> {
 describe('ScrapeTwitterTool', () => {
   let tool: ScrapeTwitterTool;
   let mockApify: ApifyService;
+  let mockMedia: ScraperMediaService;
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockApify = createMockApify();
-    tool = new ScrapeTwitterTool(mockApify);
+    mockMedia = createMockMedia();
+    tool = new ScrapeTwitterTool(mockApify, mockMedia);
   });
 
   // ── Metadata ──────────────────────────────────────────────────────────
@@ -297,5 +325,147 @@ describe('ScrapeTwitterTool', () => {
     // All empty → no valid usernames → paramError
     expect(result.success).toBe(false);
     expect(result.error).toContain('usernames');
+  });
+
+  // ── Media Persistence ──────────────────────────────────────────
+
+  it('should persist tweet images to Firebase Storage', async () => {
+    vi.mocked(mockApify.searchTweets).mockResolvedValue(mockTweetResult());
+    const mockPersisted: PersistedMedia[] = [
+      {
+        url: 'https://storage.googleapis.com/bucket/agent-scraping/twitter/123-abc.jpg',
+        storagePath: 'agent-scraping/twitter/123-abc.jpg',
+        mimeType: 'image/jpeg',
+        type: 'image',
+        platform: 'twitter',
+        originalUrl: 'https://pbs.twimg.com/media/abc123.jpg',
+        sourceUrl: 'https://x.com/jalensmith/status/1234567890',
+        sizeBytes: 180_000,
+      },
+    ];
+    vi.mocked(mockMedia.persistBatch).mockResolvedValue(mockPersisted);
+
+    const result = await tool.execute({
+      mode: 'search',
+      query: '#D1Commits',
+    });
+
+    expect(result.success).toBe(true);
+    expect(mockMedia.persistBatch).toHaveBeenCalledOnce();
+
+    // Verify media inputs passed to persistBatch
+    const mediaInputs = vi.mocked(mockMedia.persistBatch).mock.calls[0][0];
+    expect(mediaInputs).toHaveLength(1);
+    expect(mediaInputs[0]).toMatchObject({
+      url: MOCK_TWEET.imageUrls[0],
+      type: 'image',
+      platform: 'twitter',
+    });
+
+    const data = result.data as Record<string, unknown>;
+    expect(data['imageUrl']).toBe(mockPersisted[0].url);
+    expect(data['attachments']).toHaveLength(1);
+  });
+
+  it('should persist tweet video URLs', async () => {
+    vi.mocked(mockApify.getProfileTweets).mockResolvedValue(mockTweetResult([MOCK_VIDEO_TWEET]));
+    vi.mocked(mockMedia.persistBatch).mockResolvedValue([]);
+
+    await tool.execute({
+      mode: 'profile_tweets',
+      usernames: ['jalensmith'],
+    });
+
+    const mediaInputs = vi.mocked(mockMedia.persistBatch).mock.calls[0][0];
+    expect(mediaInputs).toHaveLength(1);
+    expect(mediaInputs[0]).toMatchObject({
+      url: MOCK_VIDEO_TWEET.videoUrl,
+      type: 'video',
+      platform: 'twitter',
+    });
+  });
+
+  it('should not call persistBatch for tweets without media', async () => {
+    vi.mocked(mockApify.searchTweets).mockResolvedValue(mockTweetResult([MOCK_NO_MEDIA_TWEET]));
+
+    const result = await tool.execute({
+      mode: 'search',
+      query: 'test',
+    });
+
+    expect(result.success).toBe(true);
+    // No media to persist — persistBatch should NOT be called
+    expect(mockMedia.persistBatch).not.toHaveBeenCalled();
+
+    const data = result.data as Record<string, unknown>;
+    expect(data['attachments']).toEqual([]);
+    expect(data['imageUrl']).toBeUndefined();
+  });
+
+  it('should continue successfully if media persistence fails', async () => {
+    vi.mocked(mockApify.searchTweets).mockResolvedValue(mockTweetResult());
+    vi.mocked(mockMedia.persistBatch).mockRejectedValue(new Error('Firebase Storage unavailable'));
+
+    const result = await tool.execute({
+      mode: 'search',
+      query: '#D1Commits',
+    });
+
+    // Tool should still succeed with data, just without attachments
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data['attachments']).toEqual([]);
+    expect(data['imageUrl']).toBeUndefined();
+    expect(data['tweets']).toHaveLength(1);
+  });
+
+  it('should include imageUrls and videoUrl in formatted tweet output', async () => {
+    vi.mocked(mockApify.searchTweets).mockResolvedValue(
+      mockTweetResult([MOCK_TWEET, MOCK_VIDEO_TWEET, MOCK_NO_MEDIA_TWEET])
+    );
+
+    const result = await tool.execute({
+      mode: 'search',
+      query: 'test',
+    });
+
+    const data = result.data as Record<string, unknown>;
+    const tweets = data['tweets'] as Record<string, unknown>[];
+    // Tweet with image
+    expect(tweets[0]['imageUrls']).toEqual(MOCK_TWEET.imageUrls);
+    expect(tweets[0]['videoUrl']).toBeUndefined();
+    // Tweet with video
+    expect(tweets[1]['imageUrls']).toBeUndefined();
+    expect(tweets[1]['videoUrl']).toBe(MOCK_VIDEO_TWEET.videoUrl);
+    // Tweet without media
+    expect(tweets[2]['imageUrls']).toBeUndefined();
+    expect(tweets[2]['videoUrl']).toBeUndefined();
+  });
+
+  it('should persist media for profile_tweets mode', async () => {
+    vi.mocked(mockApify.getProfileTweets).mockResolvedValue(mockTweetResult());
+    const mockPersisted: PersistedMedia[] = [
+      {
+        url: 'https://storage.googleapis.com/bucket/agent-scraping/twitter/789-ghi.jpg',
+        storagePath: 'agent-scraping/twitter/789-ghi.jpg',
+        mimeType: 'image/jpeg',
+        type: 'image',
+        platform: 'twitter',
+        originalUrl: 'https://pbs.twimg.com/media/abc123.jpg',
+        sourceUrl: 'https://x.com/jalensmith/status/1234567890',
+        sizeBytes: 200_000,
+      },
+    ];
+    vi.mocked(mockMedia.persistBatch).mockResolvedValue(mockPersisted);
+
+    const result = await tool.execute({
+      mode: 'profile_tweets',
+      usernames: ['jalensmith'],
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data['imageUrl']).toBe(mockPersisted[0].url);
+    expect(data['attachments']).toHaveLength(1);
   });
 });

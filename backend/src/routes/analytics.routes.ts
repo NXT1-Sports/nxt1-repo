@@ -10,6 +10,7 @@ import { Router, type Router as ExpressRouter, Request, Response } from 'express
 import { appGuard, optionalAuth } from '../middleware/auth.middleware.js';
 import { logger } from '../utils/logger.js';
 import { getCacheService, CACHE_TTL } from '../services/cache.service.js';
+import { ExportService, type ExportColumn } from '../modules/agent/services/export.service.js';
 import {
   buildAthleteReport,
   buildCoachReport,
@@ -19,6 +20,7 @@ import {
 import type { AnalyticsPeriod } from '@nxt1/core';
 
 const router: ExpressRouter = Router();
+const exportService = new ExportService();
 
 // ============================================
 // HELPERS
@@ -382,12 +384,75 @@ router.get('/insights', appGuard, async (req: Request, res: Response) => {
 /**
  * Export analytics report as PDF or CSV.
  * POST /api/v1/analytics/export
+ *
+ * Body: { format: 'pdf' | 'csv', period?: AnalyticsPeriod }
+ *
+ * Returns the generated document as a downloadable response with correct
+ * Content-Type and Content-Disposition headers so browsers trigger a file save.
  */
-router.post('/export', appGuard, (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Export feature coming soon',
-  });
+router.post('/export', appGuard, async (req: Request, res: Response) => {
+  try {
+    const uid = req.user!.uid;
+    const { format, period: rawPeriod } = req.body as { format?: string; period?: string };
+
+    if (!format || (format !== 'pdf' && format !== 'csv')) {
+      res.status(400).json({ success: false, error: 'format must be "pdf" or "csv"' });
+      return;
+    }
+
+    const period = parsePeriod(rawPeriod);
+    const db = req.firebase.db;
+
+    // Fetch the user's analytics report (reuses existing service)
+    const report = await buildAthleteReport(db, uid, period);
+
+    // Build column/row data from the analytics report
+    const columns: ExportColumn[] = [
+      { key: 'metric', label: 'Metric' },
+      { key: 'value', label: 'Value' },
+    ];
+
+    const rows: (string | number)[][] = [
+      ['Total Profile Views', report.overview.profileViews.value ?? 0],
+      ['Video Views', report.overview.videoViews.value ?? 0],
+      ['College Coach Views', report.overview.collegeCoachViews.value ?? 0],
+      ['Followers', report.overview.followers.value ?? 0],
+      ['Period', period],
+    ];
+
+    // Append per-time-period views if available
+    if (report.engagement.viewsByTime?.length) {
+      for (const entry of report.engagement.viewsByTime) {
+        rows.push([`Views — ${entry.label}`, entry.count]);
+      }
+    }
+
+    const fileName = `NXT1-Analytics-${period}-${new Date().toISOString().slice(0, 10)}`;
+
+    if (format === 'csv') {
+      const buffer = exportService.generateCsv({ columns, rows });
+      res
+        .setHeader('Content-Type', 'text/csv; charset=utf-8')
+        .setHeader('Content-Disposition', `attachment; filename="${fileName}.csv"`)
+        .send(buffer);
+    } else {
+      const buffer = await exportService.generatePdf({
+        title: 'NXT1 Analytics Report',
+        description: `Performance summary for the last ${period}.`,
+        includeTable: true,
+        columns,
+        rows,
+      });
+      res
+        .setHeader('Content-Type', 'application/pdf')
+        .setHeader('Content-Disposition', `attachment; filename="${fileName}.pdf"`)
+        .send(buffer);
+    }
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to export analytics', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to export analytics report' });
+  }
 });
 
 // ============================================

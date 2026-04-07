@@ -20,16 +20,18 @@ import type {
   AgentToolDefinition,
   AgentSessionContext,
   AgentOperationResult,
+  AgentToolCallRecord,
   ModelRoutingConfig,
 } from '@nxt1/core';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
-import type { GuardrailRunner } from '../guardrails/guardrail-runner.js';
+import type { ToolExecutionContext } from '../tools/base.tool.js';
 import type { LLMMessage, LLMToolSchema, LLMToolCall } from '../llm/llm.types.js';
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import type { OnStreamEvent } from '../queue/event-writer.js';
 import { GlobalKnowledgeSkill } from '../skills/knowledge/global-knowledge.skill.js';
 import { isAgentYield } from '../errors/agent-yield.error.js';
+import { isAgentDelegation, AgentDelegationException } from '../errors/agent-delegation.error.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/comms/ask-user.tool.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -81,7 +83,6 @@ export abstract class BaseAgent {
     _toolDefinitions: readonly AgentToolDefinition[],
     llm?: OpenRouterService,
     toolRegistry?: ToolRegistry,
-    guardrailRunner?: GuardrailRunner,
     skillRegistry?: SkillRegistry,
     onStreamEvent?: OnStreamEvent
   ): Promise<AgentOperationResult> {
@@ -94,10 +95,18 @@ export abstract class BaseAgent {
     const routing = this.getModelRouting();
     const allowedToolNames = this.getAvailableTools();
 
-    // Build LLM tool schemas from the registry (filtered to this agent's permissions)
+    // Build LLM tool schemas from the registry (filtered to this agent's permissions).
+    // System-category tools (e.g. delegate_task) are always included regardless
+    // of the agent's getAvailableTools() list — they provide cross-cutting
+    // infrastructure that every coordinator needs.
     const toolSchemas: LLMToolSchema[] = toolRegistry
       .getDefinitions(this.id)
-      .filter((def) => allowedToolNames.length === 0 || allowedToolNames.includes(def.name))
+      .filter(
+        (def) =>
+          def.category === 'system' ||
+          allowedToolNames.length === 0 ||
+          allowedToolNames.includes(def.name)
+      )
       .map((def) => ({
         type: 'function' as const,
         function: {
@@ -119,10 +128,11 @@ export abstract class BaseAgent {
           allowedSkillNames
         );
         if (matched.length > 0) {
-          // Trigger retrieval for GlobalKnowledgeSkill before building prompt
+          // Trigger retrieval for GlobalKnowledgeSkill before building prompt.
+          // Pass the already-computed intentEmbedding to skip a redundant embed call.
           for (const m of matched) {
             if (m.skill instanceof GlobalKnowledgeSkill) {
-              await m.skill.retrieveForIntent(intent);
+              await m.skill.retrieveForIntent(intent, intentEmbedding);
             }
           }
           skillBlock = skillRegistry.buildPromptBlock(matched);
@@ -140,10 +150,18 @@ export abstract class BaseAgent {
       }
     }
 
-    // Build initial conversation (with optional skill injection)
-    const systemContent = skillBlock
-      ? `${this.getSystemPrompt(context)}\n${skillBlock}`
-      : this.getSystemPrompt(context);
+    // Build initial conversation (with optional skill injection + delegation rule)
+    const delegationRule = [
+      '\n## Cross-Domain Delegation',
+      "If the user's request falls outside your area of expertise or you lack the",
+      'tools to complete it, call the `delegate_task` tool with a clear description',
+      'of what the user needs. Do NOT attempt to answer outside your domain —',
+      'delegate instead. Never apologize or tell the user you cannot help; just delegate.',
+    ].join('\n');
+
+    let systemContent = this.getSystemPrompt(context);
+    if (skillBlock) systemContent += `\n${skillBlock}`;
+    systemContent += delegationRule;
 
     const messages: LLMMessage[] = [
       { role: 'system', content: systemContent },
@@ -223,9 +241,19 @@ export abstract class BaseAgent {
             }
           }
         }
+
+        // Build persistent tool call records from the conversation history
+        const toolCallRecords = this.extractToolCallRecords(messages);
+
+        // Synthesize a summary from tool observations when the LLM returns empty content
+        let summary = result.content ?? '';
+        if (!summary.trim()) {
+          summary = this.synthesizeSummary(toolCallRecords);
+        }
+
         return {
-          summary: result.content ?? 'Task completed.',
-          data: { model: result.model, usage: result.usage, ...extractedToolData },
+          summary,
+          data: { model: result.model, usage: result.usage, toolCallRecords, ...extractedToolData },
           suggestions: [],
         };
       }
@@ -263,11 +291,12 @@ export abstract class BaseAgent {
           toolCall,
           toolRegistry,
           context.userId,
-          guardrailRunner,
           // Pass yield context so AskUserTool can serialize the ReAct state.
           // Passed per-invocation (not stored on the singleton) to avoid race
           // conditions with WORKER_CONCURRENCY > 1.
-          { agentId: this.id, messages }
+          { agentId: this.id, messages },
+          // Pass session context so tools can use thread-scoped storage paths
+          { sessionId: context.sessionId, threadId: context.threadId }
         );
         // Truncate large observations (e.g. scrape results) to prevent context overflow.
         // ONLY truncate markdownContent — never truncate the raw observation string, as that
@@ -384,13 +413,98 @@ export abstract class BaseAgent {
         }
       }
     }
+    const toolCallRecords = this.extractToolCallRecords(messages);
     return {
       summary:
         'The agent reached its maximum iteration limit. ' +
         'The task may be too complex for a single pass.',
-      data: { maxIterationsReached: true, ...extractedToolData },
+      data: { maxIterationsReached: true, toolCallRecords, ...extractedToolData },
       suggestions: ['Try breaking the request into smaller tasks.'],
     };
+  }
+
+  // ─── Tool Call Record Extraction ──────────────────────────────────────────
+
+  /**
+   * Walk the conversation messages and build `AgentToolCallRecord[]` by
+   * pairing each assistant `tool_calls` entry with its corresponding
+   * `role: 'tool'` observation. This data is persisted to MongoDB so
+   * the frontend can reconstruct historical tool steps.
+   */
+  private extractToolCallRecords(messages: readonly LLMMessage[]): AgentToolCallRecord[] {
+    const records: AgentToolCallRecord[] = [];
+
+    // Build a map from tool_call_id → observation content
+    const observationMap = new Map<string, string>();
+    for (const msg of messages) {
+      if (msg.role === 'tool' && msg.tool_call_id && typeof msg.content === 'string') {
+        observationMap.set(msg.tool_call_id, msg.content);
+      }
+    }
+
+    // Walk assistant messages looking for tool_calls
+    for (const msg of messages) {
+      if (msg.role !== 'assistant' || !msg.tool_calls) continue;
+
+      for (const tc of msg.tool_calls) {
+        const observation = observationMap.get(tc.id) ?? '';
+        let input: Record<string, unknown> = {};
+        try {
+          input = JSON.parse(tc.function.arguments) as Record<string, unknown>;
+        } catch {
+          // Malformed JSON — leave empty
+        }
+
+        let output: Record<string, unknown> | undefined;
+        let status: AgentToolCallRecord['status'] = 'success';
+        try {
+          const parsed = JSON.parse(observation) as Record<string, unknown>;
+          if (parsed['success'] === false) {
+            status = parsed['error']?.toString().includes('guardrail')
+              ? 'blocked_by_guardrail'
+              : 'error';
+          }
+          output =
+            typeof parsed['data'] === 'object' && parsed['data'] !== null
+              ? (parsed['data'] as Record<string, unknown>)
+              : parsed;
+        } catch {
+          // Non-JSON observation — store as raw text
+          output = observation ? { raw: observation.slice(0, 500) } : undefined;
+        }
+
+        records.push({
+          toolName: tc.function.name,
+          input,
+          output,
+          status,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
+
+    return records;
+  }
+
+  /**
+   * Synthesize a human-readable summary from tool call records when the
+   * LLM returns no explicit text content after its final iteration.
+   * Falls back to a generic message only if no tool records exist.
+   */
+  private synthesizeSummary(records: readonly AgentToolCallRecord[]): string {
+    if (records.length === 0) return 'Task completed.';
+
+    const successRecords = records.filter((r) => r.status === 'success');
+    if (successRecords.length === 0) {
+      return 'Task completed, but some steps encountered errors.';
+    }
+
+    // Build a description from tool names (human-readable)
+    const toolNames = [...new Set(successRecords.map((r) => r.toolName.replace(/_/g, ' ')))];
+    if (toolNames.length === 1) {
+      return `Completed: ${toolNames[0]}.`;
+    }
+    return `Completed ${successRecords.length} step${successRecords.length > 1 ? 's' : ''}: ${toolNames.join(', ')}.`;
   }
 
   // ─── Tool Execution ─────────────────────────────────────────────────────
@@ -403,14 +517,17 @@ export abstract class BaseAgent {
     toolCall: LLMToolCall,
     registry: ToolRegistry,
     userId: string,
-    guardrailRunner?: GuardrailRunner,
-    yieldContext?: AskUserToolContext
+    yieldContext?: AskUserToolContext,
+    sessionContext?: { sessionId?: string; threadId?: string }
   ): Promise<string> {
     const toolName = toolCall.function.name;
 
-    // Re-check permissions: ensure the LLM isn't calling a tool outside its allowlist
+    // Re-check permissions: ensure the LLM isn't calling a tool outside its allowlist.
+    // System-category tools (e.g. delegate_task) bypass the allowlist.
     const allowedToolNames = this.getAvailableTools();
-    if (allowedToolNames.length > 0 && !allowedToolNames.includes(toolName)) {
+    const tool = registry.get(toolName);
+    const isSystemTool = tool?.category === 'system';
+    if (!isSystemTool && allowedToolNames.length > 0 && !allowedToolNames.includes(toolName)) {
       return JSON.stringify({
         error: `Tool "${toolName}" is not allowed for agent "${this.id}".`,
       });
@@ -431,26 +548,20 @@ export abstract class BaseAgent {
       input[ASK_USER_CONTEXT_KEY] = yieldContext;
     }
 
-    // Run pre-tool guardrails (if any are registered)
-    if (guardrailRunner) {
-      const verdicts = await guardrailRunner.runPreTool({
-        userId,
-        toolName,
-        toolInput: input,
-      });
-      const blocked = verdicts.find((v) => !v.passed && v.severity === 'block');
-      if (blocked) {
-        return JSON.stringify({
-          error: `Blocked by guardrail "${blocked.guardrailName}": ${blocked.reason}`,
-          suggestion: blocked.suggestion,
-        });
-      }
-    }
+    // Build execution context for the tool — provides identity & session info
+    // so tools can use thread-scoped storage paths, audit logging, etc.
+    const toolExecContext: ToolExecutionContext = {
+      userId,
+      ...(sessionContext?.threadId && { threadId: sessionContext.threadId }),
+      ...(sessionContext?.sessionId && { sessionId: sessionContext.sessionId }),
+    };
 
     // AgentYieldException from AskUserTool must propagate out of the ReAct loop
     // so the worker can catch it and suspend the job. Do NOT catch it here.
+    // AgentDelegationException from DelegateTaskTool must propagate out so the
+    // AgentRouter can re-dispatch through the PlannerAgent.
     try {
-      const result = await registry.execute(toolName, input);
+      const result = await registry.execute(toolName, input, toolExecContext);
       return JSON.stringify(
         result.success
           ? { success: true, data: result.data }
@@ -458,6 +569,13 @@ export abstract class BaseAgent {
       );
     } catch (err) {
       if (isAgentYield(err)) throw err; // Let yields propagate
+      if (isAgentDelegation(err)) {
+        // Enrich the delegation payload with the actual agent ID before propagating
+        throw new AgentDelegationException({
+          ...err.payload,
+          sourceAgent: this.id,
+        });
+      }
       return JSON.stringify({
         success: false,
         error: err instanceof Error ? err.message : 'Tool execution failed',

@@ -386,6 +386,12 @@ export const TRACE_NAMES = {
   FIRECRAWL_SESSION_START: 'firecrawl_session_start',
   FIRECRAWL_SESSION_COMPLETE: 'firecrawl_session_complete',
 
+  // Live view session traces
+  LIVE_VIEW_SESSION_START: 'live_view_session_start',
+  LIVE_VIEW_NAVIGATE: 'live_view_navigate',
+  LIVE_VIEW_REFRESH: 'live_view_refresh',
+  LIVE_VIEW_SESSION_CLOSE: 'live_view_session_close',
+
   // Intel traces
   INTEL_ATHLETE_LOAD: 'intel_athlete_load',
   INTEL_ATHLETE_GENERATE: 'intel_athlete_generate',

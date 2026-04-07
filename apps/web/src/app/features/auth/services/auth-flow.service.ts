@@ -616,7 +616,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             profileImg: user.profileImgs?.[0] ?? null,
             displayName: `${user.firstName} ${user.lastName}`.trim(),
             role: user.role ?? null,
-            planTier: user.planTier ?? null,
             onboardingCompleted: user.onboardingCompleted,
             // Team data — used by top-nav menu for coach/director → /team/:slug redirect
             teamCode: user.teamCode
@@ -705,7 +704,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               lastName: currentUser.displayName?.split(' ').slice(1).join(' ') ?? '',
               displayName: currentUser.displayName ?? 'User',
               role: currentUser.role ?? null,
-              planTier: currentUser.isPremium ? 'premium' : null,
               onboardingCompleted: true, // Preserve the completed status
               completeSignUp: true,
               isCollegeCoach: currentUser.role === USER_ROLES.RECRUITER,
@@ -750,9 +748,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               }
             : null
         ),
-        // Premium status: Check planTier (cached from Subscriptions collection)
-        // Free users have no planTier or planTier === 'free'
-        isPremium: !!backendProfile?.planTier && backendProfile.planTier !== 'free',
+        // Premium status — metered billing only, no plan tiers
+        isPremium: false,
         hasCompletedOnboarding,
         provider: this.getProviderFromFirebase(firebaseUser),
         emailVerified: firebaseUser.emailVerified,

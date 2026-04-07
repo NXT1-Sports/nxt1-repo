@@ -1,9 +1,10 @@
 /**
- * @fileoverview Apify Service — Twitter/X Scraping via Hosted Scweet Actor
+ * @fileoverview Apify Service — Twitter/X & Instagram Scraping via Hosted Actors
  * @module @nxt1/backend/modules/agent/tools/integrations
  *
- * Wraps the Apify Client SDK to trigger and consume the `altimis/scweet` actor
- * for scraping tweets and profile timelines from Twitter/X.
+ * Wraps the Apify Client SDK to trigger and consume hosted actors:
+ * - `altimis/scweet` for scraping tweets / profile timelines from Twitter/X.
+ * - `apify/instagram-scraper` for scraping Instagram posts, profiles & hashtags.
  *
  * Architecture:
  * - Uses the official `apify-client` SDK (handles retries, pagination, auth).
@@ -28,6 +29,15 @@
  * - max_items: global run target (minimum enforced: 100)
  * - since / until: date or UTC timestamp window
  * - search_sort: "Top" | "Latest" (default: "Latest")
+ *
+ * Instagram Actor API (2026) — apify/instagram-scraper:
+ * - directUrls: array of Instagram profile/post/hashtag URLs
+ * - resultsType: "posts" | "details" | "comments" | "reels"
+ * - resultsLimit: max items per URL
+ * - search: keyword search query
+ * - searchType: "user" | "hashtag" | "place"
+ * - searchLimit: max search results (1–250)
+ * - onlyPostsNewerThan: YYYY-MM-DD or relative ("7 days")
  */
 
 import { ApifyClient } from 'apify-client';
@@ -55,6 +65,29 @@ const MAX_QUERY_LENGTH = 500;
 
 /** Strict YYYY-MM-DD date pattern. */
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+// ─── Instagram Constants ─────────────────────────────────────────────────────
+
+/** Apify actor ID for the official Instagram Scraper. */
+const INSTAGRAM_ACTOR_ID = 'apify/instagram-scraper';
+
+/** Maximum results per Instagram request to prevent runaway costs. */
+const MAX_INSTAGRAM_RESULTS_LIMIT = 200;
+
+/** Default Instagram results limit per URL. */
+const DEFAULT_INSTAGRAM_RESULTS_LIMIT = 30;
+
+/** Maximum search results for Instagram hashtag/user/place search. */
+const MAX_INSTAGRAM_SEARCH_LIMIT = 100;
+
+/** Default Instagram search limit. */
+const DEFAULT_INSTAGRAM_SEARCH_LIMIT = 10;
+
+/** Minimum results limit for Instagram (no minimum enforced like Scweet). */
+const MIN_INSTAGRAM_RESULTS = 1;
+
+/** Instagram username pattern — letters, digits, underscores, periods, 1–30 chars. */
+const INSTAGRAM_USERNAME_PATTERN = /^[a-zA-Z0-9_.]{1,30}$/;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -114,6 +147,10 @@ export interface ScweetTweet {
   readonly likes: number;
   readonly replies: number;
   readonly url: string;
+  /** Image URLs extracted from tweet media (photo type). */
+  readonly imageUrls: readonly string[];
+  /** Video URL extracted from tweet media (highest bitrate mp4). */
+  readonly videoUrl: string;
   readonly [key: string]: unknown;
 }
 
@@ -137,6 +174,83 @@ export interface ApifyRunResult<T = unknown> {
   readonly itemCount: number;
   readonly durationMs: number;
   readonly error?: string;
+}
+
+// ─── Instagram Types ─────────────────────────────────────────────────────────
+
+/** Raw item from the apify/instagram-scraper actor (post result). */
+export interface InstagramRawPost {
+  readonly id?: string;
+  readonly shortCode?: string;
+  readonly caption?: string;
+  readonly url?: string;
+  readonly commentsCount?: number;
+  readonly likesCount?: number;
+  readonly timestamp?: string;
+  readonly ownerUsername?: string;
+  readonly ownerFullName?: string;
+  readonly ownerId?: string;
+  readonly type?: string; // "Image" | "Video" | "Sidecar"
+  readonly videoUrl?: string;
+  readonly displayUrl?: string;
+  readonly locationName?: string;
+  readonly hashtags?: readonly string[];
+  readonly mentions?: readonly string[];
+  readonly [key: string]: unknown;
+}
+
+/** Raw item from the apify/instagram-scraper actor (profile/details result). */
+export interface InstagramRawProfile {
+  readonly id?: string;
+  readonly username?: string;
+  readonly fullName?: string;
+  readonly biography?: string;
+  readonly followersCount?: number;
+  readonly followsCount?: number;
+  readonly postsCount?: number;
+  readonly isVerified?: boolean;
+  readonly profilePicUrl?: string;
+  readonly profilePicUrlHD?: string;
+  readonly externalUrl?: string;
+  readonly igtvVideoCount?: number;
+  readonly relatedProfiles?: readonly Record<string, unknown>[];
+  readonly [key: string]: unknown;
+}
+
+/** Normalized Instagram post for LLM consumption. */
+export interface InstagramPost {
+  readonly id: string;
+  readonly shortCode: string;
+  readonly caption: string;
+  readonly url: string;
+  readonly likes: number;
+  readonly comments: number;
+  readonly timestamp: string;
+  readonly ownerUsername: string;
+  readonly type: string;
+  readonly locationName: string;
+  readonly hashtags: readonly string[];
+  readonly mentions: readonly string[];
+  /** Direct display image URL from Instagram CDN (temporary — must re-host). */
+  readonly displayUrl: string;
+  /** Direct video URL from Instagram CDN (temporary — must re-host). Empty for images/sidecars. */
+  readonly videoUrl: string;
+}
+
+/** Normalized Instagram profile for LLM consumption. */
+export interface InstagramProfile {
+  readonly username: string;
+  readonly fullName: string;
+  readonly biography: string;
+  readonly followersCount: number;
+  readonly followsCount: number;
+  readonly postsCount: number;
+  readonly isVerified: boolean;
+  /** Profile picture URL from Instagram CDN (temporary — must re-host). */
+  readonly profilePicUrl: string;
+  /** HD variant of profile picture if available. */
+  readonly profilePicUrlHD: string;
+  readonly externalUrl: string;
 }
 
 // ─── Service ─────────────────────────────────────────────────────────────────
@@ -298,6 +412,139 @@ export class ApifyService {
     };
   }
 
+  // ─── Instagram Methods ────────────────────────────────────────────────
+
+  /**
+   * Fetch posts from one or more Instagram profiles.
+   */
+  async getInstagramPosts(
+    usernames: readonly string[],
+    options: {
+      limit?: number;
+      newerThan?: string;
+    } = {}
+  ): Promise<ApifyRunResult<InstagramPost>> {
+    const sanitized = this.sanitizeInstagramUsernames(usernames);
+    if (sanitized.length === 0) {
+      return this.emptyResult('No valid Instagram usernames provided');
+    }
+
+    const resultsLimit = this.clampInstagramLimit(
+      options.limit ?? DEFAULT_INSTAGRAM_RESULTS_LIMIT,
+      MAX_INSTAGRAM_RESULTS_LIMIT
+    );
+
+    logger.info('[ApifyService] Fetching Instagram posts', {
+      usernames: sanitized,
+      resultsLimit,
+    });
+
+    const directUrls = sanitized.map((u) => `https://www.instagram.com/${u}/`);
+
+    const result = await this.runInstagramActor({
+      directUrls,
+      resultsType: 'posts',
+      resultsLimit,
+      ...(options.newerThan && { onlyPostsNewerThan: options.newerThan }),
+    });
+
+    if (!result.success) {
+      return { ...result, items: [] };
+    }
+
+    return {
+      ...result,
+      items: (result.items as readonly InstagramRawPost[]).map((item) =>
+        this.normalizeToInstagramPost(item)
+      ),
+    };
+  }
+
+  /**
+   * Fetch profile details for one or more Instagram users.
+   */
+  async getInstagramProfiles(
+    usernames: readonly string[]
+  ): Promise<ApifyRunResult<InstagramProfile>> {
+    const sanitized = this.sanitizeInstagramUsernames(usernames);
+    if (sanitized.length === 0) {
+      return this.emptyResult('No valid Instagram usernames provided');
+    }
+
+    logger.info('[ApifyService] Fetching Instagram profiles', { usernames: sanitized });
+
+    const directUrls = sanitized.map((u) => `https://www.instagram.com/${u}/`);
+
+    const result = await this.runInstagramActor({
+      directUrls,
+      resultsType: 'details',
+      resultsLimit: 1, // One detail result per URL
+    });
+
+    if (!result.success) {
+      return { ...result, items: [] };
+    }
+
+    return {
+      ...result,
+      items: (result.items as readonly InstagramRawProfile[]).map((item) =>
+        this.normalizeToInstagramProfile(item)
+      ),
+    };
+  }
+
+  /**
+   * Search Instagram by hashtag, user, or place.
+   */
+  async searchInstagram(
+    query: string,
+    options: {
+      searchType?: 'user' | 'hashtag' | 'place';
+      limit?: number;
+    } = {}
+  ): Promise<ApifyRunResult<InstagramPost>> {
+    if (!query || query.trim().length === 0) {
+      return this.emptyResult('Search query is required');
+    }
+    if (query.length > MAX_QUERY_LENGTH) {
+      return this.emptyResult(`Query exceeds maximum length of ${MAX_QUERY_LENGTH} characters`);
+    }
+
+    const searchType = options.searchType ?? 'hashtag';
+    const searchLimit = this.clampInstagramLimit(
+      options.limit ?? DEFAULT_INSTAGRAM_SEARCH_LIMIT,
+      MAX_INSTAGRAM_SEARCH_LIMIT
+    );
+
+    // Strip # prefix for hashtag searches — Apify expects the raw tag
+    const cleanQuery = searchType === 'hashtag' ? query.trim().replace(/^#/, '') : query.trim();
+
+    logger.info('[ApifyService] Searching Instagram', {
+      query: cleanQuery.slice(0, 100),
+      searchType,
+      searchLimit,
+    });
+
+    const result = await this.runInstagramActor({
+      search: cleanQuery,
+      searchType,
+      searchLimit,
+      resultsType: 'posts',
+      resultsLimit: DEFAULT_INSTAGRAM_RESULTS_LIMIT,
+    });
+
+    if (!result.success) {
+      return { ...result, items: [] };
+    }
+
+    return {
+      ...result,
+      items: (result.items as readonly InstagramRawPost[]).map((item) =>
+        this.normalizeToInstagramPost(item)
+      ),
+    };
+  }
+
   // ─── Internal ──────────────────────────────────────────────────────────
 
   private async runActor(input: Record<string, unknown>): Promise<ApifyRunResult<ScweetRawItem>> {
@@ -364,7 +611,54 @@ export class ApifyService {
       likes: tweet?.favorite_count ?? raw.favorite_count ?? 0,
       replies: tweet?.reply_count ?? raw.reply_count ?? 0,
       url: tweet?.tweet_url ?? raw.tweet_url ?? '',
+      imageUrls: this.extractTweetImageUrls(tweet?.media),
+      videoUrl: this.extractTweetVideoUrl(tweet?.media),
     };
+  }
+
+  /**
+   * Extract image URLs from raw Scweet tweet media array.
+   * Looks for `media_url_https` on photo-type media objects.
+   */
+  private extractTweetImageUrls(media: readonly Record<string, unknown>[] | undefined): string[] {
+    if (!media || !Array.isArray(media)) return [];
+    return media
+      .filter((m) => {
+        const type = (m['type'] as string) ?? '';
+        return type === 'photo' || (!type && m['media_url_https']);
+      })
+      .map((m) => (m['media_url_https'] as string) ?? (m['media_url'] as string) ?? '')
+      .filter((url) => url.length > 0);
+  }
+
+  /**
+   * Extract the best video URL from raw Scweet tweet media array.
+   * Picks the highest-bitrate mp4 variant.
+   */
+  private extractTweetVideoUrl(media: readonly Record<string, unknown>[] | undefined): string {
+    if (!media || !Array.isArray(media)) return '';
+    for (const m of media) {
+      const type = m['type'] as string;
+      if (type !== 'video' && type !== 'animated_gif') continue;
+      const videoInfo = m['video_info'] as Record<string, unknown> | undefined;
+      if (!videoInfo) continue;
+      const variants = videoInfo['variants'] as readonly Record<string, unknown>[] | undefined;
+      if (!variants || !Array.isArray(variants)) continue;
+      // Pick highest bitrate mp4
+      let best = '';
+      let bestBitrate = -1;
+      for (const v of variants) {
+        const ct = (v['content_type'] as string) ?? '';
+        if (!ct.includes('mp4')) continue;
+        const bitrate = (v['bitrate'] as number) ?? 0;
+        if (bitrate > bestBitrate || best === '') {
+          best = (v['url'] as string) ?? '';
+          bestBitrate = bitrate;
+        }
+      }
+      if (best) return best;
+    }
+    return '';
   }
 
   /**
@@ -391,6 +685,117 @@ export class ApifyService {
    */
   private clampLimit(value: number, max: number): number {
     return Math.max(MIN_ITEMS_PER_RUN, Math.min(Math.floor(value), max));
+  }
+
+  /**
+   * Clamp a limit for Instagram (minimum 1, unlike Scweet's 100).
+   */
+  private clampInstagramLimit(value: number, max: number): number {
+    return Math.max(MIN_INSTAGRAM_RESULTS, Math.min(Math.floor(value), max));
+  }
+
+  /**
+   * Run the Instagram scraper actor and return raw dataset items.
+   */
+  private async runInstagramActor(
+    input: Record<string, unknown>
+  ): Promise<ApifyRunResult<InstagramRawPost | InstagramRawProfile>> {
+    const startMs = Date.now();
+
+    try {
+      const run = await this.client.actor(INSTAGRAM_ACTOR_ID).call(input, {
+        timeout: ACTOR_CALL_TIMEOUT_SECS,
+      });
+
+      const { items } = await this.client.dataset(run.defaultDatasetId).listItems();
+
+      const durationMs = Date.now() - startMs;
+
+      logger.info('[ApifyService] Instagram actor run completed', {
+        runId: run.id,
+        datasetId: run.defaultDatasetId,
+        itemCount: items.length,
+        durationMs,
+        resultsType: input['resultsType'],
+      });
+
+      return {
+        success: true,
+        runId: run.id,
+        datasetId: run.defaultDatasetId,
+        items: items as unknown as readonly (InstagramRawPost | InstagramRawProfile)[],
+        itemCount: items.length,
+        durationMs,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Instagram actor run failed';
+      const durationMs = Date.now() - startMs;
+
+      logger.error('[ApifyService] Instagram actor run failed', {
+        error: message,
+        durationMs,
+        resultsType: input['resultsType'],
+      });
+
+      return {
+        success: false,
+        runId: '',
+        datasetId: '',
+        items: [],
+        itemCount: 0,
+        durationMs,
+        error: message,
+      };
+    }
+  }
+
+  /**
+   * Normalize a raw Instagram post into the clean format for LLM consumption.
+   */
+  private normalizeToInstagramPost(raw: InstagramRawPost): InstagramPost {
+    return {
+      id: raw.id ?? '',
+      shortCode: raw.shortCode ?? '',
+      caption: raw.caption ?? '',
+      url: raw.url ?? (raw.shortCode ? `https://www.instagram.com/p/${raw.shortCode}/` : ''),
+      likes: raw.likesCount ?? 0,
+      comments: raw.commentsCount ?? 0,
+      timestamp: raw.timestamp ?? '',
+      ownerUsername: raw.ownerUsername ?? '',
+      type: raw.type ?? 'Image',
+      locationName: raw.locationName ?? '',
+      hashtags: raw.hashtags ?? [],
+      mentions: raw.mentions ?? [],
+      displayUrl: raw.displayUrl ?? '',
+      videoUrl: raw.videoUrl ?? '',
+    };
+  }
+
+  /**
+   * Normalize a raw Instagram profile into the clean format for LLM consumption.
+   */
+  private normalizeToInstagramProfile(raw: InstagramRawProfile): InstagramProfile {
+    return {
+      username: raw.username ?? '',
+      fullName: raw.fullName ?? '',
+      biography: raw.biography ?? '',
+      followersCount: raw.followersCount ?? 0,
+      followsCount: raw.followsCount ?? 0,
+      postsCount: raw.postsCount ?? 0,
+      isVerified: raw.isVerified ?? false,
+      profilePicUrl: raw.profilePicUrlHD ?? raw.profilePicUrl ?? '',
+      profilePicUrlHD: raw.profilePicUrlHD ?? '',
+      externalUrl: raw.externalUrl ?? '',
+    };
+  }
+
+  /**
+   * Sanitize an array of Instagram usernames: strip @, trim, remove blanks.
+   */
+  private sanitizeInstagramUsernames(usernames: readonly string[]): string[] {
+    return usernames
+      .map((u) => u.trim().replace(/^@/, ''))
+      .filter((u) => u.length > 0 && INSTAGRAM_USERNAME_PATTERN.test(u));
   }
 
   /**

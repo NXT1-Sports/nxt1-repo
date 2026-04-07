@@ -24,7 +24,6 @@ import {
   type Theme,
   type DismissablePrompt,
 } from '../../constants/user.constants';
-import type { PlanTier } from '../../constants/payment.constants';
 
 // Import all sub-types
 import type {
@@ -288,16 +287,7 @@ export interface User {
   // ============================================
   // SUBSCRIPTION & PAYMENT
   // Note: Full payment/subscription data is in Subscriptions collection
-  // planTier is cached here for quick access (synced from Subscriptions)
   // ============================================
-  /**
-   * Cached plan tier from Subscriptions collection.
-   * Updated when subscription changes.
-   * Use Subscriptions/{userId} for authoritative subscription state.
-   * @see Subscriptions collectionß
-   */
-  planTier?: PlanTier;
-
   // ============================================
   // ANALYTICS & COUNTERS
   // ============================================

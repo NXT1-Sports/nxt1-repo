@@ -365,7 +365,7 @@ import type { AgentApprovalPolicy, AgentUsageLimits } from './agent.types';
  */
 export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
   {
-    toolName: 'send_gmail',
+    toolName: 'send_email',
     requiresApproval: true,
     autoApproveOnExpiry: false,
     expiryMs: 86_400_000, // 24 hours

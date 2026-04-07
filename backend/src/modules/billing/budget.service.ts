@@ -377,7 +377,7 @@ export async function recordOrgSpend(
   if (!Number.isInteger(costCents) || costCents <= 0) return;
 
   await Promise.all([
-    updateSpend(db, userId, costCents),
+    updateSpend(db, userId, costCents, true), // skip individual notifications — org alerts via updateOrgSpend
     ...(teamId ? [updateTeamAllocationSpend(db, teamId, costCents)] : []),
     updateOrgSpend(db, organizationId, costCents),
   ]);
@@ -386,7 +386,12 @@ export async function recordOrgSpend(
 /**
  * Increment current period spend for a user and check thresholds.
  */
-async function updateSpend(db: Firestore, userId: string, costCents: number): Promise<void> {
+async function updateSpend(
+  db: Firestore,
+  userId: string,
+  costCents: number,
+  skipNotifications = false
+): Promise<void> {
   const snapshot = await db
     .collection(COLLECTIONS.BILLING_CONTEXTS)
     .where('userId', '==', userId)
@@ -405,7 +410,9 @@ async function updateSpend(db: Firestore, userId: string, costCents: number): Pr
   };
 
   // Only send individual alerts if this is an individual billing context
-  if (data.billingEntity === 'individual') {
+  // and notifications aren't suppressed (org users get org-level notifications
+  // via updateOrgSpend → checkAndNotifyOrg instead).
+  if (!skipNotifications && data.billingEntity === 'individual') {
     const pct = data.monthlyBudget > 0 ? Math.round((newSpend / data.monthlyBudget) * 100) : 0;
     await checkAndNotify(db, data, pct, updates, userId);
   }
@@ -1056,8 +1063,8 @@ const BILLING_RESOLUTION_CACHE_MAX_SIZE = 10_000; // Prevent unbounded growth
  * Resolve the correct billing target for a user.
  *
  * Directors always route to their organization's billing context.
- * Athletes, coaches, staff, and other roster members route to the
- * organization's billing context ONLY if the org is on the Elite plan.
+ * Athletes, coaches, staff, and other roster members on org-billed teams
+ * also route to the organization's billing context.
  * Everyone else falls back to their personal individual billing context.
  *
  * Resolution order:
@@ -1065,7 +1072,7 @@ const BILLING_RESOLUTION_CACHE_MAX_SIZE = 10_000; // Prevent unbounded growth
  *   2. Read the user doc from `Users` to check their `role`.
  *   3. Query `RosterEntries` for any active membership → `organizationId`.
  *   4. If role is `director`, ALWAYS route to org billing.
- *      If role is anything else AND the org is on the Elite plan, route to org billing.
+ *      If role is anything else with an active org membership, route to org billing.
  *   5. Otherwise, fallback to the user's personal billing context.
  */
 export async function resolveBillingTarget(
@@ -1104,7 +1111,7 @@ export async function resolveBillingTarget(
   const userData = userDoc.data();
   const role = userData?.['role'] as string | undefined;
 
-  // ── Try to resolve to an organization (directors always, others only if Elite) ──
+  // ── Try to resolve to an organization (directors always, others via roster) ──
   const orgTarget = await resolveUserOrgTarget(db, userId, role);
   if (orgTarget) {
     billingResolutionCache.set(userId, {
@@ -1267,9 +1274,9 @@ async function resolveAthleteOrgTarget(
  * Internal: Resolve a user's organization billing target.
  *
  * Directors are ALWAYS routed to their organization's billing context.
- * Athletes, coaches, and other roster members are routed to the organization
- * billing context ONLY if the organization is on the Elite plan. Otherwise
- * they fall back to their individual billing context.
+ * Athletes, coaches, and other roster members on org-billed teams are
+ * also routed to the organization's billing context.
+ * Everyone else falls back to their individual billing context.
  *
  * Returns null if no qualifying organization is found.
  */

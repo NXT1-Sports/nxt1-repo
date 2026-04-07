@@ -14,3 +14,5 @@ export { agentDailyBriefings } from './runDailyBriefings';
 export { expireStaleWalletHolds } from './expireStaleHolds';
 // Only active in production (nxt-1-v2) via environment check inside the function
 export { dailyPulseUpdates } from './dailyPulseUpdates';
+export { summarizeInactiveThreads } from './summarizeInactiveThreads';
+export { cleanupThreadMedia } from './cleanupThreadMedia';

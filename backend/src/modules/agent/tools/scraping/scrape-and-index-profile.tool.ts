@@ -17,7 +17,7 @@
  * sports site (MaxPreps, Hudl, 247Sports, Perfect Game, and 50+ others).
  */
 
-import { BaseTool, type ToolResult } from '../base.tool.js';
+import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { ScraperService } from './scraper.service.js';
 import { buildProfileIndex, distillWithAI } from './distillers/index.js';
 import type { DistilledProfile, DistilledTeam } from './distillers/index.js';
@@ -270,7 +270,10 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
     this.llm = llm ?? null;
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
     const url = input['url'];
 
     if (typeof url !== 'string' || url.trim().length === 0) {
@@ -323,6 +326,8 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
 
     try {
       // ── Step 1: Scrape the page ─────────────────────────────────────
+      const progress = context?.onProgress;
+      progress?.(`Scraping ${new URL(cleanUrl).hostname}…`);
       const result = await this.scraper.scrape({ url: cleanUrl });
 
       // ── Step 1b: Detect & fetch stats sub-page if available ─────────
@@ -367,6 +372,7 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
 
       // ── Step 2: AI Distillation (primary extraction path) ──────────
       if (this.llm) {
+        progress?.('Running AI extraction on page content…');
         const distilled = await distillWithAI(
           cleanUrl,
           combinedMarkdown,
@@ -435,7 +441,9 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
           instructions:
             'AI extraction could not process this URL. ' +
             'Analyze the markdown content above to extract athlete data. ' +
-            'Use `update_athlete_profile` to write the extracted fields.',
+            'Use the atomic write tools (write_core_identity, write_season_stats, ' +
+            'write_combine_metrics, write_athlete_videos, write_recruiting_activity, ' +
+            'write_calendar_events) to write the extracted fields.',
         },
       };
     } catch (err) {

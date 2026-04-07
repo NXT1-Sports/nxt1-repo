@@ -36,7 +36,7 @@
  * - Input strings are sanitized to prevent regex injection.
  */
 
-import { BaseTool, type ToolResult } from '../base.tool.js';
+import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { CollegeModel } from '../../../../models/college.model.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -181,12 +181,17 @@ export class SearchCollegesTool extends BaseTool {
 
   // ─── Execute ────────────────────────────────────────────────────────
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
     // ── 1. Parse & validate input ──────────────────────────────────────
     const sport = this.str(input, 'sport');
     if (!sport) {
       return this.paramError('sport');
     }
+
+    const progress = context?.onProgress;
 
     const state = this.str(input, 'state');
     const division = this.str(input, 'division');
@@ -284,6 +289,7 @@ export class SearchCollegesTool extends BaseTool {
     }
 
     // ── 3. Execute aggregation ─────────────────────────────────────────
+    progress?.(`Querying ${sport} programs${state ? ' in ' + state : ''}…`);
     try {
       const colleges = await CollegeModel.aggregate([
         // Pre-filter on scalar indexed fields (fast path)
@@ -409,6 +415,8 @@ export class SearchCollegesTool extends BaseTool {
           landingUrl: c.landingUrl ?? null,
         };
       });
+
+      progress?.(`Found ${results.length} matching program${results.length !== 1 ? 's' : ''}`);
 
       // ── 5. ReAct fallback nudge on empty results ──────────────────────
       if (results.length === 0) {

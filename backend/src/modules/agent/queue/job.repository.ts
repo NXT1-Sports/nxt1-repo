@@ -60,6 +60,7 @@ export type JobEventType =
   | 'delta'
   | 'tool_call'
   | 'tool_result'
+  | 'card'
   | 'done';
 
 /**
@@ -90,6 +91,8 @@ export interface JobEvent {
   readonly success?: boolean;
   /** Error message for `step_error` / `done` events. */
   readonly error?: string;
+  /** Rich card payload for `card` events (planner, data-table, etc.). */
+  readonly cardData?: Record<string, unknown>;
   /** Server timestamp set by Firestore. */
   readonly createdAt: FirebaseFirestore.Timestamp;
 }

@@ -10,7 +10,7 @@
  */
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
-import { BaseTool, type ToolResult } from '../base.tool.js';
+import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { getCacheService } from '../../../../services/cache.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
@@ -76,7 +76,10 @@ export class WriteCombineMetricsTool extends BaseTool {
     this.db = db ?? getFirestore();
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
     const userId = this.str(input, 'userId');
     if (!userId) return this.paramError('userId');
     const targetSport = this.str(input, 'targetSport');
@@ -104,6 +107,8 @@ export class WriteCombineMetricsTool extends BaseTool {
       const sportId = targetSport.trim().toLowerCase();
       const now = new Date().toISOString();
       const metricsCol = userRef.collection('sports').doc(sportId).collection('metrics');
+
+      context?.onProgress?.(`Writing ${metrics.length} combine metric(s)…`);
 
       let written = 0;
       let skipped = 0;
@@ -148,6 +153,7 @@ export class WriteCombineMetricsTool extends BaseTool {
       );
 
       // Cache invalidation
+      context?.onProgress?.('Invalidating metrics caches…');
       try {
         const cache = getCacheService();
         await Promise.all([

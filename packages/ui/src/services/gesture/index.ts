@@ -37,6 +37,7 @@ export { createGestureConfig, DEFAULT_GESTURE_CONFIG } from './gesture.types';
 
 // Generic swipe gesture factory (framework-agnostic)
 export { createSwipeGestureHandler } from './swipe-gesture';
+export { NxtDragDropDirective } from './drag-drop.directive';
 
 // Angular sidenav gesture service
 export { NxtSidenavGestureService } from './sidenav-gesture.service';

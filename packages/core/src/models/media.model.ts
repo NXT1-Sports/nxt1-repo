@@ -446,8 +446,8 @@ export const STORAGE_LIMITS = {
   team: 100 * 1024 * 1024 * 1024, // 100 GB
 } as const;
 
-export function getStorageLimit(planTier: string): number {
-  return STORAGE_LIMITS[planTier as keyof typeof STORAGE_LIMITS] ?? STORAGE_LIMITS.free;
+export function getStorageLimit(): number {
+  return STORAGE_LIMITS.free;
 }
 
 export function formatStorageSize(bytes: number): string {

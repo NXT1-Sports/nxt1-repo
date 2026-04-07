@@ -110,6 +110,7 @@ export type AgentToolCategory =
   | 'analytics'
   | 'compliance'
   | 'automation'
+  | 'data'
   | 'system';
 
 /** The record of a single tool invocation during an operation. */
@@ -229,6 +230,8 @@ export interface AgentSessionContext {
   readonly lastActiveAt: string;
   /** The job/operation ID — threaded into LLM calls as Helicone-Property-Job-Id for cost tracking. */
   readonly operationId?: string;
+  /** The MongoDB thread ID for the current conversation. Used by tools for thread-scoped storage. */
+  readonly threadId?: string;
 }
 
 /** A single message within a session (lighter than the full AgentXMessage). */
@@ -711,7 +714,6 @@ export interface AgentUserContext {
   readonly commitmentStatus?: string;
 
   // ── Engagement & Platform Data ────────────────────────────────
-  readonly subscriptionTier: string;
   readonly profileCompletionPercent?: number;
   readonly totalProfileViews?: number;
   readonly lastActiveAt?: string;
@@ -823,6 +825,7 @@ export type JobEventType =
   | 'delta'
   | 'tool_call'
   | 'tool_result'
+  | 'card'
   | 'done';
 
 /**
@@ -856,6 +859,8 @@ export interface JobEvent {
   readonly success?: boolean;
   /** Error message for `step_error` / `done` events. */
   readonly error?: string;
+  /** Rich card payload for `card` events (planner, data-table, etc.). */
+  readonly cardData?: Record<string, unknown>;
   /** Server timestamp (Firestore Timestamp — reads as { seconds, nanoseconds }). */
   readonly createdAt?: unknown;
 }

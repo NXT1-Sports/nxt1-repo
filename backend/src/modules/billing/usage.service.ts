@@ -85,8 +85,9 @@ export async function recordUsageEvent(
       return snapshot.docs[0]?.id || '';
     }
 
-    // Get Stripe Price ID
-    const stripePriceId = getStripePriceId(input.feature, environment);
+    // Prefer caller-supplied stripePriceId when explicitly set;
+    // fall back to config lookup for static-price features.
+    const stripePriceId = input.stripePriceId || getStripePriceId(input.feature, environment);
 
     // Determine cost type and final unit cost snapshot
     const isDynamic = typeof input.dynamicCostCents === 'number' && input.dynamicCostCents > 0;

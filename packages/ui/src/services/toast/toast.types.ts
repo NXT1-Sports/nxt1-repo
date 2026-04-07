@@ -40,7 +40,7 @@ export interface ToastOptions {
   readonly action?: ToastAction;
   /** Optional header/title */
   readonly header?: string;
-  /** Custom icon name (Ionicon) */
+  /** Custom icon name (design token icon via NxtIconComponent, if used in custom toast UI) */
   readonly icon?: string;
   /** Custom CSS class (e.g., 'nxt-toast-soft' for subtle variant) */
   readonly cssClass?: string;
@@ -56,12 +56,13 @@ export interface ToastOptions {
 
 /** Internal toast queue item with all required fields */
 export interface QueuedToast extends Required<
-  Omit<ToastOptions, 'action' | 'header' | 'cssClass'>
+  Omit<ToastOptions, 'action' | 'header' | 'cssClass' | 'icon'>
 > {
   readonly id: string;
   readonly action?: ToastAction;
   readonly header?: string;
   readonly cssClass?: string;
+  readonly icon?: string;
   readonly timestamp: number;
   readonly swipeToDismiss: boolean;
   readonly hapticFeedback: boolean;
@@ -77,14 +78,6 @@ export const DEFAULT_DURATIONS: Readonly<Record<ToastType, number>> = {
   error: 5000,
   warning: 4000,
   info: 3000,
-} as const;
-
-/** Default icons per toast type (Ionicon names) */
-export const DEFAULT_ICONS: Readonly<Record<ToastType, string>> = {
-  success: 'checkmark-circle',
-  error: 'alert-circle',
-  warning: 'warning',
-  info: 'information-circle',
 } as const;
 
 /** Swipe gesture configuration */

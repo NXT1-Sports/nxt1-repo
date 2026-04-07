@@ -18,18 +18,23 @@ export {
   type EnqueueFailure,
 } from './agent-x-job.service';
 export {
+  AgentXStreamRegistryService,
+  type StreamSnapshot,
+  type StreamListener,
+} from './agent-x-stream-registry.service';
+export {
   AgentXOperationEventService,
   FIRESTORE_ADAPTER,
   type FirestoreAdapter,
   type OperationEventCallbacks,
   type OperationEventSubscription,
 } from './agent-x-operation-event.service';
+export { LiveViewSessionService } from './live-view-session.service';
 
 // Components
 export {
   AgentXShellComponent,
   type AgentXUser,
-  type ActiveOperation,
   type ActionChip,
   type CommandCategory,
   type BriefingInsight,
@@ -45,7 +50,6 @@ export {
 export { AgentXDashboardSkeletonComponent } from './agent-x-dashboard-skeleton.component';
 export { AgentXControlPanelComponent } from './agent-x-control-panel.component';
 export { AgentXWelcomeComponent } from './agent-x-welcome.component';
-export { AgentXChatComponent } from './agent-x-chat.component';
 export {
   AgentXActionCardComponent,
   type ActionCardApprovalEvent,

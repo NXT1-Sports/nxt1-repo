@@ -60,7 +60,6 @@ export const subscriptionCheck = onSchedule(
 
         await db.collection('Users').doc(expiredUserId).update({
           'subscription.status': 'expired',
-          'subscription.tier': 'free',
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       }

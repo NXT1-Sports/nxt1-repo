@@ -14,7 +14,8 @@
 
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
 import type { TeamTypeApi } from '@nxt1/core';
-import { BaseTool, type ToolResult } from '../base.tool.js';
+import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
+import { ScraperMediaService } from '../integrations/scraper-media.service.js';
 import { getCacheService } from '../../../../services/cache.service.js';
 import { normalizeProgramType } from '../../../../services/onboarding-program-provisioning.service.js';
 import { createOrganizationService } from '../../../../services/organization.service.js';
@@ -198,7 +199,10 @@ export class WriteCoreIdentityTool extends BaseTool {
 
   // ─── Execute ────────────────────────────────────────────────────────────
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
     const userId = this.str(input, 'userId');
     if (!userId) return this.paramError('userId');
     const source = this.str(input, 'source');
@@ -217,6 +221,8 @@ export class WriteCoreIdentityTool extends BaseTool {
     const coach = this.obj(input, 'coach');
     const awards = this.arr(input, 'awards');
     const teamHistory = this.arr(input, 'teamHistory');
+
+    context?.onProgress?.('Validating identity fields…');
 
     // At least one data section must be provided
     if (
@@ -238,6 +244,22 @@ export class WriteCoreIdentityTool extends BaseTool {
 
     const userRef = this.db.collection(USERS_COLLECTION).doc(userId);
 
+    // ── Promote thread-staged logoUrl in team/clubTeam to permanent path ──
+    // Team logos may reference thread-scoped storage that expires with the thread.
+    if (context?.userId) {
+      const brandingDest = `users/${context.userId}/profile`;
+      for (const teamObj of [team, clubTeam]) {
+        if (teamObj && typeof teamObj['logoUrl'] === 'string' && teamObj['logoUrl']) {
+          const [promoted] = await ScraperMediaService.promoteMedia(
+            [teamObj['logoUrl'] as string],
+            context.userId,
+            brandingDest
+          );
+          if (promoted) (teamObj as Record<string, unknown>)['logoUrl'] = promoted;
+        }
+      }
+    }
+
     try {
       const userDoc = await userRef.get();
       if (!userDoc.exists) {
@@ -252,6 +274,8 @@ export class WriteCoreIdentityTool extends BaseTool {
           ? (Object.values(rawSports) as Record<string, unknown>[])
           : [];
       const now = new Date().toISOString();
+
+      context?.onProgress?.('Merging identity, academics & sport data…');
 
       const payload: Record<string, unknown> = {};
       const writtenSections: string[] = [];
@@ -416,6 +440,7 @@ export class WriteCoreIdentityTool extends BaseTool {
       const resolvedSport = nextSports[resolvedSportIndex] as Record<string, unknown> | undefined;
 
       if (team) {
+        context?.onProgress?.('Syncing team organization metadata…');
         await this.syncTeamMetadata(
           resolvedSport?.['team'] as Record<string, unknown> | undefined,
           team,
@@ -431,9 +456,11 @@ export class WriteCoreIdentityTool extends BaseTool {
       }
 
       // ── Write ────────────────────────────────────────────────────────
+      context?.onProgress?.('Writing profile to database…');
       await userRef.update(payload);
 
       // ── Cache invalidation ───────────────────────────────────────────
+      context?.onProgress?.('Invalidating caches…');
       try {
         const cache = getCacheService();
         await Promise.all([

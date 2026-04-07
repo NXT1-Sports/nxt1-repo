@@ -233,7 +233,7 @@ export async function runDailyBriefings(): Promise<void> {
  * Fetches all premium users and enqueues weekly recaps.
  */
 export async function runWeeklyRecaps(): Promise<void> {
-  // TODO: Fetch all users with autonomousEnabled = true and subscriptionTier >= 'premium'
+  // TODO: Fetch all users with autonomousEnabled = true
   const eligibleUserIds: string[] = []; // Placeholder
 
   await getTriggerService().processBatchTrigger('weekly_recap', eligibleUserIds);

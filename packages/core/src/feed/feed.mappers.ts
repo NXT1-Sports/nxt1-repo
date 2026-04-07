@@ -22,6 +22,7 @@ import type {
   FeedEngagement,
   FeedUserEngagement,
   FeedScheduleData,
+  FeedExternalSource,
 } from './feed.types';
 import type { ProfilePost, ProfilePostType } from '../profile/profile.types';
 import type { ProfileUser, ProfileOffer, ProfileEvent } from '../profile/profile.types';
@@ -704,6 +705,61 @@ export function statDocToFeedItemStat(
       stats: data.stats,
       seasonTotals: data.seasonTotals,
     },
+  };
+}
+
+/**
+ * Convert a Firestore Videos collection document into a FeedItemPost.
+ * Called by the backend timeline assembler to inject scraped highlight
+ * videos (Hudl, YouTube, Vimeo, etc.) into the polymorphic timeline.
+ */
+export function videoDocToFeedItemPost(
+  docId: string,
+  data: {
+    url: string;
+    thumbnailUrl?: string;
+    title?: string;
+    platform?: string;
+    source?: string;
+    createdAt: string;
+    stats?: { views?: number; likes?: number; shares?: number };
+  },
+  author: FeedAuthor
+): FeedItemPost {
+  const media: readonly FeedMedia[] = [
+    {
+      id: `${docId}-video`,
+      type: 'video',
+      url: data.url,
+      thumbnailUrl: data.thumbnailUrl,
+    },
+  ];
+
+  const engagement: Partial<FeedEngagement> = {
+    viewCount: data.stats?.views ?? 0,
+    likeCount: data.stats?.likes ?? 0,
+    shareCount: data.stats?.shares ?? 0,
+  };
+
+  const externalSource: FeedExternalSource | undefined = data.platform
+    ? {
+        platform: data.platform,
+        label: `Synced from ${data.platform.charAt(0).toUpperCase() + data.platform.slice(1)}`,
+        originalUrl: data.url,
+      }
+    : undefined;
+
+  return {
+    ...buildFeedItemBase(`video-${docId}`, author, data.createdAt, { engagement }),
+    feedType: 'POST',
+    postType: 'highlight',
+    visibility: 'public',
+    title: data.title,
+    content: data.title,
+    media,
+    externalSource,
+    commentsDisabled: false,
+    updatedAt: data.createdAt,
   };
 }
 

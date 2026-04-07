@@ -26,6 +26,22 @@ function shouldLog(level: LogLevel, environment: string): boolean {
 }
 
 /**
+ * JSON.stringify replacer that serializes Error objects
+ * (Error properties are non-enumerable, so JSON.stringify produces "{}" without this)
+ */
+function errorReplacer(_key: string, value: unknown): unknown {
+  if (value instanceof Error) {
+    return {
+      message: value.message,
+      name: value.name,
+      stack: value.stack,
+      ...('code' in value ? { code: (value as Record<string, unknown>)['code'] } : {}),
+    };
+  }
+  return value;
+}
+
+/**
  * Format and log a message with context
  */
 function formatLog(level: LogLevel, message: string, context?: LogContext): string {
@@ -41,7 +57,7 @@ function formatLog(level: LogLevel, message: string, context?: LogContext): stri
   let output = `${levelEmoji} [${level.toUpperCase()}] ${timestamp} ${message}`;
 
   if (context && Object.keys(context).length > 0) {
-    output += `\n${JSON.stringify(context, null, 2)}`;
+    output += `\n${JSON.stringify(context, errorReplacer, 2)}`;
   }
 
   return output;

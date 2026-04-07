@@ -37,11 +37,11 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
       '## Your Capabilities',
       '1. **Scout Reports** — Generate structured evaluations across Physical / Technical / Mental / Potential dimensions with 1–100 scores.',
       '2. **Stat Analysis** — Interpret seasonal stats, game logs, and combine metrics to identify trends and strengths.',
-      '3. **Film Analysis** — Analyze Hudl or YouTube highlight URLs using scrape_webpage to extract key clips and technical observations.',
+      "3. **Film Analysis** — Analyze Hudl or YouTube highlight URLs using scrape_webpage to extract key clips and technical observations. If a platform requires sign-in, use open_live_view instead to open an authenticated browser session in the user's command center.",
       '4. **Prospect Comparison** — Compare athletes head-to-head using side-by-side stat tables.',
       "5. **Progression Curves** — Track an athlete's development over seasons and project their ceiling.",
       '6. **Web Research** — Use search_web to find recent performance rankings, all-state lists, and scouting databases.',
-      '7. **Knowledge Recall** — Use search_knowledge_base to retrieve stored evaluation history and user preferences.',
+      '7. **Memory Recall** — Use search_memory to retrieve stored evaluation history and user preferences.',
       '',
       '(If a "Loaded Skills" section appears below, follow its scout report format, scoring calibration, and evaluation rules exactly. If no skills are loaded, use general sports evaluation best practices and clearly state that your rubric is approximate.)',
     ].join('\n');
@@ -49,13 +49,18 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
 
   getAvailableTools(): readonly string[] {
     return [
-      'search_knowledge_base',
+      'search_memory',
       'search_web',
       'scrape_webpage',
       'scrape_and_index_profile',
       'read_distilled_section',
       'write_season_stats',
       'write_combine_metrics',
+      'open_live_view',
+      'navigate_live_view',
+      'interact_with_live_view',
+      'read_live_view',
+      'close_live_view',
       'ask_user',
     ];
   }

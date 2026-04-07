@@ -139,6 +139,7 @@ export {
   feedPostToFeedItem,
   eventDocToFeedItemEvent,
   statDocToFeedItemStat,
+  videoDocToFeedItemPost,
   profileOfferToFeedItemOffer,
   profileEventToFeedItemVariant,
   buildPolymorphicActivityFeed,

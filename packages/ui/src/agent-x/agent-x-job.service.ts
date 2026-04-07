@@ -62,16 +62,6 @@ export const AGENT_X_AUTH_TOKEN_FACTORY = new InjectionToken<() => Promise<strin
   'AGENT_X_AUTH_TOKEN_FACTORY'
 );
 
-/** Response from the /agent-x/ask endpoint. */
-interface EnqueueResponse {
-  readonly success: boolean;
-  readonly data?: {
-    readonly jobId: string;
-    readonly operationId: string;
-  };
-  readonly error?: string;
-}
-
 /** Result returned when enqueue fails. */
 export interface EnqueueFailure {
   readonly reason: 'billing' | 'server' | 'unknown';
@@ -81,7 +71,7 @@ export interface EnqueueFailure {
 
 /** Type guard: check if result is a failure (not a success). */
 export function isEnqueueFailure(
-  result: { jobId: string; operationId: string } | EnqueueFailure
+  result: { jobId: string; operationId: string; threadId?: string } | EnqueueFailure
 ): result is EnqueueFailure {
   return 'reason' in result;
 }
@@ -109,103 +99,109 @@ export class AgentXJobService {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly controlPanelState = inject(AgentXControlPanelStateService);
+  private readonly tokenFactory = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
 
   private readonly baseUrl = `${inject(AGENT_X_API_BASE_URL)}/agent-x`;
 
   /**
    * Enqueue a new Agent X background job.
    *
+   * Enqueue a task via the unified /chat SSE endpoint.
+   * The LLM processes the intent and may call `enqueue_heavy_task` internally
+   * for heavy work, with the SSE proxy streaming results back transparently.
+   *
    * @param intent - Natural language description of the task
    * @param context - Arbitrary context data for the AI agent
-   * @returns Job identifiers (jobId + operationId) or null on failure
+   * @returns Synthetic job identifiers or failure info
    */
   async enqueue(
     intent: string,
     context?: Record<string, unknown>
-  ): Promise<{ jobId: string; operationId: string } | EnqueueFailure> {
-    this.logger.info('Enqueuing Agent X job', { intent: intent.slice(0, 80) });
+  ): Promise<{ jobId: string; operationId: string; threadId?: string } | EnqueueFailure> {
+    this.logger.info('Routing task through unified /chat', { intent: intent.slice(0, 80) });
     void this.breadcrumb.trackStateChange('agent-x-job:enqueuing', {
       intent: intent.slice(0, 80),
     });
 
-    try {
-      const response = await firstValueFrom(
-        this.http.post<EnqueueResponse>(`${this.baseUrl}/ask`, {
-          intent,
-          context,
-        })
-      );
+    // /chat returns text/event-stream (SSE), so we use fetch() fire-and-forget.
+    // The server processes the task via the streaming loop; we don't need to
+    // parse the SSE response here — just confirm the request was accepted.
+    const syntheticId = crypto.randomUUID();
 
-      if (!response.success || !response.data) {
-        this.logger.warn('Agent X enqueue failed', { error: response.error });
-        void this.breadcrumb.trackStateChange('agent-x-job:enqueue-failed');
-        return { reason: 'unknown', message: response.error || 'Failed to start action' };
+    try {
+      const token = await this.tokenFactory?.();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const response = await fetch(`${this.baseUrl}/chat`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ message: intent, mode: 'auto', userContext: context }),
+      });
+
+      // Check for HTTP-level errors before the SSE stream starts
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({ error: response.statusText }));
+
+        if (response.status === 402) {
+          const billingCode = (errorBody as Record<string, unknown>)?.['code'] as
+            | string
+            | undefined;
+          this.logger.warn('Agent X billing gate blocked job', {
+            code: billingCode,
+            message: (errorBody as Record<string, unknown>)?.['error'],
+          });
+          void this.breadcrumb.trackStateChange('agent-x-job:billing-blocked', {
+            code: billingCode,
+          });
+          return {
+            reason: 'billing',
+            message:
+              ((errorBody as Record<string, unknown>)?.['error'] as string) ||
+              'Payment required to use Agent X',
+            code: billingCode,
+          };
+        }
+
+        throw new Error(
+          ((errorBody as Record<string, unknown>)?.['error'] as string) || `HTTP ${response.status}`
+        );
       }
 
-      this.logger.info('Agent X job enqueued', {
-        jobId: response.data.jobId,
-        operationId: response.data.operationId,
-      });
+      // Request accepted — SSE stream is now open server-side.
+      // We intentionally do NOT consume the stream body here; the server
+      // processes the task asynchronously and the caller gets immediate feedback.
+      // Close the response body to avoid a dangling connection.
+      response.body?.cancel().catch(() => {});
+
+      this.logger.info('Task dispatched via /chat', { operationId: syntheticId });
       void this.breadcrumb.trackStateChange('agent-x-job:enqueued', {
-        jobId: response.data.jobId,
+        operationId: syntheticId,
       });
       this.analytics?.trackEvent(APP_EVENTS.AGENT_X_JOB_ENQUEUED, {
-        source: 'background-job',
+        source: 'unified-chat',
         intent: intent.slice(0, 80),
       });
 
-      return response.data;
+      return { jobId: syntheticId, operationId: syntheticId };
     } catch (err) {
-      // Check for billing errors (402) — not a server issue
-      const apiError = err as {
-        statusCode?: number;
-        message?: string;
-        code?: string;
-        details?: Record<string, unknown>;
-      };
-      if (apiError.statusCode === 402) {
-        const billingCode = (apiError.details?.['billingCode'] as string) ?? apiError.code;
-        this.logger.warn('Agent X billing gate blocked job', {
-          code: billingCode,
-          message: apiError.message,
-        });
-        void this.breadcrumb.trackStateChange('agent-x-job:billing-blocked', {
-          code: billingCode,
-        });
-        return {
-          reason: 'billing',
-          message: apiError.message || 'Payment required to use Agent X',
-          code: apiError.code,
-        };
-      }
-
-      this.logger.error('Failed to enqueue Agent X job', err);
+      this.logger.error('Failed to dispatch Agent X task', err);
       void this.breadcrumb.trackStateChange('agent-x-job:enqueue-error');
       this.controlPanelState.reportExecutionFailure();
       return {
         reason: 'server',
-        message: apiError.message || 'Failed to start action',
+        message: err instanceof Error ? err.message : 'Failed to start action',
       };
     }
   }
 
   /**
-   * Poll the status of an existing job.
-   *
-   * @param jobId - The BullMQ job ID
-   * @returns Current job status or null on failure
+   * @deprecated Status polling is no longer supported. All job status is
+   * streamed via the unified /chat SSE connection. Returns null.
    */
-  async getStatus(jobId: string): Promise<JobStatusResponse['data'] | null> {
-    try {
-      const response = await firstValueFrom(
-        this.http.get<JobStatusResponse>(`${this.baseUrl}/status/${encodeURIComponent(jobId)}`)
-      );
-
-      return response.success ? (response.data ?? null) : null;
-    } catch (err) {
-      this.logger.error('Failed to get job status', err, { jobId });
-      return null;
-    }
+  async getStatus(_jobId: string): Promise<JobStatusResponse['data'] | null> {
+    this.logger.warn('getStatus() is deprecated — use /chat SSE stream instead', { _jobId });
+    return null;
   }
 
   // ============================================

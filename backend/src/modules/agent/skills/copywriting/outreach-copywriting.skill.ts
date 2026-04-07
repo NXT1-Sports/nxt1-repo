@@ -43,7 +43,7 @@ When building a college list, factor in:
 4. Commitment tracking and decision timeline
 
 ## Rules
-- NEVER send an email without user approval via the send_gmail tool approval flow.
+- NEVER send an email without user approval via the send_email tool approval flow.
 - NEVER fabricate coach names or email addresses — always verify via search_web.
 - ALWAYS use verified stats from the database in emails — no made-up metrics.
 - If you cannot find a coach email, provide the athletic department contact as a fallback.`;

@@ -61,7 +61,7 @@ export interface PaginatedResponse<T> {
 /**
  * Full profile update request — accepts all writable User model fields.
  * Backend whitelists these fields server-side to prevent mass-assignment
- * of system/read-only fields (id, planTier, _counters, etc.).
+ * of system/read-only fields (id, _counters, etc.).
  */
 export interface UpdateProfileRequest {
   // ── Core Identity ──────────────────────────────────────────────────────

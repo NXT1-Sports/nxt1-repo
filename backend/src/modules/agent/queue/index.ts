@@ -18,4 +18,14 @@ export type {
 } from './queue.types.js';
 export type { JobEvent, JobEventType } from './job.repository.js';
 export type { StreamEvent, OnStreamEvent } from './event-writer.js';
+export {
+  AgentPubSubService,
+  AGENT_STREAM_CHANNEL_PREFIX,
+  STREAM_TERMINAL_EVENTS,
+} from './pubsub.service.js';
+export type {
+  PubSubStreamMessage,
+  PubSubMessageHandler,
+  PubSubUnsubscribe,
+} from './pubsub.service.js';
 export { AGENT_QUEUE_NAME, AGENT_QUEUE_PREFIX, WORKER_CONCURRENCY } from './queue.types.js';

@@ -46,6 +46,22 @@ export interface AgentXAttachment {
  */
 export type ChatRole = 'user' | 'assistant' | 'system';
 
+// ============================================
+// MESSAGE PARTS — Copilot-style interleaved rendering
+// ============================================
+
+/**
+ * A single rendering segment in a message. Parts are rendered in order,
+ * enabling interleaved text → tool steps → text → card sequences
+ * (matching the VS Code Copilot pattern).
+ */
+export type AgentXMessagePart =
+  | { readonly type: 'text'; readonly content: string }
+  | { readonly type: 'tool-steps'; readonly steps: readonly AgentXToolStep[] }
+  | { readonly type: 'card'; readonly card: AgentXRichCard }
+  | { readonly type: 'image'; readonly url: string; readonly alt?: string }
+  | { readonly type: 'video'; readonly url: string };
+
 /**
  * A single message in the Agent X conversation.
  */
@@ -85,6 +101,79 @@ export interface AgentXMessage {
    * Rendered as standalone UI components inside the chat bubble.
    */
   readonly cards?: readonly AgentXRichCard[];
+  /**
+   * Ordered sequence of content segments for Copilot-style interleaved rendering.
+   * When present, the chat bubble renders parts in order instead of the flat
+   * steps → content → cards layout. Built during SSE streaming to preserve
+   * the natural text ↔ tool-step ↔ card interleaving.
+   *
+   * Old messages (loaded from history) may not have this field — the bubble
+   * falls back to the flat layout using `content`, `steps`, and `cards`.
+   */
+  readonly parts?: readonly AgentXMessagePart[];
+}
+
+// ============================================
+// LIVE VIEW SESSION TYPES
+// ============================================
+
+/**
+ * Trust tier for a live-view destination.
+ * - `platform`  — Allowlisted NXT1 platform from the PLATFORM_REGISTRY (higher trust).
+ * - `arbitrary` — User-supplied URL that passed validation (lower trust, no auth reuse).
+ */
+export type LiveViewDestinationTier = 'platform' | 'arbitrary';
+
+/**
+ * Authentication state of the live-view session.
+ * - `authenticated` — Using a persisted Firecrawl profile with verified credentials.
+ * - `ephemeral`     — Anonymous/one-off session with no stored auth state.
+ * - `expired`       — Had an authenticated profile but probe detected stale credentials.
+ */
+export type LiveViewAuthStatus = 'authenticated' | 'ephemeral' | 'expired';
+
+/**
+ * Capabilities the frontend can exercise on this live-view session.
+ * Returned by the backend so the shell enables/disables controls dynamically.
+ */
+export interface LiveViewSessionCapabilities {
+  /** Whether the session can be refreshed (navigate to same URL again). */
+  readonly canRefresh: boolean;
+  /** Whether the user can type a new URL to navigate within the session. */
+  readonly canNavigate: boolean;
+  /** Whether the session is backed by a saved Firecrawl profile (auth reuse). */
+  readonly hasAuthProfile: boolean;
+}
+
+/**
+ * Full contract for an active live-view browser session.
+ * Returned by the backend when a live view is started, and attached to
+ * `AutoOpenPanelInstruction` so the frontend has everything it needs
+ * to render and control the session without further round-trips.
+ */
+export interface LiveViewSession {
+  /** Backend-assigned unique session identifier (UUID v4). */
+  readonly sessionId: string;
+  /** Interactive VNC/iframe URL returned by Firecrawl. */
+  readonly interactiveUrl: string;
+  /** The destination the user or agent originally requested. */
+  readonly requestedUrl: string;
+  /** Resolved canonical URL the browser was actually navigated to. */
+  readonly resolvedUrl: string;
+  /** Trust tier of the destination. */
+  readonly destinationTier: LiveViewDestinationTier;
+  /** Platform key if the destination matched an allowlisted platform, e.g. `'hudl'`. */
+  readonly platformKey?: string;
+  /** Human-readable domain label for display in the panel header. */
+  readonly domainLabel: string;
+  /** Authentication state of this session. */
+  readonly authStatus: LiveViewAuthStatus;
+  /** What the frontend is allowed to do with this session. */
+  readonly capabilities: LiveViewSessionCapabilities;
+  /** ISO 8601 timestamp when the session was created. */
+  readonly createdAt: string;
+  /** ISO 8601 timestamp when the session will auto-expire. */
+  readonly expiresAt: string;
 }
 
 /**
@@ -95,6 +184,11 @@ export interface AutoOpenPanelInstruction {
   readonly type: 'live-view' | 'image' | 'video' | 'doc';
   readonly url: string;
   readonly title?: string;
+  /**
+   * When `type === 'live-view'`, carries the full session contract
+   * so the shell can render and control the browser session.
+   */
+  readonly session?: LiveViewSession;
 }
 
 /**
@@ -261,7 +355,8 @@ export type AgentXRichCardType =
   | 'draft'
   | 'profile'
   | 'film-timeline'
-  | 'billing-action';
+  | 'billing-action'
+  | 'document';
 
 /** A single item in a planner checklist card. */
 export interface AgentXPlannerItem {
@@ -293,6 +388,7 @@ export interface AgentXRichCard {
     | AgentXProfilePayload
     | AgentXFilmTimelinePayload
     | AgentXBillingActionPayload
+    | AgentXDocumentPayload
     | Record<string, unknown>;
 }
 
@@ -400,6 +496,8 @@ export interface AgentXDraftPayload {
   readonly subject?: string;
   /** Number of recipients (display-only context). */
   readonly recipientsCount?: number;
+  /** Recipient email address (used for HITL send-draft flow). */
+  readonly toEmail?: string;
 }
 
 // ── Profile ──
@@ -466,6 +564,27 @@ export interface AgentXBillingActionPayload {
   readonly currentBalanceCents?: number;
   /** Human-readable explanation of why the operation was paused. */
   readonly description?: string;
+}
+
+/**
+ * Payload for a generated document (PDF / CSV) download card.
+ * Rendered as a rich card with a download button in the Agent X chat.
+ */
+export interface AgentXDocumentPayload {
+  /** Signed download URL (typically Firebase Storage). */
+  readonly downloadUrl: string;
+  /** Display file name including extension. */
+  readonly fileName: string;
+  /** MIME type of the generated document. */
+  readonly mimeType: string;
+  /** Document format discriminator. */
+  readonly format: 'pdf' | 'csv';
+  /** File size in bytes (used for display). */
+  readonly sizeBytes: number;
+  /** Number of data rows (for tabular exports). */
+  readonly rowCount?: number;
+  /** Number of columns (for tabular exports). */
+  readonly columnCount?: number;
 }
 
 // ============================================
@@ -560,7 +679,22 @@ export interface AgentXStreamCardEvent {
     | AgentXCitationsPayload
     | AgentXParameterFormPayload
     | AgentXBillingActionPayload
+    | AgentXDocumentPayload
     | Record<string, unknown>;
+}
+
+/**
+ * Payload of the `event: operation` SSE frame.
+ * Emitted at key lifecycle transitions so the operations log sidebar
+ * can update in real-time without polling.
+ */
+export interface AgentXStreamOperationEvent {
+  /** The thread ID this operation belongs to. */
+  readonly threadId: string;
+  /** Current operation status. */
+  readonly status: OperationLogStatus;
+  /** ISO timestamp of the status transition. */
+  readonly timestamp: string;
 }
 
 /**
@@ -581,6 +715,8 @@ export interface AgentXStreamCallbacks {
   onCard?: (event: AgentXStreamCardEvent) => void;
   /** Called when the backend auto-generates a concise title for a new conversation thread. */
   onTitleUpdated?: (event: AgentXStreamTitleUpdatedEvent) => void;
+  /** Called when the operation lifecycle status changes (in-progress → complete/error/awaiting_input). */
+  onOperation?: (event: AgentXStreamOperationEvent) => void;
 }
 
 /**
@@ -691,21 +827,6 @@ export interface ShellWeeklyPlaybookItem {
   readonly coordinator?: ShellPlaybookCoordinator;
 }
 
-/** An active background operation Agent X is processing. */
-export interface ShellActiveOperation {
-  readonly id: string;
-  readonly label: string;
-  readonly progress: number;
-  readonly icon: string;
-  readonly status: 'processing' | 'complete' | 'error' | 'awaiting_input';
-  /** MongoDB thread ID — when set, opening this operation displays the persisted worker conversation. */
-  readonly threadId?: string;
-  /** Present when `status === 'awaiting_input'` — describes what the agent needs from the user. */
-  readonly yieldState?: AgentYieldState;
-  /** Present when `status === 'error'` — human-readable reason the operation failed. */
-  readonly errorMessage?: string;
-}
-
 /** Resolved shell content for a given user role. */
 export interface ShellContentForRole {
   readonly coordinators: readonly ShellCommandCategory[];
@@ -735,7 +856,6 @@ export interface AgentDashboardResponse {
 export interface AgentDashboardData {
   readonly briefing: AgentDashboardBriefing;
   readonly playbook: AgentDashboardPlaybook;
-  readonly activeOperations: readonly ShellActiveOperation[];
   readonly coordinators: readonly ShellCommandCategory[];
 }
 

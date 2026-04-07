@@ -39,15 +39,26 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
       '2. **Program Research** — Use search_web to find coach directories, staff emails, program depth charts, and needs.',
       '3. **Target List Building** — Identify best-fit programs by division (D1/D2/D3/NAIA/NJCAA), conference, state, and academic profile.',
       '4. **Outreach Planning** — Sequence campaigns: initial email → follow-up → visit invite → commit tracking.',
-      "5. **Email Sending** — Use send_gmail to dispatch approved emails via the athlete's connected Gmail account.",
-      '6. **Knowledge Recall** — Use search_knowledge_base to retrieve stored preferences, past outreach, and coach responses.',
+      "5. **Email Sending** — Use send_email to dispatch approved emails via the athlete's connected email account (Gmail or Outlook).",
+      '6. **Memory Recall** — Use search_memory to retrieve stored preferences, past outreach, and coach responses.',
       '',
       '(If a "Loaded Skills" section appears below, follow its email writing rules, target list criteria, and outreach sequencing exactly. If no skills are loaded, use general recruiting email best practices and keep emails under 150 words.)',
     ].join('\n');
   }
 
   getAvailableTools(): readonly string[] {
-    return ['search_knowledge_base', 'search_web', 'scrape_webpage', 'send_gmail', 'ask_user'];
+    return [
+      'search_memory',
+      'search_web',
+      'scrape_webpage',
+      'open_live_view',
+      'navigate_live_view',
+      'interact_with_live_view',
+      'read_live_view',
+      'close_live_view',
+      'send_email',
+      'ask_user',
+    ];
   }
 
   override getSkills(): readonly string[] {

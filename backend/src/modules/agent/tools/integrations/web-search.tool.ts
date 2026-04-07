@@ -22,7 +22,7 @@
  * - Only publicly accessible content is returned.
  */
 
-import { BaseTool, type ToolResult } from '../base.tool.js';
+import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { logger } from '../../../../utils/logger.js';
 
 /** Tavily API endpoint. */
@@ -111,7 +111,10 @@ export class WebSearchTool extends BaseTool {
   readonly isMutation = false;
   readonly category = 'analytics' as const;
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
     // ── Input validation ───────────────────────────────────────────────
     const query = this.str(input, 'query');
     if (!query) {
@@ -145,6 +148,7 @@ export class WebSearchTool extends BaseTool {
     }
 
     // ── Execute search ─────────────────────────────────────────────────
+    context?.onProgress?.('Searching the web…');
     logger.debug('[WebSearch] Executing search', { query, maxResults, searchDepth });
 
     try {
@@ -192,6 +196,9 @@ export class WebSearchTool extends BaseTool {
         ...(r.published_date ? { publishedDate: r.published_date } : {}),
       }));
 
+      context?.onProgress?.(
+        `Analyzing ${results.length} result${results.length !== 1 ? 's' : ''}…`
+      );
       logger.debug('[WebSearch] Search complete', { query, resultCount: results.length });
 
       return {

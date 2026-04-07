@@ -28,7 +28,7 @@
  */
 
 import type { AgentIdentifier, AgentToolDefinition } from '@nxt1/core';
-import type { BaseTool, ToolResult } from './base.tool.js';
+import type { BaseTool, ToolResult, ToolExecutionContext } from './base.tool.js';
 
 export class ToolRegistry {
   private readonly tools = new Map<string, BaseTool>();
@@ -131,12 +131,16 @@ export class ToolRegistry {
     }));
   }
 
-  /** Execute a tool by name with the given input. */
-  async execute(name: string, input: Record<string, unknown>): Promise<ToolResult> {
+  /** Execute a tool by name with the given input and optional execution context. */
+  async execute(
+    name: string,
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
     const tool = this.tools.get(name);
     if (!tool) {
       return { success: false, error: `Unknown tool: ${name}` };
     }
-    return tool.execute(input);
+    return tool.execute(input, context);
   }
 }

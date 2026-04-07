@@ -12,8 +12,13 @@ export type {
   AgentXAttachmentType,
   AgentXAttachment,
   AgentXMessage,
+  AgentXMessagePart,
   AgentXMessageMetadata,
   AutoOpenPanelInstruction,
+  LiveViewDestinationTier,
+  LiveViewAuthStatus,
+  LiveViewSessionCapabilities,
+  LiveViewSession,
   QuickTaskCategory,
   AgentXQuickTask,
   AgentXMode,
@@ -31,7 +36,6 @@ export type {
   ShellGoalTag,
   ShellPlaybookCoordinator,
   ShellWeeklyPlaybookItem,
-  ShellActiveOperation,
   ShellContentForRole,
   // Dashboard API types
   AgentDashboardGoal,
@@ -78,6 +82,7 @@ export type {
   AgentXFilmTimelinePayload,
   AgentXBillingActionReason,
   AgentXBillingActionPayload,
+  AgentXDocumentPayload,
 } from './agent-x.types';
 
 // Constants

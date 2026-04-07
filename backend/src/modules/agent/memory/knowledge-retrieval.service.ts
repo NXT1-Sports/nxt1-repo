@@ -88,23 +88,32 @@ export class KnowledgeRetrievalService {
    * Uses MongoDB Atlas `$vectorSearch` aggregation for cosine similarity.
    * Gracefully returns an empty array if the Atlas index is not yet configured,
    * so the rest of the agent pipeline is never blocked by missing infrastructure.
+   *
+   * @param precomputedEmbedding - Optional pre-computed query embedding. When
+   * provided (e.g. from BaseAgent which already embedded for skill matching),
+   * the embed call is skipped entirely — saving one API round-trip per request.
    */
   async retrieve(
     query: string,
-    options: KnowledgeRetrievalOptions = {}
+    options: KnowledgeRetrievalOptions = {},
+    precomputedEmbedding?: readonly number[]
   ): Promise<readonly KnowledgeRetrievalResult[]> {
     const topK = Math.min(Math.max(1, Math.round(options.topK ?? DEFAULT_TOP_K)), MAX_TOP_K);
     const scoreThreshold = options.scoreThreshold ?? DEFAULT_SCORE_THRESHOLD;
 
-    // ── Step 1: Embed the query ─────────────────────────────────────────
+    // ── Step 1: Embed the query (skip if caller already computed) ───────
     let queryEmbedding: readonly number[];
-    try {
-      queryEmbedding = await this.llm.embed(query);
-    } catch (err) {
-      logger.warn('[KnowledgeRetrieval] Embedding failed — skipping retrieval', {
-        error: String(err),
-      });
-      return [];
+    if (precomputedEmbedding && precomputedEmbedding.length > 0) {
+      queryEmbedding = precomputedEmbedding;
+    } else {
+      try {
+        queryEmbedding = await this.llm.embed(query);
+      } catch (err) {
+        logger.warn('[KnowledgeRetrieval] Embedding failed — skipping retrieval', {
+          error: String(err),
+        });
+        return [];
+      }
     }
 
     // ── Step 2: Build optional category filter ──────────────────────────

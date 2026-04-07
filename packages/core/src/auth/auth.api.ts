@@ -46,7 +46,6 @@
 import type { HttpAdapter } from '../api/http-adapter';
 import type { TeamTypeApi } from '../models/team-code.model';
 import type { UserRole } from '../constants/user.constants';
-import type { PlanTier } from '../constants/payment.constants';
 import type {
   TeamSelectionFormData,
   CreateTeamProfileFormData,
@@ -227,8 +226,6 @@ export interface UserProfileResponse {
     positions?: string[];
     isPrimary?: boolean;
   }>;
-  /** Current plan tier - cached from Subscriptions collection */
-  planTier?: PlanTier;
   /** Whether user has completed onboarding */
   onboardingCompleted?: boolean;
   /** Team code info if user joined via team */
@@ -243,7 +240,7 @@ export interface UserProfileResponse {
   isCollegeCoach?: boolean;
   /** @deprecated Use onboardingCompleted instead */
   completeSignUp?: boolean;
-  /** @deprecated Use planTier instead */
+  /** @deprecated Legacy field — no longer used */
   lastActivatedPlan?: string;
 }
 

@@ -68,18 +68,8 @@ export const PRODUCT_CATEGORIES = {
 export type ProductCategory = (typeof PRODUCT_CATEGORIES)[keyof typeof PRODUCT_CATEGORIES];
 
 // ============================================
-// SUBSCRIPTION PLANS
+// BILLING INTERVALS
 // ============================================
-
-export const PLAN_TIERS = {
-  FREE: 'free',
-  STARTER: 'starter',
-  PRO: 'pro',
-  ELITE: 'elite',
-  TEAM: 'team',
-} as const;
-
-export type PlanTier = (typeof PLAN_TIERS)[keyof typeof PLAN_TIERS];
 
 export const BILLING_INTERVALS = {
   MONTH: 'month',
@@ -87,136 +77,6 @@ export const BILLING_INTERVALS = {
 } as const;
 
 export type BillingInterval = (typeof BILLING_INTERVALS)[keyof typeof BILLING_INTERVALS];
-
-export interface PlanConfig {
-  id: PlanTier;
-  name: string;
-  description: string;
-  prices: {
-    monthly: number; // In cents
-    yearly: number; // In cents (typically discounted)
-  };
-  features: string[];
-  limits: {
-    videoUploads: number; // -1 for unlimited
-    emailCampaigns: number;
-    aiCredits: number;
-    collegeCredits: number;
-    teamMembers: number;
-  };
-  recommended?: boolean;
-  stripePriceIds?: {
-    monthly: string;
-    yearly: string;
-  };
-}
-
-export const PLAN_CONFIGS: readonly PlanConfig[] = [
-  {
-    id: 'free',
-    name: 'Free',
-    description: 'Get started with basic features',
-    prices: { monthly: 0, yearly: 0 },
-    features: ['Basic profile', '3 video uploads', 'Community access', 'Basic analytics'],
-    limits: {
-      videoUploads: 3,
-      emailCampaigns: 0,
-      aiCredits: 0,
-      collegeCredits: 0,
-      teamMembers: 0,
-    },
-  },
-  {
-    id: 'starter',
-    name: 'Starter',
-    description: 'Perfect for getting noticed',
-    prices: { monthly: 999, yearly: 9588 }, // $9.99/mo, $79.90/yr (20% off)
-    features: [
-      'Full profile customization',
-      '10 video uploads',
-      '5 email campaigns/month',
-      '5 AI credits/month',
-      'Profile analytics',
-    ],
-    limits: {
-      videoUploads: 10,
-      emailCampaigns: 5,
-      aiCredits: 5,
-      collegeCredits: 0,
-      teamMembers: 0,
-    },
-  },
-  {
-    id: 'pro',
-    name: 'Pro',
-    description: 'Everything you need to get recruited',
-    prices: { monthly: 1999, yearly: 19188 }, // $19.99/mo, $159.90/yr (20% off)
-    features: [
-      'Everything in Starter',
-      'Unlimited video uploads',
-      '20 email campaigns/month',
-      '20 AI credits/month',
-      'AI scouting report',
-      '5 college credits/month',
-      'Priority support',
-    ],
-    limits: {
-      videoUploads: -1,
-      emailCampaigns: 20,
-      aiCredits: 20,
-      collegeCredits: 5,
-      teamMembers: 0,
-    },
-    recommended: true,
-  },
-  {
-    id: 'elite',
-    name: 'Elite',
-    description: 'Maximum exposure and support',
-    prices: { monthly: 3999, yearly: 38388 }, // $39.99/mo, $319.90/yr (20% off)
-    features: [
-      'Everything in Pro',
-      'Unlimited email campaigns',
-      '50 AI credits/month',
-      '15 college credits/month',
-      'Personal branding package',
-      'Direct coach messaging',
-      'Advanced analytics dashboard',
-      'Dedicated support',
-    ],
-    limits: {
-      videoUploads: -1,
-      emailCampaigns: -1,
-      aiCredits: 50,
-      collegeCredits: 15,
-      teamMembers: 0,
-    },
-  },
-  {
-    id: 'team',
-    name: 'Team',
-    description: 'For coaches and organizations',
-    prices: { monthly: 19999, yearly: 191988 }, // $199.99/mo, $1599.90/yr (20% off)
-    features: [
-      'Everything in Elite',
-      'Team management dashboard',
-      'Bulk athlete profiles',
-      'Team branding',
-      'Admin controls',
-      '100 AI credits/month',
-      '50 college credits/month',
-      'Up to 50 team members',
-      'API access',
-    ],
-    limits: {
-      videoUploads: -1,
-      emailCampaigns: -1,
-      aiCredits: 100,
-      collegeCredits: 50,
-      teamMembers: 50,
-    },
-  },
-] as const;
 
 // ============================================
 // SUBSCRIPTION STATUS
@@ -588,13 +448,6 @@ export function formatPrice(cents: number, currency: Currency = 'usd'): string {
     currency: currency.toUpperCase(),
   });
   return formatter.format(amount);
-}
-
-/**
- * Get plan config by ID
- */
-export function getPlanConfig(planId: PlanTier): PlanConfig | undefined {
-  return PLAN_CONFIGS.find((p) => p.id === planId);
 }
 
 /**

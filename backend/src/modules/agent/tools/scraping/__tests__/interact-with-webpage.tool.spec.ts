@@ -409,4 +409,89 @@ describe('InteractWithWebpageTool', () => {
       expect(typeof result.error).toBe('string');
     });
   });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Auth wall / CAPTCHA detection & live-view handoff
+  // ────────────────────────────────────────────────────────────────────────
+
+  describe('auth wall detection', () => {
+    it('should include blockedReason and hint for short auth-wall content', async () => {
+      vi.mocked(mockFirecrawl.scrapeWithActions).mockResolvedValue({
+        url: 'https://www.hudl.com/profile/12345',
+        markdown: 'Please sign in to continue. Access denied.',
+        title: 'Sign In Required',
+        scrapedInMs: 800,
+      });
+
+      const result = await tool.execute({
+        url: 'https://www.hudl.com/profile/12345',
+        actions: [validAction('click')],
+      });
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['blockedReason']).toBeDefined();
+      expect(data['hint']).toContain('open_live_view');
+    });
+
+    it('should include blockedReason for CAPTCHA challenges', async () => {
+      vi.mocked(mockFirecrawl.scrapeWithActions).mockResolvedValue({
+        url: 'https://www.example.com/page',
+        markdown: 'Please complete the CAPTCHA to proceed.',
+        title: 'Verify',
+        scrapedInMs: 500,
+      });
+
+      const result = await tool.execute({
+        url: 'https://www.example.com/page',
+        actions: [validAction('wait')],
+      });
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['blockedReason']).toBeDefined();
+      expect(data['hint']).toContain('open_live_view');
+    });
+
+    it('should NOT flag long, normal content as blocked', async () => {
+      const longContent = 'Welcome to the dashboard.\n'.repeat(100);
+      vi.mocked(mockFirecrawl.scrapeWithActions).mockResolvedValue({
+        url: validUrl,
+        markdown: longContent,
+        title: 'Dashboard',
+        scrapedInMs: 1000,
+      });
+
+      const result = await tool.execute({
+        url: validUrl,
+        actions: [validAction('click')],
+      });
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['blockedReason']).toBeUndefined();
+      expect(data['hint']).toBeUndefined();
+    });
+
+    it('should NOT flag long content that casually mentions sign-in', async () => {
+      const normalContent =
+        'Sign in with your Google account for premium features.\n' +
+        'Article body content goes here.\n'.repeat(80);
+      vi.mocked(mockFirecrawl.scrapeWithActions).mockResolvedValue({
+        url: validUrl,
+        markdown: normalContent,
+        title: 'News Article',
+        scrapedInMs: 900,
+      });
+
+      const result = await tool.execute({
+        url: validUrl,
+        actions: [validAction('click')],
+      });
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['blockedReason']).toBeUndefined();
+    });
+  });
 });

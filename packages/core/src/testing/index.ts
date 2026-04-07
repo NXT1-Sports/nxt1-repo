@@ -708,6 +708,7 @@ export const AGENT_X_OPERATION_CHAT_TEST_IDS = {
   FAILURE_MESSAGE: 'agent-op-chat-failure-message',
   BTN_RETRY: 'agent-op-chat-btn-retry',
   BTN_DISMISS: 'agent-op-chat-btn-dismiss',
+  DROP_OVERLAY: 'agent-op-chat-drop-overlay',
 } as const;
 
 /**
@@ -1053,6 +1054,35 @@ export const MEDIA_VIEWER_TEST_IDS = {
   CAPTION: 'media-viewer-caption',
 } as const;
 
+// ============================================
+// LIVE VIEW TEST IDS
+// ============================================
+
+export const LIVE_VIEW_TEST_IDS = {
+  /** Root container for the expanded live-view panel */
+  PANEL_CONTAINER: 'live-view-panel-container',
+  /** The interactive iframe element */
+  IFRAME: 'live-view-iframe',
+  /** Panel header with title + action buttons */
+  HEADER: 'live-view-header',
+  /** Refresh button (live-view panels only) */
+  REFRESH_BUTTON: 'live-view-refresh-btn',
+  /** Close button to dismiss the panel */
+  CLOSE_BUTTON: 'live-view-close-btn',
+  /** Copy-link button */
+  COPY_LINK_BUTTON: 'live-view-copy-link-btn',
+  /** Open-in-new-tab link */
+  OPEN_EXTERNAL_LINK: 'live-view-open-external',
+  /** Fullscreen toggle button */
+  FULLSCREEN_BUTTON: 'live-view-fullscreen-btn',
+  /** Download / export button */
+  DOWNLOAD_BUTTON: 'live-view-download-btn',
+  /** Loading spinner overlay */
+  LOADING_STATE: 'live-view-loading',
+  /** Error state banner */
+  ERROR_STATE: 'live-view-error-state',
+} as const;
+
 export const TEST_IDS = {
   AUTH: AUTH_TEST_IDS,
   AUTH_PAGE: AUTH_PAGE_TEST_IDS,
@@ -1077,6 +1107,7 @@ export const TEST_IDS = {
   ADD_SPORT: ADD_SPORT_TEST_IDS,
   INTEL: INTEL_TEST_IDS,
   MEDIA_VIEWER: MEDIA_VIEWER_TEST_IDS,
+  LIVE_VIEW: LIVE_VIEW_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript

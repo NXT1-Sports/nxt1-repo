@@ -451,8 +451,8 @@ export const CAMPAIGN_LIMITS = {
   team: { daily: 500, monthly: 5000 },
 } as const;
 
-export function getCampaignLimits(planTier: string): { daily: number; monthly: number } {
-  return CAMPAIGN_LIMITS[planTier as keyof typeof CAMPAIGN_LIMITS] ?? CAMPAIGN_LIMITS.free;
+export function getCampaignLimits(): { daily: number; monthly: number } {
+  return CAMPAIGN_LIMITS.free;
 }
 
 // ============================================

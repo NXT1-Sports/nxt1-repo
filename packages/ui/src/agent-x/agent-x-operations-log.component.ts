@@ -188,7 +188,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
                 type="button"
                 class="log-entry"
                 [attr.data-testid]="testIds.ENTRY"
-                [class.log-entry--complete]="entry.status === 'complete'"
+                [class.log-entry--unread]="isUnread(entry)"
                 [class.log-entry--error]="entry.status === 'error'"
                 [class.log-entry--cancelled]="entry.status === 'cancelled'"
                 [class.log-entry--active]="entry.status === 'in-progress'"
@@ -306,6 +306,32 @@ export const OPERATIONS_LOG_TEST_IDS = {
         }
         50% {
           opacity: 0.5;
+        }
+      }
+
+      /* ── Active glow pulse for in-progress entries ── */
+      @keyframes log-glow-pulse {
+        0%,
+        100% {
+          border-color: color-mix(in srgb, var(--log-primary) 50%, transparent);
+          box-shadow: 0 0 6px color-mix(in srgb, var(--log-primary) 15%, transparent);
+        }
+        50% {
+          border-color: var(--log-primary);
+          box-shadow: 0 0 12px color-mix(in srgb, var(--log-primary) 30%, transparent);
+        }
+      }
+
+      /* ── Awaiting glow pulse for yield gate entries ── */
+      @keyframes log-glow-awaiting {
+        0%,
+        100% {
+          border-color: color-mix(in srgb, var(--log-warning) 50%, transparent);
+          box-shadow: 0 0 6px color-mix(in srgb, var(--log-warning) 15%, transparent);
+        }
+        50% {
+          border-color: var(--log-warning);
+          box-shadow: 0 0 12px color-mix(in srgb, var(--log-warning) 30%, transparent);
         }
       }
 
@@ -513,6 +539,40 @@ export const OPERATIONS_LOG_TEST_IDS = {
         text-transform: uppercase;
       }
 
+      /* ═══ ENTRY STATUS BORDERS ═══ */
+
+      /* In-progress: Glowing neon-green pulsing border */
+      .log-entry--active {
+        border-color: color-mix(in srgb, var(--log-primary) 50%, transparent);
+        background: color-mix(in srgb, var(--log-primary) 4%, var(--log-surface));
+        animation: log-glow-pulse 2s ease-in-out infinite;
+      }
+
+      /* Error: Solid red border */
+      .log-entry--error {
+        border-color: color-mix(in srgb, var(--log-error) 50%, transparent);
+        background: color-mix(in srgb, var(--log-error) 4%, var(--log-surface));
+      }
+
+      /* Unread: Freshly completed, user hasn't reviewed yet — green glow */
+      .log-entry--unread {
+        border-color: color-mix(in srgb, var(--log-success) 50%, transparent);
+        background: color-mix(in srgb, var(--log-success) 4%, var(--log-surface));
+      }
+
+      /* Awaiting input / Yield gate: Yellow pulsing border */
+      .log-entry--awaiting {
+        border-color: color-mix(in srgb, var(--log-warning) 50%, transparent);
+        background: color-mix(in srgb, var(--log-warning) 4%, var(--log-surface));
+        animation: log-glow-awaiting 2s ease-in-out infinite;
+      }
+
+      /* Cancelled: Muted warning border */
+      .log-entry--cancelled {
+        border-color: color-mix(in srgb, var(--log-warning) 20%, transparent);
+        opacity: 0.7;
+      }
+
       /* ═══ SKELETON ═══ */
       .log-skeleton {
         display: flex;
@@ -582,6 +642,11 @@ export const OPERATIONS_LOG_TEST_IDS = {
         }
 
         .log-entry-spinner {
+          animation: none;
+        }
+
+        .log-entry--active,
+        .log-entry--awaiting {
           animation: none;
         }
       }
@@ -703,6 +768,13 @@ export class AgentXOperationsLogComponent {
   private readonly _activeFilter = signal<OperationLogStatus | 'all' | 'scheduled'>('all');
   private readonly _error = signal<string | null>(null);
 
+  /**
+   * Tracks threadIds that completed during this session via the SSE stream
+   * and haven't been opened/reviewed by the user yet.
+   * Only these entries get the green "needs review" border.
+   */
+  private readonly _unreadThreadIds = signal<ReadonlySet<string>>(new Set());
+
   protected readonly loading = computed(() => this._loading());
   protected readonly operations = computed(() => this._operations());
   protected readonly activeFilter = computed(() => this._activeFilter());
@@ -798,6 +870,54 @@ export class AgentXOperationsLogComponent {
           ops.map((op) => (op.threadId === evt.threadId ? { ...op, title: evt.title } : op))
         );
       });
+
+    // Subscribe to real-time operation status updates from the /chat SSE stream.
+    // This is the core real-time mechanism: the backend emits `event: operation`
+    // at every lifecycle transition (in-progress → complete/error/awaiting_input)
+    // and this handler ensures the operations log reflects the change instantly.
+    this.operationEventService.operationStatusUpdated$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((evt) => {
+        this.logger.info('Real-time operation status update', {
+          threadId: evt.threadId,
+          status: evt.status,
+        });
+        this.breadcrumb.trackStateChange('operations-log:status-updated', {
+          threadId: evt.threadId,
+          status: evt.status,
+        });
+        this._operations.update((ops) => {
+          const idx = ops.findIndex((op) => op.threadId === evt.threadId);
+          if (idx >= 0) {
+            // Update existing entry's status in place
+            return ops.map((op) =>
+              op.threadId === evt.threadId ? { ...op, status: evt.status } : op
+            );
+          }
+          // New operation — insert at the top of the list
+          const newEntry: OperationLogEntry = {
+            id: evt.threadId,
+            title: 'Processing…',
+            summary: '',
+            status: evt.status,
+            category: 'system',
+            timestamp: evt.timestamp,
+            threadId: evt.threadId,
+            icon: 'sparkles',
+          };
+          return [newEntry, ...ops];
+        });
+
+        // Mark as unread when an operation completes during this session
+        // so the green "needs review" border only appears for fresh completions.
+        if (evt.status === 'complete') {
+          this._unreadThreadIds.update((set) => {
+            const next = new Set(set);
+            next.add(evt.threadId);
+            return next;
+          });
+        }
+      });
   }
 
   /** Public refresh — callable from parent via viewChild. */
@@ -808,14 +928,48 @@ export class AgentXOperationsLogComponent {
   /**
    * Silent refresh — re-fetches operations without showing loading skeleton.
    * Called by parent (via viewChild) after a chat response completes.
+   *
+   * IMPORTANT: This MERGES HTTP data with live SSE state instead of
+   * replacing it. Entries that are currently `in-progress` or `awaiting_input`
+   * (set by the real-time SSE stream) must survive the refresh because the
+   * HTTP API may lag behind the SSE lifecycle events.
    */
   private async silentRefresh(): Promise<void> {
     try {
-      const url = `${this.baseUrl}/agent-x/operations-log?limit=50`;
+      // Snapshot live "in-flight" statuses from real-time SSE before the fetch
+      const liveStatuses = new Map<string, OperationLogStatus>();
+      const liveEntries = new Map<string, OperationLogEntry>();
+      for (const op of this._operations()) {
+        if (op.threadId && (op.status === 'in-progress' || op.status === 'awaiting_input')) {
+          liveStatuses.set(op.threadId, op.status);
+          liveEntries.set(op.threadId, op);
+        }
+      }
+
+      const url = `${this.baseUrl}/agent-x/operations-log?limit=100`;
       const response = await firstValueFrom(this.http.get<OperationsLogResponse>(url));
 
       if (response.success && response.data) {
-        this._operations.set(response.data);
+        let entries = response.data;
+
+        if (liveStatuses.size > 0) {
+          // Re-apply live SSE statuses that the HTTP response may lag behind on
+          const httpThreadIds = new Set(entries.filter((e) => e.threadId).map((e) => e.threadId));
+          entries = entries.map((entry) => {
+            const live = entry.threadId ? liveStatuses.get(entry.threadId) : undefined;
+            return live ? { ...entry, status: live } : entry;
+          });
+
+          // Re-insert entries created by SSE that haven't been persisted yet
+          for (const [threadId] of liveStatuses) {
+            if (!httpThreadIds.has(threadId)) {
+              const existing = liveEntries.get(threadId);
+              if (existing) entries = [existing, ...entries];
+            }
+          }
+        }
+
+        this._operations.set(entries);
       }
     } catch {
       // Silent refresh failures are non-critical
@@ -831,7 +985,7 @@ export class AgentXOperationsLogComponent {
     this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATIONS_LOG_VIEWED);
 
     try {
-      const url = `${this.baseUrl}/agent-x/operations-log?limit=50`;
+      const url = `${this.baseUrl}/agent-x/operations-log?limit=100`;
       const response = await firstValueFrom(this.http.get<OperationsLogResponse>(url));
 
       if (response.success && response.data) {
@@ -882,10 +1036,31 @@ export class AgentXOperationsLogComponent {
     return this._operations().filter((o) => o.status === status).length;
   }
 
+  /**
+   * Check if an entry is "unread" — completed during this session via the
+   * SSE stream and not yet opened/reviewed by the user.
+   * Only these entries get the green border treatment.
+   */
+  protected isUnread(entry: OperationLogEntry): boolean {
+    return (
+      entry.status === 'complete' && !!entry.threadId && this._unreadThreadIds().has(entry.threadId)
+    );
+  }
+
   /** Handle entry tap with haptic feedback. */
   protected async onEntryTap(entry: OperationLogEntry): Promise<void> {
     await this.haptics.impact('light');
     this.logger.info('Entry tapped', { entryId: entry.id, status: entry.status });
+
+    // Clear unread state when user opens the entry
+    if (entry.threadId && this._unreadThreadIds().has(entry.threadId)) {
+      this._unreadThreadIds.update((set) => {
+        const next = new Set(set);
+        next.delete(entry.threadId!);
+        return next;
+      });
+    }
+
     this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATIONS_LOG_ENTRY_TAPPED, {
       entry_id: entry.id,
       status: entry.status,

@@ -21,9 +21,13 @@
  * - Only HTTP(S) protocols are allowed.
  */
 
-import { BaseTool, type ToolResult } from '../base.tool.js';
+import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { ScraperService } from './scraper.service.js';
-import type { PageStructuredData } from './page-data.types.js';
+import {
+  ScraperMediaService,
+  type MediaStagingContext,
+} from '../integrations/scraper-media.service.js';
+import type { PageStructuredData, PageImage } from './page-data.types.js';
 
 export class ScrapeWebpageTool extends BaseTool {
   readonly name = 'scrape_webpage';
@@ -68,13 +72,18 @@ export class ScrapeWebpageTool extends BaseTool {
   readonly category = 'analytics' as const;
 
   private readonly scraper: ScraperService;
+  private readonly media: ScraperMediaService;
 
-  constructor(scraper?: ScraperService) {
+  constructor(scraper?: ScraperService, media?: ScraperMediaService) {
     super();
     this.scraper = scraper ?? new ScraperService();
+    this.media = media ?? new ScraperMediaService();
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
     const url = input['url'];
 
     // ── Input validation ───────────────────────────────────────────────
@@ -94,6 +103,65 @@ export class ScrapeWebpageTool extends BaseTool {
     try {
       const result = await this.scraper.scrape({ url: url.trim(), maxLength });
 
+      // ── Stage extracted media to thread storage ──────────────────────
+      // Replace ephemeral external URLs (CDN-signed, CORS-blocked) with
+      // persistent, thread-scoped Firebase Storage URLs.  When no thread
+      // context is available the original external URLs pass through unchanged.
+      let stagedImages = result.pageData?.images ?? [];
+      let stagedOgImage = result.pageData?.openGraph?.image ?? null;
+
+      if (context?.userId && context?.threadId && result.pageData) {
+        const staging: MediaStagingContext = {
+          userId: context.userId,
+          threadId: context.threadId,
+        };
+
+        // Collect unique image URLs to stage (OG image + page images, capped at 10)
+        const imageSet = new Map<string, string>(); // originalUrl → src
+        if (result.pageData.openGraph?.image) {
+          imageSet.set(result.pageData.openGraph.image, result.pageData.openGraph.image);
+        }
+        for (const img of result.pageData.images) {
+          if (!imageSet.has(img.src)) imageSet.set(img.src, img.src);
+        }
+
+        const urlsToStage = [...imageSet.values()].slice(0, 10);
+        if (urlsToStage.length > 0) {
+          const mediaInputs = urlsToStage.map((imgUrl) => ({
+            url: imgUrl,
+            type: 'image' as const,
+            platform: 'web' as const,
+            sourceUrl: url.trim(),
+          }));
+
+          const persisted = await this.media.persistBatch(mediaInputs, staging);
+
+          // Build a lookup from original URL → staged URL
+          const urlMap = new Map<string, string>();
+          for (const item of persisted) {
+            urlMap.set(item.originalUrl, item.url);
+          }
+
+          // Replace OG image if staged
+          if (stagedOgImage && urlMap.has(stagedOgImage)) {
+            stagedOgImage = urlMap.get(stagedOgImage)!;
+          }
+
+          // Replace page images with staged versions
+          stagedImages = result.pageData.images.map((img) => ({
+            ...img,
+            src: urlMap.get(img.src) ?? img.src,
+          }));
+        }
+      }
+
+      // Build structured data with optionally staged image URLs
+      const structuredData = this.formatStructuredData(
+        result.pageData,
+        stagedImages,
+        stagedOgImage
+      );
+
       return {
         success: true,
         data: {
@@ -107,7 +175,7 @@ export class ScrapeWebpageTool extends BaseTool {
           faviconUrl: result.pageData?.faviconUrl ?? null,
 
           // Structured data summary (richest source — stats, school, colors, social)
-          structuredData: this.formatStructuredData(result.pageData),
+          structuredData,
 
           // Prose markdown (for LLM analysis / summarization)
           markdownContent: result.markdownContent,
@@ -124,9 +192,15 @@ export class ScrapeWebpageTool extends BaseTool {
   /**
    * Format structured page data into a concise summary for the LLM.
    * Returns null if no structured data was extracted.
+   *
+   * @param pageData - Raw structured data from the scrape
+   * @param stagedImages - Optionally staged image list (with thread-scoped URLs)
+   * @param stagedOgImage - Optionally staged OpenGraph image URL
    */
   private formatStructuredData(
-    pageData: PageStructuredData | null
+    pageData: PageStructuredData | null,
+    stagedImages?: readonly PageImage[],
+    stagedOgImage?: string | null
   ): Record<string, unknown> | null {
     if (!pageData || !pageData.hasRichData) return null;
 
@@ -140,15 +214,18 @@ export class ScrapeWebpageTool extends BaseTool {
       const og = pageData.openGraph;
       const ogData: Record<string, string> = {};
       if (og.title) ogData['title'] = og.title;
-      if (og.image) ogData['image'] = og.image;
+      // Use staged OG image if available, fall back to original
+      const ogImage = stagedOgImage ?? og.image;
+      if (ogImage) ogData['image'] = ogImage;
       if (og.type) ogData['type'] = og.type;
       if (og.siteName) ogData['siteName'] = og.siteName;
       if (Object.keys(ogData).length > 0) summary['openGraph'] = ogData;
     }
 
-    // Images (profile photos, team logos)
-    if (pageData.images.length > 0) {
-      summary['images'] = pageData.images.slice(0, 10).map((img) => ({
+    // Images (profile photos, team logos) — use staged versions when available
+    const images = stagedImages ?? pageData.images;
+    if (images.length > 0) {
+      summary['images'] = images.slice(0, 10).map((img) => ({
         src: img.src,
         ...(img.alt ? { alt: img.alt } : {}),
         source: img.source,

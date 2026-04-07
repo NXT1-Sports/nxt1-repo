@@ -19,7 +19,7 @@
  */
 
 import { getStorage } from 'firebase-admin/storage';
-import { BaseTool, type ToolResult } from '../base.tool.js';
+import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
 
 export class GenerateImageTool extends BaseTool {
@@ -69,7 +69,10 @@ export class GenerateImageTool extends BaseTool {
     super();
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
     const prompt = input['prompt'];
     const referenceImageUrl = input['referenceImageUrl'];
     const storagePath = input['storagePath'];
@@ -100,6 +103,8 @@ export class GenerateImageTool extends BaseTool {
 
     // ── Generate image ─────────────────────────────────────────────────
     try {
+      const progress = context?.onProgress;
+      progress?.('Generating image with AI…');
       const result = await this.llm.generateImage({
         prompt: prompt.trim(),
         referenceImageUrl: typeof referenceImageUrl === 'string' ? referenceImageUrl : undefined,
@@ -111,9 +116,17 @@ export class GenerateImageTool extends BaseTool {
       });
 
       // ── Upload to Firebase Storage ─────────────────────────────────
+      progress?.('Uploading to CDN…');
       const timestamp = Date.now();
       const extension = result.mimeType === 'image/jpeg' ? 'jpg' : 'png';
-      const filePath = `${sanitizedPath}/${timestamp}-${userId}.${extension}`;
+
+      // Thread-scoped staging: media shares the thread's lifecycle and is
+      // bulk-deleted when the thread expires. Falls back to the legacy
+      // agent-graphics/ path only when no thread context is available.
+      const filePath =
+        context?.userId && context?.threadId
+          ? `users/${context.userId}/threads/${context.threadId}/media/${timestamp}-${userId}.${extension}`
+          : `${sanitizedPath}/${timestamp}-${userId}.${extension}`;
 
       const bucket = getStorage().bucket();
       const file = bucket.file(filePath);

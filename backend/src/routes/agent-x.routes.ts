@@ -2,23 +2,34 @@
  * @fileoverview Agent X Routes
  * @module @nxt1/backend/routes/agent-x
  *
- * REST API for the Agent X background job engine.
- * All heavy work runs via BullMQ workers — these endpoints
- * enqueue jobs and return status. The frontend polls status
- * or listens to Firestore for real-time updates.
+ * REST API for Agent X — the AI agent command center.
+ *
+ * Architecture (2026 Unified Streaming):
+ *   All agent interactions flow through a single POST /chat SSE stream.
+ *   When the LLM decides a request requires heavy processing, it invokes
+ *   `enqueue_heavy_task` which queues a BullMQ job. Instead of closing the
+ *   SSE connection, the Express server subscribes to a Redis PubSub channel
+ *   and proxies the worker's streaming output verbatim to the client.
+ *
+ *   BullMQ Worker → Redis PubSub → Express SSE Proxy → Frontend
  *
  * Routes:
- *   POST /api/v1/agent-x/ask         → Enqueue a new agent job
- *   GET  /api/v1/agent-x/status/:id  → Poll job progress/result
- *   POST /api/v1/agent-x/cancel/:id  → Cancel an active job
- *   GET  /api/v1/agent-x/history     → Get user's job history
- *   POST /api/v1/agent-x/resume-job/:operationId → Resume a yielded agent job
- *   POST /api/v1/agent-x/approvals/:id/resolve   → Resolve an approval request
+ *   POST /api/v1/agent-x/chat              → SSE streaming chat (unified entry point)
+ *   POST /api/v1/agent-x/chat/send-draft   → Approve a HITL email draft
+ *   POST /api/v1/agent-x/resume-job/:id    → Resume a yielded agent job
+ *   POST /api/v1/agent-x/approvals/:id/resolve → Resolve an approval request
  *   POST /api/v1/agent-x/playbook/item/:id/status → Update playbook item status
- *   POST /api/v1/agent-x/briefing/generate         → Generate daily AI briefing
- *   POST /api/v1/agent-x/pause       → Pause the entire queue (admin)
- *   POST /api/v1/agent-x/resume      → Resume the entire queue (admin)
- *   POST /api/v1/agent-x/cron/daily-briefings → Run daily briefings (Cloud Scheduler)
+ *   POST /api/v1/agent-x/briefing/generate  → Generate daily AI briefing
+ *   GET  /api/v1/agent-x/history            → Get user's job history
+ *   POST /api/v1/agent-x/pause              → Pause the entire queue (admin)
+ *   POST /api/v1/agent-x/resume             → Resume the entire queue (admin)
+ *   POST /api/v1/agent-x/cron/*             → Cloud Scheduler triggers
+ *
+ * Deprecated (410 Gone):
+ *   POST /api/v1/agent-x/ask               → Use /chat instead
+ *   GET  /api/v1/agent-x/status/:id        → Use /chat with resumeOperationId
+ *   GET  /api/v1/agent-x/events/:id        → Use /chat with resumeOperationId
+ *   POST /api/v1/agent-x/cancel/:id        → Jobs cancel via SSE disconnect
  */
 
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
@@ -26,7 +37,6 @@ import { appGuard, adminGuard, cronGuard } from '../middleware/auth.middleware.j
 import { uploadRateLimit } from '../middleware/rate-limit.middleware.js';
 import { validateBody } from '../middleware/validation.middleware.js';
 import {
-  AskAgentDto,
   SetGoalsDto,
   AgentChatRequestDto,
   UpdatePlaybookItemStatusDto,
@@ -37,7 +47,6 @@ import type {
   AgentJobPayload,
   AgentJobOrigin,
   AgentDashboardGoal,
-  ShellActiveOperation,
   ShellWeeklyPlaybookItem,
   ShellBriefingInsight,
   OperationLogEntry,
@@ -48,15 +57,18 @@ import {
   getShellContentForRole,
   AGENT_X_ALLOWED_MIME_TYPES,
   AGENT_X_MAX_FILE_SIZE,
+  AGENT_APPROVAL_POLICIES,
 } from '@nxt1/core';
 import type { AgentChatService } from '../modules/agent/services/agent-chat.service.js';
 import type { ContextBuilder } from '../modules/agent/memory/context-builder.js';
 import type { OpenRouterService } from '../modules/agent/llm/openrouter.service.js';
 import type { LLMMessage, LLMContentPart, LLMToolSchema } from '../modules/agent/llm/llm.types.js';
 import type { ToolRegistry } from '../modules/agent/tools/tool-registry.js';
+import { STREAM_TERMINAL_EVENTS } from '../modules/agent/queue/pubsub.service.js';
 import { logger } from '../utils/logger.js';
 import multer from 'multer';
 import { getStorage } from 'firebase-admin/storage';
+import { sendEmailViaProvider } from '../services/email-sync.service.js';
 import {
   validateJobOrigin,
   mapJobStatus,
@@ -66,15 +78,9 @@ import {
 } from './operations-log.helpers.js';
 import { AgentGenerationService } from '../modules/agent/services/generation.service.js';
 import { FirecrawlProfileService } from '../modules/agent/tools/scraping/firecrawl-profile.service.js';
+import { LiveViewSessionService } from '../modules/agent/tools/scraping/live-view-session.service.js';
 import { PLATFORM_REGISTRY } from '@nxt1/core';
-import {
-  checkBudget,
-  hasPaymentMethod,
-  resolveBillingTarget,
-  COLLECTIONS,
-  executeBillingDeduction,
-  UsageFeature,
-} from '../modules/billing/index.js';
+import { executeBillingDeduction, UsageFeature } from '../modules/billing/index.js';
 import crypto from 'node:crypto';
 
 /**
@@ -157,6 +163,8 @@ let chatService: AgentChatService | null = null;
 let contextBuilder: ContextBuilder | null = null;
 let llmService: OpenRouterService | null = null;
 let toolRegistryRef: ToolRegistry | null = null;
+let pubsubService: import('../modules/agent/queue/pubsub.service.js').AgentPubSubService | null =
+  null;
 
 /**
  * Maximum agentic loop iterations per chat request.
@@ -194,6 +202,7 @@ export function setAgentDependencies(deps: {
   contextBuilder: ContextBuilder;
   llmService: OpenRouterService;
   toolRegistry?: ToolRegistry;
+  pubsub?: import('../modules/agent/queue/pubsub.service.js').AgentPubSubService;
 }): void {
   queueService = deps.queueService;
   jobRepository = deps.jobRepository;
@@ -201,279 +210,27 @@ export function setAgentDependencies(deps: {
   contextBuilder = deps.contextBuilder;
   llmService = deps.llmService;
   if (deps.toolRegistry) toolRegistryRef = deps.toolRegistry;
+  if (deps.pubsub) pubsubService = deps.pubsub;
 }
 
 const router: ExpressRouter = Router();
 
-// ─── POST /ask — Enqueue a new agent job ──────────────────────────────────
+// ─── DEPRECATED ROUTES (unified into POST /chat) ─────────────────────────
+// These endpoints are replaced by the unified /chat SSE stream with
+// Redis PubSub bridging for heavy tasks. Old clients receive 410 Gone.
 
-router.post('/ask', appGuard, validateBody(AskAgentDto), async (req: Request, res: Response) => {
-  try {
-    if (!queueService || !jobRepository) {
-      res.status(503).json({ success: false, error: 'Agent queue not initialized' });
-      return;
-    }
+const deprecatedHandler = (_req: Request, res: Response) => {
+  res.status(410).json({
+    success: false,
+    error: 'This endpoint has been unified into POST /chat. Use /chat with SSE streaming instead.',
+    code: 'ENDPOINT_DEPRECATED',
+  });
+};
 
-    const { intent, sessionId, context, threadId } = req.body as AskAgentDto;
-
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const operationId = crypto.randomUUID();
-
-    // ─── Thread persistence (MongoDB) ────────────────────────────────
-    let resolvedThreadId: string | undefined;
-    if (chatService) {
-      try {
-        resolvedThreadId = await resolveThread(chatService, user.uid, threadId, intent);
-
-        if (resolvedThreadId) {
-          await chatService.addMessage({
-            threadId: resolvedThreadId,
-            userId: user.uid,
-            role: 'user',
-            content: intent.trim(),
-            origin: 'user',
-            operationId,
-          });
-        }
-      } catch (chatErr) {
-        // Chat persistence must never block the job — log and continue
-        logger.warn('Failed to persist user message to MongoDB', {
-          error: chatErr instanceof Error ? chatErr.message : String(chatErr),
-          userId: user.uid,
-        });
-      }
-    }
-
-    const payload: AgentJobPayload = {
-      operationId,
-      userId: user.uid,
-      intent: intent.trim(),
-      sessionId: sessionId ?? crypto.randomUUID(),
-      origin: 'user' as AgentJobOrigin,
-      context: { ...context, threadId: resolvedThreadId },
-    };
-
-    // Write to Firestore first so the frontend can listen immediately.
-    // Use req.firebase.db to target the correct environment (staging vs production).
-    const { db } = req.firebase!;
-
-    // ─── Billing gate ─────────────────────────────────────────────────
-    const billingTarget = await resolveBillingTarget(db, user.uid);
-    const billingCtx = billingTarget.context;
-    const env = req.isStaging ? 'staging' : 'production';
-
-    if (billingCtx.billingEntity === 'individual') {
-      // IAP wallet: check prepaid balance
-      const budgetResult = await checkBudget(db, user.uid, 0);
-      if (!budgetResult.allowed) {
-        res.status(402).json({
-          success: false,
-          error: 'Your Agent X balance has run out. Add funds in Settings → Billing to continue.',
-          code: 'WALLET_EMPTY',
-        });
-        return;
-      }
-    } else {
-      // Determine if this user is the billing admin (director/owner) or a team member
-      const isBillingAdmin =
-        billingTarget.billingUserId === user.uid ||
-        billingTarget.billingUserId === `org:${billingCtx.organizationId}`;
-
-      // Org/Team: check monthly budget FIRST against the org master context.
-      // Pass billingTarget.billingUserId (= "org:<orgId>") so checkBudget reads
-      // the org billing context directly, not the user's individual context.
-      const budgetResult = await checkBudget(db, billingTarget.billingUserId, 0);
-      if (!budgetResult.allowed) {
-        // Budget exhausted — check if they have a payment method for continued usage
-        const customerQuery = await db
-          .collection(COLLECTIONS.STRIPE_CUSTOMERS)
-          .where('userId', '==', billingTarget.billingUserId)
-          .where('environment', '==', env)
-          .limit(1)
-          .get();
-
-        const customerId = customerQuery.empty
-          ? null
-          : ((customerQuery.docs[0]!.data()['stripeCustomerId'] as string | undefined) ?? null);
-
-        if (!customerId || !(await hasPaymentMethod(customerId, env))) {
-          const error = isBillingAdmin
-            ? 'Your free Agent X budget has been used. Add a payment method in Settings to continue.'
-            : "Your team's Agent X budget has been used. Contact your program admin to add a payment method.";
-          res.status(402).json({
-            success: false,
-            error,
-            code: 'BUDGET_EXCEEDED_NO_PAYMENT',
-          });
-        } else {
-          const error = isBillingAdmin
-            ? 'Your monthly Agent X budget has been reached. Increase it in Settings.'
-            : "Your team's monthly Agent X budget has been reached. Contact your program admin to increase it.";
-          res.status(402).json({ success: false, error, code: 'BUDGET_EXCEEDED' });
-        }
-        return;
-      }
-    }
-    // ─────────────────────────────────────────────────────────────────
-
-    await jobRepository.withDb(db).create(payload);
-
-    // Enqueue the job in Redis/BullMQ
-    const jobId = await queueService.enqueue(payload, req.isStaging ? 'staging' : 'production');
-
-    logger.info('Agent job enqueued', {
-      operationId,
-      userId: user.uid,
-      threadId: resolvedThreadId,
-    });
-
-    res.status(202).json({
-      success: true,
-      data: { jobId, operationId, threadId: resolvedThreadId },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to enqueue agent job', { error: error.message, stack: error.stack });
-    res.status(500).json({
-      success: false,
-      error: 'Failed to process request',
-    });
-  }
-});
-
-// ─── GET /status/:id — Poll job progress ──────────────────────────────────
-
-router.get('/status/:id', appGuard, async (req: Request, res: Response) => {
-  try {
-    if (!queueService) {
-      res.status(503).json({ success: false, error: 'Agent queue not initialized' });
-      return;
-    }
-
-    const { id } = req.params;
-    if (!id || typeof id !== 'string') {
-      res.status(400).json({ success: false, error: 'Job ID is required' });
-      return;
-    }
-
-    // Verify ownership: only the job's creator can poll status
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const status = await queueService.getJobStatus(id);
-
-    if (!status) {
-      res.status(404).json({ success: false, error: 'Job not found' });
-      return;
-    }
-
-    // Ownership check: job must belong to the requesting user
-    if (status.userId && status.userId !== user.uid) {
-      res.status(404).json({ success: false, error: 'Job not found' });
-      return;
-    }
-
-    res.json({ success: true, data: status });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to get job status', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to get status' });
-  }
-});
-
-// ─── GET /events/:id — Replay job events (for reconnection) ──────────────
-
-router.get('/events/:id', appGuard, async (req: Request, res: Response) => {
-  try {
-    if (!jobRepository) {
-      res.status(503).json({ success: false, error: 'Agent queue not initialized' });
-      return;
-    }
-
-    const { id } = req.params;
-    if (!id || typeof id !== 'string') {
-      res.status(400).json({ success: false, error: 'Job ID is required' });
-      return;
-    }
-
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    // Verify the job belongs to this user
-    const job = await jobRepository.getById(id);
-    if (!job || job.userId !== user.uid) {
-      res.status(404).json({ success: false, error: 'Job not found' });
-      return;
-    }
-
-    const events = await jobRepository.getJobEvents(id);
-    res.json({ success: true, data: events });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to get job events', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to get events' });
-  }
-});
-
-// ─── POST /cancel/:id — Cancel an active job ─────────────────────────────
-
-router.post('/cancel/:id', appGuard, async (req: Request, res: Response) => {
-  try {
-    if (!queueService || !jobRepository) {
-      res.status(503).json({ success: false, error: 'Agent queue not initialized' });
-      return;
-    }
-
-    const { id } = req.params;
-    if (!id || typeof id !== 'string') {
-      res.status(400).json({ success: false, error: 'Job ID is required' });
-      return;
-    }
-
-    // Verify ownership: only the job's creator can cancel
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    // Check ownership before allowing cancel
-    const status = await queueService.getJobStatus(id);
-    if (!status) {
-      res.status(404).json({ success: false, error: 'Job not found' });
-      return;
-    }
-    if (status.userId && status.userId !== user.uid) {
-      res.status(404).json({ success: false, error: 'Job not found' });
-      return;
-    }
-
-    const cancelled = await queueService.cancel(id);
-
-    if (cancelled) {
-      const { db } = req.firebase!;
-      await jobRepository.withDb(db).markCancelled(id);
-      logger.info('Agent job cancelled', { operationId: id, userId: user.uid });
-    }
-
-    res.json({ success: true, data: { cancelled } });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to cancel job', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to cancel job' });
-  }
-});
+router.post('/ask', appGuard, deprecatedHandler);
+router.get('/status/:id', appGuard, deprecatedHandler);
+router.get('/events/:id', appGuard, deprecatedHandler);
+router.post('/cancel/:id', appGuard, deprecatedHandler);
 
 // ─── POST /resume-job/:operationId — Resume a yielded agent job ───────────
 //
@@ -1004,63 +761,6 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     // Coordinators are role-determined (static, no AI needed)
     const shellContent = getShellContentForRole(role);
 
-    // Fetch daily operations from Firestore (top-level agentJobs collection).
-    // Use the same persisted recent-jobs source as the Activity Log, then
-    // filter in memory. This avoids composite-index drift and keeps the
-    // dashboard aligned with what users already see in the log.
-    let activeOperations: ShellActiveOperation[] = [];
-    if (jobRepository) {
-      try {
-        const jobs = await jobRepository.withDb(db).getByUser(user.uid, 50);
-        const todayStartMs = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
-
-        activeOperations = jobs
-          .filter((job) => {
-            const status = (job['status'] as string) ?? '';
-            if (status === 'completed' || status === 'failed' || status === 'cancelled') {
-              const completedAt = job['completedAt'] as Timestamp | null | undefined;
-              return completedAt ? completedAt.toMillis() >= todayStartMs : false;
-            }
-            return true;
-          })
-          .slice(0, 10)
-          .map((job) => {
-            const progress = job['progress'] as Record<string, unknown> | null;
-            const mappedStatus = mapJobStatus((job['status'] as string) ?? '');
-            return {
-              id: (job['operationId'] as string) ?? '',
-              label: ((job['intent'] as string | undefined)?.slice(0, 60) ??
-                'Processing...') as string,
-              progress:
-                typeof progress?.['percent'] === 'number' ? (progress['percent'] as number) : 0,
-              icon: 'sparkles' as string,
-              status:
-                mappedStatus === 'complete'
-                  ? ('complete' as const)
-                  : mappedStatus === 'error' || mappedStatus === 'cancelled'
-                    ? ('error' as const)
-                    : ('processing' as const),
-              // Pass the Mongo thread ID so the frontend can open the real worker logs.
-              threadId: (job['threadId'] as string) || undefined,
-              // Pass error message for failed operations so the chat can display it.
-              ...(mappedStatus === 'error' || mappedStatus === 'cancelled'
-                ? {
-                    errorMessage:
-                      (job['error'] as string) ??
-                      'This operation failed unexpectedly. You can retry it.',
-                  }
-                : {}),
-            };
-          });
-      } catch (opsErr) {
-        const opsError = opsErr instanceof Error ? opsErr : new Error(String(opsErr));
-        logger.warn('Failed to fetch agent operations from job repository', {
-          error: opsError.message,
-          userId: user.uid,
-        });
-      }
-    }
-
     // Fetch generated briefing (or fall back to static defaults)
     const briefingDoc = await db
       .collection('Users')
@@ -1117,7 +817,6 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
           generatedAt: playbookGeneratedAt,
           canRegenerate: agentGoals.length > 0,
         },
-        activeOperations,
         coordinators: shellContent.coordinators,
       },
     });
@@ -1244,6 +943,65 @@ router.post(
   }
 );
 
+// ─── Helper: Replay Firestore JobEvents as SSE to a client ────────────────
+// Used by both the "drop recovery" path and the "completed job replay" path
+// to convert stored JobEvent documents into SSE frames.
+
+function replayJobEventsAsSSE(
+  res: Response,
+  events: ReadonlyArray<{
+    type: string;
+    text?: string;
+    toolName?: string;
+    message?: string;
+    toolSuccess?: boolean;
+  }>
+): void {
+  for (const evt of events) {
+    switch (evt.type) {
+      case 'delta':
+        if (evt.text) {
+          res.write(`event: delta\ndata: ${JSON.stringify({ content: evt.text })}\n\n`);
+        }
+        break;
+      case 'step_active':
+      case 'step_done':
+      case 'step_error': {
+        const status =
+          evt.type === 'step_active' ? 'active' : evt.type === 'step_done' ? 'success' : 'error';
+        res.write(
+          `event: step\ndata: ${JSON.stringify({
+            id: evt.toolName ?? evt.type,
+            label: evt.message ?? evt.type,
+            status,
+          })}\n\n`
+        );
+        break;
+      }
+      case 'tool_call':
+        res.write(
+          `event: step\ndata: ${JSON.stringify({
+            id: evt.toolName ?? 'tool',
+            label: evt.message ?? evt.toolName ?? 'Tool',
+            status: 'active',
+          })}\n\n`
+        );
+        break;
+      case 'tool_result':
+        res.write(
+          `event: step\ndata: ${JSON.stringify({
+            id: evt.toolName ?? 'tool',
+            label: evt.message ?? evt.toolName ?? 'Tool',
+            status: evt.toolSuccess ? 'success' : 'error',
+          })}\n\n`
+        );
+        break;
+      default:
+        break;
+    }
+  }
+}
+
 // ─── POST /chat — Real conversational Agent X chat (SSE Streaming) ────────
 
 router.post(
@@ -1254,6 +1012,7 @@ router.post(
     // Billing context — defined outside try so catch can access for rage-quit billing
     const chatOperationId = `chat-${crypto.randomUUID()}`;
     const chatUser = getAuthUser(req);
+    let resolvedThreadId: string | undefined;
 
     try {
       const user = chatUser;
@@ -1262,10 +1021,122 @@ router.post(
         return;
       }
 
-      const { message, mode, history, threadId, attachments } = req.body as AgentChatRequestDto;
+      const { message, mode, history, threadId, attachments, resumeOperationId } =
+        req.body as AgentChatRequestDto;
+
+      // ── Drop Recovery: Resume an in-progress heavy task stream ───────
+      // If the client passes resumeOperationId, the user's SSE connection dropped
+      // while a BullMQ job was still running. We skip the LLM loop and:
+      //   1. Replay historical events from Firestore
+      //   2. Re-subscribe to Redis PubSub for any remaining live events
+      if (resumeOperationId && pubsubService && jobRepository) {
+        logger.info('Drop recovery: resuming heavy task stream', {
+          operationId: resumeOperationId,
+          userId: user.uid,
+        });
+
+        // Set SSE headers
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.flushHeaders();
+
+        // 1. Replay Firestore events (everything the worker already produced)
+        try {
+          const job = await jobRepository.getById(resumeOperationId);
+          if (!job || job.userId !== user.uid) {
+            res.write(
+              `event: error\ndata: ${JSON.stringify({ error: 'Operation not found or unauthorized' })}\n\n`
+            );
+            res.end();
+            return;
+          }
+
+          // If job already completed, replay everything and close
+          if (job.status === 'completed' || job.status === 'failed') {
+            const events = await jobRepository.getJobEvents(resumeOperationId);
+            replayJobEventsAsSSE(res, events);
+            res.write(
+              `event: done\ndata: ${JSON.stringify({
+                operationId: resumeOperationId,
+                status: job.status,
+                timestamp: new Date().toISOString(),
+              })}\n\n`
+            );
+            res.end();
+            logger.info('Drop recovery: replayed completed job from Firestore', {
+              operationId: resumeOperationId,
+              userId: user.uid,
+              eventCount: events.length,
+            });
+            return;
+          }
+
+          // Job still running — replay existing events, then subscribe to PubSub
+          const events = await jobRepository.getJobEvents(resumeOperationId);
+          replayJobEventsAsSSE(res, events);
+
+          logger.info('Drop recovery: replayed events, subscribing to live stream', {
+            operationId: resumeOperationId,
+            userId: user.uid,
+            replayedCount: events.length,
+          });
+        } catch (replayErr) {
+          logger.warn('Drop recovery: Firestore replay failed, proceeding to PubSub only', {
+            operationId: resumeOperationId,
+            error: replayErr instanceof Error ? replayErr.message : String(replayErr),
+          });
+        }
+
+        // 2. Subscribe to Redis PubSub for remaining live events
+        const heartbeatInterval = setInterval(() => {
+          try {
+            res.write(`event: ping\ndata: {}\n\n`);
+          } catch {
+            clearInterval(heartbeatInterval);
+          }
+        }, 15_000);
+
+        const unsubscribe = await pubsubService.subscribe(resumeOperationId, (msg) => {
+          try {
+            res.write(`event: ${msg.event}\ndata: ${JSON.stringify(msg.data)}\n\n`);
+
+            if (STREAM_TERMINAL_EVENTS.has(msg.event)) {
+              clearInterval(heartbeatInterval);
+              void unsubscribe();
+              res.write(
+                `event: done\ndata: ${JSON.stringify({
+                  operationId: resumeOperationId,
+                  timestamp: new Date().toISOString(),
+                })}\n\n`
+              );
+              res.end();
+              logger.info('Drop recovery: PubSub stream completed', {
+                operationId: resumeOperationId,
+                userId: user.uid,
+              });
+            }
+          } catch {
+            clearInterval(heartbeatInterval);
+            void unsubscribe();
+          }
+        });
+
+        req.on('close', () => {
+          clearInterval(heartbeatInterval);
+          void unsubscribe();
+          logger.info('Drop recovery: client disconnected again', {
+            operationId: resumeOperationId,
+            userId: user.uid,
+          });
+        });
+
+        // Return early — drop recovery owns the response lifecycle
+        return;
+      }
 
       // ── Step 1: Resolve thread (create or verify ownership) ──────────
-      let resolvedThreadId: string | undefined;
       const isNewThread = !threadId; // Track if this is the first message (new thread)
       if (chatService) {
         try {
@@ -1349,6 +1220,9 @@ router.post(
         `\n[Tool Usage Rules]`,
         `- When calling tools, extract userId, teamId, and organizationId from the [User Profile] above. NEVER ask the user for their UserID, TeamID, or OrgID — you already have them.`,
         `- If a required parameter is available in the user profile context, use it directly.`,
+        `- When the user wants to BROWSE or SEE a website interactively, use the open_live_view tool. It opens a live browser in their command center. If they have a connected account for that platform, the session will be pre-authenticated.`,
+        `- After opening a live view, use navigate_live_view (change URL), read_live_view (extract page content), interact_with_live_view (click/type/scroll), and close_live_view (end session) to control the SAME browser the user sees. You do NOT need to pass a sessionId — the tools auto-resolve it from the userId. NEVER use read_webpage or interact_with_webpage on URLs already open in a live view — those create separate browsers.`,
+        `- You can safely call open_live_view again with a new URL — it automatically reuses the existing session. Only use close_live_view when the user explicitly asks to close the browser or the task is fully done.`,
         mode ? `\nThe user is currently in "${mode}" mode.` : '',
       ]
         .filter(Boolean)
@@ -1420,9 +1294,32 @@ router.post(
         'X-Accel-Buffering': 'no', // Disable Nginx buffering for SSE
       });
 
+      // Disable Nagle's algorithm so tiny SSE chunks (like the in-progress
+      // event below) are pushed to the wire immediately instead of being
+      // held in the kernel's TCP buffer waiting for more data.
+      res.flushHeaders();
+      res.socket?.setNoDelay(true);
+
       // Send initial threadId so the frontend knows which thread to reference
       if (resolvedThreadId) {
         res.write(`event: thread\ndata: ${JSON.stringify({ threadId: resolvedThreadId })}\n\n`);
+
+        // Emit operation lifecycle event — marks this thread as in-progress
+        // in the operations log sidebar in real-time (no polling needed).
+        res.write(
+          `event: operation\ndata: ${JSON.stringify({
+            threadId: resolvedThreadId,
+            status: 'in-progress',
+            timestamp: new Date().toISOString(),
+          })}\n\n`
+        );
+
+        // Force-flush the in-progress event to the client immediately.
+        // Without this, Node may hold these ~200 bytes in the socket
+        // write buffer until the LLM starts streaming larger chunks.
+        if (typeof (res as any).flush === 'function') {
+          (res as any).flush();
+        }
       }
 
       // Attempt streaming; fall back to non-streaming if LLM service is unavailable
@@ -1430,6 +1327,8 @@ router.post(
       let model = 'unknown';
       let tokenUsage: { inputTokens: number; outputTokens: number; model: string } | undefined;
       let stepCounter = 0;
+      // Track autoOpenPanel instructions emitted by tool executions (outer scope for done event)
+      let pendingAutoOpenPanel: Record<string, unknown> | null = null;
 
       // Build LLM tool schemas from the registry (read-only tools only for chat safety)
       const chatTools: LLMToolSchema[] = [];
@@ -1457,7 +1356,7 @@ router.post(
               messages,
               {
                 tier: 'chat',
-                maxTokens: 2048,
+                maxTokens: 4096,
                 temperature: 0.7,
                 ...(chatTools.length > 0 ? { tools: chatTools } : {}),
                 telemetryContext: {
@@ -1522,11 +1421,16 @@ router.post(
             });
 
             // Execute tools in parallel (all I/O-bound — safe to parallelize)
+            // But first, check if any tool requires HITL approval (e.g., send_email).
+            // If so, emit a draft card and yield instead of executing.
+            let hitlYielded = false;
+            let heavyTaskOperationId: string | null = null;
+
             const toolResults = await Promise.all(
-              streamResult.toolCalls.map(async (tc) => {
-                const stepInfo = [...activeToolSteps.values()].find(
-                  (s) => s.name === tc.function.name
-                );
+              streamResult.toolCalls.map(async (tc, tcIndex) => {
+                // Use array index to look up step — .find() by name fails when
+                // the LLM calls the same tool multiple times in a single turn.
+                const stepInfo = activeToolSteps.get(tcIndex);
 
                 try {
                   let parsedArgs: Record<string, unknown> = {};
@@ -1540,9 +1444,116 @@ router.post(
                     });
                   }
 
+                  // ── HITL intercept: yield draft card for approval-required tools ──
+                  const approvalPolicy = AGENT_APPROVAL_POLICIES.find(
+                    (p) => p.toolName === tc.function.name && p.requiresApproval
+                  );
+                  if (approvalPolicy) {
+                    hitlYielded = true;
+
+                    // Emit a draft card so the user can review/edit before sending
+                    const draftPayload = {
+                      type: 'draft',
+                      title: 'Email Draft',
+                      payload: {
+                        content: (parsedArgs['bodyHtml'] as string) ?? '',
+                        subject: (parsedArgs['subject'] as string) ?? '',
+                        recipientsCount: 1,
+                        // Pass through the tool args so the frontend can send them back
+                        toEmail: (parsedArgs['toEmail'] as string) ?? '',
+                        toolCallId: tc.id,
+                        toolName: tc.function.name,
+                      },
+                    };
+                    res.write(`event: card\ndata: ${JSON.stringify(draftPayload)}\n\n`);
+
+                    if (stepInfo) {
+                      res.write(
+                        `event: step\ndata: ${JSON.stringify({
+                          id: stepInfo.id,
+                          label: 'Waiting for your approval',
+                          status: 'success',
+                        })}\n\n`
+                      );
+                    }
+
+                    logger.info('HITL yield: draft card emitted for approval', {
+                      tool: tc.function.name,
+                      userId: user.uid,
+                      toEmail: parsedArgs['toEmail'],
+                    });
+
+                    // Return a synthetic tool result so the LLM knows the draft was shown
+                    return {
+                      role: 'tool' as const,
+                      tool_call_id: tc.id,
+                      content: JSON.stringify({
+                        status: 'pending_approval',
+                        message:
+                          'Email draft has been shown to the user for review. Waiting for approval before sending.',
+                      }),
+                    };
+                  }
+
+                  // Inject the current request environment into enqueue_heavy_task so the
+                  // background worker targets the correct Firestore project (staging vs production).
+                  if (tc.function.name === 'enqueue_heavy_task') {
+                    parsedArgs['context'] = {
+                      ...(typeof parsedArgs['context'] === 'object' &&
+                      parsedArgs['context'] !== null
+                        ? (parsedArgs['context'] as Record<string, unknown>)
+                        : {}),
+                      environment: req.isStaging ? 'staging' : 'production',
+                    };
+                  }
+
                   const result = toolRegistryRef
-                    ? await toolRegistryRef.execute(tc.function.name, parsedArgs)
+                    ? await toolRegistryRef.execute(tc.function.name, parsedArgs, {
+                        userId: user.uid,
+                        threadId: resolvedThreadId,
+                        sessionId: chatOperationId,
+                        onProgress: (label: string) => {
+                          if (stepInfo) {
+                            try {
+                              res.write(
+                                `event: step\ndata: ${JSON.stringify({
+                                  id: stepInfo.id,
+                                  label,
+                                  status: 'active',
+                                })}\n\n`
+                              );
+                            } catch {
+                              // Client disconnected — swallow
+                            }
+                          }
+                        },
+                      })
                     : { success: false, error: 'Tool registry unavailable' };
+
+                  // ── Heavy task bridge: capture operationId for SSE proxy ──
+                  if (
+                    tc.function.name === 'enqueue_heavy_task' &&
+                    result.success &&
+                    result.data &&
+                    typeof result.data === 'object' &&
+                    'operationId' in (result.data as Record<string, unknown>)
+                  ) {
+                    heavyTaskOperationId = (result.data as Record<string, unknown>)[
+                      'operationId'
+                    ] as string;
+                  }
+
+                  // Capture autoOpenPanel instruction from tool results (e.g. live-view)
+                  if (
+                    result.success &&
+                    result.data &&
+                    typeof result.data === 'object' &&
+                    'autoOpenPanel' in (result.data as Record<string, unknown>)
+                  ) {
+                    pendingAutoOpenPanel = (result.data as Record<string, unknown>)[
+                      'autoOpenPanel'
+                    ] as Record<string, unknown>;
+                  }
 
                   // Mark step as success
                   if (stepInfo) {
@@ -1591,6 +1602,167 @@ router.post(
             // Append all tool results to the conversation for the next turn
             for (const result of toolResults) {
               messages.push(result);
+            }
+
+            // ── HITL: if a draft card was yielded, break out of the agentic loop ──
+            // The user must approve/edit the draft before we continue.
+            // We send a final delta so the LLM's "I've drafted an email..." text renders.
+            if (hitlYielded) {
+              const hitlMessage =
+                "I've prepared an email draft for your review. You can edit the subject and body, then tap **Approve & Send** when you're ready.";
+              responseContent += hitlMessage;
+              res.write(`event: delta\ndata: ${JSON.stringify({ content: hitlMessage })}\n\n`);
+
+              // Emit operation lifecycle event — marks this thread as awaiting user input (yield gate)
+              if (resolvedThreadId) {
+                res.write(
+                  `event: operation\ndata: ${JSON.stringify({
+                    threadId: resolvedThreadId,
+                    status: 'awaiting_input',
+                    timestamp: new Date().toISOString(),
+                  })}\n\n`
+                );
+              }
+
+              logger.info('HITL: breaking agentic loop, awaiting user approval', {
+                userId: user.uid,
+                turn: turn + 1,
+              });
+              break;
+            }
+
+            // ── Heavy task SSE proxy: bridge BullMQ worker stream to open SSE ──
+            // When enqueue_heavy_task was called, we pivot from the inline LLM loop
+            // to a Redis PubSub proxy that forwards the worker's streaming output
+            // directly to the client's open SSE connection.
+            if (heavyTaskOperationId && pubsubService) {
+              logger.info('Pivoting to PubSub SSE proxy for heavy task', {
+                operationId: heavyTaskOperationId,
+                userId: user.uid,
+              });
+
+              // Emit a queued step so the user sees immediate feedback
+              res.write(
+                `event: step\ndata: ${JSON.stringify({
+                  id: 'heavy-task-queued',
+                  label: 'Agent processing in background',
+                  status: 'active',
+                })}\n\n`
+              );
+
+              // 15-second heartbeat keeps the connection alive through proxies/load balancers
+              const heartbeatInterval = setInterval(() => {
+                try {
+                  res.write(`event: ping\ndata: {}\n\n`);
+                } catch {
+                  clearInterval(heartbeatInterval);
+                }
+              }, 15_000);
+
+              // Subscribe to the worker's Redis PubSub channel
+              const unsubscribe = await pubsubService.subscribe(heavyTaskOperationId, (msg) => {
+                try {
+                  // Forward the worker's SSE event verbatim to the client
+                  res.write(`event: ${msg.event}\ndata: ${JSON.stringify(msg.data)}\n\n`);
+
+                  // Accumulate delta content for persistence
+                  if (
+                    msg.event === 'delta' &&
+                    msg.data &&
+                    typeof msg.data === 'object' &&
+                    'content' in (msg.data as Record<string, unknown>)
+                  ) {
+                    responseContent += (msg.data as Record<string, unknown>)['content'] as string;
+                  }
+
+                  // On terminal event, clean up and close the SSE connection
+                  if (STREAM_TERMINAL_EVENTS.has(msg.event)) {
+                    clearInterval(heartbeatInterval);
+                    void unsubscribe();
+
+                    // Mark queued step as done
+                    res.write(
+                      `event: step\ndata: ${JSON.stringify({
+                        id: 'heavy-task-queued',
+                        label: 'Agent processing in background',
+                        status: msg.event === 'done' ? 'success' : 'error',
+                      })}\n\n`
+                    );
+
+                    // Send the final done event with metadata
+                    const donePayload: Record<string, unknown> = {
+                      threadId: resolvedThreadId,
+                      model,
+                      usage: tokenUsage,
+                      timestamp: new Date().toISOString(),
+                      operationId: heavyTaskOperationId,
+                    };
+                    if (pendingAutoOpenPanel) {
+                      donePayload['autoOpenPanel'] = pendingAutoOpenPanel;
+                    }
+                    res.write(`event: done\ndata: ${JSON.stringify(donePayload)}\n\n`);
+
+                    // Emit operation lifecycle event for the heavy task completion
+                    res.write(
+                      `event: operation\ndata: ${JSON.stringify({
+                        threadId: resolvedThreadId,
+                        status: msg.event === 'done' ? 'complete' : 'error',
+                        timestamp: new Date().toISOString(),
+                      })}\n\n`
+                    );
+
+                    res.end();
+
+                    logger.info('Heavy task SSE proxy completed', {
+                      operationId: heavyTaskOperationId,
+                      userId: user.uid,
+                      terminalEvent: msg.event,
+                    });
+                  }
+                } catch (proxyErr) {
+                  // Connection may have been closed by the client
+                  clearInterval(heartbeatInterval);
+                  void unsubscribe();
+                  logger.warn('SSE proxy write failed (client likely disconnected)', {
+                    operationId: heavyTaskOperationId,
+                    error: proxyErr instanceof Error ? proxyErr.message : String(proxyErr),
+                  });
+                }
+              });
+
+              // Client disconnect cleanup
+              req.on('close', () => {
+                clearInterval(heartbeatInterval);
+                void unsubscribe();
+                logger.info('Client disconnected during heavy task proxy', {
+                  operationId: heavyTaskOperationId,
+                  userId: user.uid,
+                });
+              });
+
+              // Persist the LLM's inline response before the heavy task started
+              if (chatService && resolvedThreadId && responseContent) {
+                try {
+                  await chatService.addMessage({
+                    threadId: resolvedThreadId,
+                    userId: user.uid,
+                    role: 'assistant',
+                    content: responseContent,
+                    origin: 'user',
+                    agentId: 'general',
+                    tokenUsage,
+                  });
+                } catch (persistErr) {
+                  logger.warn('Failed to persist pre-proxy assistant reply', {
+                    error: persistErr instanceof Error ? persistErr.message : String(persistErr),
+                    userId: user.uid,
+                  });
+                }
+              }
+
+              // Break out of the agentic loop — the PubSub handler owns the response now.
+              // Return early to skip the standard Step 5/6/7 finalization below.
+              return;
             }
 
             // Accumulate any partial content from the tool-calling turn
@@ -1668,13 +1840,34 @@ router.post(
       }
 
       // ── Step 6: Send final metadata event and close ──────────────────
-      const donePayload = {
+      const donePayload: Record<string, unknown> = {
         threadId: resolvedThreadId,
         model,
         usage: tokenUsage,
         timestamp: new Date().toISOString(),
       };
+
+      // Attach autoOpenPanel instruction if any tool requested one
+      if (pendingAutoOpenPanel) {
+        donePayload['autoOpenPanel'] = pendingAutoOpenPanel;
+        logger.info('Including autoOpenPanel in done event', {
+          type: (pendingAutoOpenPanel as Record<string, unknown>)['type'],
+          userId: user.uid,
+        });
+      }
+
       res.write(`event: done\ndata: ${JSON.stringify(donePayload)}\n\n`);
+
+      // Emit operation lifecycle event — marks this thread as complete
+      if (resolvedThreadId) {
+        res.write(
+          `event: operation\ndata: ${JSON.stringify({
+            threadId: resolvedThreadId,
+            status: 'complete',
+            timestamp: new Date().toISOString(),
+          })}\n\n`
+        );
+      }
 
       logger.info('Agent X SSE chat completed', {
         userId: user.uid,
@@ -1728,11 +1921,109 @@ router.post(
         res.write(
           `event: error\ndata: ${JSON.stringify({ error: 'Failed to process message' })}\n\n`
         );
+        // Emit operation lifecycle event — marks this thread as errored
+        if (resolvedThreadId) {
+          res.write(
+            `event: operation\ndata: ${JSON.stringify({
+              threadId: resolvedThreadId,
+              status: 'error',
+              timestamp: new Date().toISOString(),
+            })}\n\n`
+          );
+        }
         res.end();
       }
     }
   }
 );
+
+// ─── POST /chat/send-draft — Execute a user-approved email draft (HITL) ───
+
+router.post('/chat/send-draft', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { toEmail, subject, body } = req.body as {
+      toEmail?: string;
+      subject?: string;
+      body?: string;
+    };
+
+    // ── Input validation ────────────────────────────────────────────────
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!toEmail || typeof toEmail !== 'string' || !emailRegex.test(toEmail)) {
+      res.status(400).json({ success: false, error: 'Invalid or missing "toEmail".' });
+      return;
+    }
+    if (!subject || typeof subject !== 'string' || subject.trim().length === 0) {
+      res.status(400).json({ success: false, error: 'Invalid or missing "subject".' });
+      return;
+    }
+    if (subject.length > 500) {
+      res.status(400).json({ success: false, error: '"subject" exceeds 500 characters.' });
+      return;
+    }
+    if (!body || typeof body !== 'string' || body.trim().length === 0) {
+      res.status(400).json({ success: false, error: 'Invalid or missing "body".' });
+      return;
+    }
+    if (body.length > 50_000) {
+      res.status(400).json({ success: false, error: '"body" exceeds 50,000 characters.' });
+      return;
+    }
+
+    // ── Auto-detect provider from user's connected emails ───────────────
+    const { db } = req.firebase!;
+    const userDoc = await db.collection('Users').doc(user.uid).get();
+    const userData = userDoc.data();
+    const connectedEmails: Array<{ provider: string; isActive: boolean }> =
+      userData?.['connectedEmails'] ?? [];
+
+    const active = connectedEmails.find(
+      (ce) => ce.isActive && (ce.provider === 'gmail' || ce.provider === 'microsoft')
+    );
+
+    if (!active) {
+      res.status(400).json({
+        success: false,
+        error: 'No connected email account found. Connect Gmail or Outlook in Settings → Email.',
+      });
+      return;
+    }
+
+    const provider = active.provider as 'gmail' | 'microsoft';
+
+    // ── Send via the unified email service ──────────────────────────────
+    const result = await sendEmailViaProvider(user.uid, provider, toEmail, subject, body, db);
+
+    logger.info('Draft email sent (HITL approved)', {
+      userId: user.uid,
+      provider,
+      toEmail,
+      messageId: result.externalMessageId,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        messageId: result.externalMessageId ?? null,
+        provider,
+        message: `Email sent to ${toEmail} via ${provider}.`,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to send draft email', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to send email.' });
+  }
+});
 
 // ─── POST /playbook/generate — Generate or regenerate weekly playbook ─────
 
@@ -1967,6 +2258,95 @@ router.post('/cron/daily-briefings', cronGuard, async (_req: Request, res: Respo
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('CRON daily briefings failed', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Daily briefings failed' });
+  }
+});
+
+// ─── POST /cron/summarize-threads — Cloud Scheduler trigger (CRON only) ───
+// Extracts durable facts from inactive threads into long-term vector memory.
+
+router.post('/cron/summarize-threads', cronGuard, async (_req: Request, res: Response) => {
+  try {
+    if (!llmService) {
+      res.status(503).json({ success: false, error: 'LLM service not initialized' });
+      return;
+    }
+
+    const { MemorySummarizationService } =
+      await import('../modules/agent/memory/memory-summarization.service.js');
+    const { VectorMemoryService } = await import('../modules/agent/memory/vector.service.js');
+
+    const vectorMemory = new VectorMemoryService(llmService);
+    const summarizer = new MemorySummarizationService(llmService, vectorMemory);
+    const result = await summarizer.summarizeInactiveThreads();
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('CRON summarize-threads failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Thread summarization failed' });
+  }
+});
+
+// ─── POST /cron/cleanup-thread-media — Cloud Scheduler trigger (CRON only) ──
+// Deletes Firebase Storage media for threads whose expiresAt is within the
+// next 24 hours.  MongoDB TTL deletes are silent (no trigger/hook), so this
+// pre-expiry sweep ensures orphaned media never accumulates.
+
+router.post('/cron/cleanup-thread-media', cronGuard, async (_req: Request, res: Response) => {
+  try {
+    const { ScraperMediaService } =
+      await import('../modules/agent/tools/integrations/scraper-media.service.js');
+    const { AgentThreadModel: AgentThread } = await import('../models/agent-thread.model.js');
+
+    // Find threads expiring within the next 24 hours that haven't been cleaned
+    const cutoff = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const threads = await AgentThread.find({
+      expiresAt: { $lte: cutoff },
+      mediaCleaned: { $ne: true },
+    })
+      .select('_id userId')
+      .limit(100)
+      .lean();
+
+    let cleaned = 0;
+    let filesDeleted = 0;
+
+    for (const thread of threads) {
+      try {
+        const count = await ScraperMediaService.deleteThreadMedia(
+          thread.userId,
+          String(thread._id)
+        );
+        filesDeleted += count;
+
+        // Mark as cleaned so we don't re-process
+        await AgentThread.updateOne({ _id: thread._id }, { $set: { mediaCleaned: true } });
+        cleaned++;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.warn('Failed to clean thread media', {
+          threadId: String(thread._id),
+          userId: thread.userId,
+          error: msg,
+        });
+        // Continue with next thread — don't fail the entire batch
+      }
+    }
+
+    logger.info('CRON cleanup-thread-media completed', {
+      threadsScanned: threads.length,
+      threadsCleaned: cleaned,
+      filesDeleted,
+    });
+
+    res.json({
+      success: true,
+      data: { threadsScanned: threads.length, threadsCleaned: cleaned, filesDeleted },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('CRON cleanup-thread-media failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Thread media cleanup failed' });
   }
 });
 
@@ -2232,6 +2612,13 @@ let _firecrawlProfileService: FirecrawlProfileService | null = null;
 function getFirecrawlProfileService(): FirecrawlProfileService {
   if (!_firecrawlProfileService) _firecrawlProfileService = new FirecrawlProfileService();
   return _firecrawlProfileService;
+}
+
+/** Lazy singleton for live-view sessions — only created on first request. */
+let _liveViewSessionService: LiveViewSessionService | null = null;
+function getLiveViewSessionService(): LiveViewSessionService {
+  if (!_liveViewSessionService) _liveViewSessionService = new LiveViewSessionService();
+  return _liveViewSessionService;
 }
 
 /**
@@ -2518,6 +2905,196 @@ router.post('/firecrawl/session/disconnect', appGuard, async (req: Request, res:
       stack: error.stack,
     });
     res.status(500).json({ success: false, error: 'Failed to disconnect account' });
+  }
+});
+
+// ─── LIVE VIEW SESSION ENDPOINTS ─────────────────────────────────────────────
+// Provide the Agent X desktop Command Center with session-backed, interactive
+// browser views. Supports both allowlisted platforms and arbitrary validated URLs.
+
+/**
+ * POST /live-view/start — Start a new live-view browser session.
+ *
+ * Body: { url: string, platformKey?: string }
+ *  - url:         The destination URL to open in the live view.
+ *  - platformKey:  Optional platform hint (e.g. 'hudl') to skip domain matching.
+ *
+ * Returns: { success: true, data: LiveViewSession }
+ */
+router.post('/live-view/start', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) {
+      res.status(401).json({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    const { url, platformKey } = req.body;
+
+    if (!url || typeof url !== 'string') {
+      res.status(400).json({ success: false, error: 'URL is required' });
+      return;
+    }
+
+    if (platformKey && (typeof platformKey !== 'string' || !PLATFORM_KEY_RE.test(platformKey))) {
+      res.status(400).json({ success: false, error: 'Invalid platform key' });
+      return;
+    }
+
+    // Fetch connected accounts for auth profile reuse
+    const { db } = req.firebase!;
+    const userDoc = await db.collection('Users').doc(user.uid).get();
+    const connectedAccounts =
+      (userDoc.data()?.['connectedAccounts'] as Record<
+        string,
+        { profileName?: string; status?: string }
+      >) ?? {};
+
+    const service = getLiveViewSessionService();
+    const result = await service.startSession(user.uid, { url, platformKey }, connectedAccounts);
+
+    logger.info('[AgentX] Live view session started', {
+      userId: user.uid,
+      sessionId: result.session.sessionId,
+      tier: result.session.destinationTier,
+      authStatus: result.session.authStatus,
+    });
+
+    res.json({ success: true, data: result.session });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+
+    // 409 — conflict (concurrent saver on same profile)
+    if (error.message.includes('409') || error.message.includes('conflict')) {
+      res.status(409).json({
+        success: false,
+        error: 'Another session is currently active for this account. Please try again shortly.',
+      });
+      return;
+    }
+
+    // 429 — concurrent session limit
+    if (error.message.includes('maximum number of concurrent')) {
+      res.status(429).json({
+        success: false,
+        error: 'Too many active sessions. Please wait a moment and try again.',
+      });
+      return;
+    }
+
+    logger.error('[AgentX] Failed to start live view session', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to start live view session' });
+  }
+});
+
+/**
+ * POST /live-view/navigate — Navigate an active session to a new URL.
+ *
+ * Body: { sessionId: string, url: string }
+ */
+router.post('/live-view/navigate', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) {
+      res.status(401).json({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    const { sessionId, url } = req.body;
+
+    if (!sessionId || typeof sessionId !== 'string') {
+      res.status(400).json({ success: false, error: 'Session ID is required' });
+      return;
+    }
+    if (!url || typeof url !== 'string') {
+      res.status(400).json({ success: false, error: 'URL is required' });
+      return;
+    }
+
+    const service = getLiveViewSessionService();
+    const result = await service.navigate(sessionId, user.uid, url);
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('[AgentX] Failed to navigate live view', { error: error.message });
+
+    if (error.message.includes('not found') || error.message.includes('expired')) {
+      res.status(404).json({ success: false, error: error.message });
+      return;
+    }
+
+    res.status(500).json({ success: false, error: 'Failed to navigate' });
+  }
+});
+
+/**
+ * POST /live-view/refresh — Refresh the current page in an active session.
+ *
+ * Body: { sessionId: string }
+ */
+router.post('/live-view/refresh', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) {
+      res.status(401).json({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    const { sessionId } = req.body;
+    if (!sessionId || typeof sessionId !== 'string') {
+      res.status(400).json({ success: false, error: 'Session ID is required' });
+      return;
+    }
+
+    const service = getLiveViewSessionService();
+    await service.refresh(sessionId, user.uid);
+
+    res.json({ success: true });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('[AgentX] Failed to refresh live view', { error: error.message });
+
+    if (error.message.includes('not found') || error.message.includes('expired')) {
+      res.status(404).json({ success: false, error: error.message });
+      return;
+    }
+
+    res.status(500).json({ success: false, error: 'Failed to refresh' });
+  }
+});
+
+/**
+ * POST /live-view/close — Close and clean up a live-view session.
+ *
+ * Body: { sessionId: string }
+ */
+router.post('/live-view/close', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) {
+      res.status(401).json({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    const { sessionId } = req.body;
+    if (!sessionId || typeof sessionId !== 'string') {
+      res.status(400).json({ success: false, error: 'Session ID is required' });
+      return;
+    }
+
+    const service = getLiveViewSessionService();
+    await service.closeSession(sessionId, user.uid);
+
+    res.json({ success: true });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('[AgentX] Failed to close live view session', { error: error.message });
+    // Swallow errors on close — best-effort cleanup
+    res.json({ success: true });
   }
 });
 

@@ -183,8 +183,7 @@ export class ProfileService implements OnDestroy, IProfileService {
    * Is premium user
    */
   readonly isPremium = computed(() => {
-    const tier = this._user()?.planTier;
-    return !!tier && tier !== 'free';
+    return false; // Metered billing only — no plan tiers
   });
 
   /**

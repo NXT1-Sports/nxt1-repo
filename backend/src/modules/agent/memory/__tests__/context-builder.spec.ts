@@ -62,7 +62,6 @@ function createFullUserDoc() {
     firstName: 'John',
     lastName: 'Doe',
     displayName: 'John Doe',
-    planTier: 'premium',
     primarySport: 'football',
     activeSportIndex: 0,
     sports: [
@@ -113,7 +112,6 @@ function createCoachUserDoc() {
     role: 'coach',
     firstName: 'Mike',
     lastName: 'Smith',
-    planTier: 'pro',
     sports: [{ sport: 'basketball', positions: ['PG'] }],
     coach: {
       organization: 'State University',
@@ -143,7 +141,6 @@ describe('ContextBuilder', () => {
         userId: 'user-123',
         role: 'athlete',
         displayName: 'Cached User',
-        subscriptionTier: 'premium',
       };
       mockCacheGet.mockResolvedValueOnce(cachedContext);
 
@@ -166,7 +163,6 @@ describe('ContextBuilder', () => {
       expect(result.userId).toBe('user-123');
       expect(result.displayName).toBe('John Doe');
       expect(result.role).toBe('athlete');
-      expect(result.subscriptionTier).toBe('premium');
 
       // Should cache the assembled context
       expect(mockCacheSet).toHaveBeenCalledWith(
@@ -215,7 +211,6 @@ describe('ContextBuilder', () => {
         userId: 'nonexistent',
         role: 'athlete',
         displayName: 'Unknown User',
-        subscriptionTier: 'free',
       });
       // Should NOT cache a "not found" result
       expect(mockCacheSet).not.toHaveBeenCalled();
@@ -371,7 +366,6 @@ describe('ContextBuilder', () => {
 
       expect(prompt).toContain('User: John Doe');
       expect(prompt).toContain('Role: athlete');
-      expect(prompt).toContain('Tier: premium');
       expect(prompt).toContain('Sport: football');
       expect(prompt).toContain('Pos: QB');
       expect(prompt).toContain('Class: 2027');
@@ -392,10 +386,9 @@ describe('ContextBuilder', () => {
         userId: 'unknown',
         role: 'athlete',
         displayName: 'Unknown User',
-        subscriptionTier: 'free',
       });
 
-      expect(prompt).toBe('User: Unknown User | Role: athlete | Tier: free | UserID: unknown');
+      expect(prompt).toBe('User: Unknown User | Role: athlete | UserID: unknown');
     });
 
     it('should produce correct prompt for a coach', async () => {
@@ -406,7 +399,6 @@ describe('ContextBuilder', () => {
       const prompt = builder.compressToPrompt(ctx);
 
       expect(prompt).toContain('Role: coach');
-      expect(prompt).toContain('Tier: pro');
       expect(prompt).toContain('Sport: basketball');
     });
   });

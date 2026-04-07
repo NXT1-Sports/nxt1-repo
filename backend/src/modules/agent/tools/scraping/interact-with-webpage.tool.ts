@@ -156,6 +156,9 @@ export class InteractWithWebpageTool extends BaseTool {
     try {
       const result = await this.firecrawl.scrapeWithActions(url, actions);
 
+      // Detect auth walls / CAPTCHAs — advise agent to use open_live_view instead
+      const blocked = detectBlockedContent(result.markdown, result.title);
+
       return {
         success: true,
         data: {
@@ -166,6 +169,7 @@ export class InteractWithWebpageTool extends BaseTool {
           actionsExecuted: actions.length,
           markdownContent: result.markdown,
           ...(result.actions ? { actionResults: result.actions } : {}),
+          ...(blocked ? { blockedReason: blocked, hint: LIVE_VIEW_HANDOFF_HINT } : {}),
         },
       };
     } catch (err) {
@@ -259,4 +263,53 @@ export class InteractWithWebpageTool extends BaseTool {
 
     return actions;
   }
+}
+
+// ─── Auth Wall / CAPTCHA Detection ──────────────────────────────────────────
+
+const LIVE_VIEW_HANDOFF_HINT =
+  'The page appears to require authentication or human verification. ' +
+  "Use the open_live_view tool instead — it can reuse the user's connected account " +
+  'credentials and opens an interactive browser in their command center where they can ' +
+  'complete sign-in or CAPTCHA challenges themselves.';
+
+/** Patterns that indicate the page content is behind an auth wall or CAPTCHA. */
+const AUTH_WALL_PATTERNS = [
+  /\bsign[\s-]?in\b.*\brequired\b/i,
+  /\blog[\s-]?in\b.*\bto\s+(continue|access|view)\b/i,
+  /\bplease\s+(sign|log)\s*(in|on)\b/i,
+  /\baccess[\s-]?denied\b/i,
+  /\b403\s+forbidden\b/i,
+  /\bunauthorized\b.*\baccess\b/i,
+  /\bcaptcha\b/i,
+  /\bverify\s+(you('re|\s+are)\s+)?(a\s+)?human\b/i,
+  /\brobot\s+verification\b/i,
+  /\brecaptcha\b/i,
+  /\bhcaptcha\b/i,
+  /\bcloudflare.*challenge\b/i,
+  /\bcomplete\s+the\s+security\s+check\b/i,
+];
+
+/**
+ * Check scraped content for signs of auth walls or CAPTCHA challenges.
+ * Returns a reason string if blocked, or null if content looks normal.
+ */
+function detectBlockedContent(markdown: string, title?: string): string | null {
+  const text = `${title ?? ''} ${markdown.slice(0, 3000)}`.toLowerCase();
+
+  // Very short content on a platform page is suspicious
+  if (markdown.length < 200 && AUTH_WALL_PATTERNS.some((p) => p.test(text))) {
+    return 'Page returned minimal content with authentication indicators';
+  }
+
+  for (const pattern of AUTH_WALL_PATTERNS) {
+    if (pattern.test(text)) {
+      // Only flag if the content is suspiciously short (real pages have more)
+      if (markdown.length < 1500) {
+        return 'Page appears to be behind an authentication wall or CAPTCHA';
+      }
+    }
+  }
+
+  return null;
 }

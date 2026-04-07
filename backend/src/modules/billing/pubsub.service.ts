@@ -5,7 +5,8 @@
  * Service for publishing and subscribing to usage events
  */
 
-import { PubSub } from '@google-cloud/pubsub';
+import type { PubSub } from '@google-cloud/pubsub';
+import { createPubSubClient } from '../../utils/pubsub.js';
 import { logger } from '../../utils/logger.js';
 import { TOPICS } from './config.js';
 import type { UsageEventMessage } from './types/index.js';
@@ -17,7 +18,7 @@ let pubsubClient: PubSub | null = null;
  */
 function getPubSubClient(): PubSub {
   if (!pubsubClient) {
-    pubsubClient = new PubSub();
+    pubsubClient = createPubSubClient();
   }
   return pubsubClient;
 }

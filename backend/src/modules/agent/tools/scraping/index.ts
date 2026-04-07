@@ -15,6 +15,17 @@ export type {
   FirecrawlSignInSession,
   FirecrawlProfileStatus,
 } from './firecrawl-profile.service.js';
+export { OpenLiveViewTool } from './open-live-view.tool.js';
+export { NavigateLiveViewTool } from './navigate-live-view.tool.js';
+export { InteractWithLiveViewTool } from './interact-with-live-view.tool.js';
+export { ReadLiveViewTool } from './read-live-view.tool.js';
+export { CloseLiveViewTool } from './close-live-view.tool.js';
+export { LiveViewSessionService } from './live-view-session.service.js';
+export type {
+  StartLiveViewRequest,
+  StartLiveViewResult,
+  LiveViewAction,
+} from './live-view-session.service.js';
 export { validateUrl } from './url-validator.js';
 export { extractPageData } from './page-data-extractor.js';
 export type { ScrapeRequest, ScrapeResult, ScrapeProvider } from './scraper.types.js';

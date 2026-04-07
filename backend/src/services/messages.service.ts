@@ -13,6 +13,7 @@ import { ConversationModel, type IConversation } from '../models/conversation.mo
 import { MessageModel, type IMessage } from '../models/message.model.js';
 import { logger } from '../utils/logger.js';
 import { sendEmailViaProvider } from './email-sync.service.js';
+import type { Firestore } from 'firebase-admin/firestore';
 import type {
   Conversation,
   Message,
@@ -215,7 +216,8 @@ export async function sendMessage(
   userId: string,
   conversationId: string,
   body: string,
-  replyToId?: string
+  replyToId?: string,
+  db?: Firestore
 ): Promise<Message> {
   const conversation = await ConversationModel.findOne({
     _id: conversationId,
@@ -290,7 +292,8 @@ export async function sendMessage(
           conversation.emailProvider as 'gmail' | 'microsoft',
           recipientEmail,
           conversation.emailSubject ?? conversation.title,
-          body
+          body,
+          db
         );
 
         if (result.externalMessageId) {

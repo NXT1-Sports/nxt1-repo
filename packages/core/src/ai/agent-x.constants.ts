@@ -625,6 +625,16 @@ export const AGENT_X_ENDPOINTS = {
   THREAD_MESSAGES: '/agent-x/threads',
   /** System health probe (unauthenticated, cached) */
   HEALTH: '/agent-x/health',
+  /** Start a live-view browser session */
+  LIVE_VIEW_START: '/agent-x/live-view/start',
+  /** Navigate a live-view session to a new URL */
+  LIVE_VIEW_NAVIGATE: '/agent-x/live-view/navigate',
+  /** Refresh the active live-view session page */
+  LIVE_VIEW_REFRESH: '/agent-x/live-view/refresh',
+  /** Close and clean up a live-view session */
+  LIVE_VIEW_CLOSE: '/agent-x/live-view/close',
+  /** Execute a user-approved email draft (HITL) */
+  SEND_DRAFT: '/agent-x/chat/send-draft',
 } as const;
 
 /**

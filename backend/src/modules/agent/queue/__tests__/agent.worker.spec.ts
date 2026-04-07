@@ -128,6 +128,12 @@ describe('AgentWorker', () => {
     markCompleted: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
     create: vi.fn().mockResolvedValue(undefined),
+    writeJobEvent: vi.fn().mockResolvedValue(undefined),
+  };
+
+  const mockPubSub = {
+    publish: vi.fn().mockResolvedValue(undefined),
+    subscribe: vi.fn().mockResolvedValue(() => undefined),
   };
 
   beforeEach(() => {
@@ -139,6 +145,7 @@ describe('AgentWorker', () => {
       mockJobRepo as never,
       mockJobRepo as never,
       null as never,
+      mockPubSub as never,
       mockFirestore,
       'redis://localhost:6379'
     );
@@ -165,7 +172,12 @@ describe('AgentWorker', () => {
 
     await capturedProcessor!(job);
 
-    expect(mockRouter.run).toHaveBeenCalledWith(payload, expect.any(Function), mockFirestore);
+    expect(mockRouter.run).toHaveBeenCalledWith(
+      payload,
+      expect.any(Function),
+      mockFirestore,
+      expect.any(Function)
+    );
   });
 
   it('should return an AgentQueueJobResult on success', async () => {
@@ -263,6 +275,7 @@ describe('AgentWorker', () => {
         mockJobRepo as never,
         mockJobRepo as never,
         null as never,
+        mockPubSub as never,
         mockFirestore,
         'redis://localhost:6379'
       );
@@ -278,6 +291,7 @@ describe('AgentWorker', () => {
         mockJobRepo as never,
         mockJobRepo as never,
         null as never,
+        mockPubSub as never,
         mockFirestore,
         'redis://localhost:6379'
       );

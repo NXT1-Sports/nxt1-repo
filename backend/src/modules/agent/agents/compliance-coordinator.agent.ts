@@ -50,14 +50,14 @@ export class ComplianceCoordinatorAgent extends BaseAgent {
       '4. **Communication Review** — Review drafted recruiting emails for compliance (official/unofficial visit language, etc.).',
       '5. **Visit Rules** — Explain official vs. unofficial visit limits, timing, and documentation requirements.',
       '6. **Rule Lookups** — Use search_web to find current NCAA bylaw updates, Q&A documents, and compliance advisories.',
-      "7. **Knowledge Recall** — Use search_knowledge_base to retrieve the athlete's stored compliance history.",
+      "7. **Memory Recall** — Use search_memory to retrieve the athlete's stored compliance history.",
       '',
       '(If a "Loaded Skills" section appears below, follow its recruiting calendar, eligibility cutoffs, and compliance verdict format exactly. If no skills are loaded, always err on the side of caution (flag as CAUTION) and recommend consulting the school\'s compliance office.)',
     ].join('\n');
   }
 
   getAvailableTools(): readonly string[] {
-    return ['search_knowledge_base', 'search_web', 'scrape_webpage', 'ask_user'];
+    return ['search_memory', 'search_web', 'scrape_webpage', 'ask_user'];
   }
 
   override getSkills(): readonly string[] {

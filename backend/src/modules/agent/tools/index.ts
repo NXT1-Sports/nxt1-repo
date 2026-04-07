@@ -10,10 +10,15 @@ export { ToolRegistry } from './tool-registry.js';
 export { ScrapeWebpageTool, ScraperService } from './scraping/index.js';
 
 // Database tools
-export { UpdateAthleteProfileTool } from './database/index.js';
 export { SearchCollegesTool } from './database/index.js';
 
 // Integration tools
-export { SendGmailTool } from './integrations/send-gmail.tool.js';
+export { SendEmailTool } from './integrations/send-email.tool.js';
 export { ScrapeTwitterTool } from './integrations/scrape-twitter.tool.js';
 export { ApifyService } from './integrations/apify.service.js';
+
+// Data / Export tools
+export { DynamicExportTool } from './data/index.js';
+
+// System tools (cross-cutting infrastructure)
+export { DelegateTaskTool } from './system/index.js';

@@ -22,7 +22,6 @@ import type {
   PaymentMethodType,
   Currency,
   ProductCategory,
-  PlanTier,
   BillingInterval,
   SubscriptionStatus,
   MediaProductType,
@@ -108,7 +107,7 @@ export interface Subscription {
   userId: string;
 
   /** Current plan */
-  plan: PlanTier;
+  plan: string;
   status: SubscriptionStatus;
 
   /** Billing details */
@@ -130,7 +129,7 @@ export interface Subscription {
     code: string;
     teamId: string;
     teamName: string;
-    providedPlan: PlanTier;
+    providedPlan: string;
     expiresAt?: Date | string;
   };
 
@@ -514,7 +513,6 @@ export interface Coupon {
   appliesTo: {
     categories?: ProductCategory[];
     productIds?: string[];
-    planTiers?: PlanTier[];
   };
 
   /** Limits */
@@ -574,7 +572,7 @@ export function hasValidTeamCode(subscription: Subscription): boolean {
   return new Date(subscription.teamCode.expiresAt) > new Date();
 }
 
-export function getEffectivePlan(subscription: Subscription): PlanTier {
+export function getEffectivePlan(subscription: Subscription): string {
   // Team code can override the plan
   if (hasValidTeamCode(subscription)) {
     return subscription.teamCode!.providedPlan;
@@ -674,7 +672,7 @@ export interface CreateCheckoutSessionResponse {
 
 export interface CreateSubscriptionRequest {
   userId: string;
-  planId: PlanTier;
+  planId: string;
   billingInterval: BillingInterval;
   paymentMethodId: string;
   couponCode?: string;
@@ -682,7 +680,7 @@ export interface CreateSubscriptionRequest {
 
 export interface UpdateSubscriptionRequest {
   userId: string;
-  planId?: PlanTier;
+  planId?: string;
   billingInterval?: BillingInterval;
   cancelAtPeriodEnd?: boolean;
 }

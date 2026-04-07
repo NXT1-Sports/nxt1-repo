@@ -23,8 +23,14 @@
  * Set the `APIFY_API_TOKEN` environment variable.
  */
 
-import { BaseTool, type ToolResult } from '../base.tool.js';
+import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { ApifyService, type ScweetTweet, type ScweetUser } from './apify.service.js';
+import {
+  ScraperMediaService,
+  type MediaInput,
+  type PersistedMedia,
+  type MediaStagingContext,
+} from './scraper-media.service.js';
 import { logger } from '../../../../utils/logger.js';
 
 /** Maximum tweets to return in the LLM context to avoid overflow. */
@@ -110,13 +116,18 @@ export class ScrapeTwitterTool extends BaseTool {
   readonly category = 'analytics' as const;
 
   private readonly apify: ApifyService;
+  private readonly media: ScraperMediaService;
 
-  constructor(apify?: ApifyService) {
+  constructor(apify?: ApifyService, media?: ScraperMediaService) {
     super();
     this.apify = apify ?? new ApifyService();
+    this.media = media ?? new ScraperMediaService();
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
     const mode = this.str(input, 'mode');
     if (!mode || !['search', 'profile_tweets', 'followers'].includes(mode)) {
       return {
@@ -126,14 +137,39 @@ export class ScrapeTwitterTool extends BaseTool {
       };
     }
 
+    // Build staging context for thread-scoped media storage
+    const staging: MediaStagingContext | undefined =
+      context?.userId && context?.threadId
+        ? { userId: context.userId, threadId: context.threadId }
+        : undefined;
+
+    const progress = context?.onProgress;
+
     try {
       switch (mode) {
-        case 'search':
-          return await this.handleSearch(input);
-        case 'profile_tweets':
-          return await this.handleProfileTweets(input);
-        case 'followers':
+        case 'search': {
+          const query = this.str(input, 'query') ?? '';
+          progress?.(`Searching Twitter for "${query.slice(0, 60)}"…`);
+          const searchResult = await this.handleSearch(input, staging);
+          if (searchResult.success) progress?.('Processing Twitter media…');
+          return searchResult;
+        }
+        case 'profile_tweets': {
+          const usernames = this.extractUsernames(input);
+          progress?.(
+            `Fetching tweets from ${usernames.length ? '@' + usernames.join(', @') : 'user'}…`
+          );
+          const tweetsResult = await this.handleProfileTweets(input, staging);
+          if (tweetsResult.success) progress?.('Processing Twitter media…');
+          return tweetsResult;
+        }
+        case 'followers': {
+          const usernames = this.extractUsernames(input);
+          progress?.(
+            `Loading followers for ${usernames.length ? '@' + usernames.join(', @') : 'user'}…`
+          );
           return await this.handleFollowers(input);
+        }
         default:
           return { success: false, error: `Unknown mode: ${mode}` };
       }
@@ -146,7 +182,10 @@ export class ScrapeTwitterTool extends BaseTool {
 
   // ─── Mode Handlers ─────────────────────────────────────────────────────
 
-  private async handleSearch(input: Record<string, unknown>): Promise<ToolResult> {
+  private async handleSearch(
+    input: Record<string, unknown>,
+    staging?: MediaStagingContext
+  ): Promise<ToolResult> {
     const query = this.str(input, 'query');
     if (!query) {
       return this.paramError('query');
@@ -169,6 +208,11 @@ export class ScrapeTwitterTool extends BaseTool {
       return { success: false, error: result.error ?? 'Search failed' };
     }
 
+    // Persist media to Firebase Storage for in-app display
+    const attachments = await this.persistTweetMedia(result.items, staging);
+    const firstImage = attachments.find((a) => a.type === 'image');
+    const firstVideo = attachments.find((a) => a.type === 'video');
+
     return {
       success: true,
       data: {
@@ -177,11 +221,17 @@ export class ScrapeTwitterTool extends BaseTool {
         tweetCount: result.itemCount,
         durationMs: result.durationMs,
         tweets: this.formatTweets(result.items),
+        attachments: this.formatAttachments(attachments),
+        ...(firstImage ? { imageUrl: firstImage.url } : {}),
+        ...(firstVideo ? { videoUrl: firstVideo.url } : {}),
       },
     };
   }
 
-  private async handleProfileTweets(input: Record<string, unknown>): Promise<ToolResult> {
+  private async handleProfileTweets(
+    input: Record<string, unknown>,
+    staging?: MediaStagingContext
+  ): Promise<ToolResult> {
     const usernames = this.extractUsernames(input);
     if (usernames.length === 0) {
       return this.paramError('usernames');
@@ -195,6 +245,11 @@ export class ScrapeTwitterTool extends BaseTool {
       return { success: false, error: result.error ?? 'Profile tweets fetch failed' };
     }
 
+    // Persist media to Firebase Storage for in-app display
+    const attachments = await this.persistTweetMedia(result.items, staging);
+    const firstImage = attachments.find((a) => a.type === 'image');
+    const firstVideo = attachments.find((a) => a.type === 'video');
+
     return {
       success: true,
       data: {
@@ -203,6 +258,9 @@ export class ScrapeTwitterTool extends BaseTool {
         tweetCount: result.itemCount,
         durationMs: result.durationMs,
         tweets: this.formatTweets(result.items),
+        attachments: this.formatAttachments(attachments),
+        ...(firstImage ? { imageUrl: firstImage.url } : {}),
+        ...(firstVideo ? { videoUrl: firstVideo.url } : {}),
       },
     };
   }
@@ -249,6 +307,8 @@ export class ScrapeTwitterTool extends BaseTool {
       retweets: t.retweets ?? 0,
       replies: t.replies ?? 0,
       url: t.url,
+      imageUrls: t.imageUrls.length > 0 ? t.imageUrls : undefined,
+      videoUrl: t.videoUrl || undefined,
     }));
   }
 
@@ -263,6 +323,66 @@ export class ScrapeTwitterTool extends BaseTool {
       followers_count: u.followers_count ?? null,
       verified: u.verified ?? false,
       profile_image_url: u.profile_image_url ?? null,
+    }));
+  }
+
+  // ─── Media Persistence ─────────────────────────────────────────────
+
+  /**
+   * Collect media URLs from tweets and persist to Firebase Storage.
+   * Extracts image URLs and video URLs from the normalized tweet data.
+   */
+  private async persistTweetMedia(
+    tweets: readonly ScweetTweet[],
+    staging?: MediaStagingContext
+  ): Promise<PersistedMedia[]> {
+    const inputs: MediaInput[] = [];
+
+    for (const tweet of tweets.slice(0, MAX_TWEETS_IN_RESPONSE)) {
+      // Add video URL if present (prefer over images)
+      if (tweet.videoUrl) {
+        inputs.push({
+          url: tweet.videoUrl,
+          type: 'video',
+          platform: 'twitter',
+          sourceUrl: tweet.url,
+        });
+      }
+      // Add image URLs
+      for (const imageUrl of tweet.imageUrls) {
+        inputs.push({
+          url: imageUrl,
+          type: 'image',
+          platform: 'twitter',
+          sourceUrl: tweet.url,
+        });
+      }
+    }
+
+    if (inputs.length === 0) return [];
+
+    try {
+      return await this.media.persistBatch(inputs, staging);
+    } catch (err) {
+      logger.warn('[ScrapeTwitterTool] Media persistence failed (non-fatal)', {
+        error: err instanceof Error ? err.message : 'Unknown',
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Format persisted media attachments for inclusion in tool result data.
+   */
+  private formatAttachments(media: readonly PersistedMedia[]): unknown[] {
+    return media.map((m) => ({
+      type: m.type,
+      url: m.url,
+      mimeType: m.mimeType,
+      storagePath: m.storagePath,
+      platform: m.platform,
+      sourceUrl: m.sourceUrl ?? null,
+      sizeBytes: m.sizeBytes,
     }));
   }
 

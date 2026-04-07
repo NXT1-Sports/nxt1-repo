@@ -234,7 +234,6 @@ export const handlers = [
       firstName: 'E2E',
       lastName: 'Tester',
       role: 'athlete',
-      planTier: null,
       onboardingCompleted: true,
       completeSignUp: true,
       isCollegeCoach: false,

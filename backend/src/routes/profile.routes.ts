@@ -128,9 +128,6 @@ type UserFirestoreDoc = DocumentData & {
   awards?: Array<Record<string, unknown>>;
   teamHistory?: Array<Record<string, unknown>>;
 
-  // Subscription
-  planTier?: string;
-
   // Preferences & counters
   preferences?: Record<string, unknown>;
   _counters?: Record<string, unknown>;
@@ -1267,7 +1264,7 @@ router.put(
     const body = req.body;
 
     // Whitelist of all writable User fields — system/read-only fields
-    // (id, email, planTier, _counters, _schemaVersion, unicode, profileCode,
+    // (id, email, _counters, _schemaVersion, unicode, profileCode,
     //  onboardingCompleted, role, status, teamCode) are excluded.
     // Note: FCM tokens are stored separately in FcmTokens/{userId} collection
     const allowedFields: string[] = [

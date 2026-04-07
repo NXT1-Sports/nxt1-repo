@@ -14,7 +14,7 @@
  */
 
 import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
-import type { AgentXToolStep, AgentXRichCard } from '@nxt1/core/ai';
+import type { AgentXToolStep, AgentXRichCard, AgentXMessagePart } from '@nxt1/core/ai';
 import { AgentXToolStepsComponent } from '../../agent-x/agent-x-tool-steps.component';
 import { AgentXPlannerCardComponent } from '../../agent-x/agent-x-planner-card.component';
 import { AgentXDataTableCardComponent } from '../../agent-x/agent-x-data-table-card.component';
@@ -71,10 +71,112 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
   },
   template: `
     @if (isTyping()) {
-      <div class="typing-dots"><span></span><span></span><span></span></div>
+      <div class="typing-shimmer">
+        <svg class="typing-shimmer__icon" viewBox="0 0 16 16" fill="none">
+          <circle
+            cx="8"
+            cy="8"
+            r="6"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-dasharray="28"
+            stroke-dashoffset="8"
+            stroke-linecap="round"
+          />
+        </svg>
+        <span class="typing-shimmer__text">Thinking…</span>
+      </div>
     } @else if (isSystem()) {
       <p class="bubble-text bubble-text--system">{{ content() }}</p>
+    } @else if (parts().length) {
+      <!-- ═══ INTERLEAVED PARTS (Copilot-style: text → tools → text → card) ═══ -->
+      @for (part of parts(); track $index) {
+        @switch (part.type) {
+          @case ('text') {
+            @if (isOwn()) {
+              <p class="bubble-text">{{ part.content }}</p>
+            } @else {
+              <nxt1-markdown [content]="part.content" />
+            }
+          }
+          @case ('tool-steps') {
+            <nxt1-agent-x-tool-steps [steps]="part.steps" />
+          }
+          @case ('card') {
+            @if (part.card.type === 'planner') {
+              <nxt1-agent-x-planner-card
+                [card]="part.card"
+                (itemToggled)="plannerItemToggled.emit($event)"
+              />
+            } @else if (part.card.type === 'data-table') {
+              <nxt1-agent-x-data-table-card [card]="part.card" />
+            } @else if (part.card.type === 'confirmation') {
+              <nxt1-agent-x-confirmation-card
+                [card]="part.card"
+                (actionSelected)="confirmationAction.emit($event)"
+              />
+            } @else if (part.card.type === 'citations') {
+              <nxt1-agent-x-citations-card
+                [card]="part.card"
+                (citationClicked)="citationClicked.emit($event)"
+              />
+            } @else if (part.card.type === 'parameter-form') {
+              <nxt1-agent-x-parameter-form-card
+                [card]="part.card"
+                (formSubmitted)="parameterFormSubmitted.emit($event)"
+              />
+            } @else if (part.card.type === 'draft') {
+              <nxt1-agent-x-draft-card
+                [card]="part.card"
+                (draftSubmitted)="draftSubmitted.emit($event)"
+              />
+            } @else if (part.card.type === 'profile') {
+              <nxt1-agent-x-profile-card
+                [card]="part.card"
+                (profileClicked)="profileClicked.emit($event)"
+              />
+            } @else if (part.card.type === 'film-timeline') {
+              <nxt1-agent-x-film-timeline-card
+                [card]="part.card"
+                (markerClicked)="filmMarkerClicked.emit($event)"
+              />
+            } @else if (part.card.type === 'billing-action') {
+              <nxt1-agent-x-billing-action-card
+                [card]="part.card"
+                (actionResolved)="billingActionResolved.emit($event)"
+              />
+            } @else {
+              <div class="card-fallback">
+                <span class="card-fallback__icon">⚠️</span>
+                <span class="card-fallback__text">Unsupported card type: {{ part.card.type }}</span>
+              </div>
+            }
+          }
+          @case ('image') {
+            <div class="bubble-media">
+              <img
+                [src]="part.url"
+                [alt]="part.alt || 'Generated image'"
+                class="bubble-img"
+                loading="lazy"
+              />
+            </div>
+          }
+          @case ('video') {
+            <div class="bubble-media">
+              <video
+                [src]="part.url"
+                class="bubble-video"
+                controls
+                playsinline
+                preload="metadata"
+              ></video>
+            </div>
+          }
+        }
+      }
     } @else {
+      <!-- ═══ LEGACY FLAT LAYOUT (history messages without parts) ═══ -->
       @if (steps().length) {
         <nxt1-agent-x-tool-steps [steps]="steps()" />
       }
@@ -142,6 +244,11 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
             [card]="card"
             (actionResolved)="billingActionResolved.emit($event)"
           />
+        } @else {
+          <div class="card-fallback">
+            <span class="card-fallback__icon">⚠️</span>
+            <span class="card-fallback__text">Unsupported card type: {{ card.type }}</span>
+          </div>
         }
       }
     }
@@ -168,41 +275,79 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
       }
 
       /* ============================================
-         TYPING DOTS — Shared animation for AI chat
+         TYPING INDICATOR — Copilot-style shimmer
          ============================================ */
 
-      .typing-dots {
+      .typing-shimmer {
         display: flex;
-        gap: 4px;
+        align-items: center;
+        gap: 6px;
         padding: 2px 0;
       }
 
-      .typing-dots span {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
-        animation: dotBounce 1.4s ease-in-out infinite;
+      .typing-shimmer__icon {
+        width: 14px;
+        height: 14px;
+        flex-shrink: 0;
+        color: var(--nxt1-color-primary, #ccff00);
+        animation: typingSpin 1s linear infinite;
       }
 
-      .typing-dots span:nth-child(2) {
-        animation-delay: 0.2s;
+      .typing-shimmer__text {
+        font-size: 0.8125rem;
+        font-weight: 500;
+        background: linear-gradient(
+          90deg,
+          var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4)) 0%,
+          var(--nxt1-color-text, rgba(255, 255, 255, 0.87)) 50%,
+          var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4)) 100%
+        );
+        background-size: 200% auto;
+        color: transparent;
+        -webkit-background-clip: text;
+        background-clip: text;
+        animation: typingShimmer 2s linear infinite;
       }
 
-      .typing-dots span:nth-child(3) {
-        animation-delay: 0.4s;
-      }
-
-      @keyframes dotBounce {
-        0%,
-        60%,
-        100% {
-          transform: translateY(0);
-          opacity: 0.4;
+      @keyframes typingSpin {
+        to {
+          transform: rotate(360deg);
         }
-        30% {
-          transform: translateY(-5px);
-          opacity: 1;
+      }
+
+      @keyframes typingShimmer {
+        to {
+          background-position: 200% center;
+        }
+      }
+
+      /* ── Card fallback ── */
+
+      .card-fallback {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        background: var(--nxt1-color-surface-variant, rgba(255, 255, 255, 0.05));
+        font-size: 0.8125rem;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.6));
+      }
+
+      .card-fallback__icon {
+        font-size: 1rem;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .typing-shimmer__icon {
+          animation: none;
+        }
+        .typing-shimmer__text {
+          animation: none;
+          color: var(--nxt1-color-text-secondary);
+          background: none;
+          -webkit-background-clip: unset;
+          background-clip: unset;
         }
       }
 
@@ -476,6 +621,9 @@ export class NxtChatBubbleComponent {
 
   /** Rich cards rendered below text content. */
   readonly cards = input<readonly AgentXRichCard[]>([]);
+
+  /** Ordered message parts for Copilot-style interleaved rendering. */
+  readonly parts = input<readonly AgentXMessagePart[]>([]);
 
   /** Emitted when a planner card item is toggled. */
   readonly plannerItemToggled = output<string>();

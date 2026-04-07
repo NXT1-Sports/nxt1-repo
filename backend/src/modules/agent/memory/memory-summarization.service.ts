@@ -1,0 +1,272 @@
+/**
+ * @fileoverview Memory Summarization Service — Background Thread Extraction
+ * @module @nxt1/backend/modules/agent/memory
+ *
+ * Processes inactive Agent X threads and extracts durable memories
+ * (preferences, goals, recruiting context) into the vector memory store.
+ *
+ * Triggered by a daily cron job. For each unsummarized thread that has
+ * been inactive for > 24 hours:
+ * 1. Fetches the full message history from AgentMessageModel.
+ * 2. Sends the transcript to a cheap extraction model (chat tier).
+ * 3. Parses structured facts from the LLM response.
+ * 4. Stores each fact as a separate vector memory entry.
+ * 5. Marks the thread as `memorySummarized: true`.
+ *
+ * Design decisions:
+ * - Uses the 'extraction' tier (Claude Haiku / GPT-4o-mini) to minimize cost.
+ * - Processes threads sequentially to avoid overwhelming the LLM API.
+ * - Skips threads with < 4 messages (too little signal).
+ * - Limits to 50 threads per run to bound execution time.
+ */
+
+import type { OpenRouterService } from '../llm/openrouter.service.js';
+import type { VectorMemoryService } from './vector.service.js';
+import type { AgentMemoryCategory } from '@nxt1/core';
+import { AgentThreadModel } from '../../../models/agent-thread.model.js';
+import { AgentMessageModel } from '../../../models/agent-message.model.js';
+import { AgentMemoryModel } from './vector.service.js';
+import { logger } from '../../../utils/logger.js';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+/** Threads must be inactive for at least this long before summarization. */
+const INACTIVITY_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/** Minimum messages in a thread to be worth summarizing. */
+const MIN_MESSAGES = 4;
+
+/** Maximum threads to process per cron run. */
+const MAX_THREADS_PER_RUN = 50;
+
+/** Maximum messages to include in the extraction prompt (truncate older ones). */
+const MAX_MESSAGES_FOR_EXTRACTION = 100;
+
+/** Valid categories from the extraction prompt. */
+const VALID_CATEGORIES: readonly AgentMemoryCategory[] = [
+  'preference',
+  'goal',
+  'recruiting_context',
+  'performance_data',
+];
+
+/** System prompt for the memory extraction LLM call. */
+const EXTRACTION_SYSTEM_PROMPT = `You are an AI memory extraction system for a sports recruiting platform called NXT1.
+
+Your job is to read a conversation transcript between a user (athlete, coach, or scout) and an AI agent, then extract DURABLE FACTS about the user that should be remembered for future conversations.
+
+Extract ONLY:
+- User preferences (e.g., "User prefers SEC schools", "User wants to stay close to home in Texas")
+- User goals (e.g., "User's goal is a D1 football scholarship by senior year")
+- Recruiting context (e.g., "User has been contacted by Ohio State and Michigan", "User's top 5 schools are...")
+- Performance data mentioned by the user (e.g., "User runs a 4.5 forty-yard dash", "User has 3.8 GPA")
+
+Do NOT extract:
+- Transient conversation details ("User asked about weather")
+- Agent reasoning or internal state
+- Greetings, pleasantries, or filler
+- Information the agent told the user (only what the USER stated or confirmed)
+
+Return a JSON array of objects. Each object has:
+- "content": A concise third-person statement (e.g., "User prefers SEC conference schools for recruiting.")
+- "category": One of "preference", "goal", "recruiting_context", "performance_data"
+
+If there are no durable facts to extract, return an empty array: []
+
+Return ONLY the JSON array, no markdown fences, no explanation.`;
+
+// ─── Service ──────────────────────────────────────────────────────────────────
+
+export interface SummarizationResult {
+  readonly threadsProcessed: number;
+  readonly memoriesCreated: number;
+  readonly threadsSkipped: number;
+  readonly errors: number;
+}
+
+export class MemorySummarizationService {
+  private readonly llm: OpenRouterService;
+  private readonly vectorMemory: VectorMemoryService;
+
+  constructor(llm: OpenRouterService, vectorMemory: VectorMemoryService) {
+    this.llm = llm;
+    this.vectorMemory = vectorMemory;
+  }
+
+  /**
+   * Main entry point: find and summarize all eligible inactive threads.
+   *
+   * @returns Summary of the run (threads processed, memories created, errors).
+   */
+  async summarizeInactiveThreads(): Promise<SummarizationResult> {
+    const cutoff = new Date(Date.now() - INACTIVITY_THRESHOLD_MS).toISOString();
+
+    // Find threads that are:
+    // 1. Not yet summarized
+    // 2. Last message older than the inactivity threshold
+    // 3. Have enough messages to be worth summarizing
+    const threads = await AgentThreadModel.find({
+      memorySummarized: { $ne: true },
+      lastMessageAt: { $lt: cutoff },
+      messageCount: { $gte: MIN_MESSAGES },
+    })
+      .sort({ lastMessageAt: 1 }) // oldest first
+      .limit(MAX_THREADS_PER_RUN)
+      .lean();
+
+    logger.info('[MemorySummarization] Starting run', {
+      eligibleThreads: threads.length,
+      cutoff,
+    });
+
+    let memoriesCreated = 0;
+    let threadsSkipped = 0;
+    let errors = 0;
+
+    for (const thread of threads) {
+      try {
+        const created = await this.processThread(String(thread._id), thread.userId);
+        if (created === 0) {
+          threadsSkipped++;
+        }
+        memoriesCreated += created;
+      } catch (err) {
+        errors++;
+        logger.error('[MemorySummarization] Failed to process thread', {
+          threadId: String(thread._id),
+          userId: thread.userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    const result: SummarizationResult = {
+      threadsProcessed: threads.length,
+      memoriesCreated,
+      threadsSkipped,
+      errors,
+    };
+
+    logger.info('[MemorySummarization] Run complete', { ...result });
+    return result;
+  }
+
+  /**
+   * Process a single thread: fetch messages, extract facts, store memories.
+   *
+   * @returns Number of memories created for this thread.
+   */
+  private async processThread(threadId: string, userId: string): Promise<number> {
+    // Fetch messages in chronological order
+    const messages = await AgentMessageModel.find({ threadId })
+      .sort({ createdAt: 1 })
+      .limit(MAX_MESSAGES_FOR_EXTRACTION)
+      .select('role content createdAt')
+      .lean();
+
+    if (messages.length < MIN_MESSAGES) {
+      // Mark as summarized anyway to avoid re-checking
+      await AgentThreadModel.updateOne({ _id: threadId }, { memorySummarized: true });
+      return 0;
+    }
+
+    // Build transcript for the LLM — only user and assistant messages carry signal
+    const transcript = messages
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => `[${m.role}]: ${m.content}`)
+      .join('\n');
+
+    if (!transcript.trim()) {
+      await AgentThreadModel.updateOne({ _id: threadId }, { memorySummarized: true });
+      return 0;
+    }
+
+    // Call the extraction model
+    const completion = await this.llm.complete(
+      [
+        { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
+        { role: 'user', content: transcript },
+      ],
+      {
+        tier: 'extraction',
+        temperature: 0,
+        maxTokens: 2000,
+        jsonMode: true,
+        telemetryContext: {
+          operationId: `memory-summarize-${threadId}`,
+          userId,
+          agentId: 'router',
+          feature: 'memory-summarization',
+        },
+      }
+    );
+
+    if (!completion.content) {
+      logger.warn('[MemorySummarization] Empty extraction response', { threadId, userId });
+      await AgentThreadModel.updateOne({ _id: threadId }, { memorySummarized: true });
+      return 0;
+    }
+
+    // Parse the extracted facts
+    let facts: Array<{ content: string; category: string }>;
+    try {
+      const parsed = JSON.parse(completion.content);
+      facts = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      logger.warn('[MemorySummarization] Failed to parse extraction JSON', {
+        threadId,
+        userId,
+        raw: completion.content.slice(0, 500),
+      });
+      await AgentThreadModel.updateOne({ _id: threadId }, { memorySummarized: true });
+      return 0;
+    }
+
+    // Store each valid fact as a vector memory (with dedup guard)
+    let stored = 0;
+    for (const fact of facts) {
+      if (
+        !fact.content ||
+        typeof fact.content !== 'string' ||
+        !fact.category ||
+        !VALID_CATEGORIES.includes(fact.category as AgentMemoryCategory)
+      ) {
+        continue;
+      }
+
+      // Dedup: skip if an identical memory already exists for this user
+      const existing = await AgentMemoryModel.findOne({
+        userId,
+        content: fact.content,
+        category: fact.category,
+      }).lean();
+      if (existing) continue;
+
+      try {
+        await this.vectorMemory.store(userId, fact.content, fact.category as AgentMemoryCategory, {
+          source: 'conversation_summary',
+          threadId,
+        });
+        stored++;
+      } catch (err) {
+        logger.warn('[MemorySummarization] Failed to store extracted fact', {
+          threadId,
+          userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // Mark the thread as summarized
+    await AgentThreadModel.updateOne({ _id: threadId }, { memorySummarized: true });
+
+    logger.info('[MemorySummarization] Thread processed', {
+      threadId,
+      userId,
+      factsExtracted: facts.length,
+      memoriesStored: stored,
+    });
+
+    return stored;
+  }
+}

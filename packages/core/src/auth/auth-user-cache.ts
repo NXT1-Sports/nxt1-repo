@@ -78,7 +78,6 @@ export interface MergedUserProfile {
   // Extended profile (from backend)
   readonly firstName?: string;
   readonly lastName?: string;
-  readonly planTier?: string | null;
   readonly primarySport?: string;
   readonly sports: readonly CachedSportData[];
 
@@ -102,7 +101,6 @@ export interface CachedUserProfile {
 
   // Role & status
   readonly role?: string | null;
-  readonly planTier?: string | null;
 
   // Onboarding status (V2 + legacy)
   readonly onboardingCompleted?: boolean;

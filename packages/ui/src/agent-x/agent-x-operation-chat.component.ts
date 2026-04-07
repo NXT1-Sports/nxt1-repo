@@ -52,12 +52,19 @@ import type {
   AgentXAttachment,
   AgentXChatRequest,
   AgentXToolStep,
+  AgentXMessagePart,
   AgentXRichCard,
   AgentXBillingActionReason,
   AgentXStreamStepEvent,
   AgentXStreamCardEvent,
 } from '@nxt1/core/ai';
-import { AGENT_X_ENDPOINTS, resolveAttachmentType } from '@nxt1/core/ai';
+import {
+  AGENT_X_ALLOWED_MIME_TYPES,
+  AGENT_X_ENDPOINTS,
+  AGENT_X_MAX_ATTACHMENTS,
+  AGENT_X_MAX_FILE_SIZE,
+  resolveAttachmentType,
+} from '@nxt1/core/ai';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 import { NxtChatBubbleComponent } from '../components/chat-bubble';
@@ -65,6 +72,7 @@ import { NxtIconComponent } from '../components/icon';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
+import { NxtToastService } from '../services/toast/toast.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AGENT_X_OPERATION_CHAT_TEST_IDS } from '@nxt1/core/testing';
@@ -74,15 +82,19 @@ import {
   AGENT_X_AUTH_TOKEN_FACTORY,
   AgentXJobService,
 } from './agent-x-job.service';
+import { AgentXStreamRegistryService } from './agent-x-stream-registry.service';
+import { AgentXService } from './agent-x.service';
 import { NxtMediaViewerService } from '../components/media-viewer/media-viewer.service';
 import type { MediaViewerItem } from '../components/media-viewer/media-viewer.types';
 import { KeyboardService } from '../services/keyboard/keyboard.service';
+import { NxtDragDropDirective } from '../services/gesture';
 import {
   AgentXActionCardComponent,
   type ActionCardApprovalEvent,
   type ActionCardReplyEvent,
 } from './agent-x-action-card.component';
 import type { BillingActionResolvedEvent } from './agent-x-billing-action-card.component';
+import type { DraftSubmittedEvent } from './agent-x-draft-card.component';
 import type { AgentYieldState } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './fab/agent-x-logo.constants';
 
@@ -126,6 +138,7 @@ interface OperationMessage {
   readonly error?: boolean;
   readonly steps?: readonly AgentXToolStep[];
   readonly cards?: readonly AgentXRichCard[];
+  readonly parts?: readonly AgentXMessagePart[];
 }
 
 @Component({
@@ -140,328 +153,368 @@ interface OperationMessage {
     NxtSheetHeaderComponent,
     NxtChatBubbleComponent,
     NxtIconComponent,
+    NxtDragDropDirective,
     AgentXInputComponent,
     AgentXActionCardComponent,
   ],
   template: `
-    @if (!embedded) {
-      <!-- ═══ HEADER ═══ -->
-      <nxt1-sheet-header
-        [title]="headerTitle()"
-        [subtitle]="contextTypeLabel()"
-        [showAgentXIcon]="true"
-        iconShape="rounded"
-        closePosition="right"
-        [showBorder]="true"
-        (closeSheet)="dismiss()"
-      />
-    }
+    <div
+      class="operation-chat-shell"
+      nxtDragDrop
+      (dragStateChange)="onDragStateChange($event)"
+      (filesDropped)="onFilesDropped($event)"
+    >
+      @if (!embedded) {
+        <!-- ═══ HEADER ═══ -->
+        <nxt1-sheet-header
+          [title]="headerTitle()"
+          [subtitle]="contextTypeLabel()"
+          [showAgentXIcon]="true"
+          iconShape="rounded"
+          closePosition="right"
+          [showBorder]="true"
+          (closeSheet)="dismiss()"
+        />
+      }
 
-    <!-- ═══ MESSAGES ═══ -->
-    <div class="messages-area" [class.messages-area--embedded]="embedded" #messagesArea>
-      <!-- ═══ COORDINATOR WELCOME (commands only — operations skip straight to work) ═══ -->
-      @if (showWelcome()) {
-        <div class="msg-row msg-assistant">
-          <nxt1-chat-bubble
-            variant="agent-operation"
-            [isOwn]="false"
-            [content]="welcomeMessage()"
-            [isTyping]="false"
-            [isError]="false"
-            [isSystem]="false"
-          />
-        </div>
+      <!-- ═══ MESSAGES ═══ -->
+      <div class="messages-area" [class.messages-area--embedded]="embedded" #messagesArea>
+        <!-- ═══ COORDINATOR WELCOME (commands only — operations skip straight to work) ═══ -->
+        @if (showWelcome()) {
+          <div class="msg-row msg-assistant">
+            <nxt1-chat-bubble
+              variant="agent-operation"
+              [isOwn]="false"
+              [content]="welcomeMessage()"
+              [isTyping]="false"
+              [isError]="false"
+              [isSystem]="false"
+            />
+          </div>
 
-        <!-- ═══ QUICK OPTIONS ═══ -->
-        <div class="quick-options">
-          @for (action of normalizedQuickActions(); track action.id) {
-            <button type="button" class="quick-option-chip" (click)="onQuickAction(action)">
-              {{ action.label }}
-            </button>
+          <!-- ═══ QUICK OPTIONS ═══ -->
+          <div class="quick-options">
+            @for (action of normalizedQuickActions(); track action.id) {
+              <button type="button" class="quick-option-chip" (click)="onQuickAction(action)">
+                {{ action.label }}
+              </button>
+            }
+          </div>
+        }
+
+        @for (msg of messages(); track msg.id; let first = $first) {
+          <!-- Operation Brief card for the first user message in an operation context -->
+          @if (first && msg.role === 'user' && isOperation) {
+            <div class="operation-brief">
+              <div class="operation-brief__header">
+                <svg
+                  class="agent-x-mark"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 612 792"
+                  fill="currentColor"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path [attr.d]="agentXLogoPath" />
+                  <polygon [attr.points]="agentXLogoPolygon" />
+                </svg>
+                <span class="operation-brief__label">Operation Brief</span>
+              </div>
+              <p class="operation-brief__text">{{ msg.content }}</p>
+            </div>
+          } @else {
+            <div
+              class="msg-row"
+              [class.msg-user]="msg.role === 'user'"
+              [class.msg-assistant]="msg.role === 'assistant'"
+              [class.msg-system]="msg.role === 'system'"
+              [class.msg-error]="msg.error"
+            >
+              <nxt1-chat-bubble
+                variant="agent-operation"
+                [isOwn]="msg.role === 'user'"
+                [content]="msg.content"
+                [isTyping]="!!msg.isTyping"
+                [isError]="!!msg.error"
+                [isSystem]="msg.role === 'system'"
+                [steps]="msg.steps ?? []"
+                [cards]="msg.cards ?? []"
+                [parts]="msg.parts ?? []"
+                (billingActionResolved)="onBillingActionResolved($event)"
+                (draftSubmitted)="onDraftSubmitted($event)"
+              />
+              @if (msg.attachments?.length) {
+                <div class="msg-attachments">
+                  @for (att of msg.attachments; track att.name + $index) {
+                    <div class="msg-attachment" [class.msg-attachment--media]="att.type !== 'doc'">
+                      @if (att.type === 'image') {
+                        <img
+                          [src]="att.url"
+                          [alt]="att.name"
+                          class="msg-attachment__thumb"
+                          (click)="openAttachmentViewer(msg.attachments!, $index)"
+                        />
+                      } @else if (att.type === 'video') {
+                        <video
+                          [src]="att.url"
+                          class="msg-attachment__thumb"
+                          preload="metadata"
+                          (click)="openAttachmentViewer(msg.attachments!, $index)"
+                        ></video>
+                        <div class="msg-attachment__play">
+                          <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                            <path d="M8 5v14l11-7L8 5z" />
+                          </svg>
+                        </div>
+                      } @else {
+                        <div
+                          class="msg-attachment__doc"
+                          (click)="openAttachmentViewer(msg.attachments!, $index)"
+                          style="cursor: pointer;"
+                        >
+                          <div
+                            class="msg-attachment__doc-icon-wrap"
+                            [style.background]="getFileColor(att.name, 0.15)"
+                            [style.color]="getFileColor(att.name, 1)"
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                              width="14"
+                              height="14"
+                            >
+                              <path
+                                d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"
+                              />
+                              <polyline points="14 2 14 8 20 8" />
+                            </svg>
+                          </div>
+                          <div class="msg-attachment__doc-info">
+                            <span class="msg-attachment__doc-name">{{ att.name }}</span>
+                            <span class="msg-attachment__doc-meta">{{ getFileExt(att.name) }}</span>
+                          </div>
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          }
+        }
+
+        <!-- ═══ THINKING INDICATOR (Copilot-style: spinning icon + shimmering text) ═══ -->
+        @if (showThinking()) {
+          <div class="thinking-block">
+            <div class="thinking-block__avatar">
+              <svg
+                class="thinking-block__spinner"
+                viewBox="0 0 16 16"
+                fill="none"
+                width="16"
+                height="16"
+              >
+                <circle
+                  cx="8"
+                  cy="8"
+                  r="6"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-dasharray="28"
+                  stroke-dashoffset="8"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </div>
+            <span class="thinking-block__label">Agent X is thinking…</span>
+          </div>
+        }
+
+        <!-- ═══ HITL ACTION CARD (when operation is yielded) ═══ -->
+        @if (activeYieldState() && !yieldResolved()) {
+          <div class="msg-row msg-assistant">
+            <nxt1-agent-action-card
+              #actionCard
+              [yield]="activeYieldState()!"
+              [operationId]="contextId"
+              (approve)="onApproveAction($event)"
+              (reply)="onReplyAction($event)"
+            />
+          </div>
+        }
+
+        <!-- ═══ FAILURE BANNER (when operation has failed) ═══ -->
+        @if (isFailed() && !retryStarted()) {
+          <div class="failure-banner" [attr.data-testid]="failureTestIds.FAILURE_BANNER">
+            <div class="failure-banner__header">
+              <nxt1-icon name="alert-circle" [size]="20" />
+              <span class="failure-banner__title" [attr.data-testid]="failureTestIds.FAILURE_TITLE"
+                >Operation Failed</span
+              >
+            </div>
+            <p class="failure-banner__message" [attr.data-testid]="failureTestIds.FAILURE_MESSAGE">
+              {{ failureMessage() }}
+            </p>
+            <div class="failure-banner__actions">
+              <button
+                type="button"
+                class="failure-banner__btn failure-banner__btn--retry"
+                [attr.data-testid]="failureTestIds.BTN_RETRY"
+                (click)="onRetry()"
+              >
+                <nxt1-icon name="refresh" [size]="14" />
+                Retry
+              </button>
+              @if (!embedded) {
+                <button
+                  type="button"
+                  class="failure-banner__btn failure-banner__btn--dismiss"
+                  [attr.data-testid]="failureTestIds.BTN_DISMISS"
+                  (click)="dismiss()"
+                >
+                  Dismiss
+                </button>
+              }
+            </div>
+          </div>
+        }
+
+        @if (retryStarted()) {
+          <div class="msg-row msg-system">
+            <nxt1-chat-bubble
+              variant="agent-operation"
+              [isOwn]="false"
+              [content]="'🔄 Retrying this operation — a new job has been queued. You can close this sheet.'"
+              [isTyping]="false"
+              [isError]="false"
+              [isSystem]="true"
+            />
+          </div>
+        }
+      </div>
+
+      <!-- ═══ PENDING FILES PREVIEW ═══ -->
+      @if (pendingFiles().length > 0) {
+        <div class="pending-files-strip">
+          @for (pf of pendingFiles(); track pf.file.name + $index) {
+            <div class="pending-file" [class.pending-file--media]="pf.isImage || pf.isVideo">
+              @if (pf.isImage && pf.previewUrl) {
+                <img
+                  [src]="pf.previewUrl"
+                  [alt]="pf.file.name"
+                  class="pending-file__thumb"
+                  (click)="openPendingFileViewer($index)"
+                />
+              } @else if (pf.isVideo && pf.previewUrl) {
+                <video
+                  [src]="pf.previewUrl"
+                  class="pending-file__thumb"
+                  preload="metadata"
+                  (click)="openPendingFileViewer($index)"
+                ></video>
+                <div class="pending-file__play">
+                  <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                    <path d="M8 5v14l11-7L8 5z" />
+                  </svg>
+                </div>
+              } @else {
+                <div
+                  class="pending-file__doc"
+                  (click)="openPendingFileViewer($index)"
+                  style="cursor: pointer;"
+                >
+                  <div
+                    class="pending-file__doc-icon-wrap"
+                    [style.background]="getFileColor(pf.file.name, 0.15)"
+                    [style.color]="getFileColor(pf.file.name, 1)"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      width="16"
+                      height="16"
+                    >
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                  </div>
+                  <div class="pending-file__doc-info">
+                    <span class="pending-file__doc-name">{{ pf.file.name }}</span>
+                    <span class="pending-file__doc-meta"
+                      >{{ getFileExt(pf.file.name) }} · {{ formatFileSize(pf.file.size) }}</span
+                    >
+                  </div>
+                </div>
+              }
+              <button
+                class="pending-file__remove"
+                (click)="removePendingFile($index)"
+                aria-label="Remove file"
+              >
+                <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12">
+                  <path
+                    d="M4.11 3.05a.75.75 0 0 0-1.06 1.06L6.94 8l-3.89 3.89a.75.75 0 1 0 1.06 1.06L8 9.06l3.89 3.89a.75.75 0 1 0 1.06-1.06L9.06 8l3.89-3.89a.75.75 0 0 0-1.06-1.06L8 6.94 4.11 3.05z"
+                  />
+                </svg>
+              </button>
+            </div>
           }
         </div>
       }
 
-      @for (msg of messages(); track msg.id; let first = $first) {
-        <!-- Operation Brief card for the first user message in an operation context -->
-        @if (first && msg.role === 'user' && isOperation) {
-          <div class="operation-brief">
-            <div class="operation-brief__header">
-              <svg
-                class="agent-x-mark"
-                width="18"
-                height="18"
-                viewBox="0 0 612 792"
-                fill="currentColor"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path [attr.d]="agentXLogoPath" />
-                <polygon [attr.points]="agentXLogoPolygon" />
+      <!-- ═══ INPUT ═══ -->
+      <nxt1-agent-x-input
+        class="embedded"
+        [hasMessages]="messages().length > 0"
+        [selectedTask]="null"
+        [isLoading]="_loading()"
+        [canSend]="canSend()"
+        [userMessage]="inputValue()"
+        [placeholder]="'Start your agent'"
+        [plusButtonAriaLabel]="'Add attachments'"
+        (messageChange)="inputValue.set($event)"
+        (send)="send()"
+        (stop)="cancelStream()"
+        (toggleTasks)="onUploadClick()"
+      />
+      <input
+        #fileInput
+        class="file-input-hidden"
+        type="file"
+        [accept]="acceptedFileTypes"
+        multiple
+        (change)="onFileSelected($event)"
+      />
+
+      @if (isDragActive()) {
+        <div
+          class="chat-drop-overlay"
+          [attr.data-testid]="chatTestIds.DROP_OVERLAY"
+          aria-live="polite"
+        >
+          <div class="chat-drop-overlay__card">
+            <div class="chat-drop-overlay__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M12 16V5" stroke-linecap="round" />
+                <path d="M7.5 9.5 12 5l4.5 4.5" stroke-linecap="round" stroke-linejoin="round" />
+                <path
+                  d="M4 17.5a2.5 2.5 0 0 0 2.5 2.5h11A2.5 2.5 0 0 0 20 17.5"
+                  stroke-linecap="round"
+                />
               </svg>
-              <span class="operation-brief__label">Operation Brief</span>
             </div>
-            <p class="operation-brief__text">{{ msg.content }}</p>
+            <h3 class="chat-drop-overlay__title">Drop files to attach</h3>
+            <p class="chat-drop-overlay__copy">
+              Images, videos, PDFs, docs, and spreadsheets are supported. Up to 5 files, 20 MB each.
+            </p>
           </div>
-        } @else {
-          <div
-            class="msg-row"
-            [class.msg-user]="msg.role === 'user'"
-            [class.msg-assistant]="msg.role === 'assistant'"
-            [class.msg-system]="msg.role === 'system'"
-            [class.msg-error]="msg.error"
-          >
-            <nxt1-chat-bubble
-              variant="agent-operation"
-              [isOwn]="msg.role === 'user'"
-              [content]="msg.content"
-              [isTyping]="!!msg.isTyping"
-              [isError]="!!msg.error"
-              [isSystem]="msg.role === 'system'"
-              [steps]="msg.steps ?? []"
-              [cards]="msg.cards ?? []"
-              (billingActionResolved)="onBillingActionResolved($event)"
-            />
-            @if (msg.attachments?.length) {
-              <div class="msg-attachments">
-                @for (att of msg.attachments; track att.name + $index) {
-                  <div class="msg-attachment" [class.msg-attachment--media]="att.type !== 'doc'">
-                    @if (att.type === 'image') {
-                      <img
-                        [src]="att.url"
-                        [alt]="att.name"
-                        class="msg-attachment__thumb"
-                        (click)="openAttachmentViewer(msg.attachments!, $index)"
-                      />
-                    } @else if (att.type === 'video') {
-                      <video
-                        [src]="att.url"
-                        class="msg-attachment__thumb"
-                        preload="metadata"
-                        (click)="openAttachmentViewer(msg.attachments!, $index)"
-                      ></video>
-                      <div class="msg-attachment__play">
-                        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-                          <path d="M8 5v14l11-7L8 5z" />
-                        </svg>
-                      </div>
-                    } @else {
-                      <div
-                        class="msg-attachment__doc"
-                        (click)="openAttachmentViewer(msg.attachments!, $index)"
-                        style="cursor: pointer;"
-                      >
-                        <div
-                          class="msg-attachment__doc-icon-wrap"
-                          [style.background]="getFileColor(att.name, 0.15)"
-                          [style.color]="getFileColor(att.name, 1)"
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="1.5"
-                            width="14"
-                            height="14"
-                          >
-                            <path
-                              d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"
-                            />
-                            <polyline points="14 2 14 8 20 8" />
-                          </svg>
-                        </div>
-                        <div class="msg-attachment__doc-info">
-                          <span class="msg-attachment__doc-name">{{ att.name }}</span>
-                          <span class="msg-attachment__doc-meta">{{ getFileExt(att.name) }}</span>
-                        </div>
-                      </div>
-                    }
-                  </div>
-                }
-              </div>
-            }
-          </div>
-        }
-      }
-
-      <!-- ═══ THINKING INDICATOR (when operation is processing and no AI reply yet) ═══ -->
-      @if (showThinking()) {
-        <div class="thinking-block">
-          <div class="thinking-block__avatar">
-            <svg
-              class="agent-x-mark"
-              width="22"
-              height="22"
-              viewBox="0 0 612 792"
-              fill="currentColor"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path [attr.d]="agentXLogoPath" />
-              <polygon [attr.points]="agentXLogoPolygon" />
-            </svg>
-          </div>
-          <div class="thinking-block__content">
-            <div class="thinking-block__dots"><span></span><span></span><span></span></div>
-            <span class="thinking-block__label">Agent X is working on this…</span>
-          </div>
-        </div>
-      }
-
-      <!-- ═══ HITL ACTION CARD (when operation is yielded) ═══ -->
-      @if (activeYieldState() && !yieldResolved()) {
-        <div class="msg-row msg-assistant">
-          <nxt1-agent-action-card
-            #actionCard
-            [yield]="activeYieldState()!"
-            [operationId]="contextId"
-            (approve)="onApproveAction($event)"
-            (reply)="onReplyAction($event)"
-          />
-        </div>
-      }
-
-      <!-- ═══ FAILURE BANNER (when operation has failed) ═══ -->
-      @if (isFailed() && !retryStarted()) {
-        <div class="failure-banner" [attr.data-testid]="failureTestIds.FAILURE_BANNER">
-          <div class="failure-banner__header">
-            <nxt1-icon name="alert-circle" [size]="20" />
-            <span class="failure-banner__title" [attr.data-testid]="failureTestIds.FAILURE_TITLE"
-              >Operation Failed</span
-            >
-          </div>
-          <p class="failure-banner__message" [attr.data-testid]="failureTestIds.FAILURE_MESSAGE">
-            {{ failureMessage() }}
-          </p>
-          <div class="failure-banner__actions">
-            <button
-              type="button"
-              class="failure-banner__btn failure-banner__btn--retry"
-              [attr.data-testid]="failureTestIds.BTN_RETRY"
-              (click)="onRetry()"
-            >
-              <nxt1-icon name="refresh" [size]="14" />
-              Retry
-            </button>
-            @if (!embedded) {
-              <button
-                type="button"
-                class="failure-banner__btn failure-banner__btn--dismiss"
-                [attr.data-testid]="failureTestIds.BTN_DISMISS"
-                (click)="dismiss()"
-              >
-                Dismiss
-              </button>
-            }
-          </div>
-        </div>
-      }
-
-      @if (retryStarted()) {
-        <div class="msg-row msg-system">
-          <nxt1-chat-bubble
-            variant="agent-operation"
-            [isOwn]="false"
-            [content]="'🔄 Retrying this operation — a new job has been queued. You can close this sheet.'"
-            [isTyping]="false"
-            [isError]="false"
-            [isSystem]="true"
-          />
         </div>
       }
     </div>
-
-    <!-- ═══ PENDING FILES PREVIEW ═══ -->
-    @if (pendingFiles().length > 0) {
-      <div class="pending-files-strip">
-        @for (pf of pendingFiles(); track pf.file.name + $index) {
-          <div class="pending-file" [class.pending-file--media]="pf.isImage || pf.isVideo">
-            @if (pf.isImage && pf.previewUrl) {
-              <img
-                [src]="pf.previewUrl"
-                [alt]="pf.file.name"
-                class="pending-file__thumb"
-                (click)="openPendingFileViewer($index)"
-              />
-            } @else if (pf.isVideo && pf.previewUrl) {
-              <video
-                [src]="pf.previewUrl"
-                class="pending-file__thumb"
-                preload="metadata"
-                (click)="openPendingFileViewer($index)"
-              ></video>
-              <div class="pending-file__play">
-                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                  <path d="M8 5v14l11-7L8 5z" />
-                </svg>
-              </div>
-            } @else {
-              <div
-                class="pending-file__doc"
-                (click)="openPendingFileViewer($index)"
-                style="cursor: pointer;"
-              >
-                <div
-                  class="pending-file__doc-icon-wrap"
-                  [style.background]="getFileColor(pf.file.name, 0.15)"
-                  [style.color]="getFileColor(pf.file.name, 1)"
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    width="16"
-                    height="16"
-                  >
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" />
-                    <polyline points="14 2 14 8 20 8" />
-                  </svg>
-                </div>
-                <div class="pending-file__doc-info">
-                  <span class="pending-file__doc-name">{{ pf.file.name }}</span>
-                  <span class="pending-file__doc-meta"
-                    >{{ getFileExt(pf.file.name) }} · {{ formatFileSize(pf.file.size) }}</span
-                  >
-                </div>
-              </div>
-            }
-            <button
-              class="pending-file__remove"
-              (click)="removePendingFile($index)"
-              aria-label="Remove file"
-            >
-              <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12">
-                <path
-                  d="M4.11 3.05a.75.75 0 0 0-1.06 1.06L6.94 8l-3.89 3.89a.75.75 0 1 0 1.06 1.06L8 9.06l3.89 3.89a.75.75 0 1 0 1.06-1.06L9.06 8l3.89-3.89a.75.75 0 0 0-1.06-1.06L8 6.94 4.11 3.05z"
-                />
-              </svg>
-            </button>
-          </div>
-        }
-      </div>
-    }
-
-    <!-- ═══ INPUT ═══ -->
-    <nxt1-agent-x-input
-      class="embedded"
-      [hasMessages]="messages().length > 0"
-      [selectedTask]="null"
-      [isLoading]="_loading()"
-      [canSend]="canSend()"
-      [userMessage]="inputValue()"
-      [placeholder]="'Start your agent'"
-      (messageChange)="inputValue.set($event)"
-      (send)="send()"
-      (stop)="cancelStream()"
-      (toggleTasks)="onUploadClick()"
-    />
-    <input
-      #fileInput
-      class="file-input-hidden"
-      type="file"
-      accept="image/*,video/*,.pdf,.doc,.docx,.txt,.csv,.xls,.xlsx,.ppt,.pptx,.zip,.rar"
-      multiple
-      (change)="onFileSelected($event)"
-    />
   `,
   styles: [
     `
@@ -505,6 +558,79 @@ interface OperationMessage {
         border: 1px solid var(--op-border);
         border-radius: var(--nxt1-radius-2xl, 20px);
         background: transparent;
+      }
+
+      .operation-chat-shell {
+        position: relative;
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .chat-drop-overlay {
+        position: absolute;
+        inset: 16px;
+        z-index: 12;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background:
+          linear-gradient(180deg, rgba(204, 255, 0, 0.16), rgba(204, 255, 0, 0.06)),
+          rgba(10, 10, 10, 0.42);
+        border: 1px solid rgba(204, 255, 0, 0.32);
+        border-radius: 24px;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+        backdrop-filter: saturate(160%) blur(14px);
+        -webkit-backdrop-filter: saturate(160%) blur(14px);
+        pointer-events: none;
+      }
+
+      .chat-drop-overlay__card {
+        width: min(100%, 420px);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        text-align: center;
+        padding: 24px 28px;
+        border-radius: 20px;
+        background: rgba(7, 7, 7, 0.52);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .chat-drop-overlay__icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 56px;
+        height: 56px;
+        border-radius: 18px;
+        color: var(--op-primary);
+        background: rgba(204, 255, 0, 0.12);
+        box-shadow: inset 0 0 0 1px rgba(204, 255, 0, 0.14);
+      }
+
+      .chat-drop-overlay__icon svg {
+        width: 24px;
+        height: 24px;
+      }
+
+      .chat-drop-overlay__title {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 700;
+        color: var(--op-text);
+      }
+
+      .chat-drop-overlay__copy {
+        margin: 0;
+        max-width: 320px;
+        font-size: 13px;
+        line-height: 1.55;
+        color: var(--op-text-secondary);
       }
 
       /* ── MESSAGES ── */
@@ -981,72 +1107,68 @@ interface OperationMessage {
         -webkit-box-orient: vertical;
       }
 
-      /* ── THINKING INDICATOR ── */
+      /* ── THINKING INDICATOR (Copilot-style) ── */
       .thinking-block {
         display: flex;
-        align-items: flex-start;
-        gap: 10px;
-        padding: 14px 0;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 16px;
         animation: fadeSlideIn 0.3s ease-out;
       }
 
       .thinking-block__avatar {
-        width: 28px;
-        height: 28px;
-        border-radius: 8px;
-        background: var(--op-primary-glow);
         display: flex;
         align-items: center;
         justify-content: center;
-        color: var(--op-primary);
         flex-shrink: 0;
+        color: var(--op-primary);
       }
 
-      .thinking-block__content {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-      }
-
-      .thinking-block__dots {
-        display: flex;
-        gap: 4px;
-        align-items: center;
-        height: 20px;
-      }
-
-      .thinking-block__dots span {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: var(--op-primary);
-        animation: thinkingPulse 1.4s ease-in-out infinite;
-      }
-
-      .thinking-block__dots span:nth-child(2) {
-        animation-delay: 0.2s;
-      }
-
-      .thinking-block__dots span:nth-child(3) {
-        animation-delay: 0.4s;
+      .thinking-block__spinner {
+        width: 16px;
+        height: 16px;
+        animation: thinkingSpin 1s linear infinite;
       }
 
       .thinking-block__label {
-        font-size: 12px;
-        color: var(--op-text-secondary);
+        font-size: 13px;
+        font-weight: 500;
         letter-spacing: -0.01em;
+        background: linear-gradient(
+          90deg,
+          var(--op-text-muted) 0%,
+          var(--op-text) 50%,
+          var(--op-text-muted) 100%
+        );
+        background-size: 200% auto;
+        color: transparent;
+        -webkit-background-clip: text;
+        background-clip: text;
+        animation: thinkingShimmer 2s linear infinite;
       }
 
-      @keyframes thinkingPulse {
-        0%,
-        80%,
-        100% {
-          opacity: 0.25;
-          transform: scale(0.8);
+      @keyframes thinkingSpin {
+        to {
+          transform: rotate(360deg);
         }
-        40% {
-          opacity: 1;
-          transform: scale(1);
+      }
+
+      @keyframes thinkingShimmer {
+        to {
+          background-position: 200% center;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .thinking-block__spinner {
+          animation: none;
+        }
+        .thinking-block__label {
+          animation: none;
+          color: var(--op-text-secondary);
+          background: none;
+          -webkit-background-clip: unset;
+          background-clip: unset;
         }
       }
     `,
@@ -1059,6 +1181,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
   private readonly logger = inject(NxtLoggingService).child('AgentXOperationChat');
   private readonly haptics = inject(HapticsService);
+  private readonly toast = inject(NxtToastService);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly keyboard = inject(KeyboardService, { optional: true });
@@ -1067,6 +1190,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private readonly mediaViewer = inject(NxtMediaViewerService);
   private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
   private readonly destroyRef = inject(DestroyRef);
+  private readonly streamRegistry = inject(AgentXStreamRegistryService);
+  private readonly agentXService = inject(AgentXService);
 
   /** Pure API factory — used for SSE streaming. */
   private readonly api: AgentXApi = createAgentXApi(
@@ -1155,6 +1280,13 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Whether an AI response is being generated. */
   protected readonly _loading = signal(false);
 
+  /**
+   * MongoDB thread ID resolved after the first message.
+   * Captured from the SSE `event: thread` frame or HTTP response
+   * and included in subsequent requests for conversation continuity.
+   */
+  private readonly _resolvedThreadId = signal<string | null>(null);
+
   /** Active yield state for this operation (set via input binding). */
   protected readonly activeYieldState = signal<AgentYieldState | null>(null);
 
@@ -1167,6 +1299,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Test IDs for failure banner elements. */
   protected readonly failureTestIds = AGENT_X_OPERATION_CHAT_TEST_IDS;
+
+  /** Shared test IDs for the operation chat surface. */
+  protected readonly chatTestIds = AGENT_X_OPERATION_CHAT_TEST_IDS;
+
+  /** Comma-separated file types accepted by the hidden file input. */
+  protected readonly acceptedFileTypes = AGENT_X_ALLOWED_MIME_TYPES.join(',');
 
   /** Whether this operation has failed — drives the failure banner. */
   protected readonly isFailed = computed(() => this.operationStatus === 'error');
@@ -1181,6 +1319,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Files staged for upload — displayed as previews above the input bar. */
   protected readonly pendingFiles = signal<PendingFile[]>([]);
+
+  /** Whether a drag operation is hovering over the chat surface. */
+  protected readonly isDragActive = signal(false);
 
   /** Whether to show the persistent "Agent X is thinking" indicator. */
   protected readonly showThinking = computed(() => {
@@ -1243,6 +1384,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Emitted after a chat response completes (stream done or HTTP returned). */
   readonly responseComplete = output<void>();
 
+  /** Emitted when the user approves a draft email card (HITL send). */
+  readonly draftSubmitted = output<DraftSubmittedEvent>();
+
   /** Whether this chat was opened to view a historical thread (suppresses generic welcome). */
   private readonly _isThreadMode = signal(false);
 
@@ -1280,9 +1424,23 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private readonly actionCardRef = viewChild<AgentXActionCardComponent>('actionCard');
 
   constructor() {
-    // Abort any in-flight SSE stream when the component is destroyed
+    // When the component is destroyed (e.g. session switch), detach from the
+    // stream registry instead of aborting. The stream continues running in the
+    // background and buffers its output. When the user returns to this session,
+    // the component remounts and rehydrates from the buffer.
     this.destroyRef.onDestroy(() => {
-      this.activeStream?.abort();
+      const threadId = this._resolvedThreadId();
+      // Always detach listener to prevent dangling references on
+      // completed entries (detach is a no-op if no entry exists).
+      if (threadId) {
+        this.streamRegistry.detach(threadId);
+      }
+      // Only abort the raw controller when there is NO active stream
+      // in the registry — an active stream should survive the
+      // component lifecycle and keep buffering in the registry.
+      if (!threadId || !this.streamRegistry.hasActiveStream(threadId)) {
+        this.activeStream?.abort();
+      }
       this.activeStream = null;
     });
 
@@ -1328,9 +1486,146 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private initialMessageSent = false;
 
   ngAfterViewInit(): void {
-    // If opening an existing operation/thread, load its persisted messages.
+    // If opening an existing operation/thread, check for an active stream first.
     if (this.threadId?.trim()) {
       this._isThreadMode.set(true);
+      this._resolvedThreadId.set(this.threadId.trim());
+
+      // ── Rehydrate from stream registry (session switch recovery) ──────
+      // If the user switched away while a stream was running, the registry
+      // kept it alive. Claim it now to get buffered state + live updates.
+      const snapshot = this.streamRegistry.claim(this.threadId.trim(), {
+        onDelta: (text) => {
+          this.messages.update((msgs) =>
+            msgs.map((m) => {
+              if (m.id !== 'typing') return m;
+              // Rebuild parts for live updates
+              const prevParts = [...(m.parts ?? [])];
+              const last = prevParts[prevParts.length - 1];
+              if (last?.type === 'text') {
+                prevParts[prevParts.length - 1] = { type: 'text', content: last.content + text };
+              } else {
+                prevParts.push({ type: 'text', content: text });
+              }
+              return { ...m, content: m.content + text, isTyping: false, parts: prevParts };
+            })
+          );
+        },
+        onStep: (step) => {
+          this.messages.update((msgs) =>
+            msgs.map((m) => {
+              if (m.id !== 'typing') return m;
+              const prev = m.steps ?? [];
+              const idx = prev.findIndex((s) => s.id === step.id);
+              const next = idx >= 0 ? prev.map((s, i) => (i === idx ? step : s)) : [...prev, step];
+              // Rebuild parts for live updates
+              const prevParts = [...(m.parts ?? [])];
+              const lastPart = prevParts[prevParts.length - 1];
+              if (lastPart?.type === 'tool-steps') {
+                const prevSteps = [...lastPart.steps];
+                const si = prevSteps.findIndex((s) => s.id === step.id);
+                if (si >= 0) {
+                  prevSteps[si] = step;
+                } else {
+                  prevSteps.push(step);
+                }
+                prevParts[prevParts.length - 1] = { type: 'tool-steps', steps: prevSteps };
+              } else {
+                prevParts.push({ type: 'tool-steps', steps: [step] });
+              }
+              return { ...m, steps: next, parts: prevParts };
+            })
+          );
+        },
+        onCard: (card) => {
+          this.messages.update((msgs) =>
+            msgs.map((m) => {
+              if (m.id !== 'typing') return m;
+              const prevParts = [...(m.parts ?? [])];
+              prevParts.push({ type: 'card', card });
+              return { ...m, cards: [...(m.cards ?? []), card], parts: prevParts };
+            })
+          );
+        },
+        onDone: () => {
+          const finalId = this.uid();
+          this.messages.update((msgs) =>
+            msgs.map((m) => (m.id === 'typing' ? { ...m, id: finalId, isTyping: false } : m))
+          );
+          this._loading.set(false);
+          this.haptics.notification('success').catch(() => undefined);
+          this.responseComplete.emit();
+        },
+        onError: (error) => {
+          this.replaceTyping({
+            id: this.uid(),
+            role: 'assistant',
+            content: error || 'Something went wrong. Please try again.',
+            timestamp: new Date(),
+            error: true,
+          });
+          this._loading.set(false);
+          this.haptics.notification('error').catch(() => undefined);
+        },
+      });
+
+      if (snapshot) {
+        this.logger.info('Rehydrating from stream registry', {
+          threadId: this.threadId.trim(),
+          contentLength: snapshot.content.length,
+          done: snapshot.done,
+        });
+
+        // Load persisted messages first, then append any in-flight streaming
+        // state. We read a FRESH snapshot after the async load because deltas
+        // may have arrived while the HTTP request was in flight — the claim-time
+        // snapshot would be stale.
+        void this.loadThreadMessages(this.threadId.trim()).then(() => {
+          const fresh = this.streamRegistry.getSnapshot(this.threadId.trim());
+          if (!fresh) return; // Entry pruned or aborted during load
+
+          if (fresh.done) {
+            // Stream completed — MongoDB should already have the final assistant
+            // message. Only append if it errored (errors aren't persisted as
+            // standard chat messages).
+            if (fresh.error) {
+              this.messages.update((msgs) => [
+                ...msgs,
+                {
+                  id: this.uid(),
+                  role: 'assistant' as const,
+                  content: fresh.error || 'Something went wrong.',
+                  timestamp: new Date(),
+                  error: true,
+                },
+              ]);
+            }
+            return;
+          }
+
+          // Stream still active — append buffered content as a typing indicator.
+          // fresh.content is up-to-date (includes deltas that arrived during load).
+          if (fresh.content || fresh.steps.length || fresh.cards.length) {
+            this.messages.update((msgs) => [
+              ...msgs,
+              {
+                id: 'typing',
+                role: 'assistant' as const,
+                content: fresh.content,
+                timestamp: new Date(),
+                isTyping: !fresh.content, // dots if no text yet, text otherwise
+                steps: fresh.steps.length > 0 ? [...fresh.steps] : undefined,
+                cards: fresh.cards.length > 0 ? [...fresh.cards] : undefined,
+                parts: fresh.parts.length > 0 ? [...fresh.parts] : undefined,
+              },
+            ]);
+          }
+          this._loading.set(true);
+        });
+        return;
+      }
+
+      // No active stream — load from MongoDB as before
       void this.loadThreadMessages(this.threadId.trim());
       return;
     }
@@ -1371,6 +1666,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
               content: string;
               createdAt?: string;
               resultData?: Record<string, unknown>;
+              toolCalls?: Array<{
+                toolName: string;
+                input?: Record<string, unknown>;
+                output?: Record<string, unknown>;
+                status: string;
+                durationMs?: number;
+                timestamp?: string;
+              }>;
             }>;
             hasMore?: boolean;
           };
@@ -1390,18 +1693,34 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         return;
       }
 
-      const mapped: OperationMessage[] = response.data.items.map((msg) => ({
-        id: msg.id ?? this.uid(),
-        role: msg.role === 'user' ? 'user' : 'assistant',
-        content: msg.content,
-        timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
-        ...(typeof msg.resultData?.['imageUrl'] === 'string'
-          ? { imageUrl: msg.resultData['imageUrl'] as string }
-          : {}),
-        ...(typeof msg.resultData?.['videoUrl'] === 'string'
-          ? { videoUrl: msg.resultData['videoUrl'] as string }
-          : {}),
-      }));
+      const mapped: OperationMessage[] = response.data.items.map((msg) => {
+        // Convert persisted toolCalls into AgentXToolStep[] for the chat bubble
+        const steps: AgentXToolStep[] = (msg.toolCalls ?? []).map((tc, idx) => ({
+          id: `tc-${idx}-${tc.toolName}`,
+          label: tc.toolName.replace(/_/g, ' '),
+          status: tc.status === 'success' ? ('success' as const) : ('error' as const),
+          detail:
+            tc.status === 'error' && tc.output?.['error']
+              ? String(tc.output['error'])
+              : tc.status === 'success'
+                ? `${tc.toolName.replace(/_/g, ' ')} completed`
+                : undefined,
+        }));
+
+        return {
+          id: msg.id ?? this.uid(),
+          role: msg.role === 'user' ? ('user' as const) : ('assistant' as const),
+          content: msg.content,
+          timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
+          ...(steps.length > 0 ? { steps } : {}),
+          ...(typeof msg.resultData?.['imageUrl'] === 'string'
+            ? { imageUrl: msg.resultData['imageUrl'] as string }
+            : {}),
+          ...(typeof msg.resultData?.['videoUrl'] === 'string'
+            ? { videoUrl: msg.resultData['videoUrl'] as string }
+            : {}),
+        };
+      });
 
       this.messages.set(mapped);
       const hadUser = mapped.some((msg) => msg.role === 'user');
@@ -1490,15 +1809,22 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * Bound to the stop button in the input bar.
    */
   cancelStream(): void {
+    // Abort via registry (cleans up buffer + SSE connection)
+    const threadId = this._resolvedThreadId();
+    if (threadId) {
+      this.streamRegistry.abort(threadId);
+    }
+
     if (this.activeStream) {
       this.activeStream.abort();
       this.activeStream = null;
-      this._loading.set(false);
-      this.logger.info('Stream cancelled by user');
-      this.breadcrumb.trackStateChange('agent-x-operation-chat:stream-cancelled', {
-        contextId: this.contextId,
-      });
     }
+
+    this._loading.set(false);
+    this.logger.info('Stream cancelled by user');
+    this.breadcrumb.trackStateChange('agent-x-operation-chat:stream-cancelled', {
+      contextId: this.contextId,
+    });
   }
 
   /** Send the current input as a user message. */
@@ -1593,24 +1919,41 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.fileInput()?.nativeElement.click();
   }
 
+  /** Toggle the drag overlay while files hover over the chat surface. */
+  protected onDragStateChange(active: boolean): void {
+    this.isDragActive.set(active);
+  }
+
+  /** Stage files dropped anywhere in the chat area. */
+  protected async onFilesDropped(files: File[]): Promise<void> {
+    const addedCount = this.stageFiles(files);
+    this.isDragActive.set(false);
+
+    if (addedCount === 0) {
+      return;
+    }
+
+    await this.haptics.impact('light');
+    this.logger.info('Files dropped into operation chat', {
+      contextId: this.contextId,
+      count: addedCount,
+    });
+    this.breadcrumb.trackUserAction('agent-x-files-dropped', {
+      contextId: this.contextId,
+      count: addedCount,
+    });
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_FILES_DROPPED, {
+      contextId: this.contextId,
+      contextType: this.contextType,
+      count: addedCount,
+    });
+  }
+
   /** Handle selected files/images — stage them as pending previews above input. */
   protected onFileSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
     const files = Array.from(input.files ?? []);
-    if (files.length === 0) return;
-
-    const newPending: PendingFile[] = files.map((file) => {
-      const isImage = file.type.startsWith('image/');
-      const isVideo = file.type.startsWith('video/');
-      return {
-        file,
-        previewUrl: isImage || isVideo ? URL.createObjectURL(file) : null,
-        isImage,
-        isVideo,
-      };
-    });
-
-    this.pendingFiles.update((prev) => [...prev, ...newPending]);
+    this.stageFiles(files);
     input.value = '';
   }
 
@@ -1758,6 +2101,70 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.pendingFiles.set([]);
   }
 
+  private stageFiles(files: readonly File[]): number {
+    if (files.length === 0) {
+      return 0;
+    }
+
+    const currentCount = this.pendingFiles().length;
+    const nextPending: PendingFile[] = [];
+
+    for (const file of files) {
+      if (currentCount + nextPending.length >= AGENT_X_MAX_ATTACHMENTS) {
+        this.toast.error(`Maximum ${AGENT_X_MAX_ATTACHMENTS} attachments allowed`);
+        this.logger.warn('Rejected file because attachment limit was reached', {
+          contextId: this.contextId,
+          fileName: file.name,
+        });
+        break;
+      }
+
+      if (!AGENT_X_ALLOWED_MIME_TYPES.includes(file.type)) {
+        this.toast.error(`Unsupported file type: ${file.name}`);
+        this.logger.warn('Rejected unsupported operation chat file type', {
+          contextId: this.contextId,
+          fileName: file.name,
+          mimeType: file.type,
+        });
+        continue;
+      }
+
+      if (file.size > AGENT_X_MAX_FILE_SIZE) {
+        this.toast.error(`File too large: ${file.name} (max 20 MB)`);
+        this.logger.warn('Rejected oversized operation chat file', {
+          contextId: this.contextId,
+          fileName: file.name,
+          sizeBytes: file.size,
+        });
+        continue;
+      }
+
+      const isImage = file.type.startsWith('image/');
+      const isVideo = file.type.startsWith('video/');
+      nextPending.push({
+        file,
+        previewUrl:
+          (isImage || isVideo) && isPlatformBrowser(this.platformId)
+            ? URL.createObjectURL(file)
+            : null,
+        isImage,
+        isVideo,
+      });
+    }
+
+    if (nextPending.length === 0) {
+      return 0;
+    }
+
+    this.pendingFiles.update((prev) => [...prev, ...nextPending]);
+    this.logger.debug('Files staged in operation chat', {
+      contextId: this.contextId,
+      count: nextPending.length,
+      types: nextPending.map((pending) => resolveAttachmentType(pending.file.type)),
+    });
+    return nextPending.length;
+  }
+
   ngOnDestroy(): void {
     this._clearPendingFiles();
   }
@@ -1853,6 +2260,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           content: m.content,
           timestamp: new Date(),
         })),
+      ...(this._resolvedThreadId() ? { threadId: this._resolvedThreadId()! } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
     } satisfies AgentXChatRequest;
 
@@ -1875,70 +2283,128 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /**
    * SSE streaming path — connects via raw fetch + ReadableStream.
    * Appends tokens to the typing-indicator message in real time.
+   *
+   * Registers the stream with the StreamRegistry so it survives component
+   * destroy (session switch). The registry buffers output and forwards live
+   * updates to whichever component instance currently owns the UI.
    * @internal
    */
   private _sendViaStream(request: AgentXChatRequest, authToken: string): Promise<void> {
-    // Cancel any previous in-flight stream
+    // Cancel any previous in-flight stream (via registry or raw controller)
+    const prevThreadId = this._resolvedThreadId();
+    if (prevThreadId) {
+      this.streamRegistry.abort(prevThreadId);
+    }
     this.activeStream?.abort();
     this.activeStream = null;
 
     const streamingId = 'typing'; // The ID used by the existing typing indicator
 
     return new Promise<void>((resolve, reject) => {
+      // Mutable parts accumulator — builds Copilot-style interleaved sequence
+      const parts: AgentXMessagePart[] = [];
+
       this.activeStream = this.api.streamMessage(
         request,
         {
           onThread: (evt) => {
+            this._resolvedThreadId.set(evt.threadId);
             this.logger.debug('Stream thread resolved', { threadId: evt.threadId });
+
+            // Register with the stream registry now that we have a threadId.
+            // This MUST happen here (not earlier) because we need the threadId
+            // for the registry key, and the AbortController for cleanup.
+            if (this.activeStream) {
+              this.streamRegistry.register(evt.threadId, this.activeStream);
+            }
           },
 
           onDelta: (evt) => {
+            const tid = this._resolvedThreadId();
+            if (tid) this.streamRegistry.appendDelta(tid, evt.content);
+
+            // Build interleaved parts: append to last text part or start new one
+            const last = parts[parts.length - 1];
+            if (last?.type === 'text') {
+              parts[parts.length - 1] = { type: 'text', content: last.content + evt.content };
+            } else {
+              parts.push({ type: 'text', content: evt.content });
+            }
+
             // Append the new token to the typing indicator in-place
             this.messages.update((msgs) =>
               msgs.map((m) =>
                 m.id === streamingId
-                  ? { ...m, content: m.content + evt.content, isTyping: false }
+                  ? { ...m, content: m.content + evt.content, isTyping: false, parts: [...parts] }
                   : m
               )
             );
           },
 
           onStep: (evt: AgentXStreamStepEvent) => {
+            const step: AgentXToolStep = {
+              id: evt.id,
+              label: evt.label,
+              status: evt.status,
+              detail: evt.detail,
+            };
+            const tid = this._resolvedThreadId();
+            if (tid) this.streamRegistry.upsertStep(tid, step);
+
+            // Build interleaved parts: upsert into last tool-steps group or start new one
+            const lastPart = parts[parts.length - 1];
+            if (lastPart?.type === 'tool-steps') {
+              const prevSteps = [...lastPart.steps];
+              const idx = prevSteps.findIndex((s) => s.id === evt.id);
+              if (idx >= 0) {
+                prevSteps[idx] = step;
+              } else {
+                prevSteps.push(step);
+              }
+              parts[parts.length - 1] = { type: 'tool-steps', steps: prevSteps };
+            } else {
+              parts.push({ type: 'tool-steps', steps: [step] });
+            }
+
             this.messages.update((msgs) =>
               msgs.map((m) => {
                 if (m.id !== streamingId) return m;
                 const prev = m.steps ?? [];
                 const idx = prev.findIndex((s) => s.id === evt.id);
-                const step: AgentXToolStep = {
-                  id: evt.id,
-                  label: evt.label,
-                  status: evt.status,
-                  detail: evt.detail,
-                };
                 const next =
                   idx >= 0 ? prev.map((s, i) => (i === idx ? step : s)) : [...prev, step];
-                return { ...m, steps: next };
+                return { ...m, steps: next, parts: [...parts] };
               })
             );
           },
 
           onCard: (evt: AgentXStreamCardEvent) => {
+            const card: AgentXRichCard = { type: evt.type, title: evt.title, payload: evt.payload };
+            const tid = this._resolvedThreadId();
+            if (tid) this.streamRegistry.appendCard(tid, card);
+
+            // Each card is its own part in the interleaved sequence
+            parts.push({ type: 'card', card });
+
             this.messages.update((msgs) =>
               msgs.map((m) =>
                 m.id === streamingId
-                  ? {
-                      ...m,
-                      cards: [
-                        ...(m.cards ?? []),
-                        { type: evt.type, title: evt.title, payload: evt.payload },
-                      ],
-                    }
+                  ? { ...m, cards: [...(m.cards ?? []), card], parts: [...parts] }
                   : m
               )
             );
           },
 
           onDone: (evt) => {
+            const tid = this._resolvedThreadId();
+            if (tid) {
+              this.streamRegistry.markDone(tid, {
+                model: evt.model,
+                threadId: evt.threadId,
+                usage: evt.usage,
+              });
+            }
+
             // Freeze the final message — replace typing indicator with permanent ID
             const finalId = this.uid();
             this.messages.update((msgs) =>
@@ -1956,6 +2422,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
               streaming: true,
               model: evt.model,
             });
+            // Surface autoOpenPanel instruction to the shell via the central service
+            if (evt.autoOpenPanel) {
+              this.agentXService.requestAutoOpenPanel(evt.autoOpenPanel);
+              this.logger.info('Forwarded autoOpenPanel to AgentXService', {
+                type: evt.autoOpenPanel.type,
+              });
+            }
+
             this.logger.info('Stream complete', {
               model: evt.model,
               outputTokens: evt.usage?.outputTokens,
@@ -1965,6 +2439,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           },
 
           onError: (evt) => {
+            const tid = this._resolvedThreadId();
+            if (tid) this.streamRegistry.markError(tid, evt.error);
+
             this.activeStream = null;
 
             // ── 402 billing gate → inject billing action card ──
@@ -2074,6 +2551,19 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         timestamp: new Date(),
       });
     }
+  }
+
+  /** Handle draft email approval (HITL) — bubble up to parent shell/service. */
+  protected onDraftSubmitted(event: DraftSubmittedEvent): void {
+    this.logger.info('Draft email approved', {
+      toEmail: event.toEmail,
+      subject: event.subject?.slice(0, 50),
+    });
+    this.breadcrumb.trackUserAction('draft-email-approved', {
+      toEmail: event.toEmail,
+      source: 'operation-chat',
+    });
+    this.draftSubmitted.emit(event);
   }
 
   /** Handle approval/rejection from the action card. */

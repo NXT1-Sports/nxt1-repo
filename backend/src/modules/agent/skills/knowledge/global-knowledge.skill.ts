@@ -95,11 +95,20 @@ export class GlobalKnowledgeSkill extends BaseSkill {
    * This should be called by the agent pipeline BEFORE `getPromptContext()`.
    *
    * @param query The user's intent text (plain language).
+   * @param precomputedEmbedding Pre-computed embedding from BaseAgent (avoids double embed).
    * @param topK Number of chunks to retrieve.
    */
-  async retrieveForIntent(query: string, topK: number = 5): Promise<void> {
+  async retrieveForIntent(
+    query: string,
+    precomputedEmbedding?: readonly number[],
+    topK: number = 5
+  ): Promise<void> {
     try {
-      this._lastResults = await this.retrievalService.retrieve(query, { topK });
+      this._lastResults = await this.retrievalService.retrieve(
+        query,
+        { topK },
+        precomputedEmbedding
+      );
       this._cachedPromptBlock = this.retrievalService.buildPromptBlock(this._lastResults);
 
       logger.info('[GlobalKnowledgeSkill] Retrieved knowledge for intent', {

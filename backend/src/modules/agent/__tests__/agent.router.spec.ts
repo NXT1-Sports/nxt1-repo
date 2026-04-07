@@ -12,6 +12,7 @@ import type { BaseAgent } from '../agents/base.agent.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { ContextBuilder } from '../memory/context-builder.js';
+import { AgentDelegationException } from '../errors/agent-delegation.error.js';
 import type {
   AgentJobPayload,
   AgentJobUpdate,
@@ -32,7 +33,6 @@ function createMockUserContext(): AgentUserContext {
     sport: 'football',
     position: 'QB',
     graduationYear: 2026,
-    subscriptionTier: 'premium',
   } as AgentUserContext;
 }
 
@@ -530,6 +530,184 @@ describe('AgentRouter', () => {
       const result = await router.run(payload);
       expect(result.summary).toContain('Performance review done.');
       expect(performanceAgent.execute).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ─── Delegation Handoff ─────────────────────────────────────────────────
+
+  describe('delegation handoff', () => {
+    it('should re-dispatch through Planner when a direct agent throws AgentDelegationException', async () => {
+      // Direct agent path: brand_media_coordinator is set directly on payload.
+      // brand_media throws delegation → Router catches, strips agent lock,
+      // re-dispatches through Planner → Planner routes to recruiting_coordinator.
+      const plannerCallCount = { value: 0 };
+
+      llm = {
+        prompt: vi.fn().mockImplementation(async () => {
+          plannerCallCount.value++;
+          // Only called during re-dispatch (Planner planning phase)
+          return {
+            content: JSON.stringify({
+              summary: 'Recruiting task.',
+              tasks: [
+                {
+                  id: '1',
+                  assignedAgent: 'recruiting_coordinator',
+                  description: 'Send emails',
+                  dependsOn: [],
+                },
+              ],
+            }),
+            toolCalls: [],
+            model: 'anthropic/claude-haiku-4-5',
+            usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+            latencyMs: 200,
+            costUsd: 0.0001,
+            finishReason: 'stop',
+          };
+        }),
+        complete: vi.fn(),
+      } as unknown as OpenRouterService;
+
+      const brandMediaAgent = createMockAgent('brand_media_coordinator');
+      (brandMediaAgent.execute as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new AgentDelegationException({
+          forwardingIntent: 'Send recruiting emails to D2 coaches',
+          sourceAgent: 'brand_media_coordinator',
+        })
+      );
+
+      const recruitingAgent = createMockAgent('recruiting_coordinator', {
+        summary: 'Emails sent to 5 coaches.',
+        suggestions: [],
+      });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(brandMediaAgent);
+      router.registerAgent(recruitingAgent);
+
+      const updates: AgentJobUpdate[] = [];
+      const payload: AgentJobPayload = {
+        operationId: 'op-delegation-1',
+        userId: 'user-123',
+        intent: 'Send emails to coaches',
+        agent: 'brand_media_coordinator' as any,
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      };
+
+      const result = await router.run(payload, (u) => updates.push(u));
+
+      // Recruiting agent should have handled the re-dispatched request
+      expect(recruitingAgent.execute).toHaveBeenCalledTimes(1);
+      expect(result.summary).toContain('Emails sent to 5 coaches.');
+
+      // Should have emitted a "transferring" update
+      expect(updates.some((u) => u.step?.message?.includes('Transferring'))).toBe(true);
+    });
+
+    it('should fail the task when delegation occurs in DAG execution (Planner path)', async () => {
+      // Direct agent path: brand_media delegates → Router re-dispatches through Planner
+      // → Planner routes to brand_media again → DAG catch treats it as immediate task failure
+      llm = createMockLLM({
+        summary: 'Route to brand media.',
+        tasks: [
+          {
+            id: '1',
+            assignedAgent: 'brand_media_coordinator',
+            description: 'Handle it',
+            dependsOn: [],
+          },
+        ],
+      });
+
+      const brandMediaAgent = createMockAgent('brand_media_coordinator');
+      (brandMediaAgent.execute as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new AgentDelegationException({
+          forwardingIntent: 'I cannot handle this',
+          sourceAgent: 'brand_media_coordinator',
+        })
+      );
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(brandMediaAgent);
+
+      const payload: AgentJobPayload = {
+        operationId: 'op-delegation-loop',
+        userId: 'user-123',
+        intent: 'Do something ambiguous',
+        agent: 'brand_media_coordinator' as any,
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      };
+
+      const updates: AgentJobUpdate[] = [];
+      const result = await router.run(payload, (u) => updates.push(u));
+
+      // Result comes back (no infinite loop) — DAG path treats delegation as task failure
+      expect(result).toBeDefined();
+      // The brand_media agent should have been called at least twice (direct + DAG)
+      expect(brandMediaAgent.execute).toHaveBeenCalled();
+      // Should have emitted a "misrouted" update from the DAG handler
+      expect(updates.some((u) => u.step?.message?.includes('misrouted'))).toBe(true);
+    });
+
+    it('should include routing hint to avoid same-agent bounce', async () => {
+      // Direct-agent path: brand_media delegates, check the intent passed to Planner
+      llm = createMockLLM({
+        summary: 'After delegation.',
+        tasks: [
+          {
+            id: '1',
+            assignedAgent: 'recruiting_coordinator',
+            description: 'Handle it',
+            dependsOn: [],
+          },
+        ],
+      });
+
+      const brandMediaAgent = createMockAgent('brand_media_coordinator');
+      (brandMediaAgent.execute as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new AgentDelegationException({
+          forwardingIntent: 'Send emails to coaches',
+          sourceAgent: 'brand_media_coordinator',
+        })
+      );
+
+      const recruitingAgent = createMockAgent('recruiting_coordinator', {
+        summary: 'Done.',
+        suggestions: [],
+      });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(brandMediaAgent);
+      router.registerAgent(recruitingAgent);
+
+      const payload: AgentJobPayload = {
+        operationId: 'op-delegation-hint',
+        userId: 'user-123',
+        intent: 'Send emails to coaches',
+        agent: 'brand_media_coordinator' as any,
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      };
+
+      await router.run(payload);
+
+      // The Planner's prompt() should have received an intent with the routing hint
+      expect(llm.prompt).toHaveBeenCalled();
+      const promptCalls = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls;
+      // Find the call that includes the routing hint (delegation re-dispatch)
+      const hasRoutingHint = promptCalls.some(
+        (call) =>
+          typeof call[1] === 'string' &&
+          call[1].includes('brand_media_coordinator') &&
+          call[1].includes('could not handle')
+      );
+      expect(hasRoutingHint).toBe(true);
     });
   });
 });

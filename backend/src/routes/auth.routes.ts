@@ -70,7 +70,7 @@ const router: RouterType = Router();
  * Design Principles:
  * - User document = Identity + Profile ONLY
  * - Payment/Subscription data → Subscriptions collection
- * - Credits/limits → Derived from PLAN_CONFIGS (no storage needed for free tier)
+ * - Credits/limits → Metered usage billing (no storage needed)
  *
  * @see @nxt1/core User model
  * @see Subscriptions collection for payment data
@@ -502,7 +502,7 @@ router.post(
 
     // Create V2 user document (Identity + Profile only)
     // Note: Payment/subscription data goes in Subscriptions collection
-    // Free tier limits are derived from PLAN_CONFIGS - no storage needed
+    // Metered usage billing - no plan storage needed
     const newUser: UserV2Document = {
       // Core identity
       email: sanitizedEmail,

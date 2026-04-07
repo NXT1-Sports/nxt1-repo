@@ -324,14 +324,18 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     const dailyUsage = new Map<string, number>();
     let totalUsageCents = 0;
 
-    // For IAP wallet users, charges go directly to billingContexts.currentPeriodSpend
-    // (deductWallet does not write usageEvents). Use the authoritative source directly.
+    // For IAP wallet users and org billing contexts, use the atomic counter
+    // (currentPeriodSpend) as the authoritative total.  IAP's deductWallet and
+    // org billing's recordOrgSpend always increment the counter, while usage
+    // events may be missing for dynamic-cost features without Stripe price IDs.
     const isIapUser =
       billingCtx.billingEntity === 'individual' && billingCtx.paymentProvider === 'iap';
+    const isOrgBilling = billingCtx.billingEntity === 'organization';
 
     if (isIapUser) {
       totalUsageCents = billingCtx.currentPeriodSpend ?? 0;
     } else {
+      // Aggregate events for feature/daily breakdown (charts)
       for (const doc of eventsDocs) {
         const data = doc.data();
         const feature = data['feature'] as string;
@@ -342,6 +346,15 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
 
         const dateKey = toISOString(data['createdAt']).slice(0, 10);
         dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
+      }
+
+      // For org billing, prefer the atomic counter as the authoritative total.
+      // Usage events may undercount when features lack a Stripe price mapping.
+      if (isOrgBilling) {
+        const authoritative = billingCtx.currentPeriodSpend ?? 0;
+        if (authoritative > totalUsageCents) {
+          totalUsageCents = authoritative;
+        }
       }
     }
 

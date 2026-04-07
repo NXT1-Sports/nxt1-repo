@@ -13,3 +13,7 @@ export {
   type KnowledgeRetrievalOptions,
 } from './knowledge-retrieval.service.js';
 export { KnowledgeIngestionService } from './knowledge-ingestion.service.js';
+export {
+  MemorySummarizationService,
+  type SummarizationResult,
+} from './memory-summarization.service.js';

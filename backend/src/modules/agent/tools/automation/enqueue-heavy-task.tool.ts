@@ -85,7 +85,11 @@ export class EnqueueHeavyTaskTool extends BaseTool {
     };
 
     try {
-      const jobId = await this.queueService.enqueue(payload);
+      // Respect the environment injected by the chat route (staging vs production).
+      // Without this, staging chat jobs would get enqueued against the production Firestore
+      // and fail with 5 NOT_FOUND when the worker looks up a staging userId.
+      const env = (context['environment'] as 'staging' | 'production') ?? 'production';
+      const jobId = await this.queueService.enqueue(payload, env);
       logger.info('Heavy task enqueued from chat', {
         operationId,
         jobId,

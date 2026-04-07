@@ -41,14 +41,18 @@ import {
   OnDestroy,
   TemplateRef,
   viewChild,
+  DestroyRef,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 
 import { NxtIconComponent } from '../../components/icon';
+import { NxtStateViewComponent } from '../../components/state-view';
 import { NxtHeaderPortalService } from '../../services/header-portal/header-portal.service';
 import { NxtOverlayService } from '../../components/overlay';
 import { ConnectedAccountsModalService } from '../../components/connected-sources';
 import { AgentXService } from '../agent-x.service';
+import { LiveViewSessionService } from '../live-view-session.service';
 import { AgentXDashboardSkeletonComponent } from '../agent-x-dashboard-skeleton.component';
 import { AgentXControlPanelComponent } from '../agent-x-control-panel.component';
 import { AgentXOperationsLogComponent } from '../agent-x-operations-log.component';
@@ -56,6 +60,7 @@ import {
   AgentXOperationChatComponent,
   type OperationQuickAction,
 } from '../agent-x-operation-chat.component';
+import type { DraftSubmittedEvent } from '../agent-x-draft-card.component';
 import { AgentXInputComponent } from '../agent-x-input.component';
 import {
   AgentXControlPanelStateService,
@@ -64,15 +69,21 @@ import {
 } from '../agent-x-control-panel-state.service';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
+import { NxtLoggingService } from '../../services/logging/logging.service';
+import {
+  AgentXOperationEventService,
+  type ThreadTitleUpdatedEvent,
+} from '../agent-x-operation-event.service';
 import type { CommandCategory, WeeklyPlaybookItem } from '../agent-x-shell.component';
 import {
   type ShellWeeklyPlaybookItem,
-  type ShellActiveOperation,
   type AgentDashboardGoal,
   type OperationLogEntry,
+  type AgentYieldState,
 } from '@nxt1/core/ai';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../fab/agent-x-logo.constants';
 import type { OnboardingUserType } from '@nxt1/core';
+import { TEST_IDS } from '@nxt1/core/testing';
 
 /**
  * Content descriptor for the expanded side panel.
@@ -85,6 +96,8 @@ export interface ExpandedSidePanelContent {
   readonly type: 'live-view' | 'image' | 'video' | 'doc';
   readonly url: string;
   readonly title?: string;
+  /** When type is 'live-view', the session ID for backend refresh/navigate/close. */
+  readonly sessionId?: string;
 }
 
 /**
@@ -108,7 +121,7 @@ interface AgentXDesktopSession {
   readonly threadId?: string;
   readonly operationStatus?: 'processing' | 'complete' | 'error' | 'awaiting_input' | null;
   readonly errorMessage?: string | null;
-  readonly yieldState?: ShellActiveOperation['yieldState'];
+  readonly yieldState?: AgentYieldState;
 }
 
 @Component({
@@ -116,6 +129,7 @@ interface AgentXDesktopSession {
   standalone: true,
   imports: [
     NxtIconComponent,
+    NxtStateViewComponent,
     AgentXDashboardSkeletonComponent,
     AgentXOperationsLogComponent,
     AgentXOperationChatComponent,
@@ -180,24 +194,44 @@ interface AgentXDesktopSession {
             type="button"
             class="header-nav-pill"
             [class.header-nav-pill--active]="!!expandedSidePanel()"
+            [class.header-nav-pill--loading]="liveView.loading()"
+            [disabled]="liveView.loading()"
             (click)="toggleDevLiveView()"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-              <line x1="8" y1="21" x2="16" y2="21" />
-              <line x1="12" y1="17" x2="12" y2="21" />
-            </svg>
+            @if (liveView.loading()) {
+              <svg
+                class="header-nav-pill-spinner"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="10" stroke-opacity="0.25" />
+                <path d="M12 2a10 10 0 0 1 10 10" />
+              </svg>
+            } @else {
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                <line x1="8" y1="21" x2="16" y2="21" />
+                <line x1="12" y1="17" x2="12" y2="21" />
+              </svg>
+            }
             <span>Live View</span>
           </button>
         </div>
@@ -286,6 +320,17 @@ interface AgentXDesktopSession {
         <div class="agent-loading-shell">
           <nxt1-agent-x-dashboard-skeleton />
         </div>
+      } @else if (agentX.dashboardError() && !agentX.dashboardLoaded()) {
+        <div class="agent-error-shell">
+          <nxt1-state-view
+            variant="error"
+            title="Something went wrong"
+            [message]="agentX.dashboardError()"
+            actionLabel="Try Again"
+            actionIcon="refresh"
+            (action)="onRetryDashboard()"
+          />
+        </div>
       } @else if (agentX.dashboardLoaded()) {
         @if (showSessionsRail()) {
           <aside class="agent-column agent-rail-column" aria-label="Sessions and daily operations">
@@ -301,7 +346,7 @@ interface AgentXDesktopSession {
                   <nxt1-icon name="close" [size]="16"></nxt1-icon>
                 </button>
               </div>
-              <p class="agent-column-subtitle">Live operations and recent agent runs</p>
+              <p class="agent-column-subtitle">Recent agent runs</p>
               <button type="button" class="new-session-button" (click)="onNewSession()">
                 <svg
                   class="new-session-icon"
@@ -322,89 +367,6 @@ interface AgentXDesktopSession {
               </button>
             </div>
             <div class="agent-column-scroll agent-rail-scroll">
-              @if (activeOperations().length > 0) {
-                <section
-                  class="operations-section operations-section--rail"
-                  aria-label="Daily operations"
-                >
-                  <p class="rail-subsection-label">Active now</p>
-                  <div class="operations-stack">
-                    @for (op of activeOperations(); track op.id) {
-                      <button
-                        type="button"
-                        class="operation-card"
-                        [class.operation-card--processing]="op.status === 'processing'"
-                        [class.operation-card--complete]="op.status === 'complete'"
-                        [class.operation-card--error]="op.status === 'error'"
-                        (click)="onOperationTap(op)"
-                      >
-                        <div class="operation-top">
-                          <div class="operation-icon">
-                            <svg
-                              class="agent-x-mark"
-                              width="20"
-                              height="20"
-                              viewBox="0 0 612 792"
-                              fill="currentColor"
-                              xmlns="http://www.w3.org/2000/svg"
-                            >
-                              <path [attr.d]="agentXLogoPath" />
-                              <polygon [attr.points]="agentXLogoPolygon" />
-                            </svg>
-                          </div>
-                          <div class="operation-copy">
-                            <span class="operation-label">{{ op.label }}</span>
-                            <span class="operation-meta">{{ operationStatusCopy(op.status) }}</span>
-                          </div>
-                        </div>
-                        <div
-                          class="operation-progress"
-                          [class.operation-progress--complete]="op.status === 'complete'"
-                          [class.operation-progress--error]="op.status === 'error'"
-                        >
-                          <div
-                            class="operation-progress-bar"
-                            [class.operation-progress-bar--processing]="op.status === 'processing'"
-                            [class.operation-progress-bar--complete]="op.status === 'complete'"
-                            [class.operation-progress-bar--error]="op.status === 'error'"
-                            [style.width.%]="op.status === 'complete' ? 100 : op.progress"
-                          ></div>
-                        </div>
-                        <div class="operation-status-row">
-                          @switch (op.status) {
-                            @case ('processing') {
-                              <span
-                                class="operation-status-badge operation-status-badge--processing"
-                              >
-                                In progress
-                              </span>
-                              <span class="operation-spinner">
-                                <nxt1-icon name="refresh" [size]="12" />
-                              </span>
-                            }
-                            @case ('complete') {
-                              <span class="operation-status-badge operation-status-badge--complete">
-                                Complete
-                              </span>
-                              <span class="operation-status-icon operation-status-icon--complete">
-                                <nxt1-icon name="checkmarkCircle" [size]="12" />
-                              </span>
-                            }
-                            @case ('error') {
-                              <span class="operation-status-badge operation-status-badge--error">
-                                Failed
-                              </span>
-                              <span class="operation-status-icon operation-status-icon--error">
-                                <nxt1-icon name="alertCircle" [size]="12" />
-                              </span>
-                            }
-                          }
-                        </div>
-                      </button>
-                    }
-                  </div>
-                </section>
-              }
               <section class="sessions-section" aria-label="Session history">
                 <nxt1-agent-x-operations-log [embedded]="true" (entryTap)="onLogEntryTap($event)" />
               </section>
@@ -463,6 +425,7 @@ interface AgentXDesktopSession {
                 [errorMessage]="session.errorMessage ?? null"
                 (userMessageSent)="onUserMessageSent()"
                 (responseComplete)="onResponseComplete()"
+                (draftSubmitted)="onDraftSubmitted($event)"
               />
             }
           </div>
@@ -669,8 +632,12 @@ interface AgentXDesktopSession {
              Replaces Action Plan when active — wider column
              ═══════════════════════════════════════════ -->
         @if (expandedSidePanel(); as panel) {
-          <aside class="agent-column agent-expanded-panel-column" aria-label="Expanded panel">
-            <div class="agent-column-header">
+          <aside
+            class="agent-column agent-expanded-panel-column"
+            aria-label="Expanded panel"
+            [attr.data-testid]="lvTestIds.PANEL_CONTAINER"
+          >
+            <div class="agent-column-header" [attr.data-testid]="lvTestIds.HEADER">
               <div class="agent-column-header-row">
                 <h2 class="agent-column-title">{{ expandedPanelTitle() }}</h2>
                 <div class="expanded-panel__actions">
@@ -681,6 +648,7 @@ interface AgentXDesktopSession {
                     (click)="copyExpandedPanelUrl(panel.url)"
                     aria-label="Copy link"
                     title="Copy link"
+                    [attr.data-testid]="lvTestIds.COPY_LINK_BUTTON"
                   >
                     <nxt1-icon name="link" [size]="16"></nxt1-icon>
                   </button>
@@ -693,6 +661,7 @@ interface AgentXDesktopSession {
                     style="text-decoration: none;"
                     aria-label="Open in new tab"
                     title="Open in new tab"
+                    [attr.data-testid]="lvTestIds.OPEN_EXTERNAL_LINK"
                   >
                     <svg
                       width="15"
@@ -717,6 +686,7 @@ interface AgentXDesktopSession {
                       (click)="refreshExpandedPanel()"
                       aria-label="Refresh view"
                       title="Refresh"
+                      [attr.data-testid]="lvTestIds.REFRESH_BUTTON"
                     >
                       <nxt1-icon name="refresh" [size]="16"></nxt1-icon>
                     </button>
@@ -728,6 +698,7 @@ interface AgentXDesktopSession {
                     (click)="toggleExpandedPanelFullscreen()"
                     aria-label="Toggle fullscreen"
                     title="Fullscreen"
+                    [attr.data-testid]="lvTestIds.FULLSCREEN_BUTTON"
                   >
                     <svg
                       width="15"
@@ -751,6 +722,7 @@ interface AgentXDesktopSession {
                     (click)="downloadExpandedPanelContent(panel)"
                     aria-label="Download content"
                     title="Download"
+                    [attr.data-testid]="lvTestIds.DOWNLOAD_BUTTON"
                   >
                     <svg
                       width="15"
@@ -774,6 +746,7 @@ interface AgentXDesktopSession {
                     (click)="closeExpandedSidePanel()"
                     aria-label="Close panel"
                     title="Close"
+                    [attr.data-testid]="lvTestIds.CLOSE_BUTTON"
                   >
                     <nxt1-icon name="close" [size]="16"></nxt1-icon>
                   </button>
@@ -785,7 +758,10 @@ interface AgentXDesktopSession {
               @switch (panel.type) {
                 @case ('live-view') {
                   @if (expandedPanelIframeLoading()) {
-                    <div class="expanded-panel__loader">
+                    <div
+                      class="expanded-panel__loader"
+                      [attr.data-testid]="lvTestIds.LOADING_STATE"
+                    >
                       <div class="expanded-panel__spinner"></div>
                       <span class="expanded-panel__loader-text">Loading live view…</span>
                     </div>
@@ -799,6 +775,7 @@ interface AgentXDesktopSession {
                       sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
                       [title]="expandedPanelTitle()"
                       (load)="onExpandedIframeLoad()"
+                      [attr.data-testid]="lvTestIds.IFRAME"
                     ></iframe>
                   }
                 }
@@ -864,6 +841,17 @@ interface AgentXDesktopSession {
         <div class="m-container">
           <nxt1-agent-x-dashboard-skeleton />
         </div>
+      } @else if (agentX.dashboardError() && !agentX.dashboardLoaded()) {
+        <div class="m-container m-error-container">
+          <nxt1-state-view
+            variant="error"
+            title="Something went wrong"
+            [message]="agentX.dashboardError()"
+            actionLabel="Try Again"
+            actionIcon="refresh"
+            (action)="onRetryDashboard()"
+          />
+        </div>
       }
 
       @if (agentX.dashboardLoaded()) {
@@ -897,116 +885,9 @@ interface AgentXDesktopSession {
                 <span>{{ agentBudgetBadgeLabel() }}</span>
               </button>
             </div>
-
-            <!-- ═══ ACTION REQUIRED BANNER (HITL) ═══ -->
-            @if (awaitingInputOps().length > 0) {
-              <button
-                type="button"
-                class="m-action-required-banner"
-                (click)="onMobileActionRequiredTap()"
-              >
-                <div class="m-action-required-icon">
-                  <nxt1-icon name="alertCircle" [size]="18" />
-                </div>
-                <div class="m-action-required-content">
-                  <span class="m-action-required-title">Action Required</span>
-                  <span class="m-action-required-subtitle">
-                    Agent needs your input on {{ awaitingInputOps().length }}
-                    {{ awaitingInputOps().length === 1 ? 'operation' : 'operations' }}
-                  </span>
-                </div>
-                <nxt1-icon name="chevronForward" [size]="16" />
-              </button>
-            }
           </section>
 
-          <!-- ═══ 2. DAILY OPERATIONS (Horizontal scroll) ═══ -->
-          @if (activeOperations().length > 0) {
-            <section class="m-operations" aria-label="Daily operations">
-              <h3 class="m-section-title">Daily Operations</h3>
-              <div class="m-operations-scroll">
-                @for (op of activeOperations(); track op.id) {
-                  <button
-                    type="button"
-                    class="m-operation-card"
-                    [class.m-operation-card--processing]="op.status === 'processing'"
-                    [class.m-operation-card--complete]="op.status === 'complete'"
-                    [class.m-operation-card--error]="op.status === 'error'"
-                    [class.m-operation-card--awaiting-input]="op.status === 'awaiting_input'"
-                    (click)="onMobileOperationTap(op)"
-                  >
-                    <div class="m-operation-top">
-                      <div class="m-operation-icon">
-                        <svg
-                          class="agent-x-mark"
-                          width="20"
-                          height="20"
-                          viewBox="0 0 612 792"
-                          fill="currentColor"
-                          xmlns="http://www.w3.org/2000/svg"
-                        >
-                          <path [attr.d]="agentXLogoPath" />
-                          <polygon [attr.points]="agentXLogoPolygon" />
-                        </svg>
-                      </div>
-                      <span class="m-operation-label">{{ op.label }}</span>
-                    </div>
-                    <div
-                      class="m-operation-progress"
-                      [class.m-operation-progress--complete]="op.status === 'complete'"
-                      [class.m-operation-progress--error]="op.status === 'error'"
-                    >
-                      <div
-                        class="m-operation-progress-bar"
-                        [class.m-operation-progress-bar--processing]="op.status === 'processing'"
-                        [class.m-operation-progress-bar--complete]="op.status === 'complete'"
-                        [class.m-operation-progress-bar--error]="op.status === 'error'"
-                        [style.width.%]="op.status === 'complete' ? 100 : op.progress"
-                      ></div>
-                    </div>
-                    <div class="m-operation-status-row">
-                      @switch (op.status) {
-                        @case ('processing') {
-                          <span class="operation-status-badge operation-status-badge--processing"
-                            >In progress</span
-                          >
-                          <span class="operation-spinner"
-                            ><nxt1-icon name="refresh" [size]="12"
-                          /></span>
-                        }
-                        @case ('complete') {
-                          <span class="operation-status-badge operation-status-badge--complete"
-                            >Complete</span
-                          >
-                          <span class="operation-status-icon operation-status-icon--complete"
-                            ><nxt1-icon name="checkmarkCircle" [size]="12"
-                          /></span>
-                        }
-                        @case ('error') {
-                          <span class="operation-status-badge operation-status-badge--error"
-                            >Failed</span
-                          >
-                          <span class="operation-status-icon operation-status-icon--error"
-                            ><nxt1-icon name="alertCircle" [size]="12"
-                          /></span>
-                        }
-                        @case ('awaiting_input') {
-                          <span class="operation-status-badge operation-status-badge--awaiting"
-                            >Needs Input</span
-                          >
-                          <span class="operation-status-icon operation-status-icon--awaiting"
-                            ><nxt1-icon name="alertCircle" [size]="12"
-                          /></span>
-                        }
-                      }
-                    </div>
-                  </button>
-                }
-              </div>
-            </section>
-          }
-
-          <!-- ═══ 3. TODAY'S ACTION PLAN ═══ -->
+          <!-- ═══ 2. TODAY'S ACTION PLAN ═══ -->
           <section class="m-action-plan" aria-label="Today's Action Plan">
             <div class="action-plan-header">
               <h3 class="m-section-title action-plan-title">Today's Action Plan</h3>
@@ -1263,6 +1144,23 @@ interface AgentXDesktopSession {
       .agent-loading-shell {
         grid-column: 1 / -1;
         padding: var(--nxt1-spacing-5, 20px);
+      }
+
+      .agent-error-shell {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--nxt1-spacing-8, 32px) var(--nxt1-spacing-5, 20px);
+        min-height: 320px;
+      }
+
+      .m-error-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 320px;
+        padding: var(--nxt1-spacing-8, 32px) var(--nxt1-spacing-5, 20px);
       }
 
       .agent-column {
@@ -1561,6 +1459,26 @@ interface AgentXDesktopSession {
         background: var(--agent-primary-glow);
         border-color: var(--nxt1-color-border-primary, rgba(204, 255, 0, 0.3));
         color: var(--agent-primary);
+      }
+
+      .header-nav-pill--loading {
+        opacity: 0.7;
+        cursor: not-allowed;
+        pointer-events: none;
+      }
+
+      .header-nav-pill-spinner {
+        animation: pill-spin 0.8s linear infinite;
+        flex-shrink: 0;
+      }
+
+      @keyframes pill-spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
       }
 
       .header-nav-pill-count {
@@ -3174,6 +3092,7 @@ interface AgentXDesktopSession {
 export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly agentX = inject(AgentXService);
   protected readonly controlPanelState = inject(AgentXControlPanelStateService);
+  private readonly logger = inject(NxtLoggingService).child('AgentXShellWeb');
   private readonly overlay = inject(NxtOverlayService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
   private readonly headerPortal = inject(NxtHeaderPortalService);
@@ -3185,6 +3104,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly operationsLog = viewChild(AgentXOperationsLogComponent);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
+  private readonly operationEventService = inject(AgentXOperationEventService);
+  private readonly destroyRef = inject(DestroyRef);
   private desktopSessionCounter = 0;
 
   // ============================================
@@ -3201,7 +3122,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     // title when the backend auto-generates a concise thread title.
     this.operationEventService.titleUpdated$
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((evt) => {
+      .subscribe((evt: ThreadTitleUpdatedEvent) => {
         const current = this.activeDesktopSession();
         if (current && current.threadId === evt.threadId) {
           this.activeDesktopSession.set({ ...current, contextTitle: evt.title });
@@ -3252,7 +3173,16 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly showActionPlanModal = signal(true);
 
   // ── Expanded Side Panel (Firecrawl Live View / Media) ──────────────
-  private static readonly FIRECRAWL_ALLOWED_ORIGINS = ['https://liveview.firecrawl.dev'];
+  private static readonly FIRECRAWL_ALLOWED_ORIGINS = [
+    'https://liveview.firecrawl.dev',
+    'https://connect.firecrawl.dev',
+  ];
+
+  /** Live view session orchestration service. */
+  protected readonly liveView = inject(LiveViewSessionService);
+
+  /** Test IDs for live-view panel elements (E2E selectors). */
+  protected readonly lvTestIds = TEST_IDS.LIVE_VIEW;
 
   /** Currently-displayed expanded side panel content (replaces Action Plan when set). */
   protected readonly expandedSidePanel = signal<ExpandedSidePanelContent | null>(null);
@@ -3373,11 +3303,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   // Static fallback content is intentionally disabled to avoid mock-data flashes.
   // ============================================
 
-  /** Active background operations — live from service only. */
-  protected readonly activeOperations = computed<ShellActiveOperation[]>(() =>
-    this.agentX.activeOperations()
-  );
-
   /** Proactive insights from Agent X — live from service only. */
   protected readonly briefingInsights = computed(() => this.agentX.briefingInsights());
 
@@ -3414,24 +3339,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   /** Coordinator cards — live from service only. */
   protected readonly commandCategories = computed(() => this.agentX.coordinators());
 
-  /** Operations awaiting user input (HITL — human-in-the-loop). */
-  protected readonly awaitingInputOps = computed(() => this.agentX.awaitingInputOperations());
-
-  protected readonly operationStatusCopy = (status: ShellActiveOperation['status']): string => {
-    switch (status) {
-      case 'processing':
-        return 'Working now';
-      case 'complete':
-        return 'Completed';
-      case 'awaiting_input':
-        return 'Needs your input';
-      case 'error':
-        return 'Needs attention';
-      default:
-        return 'Active';
-    }
-  };
-
   constructor() {
     this.resetToDefaultDesktopSession();
 
@@ -3463,11 +3370,38 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
       this.agentX.clearRequestedSidePanel();
 
-      this.openExpandedSidePanel({
-        type: panel.type,
-        url: panel.url,
-        title: panel.title,
-      });
+      try {
+        // If the backend included a full session contract, adopt it
+        if (panel.type === 'live-view' && panel.session) {
+          this.liveView.adoptSession(panel.session);
+          this.logger.info('Live view session adopted, opening expanded panel', {
+            sessionId: panel.session.sessionId,
+            url: panel.session.interactiveUrl,
+          });
+          this.openExpandedSidePanel({
+            type: panel.type,
+            url: panel.session.interactiveUrl,
+            title: panel.title ?? panel.session.domainLabel,
+            sessionId: panel.session.sessionId,
+          });
+        } else {
+          this.logger.info('Opening expanded side panel', {
+            type: panel.type,
+            url: panel.url,
+          });
+          this.openExpandedSidePanel({
+            type: panel.type,
+            url: panel.url,
+            title: panel.title,
+          });
+        }
+      } catch (err) {
+        this.logger.error('Failed to open auto-open panel', err, {
+          type: panel.type,
+          url: panel.url,
+          hasSession: !!panel.session,
+        });
+      }
     });
 
     effect(() => {
@@ -3578,8 +3512,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
   /**
    * Handle weekly playbook action tap.
-   * If the dashboard is loaded, dispatches a real background job via Agent X.
-   * Otherwise falls back to chat message.
+   * Routes through the SSE chat loop so the operations log sidebar
+   * receives real-time status updates (in-progress, awaiting_input, etc.).
    */
   protected async onPlaybookAction(task: WeeklyPlaybookItem): Promise<void> {
     if (task.id === 'goal-setup') {
@@ -3588,7 +3522,16 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     }
 
     if (this.agentX.dashboardLoaded()) {
-      await this.agentX.executePlaybookAction(task as ShellWeeklyPlaybookItem);
+      const { intent, title } = this.agentX.preparePlaybookAction(task as ShellWeeklyPlaybookItem);
+      // Open a desktop session with initialMessage so the SSE chat loop
+      // streams properly — giving the operations log real-time status events.
+      this.setDesktopSession({
+        contextId: `playbook-${task.id}`,
+        contextTitle: title,
+        contextIcon: 'sparkles',
+        contextType: 'command',
+        initialMessage: intent,
+      });
     } else {
       this.agentX.setUserMessage(`${task.actionLabel}: ${task.title}`);
       await this.agentX.sendMessage();
@@ -3600,6 +3543,11 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    */
   protected onNewSession(): void {
     this.resetToDefaultDesktopSession();
+  }
+
+  /** Retry dashboard load after an error. */
+  protected onRetryDashboard(): void {
+    void this.agentX.loadDashboard();
   }
 
   /**
@@ -3618,22 +3566,17 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
+   * Handle draft email approval — call AgentXService to send via backend.
+   */
+  protected async onDraftSubmitted(event: DraftSubmittedEvent): Promise<void> {
+    if (!event.toEmail) return;
+    await this.agentX.sendDraft(event.toEmail, event.subject, event.content);
+  }
+
+  /**
    * Handle active operation card tap — opens the persisted worker conversation
    * in a bottom sheet so the user sees Agent X's actual output logs.
    */
-  protected async onOperationTap(op: ShellActiveOperation): Promise<void> {
-    this.setDesktopSession({
-      contextId: op.id,
-      contextTitle: op.label,
-      contextIcon: op.icon,
-      contextType: 'operation',
-      threadId: op.threadId ?? '',
-      yieldState: op.yieldState,
-      operationStatus: op.status,
-      errorMessage: op.errorMessage ?? null,
-    });
-  }
-
   /**
    * Handle session history entry tap (desktop) — open in right-side chat column.
    */
@@ -3740,13 +3683,26 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  /** Refreshes the currently active live view IFRAME */
+  /** Refreshes the currently active live view via the session API (falls back to iframe remount) */
   protected async refreshExpandedPanel(): Promise<void> {
     await this.haptics.impact('light');
     const current = this.expandedSidePanel();
     if (!current) return;
 
-    // Briefly clear the panel to force an iframe unmount/remount
+    // If there is an active live-view session, refresh via the backend
+    if (current.type === 'live-view' && current.sessionId && this.liveView.activeSession()) {
+      this.expandedPanelIframeLoading.set(true);
+      await this.liveView.refresh();
+      // Re-apply the (possibly unchanged) interactive URL
+      const session = this.liveView.activeSession();
+      if (session) {
+        this.expandedSidePanel.set({ ...current, url: session.interactiveUrl });
+      }
+      this.expandedPanelIframeLoading.set(false);
+      return;
+    }
+
+    // Fallback: briefly clear the panel to force an iframe unmount/remount
     this.expandedSidePanel.set(null);
     setTimeout(() => {
       this.expandedSidePanel.set(current);
@@ -3820,22 +3776,36 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.expandedSidePanel.set(content);
   }
 
-  /** Closes the expanded side panel and restores the Action Plan. */
+  /** Closes the expanded side panel, tears down any active session, and restores the Action Plan. */
   closeExpandedSidePanel(): void {
+    const panel = this.expandedSidePanel();
     this.expandedSidePanel.set(null);
     this.expandedPanelIframeLoading.set(false);
+
+    // Clean up the backend live-view session (fire-and-forget)
+    if (panel?.type === 'live-view' && panel.sessionId && this.liveView.activeSession()) {
+      this.liveView.closeSession();
+    }
   }
 
-  /** Dev toggle: opens a sample Firecrawl live view or closes the panel. */
+  /** Dev toggle: starts a real Firecrawl live view session or closes the panel. */
   protected async toggleDevLiveView(): Promise<void> {
     await this.haptics.impact('light');
+
     if (this.expandedSidePanel()) {
       this.closeExpandedSidePanel();
-    } else {
+      return;
+    }
+
+    // Start a real session via the backend
+    const defaultUrl = 'https://www.google.com';
+    const session = await this.liveView.startSession(defaultUrl);
+    if (session) {
       this.openExpandedSidePanel({
         type: 'live-view',
-        url: 'https://liveview.firecrawl.dev',
-        title: 'Live View',
+        url: session.interactiveUrl,
+        title: `Live View — ${session.domainLabel}`,
+        sessionId: session.sessionId,
       });
     }
   }
@@ -3848,35 +3818,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   // ============================================
   // MOBILE-SPECIFIC EVENT HANDLERS
   // ============================================
-
-  /**
-   * Handle operation card tap on mobile — opens the operation chat in a
-   * full-screen overlay (equivalent to mobile's bottom sheet).
-   */
-  protected async onMobileOperationTap(op: ShellActiveOperation): Promise<void> {
-    await this.haptics.impact('light');
-
-    const ref = this.overlay.open<AgentXOperationChatComponent>({
-      component: AgentXOperationChatComponent,
-      inputs: {
-        embedded: true,
-        contextId: op.id,
-        contextTitle: op.label,
-        contextIcon: op.icon,
-        contextType: 'operation',
-        threadId: op.threadId ?? '',
-        yieldState: op.yieldState ?? null,
-        operationStatus: op.status ?? null,
-        errorMessage: op.errorMessage ?? null,
-      },
-      size: 'full',
-      backdropDismiss: true,
-      escDismiss: true,
-      ariaLabel: op.label,
-    });
-
-    await ref.closed;
-  }
 
   /**
    * Handle coordinator pill tap on mobile — opens a fresh Agent X chat
@@ -3936,18 +3877,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     });
 
     await ref.closed;
-  }
-
-  /**
-   * Handle "Action Required" banner tap — opens the first awaiting-input
-   * operation in a full-screen overlay.
-   */
-  protected async onMobileActionRequiredTap(): Promise<void> {
-    const ops = this.awaitingInputOps();
-    if (ops.length === 0) return;
-
-    await this.haptics.notification('warning');
-    await this.onMobileOperationTap(ops[0]);
   }
 
   private resetToDefaultDesktopSession(): void {

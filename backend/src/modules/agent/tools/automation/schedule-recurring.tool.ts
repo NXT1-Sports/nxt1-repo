@@ -5,11 +5,9 @@
  * Allows Agent X to create a recurring (cron-based) background task
  * that re-runs the specified action on a schedule.
  *
- * **Restricted to ELITE and TEAM plans.**
- * Lower-tier users receive a friendly upsell message.
+ * All users have access — usage is metered via the billing system.
  *
  * Security:
- * - Validates subscription tier directly against Firestore (not LLM input).
  * - Enforces minimum interval of 1 hour to prevent runaway costs.
  * - Enforces per-user cap of 10 active schedules.
  */
@@ -17,7 +15,6 @@
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult } from '../base.tool.js';
 import type { AgentToolCategory, AgentJobPayload } from '@nxt1/core';
-import { PLAN_TIERS, type PlanTier } from '@nxt1/core/constants';
 import type { AgentQueueService } from '../../queue/queue.service.js';
 import { MIN_RECURRING_INTERVAL_MS, MAX_RECURRING_JOBS_PER_USER } from '../../queue/queue.types.js';
 import { logger } from '../../../../utils/logger.js';
@@ -25,7 +22,6 @@ import { logger } from '../../../../utils/logger.js';
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 const RECURRING_TASKS_COLLECTION = 'recurring_tasks' as const;
-const ELIGIBLE_TIERS: readonly string[] = [PLAN_TIERS.ELITE, PLAN_TIERS.TEAM];
 
 /**
  * Parse a cron expression and estimate the minimum interval in ms
@@ -66,7 +62,6 @@ export class ScheduleRecurringTaskTool extends BaseTool {
   readonly name = 'schedule_recurring_task';
   readonly description =
     'Create a recurring scheduled task that Agent X will automatically execute on a cron schedule. ' +
-    'Requires the ELITE or TEAM subscription plan. ' +
     'Provide a human-readable action summary (what to do each time), a standard cron expression, ' +
     'and the userId. The minimum allowed interval is 1 hour.';
 
@@ -114,19 +109,7 @@ export class ScheduleRecurringTaskTool extends BaseTool {
     const cronExpression = this.str(input, 'cronExpression');
     if (!cronExpression) return this.paramError('cronExpression');
 
-    // ── 1. Validate subscription tier ────────────────────────────────
-    const tier = await this.getUserTier(userId);
-    if (!tier || !ELIGIBLE_TIERS.includes(tier)) {
-      return {
-        success: false,
-        error:
-          'Recurring scheduled tasks require the Elite or Team plan. ' +
-          'The user should upgrade their subscription to unlock automated scheduling. ' +
-          'Let them know this is an Elite-tier feature and offer to show upgrade options.',
-      };
-    }
-
-    // ── 2. Validate cron frequency ───────────────────────────────────
+    // ── 1. Validate cron frequency ────────────────────────────────────
     const intervalMs = estimateCronIntervalMs(cronExpression);
     if (intervalMs < MIN_RECURRING_INTERVAL_MS) {
       return {
@@ -137,7 +120,7 @@ export class ScheduleRecurringTaskTool extends BaseTool {
       };
     }
 
-    // ── 3. Enforce per-user schedule cap (Firestore is source of truth) ──
+    // ── 2. Enforce per-user schedule cap (Firestore is source of truth) ──
     const existingCount = await this.countUserTasks(userId);
     if (existingCount >= MAX_RECURRING_JOBS_PER_USER) {
       return {
@@ -148,7 +131,7 @@ export class ScheduleRecurringTaskTool extends BaseTool {
       };
     }
 
-    // ── 4. Build the recurring job payload ───────────────────────────
+    // ── 3. Build the recurring job payload ───────────────────────────
     const ts = Date.now();
     const jobName = `recv:${userId}:${ts}`;
     const operationId = `recurring-${userId}-${ts}`;
@@ -160,7 +143,7 @@ export class ScheduleRecurringTaskTool extends BaseTool {
       origin: 'system_cron',
     };
 
-    // ── 5. Enqueue via BullMQ then persist durable metadata ──────────
+    // ── 4. Enqueue via BullMQ then persist durable metadata ──────────
     try {
       const key = await this.queueService.enqueueRecurring(
         jobName,
@@ -208,17 +191,6 @@ export class ScheduleRecurringTaskTool extends BaseTool {
   }
 
   // ─── Internals ──────────────────────────────────────────────────────
-
-  private async getUserTier(userId: string): Promise<PlanTier | null> {
-    try {
-      const doc = await this.db.collection('users').doc(userId).get();
-      if (!doc.exists) return null;
-      const data = doc.data();
-      return (data?.['stripeSubscription']?.['tier'] as PlanTier) ?? PLAN_TIERS.FREE;
-    } catch {
-      return null;
-    }
-  }
 
   private async countUserTasks(userId: string): Promise<number> {
     const snap = await this.db

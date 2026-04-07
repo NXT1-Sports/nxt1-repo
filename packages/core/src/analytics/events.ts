@@ -742,6 +742,8 @@ export const APP_EVENTS = {
   AGENT_X_PLAYBOOK_GENERATED: 'agent_x_playbook_generated',
   /** User sent a message in Agent X chat */
   AGENT_X_MESSAGE_SENT: 'agent_x_message_sent',
+  /** User dropped files into the Agent X chat composer */
+  AGENT_X_FILES_DROPPED: 'agent_x_files_dropped',
   /** User executed a playbook action */
   AGENT_X_PLAYBOOK_ACTION_EXECUTED: 'agent_x_playbook_action_executed',
   AGENT_X_ACTION_CARD_EXECUTED: 'agent_x_action_card_executed',
@@ -755,6 +757,8 @@ export const APP_EVENTS = {
   AGENT_X_OPERATION_REPLIED: 'agent_x_operation_replied',
   /** User retried a failed operation */
   AGENT_X_OPERATION_RETRIED: 'agent_x_operation_retried',
+  /** User approved and sent an email draft via HITL flow */
+  AGENT_X_DRAFT_EMAIL_SENT: 'agent_x_draft_email_sent',
 
   // USAGE / BILLING DASHBOARD EVENTS
   // ============================================
@@ -875,6 +879,26 @@ export const APP_EVENTS = {
   MEDIA_VIEWER_NAVIGATED: 'media_viewer_navigated',
   /** Media viewer share action triggered */
   MEDIA_VIEWER_SHARED: 'media_viewer_shared',
+
+  // ============================================
+  // LIVE VIEW SESSION EVENTS
+  // ============================================
+  /** Live view session started (manual or auto-open) */
+  LIVE_VIEW_SESSION_STARTED: 'live_view_session_started',
+  /** Live view navigated to a new URL within an active session */
+  LIVE_VIEW_NAVIGATED: 'live_view_navigated',
+  /** Live view session refreshed (same URL reloaded) */
+  LIVE_VIEW_REFRESHED: 'live_view_refreshed',
+  /** Live view session closed by user or cleanup */
+  LIVE_VIEW_SESSION_CLOSED: 'live_view_session_closed',
+  /** Live view auto-opened by backend instruction */
+  LIVE_VIEW_AUTO_OPENED: 'live_view_auto_opened',
+  /** Live view session used an authenticated Firecrawl profile */
+  LIVE_VIEW_AUTH_REUSED: 'live_view_auth_reused',
+  /** Live view auth profile expired, reconnect prompted */
+  LIVE_VIEW_AUTH_EXPIRED: 'live_view_auth_expired',
+  /** Live view session creation failed */
+  LIVE_VIEW_SESSION_FAILED: 'live_view_session_failed',
 } as const;
 
 export type AppEventName = (typeof APP_EVENTS)[keyof typeof APP_EVENTS];

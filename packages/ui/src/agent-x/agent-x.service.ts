@@ -46,7 +46,6 @@ import {
   type AgentDashboardBriefing,
   type ShellBriefingInsight,
   type ShellWeeklyPlaybookItem,
-  type ShellActiveOperation,
   type ShellCommandCategory,
   type AutoOpenPanelInstruction,
   AGENT_X_CONFIG,
@@ -64,6 +63,7 @@ import {
 import { createAgentXApi } from '@nxt1/core/ai';
 import type {
   AgentXToolStep,
+  AgentXMessagePart,
   AgentXStreamStepEvent,
   AgentXStreamCardEvent,
   AgentXStreamTitleUpdatedEvent,
@@ -77,12 +77,7 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import {
-  AgentXJobService,
-  AGENT_X_API_BASE_URL,
-  AGENT_X_AUTH_TOKEN_FACTORY,
-  isEnqueueFailure,
-} from './agent-x-job.service';
+import { AGENT_X_API_BASE_URL, AGENT_X_AUTH_TOKEN_FACTORY } from './agent-x-job.service';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import type { AgentXPendingFile } from './agent-x-pending-file';
@@ -103,7 +98,6 @@ export class AgentXService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
   private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
-  private readonly jobService = inject(AgentXJobService);
   private readonly operationEventService = inject(AgentXOperationEventService);
 
   /** Pure API factory instance — used for SSE streaming and non-streaming calls. */
@@ -160,13 +154,9 @@ export class AgentXService {
   // Animation interval reference
   private titleAnimationInterval?: ReturnType<typeof setInterval>;
 
-  // Polling interval for active operations
-  private operationsPollingInterval?: ReturnType<typeof setInterval>;
-
   // Retry counter for loadDashboard() when auth token not yet available
   private _dashboardRetryCount = 0;
   private static readonly MAX_DASHBOARD_RETRIES = 4;
-  private static readonly POLL_INTERVAL_MS = 10_000; // 10s when operations active
 
   // ============================================
   // DASHBOARD STATE (live from backend)
@@ -174,10 +164,10 @@ export class AgentXService {
 
   private readonly _dashboardLoading = signal(true);
   private readonly _dashboardLoaded = signal(false);
+  private readonly _dashboardError = signal<string | null>(null);
   private readonly _briefingInsights = signal<ShellBriefingInsight[]>([]);
   private readonly _briefingPreviewText = signal('');
   private readonly _weeklyPlaybook = signal<ShellWeeklyPlaybookItem[]>([]);
-  private readonly _activeOperations = signal<ShellActiveOperation[]>([]);
   private readonly _coordinators = signal<ShellCommandCategory[]>([]);
   private readonly _goals = signal<AgentDashboardGoal[]>([]);
   private readonly _playbookGeneratedAt = signal<string | null>(null);
@@ -258,10 +248,10 @@ export class AgentXService {
 
   readonly dashboardLoading = computed(() => this._dashboardLoading());
   readonly dashboardLoaded = computed(() => this._dashboardLoaded());
+  readonly dashboardError = computed(() => this._dashboardError());
   readonly briefingInsights = computed(() => this._briefingInsights());
   readonly briefingPreviewText = computed(() => this._briefingPreviewText());
   readonly weeklyPlaybook = computed(() => this._weeklyPlaybook());
-  readonly activeOperations = computed(() => this._activeOperations());
   readonly coordinators = computed(() => this._coordinators());
   readonly goals = computed(() => this._goals());
   readonly hasGoals = computed(() => this._goals().length > 0);
@@ -324,14 +314,6 @@ export class AgentXService {
   resetCategoryFilter(): void {
     this._activeCategoryId.set('all');
   }
-
-  /** Operations currently awaiting user input/approval. */
-  readonly awaitingInputOperations = computed(() =>
-    this._activeOperations().filter((op) => op.status === 'awaiting_input')
-  );
-
-  /** Whether any operation needs user attention (drives banner visibility). */
-  readonly hasAwaitingInput = computed(() => this.awaitingInputOperations().length > 0);
 
   // ============================================
   // QUICK TASKS (by category)
@@ -506,6 +488,16 @@ export class AgentXService {
     this._requestedSidePanel.set(null);
   }
 
+  /**
+   * Surface an auto-open panel instruction from an external streaming source
+   * (e.g. the operation chat component's own SSE path).
+   * The shell effect watches `requestedSidePanel()` and handles rendering.
+   */
+  requestAutoOpenPanel(instruction: AutoOpenPanelInstruction): void {
+    this._requestedSidePanel.set(instruction);
+    this.logger.info('Agent requested side panel (external)', { type: instruction.type });
+  }
+
   // ============================================
   // THREAD LOADING (DEEP LINK)
   // ============================================
@@ -563,6 +555,38 @@ export class AgentXService {
   // ============================================
   // MESSAGE MANAGEMENT
   // ============================================
+
+  /**
+   * Execute a user-approved email draft (HITL send).
+   *
+   * Called when the user reviews/edits a draft card and taps "Approve & Send".
+   * Calls `POST /agent-x/chat/send-draft` on the backend, which auto-detects
+   * the provider and sends via Gmail or Outlook.
+   */
+  async sendDraft(toEmail: string, subject: string, body: string): Promise<boolean> {
+    this.logger.info('Sending approved draft email', { toEmail, subject: subject.slice(0, 50) });
+    this.breadcrumb.trackStateChange('agent-x:send-draft', { toEmail });
+
+    try {
+      const result = await this.api.sendDraft(toEmail, subject, body);
+      if (result) {
+        this.logger.info('Draft email sent successfully', { toEmail, provider: result.provider });
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_DRAFT_EMAIL_SENT, {
+          provider: result.provider,
+          toEmail,
+        });
+        this.toast.success(`Email sent to ${toEmail}`);
+        return true;
+      }
+      this.logger.warn('Draft email send returned null', { toEmail });
+      this.toast.error('Failed to send email');
+      return false;
+    } catch (err) {
+      this.logger.error('Failed to send draft email', err, { toEmail });
+      this.toast.error('Failed to send email');
+      return false;
+    }
+  }
 
   /**
    * Send a message to Agent X using real-time SSE streaming.
@@ -679,6 +703,9 @@ export class AgentXService {
     authToken: string
   ): Promise<void> {
     return new Promise<void>((resolve) => {
+      // Mutable parts accumulator — builds Copilot-style interleaved sequence
+      const parts: AgentXMessagePart[] = [];
+
       this.activeStream = this.api.streamMessage(
         request,
         {
@@ -689,45 +716,72 @@ export class AgentXService {
           },
 
           onDelta: (evt) => {
+            // Build interleaved parts: append to last text part or start new one
+            const last = parts[parts.length - 1];
+            if (last?.type === 'text') {
+              parts[parts.length - 1] = { type: 'text', content: last.content + evt.content };
+            } else {
+              parts.push({ type: 'text', content: evt.content });
+            }
+
             // Append the new token to the streaming message in-place
             this._messages.update((msgs) =>
               msgs.map((m) =>
                 m.id === streamingId
-                  ? { ...m, content: m.content + evt.content, isTyping: false }
+                  ? { ...m, content: m.content + evt.content, isTyping: false, parts: [...parts] }
                   : m
               )
             );
           },
 
           onStep: (evt: AgentXStreamStepEvent) => {
+            const step: AgentXToolStep = {
+              id: evt.id,
+              label: evt.label,
+              status: evt.status,
+              detail: evt.detail,
+            };
+
+            // Build interleaved parts: upsert into last tool-steps group or start new one
+            const last = parts[parts.length - 1];
+            if (last?.type === 'tool-steps') {
+              const prevSteps = [...last.steps];
+              const idx = prevSteps.findIndex((s) => s.id === evt.id);
+              if (idx >= 0) {
+                prevSteps[idx] = step;
+              } else {
+                prevSteps.push(step);
+              }
+              parts[parts.length - 1] = { type: 'tool-steps', steps: prevSteps };
+            } else {
+              parts.push({ type: 'tool-steps', steps: [step] });
+            }
+
             this._messages.update((msgs) =>
               msgs.map((m) => {
                 if (m.id !== streamingId) return m;
                 const prev = m.steps ?? [];
                 const idx = prev.findIndex((s) => s.id === evt.id);
-                const step: AgentXToolStep = {
-                  id: evt.id,
-                  label: evt.label,
-                  status: evt.status,
-                  detail: evt.detail,
-                };
                 const next =
                   idx >= 0 ? prev.map((s, i) => (i === idx ? step : s)) : [...prev, step];
-                return { ...m, steps: next };
+                return { ...m, steps: next, parts: [...parts] };
               })
             );
           },
 
           onCard: (evt: AgentXStreamCardEvent) => {
+            const card: AgentXRichCard = { type: evt.type, title: evt.title, payload: evt.payload };
+
+            // Each card is its own part (always a new entry in the sequence)
+            parts.push({ type: 'card', card });
+
             this._messages.update((msgs) =>
               msgs.map((m) =>
                 m.id === streamingId
                   ? {
                       ...m,
-                      cards: [
-                        ...(m.cards ?? []),
-                        { type: evt.type, title: evt.title, payload: evt.payload },
-                      ],
+                      cards: [...(m.cards ?? []), card],
+                      parts: [...parts],
                     }
                   : m
               )
@@ -743,6 +797,21 @@ export class AgentXService {
               title: evt.title,
             });
             this.operationEventService.emitTitleUpdated(evt.threadId, evt.title);
+          },
+
+          onOperation: (evt) => {
+            // The /chat SSE stream emits operation lifecycle events at key transitions.
+            // Forward to the event service so the operations log sidebar updates
+            // in real-time without polling or Firestore listeners.
+            this.logger.info('Operation status update', {
+              threadId: evt.threadId,
+              status: evt.status,
+            });
+            this.operationEventService.emitOperationStatusUpdated(
+              evt.threadId,
+              evt.status,
+              evt.timestamp
+            );
           },
 
           onDone: (evt) => {
@@ -958,162 +1027,6 @@ export class AgentXService {
   // BACKGROUND JOB PATH (BullMQ + Firestore Live Events)
   // ============================================
 
-  /**
-   * Send a message as a background BullMQ job with live Firestore event streaming.
-   *
-   * This is the "Optimistic Background Pattern": the job is enqueued in BullMQ
-   * for reliability, and the frontend subscribes to Firestore
-   * `agentJobs/{operationId}/events` via `onSnapshot` to stream real-time
-   * tool steps, content deltas, and completion events back into the chat UI.
-   *
-   * Use this for heavy operations (batch emails, highlight reels, multi-agent plans)
-   * that may take 30s–5min and shouldn't hold an SSE connection.
-   *
-   * @param intent - Natural language description of the task
-   * @param context - Optional context data for the agent
-   */
-  async sendBackgroundMessage(intent: string, context?: Record<string, unknown>): Promise<void> {
-    if (!intent.trim() || this._isLoading()) return;
-
-    await this.haptics.impact('light');
-
-    // Add user message to chat
-    const userMessage: AgentXMessage = {
-      id: this.generateId(),
-      role: 'user',
-      content: intent,
-      timestamp: new Date(),
-    };
-    this._messages.update((msgs) => [...msgs, userMessage]);
-
-    // Add typing placeholder
-    const streamingId = this.generateId();
-    const typingMessage: AgentXMessage = {
-      id: streamingId,
-      role: 'assistant',
-      content: '',
-      timestamp: new Date(),
-      isTyping: true,
-    };
-    this._messages.update((msgs) => [...msgs, typingMessage]);
-    this._isLoading.set(true);
-
-    this.logger.info('Sending background message', { intent: intent.slice(0, 80) });
-    this.breadcrumb.trackStateChange('agent-x:background-sending', {
-      intent: intent.slice(0, 80),
-    });
-
-    await this._sendViaBackground(intent, streamingId, context);
-  }
-
-  /**
-   * Background job path — enqueues via BullMQ, subscribes via Firestore onSnapshot.
-   *
-   * Mirrors the same signal updates as `_sendViaStream()` (onDelta, onStep,
-   * onDone, onError callbacks) so the chat UI looks identical regardless of
-   * whether the job ran via SSE or BullMQ background.
-   *
-   * @internal
-   */
-  private async _sendViaBackground(
-    intent: string,
-    streamingId: string,
-    context?: Record<string, unknown>
-  ): Promise<void> {
-    // Step 1: Enqueue the job in BullMQ
-    const result = await this.jobService.enqueue(intent, context);
-
-    if (isEnqueueFailure(result)) {
-      this.logger.error('Failed to enqueue background job', { reason: result.reason });
-      this._isLoading.set(false);
-      await this.haptics.notification('error');
-      if (result.reason === 'billing') {
-        const reason = this._mapBillingCode(result.code);
-        this._replaceWithBillingCard(streamingId, reason, result.message);
-      } else {
-        this._replaceWithError(streamingId);
-      }
-      return;
-    }
-
-    const { operationId } = result;
-    this.logger.info('Background job enqueued, subscribing to events', {
-      operationId,
-      jobId: result.jobId,
-    });
-
-    // Step 2: Subscribe to Firestore live events
-    const sub = this.operationEventService.subscribe(operationId, {
-      onDelta: (text: string) => {
-        this._messages.update((msgs) =>
-          msgs.map((m) =>
-            m.id === streamingId ? { ...m, content: m.content + text, isTyping: false } : m
-          )
-        );
-      },
-
-      onStep: (step: AgentXToolStep) => {
-        this._messages.update((msgs) =>
-          msgs.map((m) => {
-            if (m.id !== streamingId) return m;
-            const prev = m.steps ?? [];
-            const idx = prev.findIndex((s) => s.id === step.id);
-            const next = idx >= 0 ? prev.map((s, i) => (i === idx ? step : s)) : [...prev, step];
-            return { ...m, steps: next };
-          })
-        );
-      },
-
-      onDone: (evt) => {
-        // Freeze the final message
-        this._messages.update((msgs) =>
-          msgs.map((m) =>
-            m.id === streamingId
-              ? {
-                  ...m,
-                  isTyping: false,
-                  ...(evt.message ? { content: m.content || evt.message } : {}),
-                  metadata: {
-                    mode: this._selectedMode(),
-                    operationId,
-                  },
-                }
-              : m
-          )
-        );
-
-        this._isLoading.set(false);
-        this.haptics.notification(evt.success ? 'success' : 'error').catch(() => undefined);
-        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_SENT, {
-          mode: this._selectedMode(),
-          streaming: false,
-          background: true,
-          operationId,
-          success: evt.success,
-        });
-        this.logger.info('Background job completed', {
-          operationId,
-          success: evt.success,
-        });
-
-        // Refresh dashboard to pick up new operation status
-        void this.pollDashboard();
-      },
-
-      onError: (message: string) => {
-        this.logger.error('Background event stream error', message, { operationId });
-        this._replaceWithError(streamingId);
-        this._isLoading.set(false);
-        this.haptics.notification('error').catch(() => undefined);
-      },
-    });
-
-    // Ensure cleanup on service destroy
-    this.destroyRef.onDestroy(() => {
-      sub.unsubscribe();
-    });
-  }
-
   // ============================================
   // FILE ATTACHMENT MANAGEMENT
   // ============================================
@@ -1300,74 +1213,6 @@ export class AgentXService {
   }
 
   // ============================================
-  // OPERATIONS POLLING
-  // ============================================
-
-  /**
-   * Start or stop operations polling based on whether active (processing) operations exist.
-   * Polls dashboard every 10s when operations are in-progress, stops when all done.
-   */
-  private manageOperationsPolling(operations: readonly ShellActiveOperation[]): void {
-    const hasProcessing = operations.some(
-      (op) => op.status === 'processing' || op.status === 'awaiting_input'
-    );
-
-    if (hasProcessing && !this.operationsPollingInterval) {
-      this.logger.debug('Starting operations polling', { count: operations.length });
-      this.operationsPollingInterval = setInterval(
-        () => this.pollDashboard(),
-        AgentXService.POLL_INTERVAL_MS
-      );
-      this.destroyRef.onDestroy(() => this.stopOperationsPolling());
-    } else if (!hasProcessing && this.operationsPollingInterval) {
-      this.logger.debug('Stopping operations polling — no active operations');
-      this.stopOperationsPolling();
-    }
-  }
-
-  /**
-   * Silent dashboard poll — refreshes operations state without showing loading indicators.
-   */
-  private async pollDashboard(): Promise<void> {
-    try {
-      const response = await firstValueFrom(
-        this.http.get<{ success: boolean; data?: AgentDashboardData; error?: string }>(
-          `${this.baseUrl}/agent-x/dashboard`
-        )
-      );
-
-      if (response.success && response.data) {
-        const { briefing, playbook, activeOperations, coordinators } = response.data;
-        this._briefingInsights.set([...briefing.insights]);
-        this._briefingPreviewText.set(briefing.previewText);
-        this._weeklyPlaybook.set([...playbook.items]);
-        this.resetCategoryFilter();
-        this._goals.set([...playbook.goals]);
-        this._playbookGeneratedAt.set(playbook.generatedAt);
-        this._canRegenerate.set(playbook.canRegenerate);
-        this._activeOperations.set([...activeOperations]);
-        this._coordinators.set([...coordinators]);
-
-        // Re-evaluate polling need
-        this.manageOperationsPolling(activeOperations);
-      }
-    } catch {
-      // Silent failure — polling is best-effort
-      this.logger.debug('Dashboard poll failed (will retry)');
-    }
-  }
-
-  /**
-   * Stop the operations polling interval.
-   */
-  private stopOperationsPolling(): void {
-    if (this.operationsPollingInterval) {
-      clearInterval(this.operationsPollingInterval);
-      this.operationsPollingInterval = undefined;
-    }
-  }
-
-  // ============================================
   // PRIVATE HELPERS
   // ============================================
 
@@ -1420,6 +1265,7 @@ export class AgentXService {
     const isRefresh = this._dashboardLoaded();
     if (!isRefresh) {
       this._dashboardLoading.set(true);
+      this._dashboardError.set(null);
     }
     this.logger.info('Loading Agent X dashboard', { isRefresh });
     this.breadcrumb.trackStateChange('agent-x:dashboard-loading');
@@ -1432,7 +1278,7 @@ export class AgentXService {
       );
 
       if (response.success && response.data) {
-        const { briefing, playbook, activeOperations, coordinators } = response.data;
+        const { briefing, playbook, coordinators } = response.data;
         this._briefingInsights.set([...briefing.insights]);
         this._briefingPreviewText.set(briefing.previewText);
         this._weeklyPlaybook.set([...playbook.items]);
@@ -1440,25 +1286,22 @@ export class AgentXService {
         this._goals.set([...playbook.goals]);
         this._playbookGeneratedAt.set(playbook.generatedAt);
         this._canRegenerate.set(playbook.canRegenerate);
-        this._activeOperations.set([...activeOperations]);
         this._coordinators.set([...coordinators]);
         this._dashboardLoaded.set(true);
 
         this.logger.info('Dashboard loaded', {
           goalCount: playbook.goals.length,
           playbookItems: playbook.items.length,
-          operations: activeOperations.length,
         });
         this.analytics?.trackEvent(APP_EVENTS.AGENT_X_DASHBOARD_VIEWED, {
           hasGoals: playbook.goals.length > 0,
           hasPlaybook: playbook.items.length > 0,
         });
-
-        // Start or stop polling based on active operations
-        this.manageOperationsPolling(activeOperations);
       }
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error loading dashboard';
       this.logger.error('Failed to load dashboard', err);
+      this._dashboardError.set(message);
     } finally {
       this._dashboardLoading.set(false);
     }
@@ -1572,50 +1415,41 @@ export class AgentXService {
   }
 
   /**
-   * Execute a playbook action by dispatching it as an Agent X job.
+   * Execute a playbook action by routing it through the standard chat loop.
+   *
+   * Previously this used the fire-and-forget `jobService.enqueue()` path which
+   * cancelled the SSE stream immediately, preventing the operations log from
+   * receiving real-time status updates (in-progress, awaiting_input, etc.).
+   *
+   * Now the shells call this to build the intent string, then route through
+   * their own chat UI (bottom sheet on mobile, desktop session on web) so the
+   * full SSE lifecycle is preserved.
+   *
+   * @returns The intent string and item metadata for the shell to dispatch.
    */
-  async executePlaybookAction(item: ShellWeeklyPlaybookItem): Promise<void> {
+  preparePlaybookAction(item: ShellWeeklyPlaybookItem): {
+    intent: string;
+    itemId: string;
+    title: string;
+    actionLabel: string;
+  } {
     const intent = `${item.actionLabel}: ${item.title}. ${item.details}`;
-    this.logger.info('Executing playbook action', {
+    this.logger.info('Preparing playbook action for chat', {
       itemId: item.id,
       actionLabel: item.actionLabel,
     });
 
-    const result = await this.jobService.enqueue(intent, {
-      source: 'playbook',
-      playbookItemId: item.id,
-      goalId: item.goal?.id,
+    // Update the item status to in-progress immediately
+    this._weeklyPlaybook.update((items) =>
+      items.map((i) => (i.id === item.id ? { ...i, status: 'in-progress' as const } : i))
+    );
+
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
+      itemId: item.id,
+      actionLabel: item.actionLabel,
     });
 
-    if (!isEnqueueFailure(result)) {
-      // Update the item status to in-progress
-      this._weeklyPlaybook.update((items) =>
-        items.map((i) => (i.id === item.id ? { ...i, status: 'in-progress' as const } : i))
-      );
-
-      // Add the operation to active operations
-      this._activeOperations.update((ops) => [
-        {
-          id: result.operationId,
-          label: `${item.actionLabel}...`,
-          progress: 0,
-          icon: 'bolt',
-          status: 'processing' as const,
-        },
-        ...ops,
-      ]);
-
-      this.toast.success(`Agent X is working on: ${item.title}`);
-      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
-        itemId: item.id,
-        actionLabel: item.actionLabel,
-      });
-
-      // Start polling to track this new operation
-      this.manageOperationsPolling(this._activeOperations());
-    } else {
-      this.toast.error(result.message);
-    }
+    return { intent, itemId: item.id, title: item.title, actionLabel: item.actionLabel };
   }
 
   /**

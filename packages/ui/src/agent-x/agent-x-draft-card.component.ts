@@ -30,6 +30,8 @@ export interface DraftSubmittedEvent {
   readonly subject: string;
   /** Final body content (may have been edited). */
   readonly content: string;
+  /** Recipient email address (from the card payload). */
+  readonly toEmail?: string;
 }
 
 @Component({
@@ -322,10 +324,12 @@ export class AgentXDraftCardComponent implements OnInit {
   protected onSend(): void {
     if (this.sent() || !this.contentValue()) return;
     this.sent.set(true);
+    const payload = this.card().payload as AgentXDraftPayload;
     this.draftSubmitted.emit({
       cardTitle: this.card().title,
       subject: this.subjectValue(),
       content: this.contentValue(),
+      toEmail: typeof payload?.toEmail === 'string' ? payload.toEmail : undefined,
     });
   }
 }

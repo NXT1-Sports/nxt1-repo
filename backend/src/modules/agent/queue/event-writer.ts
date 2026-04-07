@@ -28,6 +28,8 @@ export interface StreamEvent {
   readonly toolSuccess?: boolean;
   readonly success?: boolean;
   readonly error?: string;
+  /** Rich card payload for `card` events (planner, data-table, etc.). */
+  readonly cardData?: Record<string, unknown>;
 }
 
 export type OnStreamEvent = (event: StreamEvent) => void;
@@ -206,6 +208,7 @@ export class DebouncedEventWriter {
       toolSuccess: event.toolSuccess,
       success: event.success,
       error: event.error,
+      cardData: event.cardData,
     });
 
     // Fire-and-forget — never block the agent pipeline on Firestore writes

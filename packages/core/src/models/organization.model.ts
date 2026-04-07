@@ -43,8 +43,6 @@ export interface OrganizationBilling {
   customerId?: string;
   /** Plan/subscription ID */
   subscriptionId?: string;
-  /** Current plan tier */
-  planTier?: string;
   /** Billing email */
   email?: string;
   /** Next billing date */

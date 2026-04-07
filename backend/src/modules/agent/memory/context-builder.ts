@@ -121,7 +121,6 @@ export class ContextBuilder {
         userId,
         role: 'athlete',
         displayName: 'Unknown User',
-        subscriptionTier: 'free',
       };
     }
 
@@ -201,7 +200,7 @@ export class ContextBuilder {
     const teamPart = context.teamId ? ` | TeamID: ${context.teamId}` : '';
     const orgPart = context.organizationId ? ` | OrgID: ${context.organizationId}` : '';
     lines.push(
-      `User: ${context.displayName} | Role: ${context.role} | Tier: ${context.subscriptionTier} | UserID: ${context.userId}${teamPart}${orgPart}`
+      `User: ${context.displayName} | Role: ${context.role} | UserID: ${context.userId}${teamPart}${orgPart}`
     );
 
     if (context.sport) {
@@ -287,7 +286,7 @@ export class ContextBuilder {
       ([firstName, lastName].filter(Boolean).join(' ') || 'Unknown User');
 
     // Resolve subscription tier
-    const subscriptionTier = (user['planTier'] as string) ?? 'free';
+    // (planTier removed — metered billing only)
 
     // ── Active sport profile ──────────────────────────────────────────────
     const sports = user['sports'] as Array<Record<string, unknown>> | undefined;
@@ -359,7 +358,6 @@ export class ContextBuilder {
       userId,
       role,
       displayName,
-      subscriptionTier,
 
       // Athletic data
       sport,

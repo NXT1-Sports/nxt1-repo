@@ -21,7 +21,8 @@
  * @see stripe-worker.ts for the existing Pub/Sub worker pattern
  */
 
-import { PubSub, type Message } from '@google-cloud/pubsub';
+import { type PubSub, type Message } from '@google-cloud/pubsub';
+import { createPubSubClient } from '../utils/pubsub.js';
 import { getStorage } from 'firebase-admin/storage';
 import { logger } from '../utils/logger.js';
 
@@ -103,7 +104,7 @@ let pubsubClient: PubSub | null = null;
 
 function getPubSub(): PubSub {
   if (!pubsubClient) {
-    pubsubClient = new PubSub();
+    pubsubClient = createPubSubClient();
   }
   return pubsubClient;
 }

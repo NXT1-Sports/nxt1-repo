@@ -61,12 +61,12 @@ import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import {
-  type ShellActiveOperation,
   type ShellWeeklyPlaybookItem,
   type AgentDashboardGoal,
   type AgentYieldState,
 } from '@nxt1/core/ai';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './fab/agent-x-logo.constants';
+import { NxtStateViewComponent } from '../components/state-view';
 
 // ============================================
 // INTERFACES
@@ -77,21 +77,6 @@ export interface AgentXUser {
   readonly profileImg?: string | null;
   readonly displayName?: string | null;
   readonly role?: string;
-}
-
-/** An active background operation Agent X is processing. */
-export interface ActiveOperation {
-  readonly id: string;
-  readonly label: string;
-  readonly progress: number; // 0–100
-  readonly icon: string;
-  readonly status: 'processing' | 'complete' | 'error' | 'awaiting_input';
-  /** MongoDB thread ID — when set, opening this card loads the persisted worker conversation. */
-  readonly threadId?: string;
-  /** When status is `awaiting_input`, contains the yield state for the action card. */
-  readonly yieldState?: AgentYieldState;
-  /** When status is `error`, contains the human-readable failure reason. */
-  readonly errorMessage?: string;
 }
 
 /** A contextual action chip for quick workflows. */
@@ -147,6 +132,7 @@ export interface WeeklyPlaybookItem {
     NxtPageHeaderComponent,
     NxtRefresherComponent,
     NxtIconComponent,
+    NxtStateViewComponent,
     AgentXDashboardSkeletonComponent,
     AgentXInputComponent,
   ],
@@ -196,6 +182,17 @@ export interface WeeklyPlaybookItem {
       <div class="agent-x-container">
         @if (agentX.dashboardLoading() && !agentX.dashboardLoaded()) {
           <nxt1-agent-x-dashboard-skeleton />
+        } @else if (agentX.dashboardError() && !agentX.dashboardLoaded()) {
+          <div class="agent-error-container">
+            <nxt1-state-view
+              variant="error"
+              title="Something went wrong"
+              [message]="agentX.dashboardError()"
+              actionLabel="Try Again"
+              actionIcon="refresh"
+              (action)="onRetryDashboard()"
+            />
+          </div>
         }
 
         <!-- ═══ 1. DAILY BRIEFING ═══ -->
@@ -237,115 +234,7 @@ export interface WeeklyPlaybookItem {
               </button>
             </div>
 
-            <!-- ═══ ACTION REQUIRED BANNER (HITL) ═══ -->
-            @if (awaitingInputOps().length > 0) {
-              <div class="action-required-banner" (click)="onActionRequiredTap()">
-                <div class="action-required-icon">
-                  <nxt1-icon name="hand-left" [size]="18" />
-                </div>
-                <div class="action-required-content">
-                  <span class="action-required-title">Action Required</span>
-                  <span class="action-required-subtitle">
-                    Agent needs your approval on {{ awaitingInputOps().length }}
-                    {{ awaitingInputOps().length === 1 ? 'operation' : 'operations' }}
-                  </span>
-                </div>
-                <nxt1-icon name="chevronForward" [size]="16" className="action-required-chevron" />
-              </div>
-            }
-
-            <!-- ═══ 2. DAILY OPERATIONS (Conditional) ═══ -->
-            @if (activeOperations().length > 0) {
-              <section class="operations-section" aria-label="Daily operations">
-                <h3 class="section-title">Daily Operations</h3>
-                <div class="operations-scroll">
-                  @for (op of activeOperations(); track op.id) {
-                    <button
-                      type="button"
-                      class="operation-card"
-                      [class.operation-card--processing]="op.status === 'processing'"
-                      [class.operation-card--complete]="op.status === 'complete'"
-                      [class.operation-card--error]="op.status === 'error'"
-                      [class.operation-card--awaiting-input]="op.status === 'awaiting_input'"
-                      (click)="onOperationTap(op)"
-                    >
-                      <!-- Top row: task icon + label -->
-                      <div class="operation-top">
-                        <div class="operation-icon">
-                          <svg
-                            class="agent-x-mark"
-                            width="20"
-                            height="20"
-                            viewBox="0 0 612 792"
-                            fill="currentColor"
-                            xmlns="http://www.w3.org/2000/svg"
-                          >
-                            <path [attr.d]="agentXLogoPath" />
-                            <polygon [attr.points]="agentXLogoPolygon" />
-                          </svg>
-                        </div>
-                        <span class="operation-label">{{ op.label }}</span>
-                      </div>
-
-                      <!-- Progress bar -->
-                      <div
-                        class="operation-progress"
-                        [class.operation-progress--complete]="op.status === 'complete'"
-                        [class.operation-progress--error]="op.status === 'error'"
-                      >
-                        <div
-                          class="operation-progress-bar"
-                          [class.operation-progress-bar--processing]="op.status === 'processing'"
-                          [class.operation-progress-bar--complete]="op.status === 'complete'"
-                          [class.operation-progress-bar--error]="op.status === 'error'"
-                          [style.width.%]="op.status === 'complete' ? 100 : op.progress"
-                        ></div>
-                      </div>
-
-                      <!-- Bottom row: status badge + spinner/icon -->
-                      <div class="operation-status-row">
-                        @switch (op.status) {
-                          @case ('processing') {
-                            <span class="operation-status-badge operation-status-badge--processing">
-                              In progress
-                            </span>
-                            <span class="operation-spinner">
-                              <nxt1-icon name="refresh" [size]="12" />
-                            </span>
-                          }
-                          @case ('complete') {
-                            <span class="operation-status-badge operation-status-badge--complete">
-                              Complete
-                            </span>
-                            <span class="operation-status-icon operation-status-icon--complete">
-                              <nxt1-icon name="checkmarkCircle" [size]="12" />
-                            </span>
-                          }
-                          @case ('error') {
-                            <span class="operation-status-badge operation-status-badge--error">
-                              Failed
-                            </span>
-                            <span class="operation-status-icon operation-status-icon--error">
-                              <nxt1-icon name="alertCircle" [size]="12" />
-                            </span>
-                          }
-                          @case ('awaiting_input') {
-                            <span class="operation-status-badge operation-status-badge--awaiting">
-                              Needs Input
-                            </span>
-                            <span class="operation-status-icon operation-status-icon--awaiting">
-                              <nxt1-icon name="hand-left" [size]="12" />
-                            </span>
-                          }
-                        }
-                      </div>
-                    </button>
-                  }
-                </div>
-              </section>
-            }
-
-            <!-- ═══ 3. TODAY'S ACTION PLAN (AI-Generated Playbook) ═══ -->
+            <!-- ═══ 2. TODAY'S ACTION PLAN (AI-Generated Playbook) ═══ -->
             <section class="action-cards-section" aria-label="Today's Action Plan">
               <div class="action-plan-header">
                 <h3 class="section-title action-plan-title">Today's Action Plan</h3>
@@ -654,6 +543,14 @@ export interface WeeklyPlaybookItem {
         min-height: 100%;
         padding: var(--nxt1-spacing-4, 16px);
         padding-bottom: calc(280px + env(safe-area-inset-bottom, 0px));
+      }
+
+      .agent-error-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 320px;
+        padding: var(--nxt1-spacing-8, 32px) var(--nxt1-spacing-4, 16px);
       }
 
       @media (max-width: 767px) {
@@ -1764,14 +1661,6 @@ export class AgentXShellComponent {
   // Static fallback content is intentionally disabled to avoid mock-data flashes.
   // ============================================
 
-  /** Active background operations — live from service only. */
-  protected readonly activeOperations = computed<ShellActiveOperation[]>(() =>
-    this.agentX.activeOperations()
-  );
-
-  /** Operations currently awaiting user action (HITL). */
-  protected readonly awaitingInputOps = computed(() => this.agentX.awaitingInputOperations());
-
   /** Briefing preview text — live from service only. */
   protected readonly briefingPreview = computed(() => this.agentX.briefingPreviewText());
   protected readonly agentStatusLabel = this.controlPanelState.statusLabel;
@@ -1983,50 +1872,6 @@ export class AgentXShellComponent {
   }
 
   /**
-   * Handle active operation card tap — opens dedicated bottom sheet chat.
-   */
-  protected async onOperationTap(op: ActiveOperation): Promise<void> {
-    await this.haptics.impact('light');
-    // Pass the persisted thread ID so the sheet loads the worker's actual output logs
-    // rather than opening a blank new chat session.
-    await this.openOperationChat(
-      op.id,
-      op.label,
-      op.icon,
-      'operation',
-      [],
-      '',
-      op.threadId ?? '',
-      '',
-      op.yieldState ?? null,
-      op.status,
-      op.errorMessage ?? null
-    );
-  }
-
-  /**
-   * Handle "Action Required" banner tap — opens the first awaiting operation.
-   */
-  protected async onActionRequiredTap(): Promise<void> {
-    await this.haptics.impact('medium');
-    const ops = this.awaitingInputOps();
-    if (ops.length > 0) {
-      const op = ops[0];
-      await this.openOperationChat(
-        op.id,
-        op.label,
-        op.icon,
-        'operation',
-        [],
-        '',
-        op.threadId ?? '',
-        '',
-        op.yieldState ?? null
-      );
-    }
-  }
-
-  /**
    * Open the dedicated bottom sheet chat for an operation or command.
    */
   private async openOperationChat(
@@ -2066,7 +1911,8 @@ export class AgentXShellComponent {
   }
 
   /**
-   * Handle playbook action card tap — execute the task via Agent X.
+   * Handle playbook action card tap — route through the SSE chat loop
+   * so the operations log receives real-time status updates.
    */
   protected async onPlaybookAction(task: WeeklyPlaybookItem): Promise<void> {
     if (task.id === 'goal-setup') {
@@ -2075,7 +1921,19 @@ export class AgentXShellComponent {
     }
 
     if (this.agentX.dashboardLoaded()) {
-      await this.agentX.executePlaybookAction(task as ShellWeeklyPlaybookItem);
+      const { intent, title } = this.agentX.preparePlaybookAction(task as ShellWeeklyPlaybookItem);
+      // Open operation chat sheet with the intent as initialMessage so it
+      // streams via SSE — giving the operations log real-time status events.
+      await this.openOperationChat(
+        `playbook-${task.id}`,
+        title,
+        'sparkles',
+        'command',
+        [],
+        '',
+        '',
+        intent
+      );
     } else {
       this.agentX.setUserMessage(`${task.actionLabel}: ${task.title}`);
       await this.onSendMessage();
@@ -2142,6 +2000,11 @@ export class AgentXShellComponent {
   protected async handleRefresh(event: RefreshEvent): Promise<void> {
     await this.agentX.loadDashboard();
     event.complete();
+  }
+
+  /** Retry dashboard load after an error. */
+  protected onRetryDashboard(): void {
+    void this.agentX.loadDashboard();
   }
 
   /**

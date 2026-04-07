@@ -1,8 +1,8 @@
 /**
- * @fileoverview Search Knowledge Base Tool — MongoDB Atlas Vector Search
+ * @fileoverview Search Memory Tool — MongoDB Atlas Vector Search
  * @module @nxt1/backend/modules/agent/tools/database
  *
- * Enables Agent X to perform semantic search over its long-term vector memory.
+ * Enables Agent X to perform semantic search over per-user stored memories.
  * This is the RAG (Retrieval-Augmented Generation) retrieval step: before
  * answering a question, agents can query previously stored facts, user
  * preferences, recruiting context, and past conversation summaries to
@@ -11,9 +11,13 @@
  * Storage backend: MongoDB Atlas Vector Search (`agentMemories` collection).
  * Embedding model: OpenAI text-embedding-3-small (1536 dimensions).
  *
+ * NOTE: This is distinct from Global Knowledge (`agentGlobalKnowledge`
+ * collection), which is auto-injected into all agent system prompts via
+ * `GlobalKnowledgeSkill` and is NOT a user-facing tool.
+ *
  * @example
  * Agent flow for "Which conferences should I target?":
- * 1. Call search_knowledge_base({ query: "target conferences recruiting preferences", topK: 3 })
+ * 1. Call search_memory({ query: "target conferences recruiting preferences", userId: "abc", topK: 3 })
  * 2. Read recalled memories (e.g., "User prefers SEC and Big 12 schools")
  * 3. Incorporate that context into the coaching recommendation
  */
@@ -32,10 +36,10 @@ const VALID_CATEGORIES: readonly AgentMemoryCategory[] = [
   'system',
 ];
 
-export class SearchKnowledgeBaseTool extends BaseTool {
-  readonly name = 'search_knowledge_base';
+export class SearchMemoryTool extends BaseTool {
+  readonly name = 'search_memory';
   readonly description =
-    "Semantic search over Agent X's long-term memory and knowledge base. " +
+    "Semantic search over the user's stored memories (per-user vector store). " +
     'Use this to retrieve stored user preferences, goals, recruiting context, ' +
     'past conversation summaries, and performance data before making decisions. ' +
     'Always call this at the start of a session to personalize your response ' +
@@ -45,6 +49,10 @@ export class SearchKnowledgeBaseTool extends BaseTool {
   readonly parameters = {
     type: 'object',
     properties: {
+      userId: {
+        type: 'string',
+        description: 'Firebase UID of the user whose memories to search.',
+      },
       query: {
         type: 'string',
         description:
@@ -63,7 +71,7 @@ export class SearchKnowledgeBaseTool extends BaseTool {
           'Omit to search across all categories.',
       },
     },
-    required: ['query'],
+    required: ['userId', 'query'],
   } as const;
 
   // All coordinators can recall context from the knowledge base
@@ -130,7 +138,7 @@ export class SearchKnowledgeBaseTool extends BaseTool {
         },
       };
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Knowledge base search failed';
+      const message = err instanceof Error ? err.message : 'Memory search failed';
       return { success: false, error: message };
     }
   }

@@ -27,6 +27,7 @@ import { Redis } from 'ioredis';
 import { AgentQueueService } from './queue.service.js';
 import { AgentWorker } from './agent.worker.js';
 import { AgentJobRepository } from './job.repository.js';
+import { AgentPubSubService } from './pubsub.service.js';
 import { AgentRouter } from '../agent.router.js';
 import { OpenRouterService } from '../llm/openrouter.service.js';
 import { ToolRegistry } from '../tools/tool-registry.js';
@@ -36,26 +37,38 @@ import {
   ReadDistilledSectionTool,
   ReadWebpageTool,
   InteractWithWebpageTool,
+  OpenLiveViewTool,
+  NavigateLiveViewTool,
+  InteractWithLiveViewTool,
+  ReadLiveViewTool,
+  CloseLiveViewTool,
+  LiveViewSessionService,
   ScraperService,
   FirecrawlService,
 } from '../tools/scraping/index.js';
 import {
-  UpdateAthleteProfileTool,
-  UpdateTeamProfileTool,
   WriteCoreIdentityTool,
   WriteCombineMetricsTool,
   WriteSeasonStatsTool,
   WriteRecruitingActivityTool,
   WriteCalendarEventsTool,
   WriteAthleteVideosTool,
-  SearchKnowledgeBaseTool,
+  SearchMemoryTool,
   SearchCollegesTool,
+  SaveMemoryTool,
+  DeleteMemoryTool,
 } from '../tools/database/index.js';
 import { GenerateImageTool } from '../tools/media/index.js';
+import { DynamicExportTool } from '../tools/data/index.js';
 import { WebSearchTool } from '../tools/integrations/web-search.tool.js';
+import { SendEmailTool } from '../tools/integrations/send-email.tool.js';
 import { ScrapeTwitterTool } from '../tools/integrations/scrape-twitter.tool.js';
+import { ScrapeInstagramTool } from '../tools/integrations/scrape-instagram.tool.js';
 import { ApifyService } from '../tools/integrations/apify.service.js';
+import { ScraperMediaService } from '../tools/integrations/scraper-media.service.js';
 import { AskUserTool } from '../tools/comms/ask-user.tool.js';
+import { WriteTimelinePostTool } from '../tools/comms/write-timeline-post.tool.js';
+import { DelegateTaskTool } from '../tools/system/index.js';
 import {
   ScheduleRecurringTaskTool,
   ListRecurringTasksTool,
@@ -67,12 +80,6 @@ import { VectorMemoryService } from '../memory/vector.service.js';
 import { KnowledgeRetrievalService } from '../memory/knowledge-retrieval.service.js';
 import { AgentChatService } from '../services/agent-chat.service.js';
 import { TelemetryService } from '../services/telemetry.service.js';
-import { GuardrailRunner } from '../guardrails/guardrail-runner.js';
-import {
-  NcaaComplianceGuardrail,
-  AntiHallucinationGuardrail,
-  ToneEnforcementGuardrail,
-} from '../guardrails/index.js';
 import {
   SkillRegistry,
   ScoutingRubricSkill,
@@ -215,10 +222,19 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   if (firecrawl) {
     toolRegistry.register(new ReadWebpageTool(firecrawl));
     toolRegistry.register(new InteractWithWebpageTool(firecrawl));
+    try {
+      const liveViewService = new LiveViewSessionService();
+      toolRegistry.register(new OpenLiveViewTool(liveViewService, stagingDb));
+      toolRegistry.register(new NavigateLiveViewTool(liveViewService));
+      toolRegistry.register(new InteractWithLiveViewTool(liveViewService));
+      toolRegistry.register(new ReadLiveViewTool(liveViewService));
+      toolRegistry.register(new CloseLiveViewTool(liveViewService));
+      logger.info('Live view tools registered (open, navigate, interact, read, close)');
+    } catch {
+      logger.warn('LiveViewSessionService init failed — open_live_view tool disabled');
+    }
   }
 
-  toolRegistry.register(new UpdateAthleteProfileTool(stagingDb));
-  toolRegistry.register(new UpdateTeamProfileTool(stagingDb));
   toolRegistry.register(new WriteCoreIdentityTool(stagingDb));
   toolRegistry.register(new WriteCombineMetricsTool(stagingDb));
   toolRegistry.register(new WriteSeasonStatsTool(stagingDb));
@@ -227,32 +243,37 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteAthleteVideosTool(stagingDb));
   toolRegistry.register(new SearchCollegesTool());
   toolRegistry.register(new GenerateImageTool(llm));
+  toolRegistry.register(new DynamicExportTool());
+
+  // System tools (cross-cutting infrastructure — available to all agents)
+  toolRegistry.register(new DelegateTaskTool());
 
   // ── 1a. Vector memory & knowledge tools ──────────────────────────────
   const vectorMemory = new VectorMemoryService(llm);
   toolRegistry.register(new WebSearchTool());
-  toolRegistry.register(new SearchKnowledgeBaseTool(vectorMemory));
+  toolRegistry.register(new SearchMemoryTool(vectorMemory));
+  toolRegistry.register(new SaveMemoryTool(vectorMemory));
+  toolRegistry.register(new DeleteMemoryTool(vectorMemory));
   toolRegistry.register(new AskUserTool());
+  toolRegistry.register(new WriteTimelinePostTool(stagingDb));
+  toolRegistry.register(new SendEmailTool(stagingDb));
 
-  // ── 1b. Twitter/X scraping (Apify-hosted Scweet actor) ──────────────
+  // ── 1b. Twitter/X & Instagram scraping (Apify-hosted actors) ─────────
   try {
     const apifyService = new ApifyService();
-    toolRegistry.register(new ScrapeTwitterTool(apifyService));
-    logger.info('Twitter/X scraping tool registered (Apify)');
+    const scraperMedia = new ScraperMediaService();
+    toolRegistry.register(new ScrapeTwitterTool(apifyService, scraperMedia));
+    toolRegistry.register(new ScrapeInstagramTool(apifyService, scraperMedia));
+    logger.info('Twitter/X & Instagram scraping tools registered (Apify + media persistence)');
   } catch {
-    logger.warn('APIFY_API_TOKEN not configured — scrape_twitter tool disabled');
+    logger.warn(
+      'APIFY_API_TOKEN not configured — scrape_twitter & scrape_instagram tools disabled'
+    );
   }
 
   const contextBuilder = new ContextBuilder();
 
-  // ── 1b. Guardrails (safety layer) ───────────────────────────────────
-  const guardrailRunner = new GuardrailRunner([
-    new NcaaComplianceGuardrail(),
-    new AntiHallucinationGuardrail(),
-    new ToneEnforcementGuardrail(),
-  ]);
-
-  // ── 1c. Skill Registry (dynamic domain knowledge injection) ─────────
+  // ── 1b. Skill Registry (dynamic domain knowledge injection) ─────────────────
   const skillRegistry = new SkillRegistry();
   skillRegistry.register(new ScoutingRubricSkill());
   skillRegistry.register(new OutreachCopywritingSkill());
@@ -266,7 +287,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new GlobalKnowledgeSkill(knowledgeRetrieval));
 
   // ── 2. Wire the AgentRouter with all sub-agents ───────────────────
-  const router = new AgentRouter(llm, toolRegistry, contextBuilder, guardrailRunner, skillRegistry);
+  const router = new AgentRouter(llm, toolRegistry, contextBuilder, skillRegistry);
   router.registerAgent(new DataCoordinatorAgent());
   router.registerAgent(new PerformanceCoordinatorAgent());
   router.registerAgent(new RecruitingCoordinatorAgent());
@@ -286,7 +307,12 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new CancelRecurringTaskTool(queueService, stagingDb));
   toolRegistry.register(new EnqueueHeavyTaskTool(queueService));
 
-  // ── 4. Start the background worker ────────────────────────────────────
+  // ── 4. Create the Redis PubSub service (real-time SSE pipe) ───────────
+  // Enables BullMQ workers to stream tokens/steps back to the Express SSE
+  // connection holding the user's chat open. Same Redis as BullMQ.
+  const pubsub = new AgentPubSubService(redisUrl);
+
+  // ── 5. Start the background worker ────────────────────────────────────
   // The worker wraps the AgentRouter and additionally persists
   // progress events to Firestore for real-time frontend updates.
   const baseWorker = new AgentWorker(
@@ -294,10 +320,11 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     jobRepository,
     stagingJobRepository,
     agentChatService,
+    pubsub,
     stagingDb
   );
 
-  // ── 5. Inject dependencies into the REST routes ───────────────────────
+  // ── 6. Inject dependencies into the REST routes ───────────────────────
   setAgentDependencies({
     queueService,
     jobRepository,
@@ -305,6 +332,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     contextBuilder,
     llmService: llm,
     toolRegistry,
+    pubsub,
   });
   setKnowledgeDependencies(llm);
   setWelcomeDependencies({ queueService, jobRepository, chatService: agentChatService });
@@ -312,9 +340,10 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
 
   logger.info('Agent X queue engine initialized');
 
-  // ── 6. Return graceful shutdown handler ───────────────────────────────
+  // ── 7. Return graceful shutdown handler ───────────────────────────────
   return async () => {
     await baseWorker.shutdown();
+    await pubsub.shutdown();
     await queueService.shutdown();
     logger.info('Agent X queue engine shut down');
   };

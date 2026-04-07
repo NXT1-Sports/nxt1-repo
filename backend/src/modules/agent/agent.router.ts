@@ -33,11 +33,11 @@ import type { OpenRouterService } from './llm/openrouter.service.js';
 import type { ToolRegistry } from './tools/tool-registry.js';
 import type { ContextBuilder } from './memory/context-builder.js';
 import type { BaseAgent } from './agents/base.agent.js';
-import type { GuardrailRunner } from './guardrails/guardrail-runner.js';
 import type { SkillRegistry } from './skills/skill-registry.js';
 import type { OnStreamEvent } from './queue/event-writer.js';
 import { PlannerAgent } from './agents/planner.agent.js';
 import { isAgentYield, AgentYieldException } from './errors/agent-yield.error.js';
+import { isAgentDelegation } from './errors/agent-delegation.error.js';
 import { SemanticCacheService } from './memory/semantic-cache.service.js';
 import { logger } from '../../utils/logger.js';
 
@@ -51,6 +51,12 @@ import { logger } from '../../utils/logger.js';
  */
 const TASK_MAX_RETRIES = 2;
 
+/**
+ * Maximum number of delegation hops before the router gives up.
+ * Prevents infinite ping-pong between a coordinator and the Planner.
+ */
+const MAX_DELEGATION_DEPTH = 2;
+
 // ─── Router ─────────────────────────────────────────────────────────────────
 
 export class AgentRouter {
@@ -62,7 +68,6 @@ export class AgentRouter {
     private readonly llm: OpenRouterService,
     private readonly toolRegistry: ToolRegistry,
     private readonly contextBuilder: ContextBuilder,
-    private readonly guardrailRunner?: GuardrailRunner,
     private readonly skillRegistry?: SkillRegistry
   ) {
     this.planner = new PlannerAgent(llm);
@@ -72,11 +77,6 @@ export class AgentRouter {
   /** Register a sub-agent so the router can delegate tasks to it. */
   registerAgent(agent: BaseAgent): void {
     this.agents.set(agent.id, agent);
-  }
-
-  /** Get the guardrail runner (sub-agents use this for pre-tool checks). */
-  getGuardrailRunner(): GuardrailRunner | undefined {
-    return this.guardrailRunner;
   }
 
   /**
@@ -138,14 +138,16 @@ export class AgentRouter {
       };
     }
 
-    const context = this.buildSessionContext(userId, payload.sessionId, operationId);
-
-    // Inject thread history for conversation continuity
+    // Extract threadId for conversation continuity + thread-scoped storage
     // (contextObj already extracted above for resume detection)
     const threadId =
       typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
         ? ((contextObj as Record<string, unknown>)['threadId'] as string)
         : undefined;
+
+    const context = this.buildSessionContext(userId, payload.sessionId, operationId, threadId);
+
+    // Inject thread history for conversation continuity
     let threadHistoryStr = '';
     if (threadId) {
       try {
@@ -202,7 +204,6 @@ export class AgentRouter {
           toolDefs,
           this.llm,
           this.toolRegistry,
-          this.guardrailRunner,
           this.skillRegistry,
           onStreamEvent
         );
@@ -212,6 +213,66 @@ export class AgentRouter {
       } catch (err) {
         // Let AgentYieldException propagate to the worker for suspend-and-resume
         if (isAgentYield(err)) throw err;
+
+        // ── Delegation Handoff ────────────────────────────────────────────
+        // A sub-agent called delegate_task because the request is outside
+        // its domain. Re-dispatch through the PlannerAgent for proper routing.
+        if (isAgentDelegation(err)) {
+          const delegationCount =
+            (typeof (contextObj as Record<string, unknown>)['delegationCount'] === 'number'
+              ? ((contextObj as Record<string, unknown>)['delegationCount'] as number)
+              : 0) + 1;
+
+          if (delegationCount > MAX_DELEGATION_DEPTH) {
+            logger.warn('[AgentRouter] Delegation depth exceeded — aborting', {
+              operationId,
+              delegationCount,
+              sourceAgent: payload.agent,
+            });
+            this.emitUpdate(onUpdate, operationId, 'failed', 'Unable to route this request.');
+            return {
+              summary:
+                "I'm having trouble finding the right specialist for this request. " +
+                'Please try rephrasing or submit it from the main Agent X chat.',
+              suggestions: ['Try asking from the main Agent X input bar.'],
+            };
+          }
+
+          logger.info('[AgentRouter] Delegation handoff — re-dispatching through Planner', {
+            operationId,
+            sourceAgent: payload.agent,
+            forwardingIntent: err.payload.forwardingIntent.slice(0, 100),
+            delegationCount,
+          });
+
+          this.emitUpdate(
+            onUpdate,
+            operationId,
+            'thinking',
+            'Transferring your request to the right specialist...'
+          );
+
+          // Re-dispatch with agent lock removed so the Planner takes over.
+          // Append a routing hint so the Planner avoids the agent that just bailed.
+          const sourceAgentId = payload.agent ?? err.payload.sourceAgent;
+          const routingHint = sourceAgentId
+            ? `\n\n[System: The "${sourceAgentId}" agent could not handle this. Route to a different specialist.]`
+            : '';
+
+          const delegatedPayload: AgentJobPayload = {
+            ...payload,
+            agent: undefined,
+            intent: `${err.payload.forwardingIntent}${routingHint}`,
+            context: {
+              ...contextObj,
+              delegationCount,
+              delegatedFrom: payload.agent,
+            },
+          };
+
+          return this.run(delegatedPayload, onUpdate, firestore, onStreamEvent);
+        }
+
         const message = err instanceof Error ? err.message : 'Agent execution failed';
         this.emitUpdate(onUpdate, operationId, 'failed', message);
         return {
@@ -291,6 +352,24 @@ export class AgentRouter {
       `Plan: ${plan.tasks.length} task(s) — ${planResult.summary}`,
       { eventType: 'plan_created', taskCount: plan.tasks.length }
     );
+
+    // Stream a rich planner card so the frontend renders an interactive checklist
+    if (onStreamEvent && plan.tasks.length > 0) {
+      onStreamEvent({
+        type: 'card',
+        cardData: {
+          type: 'planner',
+          title: 'Execution Plan',
+          payload: {
+            items: plan.tasks.map((t) => ({
+              id: t.id,
+              label: t.description,
+              done: false,
+            })),
+          },
+        },
+      });
+    }
 
     // ── Step 3: Execute tasks in dependency order ─────────────────────────
     const taskResults = new Map<string, AgentOperationResult>();
@@ -382,7 +461,6 @@ export class AgentRouter {
               toolDefs,
               this.llm,
               this.toolRegistry,
-              this.guardrailRunner,
               this.skillRegistry,
               onStreamEvent
             );
@@ -395,6 +473,26 @@ export class AgentRouter {
               'acting',
               `Task ${task.id} completed: ${result.summary}`
             );
+
+            // Re-emit the planner card with updated done states so the UI
+            // checklist ticks off items in real-time as tasks finish.
+            if (onStreamEvent) {
+              onStreamEvent({
+                type: 'card',
+                cardData: {
+                  type: 'planner',
+                  title: 'Execution Plan',
+                  payload: {
+                    items: mutableTasks.map((t) => ({
+                      id: t.id,
+                      label: t.description,
+                      done: t.status === ('completed' as AgentTaskStatus),
+                    })),
+                  },
+                },
+              });
+            }
+
             break; // Success — exit retry loop
           } catch (err) {
             // Attach DAG plan context to yield exceptions so the resume route
@@ -411,6 +509,31 @@ export class AgentRouter {
                   enrichedIntent,
                 },
               });
+            }
+
+            // In the DAG path, delegation means the Planner mis-routed a task.
+            // Treat it as an immediate task failure (no retries — the same agent
+            // would just delegate again).
+            if (isAgentDelegation(err)) {
+              const delErr =
+                err as import('./errors/agent-delegation.error.js').AgentDelegationException;
+              logger.warn(
+                `[AgentRouter] Agent "${task.assignedAgent}" delegated inside DAG — treating as task failure`,
+                {
+                  operationId,
+                  taskId: task.id,
+                  forwardingIntent: delErr.payload.forwardingIntent.slice(0, 100),
+                }
+              );
+              task.status = 'failed' as AgentTaskStatus;
+              this.emitUpdate(
+                onUpdate,
+                operationId,
+                'acting',
+                `Task ${task.id} was misrouted — ${task.assignedAgent} could not handle it.`
+              );
+              this.cascadeFailure(task.id, mutableTasks);
+              break; // Exit retry loop
             }
 
             const message = err instanceof Error ? err.message : 'Unknown error';
@@ -504,7 +627,19 @@ export class AgentRouter {
       userContext = { userId } as AgentUserContext;
     }
 
-    const context = this.buildSessionContext(userId, payload.sessionId, operationId);
+    const resumeContextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const resumeThreadId =
+      typeof (resumeContextObj as Record<string, unknown>)['threadId'] === 'string'
+        ? ((resumeContextObj as Record<string, unknown>)['threadId'] as string)
+        : undefined;
+
+    const context = this.buildSessionContext(
+      userId,
+      payload.sessionId,
+      operationId,
+      resumeThreadId
+    );
     const enrichedIntent = this.enrichIntentWithContext(intent, userContext, payload.context);
 
     try {
@@ -539,7 +674,6 @@ export class AgentRouter {
         toolDefs,
         this.llm,
         this.toolRegistry,
-        this.guardrailRunner,
         this.skillRegistry,
         onStreamEvent
       );
@@ -636,7 +770,8 @@ export class AgentRouter {
   private buildSessionContext(
     userId: string,
     sessionId?: string,
-    operationId?: string
+    operationId?: string,
+    threadId?: string
   ): AgentSessionContext {
     const now = new Date().toISOString();
     return {
@@ -646,6 +781,7 @@ export class AgentRouter {
       createdAt: now,
       lastActiveAt: now,
       ...(operationId && { operationId }),
+      ...(threadId && { threadId }),
     };
   }
 

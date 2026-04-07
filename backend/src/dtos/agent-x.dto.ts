@@ -150,6 +150,11 @@ export class AgentChatRequestDto {
   @ValidateNested({ each: true })
   @Type(() => ChatAttachmentDto)
   attachments?: ChatAttachmentDto[];
+
+  /** Resume streaming for an in-progress heavy task (drop recovery). */
+  @IsUUID('4')
+  @IsOptional()
+  resumeOperationId?: string;
 }
 
 export class AgentChatDto {

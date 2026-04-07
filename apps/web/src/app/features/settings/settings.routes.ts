@@ -19,6 +19,11 @@ export const SETTINGS_ROUTES: Routes = [
       import('./account-information.component').then((m) => m.AccountInformationComponent),
   },
   {
+    path: 'connected-accounts',
+    loadComponent: () =>
+      import('./connected-accounts.component').then((m) => m.ConnectedAccountsComponent),
+  },
+  {
     path: 'notification-preferences',
     loadComponent: () =>
       import('./notification-preferences.component').then(

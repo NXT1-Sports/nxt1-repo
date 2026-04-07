@@ -80,7 +80,6 @@ async function setupBackendApiRoutes(page: Page): Promise<void> {
           firstName: 'E2E',
           lastName: 'Tester',
           role: 'athlete',
-          planTier: null,
           onboardingCompleted: true,
           completeSignUp: true,
           isCollegeCoach: false,

@@ -41,7 +41,16 @@ const AGENT_IDS: readonly AgentIdentifier[] = [
 
 // ─── Schema ─────────────────────────────────────────────────────────────────
 
-const AgentThreadSchema = new Schema<AgentThread>(
+/**
+ * Extended thread document with backend-only fields not exposed in the core type.
+ * `memorySummarized` is used exclusively by the cron-based MemorySummarizationService.
+ */
+interface AgentThreadDocument extends AgentThread {
+  memorySummarized?: boolean;
+  mediaCleaned?: boolean;
+}
+
+const AgentThreadSchema = new Schema<AgentThreadDocument>(
   {
     userId: { type: String, required: true, index: true },
     title: { type: String, required: true, default: 'New Conversation' },
@@ -57,6 +66,18 @@ const AgentThreadSchema = new Schema<AgentThread>(
      * Default: 180 days from creation (6 months). Set to null to retain indefinitely.
      */
     expiresAt: { type: Date, default: () => new Date(Date.now() + 180 * 24 * 60 * 60 * 1000) },
+    /**
+     * Whether this thread's messages have been summarized into long-term vector memory.
+     * Set to true by the MemorySummarizationService after successful extraction.
+     * Used to avoid re-processing threads on subsequent cron runs.
+     */
+    memorySummarized: { type: Boolean, default: false },
+    /**
+     * Whether this thread's staged media has been cleaned up from Firebase Storage.
+     * Set to true by the cleanup-thread-media cron after deleting the media folder.
+     * Prevents re-processing on subsequent cron runs.
+     */
+    mediaCleaned: { type: Boolean, default: false },
   },
   { versionKey: false }
 );
@@ -72,9 +93,15 @@ AgentThreadSchema.index({ userId: 1, archived: 1 });
 // TTL index — MongoDB automatically deletes threads once expiresAt is in the past.
 AgentThreadSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
+// Cron: find unsummarized threads with old lastMessageAt for memory extraction
+AgentThreadSchema.index({ memorySummarized: 1, lastMessageAt: 1 });
+
+// Cron: find threads about to expire whose media hasn't been cleaned
+AgentThreadSchema.index({ mediaCleaned: 1, expiresAt: 1 });
+
 // ─── Model ──────────────────────────────────────────────────────────────────
 
-export const AgentThreadModel: Model<AgentThread> = model<AgentThread>(
+export const AgentThreadModel: Model<AgentThreadDocument> = model<AgentThreadDocument>(
   'AgentThread',
   AgentThreadSchema
 );

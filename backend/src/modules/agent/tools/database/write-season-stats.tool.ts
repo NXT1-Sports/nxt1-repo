@@ -16,7 +16,7 @@
  */
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
-import { BaseTool, type ToolResult } from '../base.tool.js';
+import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { getCacheService } from '../../../../services/cache.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
@@ -120,7 +120,10 @@ export class WriteSeasonStatsTool extends BaseTool {
     this.db = db ?? getFirestore();
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
     const userId = this.str(input, 'userId');
     if (!userId) return this.paramError('userId');
     const targetSport = this.str(input, 'targetSport');
@@ -165,6 +168,8 @@ export class WriteSeasonStatsTool extends BaseTool {
       // Snapshot previous state for delta computation
       const previousState = this.snapshotPreviousState(userData, existingPSDocs);
 
+      context?.onProgress?.('Building game logs & flat stats…');
+
       // ── 1. Build ProfileSeasonGameLog entries ─────────────────────────
       const gameLogs = this.buildGameLogs(
         seasonStats as Record<string, unknown>[],
@@ -187,6 +192,8 @@ export class WriteSeasonStatsTool extends BaseTool {
       // ── 3. Write stats + game logs to PlayerStats collection ──────────
       const allSeasons = new Set<string>([...flatStats.keys(), ...gameLogsBySeason.keys()]);
       let playerStatsWritten = 0;
+
+      context?.onProgress?.(`Writing ${allSeasons.size} season(s) to PlayerStats…`);
 
       for (const season of allSeasons) {
         const docId = `${userId}_${sportId}_${season}`;
@@ -231,6 +238,7 @@ export class WriteSeasonStatsTool extends BaseTool {
       }
 
       // ── 5. Cache invalidation ─────────────────────────────────────────
+      context?.onProgress?.('Invalidating stats caches…');
       try {
         const cache = getCacheService();
         await Promise.all([

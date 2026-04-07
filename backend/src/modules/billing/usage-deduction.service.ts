@@ -197,7 +197,7 @@ export async function executeBillingDeduction(
       rawCostUsd: totalCostUsd,
       chargeAmountCents,
       feature,
-      via: iapHoldId ? 'captureWalletHold' : 'recordSpend',
+      via: iapHoldId ? 'captureWalletHold' : resolvedOrgId ? 'recordOrgSpend' : 'recordSpend',
     });
 
     return { charged: true, rawCostUsd: totalCostUsd, chargeAmountCents };

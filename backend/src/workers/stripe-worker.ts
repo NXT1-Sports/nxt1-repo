@@ -6,7 +6,8 @@
  * This worker is designed to be deployed as a separate Cloud Run service
  */
 
-import { PubSub, type Message } from '@google-cloud/pubsub';
+import { type Message } from '@google-cloud/pubsub';
+import { createPubSubClient } from '../utils/pubsub.js';
 import { logger } from '../utils/logger.js';
 import {
   getUsageEvent,
@@ -234,7 +235,7 @@ export async function startWorker(subscriptionName: string = 'stripe-worker-sub'
     subscriptionName,
   });
 
-  const pubsub = new PubSub();
+  const pubsub = createPubSubClient();
   const subscription = pubsub.subscription(subscriptionName);
 
   // Message handler

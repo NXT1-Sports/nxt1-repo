@@ -192,6 +192,17 @@ export class VectorMemoryService {
   }
 
   /**
+   * Delete a specific memory by ID, scoped to a user for safety.
+   * Returns true if a document was deleted, false if not found.
+   */
+  async deleteById(memoryId: string, userId: string): Promise<boolean> {
+    const result = await AgentMemoryModel.deleteOne({ _id: memoryId, userId });
+    const deleted = result.deletedCount > 0;
+    logger.info('[VectorMemory] Delete memory by ID', { memoryId, userId, deleted });
+    return deleted;
+  }
+
+  /**
    * Delete all memories for a user (GDPR erasure / account deletion).
    */
   async deleteAll(userId: string): Promise<void> {

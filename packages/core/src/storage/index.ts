@@ -45,3 +45,6 @@ export { createCapacitorStorageAdapter, capacitorStorage } from './capacitor-sto
 
 // Memory implementation (SSR, testing)
 export { createMemoryStorageAdapter, memoryStorage } from './memory-storage';
+
+// File download adapter (platform-agnostic)
+export { type FileDownloadAdapter, type FileDownloadOptions } from './file-download.adapter';

@@ -17,7 +17,7 @@
  *
  * // Import specific modules
  * import { User, SportProfile } from '@nxt1/core/models';
- * import { USER_ROLES, PLAN_TIERS } from '@nxt1/core/constants';
+ * import { USER_ROLES, BILLING_INTERVALS } from '@nxt1/core/constants';
  * import { createAuthApi, HttpAdapter } from '@nxt1/core/api';
  * import { formatDate, truncate } from '@nxt1/core/helpers';
  * import { validateRegistration } from '@nxt1/core/validation';

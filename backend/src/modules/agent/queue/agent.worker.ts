@@ -44,6 +44,8 @@ import {
 import { AgentQueueService } from './queue.service.js';
 import { AgentJobRepository } from './job.repository.js';
 import { DebouncedEventWriter } from './event-writer.js';
+import type { StreamEvent } from './event-writer.js';
+import { AgentPubSubService } from './pubsub.service.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
 import { isAgentYield } from '../errors/agent-yield.error.js';
 import { notifyYield } from '../services/yield-notifier.service.js';
@@ -71,6 +73,7 @@ export class AgentWorker {
     private readonly productionJobRepo: AgentJobRepository,
     private readonly stagingJobRepo: AgentJobRepository,
     private readonly chatService: AgentChatService,
+    private readonly pubsub: AgentPubSubService,
     private readonly stagingFirestore?: FirebaseFirestore.Firestore,
     redisUrl?: string
   ) {
@@ -210,7 +213,21 @@ export class AgentWorker {
     // The frontend subscribes to `agentJobs/{operationId}/events` via onSnapshot
     // to render a live "watch it work" chat experience.
     const eventWriter = new DebouncedEventWriter(repo, payload.operationId);
-    const onStreamEvent = eventWriter.emit.bind(eventWriter);
+
+    // ── Dual-write callback: Firestore (persistence) + Redis PubSub (real-time SSE pipe) ──
+    // The Redis PubSub path enables Express to hold an SSE connection open and
+    // forward tokens in real-time, giving the frontend the same streaming UX
+    // regardless of whether the LLM loop runs inline or in BullMQ.
+    const onStreamEvent = (event: StreamEvent): void => {
+      // 1. Firestore (existing — persistence for reconnection/replay)
+      eventWriter.emit(event);
+
+      // 2. Redis PubSub (new — real-time SSE pipe to Express)
+      const sseEvent = this.streamEventToSSE(event);
+      if (sseEvent) {
+        this.pubsub.publish(payload.operationId, sseEvent.event, sseEvent.data).catch(() => {});
+      }
+    };
 
     // Execute the full agent pipeline (with overall timeout)
     let result;
@@ -481,6 +498,15 @@ export class AgentWorker {
             ? (rawAgent as import('@nxt1/core').AgentIdentifier)
             : undefined;
 
+        // Extract tool call records from result.data (built by base.agent.ts)
+        const rawToolCalls =
+          typeof result.data === 'object' && result.data !== null
+            ? (result.data as Record<string, unknown>)['toolCallRecords']
+            : undefined;
+        const toolCalls = Array.isArray(rawToolCalls)
+          ? (rawToolCalls as import('@nxt1/core').AgentToolCallRecord[])
+          : undefined;
+
         await this.chatService.addMessage({
           threadId,
           userId: payload.userId,
@@ -489,6 +515,7 @@ export class AgentWorker {
           origin: payload.origin,
           agentId,
           operationId: payload.operationId,
+          toolCalls,
           resultData:
             typeof result.data === 'object' && result.data !== null
               ? (result.data as Record<string, unknown>)
@@ -514,6 +541,67 @@ export class AgentWorker {
       durationMs: Date.now() - startMs,
       completedAt: new Date().toISOString(),
     };
+  }
+
+  // ─── SSE Translation ─────────────────────────────────────────────────
+
+  /**
+   * Convert a StreamEvent (internal worker format) to an SSE-compatible
+   * event + data pair for Redis PubSub publishing.
+   *
+   * Returns null for events that don't map to SSE (shouldn't happen in practice).
+   */
+  private streamEventToSSE(event: StreamEvent): { event: string; data: unknown } | null {
+    switch (event.type) {
+      case 'card':
+        return { event: 'card', data: event.cardData ?? {} };
+      case 'delta':
+        return { event: 'delta', data: { content: event.text ?? '' } };
+      case 'step_active':
+        return {
+          event: 'step',
+          data: { id: event.agentId ?? 'unknown', label: event.message ?? '', status: 'active' },
+        };
+      case 'step_done':
+        return {
+          event: 'step',
+          data: { id: event.agentId ?? 'unknown', label: event.message ?? '', status: 'success' },
+        };
+      case 'step_error':
+        return {
+          event: 'step',
+          data: { id: event.agentId ?? 'unknown', label: event.message ?? '', status: 'error' },
+        };
+      case 'tool_call':
+        return {
+          event: 'step',
+          data: {
+            id: event.toolName ?? 'tool',
+            label: event.message ?? event.toolName ?? 'Running tool',
+            status: 'active',
+          },
+        };
+      case 'tool_result':
+        return {
+          event: 'step',
+          data: {
+            id: event.toolName ?? 'tool',
+            label: event.message ?? event.toolName ?? 'Tool complete',
+            status: event.toolSuccess ? 'success' : 'error',
+          },
+        };
+      case 'done':
+        return {
+          event: 'done',
+          data: {
+            success: event.success ?? true,
+            error: event.error,
+            message: event.message,
+          },
+        };
+      default:
+        return null;
+    }
   }
 
   // ─── Event Listeners ───────────────────────────────────────────────────

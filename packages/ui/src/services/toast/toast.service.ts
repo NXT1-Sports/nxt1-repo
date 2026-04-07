@@ -40,19 +40,11 @@
 
 import { Injectable, inject, signal, computed, NgZone } from '@angular/core';
 import { ToastController } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import { checkmarkCircle, alertCircle, warning, informationCircle, close } from 'ionicons/icons';
 
 import { NxtPlatformService } from '../platform';
 import { HapticsService } from '../haptics';
 import { NxtLoggingService } from '../logging';
-import {
-  ToastType,
-  ToastOptions,
-  QueuedToast,
-  DEFAULT_DURATIONS,
-  DEFAULT_ICONS,
-} from './toast.types';
+import { ToastType, ToastOptions, QueuedToast, DEFAULT_DURATIONS } from './toast.types';
 
 // Re-export types for consumers
 export type { ToastType, ToastPosition, ToastAction, ToastOptions } from './toast.types';
@@ -60,16 +52,6 @@ export type { ToastType, ToastPosition, ToastAction, ToastOptions } from './toas
 // Register icons used by toast service
 @Injectable({ providedIn: 'root' })
 export class NxtToastService {
-  constructor() {
-    addIcons({
-      'checkmark-circle': checkmarkCircle,
-      'alert-circle': alertCircle,
-      warning: warning,
-      'information-circle': informationCircle,
-      close: close,
-    });
-  }
-
   private readonly toastController = inject(ToastController);
   private readonly platform = inject(NxtPlatformService);
   private readonly haptics = inject(HapticsService);
@@ -175,7 +157,7 @@ export class NxtToastService {
       type,
       duration: options.duration ?? DEFAULT_DURATIONS[type],
       position: options.position ?? 'bottom',
-      icon: options.icon ?? DEFAULT_ICONS[type],
+      icon: options.icon,
       action: options.action,
       header: options.header,
       cssClass: options.cssClass,
@@ -259,7 +241,7 @@ export class NxtToastService {
       // Always add close button for longer toasts
       if (nextToast.duration >= 4000 || nextToast.duration === 0) {
         buttons.push({
-          icon: 'close',
+          text: '✕',
           role: 'cancel',
         });
       }

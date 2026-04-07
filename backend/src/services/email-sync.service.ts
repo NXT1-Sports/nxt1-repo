@@ -17,7 +17,9 @@
  */
 
 import axios from 'axios';
-import { db } from '../utils/firebase.js';
+import type { Firestore } from 'firebase-admin/firestore';
+import { db as defaultDb } from '../utils/firebase.js';
+import { stagingDb } from '../utils/firebase-staging.js';
 import { logger } from '../utils/logger.js';
 import { ConversationModel, type IConversation } from '../models/conversation.model.js';
 import { MessageModel } from '../models/message.model.js';
@@ -55,11 +57,26 @@ interface SyncResult {
 // ─── Token Helpers ──────────────────────────────────────────────────────────
 
 /**
+ * Resolve Google OAuth credentials using the same env-var fallback chain as
+ * the connect-gmail route in auth.routes.ts.  The `db` instance is compared
+ * to `stagingDb` to decide which CLIENT_ID to use.
+ */
+function resolveGoogleCredentials(db: Firestore): { clientId: string; clientSecret: string } {
+  const isStaging = db === stagingDb;
+  const clientId = isStaging
+    ? (process.env['STAGING_CLIENT_ID'] ?? process.env['CLIENT_ID'] ?? '')
+    : (process.env['CLIENT_ID'] ?? '');
+  const clientSecret = process.env['CLIENT_SECRET'] ?? '';
+  return { clientId, clientSecret };
+}
+
+/**
  * Retrieve OAuth tokens from Firestore server-only subcollection.
  */
 async function getEmailTokens(
   userId: string,
-  provider: EmailProvider
+  provider: EmailProvider,
+  db: Firestore = defaultDb
 ): Promise<EmailTokens | null> {
   const tokenRef = db.collection('Users').doc(userId).collection('emailTokens').doc(provider);
   const snap = await tokenRef.get();
@@ -73,9 +90,12 @@ async function getEmailTokens(
 /**
  * Refresh a Gmail access token using the refresh token.
  */
-async function refreshGmailToken(userId: string, refreshToken: string): Promise<string> {
-  const clientId = process.env['GOOGLE_CLIENT_ID'];
-  const clientSecret = process.env['GOOGLE_CLIENT_SECRET'];
+async function refreshGmailToken(
+  userId: string,
+  refreshToken: string,
+  db: Firestore = defaultDb
+): Promise<string> {
+  const { clientId, clientSecret } = resolveGoogleCredentials(db);
 
   if (!clientId || !clientSecret) {
     throw new Error('Gmail OAuth credentials not configured');
@@ -103,7 +123,11 @@ async function refreshGmailToken(userId: string, refreshToken: string): Promise<
 /**
  * Refresh a Microsoft access token using the refresh token.
  */
-async function refreshMicrosoftToken(userId: string, refreshToken: string): Promise<string> {
+async function refreshMicrosoftToken(
+  userId: string,
+  refreshToken: string,
+  db: Firestore = defaultDb
+): Promise<string> {
   const clientId = process.env['MICROSOFT_CLIENT_ID'];
   const clientSecret = process.env['MICROSOFT_CLIENT_SECRET'];
 
@@ -140,7 +164,11 @@ async function refreshMicrosoftToken(userId: string, refreshToken: string): Prom
 /**
  * Get a valid access token, refreshing if necessary.
  */
-async function getValidAccessToken(userId: string, tokens: EmailTokens): Promise<string> {
+async function getValidAccessToken(
+  userId: string,
+  tokens: EmailTokens,
+  db: Firestore = defaultDb
+): Promise<string> {
   // Try the current token first
   try {
     if (tokens.provider === 'gmail') {
@@ -162,9 +190,9 @@ async function getValidAccessToken(userId: string, tokens: EmailTokens): Promise
     logger.info(`[EmailSync] Refreshing ${tokens.provider} token for user ${userId}`);
 
     if (tokens.provider === 'gmail') {
-      return refreshGmailToken(userId, tokens.refreshToken);
+      return refreshGmailToken(userId, tokens.refreshToken, db);
     }
-    return refreshMicrosoftToken(userId, tokens.refreshToken);
+    return refreshMicrosoftToken(userId, tokens.refreshToken, db);
   }
 }
 
@@ -404,11 +432,15 @@ async function isCollegeEmail(
  * Sync emails from a single provider for a given user.
  * Upserts conversations and messages into MongoDB.
  */
-export async function syncUserEmails(userId: string, provider: EmailProvider): Promise<SyncResult> {
+export async function syncUserEmails(
+  userId: string,
+  provider: EmailProvider,
+  db: Firestore = defaultDb
+): Promise<SyncResult> {
   const result: SyncResult = { synced: 0, skipped: 0, errors: 0 };
 
   // 1. Get tokens
-  const tokens = await getEmailTokens(userId, provider);
+  const tokens = await getEmailTokens(userId, provider, db);
   if (!tokens) {
     logger.warn(`[EmailSync] No ${provider} tokens for user ${userId}`);
     return result;
@@ -417,7 +449,7 @@ export async function syncUserEmails(userId: string, provider: EmailProvider): P
   // 2. Get valid access token (refresh if needed)
   let accessToken: string;
   try {
-    accessToken = await getValidAccessToken(userId, tokens);
+    accessToken = await getValidAccessToken(userId, tokens, db);
   } catch (err) {
     logger.error(`[EmailSync] Token refresh failed for ${provider}`, {
       userId,
@@ -585,7 +617,10 @@ export async function syncUserEmails(userId: string, provider: EmailProvider): P
 /**
  * Sync all connected email providers for a user.
  */
-export async function syncAllUserEmails(userId: string): Promise<Record<string, SyncResult>> {
+export async function syncAllUserEmails(
+  userId: string,
+  db: Firestore = defaultDb
+): Promise<Record<string, SyncResult>> {
   const results: Record<string, SyncResult> = {};
 
   // Check which providers are connected
@@ -598,7 +633,7 @@ export async function syncAllUserEmails(userId: string): Promise<Record<string, 
     if (!ce.isActive) continue;
     if (ce.provider !== 'gmail' && ce.provider !== 'microsoft') continue;
 
-    results[ce.provider] = await syncUserEmails(userId, ce.provider as EmailProvider);
+    results[ce.provider] = await syncUserEmails(userId, ce.provider as EmailProvider, db);
   }
 
   return results;
@@ -614,14 +649,15 @@ export async function sendEmailViaProvider(
   provider: EmailProvider,
   to: string,
   subject: string,
-  body: string
+  body: string,
+  db: Firestore = defaultDb
 ): Promise<{ success: boolean; externalMessageId?: string }> {
-  const tokens = await getEmailTokens(userId, provider);
+  const tokens = await getEmailTokens(userId, provider, db);
   if (!tokens) {
     throw new Error(`No ${provider} tokens for user ${userId}`);
   }
 
-  const accessToken = await getValidAccessToken(userId, tokens);
+  const accessToken = await getValidAccessToken(userId, tokens, db);
 
   if (provider === 'gmail') {
     return sendGmailMessage(accessToken, to, subject, body);

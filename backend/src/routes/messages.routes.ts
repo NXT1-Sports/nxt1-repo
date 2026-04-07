@@ -131,7 +131,8 @@ router.post('/send', async (req: Request, res: Response): Promise<void> => {
       userId,
       conversationId,
       body.trim(),
-      replyToId
+      replyToId,
+      req.firebase?.db
     );
 
     res.json({ success: true, data: message });
@@ -342,7 +343,7 @@ router.post('/sync', async (req: Request, res: Response): Promise<void> => {
 
     logger.info('[Messages] Email sync triggered', { userId });
 
-    const results = await syncAllUserEmails(userId);
+    const results = await syncAllUserEmails(userId, req.firebase?.db);
 
     res.json({ success: true, data: results });
   } catch (err) {
