@@ -69,7 +69,6 @@
               }
             ],
             "scripts": [],
-            "serviceWorker": "ngsw-config.json",
             "optimization": {
               "scripts": true,
               "styles": true,
@@ -107,6 +106,7 @@
                 }
               ],
               "outputHashing": "all",
+              "serviceWorker": "ngsw-config.json",
               "optimization": {
                 "scripts": true,
                 "styles": {
@@ -138,6 +138,7 @@
                 }
               ],
               "outputHashing": "all",
+              "serviceWorker": "ngsw-config.json",
               "optimization": {
                 "scripts": true,
                 "styles": {
@@ -152,8 +153,7 @@
             "development": {
               "optimization": false,
               "extractLicenses": false,
-              "sourceMap": true,
-              "serviceWorker": false
+              "sourceMap": true
             }
           },
           "defaultConfiguration": "production"
