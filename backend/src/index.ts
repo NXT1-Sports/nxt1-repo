@@ -128,6 +128,8 @@ const STATIC_ALLOWED_ORIGINS = process.env['CORS_ORIGINS']
       'https://www.nxt1sports.com',
       // Firebase App Hosting (staging)
       'https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app',
+      // Firebase Hosting (staging)
+      'https://nxt-1-staging-v2.web.app',
     ];
 
 app.use(
