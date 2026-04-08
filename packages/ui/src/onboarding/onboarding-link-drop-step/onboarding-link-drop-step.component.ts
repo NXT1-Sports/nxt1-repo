@@ -640,6 +640,12 @@ export class OnboardingLinkDropStepComponent {
   readonly role = input<OnboardingUserType | null>(null);
   readonly disabled = input(false);
   readonly scope = input<'athlete' | 'team'>('athlete');
+  /**
+   * When true, tapping Google / Microsoft in sign-in mode emits `oauthSigninRequest`
+   * so the parent can launch the real OAuth account-picker instead of the token-entry modal.
+   * Defaults to false (onboarding uses manual token entry).
+   */
+  readonly useOAuth = input(false);
 
   // ---- Outputs ----
   readonly linkSourcesChange = output<LinkSourcesFormData>();
@@ -653,6 +659,17 @@ export class OnboardingLinkDropStepComponent {
     platform: 'google' | 'microsoft';
     accessToken: string;
     refreshToken?: string;
+    scopeType: PlatformScope;
+    scopeId?: string;
+  }>();
+
+  /**
+   * Emitted when useOAuth=true and the user taps Google or Microsoft in sign-in mode.
+   * The parent should launch the real OAuth account-picker popup, call the backend,
+   * then call `markSigninConnected()` on this component instance on success.
+   */
+  readonly oauthSigninRequest = output<{
+    platform: 'google' | 'microsoft';
     scopeType: PlatformScope;
     scopeId?: string;
   }>();
@@ -905,11 +922,19 @@ export class OnboardingLinkDropStepComponent {
     const isSignIn = source.connectionType === 'signin';
     const isUrl = placeholder.toLowerCase().includes('url');
 
-    // ── Google / Microsoft: collect tokens manually then delegate to parent ──
+    // ── Google / Microsoft: OAuth account-picker (settings) OR manual token entry (onboarding) ──
     if (isSignIn && (source.platform === 'google' || source.platform === 'microsoft')) {
-      await this._handleSigninTokenEntry(
-        source as typeof source & { platform: 'google' | 'microsoft' }
-      );
+      if (this.useOAuth()) {
+        this.oauthSigninRequest.emit({
+          platform: source.platform as 'google' | 'microsoft',
+          scopeType: source.scopeType ?? 'global',
+          scopeId: source.scopeId,
+        });
+      } else {
+        await this._handleSigninTokenEntry(
+          source as typeof source & { platform: 'google' | 'microsoft' }
+        );
+      }
       return;
     }
 

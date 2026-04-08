@@ -351,9 +351,16 @@ export const routes: Routes = [
     loadComponent: () => import('./features/join/join.component').then((m) => m.JoinComponent),
   },
 
-  // OAuth Callback Pages (Microsoft, Yahoo)
+  // OAuth Callback Pages (Google, Microsoft, Yahoo)
   // These are minimal pages that show loading state
   // while parent window polls the URL and extracts authorization code
+  {
+    path: 'google/callback',
+    loadComponent: () =>
+      import('./features/activity/components/oauth-callback.component').then(
+        (m) => m.OAuthCallbackComponent
+      ),
+  },
   {
     path: 'microsoft/callback',
     loadComponent: () =>
@@ -363,6 +370,13 @@ export const routes: Routes = [
   },
   {
     path: 'yahoo/callback',
+    loadComponent: () =>
+      import('./features/activity/components/oauth-callback.component').then(
+        (m) => m.OAuthCallbackComponent
+      ),
+  },
+  {
+    path: 'oauth/success',
     loadComponent: () =>
       import('./features/activity/components/oauth-callback.component').then(
         (m) => m.OAuthCallbackComponent

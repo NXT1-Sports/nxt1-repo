@@ -67,6 +67,28 @@ export const CONNECTED_ACCOUNTS_FIREBASE_USER = new InjectionToken<
   () => ReadonlyArray<{ readonly providerId: string }>
 >('CONNECTED_ACCOUNTS_FIREBASE_USER');
 
+/**
+ * Optional DI token providing a handler that launches the real OAuth account-picker
+ * (Google / Microsoft) when the user taps those platforms in the "Signed In" tab
+ * from the settings context (where the component is opened via overlay, not a template).
+ *
+ * The factory receives the platform ID and returns a Promise<boolean> (true = success).
+ * The component calls `markSigninConnected()` automatically when the handler resolves true.
+ *
+ * @example
+ * // In app.config.ts:
+ * {
+ *   provide: CONNECTED_ACCOUNTS_OAUTH_HANDLER,
+ *   useFactory: (emailSvc: WebEmailConnectionService, auth: IAuthService) =>
+ *     (platform: 'google' | 'microsoft') =>
+ *       emailSvc.connectForLinkedAccounts(platform, auth.user()?.uid ?? ''),
+ *   deps: [WebEmailConnectionService, AUTH_SERVICE],
+ * }
+ */
+export const CONNECTED_ACCOUNTS_OAUTH_HANDLER = new InjectionToken<
+  (platform: 'google' | 'microsoft') => Promise<boolean>
+>('CONNECTED_ACCOUNTS_OAUTH_HANDLER');
+
 /** Maps Firebase Auth provider IDs to the platform IDs used by connected accounts. */
 const FIREBASE_PROVIDER_PLATFORM_MAP: Readonly<Record<string, string>> = {
   'google.com': 'google',

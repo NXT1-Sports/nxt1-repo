@@ -25,6 +25,7 @@ import {
   OnInit,
   output,
   signal,
+  ViewChild,
 } from '@angular/core';
 import { NxtModalHeaderComponent } from '../overlay/modal-header.component';
 import { NxtIconComponent } from '../icon/icon.component';
@@ -33,9 +34,10 @@ import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.servi
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { LINK_SOURCES_TEST_IDS } from '@nxt1/core/testing';
-import type { LinkSourcesFormData, OnboardingUserType } from '@nxt1/core/api';
+import type { LinkSourcesFormData, OnboardingUserType, PlatformScope } from '@nxt1/core/api';
 import { OnboardingLinkDropStepComponent } from '../../onboarding/onboarding-link-drop-step';
 import { FirecrawlSignInService, type FirecrawlSignInRequest } from './firecrawl-signin.service';
+import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from './connected-accounts-modal.service';
 
 /** Result data emitted when the modal is dismissed with changes. */
 export interface ConnectedAccountsModalCloseData {
@@ -111,12 +113,15 @@ export interface ConnectedAccountsModalCloseData {
         }
         <div class="nxt1-ca-body" [class.nxt1-ca-body--hidden]="firecrawlLoading()">
           <nxt1-onboarding-link-drop-step
+            #linkDropStep
             [linkSourcesData]="linkSourcesData()"
             [selectedSports]="selectedSports()"
             [role]="role()"
             [scope]="scope()"
+            [useOAuth]="true"
             (linkSourcesChange)="onLinkSourcesChange($event)"
             (firecrawlSigninRequest)="onFirecrawlSignin($event)"
+            (oauthSigninRequest)="onOAuthSigninRequest($event)"
           />
         </div>
       </div>
@@ -316,6 +321,8 @@ export interface ConnectedAccountsModalCloseData {
   ],
 })
 export class ConnectedAccountsWebModalComponent implements OnInit {
+  @ViewChild('linkDropStep') private readonly linkDropStep?: OnboardingLinkDropStepComponent;
+
   readonly role = input<OnboardingUserType | null>(null);
   readonly selectedSports = input<readonly string[]>([]);
   readonly linkSourcesData = input<LinkSourcesFormData | null>(null);
@@ -324,10 +331,23 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
   /** NxtOverlayService auto-subscribes to `close` output to dismiss. */
   readonly close = output<ConnectedAccountsModalCloseData>();
 
+  /**
+   * Emitted when the user taps Google or Microsoft in sign-in mode (settings context).
+   * The parent (settings page) handles the OAuth account-picker popup, calls the backend,
+   * then calls `notifyOAuthConnected()` on this component so the UI updates.
+   */
+  readonly oauthConnectRequest = output<{
+    platform: 'google' | 'microsoft';
+    scopeType: PlatformScope;
+    scopeId?: string;
+  }>();
+
   private readonly logger = inject(NxtLoggingService).child('ConnectedAccountsWebModal');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly firecrawlSignIn = inject(FirecrawlSignInService);
+  /** Injected by the app (via app.config.ts) to handle Google / Microsoft OAuth popups. */
+  private readonly oauthHandler = inject(CONNECTED_ACCOUNTS_OAUTH_HANDLER, { optional: true });
 
   protected readonly testIds = LINK_SOURCES_TEST_IDS;
 
@@ -394,6 +414,50 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
     if (success) {
       this._hasChanges.set(true);
     }
+  }
+
+  /**
+   * Called when the user taps Google or Microsoft in sign-in mode inside the settings context.
+   *
+   * When opened via NxtOverlayService (no template parent), uses the injected
+   * `CONNECTED_ACCOUNTS_OAUTH_HANDLER` to launch the OAuth popup directly.
+   * When rendered in a template, falls back to emitting `oauthConnectRequest`.
+   */
+  protected async onOAuthSigninRequest(event: {
+    platform: 'google' | 'microsoft';
+    scopeType: PlatformScope;
+    scopeId?: string;
+  }): Promise<void> {
+    this.logger.info('OAuth sign-in requested from connected-accounts modal', {
+      platform: event.platform,
+    });
+
+    if (this.oauthHandler) {
+      // Overlay context: call the injected OAuth handler directly
+      const success = await this.oauthHandler(event.platform);
+      if (success) {
+        this.linkDropStep?.markSigninConnected(event.platform, event.scopeType, event.scopeId);
+        this._hasChanges.set(true);
+        // Close the modal — backend already saved the token, toast is shown by the service
+        this.close.emit({ saved: false });
+      }
+    } else {
+      // Template context (ConnectedAccountsComponent): delegate to parent via output
+      this.oauthConnectRequest.emit(event);
+    }
+  }
+
+  /**
+   * Called by the parent settings page after a successful OAuth flow.
+   * Marks the platform as connected in the embedded link-drop step so the UI updates.
+   */
+  notifyOAuthConnected(
+    platform: 'google' | 'microsoft',
+    scopeType: PlatformScope,
+    scopeId?: string
+  ): void {
+    this.linkDropStep?.markSigninConnected(platform, scopeType, scopeId);
+    this._hasChanges.set(true);
   }
 
   protected onResync(): void {

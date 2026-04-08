@@ -72,6 +72,10 @@ import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 import { SETTINGS_PERSISTENCE_ADAPTER, APP_VERSION } from '@nxt1/ui/settings';
 import { SettingsApiService } from './core/services/settings-api.service';
 
+// Email connection service (OAuth connect flow for linked accounts in settings)
+import { MobileEmailConnectionService } from './features/activity/services/email-connection.service';
+import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from '@nxt1/ui/components/connected-sources';
+
 // Edit Profile API configuration
 import { EditProfileService } from '@nxt1/ui/edit-profile';
 import { EditProfileApiService } from './core/services/edit-profile-api.service';
@@ -271,6 +275,21 @@ export const appConfig: ApplicationConfig = {
 
     // App version — drives the version string shown in Settings footer
     { provide: APP_VERSION, useFactory: () => environment.appVersion },
+
+    // OAuth handler for Connected Accounts sheet (settings context)
+    // Launches Google/Microsoft account picker and saves tokens to emailTokens subcollection.
+    // Does NOT sign the user in — pure token acquisition via system browser.
+    {
+      provide: CONNECTED_ACCOUNTS_OAUTH_HANDLER,
+      useFactory:
+        (emailSvc: MobileEmailConnectionService, auth: Auth) =>
+        (platform: 'google' | 'microsoft') => {
+          const uid = auth.currentUser?.uid;
+          if (!uid) return Promise.resolve(false);
+          return emailSvc.connectForLinkedAccounts(platform, uid);
+        },
+      deps: [MobileEmailConnectionService, Auth],
+    },
 
     // ============================================
     // EDIT PROFILE API CONFIGURATION

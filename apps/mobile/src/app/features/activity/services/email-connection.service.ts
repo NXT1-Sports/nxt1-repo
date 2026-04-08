@@ -51,6 +51,12 @@ export class MobileEmailConnectionService {
   private readonly haptics = inject(HapticsService);
   private readonly profileService = inject(ProfileService);
 
+  /** Lock to prevent concurrent connection attempts */
+  private isMicrosoftConnecting = false;
+  private isGmailConnecting = false;
+  private isGoogleOAuthConnecting = false;
+  private isYahooConnecting = false;
+
   /**
    * Connect an email provider account.
    * Shows native account picker and sends credentials to backend.
@@ -80,6 +86,161 @@ export class MobileEmailConnectionService {
     } catch (error) {
       await this.haptics.notification('error');
       this._handleConnectionError(error, provider);
+    }
+  }
+
+  /**
+   * Connect Google or Microsoft via a real OAuth account-picker.
+   * Pure CONNECT flow — only stores a refresh token for Agent X.
+   * Does NOT call FirebaseAuthentication.signInWithGoogle and does NOT
+   * change the user's current Firebase auth session.
+   *
+   * Returns `true` on success, `false` on failure (error shown via toast).
+   */
+  async connectForLinkedAccounts(
+    platform: 'google' | 'microsoft',
+    userId: string
+  ): Promise<boolean> {
+    this.logger.info('Connecting linked account via OAuth', { platform, userId });
+    try {
+      if (platform === 'google') {
+        await this._connectGoogleOAuth(userId);
+      } else {
+        await this._connectMicrosoft(userId);
+      }
+      return true;
+    } catch (error) {
+      const providerName = platform === 'google' ? 'Google' : 'Microsoft';
+      this.logger.error(`Failed to connect ${providerName} linked account`, error);
+      if (!this._isUserCanceled(error)) {
+        this.toast.error(`Failed to connect ${providerName}. Please try again.`);
+      }
+      return false;
+    }
+  }
+
+  // ============================================
+  // GOOGLE OAUTH (connect-only, no Firebase sign-in)
+  // ============================================
+
+  /**
+   * Connect Google account using system Browser OAuth2 code flow.
+   * This is a pure CONNECT flow — opens the Google account picker via the
+   * system browser, captures the redirect back to `nxt1sports://google/callback`,
+   * then sends the authorization code to the backend for a refresh token.
+   * Does NOT call FirebaseAuthentication.signInWithGoogle — does NOT change
+   * the user's current Firebase auth session.
+   *
+   * Requires `nxt1sports://google/callback` to be registered in Google Cloud Console
+   * under the web client credential's Authorized Redirect URIs.
+   */
+  private async _connectGoogleOAuth(userId: string): Promise<void> {
+    if (this.isGoogleOAuthConnecting) {
+      this.logger.warn('Google OAuth connection already in progress, ignoring...');
+      throw new Error('Google connection is already in progress. Please wait.');
+    }
+
+    if (!Capacitor.isNativePlatform()) {
+      throw new Error(
+        'Google OAuth connection requires the native mobile app. Please use the native iOS or Android app.'
+      );
+    }
+
+    this.isGoogleOAuthConnecting = true;
+
+    try {
+      this.logger.info('Starting Google OAuth connect flow (system browser)');
+
+      const auth = getAuth();
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) {
+        throw new Error('Failed to get authentication token. Please sign in again.');
+      }
+
+      const redirectUri = `${environment.appScheme}://google/callback`;
+      const oauthUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+      oauthUrl.searchParams.set('client_id', environment.googleServerClientId);
+      oauthUrl.searchParams.set('response_type', 'code');
+      oauthUrl.searchParams.set('redirect_uri', redirectUri);
+      oauthUrl.searchParams.set(
+        'scope',
+        [
+          'email',
+          'profile',
+          'https://www.googleapis.com/auth/gmail.send',
+          'https://www.googleapis.com/auth/gmail.readonly',
+        ].join(' ')
+      );
+      oauthUrl.searchParams.set('access_type', 'offline');
+      oauthUrl.searchParams.set('prompt', 'select_account consent');
+      oauthUrl.searchParams.set('state', userId);
+
+      this.logger.debug('Opening Google OAuth URL', { redirectUri });
+
+      const authCode = await new Promise<string>((resolve, reject) => {
+        let resolved = false;
+        let listenerHandle: Awaited<ReturnType<typeof App.addListener>> | null = null;
+
+        const timeout = setTimeout(
+          () => {
+            if (!resolved) {
+              resolved = true;
+              void listenerHandle?.remove();
+              reject(new Error('Google authentication timed out. Please try again.'));
+            }
+          },
+          5 * 60 * 1000
+        );
+
+        void (async () => {
+          listenerHandle = await App.addListener('appUrlOpen', (data: { url: string }) => {
+            this.logger.debug('Received app URL open event', { url: data.url });
+
+            if (!resolved && data.url.startsWith(redirectUri)) {
+              resolved = true;
+              clearTimeout(timeout);
+              void listenerHandle?.remove();
+              void Browser.close();
+
+              const url = new URL(data.url);
+              const code = url.searchParams.get('code');
+              const error = url.searchParams.get('error');
+              const errorDescription = url.searchParams.get('error_description');
+
+              if (error) {
+                reject(
+                  new Error(
+                    error === 'access_denied'
+                      ? 'Google authentication was canceled'
+                      : `Google authentication failed: ${errorDescription ?? error}`
+                  )
+                );
+              } else if (code) {
+                resolve(code);
+              } else {
+                reject(new Error('No authorization code received from Google'));
+              }
+            }
+          });
+        })();
+
+        void Browser.open({
+          url: oauthUrl.toString(),
+          presentationStyle: 'popover',
+        });
+      });
+
+      this.logger.debug('Got Google authorization code', { redirectUri });
+
+      await this._sendToBackend('/auth/google/connect-gmail', idToken, {
+        serverAuthCode: authCode,
+        redirectUri,
+      });
+
+      this.logger.info('Google account connected successfully', { userId });
+      await this.profileService.load(userId);
+    } finally {
+      this.isGoogleOAuthConnecting = false;
     }
   }
 
@@ -464,7 +625,7 @@ export class MobileEmailConnectionService {
         const apiError = parseApiError(errorData || { status: response.status });
 
         // Auth codes are one-time use and expire quickly — never retry.
-        if (credentials['code']) {
+        if (credentials['code'] || credentials['serverAuthCode']) {
           throw apiError;
         }
 

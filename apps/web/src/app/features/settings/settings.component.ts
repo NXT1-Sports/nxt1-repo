@@ -187,7 +187,7 @@ export class SettingsComponent implements OnInit {
 
     // Signed-in OAuth providers from Firebase Auth (mark as connected)
     const firebaseUser = this.authService.firebaseUser();
-    const signinLinks = (firebaseUser?.providerData ?? [])
+    const firebaseSigninLinks = (firebaseUser?.providerData ?? [])
       .filter((p) => PROVIDER_ID_MAP[p.providerId])
       .map((p) => ({
         platform: PROVIDER_ID_MAP[p.providerId]!,
@@ -195,6 +195,25 @@ export class SettingsComponent implements OnInit {
         connectionType: 'signin' as const,
         scopeType: 'global' as const,
       }));
+
+    // Also check backend-stored email token connections (Agent X OAuth flow).
+    // provider: 'gmail' → platform: 'google', provider: 'microsoft' → platform: 'microsoft'
+    const EMAIL_PROVIDER_PLATFORM: Record<string, string> = {
+      gmail: 'google',
+      microsoft: 'microsoft',
+    };
+    const firebasePlatforms = new Set(firebaseSigninLinks.map((l) => l.platform));
+    const emailTokenLinks = (user.connectedEmails ?? [])
+      .filter((e) => e.isActive !== false && EMAIL_PROVIDER_PLATFORM[e.provider])
+      .filter((e) => !firebasePlatforms.has(EMAIL_PROVIDER_PLATFORM[e.provider]))
+      .map((e) => ({
+        platform: EMAIL_PROVIDER_PLATFORM[e.provider]!,
+        connected: true,
+        connectionType: 'signin' as const,
+        scopeType: 'global' as const,
+      }));
+
+    const signinLinks = [...firebaseSigninLinks, ...emailTokenLinks];
 
     // Convert ConnectedSource[] → LinkSourcesFormData for the shared link drop step
     const linkedSources = (user.connectedSources ?? []).map((src) => ({

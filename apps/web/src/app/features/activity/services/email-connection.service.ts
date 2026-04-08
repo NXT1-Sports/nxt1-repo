@@ -49,6 +49,7 @@ export class WebEmailConnectionService {
   /** Lock to prevent concurrent connection attempts */
   private isMicrosoftConnecting = false;
   private isGmailConnecting = false;
+  private isGoogleOAuthConnecting = false;
   private isYahooConnecting = false;
 
   /**
@@ -79,13 +80,264 @@ export class WebEmailConnectionService {
     }
   }
 
+  /**
+   * Connect Google or Microsoft via a real OAuth account-picker popup.
+   * This is a pure CONNECT flow — it only stores a refresh/access token for
+   * Agent X to use later. It does NOT sign the user in to Firebase.
+   *
+   * Returns `true` on success, `false` on failure (error is shown via toast internally).
+   */
+  async connectForLinkedAccounts(
+    platform: 'google' | 'microsoft',
+    userId: string
+  ): Promise<boolean> {
+    this.logger.info('Connecting linked account via OAuth popup', { platform, userId });
+    try {
+      if (platform === 'google') {
+        await this._connectGoogleOAuth(userId);
+      } else {
+        await this._connectMicrosoft(userId);
+      }
+      const providerName = platform === 'google' ? 'Gmail' : 'Microsoft';
+      this.toast.success(`${providerName} account connected!`);
+      return true;
+    } catch (error) {
+      const providerName = platform === 'google' ? 'Google' : 'Microsoft';
+      const msg = error instanceof Error ? error.message : JSON.stringify(error);
+      this.logger.error(`Failed to connect ${providerName} linked account: ${msg}`, error);
+      console.error(`[OAuth] ${providerName} connect error:`, error);
+      this.toast.error(`Failed to connect ${providerName}: ${msg}`);
+      return false;
+    }
+  }
+
   // ============================================
-  // GMAIL CONNECTION
+  // GOOGLE OAUTH (connect-only, no Firebase sign-in)
+  // ============================================
+
+  /**
+   * Wait for the backend OAuth callback success page to post a message.
+   * The backend renders an HTML page that sends:
+   *   { type: 'oauth-connected', provider: string, success: boolean }
+   * then auto-closes. Falls back to popup-closed detection if user closes manually.
+   */
+  private _waitForOAuthConnected(popup: Window, providerLabel: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      let resolved = false;
+
+      const finish = (success: boolean, errorMsg?: string) => {
+        if (resolved) return;
+        resolved = true;
+        channel.close();
+        clearInterval(closedCheck);
+        clearTimeout(timeout);
+
+        if (success) {
+          resolve();
+        } else {
+          reject(new Error(errorMsg ?? `${providerLabel} connection failed`));
+        }
+      };
+
+      // BroadcastChannel works regardless of COOP (OAuth providers sever window.opener)
+      const channel = new BroadcastChannel('oauth-connect');
+      channel.onmessage = (event: MessageEvent) => {
+        const data = event.data as { type?: string; success?: boolean; message?: string };
+        if (data?.type === 'oauth-connected') {
+          finish(
+            !!data.success,
+            data.success ? undefined : (data.message ?? `${providerLabel} connection failed`)
+          );
+        }
+      };
+
+      // Fallback: detect popup closed before BroadcastChannel message arrives.
+      // When popup closes we clear the interval and wait a generous grace period
+      // (Angular needs time to bootstrap /oauth/success and fire BroadcastChannel).
+      let closedGraceStarted = false;
+      const closedCheck = setInterval(() => {
+        try {
+          if ((!popup || popup.closed) && !resolved && !closedGraceStarted) {
+            closedGraceStarted = true;
+            clearInterval(closedCheck);
+            // Give the popup's Angular app 4 seconds to fire BroadcastChannel before failing
+            setTimeout(() => {
+              if (!resolved) {
+                finish(
+                  false,
+                  `${providerLabel} authentication window was closed. Please try again.`
+                );
+              }
+            }, 4000);
+          }
+        } catch {
+          // COOP blocks popup.closed — ignore and rely on BroadcastChannel + timeout
+        }
+      }, 500);
+
+      const timeout = setTimeout(
+        () => {
+          if (!resolved) {
+            finish(false, `${providerLabel} authentication timed out. Please try again.`);
+            if (!popup.closed)
+              try {
+                popup.close();
+              } catch {
+                /* ignore */
+              }
+          }
+        },
+        5 * 60 * 1000
+      );
+    });
+  }
+
+  /**
+   * Wait for an OAuth popup to post back the authorization code via postMessage.
+   * Used for Yahoo (frontend callback) flow.
+   */
+  private _waitForOAuthCode(
+    popup: Window,
+    redirectUri: string,
+    providerLabel: string
+  ): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      let resolved = false;
+
+      const finish = (code: string | null, error?: string, errorDescription?: string) => {
+        if (resolved) return;
+        resolved = true;
+        window.removeEventListener('message', onMessage);
+        clearInterval(closedCheck);
+        clearTimeout(timeout);
+        if (!popup.closed) popup.close();
+
+        if (error) {
+          reject(
+            new Error(
+              error === 'access_denied'
+                ? `${providerLabel} connection was canceled`
+                : `${providerLabel} connection failed: ${errorDescription ?? error}`
+            )
+          );
+        } else if (code) {
+          resolve(code);
+        } else {
+          reject(new Error(`No authorization code received from ${providerLabel}`));
+        }
+      };
+
+      // Primary: postMessage from OAuthCallbackComponent
+      const onMessage = (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return;
+        const data = event.data as {
+          type?: string;
+          code?: string;
+          error?: string;
+          errorDescription?: string;
+        };
+        if (data?.type === 'oauth-callback') {
+          finish(data.code ?? null, data.error, data.errorDescription);
+        }
+      };
+      window.addEventListener('message', onMessage);
+
+      // Fallback: detect popup closed by user
+      const closedCheck = setInterval(() => {
+        if (!popup || popup.closed) {
+          if (!resolved) {
+            resolved = true;
+            window.removeEventListener('message', onMessage);
+            clearInterval(closedCheck);
+            clearTimeout(timeout);
+            reject(
+              new Error(`${providerLabel} authentication window was closed. Please try again.`)
+            );
+          }
+        }
+      }, 500);
+
+      const timeout = setTimeout(
+        () => {
+          if (!resolved) {
+            resolved = true;
+            window.removeEventListener('message', onMessage);
+            clearInterval(closedCheck);
+            if (!popup.closed) popup.close();
+            reject(new Error(`${providerLabel} authentication timed out. Please try again.`));
+          }
+        },
+        5 * 60 * 1000
+      );
+    });
+  }
+
+  /**
+   * Connect Google account via backend-generated OAuth URL.
+   * Backend redirect_uri points to the backend callback — backend handles code exchange
+   * and token storage. Frontend just opens the popup and waits for success postMessage.
+   */
+  private async _connectGoogleOAuth(userId: string): Promise<void> {
+    if (this.isGoogleOAuthConnecting) {
+      this.logger.warn('Google OAuth connection already in progress, ignoring...');
+      throw new Error('Google connection is already in progress. Please wait.');
+    }
+
+    this.isGoogleOAuthConnecting = true;
+
+    try {
+      this.logger.info('Starting Google OAuth connect flow (backend-redirect popup)');
+
+      const auth = getAuth();
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) {
+        throw new Error('Failed to get authentication token. Please sign in again.');
+      }
+
+      // Ask backend for the OAuth URL (redirect_uri points to backend callback)
+      // Pass origin so the callback can redirect back to whichever domain we're running on
+      const origin = encodeURIComponent(window.location.origin);
+      const urlResponse = await fetch(
+        `${environment.apiURL}/auth/google/connect-url?origin=${origin}`,
+        {
+          headers: { Authorization: `Bearer ${idToken}` },
+        }
+      );
+      if (!urlResponse.ok) {
+        const err = await urlResponse.json().catch(() => ({ message: 'Failed to get OAuth URL' }));
+        throw new Error((err as { message?: string }).message ?? 'Failed to get OAuth URL');
+      }
+      const { url: oauthUrl } = (await urlResponse.json()) as { url: string };
+
+      this.logger.debug('Opening Google OAuth popup (backend-redirect)');
+
+      const popup = window.open(
+        oauthUrl,
+        'google-oauth',
+        'width=600,height=700,popup=1,resizable=1'
+      );
+      if (!popup) {
+        throw new Error('Popup blocked! Please allow popups for this site and try again.');
+      }
+
+      await this._waitForOAuthConnected(popup, 'Google');
+
+      this.logger.info('Google account connected successfully', { userId });
+      await this.authService.refreshUserProfile?.();
+    } finally {
+      this.isGoogleOAuthConnecting = false;
+    }
+  }
+
+  // ============================================
+  // GMAIL CONNECTION (legacy inbox-sync flow — uses signInWithPopup)
   // ============================================
 
   /**
    * Connect Gmail account using Firebase signInWithPopup.
    * Shows Google account picker in browser popup.
+   * NOTE: This method DOES sign the user in via Firebase. Use _connectGoogleOAuth
+   * for the settings "connect" flow where no auth change is desired.
    */
   private async _connectGmail(userId: string): Promise<void> {
     // Prevent concurrent connection attempts
@@ -161,7 +413,6 @@ export class WebEmailConnectionService {
    * not authenticating the user into the app.
    */
   private async _connectMicrosoft(userId: string): Promise<void> {
-    // Prevent concurrent connection attempts
     if (this.isMicrosoftConnecting) {
       this.logger.warn('Microsoft connection already in progress, ignoring...');
       throw new Error('Microsoft connection is already in progress. Please wait.');
@@ -170,138 +421,44 @@ export class WebEmailConnectionService {
     this.isMicrosoftConnecting = true;
 
     try {
-      this.logger.info('Starting Microsoft connection flow');
+      this.logger.info('Starting Microsoft connection flow (backend-redirect popup)');
 
-      // Validate Microsoft configuration
-      if (
-        !environment.msalConfig?.clientId ||
-        environment.msalConfig.clientId === 'YOUR_MICROSOFT_APP_CLIENT_ID'
-      ) {
-        throw new Error(
-          'Microsoft authentication is not configured. Please set up an Azure AD app and add the client ID to environment.msalConfig.'
-        );
-      }
-
-      // Get Firebase ID token for backend authentication
       const auth = getAuth();
       const idToken = await auth.currentUser?.getIdToken();
-
       if (!idToken) {
         throw new Error('Failed to get authentication token. Please sign in again.');
       }
 
-      // Build OAuth URL (similar to Yahoo flow)
-      const redirectUri = `${window.location.origin}/microsoft/callback`;
-      const oauthUrl = new URL('https://login.microsoftonline.com/common/oauth2/v2.0/authorize');
-      oauthUrl.searchParams.set('client_id', environment.msalConfig.clientId);
-      oauthUrl.searchParams.set('response_type', 'code');
-      oauthUrl.searchParams.set('redirect_uri', redirectUri);
-      oauthUrl.searchParams.set('response_mode', 'query');
-      oauthUrl.searchParams.set('scope', 'User.Read Mail.Send Mail.Read offline_access');
-      oauthUrl.searchParams.set('state', userId);
-      oauthUrl.searchParams.set('prompt', 'consent'); // Force consent screen
+      // Ask backend for the OAuth URL (redirect_uri points to backend callback)
+      const origin = encodeURIComponent(window.location.origin);
+      const urlResponse = await fetch(
+        `${environment.apiURL}/auth/microsoft/connect-url?origin=${origin}`,
+        {
+          headers: { Authorization: `Bearer ${idToken}` },
+        }
+      );
+      if (!urlResponse.ok) {
+        const err = await urlResponse.json().catch(() => ({ message: 'Failed to get OAuth URL' }));
+        throw new Error((err as { message?: string }).message ?? 'Failed to get OAuth URL');
+      }
+      const { url: oauthUrl } = (await urlResponse.json()) as { url: string };
 
-      this.logger.debug('Opening Microsoft OAuth popup', {
-        redirectUri,
-      });
+      this.logger.debug('Opening Microsoft OAuth popup (backend-redirect)');
 
-      // Open popup window for OAuth
       const popup = window.open(
-        oauthUrl.toString(),
+        oauthUrl,
         'microsoft-oauth',
         'width=600,height=700,popup=1,resizable=1'
       );
-
       if (!popup) {
-        throw new Error(
-          'Popup blocked! Please allow popups for this site and try again. You may need to check your browser settings.'
-        );
+        throw new Error('Popup blocked! Please allow popups for this site and try again.');
       }
 
-      // Wait for redirect callback with authorization code
-      const authCode = await new Promise<string>((resolve, reject) => {
-        let resolved = false;
-        const timeout = setTimeout(
-          () => {
-            if (!resolved) {
-              resolved = true;
-              popup.close();
-              reject(new Error('Microsoft authentication timed out. Please try again.'));
-            }
-          },
-          5 * 60 * 1000
-        ); // 5 minutes timeout
+      await this._waitForOAuthConnected(popup, 'Microsoft');
 
-        // Poll popup URL for redirect
-        const checkPopup = setInterval(() => {
-          if (!popup || popup.closed) {
-            if (!resolved) {
-              resolved = true;
-              clearInterval(checkPopup);
-              clearTimeout(timeout);
-              reject(new Error('Microsoft authentication window was closed. Please try again.'));
-            }
-            return;
-          }
-
-          try {
-            // Check if popup URL matches our redirect URI
-            const popupUrl = popup.location.href;
-            if (popupUrl && popupUrl.startsWith(redirectUri)) {
-              resolved = true;
-              clearInterval(checkPopup);
-              clearTimeout(timeout);
-              popup.close();
-
-              // Parse authorization code from URL
-              const url = new URL(popupUrl);
-              const code = url.searchParams.get('code');
-              const error = url.searchParams.get('error');
-              const errorDescription = url.searchParams.get('error_description');
-
-              if (error) {
-                reject(
-                  new Error(
-                    error === 'access_denied'
-                      ? 'Microsoft authentication was canceled'
-                      : `Microsoft authentication failed: ${errorDescription || error}`
-                  )
-                );
-              } else if (code) {
-                resolve(code);
-              } else {
-                reject(new Error('No authorization code received from Microsoft'));
-              }
-            }
-          } catch {
-            // Cross-origin error - popup not on our domain yet, continue polling
-          }
-        }, 500); // Check every 500ms
-      });
-
-      this.logger.debug('Got Microsoft authorization code', {
-        codeLength: authCode.length,
-        redirectUri,
-      });
-
-      // Send code to backend for token exchange
-      this.logger.debug('Sending code to backend for token exchange...');
-
-      await this._sendToBackend('/auth/microsoft/connect-mail', idToken, {
-        code: authCode,
-        redirectUri,
-      });
-
-      this.logger.info('✅ Microsoft connected successfully', {
-        userId,
-      });
-
-      // Refresh user profile to update connectedEmails in UI
-      this.logger.debug('🔄 Refreshing user profile after Microsoft connection...');
+      this.logger.info('Microsoft connected successfully', { userId });
       await this.authService.refreshUserProfile?.();
-      this.logger.info('✅ User profile refreshed - UI should update now');
     } finally {
-      // Always release lock
       this.isMicrosoftConnecting = false;
     }
   }
@@ -368,83 +525,18 @@ export class WebEmailConnectionService {
         );
       }
 
-      // Wait for redirect callback with authorization code
-      const authCode = await new Promise<string>((resolve, reject) => {
-        let resolved = false;
-        const timeout = setTimeout(
-          () => {
-            if (!resolved) {
-              resolved = true;
-              popup.close();
-              reject(new Error('Yahoo authentication timed out. Please try again.'));
-            }
-          },
-          5 * 60 * 1000
-        ); // 5 minutes timeout
-
-        // Poll popup URL for redirect
-        const checkPopup = setInterval(() => {
-          if (!popup || popup.closed) {
-            if (!resolved) {
-              resolved = true;
-              clearInterval(checkPopup);
-              clearTimeout(timeout);
-              reject(new Error('Yahoo authentication window was closed. Please try again.'));
-            }
-            return;
-          }
-
-          try {
-            // Check if popup URL matches our redirect URI
-            const popupUrl = popup.location.href;
-            if (popupUrl && popupUrl.startsWith(redirectUri)) {
-              resolved = true;
-              clearInterval(checkPopup);
-              clearTimeout(timeout);
-              popup.close();
-
-              // Parse authorization code from URL
-              const url = new URL(popupUrl);
-              const code = url.searchParams.get('code');
-              const error = url.searchParams.get('error');
-
-              if (error) {
-                reject(
-                  new Error(
-                    error === 'access_denied'
-                      ? 'Yahoo authentication was canceled'
-                      : `Yahoo authentication failed: ${error}`
-                  )
-                );
-              } else if (code) {
-                resolve(code);
-              } else {
-                reject(new Error('No authorization code received from Yahoo'));
-              }
-            }
-          } catch {
-            // Cross-origin error - popup not on our domain yet, continue polling
-          }
-        }, 500); // Check every 500ms
-      });
+      const authCode = await this._waitForOAuthCode(popup, redirectUri, 'Yahoo');
 
       this.logger.debug('Got Yahoo authorization code');
 
-      // Send code to backend for token exchange
       await this._sendToBackend('/auth/yahoo/connect-mail', idToken, {
         code: authCode,
         redirectUri,
       });
 
-      this.logger.info('Yahoo connected successfully', {
-        userId,
-      });
-      // Refresh user profile to update connectedEmails in UI
-      this.logger.debug('🔄 Refreshing user profile after Yahoo connection...');
+      this.logger.info('Yahoo connected successfully', { userId });
       await this.authService.refreshUserProfile?.();
-      this.logger.info('✅ User profile refreshed - UI should update now');
     } finally {
-      // Always release lock
       this.isYahooConnecting = false;
     }
   }

@@ -9,8 +9,16 @@
  * instead of requiring the modal-based entry point from the settings shell.
  */
 
-import { ChangeDetectionStrategy, Component, computed, inject, OnInit } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  OnInit,
+  ViewChild,
+} from '@angular/core';
 import { Router } from '@angular/router';
+import type { LinkSourcesFormData } from '@nxt1/core/api';
 import {
   ConnectedAccountsWebModalComponent,
   type ConnectedAccountsModalCloseData,
@@ -20,8 +28,10 @@ import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import type { PlatformScope } from '@nxt1/core/api';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
+import { WebEmailConnectionService } from '../activity/services/email-connection.service';
 
 @Component({
   selector: 'app-connected-accounts',
@@ -31,11 +41,13 @@ import { SeoService } from '../../core/services';
   template: `
     <div class="connected-accounts-page" data-testid="settings-connected-accounts-page">
       <nxt1-connected-accounts-web-modal
+        #webModal
         [role]="userRole()"
         [selectedSports]="userSports()"
-        [linkSourcesData]="null"
+        [linkSourcesData]="linkSourcesData()"
         scope="athlete"
         (close)="onModalClose($event)"
+        (oauthConnectRequest)="onOAuthConnectRequest($event)"
       />
     </div>
   `,
@@ -55,6 +67,8 @@ import { SeoService } from '../../core/services';
   ],
 })
 export class ConnectedAccountsComponent implements OnInit {
+  @ViewChild('webModal') private readonly webModal?: ConnectedAccountsWebModalComponent;
+
   private readonly router = inject(Router);
   private readonly auth = inject(AUTH_SERVICE) as IAuthService;
   private readonly seo = inject(SeoService);
@@ -62,11 +76,61 @@ export class ConnectedAccountsComponent implements OnInit {
   private readonly logger = inject(NxtLoggingService).child('ConnectedAccountsPage');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly emailConnectionService = inject(WebEmailConnectionService);
 
   protected readonly userRole = computed(() => this.auth.user?.()?.role ?? null);
   protected readonly userSports = computed(() => {
     const user = this.auth.user?.();
     return user?.selectedSports ?? [];
+  });
+
+  protected readonly linkSourcesData = computed<LinkSourcesFormData | null>(() => {
+    const user = this.auth.user?.();
+    if (!user) return null;
+
+    const PROVIDER_ID_MAP: Record<string, string> = {
+      'google.com': 'google',
+      'microsoft.com': 'microsoft',
+    };
+    const EMAIL_PROVIDER_PLATFORM: Record<string, string> = {
+      gmail: 'google',
+      microsoft: 'microsoft',
+    };
+
+    const firebaseUser = this.auth.firebaseUser();
+    const firebaseSigninLinks = (firebaseUser?.providerData ?? [])
+      .filter((p) => PROVIDER_ID_MAP[p.providerId])
+      .map((p) => ({
+        platform: PROVIDER_ID_MAP[p.providerId]!,
+        connected: true,
+        connectionType: 'signin' as const,
+        scopeType: 'global' as const,
+      }));
+
+    const firebasePlatforms = new Set(firebaseSigninLinks.map((l) => l.platform));
+    const emailTokenLinks = (user.connectedEmails ?? [])
+      .filter((e) => e.isActive !== false && EMAIL_PROVIDER_PLATFORM[e.provider])
+      .filter((e) => !firebasePlatforms.has(EMAIL_PROVIDER_PLATFORM[e.provider]))
+      .map((e) => ({
+        platform: EMAIL_PROVIDER_PLATFORM[e.provider]!,
+        connected: true,
+        connectionType: 'signin' as const,
+        scopeType: 'global' as const,
+      }));
+
+    const signinLinks = [...firebaseSigninLinks, ...emailTokenLinks];
+
+    const linkedSources = (user.connectedSources ?? []).map((src) => ({
+      platform: src.platform,
+      connected: true,
+      connectionType: 'link' as const,
+      url: src.profileUrl,
+      scopeType: src.scopeType ?? 'global',
+      scopeId: src.scopeId,
+    }));
+
+    const allLinks = [...linkedSources, ...signinLinks];
+    return allLinks.length ? { links: allLinks } : null;
   });
 
   ngOnInit(): void {
@@ -92,5 +156,37 @@ export class ConnectedAccountsComponent implements OnInit {
       });
     }
     this.router.navigate(['/settings']);
+  }
+
+  /**
+   * Launches the real OAuth account-picker popup for Google or Microsoft.
+   * Called when the user taps Google/Microsoft in the "Signed In" tab from settings.
+   */
+  protected async onOAuthConnectRequest(event: {
+    platform: 'google' | 'microsoft';
+    scopeType: PlatformScope;
+    scopeId?: string;
+  }): Promise<void> {
+    const { platform, scopeType, scopeId } = event;
+    const userId = this.auth.user?.()?.uid;
+    if (!userId) {
+      this.toast.error('Not signed in. Please refresh and try again.');
+      return;
+    }
+
+    this.logger.info('Launching OAuth flow for linked account', { platform });
+    const success = await this.emailConnectionService.connectForLinkedAccounts(platform, userId);
+
+    if (success) {
+      this.analytics?.trackEvent(APP_EVENTS.LINK_SOURCE_CONNECTED, {
+        source_platform: platform,
+        connected: true,
+        mode: 'signin',
+        scopeType,
+        source: 'settings-oauth',
+      });
+      // Navigate back — backend already saved the token, toast shown by the service
+      this.router.navigate(['/settings']);
+    }
   }
 }

@@ -30,6 +30,7 @@ import { LINK_SOURCES_TEST_IDS } from '@nxt1/core/testing';
 import type { LinkSourcesFormData, OnboardingUserType } from '@nxt1/core/api';
 import { OnboardingLinkDropStepComponent } from '../../onboarding/onboarding-link-drop-step';
 import { FirecrawlSignInService, type FirecrawlSignInRequest } from './firecrawl-signin.service';
+import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from './connected-accounts-modal.service';
 
 @Component({
   selector: 'nxt1-connected-accounts-sheet',
@@ -83,8 +84,10 @@ import { FirecrawlSignInService, type FirecrawlSignInRequest } from './firecrawl
           [selectedSports]="_selectedSports()"
           [role]="_role()"
           [scope]="_scope()"
+          [useOAuth]="true"
           (linkSourcesChange)="onLinkSourcesChange($event)"
           (firecrawlSigninRequest)="onFirecrawlSignin($event)"
+          (oauthSigninRequest)="onOAuthSigninRequest($event)"
         />
       </div>
     </div>
@@ -212,6 +215,7 @@ export class ConnectedAccountsSheetComponent implements OnInit {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly firecrawlSignIn = inject(FirecrawlSignInService);
+  private readonly oauthHandler = inject(CONNECTED_ACCOUNTS_OAUTH_HANDLER, { optional: true });
 
   /** User role — passed through to link drop step for role-aware recommendations */
   readonly _role = input<OnboardingUserType | null>(null);
@@ -283,6 +287,24 @@ export class ConnectedAccountsSheetComponent implements OnInit {
     this._firecrawlLabel.set('');
     if (success) {
       this._hasChanges.set(true);
+    }
+  }
+
+  async onOAuthSigninRequest(event: {
+    platform: 'google' | 'microsoft';
+    scopeType: string;
+    scopeId?: string;
+  }): Promise<void> {
+    this.logger.info('OAuth connect requested from sheet', { platform: event.platform });
+    if (!this.oauthHandler) {
+      this.logger.warn('No CONNECTED_ACCOUNTS_OAUTH_HANDLER provided — cannot launch OAuth');
+      return;
+    }
+    const success = await this.oauthHandler(event.platform);
+    if (success) {
+      this._hasChanges.set(true);
+      // Dismiss the sheet — backend already saved the token, toast shown by the service
+      void this.modalCtrl.dismiss(null, 'oauth-connected');
     }
   }
 

@@ -88,7 +88,10 @@ import {
   AGENT_X_AUTH_TOKEN_FACTORY,
   FIRESTORE_ADAPTER,
 } from '@nxt1/ui/agent-x';
-import { CONNECTED_ACCOUNTS_FIREBASE_USER } from '@nxt1/ui/components/connected-sources';
+import {
+  CONNECTED_ACCOUNTS_FIREBASE_USER,
+  CONNECTED_ACCOUNTS_OAUTH_HANDLER,
+} from '@nxt1/ui/components/connected-sources';
 import { ACTIVITY_API_BASE_URL, ACTIVITY_API_ADAPTER } from '@nxt1/ui/activity';
 import { INVITE_API_BASE_URL } from '@nxt1/ui/invite';
 import { MESSAGES_API_BASE_URL } from '@nxt1/ui/messages';
@@ -126,6 +129,7 @@ import {
 // Auth service with injection token pattern
 import { AUTH_SERVICE, BrowserAuthService } from './features/auth';
 import { AuthFlowService, type IAuthService } from './features/auth/services';
+import { WebEmailConnectionService } from './features/activity/services/email-connection.service';
 
 // Settings persistence adapter (connects SettingsService → backend API)
 import { SETTINGS_PERSISTENCE_ADAPTER, APP_VERSION } from '@nxt1/ui/settings';
@@ -350,6 +354,20 @@ export const appConfig: ApplicationConfig = {
       provide: CONNECTED_ACCOUNTS_FIREBASE_USER,
       useFactory: (auth: IAuthService) => () => auth.firebaseUser()?.providerData ?? [],
       deps: [AUTH_SERVICE],
+    },
+
+    // Connected Accounts OAuth handler — launches the real Google / Microsoft account-picker
+    // popup when the user taps those platforms in the "Signed In" tab from the settings overlay.
+    {
+      provide: CONNECTED_ACCOUNTS_OAUTH_HANDLER,
+      useFactory:
+        (emailSvc: WebEmailConnectionService, auth: IAuthService) =>
+        (platform: 'google' | 'microsoft') => {
+          const userId = (auth as IAuthService).user?.()?.uid;
+          if (!userId) return Promise.resolve(false);
+          return emailSvc.connectForLinkedAccounts(platform, userId);
+        },
+      deps: [WebEmailConnectionService, AUTH_SERVICE],
     },
 
     // Activity API base URL

@@ -2387,6 +2387,518 @@ router.get(
 );
 
 // ============================================
+// GOOGLE / MICROSOFT OAUTH — BACKEND-REDIRECT FLOW
+// (matches nxt1-backend production approach)
+// ============================================
+
+/**
+ * GET /auth/google/connect-url
+ *
+ * Returns a Google OAuth2 authorization URL whose redirect_uri points to
+ * this backend (/auth/google/callback). The frontend opens this URL in a
+ * popup — Google redirects back to the backend, which exchanges the code,
+ * stores the refresh token, and renders a success page that closes the popup.
+ *
+ * Requires a valid Firebase ID token (appGuard).
+ * Returns: { url: string }
+ */
+/**
+ * Returns allowed frontend origins for the current environment.
+ * Staging requests use STAGING_ALLOWED_FRONTEND_ORIGINS;
+ * production requests use ALLOWED_FRONTEND_ORIGINS.
+ * Falls back to localhost when neither is set (local dev).
+ */
+function getAllowedOrigins(isStaging: boolean): string[] {
+  const key = isStaging ? 'STAGING_ALLOWED_FRONTEND_ORIGINS' : 'ALLOWED_FRONTEND_ORIGINS';
+  return (
+    process.env[key]
+      ?.split(',')
+      .map((o) => o.trim())
+      .filter(Boolean) ?? ['http://localhost:4200', 'http://localhost:4201']
+  );
+}
+
+function isAllowedOrigin(origin: string, isStaging: boolean): boolean {
+  return getAllowedOrigins(isStaging).includes(origin);
+}
+
+/**
+ * Default frontend URL — first entry in the allowed origins list.
+ */
+function getDefaultFrontendUrl(isStaging: boolean): string {
+  return getAllowedOrigins(isStaging)[0] ?? 'http://localhost:4200';
+}
+
+/**
+ * Encode state payload as base64url JSON: { uid, origin }
+ */
+function encodeOAuthState(uid: string, origin: string): string {
+  return Buffer.from(JSON.stringify({ uid, origin })).toString('base64url');
+}
+
+/**
+ * Decode state — supports both legacy plain-uid and new base64url JSON.
+ */
+function decodeOAuthState(state: string): { uid: string; origin?: string } {
+  try {
+    const decoded = JSON.parse(Buffer.from(state, 'base64url').toString()) as {
+      uid?: string;
+      origin?: string;
+    };
+    if (decoded.uid) return { uid: decoded.uid, origin: decoded.origin };
+  } catch {
+    // legacy: state was just the uid string
+  }
+  return { uid: state };
+}
+
+router.get(
+  '/google/connect-url',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const uid = req.user!.uid;
+    const origin = (req.query['origin'] as string | undefined)?.trim();
+
+    // Validate origin if provided
+    if (origin && !isAllowedOrigin(origin, req.isStaging)) {
+      sendError(
+        res,
+        validationError([{ field: 'origin', message: 'Origin not allowed', rule: 'invalid' }])
+      );
+      return;
+    }
+
+    const googleClientId = req.isStaging
+      ? (process.env['STAGING_CLIENT_ID'] ?? process.env['CLIENT_ID'] ?? '')
+      : (process.env['CLIENT_ID'] ?? '');
+
+    const backendUrl = process.env['BACKEND_URL'] ?? 'http://localhost:3000';
+    const pathPrefix = req.isStaging ? '/api/v1/staging' : '/api/v1';
+    const redirectUri = `${backendUrl}${pathPrefix}/auth/google/callback`;
+
+    const oauthUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+    oauthUrl.searchParams.set('client_id', googleClientId);
+    oauthUrl.searchParams.set('response_type', 'code');
+    oauthUrl.searchParams.set('redirect_uri', redirectUri);
+    oauthUrl.searchParams.set(
+      'scope',
+      'https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email'
+    );
+    oauthUrl.searchParams.set('access_type', 'offline');
+    oauthUrl.searchParams.set('prompt', 'select_account consent');
+    // Encode uid + origin so the callback knows where to redirect
+    oauthUrl.searchParams.set('state', origin ? encodeOAuthState(uid, origin) : uid);
+
+    logger.debug('[Google Connect URL] Generated OAuth URL', {
+      uid: uid.substring(0, 8) + '...',
+      redirectUri,
+      origin,
+      isStaging: req.isStaging,
+    });
+
+    res.json({ url: oauthUrl.toString() });
+  })
+);
+
+/**
+ * GET /auth/google/callback
+ *
+ * Google OAuth2 callback — receives ?code=...&state={uid} after the user grants
+ * permissions. Exchanges the code for tokens, stores the refresh token in
+ * Users/{uid}/emailTokens/gmail, and renders a success/error HTML page.
+ *
+ * NO auth guard — this endpoint is called by Google's redirect.
+ */
+router.get(
+  '/google/callback',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { code, state: rawState, error: oauthError } = req.query as Record<string, string>;
+    const { uid, origin: stateOrigin } = decodeOAuthState(rawState ?? '');
+
+    // Use origin from state if valid; otherwise fall back to first allowed origin
+    const frontendUrl =
+      stateOrigin && isAllowedOrigin(stateOrigin, req.isStaging)
+        ? stateOrigin
+        : getDefaultFrontendUrl(req.isStaging);
+    const renderResult = (success: boolean, message: string, provider = 'google') => {
+      const params = new URLSearchParams({
+        provider,
+        success: String(success),
+        message,
+      });
+      res.redirect(`${frontendUrl}/oauth/success?${params.toString()}`);
+    };
+
+    if (oauthError) {
+      logger.warn('[Google Callback] OAuth error returned by Google', { error: oauthError, uid });
+      renderResult(
+        false,
+        oauthError === 'access_denied' ? 'Connection cancelled' : `Error: ${oauthError}`
+      );
+      return;
+    }
+
+    if (!code || !uid) {
+      renderResult(false, 'Invalid callback — missing code or state');
+      return;
+    }
+
+    const { db } = req.firebase!;
+
+    const googleClientId = req.isStaging
+      ? (process.env['STAGING_CLIENT_ID'] ?? process.env['CLIENT_ID'] ?? '')
+      : (process.env['CLIENT_ID'] ?? '');
+    const googleClientSecret = req.isStaging
+      ? (process.env['STAGING_CLIENT_SECRET'] ?? process.env['CLIENT_SECRET'] ?? '')
+      : (process.env['CLIENT_SECRET'] ?? '');
+
+    const backendUrl = process.env['BACKEND_URL'] ?? 'http://localhost:3000';
+    const pathPrefix = req.isStaging ? '/api/v1/staging' : '/api/v1';
+    const redirectUri = `${backendUrl}${pathPrefix}/auth/google/callback`;
+
+    try {
+      // Exchange code for tokens
+      const params = new URLSearchParams({
+        code,
+        client_id: googleClientId,
+        client_secret: googleClientSecret,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
+      });
+
+      const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+
+      const tokenData = (await tokenResponse.json()) as {
+        access_token?: string;
+        refresh_token?: string;
+        id_token?: string;
+        error?: string;
+        error_description?: string;
+      };
+
+      if (tokenData.error || !tokenData.refresh_token) {
+        const errMsg = tokenData.error_description ?? tokenData.error ?? 'Token exchange failed';
+        logger.warn('[Google Callback] Token exchange failed', {
+          uid,
+          error: tokenData.error,
+          description: errMsg,
+        });
+        renderResult(false, errMsg);
+        return;
+      }
+
+      // Decode id_token to get email
+      let connectedEmail: string | undefined;
+      if (tokenData.id_token) {
+        try {
+          const base64Url = tokenData.id_token.split('.')[1];
+          if (base64Url) {
+            const payload = JSON.parse(Buffer.from(base64Url, 'base64url').toString()) as {
+              email?: string;
+            };
+            connectedEmail = payload.email;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      // Store refresh token in Users/{uid}/emailTokens/gmail
+      const userRef = db.collection('Users').doc(uid);
+      const tokenRef = userRef.collection('emailTokens').doc('gmail');
+      await tokenRef.set(
+        {
+          provider: 'gmail',
+          refreshToken: tokenData.refresh_token,
+          updatedAt: new Date().toISOString(),
+          ...(connectedEmail && { email: connectedEmail }),
+        },
+        { merge: true }
+      );
+
+      // Update connectedEmails array on user document
+      const userDoc = await userRef.get();
+      if (userDoc.exists) {
+        const userData = userDoc.data() as
+          | { connectedEmails?: Array<{ provider: string; email?: string }> }
+          | undefined;
+        const existing = userData?.connectedEmails ?? [];
+        const filtered = existing.filter((e) => e.provider !== 'gmail');
+        await userRef.update({
+          connectedEmails: [
+            ...filtered,
+            {
+              provider: 'gmail',
+              isActive: true,
+              connectedAt: new Date().toISOString(),
+              ...(connectedEmail && { email: connectedEmail }),
+            },
+          ],
+        });
+        await invalidateProfileCaches(uid).catch((err) =>
+          logger.warn('[Google Callback] Failed to invalidate profile cache', { uid, err })
+        );
+      }
+
+      logger.info('[Google Callback] Gmail token saved', {
+        uid: uid.substring(0, 8) + '...',
+        email: connectedEmail,
+      });
+      renderResult(
+        true,
+        connectedEmail ? `Gmail connected (${connectedEmail})` : 'Gmail connected!'
+      );
+    } catch (err) {
+      logger.error('[Google Callback] Unexpected error', { uid, error: err });
+      renderResult(false, 'Connection failed. Please try again.');
+    }
+  })
+);
+
+/**
+ * GET /auth/microsoft/connect-url
+ *
+ * Returns a Microsoft OAuth2 authorization URL whose redirect_uri points to
+ * this backend (/auth/microsoft/callback).
+ *
+ * Requires a valid Firebase ID token (appGuard).
+ * Returns: { url: string }
+ */
+router.get(
+  '/microsoft/connect-url',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const uid = req.user!.uid;
+
+    const clientId = process.env['MICROSOFT_CLIENT_ID'] ?? '';
+    if (!clientId) {
+      sendError(res, internalError(new Error('Microsoft client ID not configured')));
+      return;
+    }
+
+    const backendUrl = process.env['BACKEND_URL'] ?? 'http://localhost:3000';
+    const pathPrefix = req.isStaging ? '/api/v1/staging' : '/api/v1';
+    const redirectUri = `${backendUrl}${pathPrefix}/auth/microsoft/callback`;
+
+    const oauthUrl = new URL('https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize');
+    oauthUrl.searchParams.set('client_id', clientId);
+    oauthUrl.searchParams.set('response_type', 'code');
+    oauthUrl.searchParams.set('redirect_uri', redirectUri);
+    oauthUrl.searchParams.set('response_mode', 'query');
+    oauthUrl.searchParams.set(
+      'scope',
+      'https://graph.microsoft.com/Mail.Send offline_access openid email https://graph.microsoft.com/User.Read'
+    );
+    oauthUrl.searchParams.set('prompt', 'consent');
+    const origin = (req.query['origin'] as string | undefined)?.trim();
+    if (origin && !isAllowedOrigin(origin, req.isStaging)) {
+      sendError(
+        res,
+        validationError([{ field: 'origin', message: 'Origin not allowed', rule: 'invalid' }])
+      );
+      return;
+    }
+    oauthUrl.searchParams.set('state', origin ? encodeOAuthState(uid, origin) : uid);
+
+    logger.debug('[Microsoft Connect URL] Generated OAuth URL', {
+      uid: uid.substring(0, 8) + '...',
+      redirectUri,
+      origin,
+    });
+
+    res.json({ url: oauthUrl.toString() });
+  })
+);
+
+/**
+ * GET /auth/microsoft/callback
+ *
+ * Microsoft OAuth2 callback — receives ?code=...&state={uid}. Exchanges code,
+ * stores refresh token in Users/{uid}/emailTokens/microsoft, renders success HTML.
+ *
+ * NO auth guard — called by Microsoft's redirect.
+ */
+router.get(
+  '/microsoft/callback',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const {
+      code,
+      state: rawState,
+      error: oauthError,
+      error_description: errorDescription,
+    } = req.query as Record<string, string>;
+    const { uid, origin: stateOrigin } = decodeOAuthState(rawState ?? '');
+
+    const frontendUrl =
+      stateOrigin && isAllowedOrigin(stateOrigin, req.isStaging)
+        ? stateOrigin
+        : getDefaultFrontendUrl(req.isStaging);
+    const renderResult = (success: boolean, message: string) => {
+      const params = new URLSearchParams({
+        provider: 'microsoft',
+        success: String(success),
+        message,
+      });
+      res.redirect(`${frontendUrl}/oauth/success?${params.toString()}`);
+    };
+
+    if (oauthError) {
+      logger.warn('[Microsoft Callback] OAuth error', { error: oauthError, uid });
+      // Microsoft often sends a second server_error callback after a successful auth — check if
+      // token was already saved from the first callback and treat it as success if so.
+      if (oauthError === 'server_error' && uid) {
+        try {
+          const { db: checkDb } = req.firebase!;
+          const tokenDoc = await checkDb
+            .collection('Users')
+            .doc(uid)
+            .collection('emailTokens')
+            .doc('microsoft')
+            .get();
+          if (tokenDoc.exists) {
+            logger.info(
+              '[Microsoft Callback] server_error but token exists — treating as success',
+              { uid: uid.substring(0, 8) + '...' }
+            );
+            renderResult(true, 'Microsoft connected!');
+            return;
+          }
+        } catch {
+          /* ignore — fall through to error */
+        }
+      }
+      renderResult(
+        false,
+        oauthError === 'access_denied' ? 'Connection cancelled' : (errorDescription ?? oauthError)
+      );
+      return;
+    }
+
+    if (!code || !uid) {
+      renderResult(false, 'Invalid callback — missing code or state');
+      return;
+    }
+
+    const { db } = req.firebase!;
+
+    const clientId = process.env['MICROSOFT_CLIENT_ID'] ?? '';
+    const clientSecret = process.env['MICROSOFT_CLIENT_SECRET'] ?? '';
+    const backendUrl = process.env['BACKEND_URL'] ?? 'http://localhost:3000';
+    const pathPrefix = req.isStaging ? '/api/v1/staging' : '/api/v1';
+    const redirectUri = `${backendUrl}${pathPrefix}/auth/microsoft/callback`;
+
+    try {
+      const payload = new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
+      });
+
+      const tokenResponse = await fetch(
+        'https://login.microsoftonline.com/consumers/oauth2/v2.0/token',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: payload.toString(),
+        }
+      );
+
+      const tokenData = (await tokenResponse.json()) as {
+        access_token?: string;
+        refresh_token?: string;
+        id_token?: string;
+        error?: string;
+        error_description?: string;
+      };
+
+      if (tokenData.error || !tokenData.refresh_token) {
+        const errMsg = tokenData.error_description ?? tokenData.error ?? 'Token exchange failed';
+        logger.warn('[Microsoft Callback] Token exchange failed', {
+          uid,
+          error: tokenData.error,
+          description: errMsg,
+        });
+        renderResult(false, errMsg);
+        return;
+      }
+
+      // Get email from Microsoft Graph
+      let connectedEmail: string | undefined;
+      try {
+        const graphResponse = await fetch(
+          'https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName',
+          {
+            headers: { Authorization: `Bearer ${tokenData.access_token}` },
+          }
+        );
+        const graphData = (await graphResponse.json()) as {
+          mail?: string;
+          userPrincipalName?: string;
+        };
+        connectedEmail = graphData.mail ?? graphData.userPrincipalName;
+      } catch {
+        /* ignore */
+      }
+
+      // Store refresh token
+      const userRef = db.collection('Users').doc(uid);
+      const tokenRef = userRef.collection('emailTokens').doc('microsoft');
+      await tokenRef.set(
+        {
+          provider: 'microsoft',
+          refreshToken: tokenData.refresh_token,
+          accessToken: tokenData.access_token,
+          updatedAt: new Date().toISOString(),
+          ...(connectedEmail && { email: connectedEmail }),
+        },
+        { merge: true }
+      );
+
+      const userDoc = await userRef.get();
+      if (userDoc.exists) {
+        const userData = userDoc.data() as
+          | { connectedEmails?: Array<{ provider: string; email?: string }> }
+          | undefined;
+        const existing = userData?.connectedEmails ?? [];
+        const filtered = existing.filter((e) => e.provider !== 'microsoft');
+        await userRef.update({
+          connectedEmails: [
+            ...filtered,
+            {
+              provider: 'microsoft',
+              isActive: true,
+              connectedAt: new Date().toISOString(),
+              ...(connectedEmail && { email: connectedEmail }),
+            },
+          ],
+        });
+        await invalidateProfileCaches(uid).catch((err) =>
+          logger.warn('[Microsoft Callback] Failed to invalidate profile cache', { uid, err })
+        );
+      }
+
+      logger.info('[Microsoft Callback] Microsoft token saved', {
+        uid: uid.substring(0, 8) + '...',
+        email: connectedEmail,
+      });
+      renderResult(
+        true,
+        connectedEmail ? `Microsoft connected (${connectedEmail})` : 'Microsoft connected!'
+      );
+    } catch (err) {
+      logger.error('[Microsoft Callback] Unexpected error', { uid, error: err });
+      renderResult(false, 'Connection failed. Please try again.');
+    }
+  })
+);
+
+// ============================================
 // GMAIL TOKEN EXCHANGE (Mobile Native)
 // ============================================
 
