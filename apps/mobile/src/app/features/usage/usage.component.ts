@@ -101,14 +101,6 @@ export class UsageComponent {
   }
 
   protected navigateBack(): void {
-    if (this.routerOutlet?.canGoBack()) {
-      this.navController.back();
-      return;
-    }
-
-    void this.navController.navigateRoot('/settings', {
-      animated: true,
-      animationDirection: 'back',
-    });
+    this.navController.back();
   }
 }
