@@ -59,6 +59,7 @@ export type {
   AgentXStreamErrorEvent,
   AgentXStreamStepEvent,
   AgentXStreamCardEvent,
+  AgentXStreamMediaEvent,
   AgentXStreamCallbacks,
   // Tool step & rich card types
   AgentXToolStepStatus,

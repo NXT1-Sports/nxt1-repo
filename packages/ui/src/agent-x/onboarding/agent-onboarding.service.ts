@@ -441,10 +441,10 @@ export class AgentOnboardingService {
         throw new Error('Failed to save goals');
       }
 
-      // 2. Generate initial briefing (non-blocking — if it fails, dashboard still works)
-      this.agentX
-        .generateBriefing(true)
-        .catch((err) => this.logger.warn('Initial briefing generation failed (non-critical)', err));
+      // 2. generateBriefing disabled — briefing display hidden
+      // this.agentX
+      //   .generateBriefing(true)
+      //   .catch((err) => this.logger.warn('Initial briefing generation failed (non-critical)', err));
 
       this._isComplete.set(true);
       this._needsOnboarding.set(false);

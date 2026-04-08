@@ -49,6 +49,13 @@ export interface ToolExecutionContext {
   /** The unique session ID for the current agent run. */
   readonly sessionId?: string;
   /**
+   * Abort signal propagated from the SSE connection close or explicit cancel.
+   * Tools SHOULD check `signal.aborted` before starting expensive operations
+   * and pass the signal to any outgoing `fetch()` calls so they terminate
+   * immediately when the user cancels the stream.
+   */
+  readonly signal?: AbortSignal;
+  /**
    * Emit a progress update to the client during long-running tool execution.
    * The label replaces the current step indicator text in the frontend
    * (e.g. "Querying 4,200 prospects…", "Generating PDF…").

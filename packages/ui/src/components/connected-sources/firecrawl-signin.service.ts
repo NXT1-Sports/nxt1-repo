@@ -82,6 +82,31 @@ export class FirecrawlSignInService {
   readonly loading = computed(() => this._loading());
   readonly activePlatform = computed(() => this._activePlatform());
 
+  // ─── Signed-In Accounts (fetched from backend) ────────────────────────
+
+  /**
+   * Fetch the user's Firecrawl sign-in accounts from the backend.
+   * Returns a map of platform → { status, connectedAt } for platforms
+   * that have an active/connected Firecrawl persistent profile.
+   */
+  async fetchSignedInAccounts(): Promise<Record<string, { status: string; connectedAt?: string }>> {
+    try {
+      const response = await firstValueFrom(
+        this.http.get<{
+          success: boolean;
+          data?: Record<string, { status: string; connectedAt?: string }>;
+        }>(`${this.baseUrl}/firecrawl/accounts`)
+      );
+      if (response.success && response.data) {
+        return response.data;
+      }
+      return {};
+    } catch (err) {
+      this.logger.warn('Failed to fetch Firecrawl sign-in accounts', { error: err });
+      return {};
+    }
+  }
+
   // ─── Main Flow ──────────────────────────────────────────────────────────
 
   /**

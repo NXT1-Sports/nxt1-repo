@@ -179,7 +179,7 @@ export class BrowserAuthService implements IAuthService {
       uid: firebaseUser.uid,
       email: firebaseUser.email ?? '',
       displayName: firebaseUser.displayName ?? 'User',
-      profileImg: firebaseUser.photoURL ?? undefined,
+      profileImg: undefined,
       role: 'athlete' as UserRole,
       isPremium: false,
       hasCompletedOnboarding: false,
@@ -214,7 +214,7 @@ export class BrowserAuthService implements IAuthService {
         displayName:
           (profile.displayName ?? `${profile.firstName ?? ''} ${profile.lastName ?? ''}`.trim()) ||
           (firebaseUser.displayName ?? 'User'),
-        profileImg: profile.profileImgs?.[0] ?? firebaseUser.photoURL ?? undefined,
+        profileImg: profile.profileImgs?.[0] ?? undefined,
         role: (profile.role as UserRole) ?? 'athlete',
         isPremium: false, // extend when backend exposes isPremium
         hasCompletedOnboarding,

@@ -40,7 +40,7 @@ import { AddSportService } from '../add-sport.service';
       <nxt1-auth-shell
         variant="minimal"
         [showLogo]="false"
-        [showBackButton]="addSport.canGoBack()"
+        [showBackButton]="true"
         [maxWidth]="'560px'"
         [mobileFooterPadding]="true"
         (backClick)="addSport.onBack()"

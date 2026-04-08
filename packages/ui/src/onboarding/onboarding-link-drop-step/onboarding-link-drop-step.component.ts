@@ -940,6 +940,30 @@ export class OnboardingLinkDropStepComponent {
 
     // ── Firecrawl-based sign-in: delegate to parent for interactive browser session ──
     if (isSignIn && platformDef?.loginUrl) {
+      // If already connected, offer to disconnect instead of re-opening the browser
+      if (source.connected) {
+        const confirmed = await this.nxtModal.confirm({
+          title: `Disconnect ${source.label}?`,
+          message: `Agent X will no longer be able to access your ${source.label} account.`,
+          confirmText: 'Disconnect',
+          cancelText: 'Cancel',
+          preferNative: 'native',
+        });
+        if (confirmed) {
+          const scopeType: PlatformScope = source.scopeType ?? 'global';
+          const scopeId = source.scopeId;
+          const key = connKey(source.platform, scopeType, scopeId);
+          this._connectedMap.update((map) => {
+            const next = { ...map };
+            delete next[key];
+            return next;
+          });
+          this.logger.info('Firecrawl sign-in disconnected', { platform: source.platform });
+          this.emitChange();
+        }
+        return;
+      }
+
       this.logger.info('Firecrawl sign-in requested', {
         platform: source.platform,
         label: source.label,

@@ -739,7 +739,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             : undefined) ??
           firebaseUser.displayName ??
           'User',
-        profileImg: backendProfile?.profileImg ?? firebaseUser.photoURL ?? undefined,
+        profileImg: backendProfile?.profileImg ?? undefined,
         role: this.getUserRole(
           backendProfile
             ? {
@@ -795,13 +795,17 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   /**
    * Get auth provider from Firebase user
    */
-  private getProviderFromFirebase(user: FirebaseUser): 'email' | 'google' | 'apple' | 'anonymous' {
+  private getProviderFromFirebase(
+    user: FirebaseUser
+  ): 'email' | 'google' | 'apple' | 'microsoft' | 'anonymous' {
     const providerId = user.providerData[0]?.providerId;
     switch (providerId) {
       case 'google.com':
         return 'google';
       case 'apple.com':
         return 'apple';
+      case 'microsoft.com':
+        return 'microsoft';
       case 'password':
         return 'email';
       default:

@@ -24,8 +24,6 @@ import {
   updateOrgBudget,
   updateTeamAllocation,
   getOrgTeamAllocations,
-  getWalletBalance,
-  checkSufficientBalance,
   getPricingConfig,
   updatePricingConfig,
   type PricingConfig,
@@ -36,14 +34,13 @@ import {
   getOrCreateCustomer,
   getBillingContext,
 } from '../modules/billing/index.js';
-import { validateBody, validateQuery } from '../middleware/validation.middleware.js';
+import { validateBody } from '../middleware/validation.middleware.js';
 import {
   CreateUsageEventDto,
   UpdateBudgetDto,
   UpdateTeamBudgetDto,
   UpdateOrganizationBudgetDto,
   UpdateTeamAllocationDto,
-  WalletCheckQueryDto,
   UpdatePricingConfigDto,
   OrgRefundDto,
 } from '../dtos/billing.dto.js';
@@ -55,12 +52,10 @@ const router = Router();
 // ============================================
 
 const BILLING_CACHE_TTL = {
-  wallet: 60, // 60 seconds — balance display (not used for deduction gates)
   pricing: 5 * 60, // 5 minutes  — pricing config rarely changes
 } as const;
 
 const PRICING_CACHE_KEY = 'billing:pricing:config';
-const walletCacheKey = (userId: string): string => `billing:wallet:${userId}`;
 
 /**
  * POST /api/v1/billing/usage
@@ -297,6 +292,56 @@ router.get('/budget', appGuard, async (req: Request, res: Response) => {
     // Resolve billing target (director → org, otherwise individual)
     const target = await resolveBillingTarget(db, userId);
     const ctx = target.context;
+    const adminResult =
+      target.type === 'organization' && target.organizationId
+        ? await (async (): Promise<{ isOrgAdmin: boolean; isTeamAdmin: boolean }> => {
+            const [userDoc, orgDoc] = await Promise.all([
+              db.collection('Users').doc(userId).get(),
+              db.collection('Organizations').doc(target.organizationId!).get(),
+            ]);
+            const role = userDoc.data()?.['role'] as string | undefined;
+            const orgData = orgDoc.data();
+
+            let orgAdmin = false;
+            if (orgData) {
+              const ownerId = orgData['ownerId'] as string | undefined;
+              const admins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
+              const adminIds = admins.map((admin) => admin.userId).filter(Boolean);
+              orgAdmin = role === 'director' || ownerId === userId || adminIds.includes(userId);
+            }
+
+            if (orgAdmin) {
+              return { isOrgAdmin: true, isTeamAdmin: true };
+            }
+
+            const rosterSnap = await db
+              .collection('RosterEntries')
+              .where('userId', '==', userId)
+              .where('status', '==', 'active')
+              .limit(1)
+              .get();
+
+            if (!rosterSnap.empty) {
+              const teamId = rosterSnap.docs[0]!.data()['teamId'] as string | undefined;
+              if (teamId) {
+                const teamDoc = await db.collection('Teams').doc(teamId).get();
+                const teamData = teamDoc.data();
+                const teamAdminIds: string[] = Array.isArray(teamData?.['adminIds'])
+                  ? (teamData!['adminIds'] as string[])
+                  : teamData?.['createdBy']
+                    ? [teamData['createdBy'] as string]
+                    : [];
+
+                return {
+                  isOrgAdmin: false,
+                  isTeamAdmin: teamAdminIds.includes(userId),
+                };
+              }
+            }
+
+            return { isOrgAdmin: false, isTeamAdmin: false };
+          })()
+        : { isOrgAdmin: true, isTeamAdmin: true };
 
     return res.json({
       success: true,
@@ -313,6 +358,10 @@ router.get('/budget', appGuard, async (req: Request, res: Response) => {
         hardStop: ctx.hardStop,
         teamId: ctx.teamId,
         organizationId: ctx.organizationId,
+        paymentProvider: ctx.paymentProvider,
+        walletBalanceCents: ctx.walletBalanceCents,
+        isOrgAdmin: adminResult.isOrgAdmin,
+        isTeamAdmin: adminResult.isTeamAdmin,
       },
     });
   } catch (error) {
@@ -562,85 +611,6 @@ router.get('/budget/org/:orgId/allocations', appGuard, async (req: Request, res:
     });
   }
 });
-
-// ============================================
-// WALLET — Individual Prepaid Balance
-// ============================================
-
-/**
- * GET /api/v1/billing/wallet
- * Get the current user's prepaid wallet balance.
- */
-router.get('/wallet', appGuard, async (req: Request, res: Response) => {
-  try {
-    const userId = req.user!.uid;
-    const db = req.firebase?.db;
-    if (!db) throw new Error('Firebase context not available');
-
-    // Redis cache — display-only; deduction gates always bypass this
-    try {
-      const cached = await getCacheService().get<{ balanceCents: number }>(walletCacheKey(userId));
-      if (cached) {
-        return res.json({
-          success: true,
-          balanceCents: cached.balanceCents,
-          balanceUsd: (cached.balanceCents / 100).toFixed(2),
-        });
-      }
-    } catch {
-      /* cache unavailable, continue to Firestore */
-    }
-
-    const balanceCents = await getWalletBalance(db, userId);
-
-    try {
-      await getCacheService().set(
-        walletCacheKey(userId),
-        { balanceCents },
-        { ttl: BILLING_CACHE_TTL.wallet }
-      );
-    } catch {
-      /* cache unavailable */
-    }
-
-    return res.json({ success: true, balanceCents, balanceUsd: (balanceCents / 100).toFixed(2) });
-  } catch (error) {
-    logger.error('[GET /wallet] Failed to get wallet balance', { error });
-    return res.status(500).json({
-      error: 'Failed to get wallet balance',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
-
-/**
- * GET /api/v1/billing/wallet/check
- * Check whether the user has sufficient balance for a given cost.
- * Query params: ?cents=<number>
- */
-// No Redis cache here — this is a financial gate called before every job; must always be fresh.
-router.get(
-  '/wallet/check',
-  appGuard,
-  validateQuery(WalletCheckQueryDto),
-  async (req: Request, res: Response) => {
-    try {
-      const userId = req.user!.uid;
-      const db = req.firebase?.db;
-      if (!db) throw new Error('Firebase context not available');
-
-      const { cents } = req.query as unknown as WalletCheckQueryDto;
-      const result = await checkSufficientBalance(db, userId, cents);
-      return res.json({ success: true, ...result });
-    } catch (error) {
-      logger.error('[GET /wallet/check] Failed to check balance', { error });
-      return res.status(500).json({
-        error: 'Failed to check balance',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      });
-    }
-  }
-);
 
 // ============================================
 // PRICING CONFIG — Admin

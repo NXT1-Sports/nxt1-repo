@@ -8,7 +8,13 @@ import { NxtPageHeaderComponent } from '../components/page-header';
   standalone: true,
   imports: [CommonModule, NxtPageHeaderComponent],
   template: `
-    <nxt1-page-header title="Terms of Service" [showBack]="showBack()" (backClick)="back.emit()" />
+    @if (showHeader()) {
+      <nxt1-page-header
+        title="Terms of Service"
+        [showBack]="showBack()"
+        (backClick)="back.emit()"
+      />
+    }
     <div class="legal-content">
       <p class="last-updated">Last updated: {{ content.lastUpdated }}</p>
       <p class="intro">{{ content.intro }}</p>
@@ -103,6 +109,7 @@ import { NxtPageHeaderComponent } from '../components/page-header';
 })
 export class TermsContentShellComponent {
   readonly showBack = input(false);
+  readonly showHeader = input(true);
   readonly back = output<void>();
 
   protected readonly content = TERMS_CONTENT;

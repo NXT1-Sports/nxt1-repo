@@ -387,14 +387,24 @@ export class BiometricService {
 
     // Save enrollment status
     try {
-      await Preferences.set({ key: BIOMETRIC_ENROLLMENT_KEY, value: 'true' });
-      this._isEnrolled.set(true);
-      console.debug('[BiometricService] User enrolled for biometric login');
+      await this.markEnrolled();
       return { enrolled: true };
     } catch (error) {
       console.error('[BiometricService] Failed to save enrollment status:', error);
       return { enrolled: false, reason: 'storage_failed' };
     }
+  }
+
+  /**
+   * Mark the user as enrolled for biometric login in device storage.
+   *
+   * Called internally by `promptNativeEnrollment` or externally when
+   * the caller manages the native prompt + credential storage separately.
+   */
+  async markEnrolled(): Promise<void> {
+    await Preferences.set({ key: BIOMETRIC_ENROLLMENT_KEY, value: 'true' });
+    this._isEnrolled.set(true);
+    console.debug('[BiometricService] User enrolled for biometric login');
   }
 
   /**

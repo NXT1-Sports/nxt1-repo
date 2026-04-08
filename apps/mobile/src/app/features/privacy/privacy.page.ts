@@ -9,18 +9,27 @@
 
 import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { IonContent, IonHeader, IonToolbar, NavController } from '@ionic/angular/standalone';
-import { PrivacyContentShellComponent } from '@nxt1/ui';
+import { PrivacyContentShellComponent, NxtPageHeaderComponent } from '@nxt1/ui';
 
 @Component({
   selector: 'app-privacy',
   standalone: true,
-  imports: [IonContent, IonHeader, IonToolbar, PrivacyContentShellComponent],
+  imports: [
+    IonContent,
+    IonHeader,
+    IonToolbar,
+    PrivacyContentShellComponent,
+    NxtPageHeaderComponent,
+  ],
   template: `
     <ion-header class="ion-no-border" [translucent]="true">
       <ion-toolbar></ion-toolbar>
     </ion-header>
     <ion-content [fullscreen]="true">
-      <nxt1-privacy-content-shell [showBack]="true" (back)="onBack()" />
+      <nxt1-page-header title="Privacy Policy" [showBack]="true" (backClick)="onBack()" />
+      <ion-content class="legal-scroll-content">
+        <nxt1-privacy-content-shell [showBack]="true" [showHeader]="false" (back)="onBack()" />
+      </ion-content>
     </ion-content>
   `,
   styles: [
@@ -45,6 +54,15 @@ import { PrivacyContentShellComponent } from '@nxt1/ui';
       }
       ion-content {
         --background: var(--nxt1-color-bg-primary, #0a0a0a);
+      }
+      ion-content::part(scroll) {
+        overflow: visible;
+      }
+      .legal-scroll-content {
+        --background: var(--nxt1-color-bg-primary, #0a0a0a);
+      }
+      .legal-scroll-content::part(scroll) {
+        overflow: auto;
       }
     `,
   ],

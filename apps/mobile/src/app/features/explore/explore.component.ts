@@ -29,14 +29,6 @@ import {
 import type { ExploreTabId, ExploreItem, ScoutReport, FeedPost, FeedAuthor } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 import { ProfileService } from '../../core/services/profile.service';
-import {
-  createGeolocationService,
-  createCapacitorGeolocationAdapter,
-  CachedGeocodingAdapter,
-  NominatimGeocodingAdapter,
-  GEOLOCATION_DEFAULTS,
-} from '@nxt1/core';
-import { Geolocation } from '@capacitor/geolocation';
 
 @Component({
   selector: 'app-explore',
@@ -191,34 +183,21 @@ export class ExploreComponent {
 
   /**
    * Handle detect-location event.
-   * Uses Capacitor geolocation + reverse geocoding to get the user's state.
+   * Uses the saved account location as the source of truth for Explore filters.
    */
   protected async onDetectLocation(): Promise<void> {
-    this.logger.info('Detecting user location');
+    const state = this.profileService.user()?.location?.state ?? null;
 
-    try {
-      const geoService = createGeolocationService(
-        createCapacitorGeolocationAdapter(Geolocation),
-        new CachedGeocodingAdapter(new NominatimGeocodingAdapter())
-      );
-      const result = await geoService.getCurrentLocation(GEOLOCATION_DEFAULTS.QUICK);
-
-      if (result.success && result.data?.address?.state) {
-        const state = result.data.address.state;
-        this.logger.info('Location detected', { state });
-
-        this.exploreService.applyDetectedState(state);
-        this.shellRef()?.completeDetectLocation(state);
-        this.toast.success(`Location set to ${state}`);
-      } else {
-        this.logger.warn('Location detected but no state found');
-        this.shellRef()?.completeDetectLocation(null);
-        this.toast.error('Could not determine your state. Please set it manually.');
-      }
-    } catch (err) {
-      this.logger.error('Failed to detect location', err);
-      this.shellRef()?.completeDetectLocation(null);
-      this.toast.error('Location detection failed. Please check permissions.');
+    if (state) {
+      this.logger.info('Applying saved account location', { state });
+      this.exploreService.applyDetectedState(state);
+      this.shellRef()?.completeDetectLocation(state);
+      this.toast.success(`Location set to ${state}`);
+      return;
     }
+
+    this.logger.warn('No saved account location available');
+    this.shellRef()?.completeDetectLocation(null);
+    this.toast.error('No location is saved to your account yet. Please add it in your profile.');
   }
 }

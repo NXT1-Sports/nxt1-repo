@@ -188,10 +188,11 @@ import { formatSportDisplayName } from '@nxt1/core';
                         [attr.aria-label]="'Switch to ' + formatSportDisplay(profile.sport)"
                       >
                         <nxt1-avatar
-                          [src]="profile.profileImg || user()!.profileImg"
+                          [src]="profile.profileImg"
                           [name]="profile.sport"
                           [isTeamRole]="user()!.isTeamRole ?? false"
                           [initials]="user()!.isTeamRole ? '' : getSportInitials(profile.sport)"
+                          [defaultIcon]="user()!.isTeamRole ? 'shield' : 'athlete'"
                           [customSize]="28"
                           [showSkeleton]="false"
                         />

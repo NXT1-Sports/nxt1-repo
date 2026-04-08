@@ -14,11 +14,11 @@ import {
   NxtLoggingService,
   NxtBreadcrumbService,
   NxtThemeService,
+  UsageBottomSheetService,
 } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 import {
   NativeAppService,
-  KeyboardService,
   NetworkService,
   DeepLinkService,
   PushHandlerService,
@@ -26,6 +26,7 @@ import {
   NativeBadgeService,
 } from './core/services';
 import { BiometricService, AuthFlowService } from './features/auth/services';
+import { IapService } from './core/services/iap.service';
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
 import { filter } from 'rxjs/operators';
 
@@ -44,7 +45,6 @@ export class AppComponent {
   private readonly ionicPlatform = inject(Platform);
   private readonly navController = inject(NavController);
   private readonly nativeApp = inject(NativeAppService);
-  private readonly keyboard = inject(KeyboardService);
   private readonly network = inject(NetworkService);
   private readonly deepLink = inject(DeepLinkService);
   private readonly pushHandler = inject(PushHandlerService);
@@ -59,10 +59,19 @@ export class AppComponent {
   // Inject to activate the effect() that syncs totalUnread → native app icon badge
   private readonly nativeBadge = inject(NativeBadgeService);
 
+  private readonly iap = inject(IapService);
+  private readonly usageBottomSheet = inject(UsageBottomSheetService);
+
   /** Track if we've performed initial navigation */
   private hasPerformedInitialNavigation = false;
 
   constructor() {
+    // Register Apple IAP as the global buy-credits handler on iOS.
+    // All surfaces (Agent X, Usage page, billing card) will use IAP instead of basic Stripe flow.
+    if (this.iap.isSupported) {
+      this.usageBottomSheet.registerBuyCreditsHandler(() => this.iap.showProductsAndPurchase());
+    }
+
     // Log early to confirm app is loading
     this.logger.info('AppComponent constructor called');
 
@@ -182,10 +191,6 @@ export class AppComponent {
       });
 
       this.logger.info('Native app initialized');
-
-      // Initialize keyboard behavior for iOS/Android
-      await this.keyboard.initialize();
-      this.logger.debug('Keyboard service initialized');
 
       // Initialize deep link handling (Universal Links / App Links)
       await this.deepLink.initialize();

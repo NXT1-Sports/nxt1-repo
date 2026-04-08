@@ -1174,7 +1174,8 @@ export function getPositionAbbreviation(position: string, sportName?: string): s
     }
   }
 
-  return position;
+  // No abbreviation found — return title-cased original (never lowercase)
+  return position.trim().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function formatPositionDisplay(

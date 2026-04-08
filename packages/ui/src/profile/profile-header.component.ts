@@ -100,7 +100,13 @@ import { ProfileService } from './profile.service';
       <!-- ═══ AVATAR ROW (profile pic + school/location meta) ═══ -->
       <div class="mc-avatar-row">
         <div class="mc-avatar-wrap">
-          <nxt1-avatar [src]="user()?.profileImg" [name]="displayName()" size="xl" shape="circle" />
+          <nxt1-avatar
+            [src]="user()?.profileImg"
+            [name]="displayName()"
+            [isTeamRole]="user()?.isTeamManager ?? false"
+            size="xl"
+            shape="circle"
+          />
         </div>
         <div class="mc-meta-col">
           @if (user()?.school) {

@@ -25,7 +25,6 @@ import {
   getBillingContext,
   getOrgTeamAllocations,
   resolveBillingTarget,
-  getPlatformConfig,
   type ResolvedBillingTarget,
 } from '../modules/billing/index.js';
 import { USAGE_PRODUCT_CONFIGS, USAGE_CATEGORY_CONFIGS, USAGE_HISTORY_PAGE_SIZE } from '@nxt1/core';
@@ -157,7 +156,9 @@ function getFeatureCategory(feature: string): UsageProductCategory {
 function getFeatureDisplayName(feature: string): string {
   const normalized = feature.toLowerCase().replace(/_/g, '-');
   const config = USAGE_PRODUCT_CONFIGS.find((p) => p.id === normalized);
-  return config?.name ?? feature;
+  if (config) return config.name;
+  // Humanize raw tool names from agent metadata (e.g. "generate_scout_report" → "Generate Scout Report")
+  return feature.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 // ============================================
@@ -180,8 +181,7 @@ function getFeatureDisplayName(feature: string): string {
 async function buildBreakdownRows(
   db: Firestore,
   eventsDocs: readonly QueryDocumentSnapshot[],
-  target: ResolvedBillingTarget,
-  promoCreditCents = 0
+  target: ResolvedBillingTarget
 ): Promise<UsageBreakdownRow[]> {
   const isOrg = target.type === 'organization';
 
@@ -204,9 +204,23 @@ async function buildBreakdownRows(
   for (const doc of eventsDocs) {
     const data = doc.data();
     const dateKey = toISOString(data['createdAt']).slice(0, 10);
-    const feature = data['feature'] as string;
+    let feature = data['feature'] as string;
     const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
     const qty = data['quantity'] as number;
+
+    // ── Autonomous agent billing: unpack tool name from metadata ──
+    // When the agent bills as 'activity-usage', the specific tool(s) it
+    // invoked are stored in metadata.agentTools.  Use the *last* tool as
+    // the display feature — in an agentic chain the final tool is
+    // typically the primary output (e.g. generate_scout_report) while
+    // earlier tools are lightweight lookups (e.g. search_athletes).
+    if (feature === 'activity-usage') {
+      const meta = data['metadata'] as Record<string, unknown> | undefined;
+      const agentTools = meta?.['agentTools'] as string[] | undefined;
+      if (agentTools && agentTools.length > 0) {
+        feature = agentTools[agentTools.length - 1]!;
+      }
+    }
 
     if (isOrg) {
       const evTeamId = (data['teamId'] as string | undefined) ?? 'unknown';
@@ -277,140 +291,79 @@ async function buildBreakdownRows(
   }
 
   // ── Build response rows ──────────────────────────────────────────
-  // Build chronologically ASC so promotional credit drains from the oldest
-  // entries first. The array is reversed to DESC (newest first) at the end.
-  let remainingCredit = promoCreditCents;
   const breakdownRows: UsageBreakdownRow[] = [];
 
   if (isOrg) {
-    for (const [dateKey, teamMap] of Array.from(orgDaily.entries()).sort((a, b) =>
-      a[0].localeCompare(b[0])
+    for (const [dateKey, teamMap] of Array.from(orgDaily.entries()).sort(
+      (a, b) => b[0].localeCompare(a[0]) // DESC
     )) {
-      // First pass: compute gross amounts
       let dayGross = 0;
-      const rawTeams: Array<{
-        teamId: string;
-        teamGross: number;
-        rawUsers: Array<{
-          userId: string;
-          userGross: number;
-          lineItems: UsageBreakdownLineItem[];
-        }>;
-      }> = [];
+      const teams: UsageBreakdownTeam[] = [];
 
       for (const [teamId, userMap] of teamMap) {
         let teamGross = 0;
-        const rawUsers: Array<{
-          userId: string;
-          userGross: number;
-          lineItems: UsageBreakdownLineItem[];
-        }> = [];
+        const users: UsageBreakdownUser[] = [];
 
         for (const [userId, featureMap] of userMap) {
-          const lineItems = buildLineItems(featureMap);
+          const lineItems = buildLineItems(featureMap).map((li) => ({
+            ...li,
+            billedAmount: li.grossAmount,
+          }));
           const userGross = lineItems.reduce((sum, li) => sum + li.grossAmount, 0);
           teamGross += userGross;
-          rawUsers.push({ userId, userGross, lineItems });
+          users.push({
+            userId,
+            userName: userNames.get(userId) ?? userId,
+            grossAmount: userGross,
+            billedAmount: userGross,
+            lineItems,
+          });
         }
 
-        rawUsers.sort((a, b) => b.userGross - a.userGross);
+        users.sort((a, b) => b.grossAmount - a.grossAmount);
         dayGross += teamGross;
-        rawTeams.push({ teamId, teamGross, rawUsers });
+        teams.push({
+          teamId,
+          teamName: teamNames.get(teamId) ?? teamId,
+          grossAmount: teamGross,
+          billedAmount: teamGross,
+          users,
+        });
       }
 
-      rawTeams.sort((a, b) => b.teamGross - a.teamGross);
-
-      // Drain credit at the day level
-      const dayBilled = Math.max(0, dayGross - remainingCredit);
-      const discountedToday = dayGross - dayBilled;
-      remainingCredit = Math.max(0, remainingCredit - dayGross);
-
-      // Second pass: build immutable objects with correct billedAmount
-      const teams: UsageBreakdownTeam[] = rawTeams.map((rt) => {
-        const teamDiscount =
-          discountedToday > 0 && dayGross > 0
-            ? Math.round(discountedToday * (rt.teamGross / dayGross))
-            : 0;
-        const teamBilled = Math.max(0, rt.teamGross - teamDiscount);
-
-        const users: UsageBreakdownUser[] = rt.rawUsers.map((ru) => {
-          const userDiscount =
-            teamDiscount > 0 && rt.teamGross > 0
-              ? Math.round(teamDiscount * (ru.userGross / rt.teamGross))
-              : 0;
-          const userBilled = Math.max(0, ru.userGross - userDiscount);
-
-          const creditedLineItems: UsageBreakdownLineItem[] = ru.lineItems.map((li) => {
-            const liDiscount =
-              userDiscount > 0 && ru.userGross > 0
-                ? Math.round(userDiscount * (li.grossAmount / ru.userGross))
-                : 0;
-            return {
-              ...li,
-              billedAmount: Math.max(0, li.grossAmount - liDiscount),
-            };
-          });
-
-          return {
-            userId: ru.userId,
-            userName: userNames.get(ru.userId) ?? ru.userId,
-            grossAmount: ru.userGross,
-            billedAmount: userBilled,
-            lineItems: creditedLineItems,
-          };
-        });
-
-        return {
-          teamId: rt.teamId,
-          teamName: teamNames.get(rt.teamId) ?? rt.teamId,
-          grossAmount: rt.teamGross,
-          billedAmount: teamBilled,
-          users,
-        };
-      });
+      teams.sort((a, b) => b.grossAmount - a.grossAmount);
 
       breakdownRows.push({
         date: dateKey,
         dateLabel: formatDateLabel(new Date(dateKey + 'T00:00:00')),
         grossAmount: dayGross,
-        billedAmount: dayBilled,
+        billedAmount: dayGross,
         lineItems: [], // Org rows use `teams` instead
         teams,
       });
     }
   } else {
     // Individual: flat day → products
-    for (const [dateKey, featureMap] of Array.from(indDaily.entries()).sort((a, b) =>
-      a[0].localeCompare(b[0])
+    for (const [dateKey, featureMap] of Array.from(indDaily.entries()).sort(
+      (a, b) => b[0].localeCompare(a[0]) // DESC
     )) {
-      const rawLineItems = buildLineItems(featureMap);
-      const dayGross = rawLineItems.reduce((sum, li) => sum + li.grossAmount, 0);
-
-      const dayBilled = Math.max(0, dayGross - remainingCredit);
-      const discountedToday = dayGross - dayBilled;
-      remainingCredit = Math.max(0, remainingCredit - dayGross);
-
-      // Build line items with correct billedAmount (immutable)
-      const lineItems: UsageBreakdownLineItem[] = rawLineItems.map((li) => {
-        const liDiscount =
-          discountedToday > 0 && dayGross > 0
-            ? Math.round(discountedToday * (li.grossAmount / dayGross))
-            : 0;
-        return { ...li, billedAmount: Math.max(0, li.grossAmount - liDiscount) };
-      });
+      const lineItems = buildLineItems(featureMap).map((li) => ({
+        ...li,
+        billedAmount: li.grossAmount,
+      }));
+      const dayGross = lineItems.reduce((sum, li) => sum + li.grossAmount, 0);
 
       breakdownRows.push({
         date: dateKey,
         dateLabel: formatDateLabel(new Date(dateKey + 'T00:00:00')),
         grossAmount: dayGross,
-        billedAmount: dayBilled,
+        billedAmount: dayGross,
         lineItems,
       });
     }
   }
 
-  // Reverse to newest-first for UI display (DESC)
-  return breakdownRows.reverse();
+  return breakdownRows;
 }
 
 // ============================================
@@ -630,21 +583,11 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       }
     }
 
-    // Promotional credit: org accounts receive a $20 credit applied chronologically
-    // against gross usage. The display separates gross spend from what is actually billed.
-    const platformCfgForDashboard = isOrgBilling ? await getPlatformConfig(db) : null;
-    const promoCredit = isOrgBilling
-      ? (billingCtx.promotionalCreditCents ??
-        platformCfgForDashboard?.orgPromotionalCreditCents ??
-        0)
-      : 0;
-
     // Build overview (includes wallet fields for B2C UI fork)
     const overview: UsageOverview = {
       currentMeteredUsage: totalUsageCents,
-      currentIncludedUsage: Math.min(totalUsageCents, promoCredit),
       nextPaymentDueDate: end.toISOString(),
-      nextPaymentAmount: Math.max(0, totalUsageCents - promoCredit),
+      nextPaymentAmount: totalUsageCents,
       period: {
         start: start.toISOString(),
         end: end.toISOString(),
@@ -705,7 +648,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       }));
 
     // Build breakdown rows (daily — org-aware with team/user names)
-    const breakdownRows = await buildBreakdownRows(db, eventsDocs, target, promoCredit);
+    const breakdownRows = await buildBreakdownRows(db, eventsDocs, target);
 
     // Payment history from the already-fetched paymentLogsSnap (parallelized above)
     const paymentLogDocs = paymentLogsSnap.docs;
@@ -826,7 +769,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       {
         id: `budget-${userId}`,
         category: 'ai',
-        productName: 'Overall Budget',
+        productName: billingCtx.budgetName ?? 'Overall Budget',
         budgetLimit: billingCtx.monthlyBudget,
         spent: billingCtx.currentPeriodSpend,
         percentUsed:
@@ -914,19 +857,10 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
       }
     }
 
-    // Promotional credit for org accounts (quick overview endpoint)
-    const platformCfgForOverview = isOrgBilling ? await getPlatformConfig(db) : null;
-    const promoCreditForOverview = isOrgBilling
-      ? (billingCtx.promotionalCreditCents ??
-        platformCfgForOverview?.orgPromotionalCreditCents ??
-        0)
-      : 0;
-
     const overview: UsageOverview = {
       currentMeteredUsage: totalUsageCents,
-      currentIncludedUsage: Math.min(totalUsageCents, promoCreditForOverview),
       nextPaymentDueDate: end.toISOString(),
-      nextPaymentAmount: Math.max(0, totalUsageCents - promoCreditForOverview),
+      nextPaymentAmount: totalUsageCents,
       period: {
         start: start.toISOString(),
         end: end.toISOString(),
@@ -1017,19 +951,10 @@ router.get('/breakdown', appGuard, async (req: Request, res: Response) => {
 
     // Resolve billing target (director → org, otherwise individual)
     const target = await resolveBillingTarget(db, userId);
-    const billingCtxForBreakdown = target.context;
-    const isOrgBillingForBreakdown = billingCtxForBreakdown.billingEntity === 'organization';
 
     const eventsDocs = await fetchUsageEvents(db, target, start, end, true, 500);
 
-    const platformCfgForBreakdown = isOrgBillingForBreakdown ? await getPlatformConfig(db) : null;
-    const promoCreditForBreakdown = isOrgBillingForBreakdown
-      ? (billingCtxForBreakdown.promotionalCreditCents ??
-        platformCfgForBreakdown?.orgPromotionalCreditCents ??
-        0)
-      : 0;
-
-    const breakdownRows = await buildBreakdownRows(db, eventsDocs, target, promoCreditForBreakdown);
+    const breakdownRows = await buildBreakdownRows(db, eventsDocs, target);
 
     return res.json({ success: true, data: breakdownRows });
   } catch (error) {
@@ -1500,7 +1425,7 @@ router.get('/budgets', appGuard, async (req: Request, res: Response) => {
       {
         id: `budget-${userId}`,
         category: 'ai',
-        productName: 'Overall Budget',
+        productName: ctx.budgetName ?? 'Overall Budget',
         budgetLimit: ctx.monthlyBudget,
         spent: ctx.currentPeriodSpend,
         percentUsed:

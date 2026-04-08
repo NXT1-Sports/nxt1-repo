@@ -21,11 +21,10 @@ import {
   inject,
   computed,
   OnInit,
-  PLATFORM_ID,
   viewChild,
 } from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
-import { Location, isPlatformBrowser } from '@angular/common';
+import { Location } from '@angular/common';
 import { ExploreShellWebComponent, type ExploreUser, ExploreService } from '@nxt1/ui/explore';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
@@ -34,13 +33,6 @@ import type { ExploreItem, ExploreTabId, ScoutReport, FeedPost, FeedAuthor } fro
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
-import {
-  createGeolocationService,
-  BrowserGeolocationAdapter,
-  CachedGeocodingAdapter,
-  NominatimGeocodingAdapter,
-  GEOLOCATION_DEFAULTS,
-} from '@nxt1/core';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 
 /** Valid URL slugs that map to explore tab IDs */
@@ -75,7 +67,6 @@ export class ExploreComponent implements OnInit {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly seo = inject(SeoService);
   private readonly exploreService = inject(ExploreService);
-  private readonly platformId = inject(PLATFORM_ID);
   private readonly toast = inject(NxtToastService);
 
   private readonly shellRef = viewChild<ExploreShellWebComponent>('shellRef');
@@ -220,38 +211,23 @@ export class ExploreComponent implements OnInit {
 
   /**
    * Handle detect-location event from sidebar.
-   * Uses geolocation + reverse geocoding to get the user's state.
+   * Uses the saved account location as the source of truth for Explore filters.
    */
   protected async onDetectLocation(): Promise<void> {
-    if (!isPlatformBrowser(this.platformId)) return;
+    const state = this.authService.user()?.state ?? null;
 
-    this.logger.info('Detecting user location');
-    this.breadcrumb.trackUserAction('detect-location-started');
-
-    try {
-      const geoService = createGeolocationService(
-        new BrowserGeolocationAdapter(),
-        new CachedGeocodingAdapter(new NominatimGeocodingAdapter())
-      );
-      const result = await geoService.getCurrentLocation(GEOLOCATION_DEFAULTS.QUICK);
-
-      if (result.success && result.data?.address?.state) {
-        const state = result.data.address.state;
-        this.logger.info('Location detected', { state });
-
-        this.exploreService.applyDetectedState(state);
-        this.shellRef()?.completeDetectLocation(state);
-        this.analytics?.trackEvent(APP_EVENTS.LOCATION_DETECTED, { state, source: 'explore' });
-        this.toast.success(`Location set to ${state}`);
-      } else {
-        this.logger.warn('Location detected but no state found');
-        this.shellRef()?.completeDetectLocation(null);
-        this.toast.error('Could not determine your state. Please set it manually.');
-      }
-    } catch (err) {
-      this.logger.error('Failed to detect location', err);
-      this.shellRef()?.completeDetectLocation(null);
-      this.toast.error('Location detection failed. Please check your browser permissions.');
+    if (state) {
+      this.logger.info('Applying saved account location', { state });
+      this.breadcrumb.trackUserAction('detect-location-started', { source: 'account' });
+      this.exploreService.applyDetectedState(state);
+      this.shellRef()?.completeDetectLocation(state);
+      this.analytics?.trackEvent(APP_EVENTS.LOCATION_DETECTED, { state, source: 'account' });
+      this.toast.success(`Location set to ${state}`);
+      return;
     }
+
+    this.logger.warn('No saved account location available');
+    this.shellRef()?.completeDetectLocation(null);
+    this.toast.error('No location is saved to your account yet. Please add it in your profile.');
   }
 }

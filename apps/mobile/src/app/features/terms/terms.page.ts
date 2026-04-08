@@ -9,18 +9,21 @@
 
 import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { IonContent, IonHeader, IonToolbar, NavController } from '@ionic/angular/standalone';
-import { TermsContentShellComponent } from '@nxt1/ui';
+import { TermsContentShellComponent, NxtPageHeaderComponent } from '@nxt1/ui';
 
 @Component({
   selector: 'app-terms',
   standalone: true,
-  imports: [IonContent, IonHeader, IonToolbar, TermsContentShellComponent],
+  imports: [IonContent, IonHeader, IonToolbar, TermsContentShellComponent, NxtPageHeaderComponent],
   template: `
     <ion-header class="ion-no-border" [translucent]="true">
       <ion-toolbar></ion-toolbar>
     </ion-header>
     <ion-content [fullscreen]="true">
-      <nxt1-terms-content-shell [showBack]="true" (back)="onBack()" />
+      <nxt1-page-header title="Terms of Service" [showBack]="true" (backClick)="onBack()" />
+      <ion-content class="legal-scroll-content">
+        <nxt1-terms-content-shell [showBack]="true" [showHeader]="false" (back)="onBack()" />
+      </ion-content>
     </ion-content>
   `,
   styles: [
@@ -45,6 +48,15 @@ import { TermsContentShellComponent } from '@nxt1/ui';
       }
       ion-content {
         --background: var(--nxt1-color-bg-primary, #0a0a0a);
+      }
+      ion-content::part(scroll) {
+        overflow: visible;
+      }
+      .legal-scroll-content {
+        --background: var(--nxt1-color-bg-primary, #0a0a0a);
+      }
+      .legal-scroll-content::part(scroll) {
+        overflow: auto;
       }
     `,
   ],

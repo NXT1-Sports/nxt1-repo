@@ -102,10 +102,17 @@ import {
   SIDENAV_WIDTHS,
   SIDENAV_ANIMATION,
 } from '@nxt1/ui';
-import { AUTH_ROUTES, formatSportDisplayName, isTeamRole, shouldShowUsage } from '@nxt1/core';
+import {
+  AUTH_ROUTES,
+  formatSportDisplayName,
+  isTeamRole,
+  deduplicateSportProfiles,
+  getPositionAbbreviation,
+} from '@nxt1/core';
 import type { InviteTeam } from '@nxt1/core';
 import { AuthFlowService } from '../../../features/auth/services/auth-flow.service';
 import { ProfileService } from '../../../core/services/profile.service';
+import { EditProfileApiService } from '../../../core/services/edit-profile-api.service';
 
 /**
  * MobileShellComponent
@@ -140,6 +147,7 @@ import { ProfileService } from '../../../core/services/profile.service';
       (socialClick)="onSocialLinkClick($event)"
       (profileClick)="onSidenavUserClick()"
       (addSportClick)="onAddSportClick()"
+      (sportProfileSelect)="onSportProfileSelect($event)"
     />
 
     <!-- Main Content Container - ID matches contentId for ion-menu -->
@@ -251,6 +259,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    * Uses User type from @nxt1/core/models (professional 2026 pattern)
    */
   private readonly profileService = inject(ProfileService);
+  private readonly editProfileApi = inject(EditProfileApiService);
   /** Public sidenav service for programmatic control */
   readonly sidenavService = inject(NxtSidenavService);
 
@@ -356,9 +365,9 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    * User data for sidenav header - hybrid approach with intelligent avatar fallback.
    *
    * ⭐ Avatar Priority Logic ⭐
-   * 1. profileImg from database (if user uploaded one)
-   * 2. Google photoURL from Firebase Auth (if signed in with Google)
-   * 3. Fallback to initials (handled by nxt1-avatar component)
+   * 1. profileImg from database (if user uploaded one via profileImgs[0])
+   * 2. Fallback to initials (handled by nxt1-avatar component)
+   * NOTE: Google/OAuth photoURL is intentionally NEVER used.
    *
    * ⭐ Uses ProfileService (full User data) when available ⭐
    * Falls back to AuthUser (persisted) for immediate display on app resume.
@@ -407,14 +416,18 @@ export class MobileShellComponent implements OnInit, OnDestroy {
           (rawTeam?.['logoUrl'] as string | undefined) ??
           undefined;
       } else {
-        profileImg = profile.profileImgs?.[0] || authUser?.profileImg || undefined;
+        profileImg = profile.profileImgs?.[0] || undefined;
       }
 
       const subtitle = primarySportName
         ? position
-          ? `${primarySportName} • ${position}`
+          ? `${primarySportName} • ${getPositionAbbreviation(position, primarySportName) || position}`
           : primarySportName
-        : position || (isTeamRole(profile.role) ? 'Coach' : 'Athlete');
+        : position
+          ? getPositionAbbreviation(position, primarySport?.sport) || position
+          : isTeamRole(profile.role)
+            ? 'Coach'
+            : 'Athlete';
 
       return {
         name: displayName || 'User',
@@ -457,18 +470,22 @@ export class MobileShellComponent implements OnInit, OnDestroy {
               });
               return teamProfiles;
             })()
-          : sports.map((s, index: number) => {
-              const sportName =
-                this.resolveSportName(s) || s.positions?.[0] || `Sport ${index + 1}`;
-              return {
-                id: `${profile.id}-${sportName.toLowerCase().replace(/\s+/g, '-')}`,
-                sport: sportName,
-                sportIcon: this.getSportIcon(s.sport),
-                position: s.positions?.[0] ?? undefined,
-                isActive: s.order === 0,
-                classYear: undefined,
-              };
-            }),
+          : deduplicateSportProfiles(
+              sports.map((s, index: number) => {
+                const sportName =
+                  this.resolveSportName(s) || s.positions?.[0] || `Sport ${index + 1}`;
+                return {
+                  id: `${profile.id}-${sportName.toLowerCase().replace(/\s+/g, '-')}`,
+                  sport: sportName,
+                  sportIcon: this.getSportIcon(s.sport),
+                  position: s.positions?.[0]
+                    ? getPositionAbbreviation(s.positions[0], s.sport)
+                    : undefined,
+                  isActive: s.order === 0,
+                  classYear: undefined,
+                };
+              })
+            ),
         activeSportProfileId: primarySportName
           ? `${profile.id}-${primarySportName.toLowerCase().replace(/\s+/g, '-')}`
           : undefined,
@@ -495,28 +512,13 @@ export class MobileShellComponent implements OnInit, OnDestroy {
 
   /**
    * Sidenav sections (using defaults from @nxt1/core).
-   * Reactively hides "Usage" for athletes who belong to a team/org —
-   * their billing is managed by the team.
+   * Usage is always visible — the backend determines the correct billing
+   * entity (individual vs organization) and the Usage page renders accordingly.
    */
   readonly sidenavSections = computed<SidenavSection[]>(() => {
-    const profile = this.profileService.user();
-    const authUser = this.authFlow.user();
-    const role = profile?.role ?? authUser?.role ?? null;
-    const teamSlug = (profile?.teamCode as Record<string, unknown> | null | undefined)?.['slug'] as
-      | string
-      | undefined;
-    const teamName = (profile?.teamCode as Record<string, unknown> | null | undefined)?.[
-      'teamName'
-    ] as string | undefined;
-    const isTeam = isTeamRole(role);
-    const isOnTeam = isTeam || !!(teamSlug || teamName);
-    const showUsage = shouldShowUsage({ isTeamRole: isTeam, isOnTeam });
-
     return DEFAULT_SIDENAV_ITEMS.map((section) => ({
       ...section,
-      items: section.items.filter(
-        (item) => item.id !== 'connections' && (showUsage || item.id !== 'usage')
-      ),
+      items: section.items.filter((item) => item.id !== 'connections'),
     }));
   });
 
@@ -966,6 +968,49 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   onAddSportClick(): void {
     this.haptics.impact('light');
     void this.navController.navigateForward('/add-sport');
+  }
+
+  /**
+   * Handle sport profile selection from sidenav switcher.
+   * Switches the active sport index and navigates to the user's profile.
+   */
+  async onSportProfileSelect(event: { profile: SidenavSportProfile; event: Event }): Promise<void> {
+    const profile = this.profileService.user();
+    if (!profile) return;
+
+    const sports = profile.sports ?? [];
+    const selectedSport = event.profile.sport?.toLowerCase().replace(/\s+/g, '-');
+
+    // Find the index of the selected sport in the user's sports array
+    const sportIndex = sports.findIndex((s) => {
+      const name = (s.sport ?? '').toLowerCase().replace(/\s+/g, '-');
+      return name === selectedSport;
+    });
+
+    if (sportIndex >= 0 && sportIndex !== this.getActiveSportIndex(sports)) {
+      this.logger.info('Switching sport from sidenav', {
+        sport: event.profile.sport,
+        index: sportIndex,
+      });
+
+      // Persist the active sport index
+      const uid = profile.id;
+      if (uid) {
+        await this.editProfileApi.updateActiveSportIndex(uid, sportIndex);
+        await this.profileService.refresh(uid);
+      }
+    }
+
+    this.sidenavService.close();
+    void this.navController.navigateForward('/profile');
+  }
+
+  /**
+   * Get the currently active sport index from the sports array.
+   */
+  private getActiveSportIndex(sports: Array<{ order?: number | null }>): number {
+    const idx = sports.findIndex((s) => s.order === 0);
+    return idx >= 0 ? idx : 0;
   }
 
   /**

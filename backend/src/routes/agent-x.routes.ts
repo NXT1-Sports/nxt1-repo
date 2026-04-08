@@ -15,6 +15,7 @@
  *
  * Routes:
  *   POST /api/v1/agent-x/chat              → SSE streaming chat (unified entry point)
+ *   POST /api/v1/agent-x/cancel/:id        → Explicit cancellation of in-flight chat
  *   POST /api/v1/agent-x/chat/send-draft   → Approve a HITL email draft
  *   POST /api/v1/agent-x/resume-job/:id    → Resume a yielded agent job
  *   POST /api/v1/agent-x/approvals/:id/resolve → Resolve an approval request
@@ -29,7 +30,6 @@
  *   POST /api/v1/agent-x/ask               → Use /chat instead
  *   GET  /api/v1/agent-x/status/:id        → Use /chat with resumeOperationId
  *   GET  /api/v1/agent-x/events/:id        → Use /chat with resumeOperationId
- *   POST /api/v1/agent-x/cancel/:id        → Jobs cancel via SSE disconnect
  */
 
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
@@ -76,11 +76,19 @@ import {
   iconForCategory,
   computeDuration,
 } from './operations-log.helpers.js';
-import { AgentGenerationService } from '../modules/agent/services/generation.service.js';
+import {
+  AgentGenerationService,
+  isLegacyFallbackPlaybook,
+} from '../modules/agent/services/generation.service.js';
 import { FirecrawlProfileService } from '../modules/agent/tools/scraping/firecrawl-profile.service.js';
 import { LiveViewSessionService } from '../modules/agent/tools/scraping/live-view-session.service.js';
 import { PLATFORM_REGISTRY } from '@nxt1/core';
-import { executeBillingDeduction, UsageFeature, checkBudget } from '../modules/billing/index.js';
+import {
+  executeBillingDeduction,
+  UsageFeature,
+  resolveBillingTarget,
+  checkBudgetFromContext,
+} from '../modules/billing/index.js';
 import crypto from 'node:crypto';
 
 /**
@@ -188,6 +196,35 @@ let pubsubService: import('../modules/agent/queue/pubsub.service.js').AgentPubSu
 const MAX_AGENTIC_TURNS = 6;
 
 /**
+ * In-memory registry of active AbortControllers keyed by chatOperationId.
+ * Allows the explicit POST /cancel/:operationId endpoint to abort an
+ * in-flight chat request even if the TCP connection hasn't been detected
+ * as closed (e.g. behind aggressive load balancers / proxies).
+ *
+ * Entries include a timestamp so a periodic sweep can evict stale controllers
+ * that were never cleaned up (e.g. due to an unhandled crash path).
+ */
+const activeAbortControllers = new Map<
+  string,
+  { controller: AbortController; createdAt: number }
+>();
+
+/** Maximum lifetime for an entry in the activeAbortControllers map (10 minutes). */
+const ABORT_CONTROLLER_TTL_MS = 10 * 60 * 1000;
+
+/** Sweep stale entries every 60 seconds. */
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, entry] of activeAbortControllers) {
+    if (now - entry.createdAt > ABORT_CONTROLLER_TTL_MS) {
+      entry.controller.abort();
+      activeAbortControllers.delete(id);
+      logger.warn('Evicted stale AbortController (TTL expired)', { operationId: id });
+    }
+  }
+}, 60_000).unref();
+
+/**
  * Convert a raw tool function name (e.g. `getAthleteStats`) into a
  * user-friendly label (e.g. "Getting athlete stats…").
  * Falls back to titlecasing the snake/camel name.
@@ -244,7 +281,43 @@ const deprecatedHandler = (_req: Request, res: Response) => {
 router.post('/ask', appGuard, deprecatedHandler);
 router.get('/status/:id', appGuard, deprecatedHandler);
 router.get('/events/:id', appGuard, deprecatedHandler);
-router.post('/cancel/:id', appGuard, deprecatedHandler);
+
+// ─── POST /cancel/:operationId — Explicit cancellation endpoint ───────────
+//
+// Provides a reliable cancellation path that works even when the SSE TCP
+// disconnect isn't detected by Node (e.g. App Engine proxy buffering).
+// The frontend calls this AND drops the SSE stream for belt-and-suspenders.
+
+router.post('/cancel/:id', appGuard, (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user?.uid) {
+    res.status(401).json({ success: false, error: 'Unauthorized' });
+    return;
+  }
+
+  const operationId = req.params['id'] as string;
+  if (!operationId) {
+    res.status(400).json({ success: false, error: 'Operation ID is required' });
+    return;
+  }
+
+  const entry = activeAbortControllers.get(operationId);
+  if (entry) {
+    entry.controller.abort();
+    activeAbortControllers.delete(operationId);
+    logger.info('Agent X operation cancelled via explicit endpoint', {
+      operationId,
+      userId: user.uid,
+    });
+  } else {
+    logger.info('Cancel requested but operation not found (may have already completed)', {
+      operationId,
+      userId: user.uid,
+    });
+  }
+
+  res.json({ success: true, cancelled: !!entry });
+});
 
 // ─── POST /resume-job/:operationId — Resume a yielded agent job ───────────
 //
@@ -805,14 +878,19 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       .doc(user.uid)
       .collection('agent_playbooks')
       .orderBy('generatedAt', 'desc')
-      .limit(1)
+      .limit(10)
       .get();
 
     let playbookItems: ShellWeeklyPlaybookItem[] = [];
     let playbookGeneratedAt: string | null = null;
 
-    if (!playbookDoc.empty) {
-      const pData = playbookDoc.docs[0].data();
+    const latestRealPlaybook = playbookDoc.docs.find((doc) => {
+      const items = (doc.data()['items'] ?? []) as ShellWeeklyPlaybookItem[];
+      return !isLegacyFallbackPlaybook(items);
+    });
+
+    if (latestRealPlaybook) {
+      const pData = latestRealPlaybook.data();
       playbookItems = (pData['items'] ?? []) as ShellWeeklyPlaybookItem[];
       playbookGeneratedAt = (pData['generatedAt'] as string) ?? null;
     }
@@ -1027,6 +1105,30 @@ router.post(
     const chatOperationId = `chat-${crypto.randomUUID()}`;
     const chatUser = getAuthUser(req);
     let resolvedThreadId: string | undefined;
+
+    // ── Cancellation: AbortController propagated to LLM + tool execution ──
+    // Aborted when the client disconnects (req.on('close')) or via the
+    // explicit POST /cancel/:operationId endpoint. The signal is passed
+    // to llmService.completeStream() (which forwards it to fetch()) and
+    // to each tool's ToolExecutionContext so long-running tools can bail out.
+    const abortController = new AbortController();
+    activeAbortControllers.set(chatOperationId, {
+      controller: abortController,
+      createdAt: Date.now(),
+    });
+
+    // Clean up the controller when the client drops the SSE connection.
+    // This is the primary cancellation path for well-behaved connections.
+    req.on('close', () => {
+      if (!abortController.signal.aborted) {
+        abortController.abort();
+        logger.info('Agent X operation aborted via SSE disconnect', {
+          operationId: chatOperationId,
+          userId: chatUser?.uid,
+        });
+      }
+      activeAbortControllers.delete(chatOperationId);
+    });
 
     try {
       const user = chatUser;
@@ -1303,15 +1405,18 @@ router.post(
       //
 
       // ── Budget preflight — reject before opening SSE stream ──────────
-      // checkBudget(costCents=0) performs a synchronous gate check using the
-      // user's current spend + pending holds vs their budget limit. We resolve
-      // teamId from the billing context internally, so no extra lookup needed.
-      const chatBudgetCheck = await checkBudget(db, user.uid, 0);
+      // resolveBillingTarget properly resolves org membership for directors
+      // and returns the correct org-level or individual-level context.
+      const chatTarget = await resolveBillingTarget(db, user.uid);
+      const chatCtx = chatTarget.context;
+      const chatBudgetCheck = checkBudgetFromContext(chatCtx);
       if (!chatBudgetCheck.allowed) {
+        const isWalletUser =
+          chatCtx.billingEntity === 'individual' && chatCtx.paymentProvider === 'iap';
         res.status(402).json({
           success: false,
-          error: chatBudgetCheck.reason ?? 'Budget limit reached',
-          code: 'BUDGET_EXCEEDED',
+          error: chatBudgetCheck.reason,
+          code: isWalletUser ? 'WALLET_EMPTY' : 'BUDGET_EXCEEDED',
         });
         return;
       }
@@ -1331,7 +1436,9 @@ router.post(
 
       // Send initial threadId so the frontend knows which thread to reference
       if (resolvedThreadId) {
-        res.write(`event: thread\ndata: ${JSON.stringify({ threadId: resolvedThreadId })}\n\n`);
+        res.write(
+          `event: thread\ndata: ${JSON.stringify({ threadId: resolvedThreadId, operationId: chatOperationId })}\n\n`
+        );
 
         forceProxyFlush(res);
 
@@ -1356,6 +1463,8 @@ router.post(
       let stepCounter = 0;
       // Track autoOpenPanel instructions emitted by tool executions (outer scope for done event)
       let pendingAutoOpenPanel: Record<string, unknown> | null = null;
+      // Track tool names the agent autonomously invokes (for billing metadata)
+      const invokedTools: string[] = [];
 
       // Build LLM tool schemas from the registry (read-only tools only for chat safety)
       const chatTools: LLMToolSchema[] = [];
@@ -1377,6 +1486,16 @@ router.post(
         try {
           // ── Agentic loop: stream → detect tool calls → execute → re-stream ──
           for (let turn = 0; turn < MAX_AGENTIC_TURNS; turn++) {
+            // Bail early if the client disconnected between loop iterations
+            if (abortController.signal.aborted) {
+              logger.info('Agentic loop bailing: abort signal received between turns', {
+                turn,
+                operationId: chatOperationId,
+                userId: user.uid,
+              });
+              break;
+            }
+
             const activeToolSteps = new Map<number, { id: string; name: string }>();
 
             const streamResult = await llmService.completeStream(
@@ -1385,6 +1504,7 @@ router.post(
                 tier: 'chat',
                 maxTokens: 4096,
                 temperature: 0.7,
+                signal: abortController.signal,
                 ...(chatTools.length > 0 ? { tools: chatTools } : {}),
                 telemetryContext: {
                   operationId: chatOperationId,
@@ -1538,11 +1658,15 @@ router.post(
                     };
                   }
 
+                  // Track tool invocation for autonomous billing metadata
+                  invokedTools.push(tc.function.name);
+
                   const result = toolRegistryRef
                     ? await toolRegistryRef.execute(tc.function.name, parsedArgs, {
                         userId: user.uid,
                         threadId: resolvedThreadId,
                         sessionId: chatOperationId,
+                        signal: abortController.signal,
                         onProgress: (label: string) => {
                           if (stepInfo) {
                             try {
@@ -1597,6 +1721,41 @@ router.post(
                       });
                     } catch {
                       // Client disconnected — swallow
+                    }
+                  }
+
+                  // Emit media SSE event for tool results containing image/video URLs
+                  // so the frontend can render them immediately (instead of waiting
+                  // for the LLM to mention them in its text response).
+                  if (result.success && result.data && typeof result.data === 'object') {
+                    const toolData = result.data as Record<string, unknown>;
+                    if (typeof toolData['imageUrl'] === 'string') {
+                      try {
+                        res.write(
+                          `event: media\ndata: ${JSON.stringify({
+                            type: 'image',
+                            url: toolData['imageUrl'],
+                            mimeType: toolData['mimeType'] ?? 'image/png',
+                          })}\n\n`
+                        );
+                        forceProxyFlush(res);
+                      } catch {
+                        // Client disconnected
+                      }
+                    }
+                    if (typeof toolData['videoUrl'] === 'string') {
+                      try {
+                        res.write(
+                          `event: media\ndata: ${JSON.stringify({
+                            type: 'video',
+                            url: toolData['videoUrl'],
+                            mimeType: toolData['mimeType'] ?? 'video/mp4',
+                          })}\n\n`
+                        );
+                        forceProxyFlush(res);
+                      } catch {
+                        // Client disconnected
+                      }
                     }
                   }
 
@@ -1827,12 +1986,29 @@ router.post(
             });
           }
         } catch (llmErr) {
-          logger.warn('OpenRouter streaming failed, using fallback', {
-            error: llmErr instanceof Error ? llmErr.message : String(llmErr),
-          });
-          responseContent = `I understand you're asking about "${message.slice(0, 50)}". Agent X is being set up — full AI responses will be available shortly. In the meantime, explore the Coordinator cards on your dashboard for quick actions.`;
-          // Send the fallback as a single delta
-          res.write(`event: delta\ndata: ${JSON.stringify({ content: responseContent })}\n\n`);
+          // ── Abort handling: user cancelled or SSE disconnected ──
+          // Gracefully end the stream without a fallback error message.
+          // The partial responseContent (if any) is still persisted below.
+          const isAbort =
+            abortController.signal.aborted ||
+            (llmErr instanceof Error && llmErr.name === 'AbortError');
+
+          if (isAbort) {
+            logger.info('Agent X chat aborted (user cancel or disconnect)', {
+              operationId: chatOperationId,
+              userId: user.uid,
+              partialContentLength: responseContent.length,
+            });
+            // Don't write anything more — the client is gone or stopped listening.
+            // Fall through to Step 5 to persist whatever partial content we have.
+          } else {
+            logger.warn('OpenRouter streaming failed, using fallback', {
+              error: llmErr instanceof Error ? llmErr.message : String(llmErr),
+            });
+            responseContent = `I understand you're asking about "${message.slice(0, 50)}". Agent X is being set up — full AI responses will be available shortly. In the meantime, explore the Coordinator cards on your dashboard for quick actions.`;
+            // Send the fallback as a single delta
+            res.write(`event: delta\ndata: ${JSON.stringify({ content: responseContent })}\n\n`);
+          }
         }
       } else {
         // No LLM service injected — use static fallback
@@ -1865,8 +2041,16 @@ router.post(
       // intent into a 3-6 word title, matching ChatGPT/Copilot behavior.
       // Runs inline (before done event) so the title_updated SSE frame
       // reaches the client while the stream is still open.
+      // Skip if aborted — the client is disconnected so there's no point.
       let generatedTitle: string | null = null;
-      if (isNewThread && chatService && llmService && resolvedThreadId && responseContent) {
+      if (
+        !abortController.signal.aborted &&
+        isNewThread &&
+        chatService &&
+        llmService &&
+        resolvedThreadId &&
+        responseContent
+      ) {
         try {
           generatedTitle = await chatService.generateThreadTitle(
             resolvedThreadId,
@@ -1891,34 +2075,37 @@ router.post(
       }
 
       // ── Step 6: Send final metadata event and close ──────────────────
-      const donePayload: Record<string, unknown> = {
-        threadId: resolvedThreadId,
-        model,
-        usage: tokenUsage,
-        timestamp: new Date().toISOString(),
-      };
+      // Skip SSE writes if the request was aborted (client already disconnected).
+      if (!abortController.signal.aborted) {
+        const donePayload: Record<string, unknown> = {
+          threadId: resolvedThreadId,
+          model,
+          usage: tokenUsage,
+          timestamp: new Date().toISOString(),
+        };
 
-      // Attach autoOpenPanel instruction if any tool requested one
-      if (pendingAutoOpenPanel) {
-        donePayload['autoOpenPanel'] = pendingAutoOpenPanel;
-        logger.info('Including autoOpenPanel in done event', {
-          type: (pendingAutoOpenPanel as Record<string, unknown>)['type'],
-          userId: user.uid,
-        });
-      }
+        // Attach autoOpenPanel instruction if any tool requested one
+        if (pendingAutoOpenPanel) {
+          donePayload['autoOpenPanel'] = pendingAutoOpenPanel;
+          logger.info('Including autoOpenPanel in done event', {
+            type: (pendingAutoOpenPanel as Record<string, unknown>)['type'],
+            userId: user.uid,
+          });
+        }
 
-      res.write(`event: done\ndata: ${JSON.stringify(donePayload)}\n\n`);
+        res.write(`event: done\ndata: ${JSON.stringify(donePayload)}\n\n`);
 
-      // Emit operation lifecycle event — marks this thread as complete
-      if (resolvedThreadId) {
-        res.write(
-          `event: operation\ndata: ${JSON.stringify({
-            threadId: resolvedThreadId,
-            status: 'complete',
-            timestamp: new Date().toISOString(),
-          })}\n\n`
-        );
-        forceProxyFlush(res);
+        // Emit operation lifecycle event — marks this thread as complete
+        if (resolvedThreadId) {
+          res.write(
+            `event: operation\ndata: ${JSON.stringify({
+              threadId: resolvedThreadId,
+              status: 'complete',
+              timestamp: new Date().toISOString(),
+            })}\n\n`
+          );
+          forceProxyFlush(res);
+        }
       }
 
       logger.info('Agent X SSE chat completed', {
@@ -1927,24 +2114,52 @@ router.post(
         threadId: resolvedThreadId,
       });
 
+      // Clean up the abort controller from the registry on normal completion
+      activeAbortControllers.delete(chatOperationId);
+
       res.end();
 
       // ── Step 7: Billing deduction (fire-and-forget) ────────────────────
       // Captures all accumulated LLM costs from the agentic loop (including
       // tool-call re-streams and title generation) via the job-cost-tracker.
+      // All agent compute is billed under ACTIVITY_USAGE; the specific tools
+      // the agent autonomously invoked are recorded in metadata so the /usage
+      // breakdown can display granular line items to the user.
       const { db: billingDb } = req.firebase!;
       void executeBillingDeduction({
         db: billingDb,
         userId: user.uid,
         operationId: chatOperationId,
-        feature: UsageFeature.CHAT_CONVERSATION,
+        feature: UsageFeature.ACTIVITY_USAGE,
         environment: (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'production') as
           | 'production'
           | 'staging',
-        metadata: { threadId: resolvedThreadId, model, mode },
+        metadata: { threadId: resolvedThreadId, model, mode, agentTools: invokedTools },
       });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
+
+      // ── Abort: user cancelled or SSE disconnected ─────────────────────
+      // Don't log as an error or write error events — this is a normal flow.
+      const isAbort = abortController.signal.aborted || error.name === 'AbortError';
+
+      if (isAbort) {
+        logger.info('Agent X chat handler terminated by abort', {
+          operationId: chatOperationId,
+          userId: chatUser?.uid,
+        });
+        // Clean end: the client is already disconnected, just close quietly.
+        if (!res.writableEnded) {
+          try {
+            res.end();
+          } catch {
+            // Already closed — expected for aborted connections
+          }
+        }
+        activeAbortControllers.delete(chatOperationId);
+        return;
+      }
+
       logger.error('Agent X chat failed', { error: error.message, stack: error.stack });
 
       // Bill for any partial streaming cost even on error (rage-quit protection)
@@ -1953,7 +2168,7 @@ router.post(
           db: req.firebase.db,
           userId: chatUser.uid,
           operationId: chatOperationId,
-          feature: UsageFeature.CHAT_CONVERSATION,
+          feature: UsageFeature.ACTIVITY_USAGE,
           environment: (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'production') as
             | 'production'
             | 'staging',
@@ -1970,22 +2185,28 @@ router.post(
         });
       } else {
         // Headers already sent (SSE mode) — send error event and close
-        res.write(
-          `event: error\ndata: ${JSON.stringify({ error: 'Failed to process message' })}\n\n`
-        );
-        // Emit operation lifecycle event — marks this thread as errored
-        if (resolvedThreadId) {
+        try {
           res.write(
-            `event: operation\ndata: ${JSON.stringify({
-              threadId: resolvedThreadId,
-              status: 'error',
-              timestamp: new Date().toISOString(),
-            })}\n\n`
+            `event: error\ndata: ${JSON.stringify({ error: 'Failed to process message' })}\n\n`
           );
-          forceProxyFlush(res);
+          // Emit operation lifecycle event — marks this thread as errored
+          if (resolvedThreadId) {
+            res.write(
+              `event: operation\ndata: ${JSON.stringify({
+                threadId: resolvedThreadId,
+                status: 'error',
+                timestamp: new Date().toISOString(),
+              })}\n\n`
+            );
+            forceProxyFlush(res);
+          }
+          res.end();
+        } catch {
+          // Client already disconnected — swallow write errors
         }
-        res.end();
       }
+
+      activeAbortControllers.delete(chatOperationId);
     }
   }
 );
@@ -2090,12 +2311,16 @@ router.post('/playbook/generate', appGuard, async (req: Request, res: Response) 
     }
 
     if (req.firebase?.db) {
-      const playbookBudgetCheck = await checkBudget(req.firebase.db, user.uid, 0);
+      const playbookTarget = await resolveBillingTarget(req.firebase.db, user.uid);
+      const playbookCtx = playbookTarget.context;
+      const playbookBudgetCheck = checkBudgetFromContext(playbookCtx);
       if (!playbookBudgetCheck.allowed) {
+        const isWalletUser =
+          playbookCtx.billingEntity === 'individual' && playbookCtx.paymentProvider === 'iap';
         res.status(402).json({
           success: false,
-          error: playbookBudgetCheck.reason ?? 'Budget limit reached',
-          code: 'BUDGET_EXCEEDED',
+          error: playbookBudgetCheck.reason,
+          code: isWalletUser ? 'WALLET_EMPTY' : 'BUDGET_EXCEEDED',
         });
         return;
       }
@@ -2125,6 +2350,10 @@ router.post('/playbook/generate', appGuard, async (req: Request, res: Response) 
     const error = err instanceof Error ? err : new Error(String(err));
     if (error.message.includes('Set at least one goal')) {
       res.status(400).json({ success: false, error: error.message });
+      return;
+    }
+    if (error.message.includes('AI playbook generation unavailable')) {
+      res.status(503).json({ success: false, error: 'AI playbook generation unavailable' });
       return;
     }
     logger.error('Failed to generate playbook', { error: error.message, stack: error.stack });
@@ -2228,12 +2457,16 @@ router.post(
       const { force = false } = req.body as { force?: boolean };
 
       if (req.firebase?.db) {
-        const briefingBudgetCheck = await checkBudget(req.firebase.db, user.uid, 0);
+        const briefingTarget = await resolveBillingTarget(req.firebase.db, user.uid);
+        const briefingCtx = briefingTarget.context;
+        const briefingBudgetCheck = checkBudgetFromContext(briefingCtx);
         if (!briefingBudgetCheck.allowed) {
+          const isWalletUser =
+            briefingCtx.billingEntity === 'individual' && briefingCtx.paymentProvider === 'iap';
           res.status(402).json({
             success: false,
-            error: briefingBudgetCheck.reason ?? 'Budget limit reached',
-            code: 'BUDGET_EXCEEDED',
+            error: briefingBudgetCheck.reason,
+            code: isWalletUser ? 'WALLET_EMPTY' : 'BUDGET_EXCEEDED',
           });
           return;
         }
@@ -2986,6 +3219,59 @@ router.post('/firecrawl/session/disconnect', appGuard, async (req: Request, res:
   }
 });
 
+/**
+ * GET /firecrawl/accounts — Return the user's Firecrawl sign-in accounts.
+ *
+ * Used by the frontend Connected Accounts modal to show which platforms
+ * are already signed in via Firecrawl persistent profiles.
+ *
+ * Returns: { success: true, data: Record<string, { status, profileName, connectedAt }> }
+ */
+router.get('/firecrawl/accounts', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) {
+      res.status(401).json({ success: false, error: 'Authentication required' });
+      return;
+    }
+
+    const db = req.firebase?.db;
+    if (!db) {
+      res.json({ success: true, data: {} });
+      return;
+    }
+
+    const userDoc = await db.collection('Users').doc(user.uid).get();
+    const accounts =
+      (userDoc.data()?.['connectedAccounts'] as Record<
+        string,
+        { type?: string; status?: string; profileName?: string; connectedAt?: string }
+      >) ?? {};
+
+    // Only return firecrawl_profile entries with active/connected status
+    const result: Record<string, { status: string; connectedAt?: string }> = {};
+    for (const [platform, account] of Object.entries(accounts)) {
+      if (
+        account?.type === 'firecrawl_profile' &&
+        (account.status === 'active' || account.status === 'connected')
+      ) {
+        result[platform] = {
+          status: account.status,
+          connectedAt: account.connectedAt,
+        };
+      }
+    }
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('[AgentX] Failed to fetch Firecrawl accounts', {
+      error: error.message,
+    });
+    res.status(500).json({ success: false, error: 'Failed to fetch accounts' });
+  }
+});
+
 // ─── LIVE VIEW SESSION ENDPOINTS ─────────────────────────────────────────────
 // Provide the Agent X desktop Command Center with session-backed, interactive
 // browser views. Supports both allowlisted platforms and arbitrary validated URLs.
@@ -3000,6 +3286,10 @@ router.post('/firecrawl/session/disconnect', appGuard, async (req: Request, res:
  * Returns: { success: true, data: LiveViewSession }
  */
 router.post('/live-view/start', appGuard, async (req: Request, res: Response) => {
+  // Firecrawl browser sessions legitimately take 15-30s to start.
+  // Override the global 30s timeout to avoid a premature 408.
+  res.setTimeout(90_000);
+
   try {
     const user = getAuthUser(req);
     if (!user) {
@@ -3038,9 +3328,25 @@ router.post('/live-view/start', appGuard, async (req: Request, res: Response) =>
       authStatus: result.session.authStatus,
     });
 
+    // Guard: the global request timeout may have already sent a 408
+    if (res.headersSent) {
+      logger.warn('[AgentX] Live view session started but response already sent (timeout)', {
+        sessionId: result.session.sessionId,
+      });
+      return;
+    }
+
     res.json({ success: true, data: result.session });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
+
+    // Guard: don't attempt to write if the timeout middleware already responded
+    if (res.headersSent) {
+      logger.warn('[AgentX] Live view start error after response already sent', {
+        error: error.message,
+      });
+      return;
+    }
 
     // 409 — conflict (concurrent saver on same profile)
     if (error.message.includes('409') || error.message.includes('conflict')) {

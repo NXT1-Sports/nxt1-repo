@@ -131,9 +131,10 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
   /**
    * Enable biometric login:
    * 1. Verify the device has biometric hardware.
-   * 2. Ask the user to confirm their current password (needed to store credentials).
-   * 3. Trigger the native Face ID / Touch ID prompt via BiometricService.
-   * 4. Only if enrollment succeeds, persist `biometricLogin: true` to the backend.
+   * 2. Show the native Face ID / Touch ID prompt first (verify identity).
+   * 3. Ask the user to confirm their current password (needed to store credentials).
+   * 4. Store credentials securely behind biometrics.
+   * 5. Only if everything succeeds, persist `biometricLogin: true` to the backend.
    *
    * Throws `UserCancelledError` if the user dismisses any prompt so the caller
    * (SettingsService) rolls back the optimistic toggle silently.
@@ -151,24 +152,38 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
       throw new Error('No authenticated user email found');
     }
 
-    // 3. Ask user for their password (needed for secure credential storage)
-    const password = await this.promptForPassword();
+    // 3. Show native Face ID / Touch ID prompt (feels like "enabling Face ID")
+    const authResult = await this.biometricService.authenticate({
+      reason: `Verify your identity to enable ${this.biometricService.biometryName()}`,
+      title: `Enable ${this.biometricService.biometryName()}`,
+    });
+    if (!authResult.success) {
+      if (authResult.errorCode === 'USER_CANCELLED') {
+        throw new UserCancelledError();
+      }
+      throw new Error(
+        `Could not verify ${this.biometricService.biometryName()}. Please try again.`
+      );
+    }
+
+    // 4. Use cached password from sign-in, or prompt as fallback
+    const password = this.authService.getCachedPassword() ?? (await this.promptForPassword());
     if (!password) {
       throw new UserCancelledError();
     }
 
-    // 4. Run the native enrollment flow (triggers Face ID / Touch ID prompt)
-    const result = await this.biometricService.promptNativeEnrollment(email, password);
-    if (!result.enrolled) {
-      if (result.reason === 'cancelled') {
-        throw new UserCancelledError();
-      }
+    // 5. Store credentials directly (native prompt already done above)
+    const stored = await this.biometricService.setCredentials('nxt1-auth', email, password);
+    if (!stored) {
       throw new Error(
-        `Could not enable ${this.biometricService.biometryName()}. Please try again.`
+        `Could not save credentials for ${this.biometricService.biometryName()}. Please try again.`
       );
     }
 
-    // 5. Persist to backend only after successful enrollment
+    // 6. Mark enrollment in device storage
+    await this.biometricService.markEnrolled();
+
+    // 7. Persist to backend only after successful enrollment
     await this.http.patch<ApiResponse<UserPreferences>>(
       `${this.baseUrl}/settings/preferences/biometricLogin`,
       { value: true }

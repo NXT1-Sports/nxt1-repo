@@ -54,8 +54,6 @@ export type UsageTimeframe =
 export interface UsageOverview {
   /** Current metered usage total in cents */
   readonly currentMeteredUsage: number;
-  /** Included usage discounts in cents */
-  readonly currentIncludedUsage: number;
   /** Next payment due date (ISO) or null if none */
   readonly nextPaymentDueDate: string | null;
   /** Next payment amount in cents (0 if none) */
@@ -340,6 +338,10 @@ export interface BillingContextSummary {
   readonly paymentProvider: PaymentProviderType;
   /** Pre-paid wallet balance in cents (IAP users only, 0 for stripe) */
   readonly walletBalanceCents: number;
+  /** Whether the current user can manage billing for the organization context */
+  readonly isOrgAdmin: boolean;
+  /** Whether the current user can manage billing for the team context */
+  readonly isTeamAdmin: boolean;
 }
 
 /** A team's sub-allocation within an organization budget */

@@ -300,7 +300,7 @@ export abstract class BaseAgent {
         );
         // Truncate large observations (e.g. scrape results) to prevent context overflow.
         // ONLY truncate markdownContent — never truncate the raw observation string, as that
-        // would corrupt structured data like imageUrl in generate_image results.
+        // would corrupt structured data like imageUrl in generate_graphic results.
         if (observation.length > MAX_OBSERVATION_LENGTH) {
           try {
             const parsed = JSON.parse(observation) as Record<string, unknown>;

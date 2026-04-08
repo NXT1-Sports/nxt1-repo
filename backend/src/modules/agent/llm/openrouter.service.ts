@@ -310,13 +310,20 @@ export class OpenRouterService {
     const model = options.modelOverride ?? IMAGE_MODEL;
     const startMs = Date.now();
 
-    // Build user content — plain text or multimodal (text + reference image)
-    let userContent: string | Array<Record<string, unknown>>;
+    // Build user content — plain text or multimodal (text + reference images)
+    const imageParts: Array<Record<string, unknown>> = [];
     if (options.referenceImageUrl) {
-      userContent = [
-        { type: 'image_url', image_url: { url: options.referenceImageUrl } },
-        { type: 'text', text: options.prompt },
-      ];
+      imageParts.push({ type: 'image_url', image_url: { url: options.referenceImageUrl } });
+    }
+    if (options.additionalImageUrls?.length) {
+      for (const url of options.additionalImageUrls) {
+        imageParts.push({ type: 'image_url', image_url: { url } });
+      }
+    }
+
+    let userContent: string | Array<Record<string, unknown>>;
+    if (imageParts.length > 0) {
+      userContent = [...imageParts, { type: 'text', text: options.prompt }];
     } else {
       userContent = options.prompt;
     }

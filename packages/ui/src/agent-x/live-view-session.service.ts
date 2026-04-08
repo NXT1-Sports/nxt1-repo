@@ -145,8 +145,17 @@ export class LiveViewSessionService {
 
       return session;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to start live view';
-      this.logger.error('Live view start failed', err, { url });
+      // Extract a user-friendly message from HttpErrorResponse or plain Error
+      const httpErr = err as { error?: { error?: string | { message?: string } }; status?: number };
+      const serverMsg =
+        typeof httpErr?.error?.error === 'string'
+          ? httpErr.error.error
+          : (httpErr?.error?.error as { message?: string })?.message;
+      const message =
+        httpErr?.status === 408
+          ? 'Live view is taking too long to start. Please try again.'
+          : (serverMsg ?? (err instanceof Error ? err.message : 'Failed to start live view'));
+      this.logger.error('Live view start failed', { error: err }, { url });
       this.handleError(message);
       this.analytics?.trackEvent(APP_EVENTS.LIVE_VIEW_SESSION_FAILED, {
         url,

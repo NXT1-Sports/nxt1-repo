@@ -1362,19 +1362,21 @@ export const DEFAULT_SOCIAL_LINKS: SocialLink[] = [
 /**
  * Whether the "Billing & Usage" sidebar item should be visible.
  *
- * Athletes who belong to a team/org do NOT manage their own billing —
- * the team handles it. Everyone else (solo athletes, coaches, directors,
- * recruiters, parents) sees the item.
+ * Always returns `true` — every user can see Billing & Usage.
+ * The backend's `getBillingContext` determines the actual billing entity
+ * (individual vs organization) and the Usage page renders accordingly.
  *
- * @param ctx - User display context (or null when unauthenticated)
- * @returns `true` if the Usage nav item should be rendered
+ * Previously this hid Usage for athletes on a team, but that incorrectly
+ * blocked athletes whose org had no admin or budget set — the backend
+ * treats them as individual billing, so they need access to manage it.
+ *
+ * @param _ctx - User display context (kept for API compatibility)
+ * @returns `true` always
  */
 export function shouldShowUsage(
-  ctx: { readonly isTeamRole: boolean; readonly isOnTeam: boolean } | null | undefined
+  _ctx?: { readonly isTeamRole: boolean; readonly isOnTeam: boolean } | null | undefined
 ): boolean {
-  if (!ctx) return true; // Logged-out / unknown — show (backend will gate)
-  if (ctx.isTeamRole) return true; // Coaches/directors always manage billing
-  return !ctx.isOnTeam; // Athletes on a team → hide; solo athletes → show
+  return true;
 }
 
 /**

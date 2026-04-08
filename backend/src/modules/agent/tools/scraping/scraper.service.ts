@@ -92,7 +92,7 @@ export class ScraperService {
    * @throws {Error} If URL is invalid, blocked, or all strategies fail.
    */
   async scrape(request: ScrapeRequest): Promise<ScrapeResult> {
-    const { url, maxLength = MAX_SCRAPE_CONTENT_LENGTH } = request;
+    const { url, maxLength = MAX_SCRAPE_CONTENT_LENGTH, signal } = request;
 
     // ── Validate & sanitize URL ────────────────────────────────────────
     const sanitizedUrl = this.validateUrl(url);
@@ -100,8 +100,8 @@ export class ScraperService {
 
     // ── Parallel: Tier 1 (direct fetch for structured data) + Tier 2 (Firecrawl for prose) ──
     const [htmlResult, firecrawlResult] = await Promise.all([
-      this.fetchHtml(sanitizedUrl),
-      this.tryFirecrawl(sanitizedUrl, maxLength),
+      this.fetchHtml(sanitizedUrl, signal),
+      this.tryFirecrawl(sanitizedUrl, maxLength, signal),
     ]);
 
     // ── Extract structured data from HTML (Tier 1) ─────────────────────
@@ -161,8 +161,13 @@ export class ScraperService {
    * Fetch raw HTML with a browser-like User-Agent.
    * Returns the full HTML string for structured data extraction.
    */
-  private async fetchHtml(url: string): Promise<{ html: string } | null> {
+  private async fetchHtml(url: string, signal?: AbortSignal): Promise<{ html: string } | null> {
     try {
+      // Combine the timeout signal with the cancellation signal (if provided).
+      // Either one firing will abort the fetch.
+      const timeoutSignal = AbortSignal.timeout(SCRAPE_TIMEOUT_MS);
+      const combinedSignal = signal ? AbortSignal.any([timeoutSignal, signal]) : timeoutSignal;
+
       const response = await fetch(url, {
         method: 'GET',
         headers: {
@@ -173,7 +178,7 @@ export class ScraperService {
           'Accept-Language': 'en-US,en;q=0.9',
         },
         redirect: 'follow',
-        signal: AbortSignal.timeout(SCRAPE_TIMEOUT_MS),
+        signal: combinedSignal,
       });
 
       if (!response.ok) return null;
@@ -201,13 +206,17 @@ export class ScraperService {
    */
   private async tryFirecrawl(
     url: string,
-    maxLength: number
+    maxLength: number,
+    signal?: AbortSignal
   ): Promise<{ title: string; markdownContent: string } | null> {
     const fc = this.getFirecrawl();
     if (!fc) return null;
 
+    // Bail early if already cancelled
+    if (signal?.aborted) return null;
+
     try {
-      const result = await fc.scrapeText(url);
+      const result = await fc.scrapeText(url, signal);
 
       if (!result.markdown || result.markdown.trim().length < 50) return null;
 

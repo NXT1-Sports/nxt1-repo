@@ -41,7 +41,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { trigger, transition, style, animate } from '@angular/animations';
-import { AlertController, IonInput } from '@ionic/angular/standalone';
+import { IonInput } from '@ionic/angular/standalone';
 import type { ReferralSourceData } from '@nxt1/core/api';
 import type { ILogger } from '@nxt1/core/logging';
 import { NxtLoggingService } from '../../services/logging';
@@ -631,7 +631,6 @@ export class OnboardingReferralStepComponent {
   // ============================================
 
   private readonly loggingService = inject(NxtLoggingService);
-  private readonly alertCtrl = inject(AlertController);
   private readonly nxtModal = inject(NxtModalService);
 
   /** Namespaced logger for this component */
@@ -835,38 +834,25 @@ export class OnboardingReferralStepComponent {
   // ============================================
 
   /**
-   * Open radio alert for referral source selection (same pattern as sport picker)
+   * Open native action sheet for referral source selection.
+   * Uses NxtModalService.actionSheet with preferNative: 'native' for
+   * consistent native-feel matching all other onboarding steps.
    */
   async openReferralPicker(): Promise<void> {
-    const current = this.selectedSource();
-
-    const alert = await this.alertCtrl.create({
-      header: 'How did you hear about us?',
-      cssClass: 'nxt-modal-prompt',
-      inputs: REFERRAL_OPTIONS.map((option) => ({
-        name: option.type,
-        type: 'checkbox' as const,
-        label: option.label,
-        value: option.type,
-        checked: current === option.type,
+    const result = await this.nxtModal.actionSheet({
+      title: 'How did you hear about us?',
+      actions: REFERRAL_OPTIONS.map((option) => ({
+        text: option.label,
+        data: option.type,
       })),
-      buttons: [
-        { text: 'Cancel', role: 'cancel', cssClass: 'nxt-modal-cancel-btn' },
-        {
-          text: 'Done',
-          cssClass: 'nxt-modal-confirm-btn',
-          handler: (values: ReferralSourceType[]) => {
-            const selected = values.length > 0 ? values[values.length - 1] : null;
-            if (selected) {
-              this.onSourceSelect(selected);
-              this.logger.debug('Referral selected via picker', { source: selected });
-            }
-          },
-        },
-      ],
+      preferNative: 'native',
     });
-    this.nxtModal.applyModalTheme(alert);
-    await alert.present();
+
+    if (result?.selected && result.data) {
+      const selected = result.data as ReferralSourceType;
+      this.onSourceSelect(selected);
+      this.logger.debug('Referral selected via picker', { source: selected });
+    }
   }
 
   // ============================================

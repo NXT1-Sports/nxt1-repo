@@ -267,7 +267,7 @@ export class LiveViewSessionService {
 
     if (destination.tier === 'platform' && destination.platformKey && connectedAccounts) {
       const account = connectedAccounts[destination.platformKey];
-      if (account?.profileName && account.status === 'connected') {
+      if (account?.profileName && (account.status === 'active' || account.status === 'connected')) {
         profileName = account.profileName;
         authStatus = 'authenticated';
         logger.info('[LiveViewSession] Using authenticated profile', {
@@ -564,9 +564,14 @@ export class LiveViewSessionService {
   }
 
   /**
-   * Extract the current page content from an active live-view session as markdown.
-   * Uses Playwright's `page.content()` to grab the DOM, then instructs the page
-   * to return a simplified text representation the LLM can consume.
+   * Extract the current page content from an active live-view session.
+   *
+   * Uses a two-pass approach:
+   * 1. Get URL + title via lightweight Playwright expressions.
+   * 2. Use Firecrawl's built-in AI prompt to extract meaningful page content.
+   *    This handles SPAs (Hudl, MaxPreps, etc.) where the real data is rendered
+   *    dynamically and raw HTML stripping returns only script bundles/noise.
+   *    Falls back to `document.body.innerText` if the prompt fails.
    */
   async extractContent(
     sessionId: string,
@@ -576,14 +581,56 @@ export class LiveViewSessionService {
 
     logger.info('[LiveViewSession] Extracting content', { sessionId });
 
-    const [url, title, content] = await Promise.all([
-      this.executeBrowserCommand(sessionId, 'const u = page.url(); u'),
-      this.executeBrowserCommand(sessionId, 'const t = await page.title(); t'),
-      this.executeBrowserCommand(
+    // 1. Lightweight metadata via Playwright (bare expressions — no `const` declarations
+    //    because Firecrawl's persistent Node scope would collide across calls).
+    const url = await this.executeBrowserCommand(sessionId, 'page.url()');
+    const title = await this.executeBrowserCommand(sessionId, 'await page.title()');
+
+    // 2. Use Firecrawl's AI prompt extraction — it reads the live accessibility tree
+    //    and rendered content, so it works on heavy SPAs where raw HTML is useless.
+    let content = '';
+    try {
+      const result: ScrapeExecuteResponse = await this.client.interact(sessionId, {
+        prompt:
+          'Extract all visible text content from this page. Include headings, data tables, ' +
+          'stats, play-by-play data, labels, navigation items, and any other readable text. ' +
+          'Return the raw text content organized by section — do not summarize or interpret, ' +
+          'just extract what is visible on screen.',
+      });
+
+      if (result.success && result.output) {
+        content = result.output.trim();
+        logger.info('[LiveViewSession] AI extraction succeeded', {
+          sessionId,
+          contentLength: content.length,
+        });
+      }
+    } catch (err) {
+      logger.warn('[LiveViewSession] AI extraction failed, falling back to innerText', {
         sessionId,
-        'const html = await page.content(); const text = html.replace(/<[^>]*>/g, " ").replace(/\\s+/g, " ").trim(); text'
-      ),
-    ]);
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // 3. Fallback: grab visible text via innerText (much better than raw HTML stripping)
+    if (!content) {
+      try {
+        content = await this.executeBrowserCommand(
+          sessionId,
+          'await page.$eval("body", el => el.innerText)'
+        );
+        logger.info('[LiveViewSession] innerText fallback succeeded', {
+          sessionId,
+          contentLength: content.length,
+        });
+      } catch (fallbackErr) {
+        logger.warn('[LiveViewSession] innerText fallback also failed', {
+          sessionId,
+          error: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
+        });
+        content = '(Page content could not be extracted — the page may still be loading)';
+      }
+    }
 
     return {
       url,

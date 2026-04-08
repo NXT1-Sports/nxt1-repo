@@ -102,7 +102,8 @@ export class FirecrawlService {
    * @returns Markdown content, title, and metadata.
    * @throws {Error} If the scrape fails or the URL is invalid.
    */
-  async scrapeText(url: string): Promise<FirecrawlScrapeResult> {
+  async scrapeText(url: string, signal?: AbortSignal): Promise<FirecrawlScrapeResult> {
+    if (signal?.aborted) throw new Error('Operation cancelled');
     const start = Date.now();
 
     logger.info('[FirecrawlService] Scraping URL', { url });
@@ -112,6 +113,9 @@ export class FirecrawlService {
       onlyMainContent: true,
       timeout: FIRECRAWL_TIMEOUT_MS,
     });
+
+    // Check again after the (possibly long) network call
+    if (signal?.aborted) throw new Error('Operation cancelled');
 
     const markdown = this.truncate(doc.markdown ?? '', MAX_MARKDOWN_LENGTH);
     const title = doc.metadata?.title ?? this.extractTitleFromMarkdown(markdown) ?? '';
@@ -150,7 +154,12 @@ export class FirecrawlService {
    * @param actions - Ordered browser actions to perform before extraction.
    * @returns Markdown content of the page after all actions complete.
    */
-  async scrapeWithActions(url: string, actions: ActionOption[]): Promise<FirecrawlScrapeResult> {
+  async scrapeWithActions(
+    url: string,
+    actions: ActionOption[],
+    signal?: AbortSignal
+  ): Promise<FirecrawlScrapeResult> {
+    if (signal?.aborted) throw new Error('Operation cancelled');
     const start = Date.now();
 
     logger.info('[FirecrawlService] Sandbox scrape starting', {
@@ -196,7 +205,8 @@ export class FirecrawlService {
    * @param limit - Maximum number of results (default: 5).
    * @returns Search results with markdown content.
    */
-  async search(query: string, limit = 5): Promise<FirecrawlSearchResult> {
+  async search(query: string, limit = 5, signal?: AbortSignal): Promise<FirecrawlSearchResult> {
+    if (signal?.aborted) throw new Error('Operation cancelled');
     logger.info('[FirecrawlService] Web search', { query, limit });
 
     const response = await this.client.search(query, { limit });

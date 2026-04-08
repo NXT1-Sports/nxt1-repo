@@ -194,7 +194,12 @@ export class SettingsService {
    */
   setUser(user: SettingsUserInfo | null): void {
     this._user.set(user);
-    this._sections.set(getSettingsSectionsForRole(user?.role));
+    this._sections.set(
+      getSettingsSectionsForRole(user?.role, {
+        authProvider: user?.authProvider,
+        isNativeMobile: user?.isNativeMobile,
+      })
+    );
     this.logger.debug('User info set', { userId: user?.id ?? null, role: user?.role ?? null });
   }
 

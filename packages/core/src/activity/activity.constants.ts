@@ -134,7 +134,7 @@ export const ACTIVITY_EMPTY_STATES: Record<
 > = {
   alerts: {
     title: 'No alerts yet',
-    message: 'Agent X updates, follows, and notifications will appear here.',
+    message: 'Agent X updates and notifications will appear here.',
     icon: 'bell',
   },
 } as const;

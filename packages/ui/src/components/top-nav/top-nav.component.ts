@@ -393,6 +393,7 @@ import type {
                   <nxt1-avatar
                     [src]="user()?.profileImg"
                     [name]="user()?.name"
+                    [initials]="user()?.initials"
                     [isTeamRole]="user()?.isTeamRole"
                     [customSize]="32"
                     [showSkeleton]="false"
@@ -438,6 +439,7 @@ import type {
                       <nxt1-avatar
                         [src]="user()?.profileImg"
                         [name]="user()?.name"
+                        [initials]="user()?.initials"
                         [isTeamRole]="user()?.isTeamRole"
                         [customSize]="40"
                         [showSkeleton]="false"
@@ -480,10 +482,11 @@ import type {
                         [class.user-sport-item--active]="profile.isActive"
                       >
                         <nxt1-avatar
-                          [src]="profile.profileImg || user()!.profileImg"
+                          [src]="profile.profileImg"
                           [name]="profile.sport"
                           [isTeamRole]="user()!.isTeamRole ?? false"
                           [initials]="user()!.isTeamRole ? '' : getSportInitials(profile.sport)"
+                          [defaultIcon]="user()!.isTeamRole ? 'shield' : 'athlete'"
                           [customSize]="28"
                           [showSkeleton]="false"
                         />
@@ -647,6 +650,7 @@ import type {
                   <nxt1-avatar
                     [src]="user()?.profileImg"
                     [name]="user()?.name"
+                    [initials]="user()?.initials"
                     [isTeamRole]="user()?.isTeamRole"
                     [customSize]="48"
                     [showSkeleton]="false"
@@ -689,10 +693,11 @@ import type {
                     [class.mobile-sport-item--active]="profile.isActive"
                   >
                     <nxt1-avatar
-                      [src]="profile.profileImg || user()!.profileImg"
+                      [src]="profile.profileImg"
                       [name]="profile.sport"
                       [isTeamRole]="user()!.isTeamRole ?? false"
                       [initials]="user()!.isTeamRole ? '' : getSportInitials(profile.sport)"
+                      [defaultIcon]="user()!.isTeamRole ? 'shield' : 'athlete'"
                       [customSize]="28"
                       [showSkeleton]="false"
                     />

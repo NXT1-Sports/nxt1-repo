@@ -22,7 +22,6 @@ import {
   NavController,
 } from '@ionic/angular/standalone';
 import { UsageShellComponent, UsageService, type UsageSection } from '@nxt1/ui';
-import { IapService } from '../../core/services/iap.service';
 
 @Component({
   selector: 'app-usage',
@@ -33,12 +32,7 @@ import { IapService } from '../../core/services/iap.service';
       <ion-toolbar></ion-toolbar>
     </ion-header>
     <ion-content [fullscreen]="true">
-      <nxt1-usage-shell
-        [user]="null"
-        [showPageHeader]="true"
-        [buyCreditsHandler]="iapBuyCredits"
-        (back)="navigateBack()"
-      />
+      <nxt1-usage-shell [user]="null" [showPageHeader]="true" (back)="navigateBack()" />
     </ion-content>
   `,
   styles: [
@@ -77,12 +71,6 @@ export class UsageComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly usage = inject(UsageService);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly iap = inject(IapService);
-
-  /** Passed to UsageShellComponent to override Stripe with Apple IAP on iOS */
-  protected readonly iapBuyCredits = async (): Promise<void> => {
-    await this.iap.showProductsAndPurchase();
-  };
 
   private readonly usageSections: readonly UsageSection[] = [
     'overview',

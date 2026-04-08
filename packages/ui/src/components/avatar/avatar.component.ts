@@ -189,7 +189,10 @@ import {
         <!-- Default icon fallback (no name, no image) -->
         @if (showDefaultIcon()) {
           <div class="avatar-default" aria-hidden="true">
-            <nxt1-icon [name]="isTeamRole ? 'shield' : 'person'" [size]="iconSize()" />
+            <nxt1-icon
+              [name]="defaultIcon || (isTeamRole ? 'shield' : 'person')"
+              [size]="iconSize()"
+            />
           </div>
         }
       </div>
@@ -716,6 +719,14 @@ export class NxtAvatarComponent implements OnChanges {
    */
   @Input({ transform: booleanAttribute }) isTeamRole = false;
 
+  /**
+   * Override the default fallback icon name.
+   * When set, this icon is shown instead of the default 'person' or 'shield' icon
+   * when no image or initials are available.
+   * Example: 'athlete' for athlete sport profile placeholders.
+   */
+  @Input() defaultIcon?: string;
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -855,6 +866,9 @@ export class NxtAvatarComponent implements OnChanges {
     // Team roles without an image show the shield icon, not personal initials
     if (this.isTeamRole && (!hasSrc || state === 'error')) return false;
 
+    // When a defaultIcon is set, prefer the icon over initials
+    if (this.defaultIcon && (!hasSrc || state === 'error')) return false;
+
     // Show initials if:
     // 1. No image source and has name
     // 2. Image failed to load and has name
@@ -869,6 +883,9 @@ export class NxtAvatarComponent implements OnChanges {
 
     // Team roles without an image always show the shield icon
     if (this.isTeamRole && (!hasSrc || state === 'error')) return true;
+
+    // When a defaultIcon is set, always show it when no image is available
+    if (this.defaultIcon && (!hasSrc || state === 'error')) return true;
 
     // Show default icon if no image and no name for initials
     return (!hasSrc || state === 'error') && !hasName;

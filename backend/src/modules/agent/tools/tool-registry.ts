@@ -137,6 +137,11 @@ export class ToolRegistry {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
+    // Bail immediately if the operation was cancelled before tool execution starts
+    if (context?.signal?.aborted) {
+      return { success: false, error: 'Operation cancelled' };
+    }
+
     const tool = this.tools.get(name);
     if (!tool) {
       return { success: false, error: `Unknown tool: ${name}` };

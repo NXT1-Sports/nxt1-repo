@@ -159,6 +159,29 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   readonly displayName = computed(() => this.user()?.displayName ?? 'User');
   readonly profileImg = computed(() => this.user()?.profileImg);
 
+  // ============================================
+  // BIOMETRIC CREDENTIAL CACHE (Session-only)
+  // ============================================
+
+  /**
+   * In-memory cache of the user's password from the most recent
+   * email sign-in or sign-up.  Used by the biometric enrollment
+   * flow in Settings so the user doesn't have to re-enter it.
+   *
+   * Cleared on sign-out and never persisted to disk.
+   */
+  private _cachedPassword: string | null = null;
+
+  /** Returns the cached password (if the user signed in with email this session). */
+  getCachedPassword(): string | null {
+    return this._cachedPassword;
+  }
+
+  /** Wipe the in-memory password cache. */
+  clearCachedPassword(): void {
+    this._cachedPassword = null;
+  }
+
   /**
    * ⭐ USER PROFILE (delegated to ProfileService) ⭐
    *
@@ -408,9 +431,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       const firebaseUser = this.firebaseAuth.getCurrentUser();
       if (!firebaseUser) return;
 
-      // Map Microsoft to email for AuthProvider compatibility
-      const rawProvider = this.firebaseAuth.getProviderFromUser(firebaseUser);
-      const provider = rawProvider === 'microsoft' ? 'email' : rawProvider;
+      const provider = this.firebaseAuth.getProviderFromUser(firebaseUser);
 
       // ⭐ Load user profile via ProfileService (single source of truth)
       await this.profileService.load(uid);
@@ -525,6 +546,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         credentials.email,
         credentials.password
       );
+
+      // Cache password for potential biometric enrollment later
+      this._cachedPassword = credentials.password;
 
       // Track successful sign in
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_IN, { method: AUTH_METHODS.EMAIL });
@@ -773,6 +797,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         credentials.password
       );
 
+      // Cache password for potential biometric enrollment later
+      this._cachedPassword = credentials.password;
+
       try {
         // Track signup analytics
         this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_UP, {
@@ -974,6 +1001,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       // Unregister FCM token (non-blocking)
       void this.fcmRegistration.unregisterToken();
+
+      // Clear cached password
+      this._cachedPassword = null;
 
       // ⭐ Clear profile via ProfileService (single source of truth)
       await this.profileService.clear();

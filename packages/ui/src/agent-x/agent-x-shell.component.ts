@@ -34,6 +34,8 @@ import {
   computed,
   afterNextRender,
   effect,
+  viewChild,
+  ElementRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Location } from '@angular/common';
@@ -51,6 +53,7 @@ import {
 } from './agent-x-control-panel-state.service';
 
 import { AgentXPromptInputComponent } from './agent-x-prompt-input.component';
+import { AGENT_X_ALLOWED_MIME_TYPES } from '@nxt1/core/ai';
 import {
   AgentXOperationChatComponent,
   type OperationQuickAction,
@@ -60,6 +63,8 @@ import { AgentXOperationsLogComponent } from './agent-x-operations-log.component
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
+import { UsageBottomSheetService } from '../usage/usage-bottom-sheet.service';
+import { UsageService } from '../usage/usage.service';
 import {
   type ShellWeeklyPlaybookItem,
   type AgentDashboardGoal,
@@ -67,6 +72,8 @@ import {
 } from '@nxt1/core/ai';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './fab/agent-x-logo.constants';
 import { NxtStateViewComponent } from '../components/state-view';
+import { ConnectedAccountsModalService } from '../components/connected-sources';
+import type { OnboardingUserType } from '@nxt1/core';
 
 // ============================================
 // INTERFACES
@@ -163,15 +170,26 @@ export interface WeeklyPlaybookItem {
           </svg>
         </div>
 
-        <button
-          pageHeaderSlot="end"
-          type="button"
-          class="agent-history-action"
-          aria-label="Agent Logs"
-          (click)="onActivityLogClick()"
-        >
-          <nxt1-icon name="time" [size]="22" className="agent-history-icon" />
-        </button>
+        <div pageHeaderSlot="end" class="agent-header-actions">
+          @if (canManageBilling()) {
+            <button
+              type="button"
+              class="agent-header-action"
+              [attr.aria-label]="billingActionAriaLabel()"
+              (click)="onBillingActionClick()"
+            >
+              <nxt1-icon name="card" [size]="22" className="agent-header-icon" />
+            </button>
+          }
+          <button
+            type="button"
+            class="agent-header-action"
+            aria-label="Agent Sessions"
+            (click)="onActivityLogClick()"
+          >
+            <nxt1-icon name="time" [size]="22" className="agent-header-icon" />
+          </button>
+        </div>
       </nxt1-page-header>
     }
 
@@ -198,39 +216,57 @@ export interface WeeklyPlaybookItem {
         <!-- ═══ 1. DAILY BRIEFING ═══ -->
         @if (agentX.dashboardLoaded()) {
           <section class="briefing-section" aria-label="Daily briefing">
-            <!-- Greeting -->
+            <button
+              type="button"
+              class="briefing-status-dot-btn"
+              [class.briefing-status-dot-btn--degraded]="agentStatusTone() === 'warning'"
+              [class.briefing-status-dot-btn--down]="agentStatusTone() === 'critical'"
+              (click)="openControlPanel('status')"
+              [attr.aria-label]="agentStatusLabel()"
+            >
+              <span class="briefing-status-label">{{ agentStatusLabel() }}</span>
+              <span
+                class="status-dot"
+                [class.status-dot--degraded]="agentStatusTone() === 'warning'"
+                [class.status-dot--down]="agentStatusTone() === 'critical'"
+              ></span>
+            </button>
+
             <h2 class="briefing-greeting">{{ greeting() }}</h2>
 
-            <!-- Briefing Summary (Compact) -->
+            <!-- briefing-summary hidden for now — re-enable when ready
             <p class="briefing-summary">{{ briefingPreview() }}</p>
+            -->
 
-            <!-- AI Pulse Indicator & Badges -->
-            <div class="briefing-top-badges">
-              <button
-                type="button"
-                class="header-badge status-badge"
-                [class.status-badge--degraded]="agentStatusTone() === 'warning'"
-                [class.status-badge--down]="agentStatusTone() === 'critical'"
-                (click)="openControlPanel('status')"
-              >
-                <div
-                  class="pulse-dot"
-                  [class.pulse-dot--degraded]="agentStatusTone() === 'warning'"
-                  [class.pulse-dot--down]="agentStatusTone() === 'critical'"
-                ></div>
-                <span>{{ agentStatusLabel() }}</span>
-              </button>
-              <button
-                type="button"
-                class="header-badge budget-badge"
-                (click)="openControlPanel('budget')"
-              >
-                <nxt1-icon name="wallet" [size]="14"></nxt1-icon>
-                <span>{{ agentBudgetBadgeLabel() }}</span>
-              </button>
-              <button type="button" class="header-badge goals-badge" (click)="onSetupGoals()">
+            <div class="inline-goals">
+              <button type="button" class="inline-goals__manage-btn" (click)="onSetupGoals()">
                 <nxt1-icon name="settings" [size]="14"></nxt1-icon>
                 <span>Manage Goals</span>
+                @if (agentX.goals().length > 0) {
+                  <span class="inline-goals__manage-count">{{ agentX.goals().length }}</span>
+                }
+              </button>
+              <button
+                type="button"
+                class="inline-goals__manage-btn"
+                (click)="openConnectedAccounts()"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                </svg>
+                <span>Connected Accounts</span>
               </button>
             </div>
 
@@ -240,19 +276,21 @@ export interface WeeklyPlaybookItem {
                 <h3 class="section-title action-plan-title">Today's Action Plan</h3>
                 @if (playbookTotalCount() > 0) {
                   <div class="action-plan-status">
-                    <span class="action-plan-percent">{{ actionPlanProgressPercent() }}%</span>
-                    <div
-                      class="action-plan-progress"
-                      aria-label="Action plan progress"
-                      [attr.aria-valuenow]="actionPlanProgressPercent()"
-                      aria-valuemin="0"
-                      aria-valuemax="100"
-                      role="progressbar"
-                    >
+                    <div class="action-plan-status-main">
+                      <span class="action-plan-percent">{{ actionPlanProgressPercent() }}%</span>
                       <div
-                        class="action-plan-progress-bar"
-                        [style.width.%]="actionPlanProgressPercent()"
-                      ></div>
+                        class="action-plan-progress"
+                        aria-label="Action plan progress"
+                        [attr.aria-valuenow]="actionPlanProgressPercent()"
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        role="progressbar"
+                      >
+                        <div
+                          class="action-plan-progress-bar"
+                          [style.width.%]="actionPlanProgressPercent()"
+                        ></div>
+                      </div>
                     </div>
                     <p class="action-plan-meta">{{ actionPlanCompletionLabel() }}</p>
                   </div>
@@ -405,6 +443,9 @@ export interface WeeklyPlaybookItem {
                     Agent X will generate your personalized action plan based on your goals and
                     profile data.
                   </p>
+                  <button type="button" class="action-empty-btn" (click)="onGenerateActionsClick()">
+                    {{ agentX.goals().length > 0 ? 'Generate Actions' : 'Set Goals' }}
+                  </button>
                 </div>
               }
             </section>
@@ -414,13 +455,18 @@ export interface WeeklyPlaybookItem {
     </ion-content>
 
     <!-- ═══ FLOATING COORDINATOR CHIPS — Fixed above input ═══ -->
-    <section class="floating-coordinators" aria-label="Coordinators">
+    <section
+      class="floating-coordinators"
+      [class.has-files]="agentX.hasPendingFiles()"
+      aria-label="Coordinators"
+    >
       <div class="floating-coordinators-scroll" role="list">
         @for (cat of commandCategories(); track cat.id) {
           <button
             type="button"
             role="listitem"
             class="floating-coordinator-pill"
+            [attr.data-coordinator]="cat.id"
             (click)="onCategoryTap(cat)"
           >
             {{ cat.label }}
@@ -447,6 +493,14 @@ export interface WeeklyPlaybookItem {
       (filesAdded)="agentX.addFiles($event)"
       (fileRemoved)="agentX.removeFile($event)"
     />
+    <input
+      #fileInput
+      class="file-input-hidden"
+      type="file"
+      [accept]="acceptedFileTypes"
+      multiple
+      (change)="onFileSelected($event)"
+    />
   `,
   styles: [
     `
@@ -459,6 +513,15 @@ export interface WeeklyPlaybookItem {
         display: block;
         height: 100%;
         width: 100%;
+
+        .file-input-hidden {
+          position: absolute;
+          width: 0;
+          height: 0;
+          opacity: 0;
+          overflow: hidden;
+          pointer-events: none;
+        }
 
         --agent-bg: var(--nxt1-color-bg-primary, var(--ion-background-color, #0a0a0a));
         --agent-surface: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
@@ -515,7 +578,13 @@ export interface WeeklyPlaybookItem {
         transform: translateY(1px);
       }
 
-      .agent-history-action {
+      .agent-header-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .agent-header-action {
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -528,7 +597,7 @@ export interface WeeklyPlaybookItem {
         color: var(--agent-text-primary);
       }
 
-      .agent-history-icon {
+      .agent-header-icon {
         display: block;
       }
 
@@ -893,89 +962,55 @@ export interface WeeklyPlaybookItem {
         padding: var(--nxt1-spacing-6, 24px) 0 var(--nxt1-spacing-4, 16px);
       }
 
-      /* AI Active Pulse */
-      .briefing-top-badges {
-        display: flex;
+      .briefing-status-dot-btn {
+        display: inline-flex;
         align-items: center;
-        gap: var(--nxt1-spacing-2, 8px);
-        margin-bottom: var(--nxt1-spacing-6, 24px);
-        flex-wrap: wrap;
-      }
-
-      .header-badge {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 10px;
-        appearance: none;
-        -webkit-appearance: none;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        font-size: 12px;
-        font-weight: 600;
-        letter-spacing: 0.02em;
-        line-height: 1;
-        white-space: nowrap;
-        background: var(--agent-surface);
-        border: 1px solid var(--agent-border);
-        color: var(--agent-text-primary);
+        gap: 8px;
+        margin: 0 0 var(--nxt1-spacing-3, 12px);
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: var(--agent-primary);
         cursor: pointer;
         font-family: inherit;
-        transition:
-          color 0.15s ease,
-          background 0.15s ease,
-          border-color 0.15s ease;
+        -webkit-appearance: none;
+        appearance: none;
       }
 
-      .header-badge:active {
-        background: var(--agent-surface-hover);
-      }
-
-      .header-badge.status-badge {
-        color: var(--agent-primary);
-        border-color: var(--agent-primary-glow);
-        background: var(--agent-primary-glow);
-      }
-
-      .header-badge.status-badge.status-badge--degraded {
+      .briefing-status-dot-btn--degraded {
         color: #f59e0b;
-        border-color: rgba(245, 158, 11, 0.24);
-        background: rgba(245, 158, 11, 0.12);
       }
 
-      .header-badge.status-badge.status-badge--down {
+      .briefing-status-dot-btn--down {
         color: #ef4444;
-        border-color: rgba(239, 68, 68, 0.24);
-        background: rgba(239, 68, 68, 0.12);
       }
 
-      .header-badge.budget-badge {
-        color: var(--agent-text-primary);
+      .briefing-status-label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        line-height: 1;
+        text-transform: uppercase;
+        color: currentColor;
       }
 
-      .header-badge.goals-badge {
-        color: var(--agent-text-secondary);
-      }
-
-      .header-badge.goals-badge:active {
-        color: var(--agent-text-primary);
-        background: var(--agent-surface-hover);
-      }
-
-      .pulse-dot {
-        width: 8px;
-        height: 8px;
+      .status-dot {
+        width: 10px;
+        height: 10px;
         border-radius: 50%;
         background: var(--agent-primary);
-        position: relative;
+        box-shadow: 0 0 6px rgba(204, 255, 0, 0.5);
         flex-shrink: 0;
       }
 
-      .pulse-dot--degraded {
+      .status-dot--degraded {
         background: #f59e0b;
+        box-shadow: 0 0 6px rgba(245, 158, 11, 0.45);
       }
 
-      .pulse-dot--down {
+      .status-dot--down {
         background: #ef4444;
+        box-shadow: 0 0 6px rgba(239, 68, 68, 0.45);
       }
 
       /* Greeting */
@@ -1024,6 +1059,10 @@ export interface WeeklyPlaybookItem {
         transition: bottom 0.28s cubic-bezier(0.32, 0.72, 0, 1);
       }
 
+      .floating-coordinators.has-files {
+        bottom: calc(76px + 84px + var(--keyboard-offset, 0px));
+      }
+
       @media (min-width: 768px) {
         .floating-coordinators {
           left: var(--agent-input-desktop-left, var(--nxt1-sidebar-width, 280px));
@@ -1036,8 +1075,15 @@ export interface WeeklyPlaybookItem {
           left: var(--nxt1-footer-left, 16px);
           right: var(--nxt1-footer-right, 16px);
           bottom: calc(
-            var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 52px +
+            var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 52px + 8px +
               var(--keyboard-offset, 0px)
+          );
+        }
+
+        .floating-coordinators.has-files {
+          bottom: calc(
+            var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 52px + 8px +
+              84px + var(--keyboard-offset, 0px)
           );
         }
       }
@@ -1058,28 +1104,98 @@ export interface WeeklyPlaybookItem {
       }
 
       .floating-coordinator-pill {
+        --coordinator-pill-accent: var(--agent-primary);
+        --coordinator-pill-surface: color-mix(
+          in srgb,
+          var(--coordinator-pill-accent) 18%,
+          var(--agent-glass-bg)
+        );
+        --coordinator-pill-border: color-mix(
+          in srgb,
+          var(--coordinator-pill-accent) 54%,
+          var(--agent-border)
+        );
+        --coordinator-pill-shadow: color-mix(
+          in srgb,
+          var(--coordinator-pill-accent) 22%,
+          transparent
+        );
         flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
         border: 1px solid var(--agent-border);
         border-radius: var(--nxt1-radius-full, 9999px);
-        padding: 12px 16px;
-        background: var(--agent-glass-bg);
+        padding: 11px 16px;
+        background: var(--coordinator-pill-surface);
         color: var(--agent-text-primary);
         font-size: 13px;
         font-weight: 600;
         line-height: 1;
         white-space: nowrap;
+        box-shadow:
+          0 10px 24px var(--coordinator-pill-shadow),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 10%, white);
+        border-color: var(--coordinator-pill-border);
         backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         transition:
           border-color 0.15s ease,
           background 0.15s ease,
+          box-shadow 0.15s ease,
           transform 0.15s ease;
       }
 
       .floating-coordinator-pill:active {
-        border-color: var(--agent-primary);
-        background: var(--agent-primary-glow);
+        border-color: color-mix(in srgb, var(--coordinator-pill-accent) 72%, white);
+        background: color-mix(in srgb, var(--coordinator-pill-accent) 28%, var(--agent-glass-bg));
+        box-shadow:
+          0 12px 28px color-mix(in srgb, var(--coordinator-pill-accent) 26%, transparent),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, white);
         transform: scale(0.98);
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-recruiting'] {
+        --coordinator-pill-accent: #ccff00;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-media'] {
+        --coordinator-pill-accent: #ff7a45;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-scout'] {
+        --coordinator-pill-accent: #41b8ff;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-academics'] {
+        --coordinator-pill-accent: #9d7bff;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-roster'] {
+        --coordinator-pill-accent: #2fd39a;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-scouting'] {
+        --coordinator-pill-accent: #3fa3ff;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-team-media'] {
+        --coordinator-pill-accent: #ff5d8f;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-prospect-search'] {
+        --coordinator-pill-accent: #ffd447;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-evaluation'] {
+        --coordinator-pill-accent: #57d4ff;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-outreach'] {
+        --coordinator-pill-accent: #ff9a3d;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-compliance'] {
+        --coordinator-pill-accent: #44d6c2;
       }
 
       /* ──────────────────────────────────
@@ -1092,20 +1208,77 @@ export interface WeeklyPlaybookItem {
         margin-bottom: var(--nxt1-spacing-6, 24px);
       }
 
-      .action-plan-header {
+      .inline-goals {
         display: flex;
         align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        margin-bottom: var(--nxt1-spacing-4, 16px);
+      }
+
+      .inline-goals__manage-btn {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        background: none;
+        border: 1px solid var(--agent-border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--agent-text-secondary);
+        cursor: pointer;
+        transition:
+          border-color 0.15s ease,
+          color 0.15s ease,
+          background 0.15s ease;
+        font-family: inherit;
+      }
+
+      .inline-goals__manage-btn:active {
+        color: var(--agent-text-primary);
+        background: var(--agent-surface-hover);
+      }
+
+      .inline-goals__manage-count {
+        margin-left: auto;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--agent-primary);
+        background: var(--agent-primary-glow);
+        border-radius: 999px;
+        padding: 2px 8px;
+      }
+
+      .action-plan-header {
+        display: flex;
+        align-items: flex-start;
         justify-content: space-between;
         gap: var(--nxt1-spacing-3, 12px);
         margin-bottom: var(--nxt1-spacing-4, 16px);
       }
 
+      .action-plan-title {
+        padding-top: 2px;
+        margin-bottom: 0;
+      }
+
       .action-plan-status {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 4px;
+        flex: 0 0 auto;
+        min-width: 0;
+      }
+
+      .action-plan-status-main {
         display: flex;
         align-items: center;
         justify-content: flex-end;
         gap: 6px;
-        flex: 0 0 auto;
         min-width: 0;
         white-space: nowrap;
       }
@@ -1173,7 +1346,7 @@ export interface WeeklyPlaybookItem {
       }
       .category-pill--active {
         background: var(--agent-primary);
-        color: #fff;
+        color: #111;
         border-color: var(--agent-primary);
       }
 
@@ -1598,10 +1771,13 @@ export interface WeeklyPlaybookItem {
 export class AgentXShellComponent {
   protected readonly agentX = inject(AgentXService);
   protected readonly controlPanelState = inject(AgentXControlPanelStateService);
+  protected readonly usageService = inject(UsageService);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly usageBottomSheet = inject(UsageBottomSheetService);
   private readonly location = inject(Location);
+  private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
 
   /** Agent X SVG logo path data for inline icon rendering. */
   protected readonly agentXLogoPath: string = AGENT_X_LOGO_PATH;
@@ -1666,6 +1842,12 @@ export class AgentXShellComponent {
   protected readonly agentStatusLabel = this.controlPanelState.statusLabel;
   protected readonly agentStatusTone = this.controlPanelState.statusTone;
   protected readonly agentBudgetBadgeLabel = this.controlPanelState.budgetBadgeLabel;
+  protected readonly canManageBilling = this.usageService.canManageBilling;
+  protected readonly billingActionAriaLabel = computed(() =>
+    this.usageService.isPersonal()
+      ? 'Buy Credits'
+      : `Billing and budget. ${this.agentBudgetBadgeLabel()}`
+  );
 
   // ============================================
   // COORDINATORS — Role-Aware Virtual Staff
@@ -1730,6 +1912,7 @@ export class AgentXShellComponent {
     afterNextRender(() => {
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
+      void this.usageService.ensureBillingAccessContext();
     });
 
     effect(() => {
@@ -1768,12 +1951,34 @@ export class AgentXShellComponent {
     });
   }
 
+  protected async onBillingActionClick(): Promise<void> {
+    await this.haptics.impact('light');
+
+    if (this.usageService.isPersonal()) {
+      const amountCents = await this.usageBottomSheet.showBuyCreditsOptions();
+      if (amountCents !== null) {
+        await this.usageService.buyCredits(amountCents);
+      }
+      return;
+    }
+
+    await this.openControlPanel('budget');
+  }
+
   /**
    * Handle "Set Your Goals" button from the empty playbook state.
    * Opens the shared Agent X goals panel.
    */
   protected async onSetupGoals(): Promise<void> {
     await this.openControlPanel('goals');
+  }
+
+  protected async openConnectedAccounts(): Promise<void> {
+    const role = (this.user()?.role as OnboardingUserType) ?? null;
+    await this.connectedAccountsModal.open({
+      role,
+      scope: 'athlete',
+    });
   }
 
   protected async openControlPanel(panel: AgentXControlPanelKind, required = false): Promise<void> {
@@ -1838,7 +2043,8 @@ export class AgentXShellComponent {
       });
 
       await this.agentX.setGoals(dashboardGoals);
-      this.agentX.generateBriefing(true).catch(() => undefined);
+      // generateBriefing disabled — briefing display hidden
+      // this.agentX.generateBriefing(true).catch(() => undefined);
     }
   }
 
@@ -1851,6 +2057,7 @@ export class AgentXShellComponent {
       id: cmd.id,
       label: cmd.label,
       icon: cmd.icon,
+      description: cmd.subLabel,
     }));
     await this.openOperationChat(
       cat.id,
@@ -1947,6 +2154,15 @@ export class AgentXShellComponent {
     await this.agentX.generatePlaybook(true);
   }
 
+  protected async onGenerateActionsClick(): Promise<void> {
+    if (this.agentX.goals().length > 0) {
+      await this.agentX.generatePlaybook(true);
+      return;
+    }
+
+    await this.onSetupGoals();
+  }
+
   /**
    * Snooze an action card — dismisses it from the list with haptic feedback.
    */
@@ -1957,18 +2173,30 @@ export class AgentXShellComponent {
 
   /**
    * Handle send message — opens the Agent X bottom sheet chat
-   * with the user's message instead of displaying inline.
+   * with the user's message and any pending files.
    */
   protected async onSendMessage(): Promise<void> {
     const message = this.agentX.getUserMessage().trim();
-    if (!message) return;
+    const servicePendingFiles = this.agentX.pendingFiles();
 
-    // Clear the shell input immediately
+    // Allow send if there's a message OR pending files
+    if (!message && servicePendingFiles.length === 0) return;
+
+    // Capture pending files and convert to operation-chat PendingFile shape
+    const initialFiles = servicePendingFiles.map((f) => ({
+      file: f.file,
+      previewUrl: f.previewUrl,
+      isImage: f.type === 'image',
+      isVideo: f.type === 'video',
+    }));
+
+    // Clear the shell input immediately (don't revoke URLs — operation-chat owns them now)
     this.agentX.setUserMessage('');
     this.agentX.clearTask();
+    this.agentX.takePendingFiles();
     await this.haptics.impact('light');
 
-    // Open the operation chat bottom sheet with the message
+    // Open the operation chat bottom sheet with the message and files
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
       componentProps: {
@@ -1977,6 +2205,7 @@ export class AgentXShellComponent {
         contextIcon: 'bolt',
         contextType: 'command',
         initialMessage: message,
+        initialFiles,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,
@@ -1986,12 +2215,30 @@ export class AgentXShellComponent {
     });
   }
 
+  /** Hidden file input reference for attachment picker. */
+  private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
+
+  /** Accepted MIME types for file attachments. */
+  protected readonly acceptedFileTypes = AGENT_X_ALLOWED_MIME_TYPES.join(',');
+
   /**
-   * Handle toggle tasks panel.
+   * Handle + button tap — opens native file picker for attachments.
    */
   protected async onToggleTasks(): Promise<void> {
     await this.haptics.impact('light');
-    this.toast.info('Task panel coming soon');
+    this.fileInput()?.nativeElement.click();
+  }
+
+  /**
+   * Handle file selection from native picker.
+   */
+  protected onFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    if (files.length > 0) {
+      this.agentX.addFiles(files);
+    }
+    input.value = '';
   }
 
   /**

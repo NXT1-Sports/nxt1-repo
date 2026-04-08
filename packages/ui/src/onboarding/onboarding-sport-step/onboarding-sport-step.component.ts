@@ -73,7 +73,7 @@ import { NxtChipComponent } from '../../components/chip';
 import { NxtListRowComponent } from '../../components/list-row';
 import { NxtListSectionComponent } from '../../components/list-section';
 import { NxtModalService } from '../../services/modal';
-import { AlertController } from '@ionic/angular/standalone';
+import { NxtPickerService } from '../../components/picker';
 
 // ============================================
 // CONSTANTS
@@ -411,8 +411,8 @@ export class OnboardingSportStepComponent {
 
   private readonly loggingService = inject(NxtLoggingService);
   private readonly toast = inject(NxtToastService);
-  private readonly alertCtrl = inject(AlertController);
   private readonly nxtModal = inject(NxtModalService);
+  private readonly picker = inject(NxtPickerService);
 
   /** Namespaced logger for this component */
   private readonly logger: ILogger = this.loggingService.child('OnboardingSportStep');
@@ -741,100 +741,57 @@ export class OnboardingSportStepComponent {
   // ============================================
 
   /**
-   * Open platform-adaptive alert for sport selection.
+   * Open native action sheet for sport selection.
+   * Uses NxtModalService.actionSheet with preferNative: 'native' for
+   * consistent native-feel matching all other onboarding steps.
    */
   async openSportPicker(): Promise<void> {
     const selected = this.selectedSports();
     const sports = this.availableSports();
 
-    const max = this.maxSports();
-    const isSingleSelect = max === 1;
-    const alert = await this.alertCtrl.create({
-      header: isSingleSelect ? 'Select Sport' : 'Select Sports',
-      subHeader: this.showMaxHint() ? `Choose up to ${max}` : undefined,
-      cssClass: 'nxt-modal-prompt',
-      inputs: sports.map((sport) => ({
-        name: sport.name,
-        type: isSingleSelect ? ('radio' as const) : ('checkbox' as const),
-        label: `${sport.icon} ${formatSportDisplayName(sport.name)}`,
-        value: sport.name,
-        checked: selected.includes(sport.name),
+    const result = await this.nxtModal.actionSheet({
+      title: 'Select Sport',
+      actions: sports.map((sport) => ({
+        text: `${sport.icon} ${formatSportDisplayName(sport.name)}`,
+        data: sport.name,
       })),
-      buttons: [
-        { text: 'Cancel', role: 'cancel', cssClass: 'nxt-modal-cancel-btn' },
-        {
-          text: 'Done',
-          cssClass: 'nxt-modal-confirm-btn',
-          handler: (values: string[] | string | undefined): boolean => {
-            const normalizedValues = Array.isArray(values)
-              ? values
-              : typeof values === 'string' && values.length > 0
-                ? [values]
-                : [];
-            const finalValues = isSingleSelect ? normalizedValues.slice(0, 1) : normalizedValues;
-
-            if (finalValues.length > max) {
-              this.toast.warning(`You can select up to ${max} sports`);
-              return false;
-            }
-            const previousPrimary = this.selectedSport();
-            this.selectedSports.set(finalValues);
-            if (finalValues[0] !== previousPrimary) {
-              this.selectedPositions.set([]);
-            }
-            if (finalValues.length === 0) {
-              this.coachTitle.set(null);
-            }
-            this.emitChange(finalValues);
-            this.logger.debug('Sports selected via picker', { sports: finalValues });
-            return true;
-          },
-        },
-      ],
+      preferNative: 'native',
     });
-    this.nxtModal.applyModalTheme(alert);
-    await alert.present();
+
+    if (result?.selected && result.data) {
+      const sportName = result.data as string;
+      const previousPrimary = this.selectedSport();
+      this.selectedSports.set([sportName]);
+      if (sportName !== previousPrimary) {
+        this.selectedPositions.set([]);
+      }
+      this.emitChange([sportName]);
+      this.logger.debug('Sport selected via picker', { sport: sportName });
+    }
   }
 
+  /**
+   * Open position picker modal for position selection.
+   * Uses NxtPickerService.openPositionPicker which presents a
+   * platform-adaptive bottom sheet on mobile with grouped chips.
+   */
   async openPositionPicker(): Promise<void> {
     const sport = this.selectedSport();
     const groups = this.positionGroups();
     if (!sport || groups.length === 0 || this.totalPositionCount() === 0) return;
 
-    const inputs = groups.flatMap((group) =>
-      group.positions.map((position) => ({
-        name: position,
-        type: 'checkbox' as const,
-        label:
-          groups.length > 1
-            ? `${group.category}: ${formatPositionDisplay(position, sport, { showAbbreviation: false })}`
-            : formatPositionDisplay(position, sport, { showAbbreviation: false }),
-        value: position,
-        checked: this.selectedPositions().includes(position),
-      }))
-    );
-
-    const alert = await this.alertCtrl.create({
-      header: 'Select Position',
-      subHeader: formatSportDisplayName(sport),
-      cssClass: 'nxt-modal-prompt',
-      inputs,
-      buttons: [
-        { text: 'Cancel', role: 'cancel', cssClass: 'nxt-modal-cancel-btn' },
-        {
-          text: 'Done',
-          cssClass: 'nxt-modal-confirm-btn',
-          handler: (values: string[] | undefined): boolean => {
-            this.selectedPositions.set(Array.isArray(values) ? values : []);
-            this.emitChange(this.selectedSports());
-            return true;
-          },
-        },
-      ],
+    const result = await this.picker.openPositionPicker({
+      sport,
+      selectedPositions: [...this.selectedPositions()],
+      positionGroups: groups,
+      maxPositions: 5,
     });
 
-    this.nxtModal.applyModalTheme(alert);
-    await alert.present();
+    if (result.confirmed) {
+      this.selectedPositions.set(result.positions);
+      this.emitChange(this.selectedSports());
+      this.logger.debug('Positions selected via picker', { sport, positions: result.positions });
+    }
   }
 
   async openCoachTitlePicker(): Promise<void> {

@@ -23,13 +23,9 @@ import {
   viewChild,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import {
-  AlertController,
-  IonContent,
-  IonSpinner,
-  ModalController,
-} from '@ionic/angular/standalone';
+import { IonContent, IonSpinner, ModalController } from '@ionic/angular/standalone';
 import { NxtModalService } from '../services/modal';
+import { NxtPickerService } from '../components/picker';
 import {
   BrowserGeolocationAdapter,
   CachedGeocodingAdapter,
@@ -71,7 +67,6 @@ import {
   titleCase,
   type InboxEmailProvider,
 } from '@nxt1/core';
-import { formatPositionDisplay } from '@nxt1/core/constants';
 import { NxtSearchBarComponent } from '../components/search-bar';
 import { HapticButtonDirective } from '../services/haptics';
 import type { SearchTeamsFn, TeamSearchResult } from '../onboarding';
@@ -996,7 +991,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
 
   protected readonly imageInputRef = viewChild<ElementRef<HTMLInputElement>>('imageInput');
   private readonly nxtModal = inject(NxtModalService);
-  private readonly alertCtrl = inject(AlertController);
+  private readonly picker = inject(NxtPickerService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
 
@@ -1460,7 +1455,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       placeholder: 'First name',
       defaultValue: form.basicInfo.firstName ?? '',
       submitText: 'Next',
-      preferNative: 'ionic',
+      preferNative: 'native',
     });
     if (!first.confirmed) return;
     this.profile.updateField('basic-info', 'firstName', first.value.trim());
@@ -1470,7 +1465,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       placeholder: 'Last name',
       defaultValue: form.basicInfo.lastName ?? '',
       submitText: 'Done',
-      preferNative: 'ionic',
+      preferNative: 'native',
     });
     if (last.confirmed) {
       this.profile.updateField('basic-info', 'lastName', last.value.trim());
@@ -1489,7 +1484,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       multiline: true,
       rows: 5,
       maxLength: 300,
-      preferNative: 'ionic',
+      preferNative: 'native',
     });
     if (result.confirmed) {
       this.profile.updateField('basic-info', 'bio', result.value.trim());
@@ -1506,7 +1501,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
         ...this.classOptions().map((year) => ({ text: year, data: year })),
         { text: 'Cancel', cancel: true },
       ],
-      preferNative: 'ionic',
+      preferNative: 'native',
     });
     if (result.selected && result.data) {
       this.profile.updateField('basic-info', 'classYear', result.data as string);
@@ -1523,7 +1518,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       defaultValue: form.sportsInfo.jerseyNumber ?? '',
       inputType: 'number',
       submitText: 'Done',
-      preferNative: 'ionic',
+      preferNative: 'native',
     });
     if (result.confirmed) {
       this.profile.updateField('sports-info', 'jerseyNumber', result.value.trim());
@@ -1724,7 +1719,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
         ...this.heightOptions.map((h) => ({ text: h, data: h })),
         { text: 'Cancel', cancel: true },
       ],
-      preferNative: 'ionic',
+      preferNative: 'native',
     });
     if (result.selected && result.data) {
       this.profile.updateField('physical', 'height', result.data as string);
@@ -1741,7 +1736,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       defaultValue: form.physical.weight ?? '',
       inputType: 'number',
       submitText: 'Done',
-      preferNative: 'ionic',
+      preferNative: 'native',
     });
     if (result.confirmed) {
       this.profile.updateField('physical', 'weight', result.value.trim());
@@ -1758,7 +1753,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       defaultValue: form.academics.gpa ?? '',
       inputType: 'text',
       submitText: 'Done',
-      preferNative: 'ionic',
+      preferNative: 'native',
     });
     if (result.confirmed) {
       this.profile.updateField('academics', 'gpa', result.value.trim());
@@ -1775,7 +1770,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       defaultValue: form.academics.sat ?? '',
       inputType: 'number',
       submitText: 'Done',
-      preferNative: 'ionic',
+      preferNative: 'native',
     });
     if (result.confirmed) {
       this.profile.updateField('academics', 'sat', result.value.trim());
@@ -1792,7 +1787,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       defaultValue: form.academics.act ?? '',
       inputType: 'number',
       submitText: 'Done',
-      preferNative: 'ionic',
+      preferNative: 'native',
     });
     if (result.confirmed) {
       this.profile.updateField('academics', 'act', result.value.trim());
@@ -1808,7 +1803,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       placeholder: 'e.g. Business, Engineering',
       defaultValue: form.academics.intendedMajor ?? '',
       submitText: 'Done',
-      preferNative: 'ionic',
+      preferNative: 'native',
     });
     if (result.confirmed) {
       this.profile.updateField('academics', 'intendedMajor', result.value.trim());
@@ -1825,7 +1820,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       defaultValue: form.contact.phone ?? '',
       inputType: 'tel',
       submitText: 'Done',
-      preferNative: 'ionic',
+      preferNative: 'native',
     });
     if (result.confirmed) {
       this.profile.updateField('contact', 'phone', result.value.trim());
@@ -1842,7 +1837,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       defaultValue: form.contact.email ?? '',
       inputType: 'email',
       submitText: 'Done',
-      preferNative: 'ionic',
+      preferNative: 'native',
     });
     if (result.confirmed) {
       this.profile.updateField('contact', 'email', result.value.trim());
@@ -1866,37 +1861,17 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       groupCount: positionGroups.length,
     });
 
-    const inputs = positionGroups.flatMap((group) =>
-      group.positions.map((pos) => ({
-        name: pos,
-        type: 'checkbox' as const,
-        label:
-          positionGroups.length > 1
-            ? `${group.category}: ${formatPositionDisplay(pos, sport, { showAbbreviation: false })}`
-            : formatPositionDisplay(pos, sport, { showAbbreviation: false }),
-        value: pos,
-        checked: selected.includes(pos),
-      }))
-    );
-
-    const alert = await this.alertCtrl.create({
-      header: 'Position',
-      cssClass: 'nxt-modal-prompt',
-      inputs,
-      buttons: [
-        { text: 'Cancel', role: 'cancel', cssClass: 'nxt-modal-cancel-btn' },
-        {
-          text: 'Done',
-          cssClass: 'nxt-modal-confirm-btn',
-          handler: (values: string[]) => {
-            this.profile.updateField('sports-info', 'primaryPosition', values[0] ?? '');
-            this.profile.updateField('sports-info', 'secondaryPositions', values.slice(1));
-          },
-        },
-      ],
+    const result = await this.picker.openPositionPicker({
+      sport,
+      selectedPositions: [...selected],
+      positionGroups,
+      maxPositions: 5,
     });
-    this.nxtModal.applyModalTheme(alert);
-    await alert.present();
+
+    if (result.confirmed) {
+      this.profile.updateField('sports-info', 'primaryPosition', result.positions[0] ?? '');
+      this.profile.updateField('sports-info', 'secondaryPositions', result.positions.slice(1));
+    }
   }
 
   protected editLocation(): void {

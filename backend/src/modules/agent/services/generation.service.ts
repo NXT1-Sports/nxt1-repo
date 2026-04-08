@@ -62,6 +62,19 @@ function sanitizeBriefingIcon(icon: unknown): string {
   return VALID_BRIEFING_ICONS.has(value) ? value : 'star-outline';
 }
 
+const LEGACY_FALLBACK_PLAYBOOK_IDS = new Set([
+  'wp-recurring-1',
+  'wp-recurring-2',
+  'wp-goal-1',
+  'wp-goal-2',
+  'wp-goal-3',
+]);
+
+export function isLegacyFallbackPlaybook(items: readonly ShellWeeklyPlaybookItem[]): boolean {
+  if (items.length === 0) return false;
+  return items.every((item) => LEGACY_FALLBACK_PLAYBOOK_IDS.has(item.id));
+}
+
 // ─── Result Types ───────────────────────────────────────────────────────────
 
 export interface PlaybookGenerationResult {
@@ -316,65 +329,19 @@ export class AgentGenerationService {
       } catch (parseErr) {
         logger.error('Failed to parse playbook JSON from LLM', { error: String(parseErr) });
       }
-    } catch {
-      logger.warn('OpenRouter not available for playbook generation, using fallback');
+    } catch (error) {
+      logger.warn('OpenRouter not available for playbook generation', {
+        userId: uid,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
-    // Fallback: generate template-based playbook if LLM unavailable or parse fails
     if (playbookItems.length === 0) {
-      const defaultCoordinator = shellContent.coordinators[0];
-      const coordObj = defaultCoordinator
-        ? {
-            id: defaultCoordinator.id,
-            label: defaultCoordinator.label,
-            icon: defaultCoordinator.icon,
-          }
-        : undefined;
-
-      // 2 recurring habit tasks
-      const recurringItems: ShellWeeklyPlaybookItem[] = [
-        {
-          id: 'wp-recurring-1',
-          weekLabel: 'Weekly',
-          title: 'Sync your profile',
-          summary: 'Make sure your profile is up to date so coaches and scouts see the latest you.',
-          why: 'An outdated profile means missed opportunities — keep it fresh.',
-          details:
-            'Review your height, weight, stats, and contact info. Update anything that has changed.',
-          actionLabel: 'Sync Now',
-          status: 'pending' as const,
-          goal: { id: 'recurring', label: 'Weekly Habits' },
-          coordinator: coordObj,
-        },
-        {
-          id: 'wp-recurring-2',
-          weekLabel: 'Weekly',
-          title: 'Review your weekly progress',
-          summary: 'Take 5 minutes to review what you accomplished this week.',
-          why: 'Consistent reflection builds momentum and keeps you on track.',
-          details: 'Check your completed tasks, look at your stats, and plan for next week.',
-          actionLabel: 'Review Now',
-          status: 'pending' as const,
-          goal: { id: 'recurring', label: 'Weekly Habits' },
-          coordinator: coordObj,
-        },
-      ];
-
-      // 3 goal-specific tasks (distribute across goals)
-      const goalItems: ShellWeeklyPlaybookItem[] = agentGoals.slice(0, 3).map((goal, gi) => ({
-        id: `wp-goal-${gi + 1}`,
-        weekLabel: ['Mon', 'Wed', 'Fri'][gi % 3],
-        title: `Work on: ${goal.text.slice(0, 40)}`,
-        summary: `Agent X has prepared action steps for your "${goal.text}" goal.`,
-        why: 'Getting ahead on this goal now gives you an edge before the week gets busy.',
-        details: 'Review the plan and take the first step toward achieving your goal.',
-        actionLabel: 'Review Plan',
-        status: 'pending' as const,
-        goal: { id: goal.id, label: goal.text.slice(0, 30) },
-        coordinator: coordObj,
-      }));
-
-      playbookItems = [...recurringItems, ...goalItems];
+      logger.warn('Playbook generation returned no AI items; refusing template fallback', {
+        userId: uid,
+        goalCount: agentGoals.length,
+      });
+      throw new Error('AI playbook generation unavailable');
     }
 
     const generatedAt = new Date().toISOString();
@@ -386,6 +353,7 @@ export class AgentGenerationService {
       goals: agentGoals,
       generatedAt,
       role,
+      source: 'llm',
     });
 
     try {
@@ -471,11 +439,16 @@ export class AgentGenerationService {
         .doc(uid)
         .collection('agent_playbooks')
         .orderBy('generatedAt', 'desc')
-        .limit(1)
+        .limit(5)
         .get();
 
-      if (!recentBriefings.empty) {
-        const items = (recentBriefings.docs[0].data()['items'] ?? []) as ShellWeeklyPlaybookItem[];
+      const recentRealPlaybook = recentBriefings.docs.find((doc) => {
+        const items = (doc.data()['items'] ?? []) as ShellWeeklyPlaybookItem[];
+        return !isLegacyFallbackPlaybook(items);
+      });
+
+      if (recentRealPlaybook) {
+        const items = (recentRealPlaybook.data()['items'] ?? []) as ShellWeeklyPlaybookItem[];
         const completed = items.filter((i) => i.status === 'complete').slice(0, 5);
         if (completed.length > 0) {
           recentActivityText =

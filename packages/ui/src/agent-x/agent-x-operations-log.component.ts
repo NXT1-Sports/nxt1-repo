@@ -112,7 +112,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
     @if (!embedded()) {
       <!-- ═══ HEADER ═══ -->
       <nxt1-sheet-header
-        title="Agent Logs"
+        title="Agent Sessions"
         subtitle="Operations"
         icon="time"
         iconShape="circle"

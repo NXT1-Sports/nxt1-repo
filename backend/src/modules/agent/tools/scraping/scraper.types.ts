@@ -16,6 +16,8 @@ export interface ScrapeRequest {
   readonly url: string;
   /** Maximum markdown content length in characters before truncation (default: 30_000). */
   readonly maxLength?: number;
+  /** AbortSignal for cooperative cancellation — passed through to fetch() and Firecrawl calls. */
+  readonly signal?: AbortSignal;
 }
 
 // ─── Output ─────────────────────────────────────────────────────────────────

@@ -4,14 +4,16 @@
  *
  * Tools for creating and manipulating visual/audio/video content.
  *
+ * Active tools:
+ * - GenerateGraphicTool       — Professional branded graphic generation ✅
+ * - AnalyzeVideoTool          — Game film / video analysis via Gemini ✅
+ *
  * Planned tools:
- * - GeneratePromoGraphicTool  — Create sport-themed promo graphics
+ * - GenerateMotionGraphicTool — Runway ML motion graphic generation
+ * - GenerateHighlightReelTool — Stitch video clips into highlight reels
  * - EnhanceGraphicTool        — AI-enhance an existing image
- * - CutHighlightReelTool      — Extract and compile video highlights
- * - GenerateScoutGraphicTool  — Create visual scout report cards
- * - GenerateImageTool         — General image generation via OpenRouter ✅
  * - AnalyzeImageTool          — Describe/analyze an uploaded image
  */
 
-export { GenerateImageTool } from './generate-image.tool.js';
+export { GenerateGraphicTool } from './generate-graphic.tool.js';
 export { AnalyzeVideoTool } from './analyze-video.tool.js';

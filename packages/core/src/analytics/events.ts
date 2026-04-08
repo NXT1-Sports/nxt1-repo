@@ -759,6 +759,8 @@ export const APP_EVENTS = {
   AGENT_X_OPERATION_RETRIED: 'agent_x_operation_retried',
   /** User approved and sent an email draft via HITL flow */
   AGENT_X_DRAFT_EMAIL_SENT: 'agent_x_draft_email_sent',
+  /** User cancelled an in-progress Agent X stream/operation */
+  AGENT_X_STREAM_CANCELLED: 'agent_x_stream_cancelled',
 
   // USAGE / BILLING DASHBOARD EVENTS
   // ============================================

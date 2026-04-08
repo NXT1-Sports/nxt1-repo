@@ -173,7 +173,10 @@ export class NativeAppService {
       const { StatusBar, Style } = await import('@capacitor/status-bar');
 
       // Set style based on config
-      const style = this._config.statusBarStyle === 'dark' ? Style.Dark : Style.Light;
+      // Capacitor Style.Dark = white icons (for dark bg), Style.Light = black icons (for light bg)
+      // statusBarStyle 'light' = light/white text → Style.Dark
+      // statusBarStyle 'dark'  = dark/black text  → Style.Light
+      const style = this._config.statusBarStyle === 'dark' ? Style.Light : Style.Dark;
       await StatusBar.setStyle({ style });
 
       // Set background color (Android only)
@@ -193,15 +196,16 @@ export class NativeAppService {
   /**
    * Set status bar style dynamically
    *
-   * @param style - 'dark' (light content) or 'light' (dark content)
+   * @param style - 'dark' (dark/black icons) or 'light' (light/white icons)
    */
   async setStatusBarStyle(style: StatusBarStyle): Promise<void> {
     if (!this._isNative()) return;
 
     try {
       const { StatusBar, Style } = await import('@capacitor/status-bar');
+      // Capacitor Style.Dark = white icons, Style.Light = black icons
       await StatusBar.setStyle({
-        style: style === 'dark' ? Style.Dark : Style.Light,
+        style: style === 'dark' ? Style.Light : Style.Dark,
       });
     } catch (error) {
       this.logger.warn('Failed to set status bar style', { error });

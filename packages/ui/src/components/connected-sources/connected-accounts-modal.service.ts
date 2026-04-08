@@ -48,6 +48,7 @@ import {
   ConnectedAccountsWebModalComponent,
   type ConnectedAccountsModalCloseData,
 } from './connected-accounts-web-modal.component';
+import { FirecrawlSignInService } from './firecrawl-signin.service';
 import type { LinkSourcesFormData, OnboardingUserType } from '@nxt1/core/api';
 
 /**
@@ -134,6 +135,7 @@ export class ConnectedAccountsModalService {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly firebaseUserFn = inject(CONNECTED_ACCOUNTS_FIREBASE_USER, { optional: true });
+  private readonly firecrawlSignIn = inject(FirecrawlSignInService);
 
   /**
    * Opens Connected Accounts with adaptive presentation:
@@ -141,7 +143,12 @@ export class ConnectedAccountsModalService {
    * - Desktop: centered overlay (pure Angular)
    */
   async open(options: ConnectedAccountsModalOptions = {}): Promise<ConnectedAccountsModalResult> {
-    const enrichedOptions = this.enrichWithOAuthState(options);
+    // Enrich with Firebase OAuth state (Google/Microsoft) synchronously
+    let enrichedOptions = this.enrichWithOAuthState(options);
+
+    // Enrich with Firecrawl sign-in state (Hudl, X, MaxPreps) from backend
+    enrichedOptions = await this.enrichWithFirecrawlState(enrichedOptions);
+
     const presentation = this.shouldUseBottomSheet() ? 'bottom-sheet' : 'web-overlay';
 
     this.logger.info('Opening connected accounts', { presentation });
@@ -332,6 +339,63 @@ export class ConnectedAccountsModalService {
         links: Array.from(existingByPlatform.values()),
       },
     };
+  }
+
+  // ============================================
+  // FIRECRAWL SIGN-IN STATE ENRICHMENT
+  // ============================================
+
+  /**
+   * Fetches the user's Firecrawl sign-in accounts from the backend and merges
+   * them into `linkSourcesData` so Hudl, X, MaxPreps, etc. show "Signed In"
+   * when the user has a saved persistent profile.
+   *
+   * Non-blocking: if the fetch fails, options are returned unchanged.
+   */
+  private async enrichWithFirecrawlState(
+    options: ConnectedAccountsModalOptions
+  ): Promise<ConnectedAccountsModalOptions> {
+    try {
+      const accounts = await this.firecrawlSignIn.fetchSignedInAccounts();
+      const platforms = Object.keys(accounts);
+      if (!platforms.length) {
+        return options;
+      }
+
+      const existingLinks = options.linkSourcesData?.links ?? [];
+      const existingByPlatform = new Map(existingLinks.map((l) => [l.platform, l]));
+
+      for (const platform of platforms) {
+        const existing = existingByPlatform.get(platform);
+        if (existing) {
+          existingByPlatform.set(platform, {
+            ...existing,
+            connected: true,
+            connectionType: 'signin',
+          });
+        } else {
+          existingByPlatform.set(platform, {
+            platform,
+            connected: true,
+            connectionType: 'signin',
+            scopeType: 'global',
+            scopeId: undefined,
+            url: '',
+            username: undefined,
+          });
+        }
+      }
+
+      return {
+        ...options,
+        linkSourcesData: {
+          links: Array.from(existingByPlatform.values()),
+        },
+      };
+    } catch (err) {
+      this.logger.warn('Failed to enrich with Firecrawl state', { error: err });
+      return options;
+    }
   }
 
   // ============================================

@@ -4,7 +4,7 @@
  *
  * Prompt builders for the Agent X welcome graphic generation pipeline.
  * These produce the text prompts sent to the image model (Gemini 3 Pro Image)
- * via the BrandMediaCoordinatorAgent → GenerateImageTool flow.
+ * via the BrandMediaCoordinatorAgent → GenerateGraphicTool flow.
  *
  * Two variants:
  * - Athlete welcome: personalized with sport, position, name, and team colors

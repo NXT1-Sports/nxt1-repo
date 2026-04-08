@@ -124,6 +124,7 @@ export async function getOrCreateBillingContext(
     organizationId,
     billingEntity,
     monthlyBudget: budget,
+    budgetName: billingEntity === 'organization' ? 'Starter budget' : undefined,
     currentPeriodSpend: 0,
     periodStart,
     periodEnd,
@@ -133,7 +134,7 @@ export async function getOrCreateBillingContext(
     iapLowBalanceNotified: false,
     hardStop: true,
     paymentProvider: 'stripe',
-    walletBalanceCents: 0,
+    walletBalanceCents: billingEntity === 'individual' ? 500 : 0,
     pendingHoldsCents: 0,
   };
 
@@ -303,6 +304,23 @@ function checkWalletBudget(ctx: BillingContext, costCents: number): BudgetCheckR
     percentUsed: 0,
     billingEntity: 'individual',
   };
+}
+
+/**
+ * Check budget using an already-resolved BillingContext.
+ *
+ * Use this when the caller already has a fresh context from
+ * `resolveBillingTarget()` — avoids a redundant Firestore read that
+ * `checkBudget()` would perform via `getOrCreateBillingContext()`.
+ */
+export function checkBudgetFromContext(
+  ctx: BillingContext,
+  costCents: number = 0
+): BudgetCheckResult {
+  if (ctx.billingEntity === 'individual' && ctx.paymentProvider === 'iap') {
+    return checkWalletBudget(ctx, costCents);
+  }
+  return checkSingleTierBudget(ctx, costCents);
 }
 
 // ============================================
@@ -1455,6 +1473,7 @@ async function createOrgBillingContext(db: Firestore, organizationId: string): P
     billingEntity: 'organization',
     paymentProvider: 'stripe',
     monthlyBudget: DEFAULT_ORGANIZATION_BUDGET,
+    budgetName: 'Starter budget',
     currentPeriodSpend: 0,
     walletBalanceCents: 0,
     pendingHoldsCents: 0,
@@ -1536,6 +1555,7 @@ export async function updateBudget(
 
   await snapshot.docs[0]!.ref.update({
     monthlyBudget: newBudgetCents,
+    budgetName: FieldValue.delete(),
     // Reset notification flags if the budget is increased past current thresholds
     notified50: false,
     notified80: false,
@@ -1592,6 +1612,7 @@ export async function updateOrgBudget(
 
   await snapshot.docs[0]!.ref.update({
     monthlyBudget: newBudgetCents,
+    budgetName: FieldValue.delete(),
     notified50: false,
     notified80: false,
     notified100: false,
@@ -2214,4 +2235,101 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
 
   logger.info('[expireStaleHolds] Expired stale holds', { expiredCount });
   return expiredCount;
+}
+
+// ============================================
+// REFERRAL REWARDS
+// ============================================
+
+/** Amount credited to the referrer's wallet when a new user signs up (in cents). */
+export const REFERRAL_REWARD_CENTS = 500; // $5.00
+
+export interface WalletTopUpResult {
+  success: boolean;
+  newBalanceCents: number;
+  error?: string;
+}
+
+/**
+ * Credit a referral reward to the referring user's Agent X wallet.
+ *
+ * Uses `referralRewards` collection for idempotency — each (referrerId, newUserId)
+ * pair can only be rewarded once. Safe to call multiple times for the same pair.
+ *
+ * Writes to `billingContexts.walletBalanceCents` (the single source of truth)
+ * via `addWalletTopUp`.
+ *
+ * @param db        Firestore instance
+ * @param referrerId  The UID of the user who sent the invite
+ * @param newUserId   The UID of the newly signed-up user
+ * @param amountCents Reward amount in cents (defaults to REFERRAL_REWARD_CENTS)
+ */
+export async function creditReferralReward(
+  db: Firestore,
+  referrerId: string,
+  newUserId: string,
+  amountCents: number = REFERRAL_REWARD_CENTS
+): Promise<WalletTopUpResult> {
+  if (amountCents <= 0) {
+    return { success: false, newBalanceCents: 0, error: 'Amount must be positive' };
+  }
+
+  if (referrerId === newUserId) {
+    return { success: false, newBalanceCents: 0, error: 'Cannot reward self-referral' };
+  }
+
+  // Idempotency key: one reward per (referrer, newUser) pair
+  const idempotencyKey = `referral_${referrerId}_${newUserId}`;
+  const rewardRef = db.collection('referralRewards').doc(idempotencyKey);
+
+  try {
+    // Check idempotency first (non-transactional read is fine — worst case
+    // we skip the top-up below and addWalletTopUp is itself idempotent-safe)
+    const rewardSnap = await rewardRef.get();
+    if (rewardSnap.exists) {
+      logger.info('[creditReferralReward] Already processed (idempotent)', {
+        referrerId,
+        newUserId,
+      });
+      // Return current balance from billing context
+      const ctx = await getBillingContext(db, referrerId);
+      return {
+        success: true,
+        newBalanceCents: ctx?.walletBalanceCents ?? 0,
+      };
+    }
+
+    // Credit the reward via the single source of truth
+    const { newBalance } = await addWalletTopUp(db, referrerId, amountCents, 'stripe');
+
+    // Record the reward for idempotency and audit
+    await rewardRef.set({
+      referrerId,
+      newUserId,
+      amountCents,
+      processedAt: FieldValue.serverTimestamp(),
+      type: 'referral_reward',
+    });
+
+    logger.info('[creditReferralReward] Referral reward credited', {
+      referrerId,
+      newUserId,
+      amountCents,
+      newBalanceCents: newBalance,
+    });
+
+    return { success: true, newBalanceCents: newBalance };
+  } catch (error) {
+    logger.error('[creditReferralReward] Referral reward failed', {
+      referrerId,
+      newUserId,
+      amountCents,
+      error,
+    });
+    return {
+      success: false,
+      newBalanceCents: 0,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
 }

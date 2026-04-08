@@ -25,7 +25,7 @@ import { logger } from '../utils/logger.js';
 import { INVITE_UI_CONFIG } from '@nxt1/core';
 import type { InviteType, InviteChannel, InviteStatus } from '@nxt1/core';
 import { invalidateTeamProfileCache } from '../services/cache.service.js';
-import { creditReferralReward } from '../modules/billing/wallet.service.js';
+import { creditReferralReward } from '../modules/billing/index.js';
 
 const router = Router();
 

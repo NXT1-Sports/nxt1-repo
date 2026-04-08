@@ -257,6 +257,12 @@ export interface ImageGenerationOptions {
   readonly prompt: string;
   /** Optional reference image URL to composite / use as input (image-to-image). */
   readonly referenceImageUrl?: string;
+  /**
+   * Optional array of additional image URLs to include in the multimodal payload.
+   * Each URL is added as a separate `image_url` content part before the text prompt.
+   * Use this when the model needs to see multiple images (e.g. subject photo + brand logo).
+   */
+  readonly additionalImageUrls?: readonly string[];
   /** Override the default image model. */
   readonly modelOverride?: string;
   /** Abort signal for cancellation. */

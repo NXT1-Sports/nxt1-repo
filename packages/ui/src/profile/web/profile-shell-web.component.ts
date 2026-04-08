@@ -1736,14 +1736,8 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     return user?.school?.primaryColor ?? 'var(--nxt1-color-primary, #d4ff00)';
   });
 
-  /** Profile page header title — shows the athlete's name */
-  protected readonly desktopTitle = computed(() => {
-    const u = this.profile.user();
-    if (u?.displayName) return u.displayName;
-    const first = u?.firstName ?? '';
-    const last = u?.lastName ?? '';
-    return (first + ' ' + last).trim() || 'Profile';
-  });
+  /** Profile page header title */
+  protected readonly desktopTitle = computed(() => 'Profile');
 
   /** Profile page header subtitle — position + school */
   protected readonly desktopSubtitle = computed(() => {

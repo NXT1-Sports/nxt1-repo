@@ -50,6 +50,9 @@ import { SeoService } from '../../core/services';
     NxtAgentXExecutionLayerSectionComponent,
     NxtAgentXWelcomeHeaderComponent,
   ],
+  host: {
+    '[class.agent-authenticated]': 'isAuthenticated()',
+  },
   template: `
     <!-- Auth-init mask: covers landing→shell flash while Firebase session resolves -->
     @if (showAuthMask()) {
@@ -76,11 +79,17 @@ import { SeoService } from '../../core/services';
       :host {
         display: flex;
         flex-direction: column;
-        height: calc(100vh - var(--nxt1-nav-height, 56px));
-        overflow: hidden;
         background: var(--nxt1-color-bg-primary);
         /* Pull up to negate shell__content padding-top — Agent X uses nav portal, no page header */
         margin-top: calc(-1 * (var(--nxt1-spacing-4, 1rem) + 7px));
+      }
+
+      /* Only lock viewport height + prevent scroll for authenticated desktop (chat UI) */
+      @media (min-width: 769px) {
+        :host(.agent-authenticated) {
+          height: calc(100vh - var(--nxt1-nav-height, 56px));
+          overflow: hidden;
+        }
       }
 
       /* On mobile the shell content padding-top is 0 so don't pull up */

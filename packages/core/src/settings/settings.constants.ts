@@ -321,22 +321,54 @@ export const DEFAULT_SETTINGS_SECTIONS: readonly SettingsSection[] = [
 // ROLE-AWARE SECTION FACTORY
 // ============================================
 
+/** OAuth providers that don't use password-based credentials. */
+const OAUTH_PROVIDERS = new Set(['google', 'apple', 'microsoft']);
+
+/** Options for filtering settings sections. */
+export interface SettingsSectionOptions {
+  /** Auth provider used to sign in (e.g. 'email', 'google', 'apple'). */
+  readonly authProvider?: string | null;
+  /** True when running inside a native Capacitor app (iOS/Android). */
+  readonly isNativeMobile?: boolean;
+}
+
 /**
- * Returns the settings sections appropriate for the given user role.
+ * Returns the settings sections appropriate for the given user role and options.
  *
  * - Athletes, parents, and recruiters do NOT see the billing section —
  *   billing/subscription management is only relevant for team accounts.
  * - Coaches and directors DO see billing and usage.
+ * - Biometric login toggle is hidden when:
+ *   a) Running on web (not native mobile) — hardware not available.
+ *   b) User signed in via OAuth (Google / Apple) — no password to store.
  *
  * Uses `isTeamRole()` from user.constants as the single source of truth.
  */
 export function getSettingsSectionsForRole(
-  role: string | null | undefined
+  role: string | null | undefined,
+  options: SettingsSectionOptions = {}
 ): readonly SettingsSection[] {
-  if (isTeamRole(role)) {
-    return DEFAULT_SETTINGS_SECTIONS;
+  const { authProvider, isNativeMobile } = options;
+  let sections: readonly SettingsSection[] = DEFAULT_SETTINGS_SECTIONS;
+
+  // Non-team roles: hide billing section
+  if (!isTeamRole(role)) {
+    sections = sections.filter((section) => section.id !== 'billing');
   }
-  return DEFAULT_SETTINGS_SECTIONS.filter((section) => section.id !== 'billing');
+
+  // Hide biometric login toggle on web or for OAuth users
+  const hideBiometrics =
+    isNativeMobile === false || (authProvider != null && OAUTH_PROVIDERS.has(authProvider));
+
+  if (hideBiometrics) {
+    sections = sections.map((section) =>
+      section.id === 'account'
+        ? { ...section, items: section.items.filter((item) => item.id !== 'biometrics') }
+        : section
+    );
+  }
+
+  return sections;
 }
 
 // ============================================

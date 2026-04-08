@@ -328,7 +328,7 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
       // ── Step 1: Scrape the page ─────────────────────────────────────
       const progress = context?.onProgress;
       progress?.(`Scraping ${new URL(cleanUrl).hostname}…`);
-      const result = await this.scraper.scrape({ url: cleanUrl });
+      const result = await this.scraper.scrape({ url: cleanUrl, signal: context?.signal });
 
       // ── Step 1b: Detect & fetch stats sub-page if available ─────────
       // Many platforms (MaxPreps, etc.) have the full game-by-game stats
@@ -345,7 +345,10 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
         });
         for (const statsUrl of statsUrls) {
           try {
-            const statsResult = await this.scraper.scrape({ url: statsUrl });
+            const statsResult = await this.scraper.scrape({
+              url: statsUrl,
+              signal: context?.signal,
+            });
             if (statsResult.markdownContent && statsResult.markdownContent.length > 200) {
               combinedMarkdown +=
                 '\n\n═══ STATS PAGE DATA (from ' +

@@ -200,6 +200,7 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
                 <nxt1-avatar
                   [src]="avatarSrc()"
                   [name]="avatarName() ?? undefined"
+                  [isTeamRole]="avatarIsTeamRole() ?? false"
                   size="md"
                   [clickable]="true"
                 />
@@ -933,6 +934,9 @@ export class NxtPageHeaderComponent {
 
   /** User's name for avatar fallback initials */
   readonly avatarName = input<string | null | undefined>();
+
+  /** Whether this user has a team role (coach/director) — shows shield icon instead of initials */
+  readonly avatarIsTeamRole = input<boolean | null | undefined>(false);
 
   /** Externally hide the avatar visually (e.g. when search is focused) — keeps space reserved */
   readonly hideAvatar = input(false);

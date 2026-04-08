@@ -1439,7 +1439,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     scope: 'global',
     sports: [],
     placeholder: 'Sign in to SportsRecruits',
-    loginUrl: 'https://www.sportsrecruits.com/user/login',
+    loginUrl: 'https://my.sportsrecruits.com/athlete/user/login',
   },
   {
     platform: 'perfectgame_signin',

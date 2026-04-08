@@ -30,6 +30,7 @@ import { Component, ChangeDetectionStrategy, input, output, inject } from '@angu
 import { CommonModule } from '@angular/common';
 import { IonRippleEffect } from '@ionic/angular/standalone';
 import type { SettingsUserInfo, SettingsSubscription } from '@nxt1/core';
+import { isTeamRole as checkIsTeamRole } from '@nxt1/core';
 import { NxtAvatarComponent } from '../components/avatar';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtIconComponent } from '../components/icon';
@@ -48,6 +49,7 @@ import { NxtIconComponent } from '../components/icon';
         <nxt1-avatar
           [src]="user()?.profileImg"
           [name]="user()?.displayName ?? user()?.email"
+          [isTeamRole]="isTeamRole()"
           size="xl"
         />
         <div class="user-card__avatar-edit">
@@ -353,6 +355,10 @@ export class SettingsUserCardComponent {
 
   protected isVerified(): boolean {
     return this.user()?.emailVerified ?? false;
+  }
+
+  protected isTeamRole(): boolean {
+    return checkIsTeamRole(this.user()?.role);
   }
 
   protected roleBadge(): string | null {

@@ -13,7 +13,7 @@
  */
 
 import { isTeamRole } from '../constants/user.constants';
-import { formatSportDisplayName } from '../constants/sport.constants';
+import { formatSportDisplayName, getPositionAbbreviation } from '../constants/sport.constants';
 import type { SidenavSportProfile } from './navigation.model';
 
 // ============================================
@@ -252,20 +252,25 @@ function buildAthleteContext(
   const profile = activeSport ?? firstSport;
 
   if (profile?.sport && profile.positions?.[0]) {
-    sportLabel = `${formatSportDisplayName(profile.sport)} · ${profile.positions[0]}`;
+    sportLabel = `${formatSportDisplayName(profile.sport)} · ${getPositionAbbreviation(profile.positions[0], profile.sport) || profile.positions[0]}`;
   } else if (profile?.sport) {
     sportLabel = formatSportDisplayName(profile.sport);
   }
 
-  // Build sport profiles from user's sports array
-  const sportProfiles: SidenavSportProfile[] =
+  // Build sport profiles from user's sports array, deduplicating by normalized display name.
+  // Users may have both "basketball" and "basketball mens" stored — keep the most specific
+  // (gendered) variant and drop the plain duplicate.
+  const sportProfiles: SidenavSportProfile[] = deduplicateSportProfiles(
     user?.sports?.map((s, i) => ({
       id: `sport-${i}`,
       sport: s.sport,
-      position: s.positions?.[0],
+      position: s.positions?.[0]
+        ? getPositionAbbreviation(s.positions[0], s.sport) || s.positions[0]
+        : undefined,
       isActive: !!(s.isPrimary || i === 0),
-      profileImg: user.profileImg || undefined,
-    })) ?? [];
+      profileImg: undefined,
+    })) ?? []
+  );
 
   return {
     name: personalName,
@@ -298,4 +303,52 @@ function getInitials(name: string): string {
   if (parts.length === 0) return '?';
   if (parts.length === 1) return parts[0][0].toUpperCase();
   return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
+
+/**
+ * Extract the base sport name by stripping gender qualifiers.
+ * "basketball mens" → "basketball", "basketball_mens" → "basketball",
+ * "Basketball (Mens)" → "basketball", "Men's Basketball" → "basketball"
+ */
+function getBaseSportKey(sport: string): string {
+  const s = sport.trim().toLowerCase();
+  // Strip "mens"/"womens" suffixes in various formats
+  return s
+    .replace(/\s*\((?:mens|womens)\)\s*$/i, '')
+    .replace(/\s+(?:mens|womens)$/i, '')
+    .replace(/_(?:mens|womens)$/i, '')
+    .replace(/^(?:men's|women's)\s+/i, '')
+    .trim();
+}
+
+/**
+ * Deduplicate sport profiles that resolve to the same base sport.
+ * When "basketball" and "basketball mens" both exist, keeps the gendered
+ * (more specific) variant. Prefers whichever is marked active.
+ */
+export function deduplicateSportProfiles(profiles: SidenavSportProfile[]): SidenavSportProfile[] {
+  const seen = new Map<string, SidenavSportProfile>();
+
+  for (const profile of profiles) {
+    const key = getBaseSportKey(profile.sport);
+    const existing = seen.get(key);
+
+    if (!existing) {
+      seen.set(key, profile);
+      continue;
+    }
+
+    // Keep the active one; otherwise keep the longer (more specific) sport name
+    if (profile.isActive && !existing.isActive) {
+      seen.set(key, profile);
+    } else if (
+      !existing.isActive &&
+      !profile.isActive &&
+      profile.sport.length > existing.sport.length
+    ) {
+      seen.set(key, profile);
+    }
+  }
+
+  return Array.from(seen.values());
 }

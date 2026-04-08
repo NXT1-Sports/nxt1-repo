@@ -111,6 +111,8 @@ export class SettingsComponent {
           emailVerified: user.emailVerified,
           createdAt: user.createdAt,
           lastLoginAt: firebaseUser?.metadata?.lastSignInTime ?? null,
+          authProvider: user.provider,
+          isNativeMobile: true,
         };
         this.settingsService.setUser(settingsUser);
 

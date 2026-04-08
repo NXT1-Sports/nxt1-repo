@@ -83,10 +83,10 @@ import {
   AgentXJobService,
 } from './agent-x-job.service';
 import { AgentXStreamRegistryService } from './agent-x-stream-registry.service';
+import { AgentXOperationEventService } from './agent-x-operation-event.service';
 import { AgentXService } from './agent-x.service';
 import { NxtMediaViewerService } from '../components/media-viewer/media-viewer.service';
 import type { MediaViewerItem } from '../components/media-viewer/media-viewer.types';
-import { KeyboardService } from '../services/keyboard/keyboard.service';
 import { NxtDragDropDirective } from '../services/gesture';
 import {
   AgentXActionCardComponent,
@@ -195,114 +195,104 @@ interface OperationMessage {
           <!-- ═══ QUICK OPTIONS ═══ -->
           <div class="quick-options">
             @for (action of normalizedQuickActions(); track action.id) {
-              <button type="button" class="quick-option-chip" (click)="onQuickAction(action)">
-                {{ action.label }}
+              <button
+                type="button"
+                class="quick-option-chip"
+                [attr.data-coordinator]="resolveCoordinatorChipId(action)"
+                (click)="onQuickAction(action)"
+              >
+                <span class="quick-option-chip__topline">
+                  <span class="quick-option-chip__title">{{ action.label }}</span>
+                </span>
+                @if (action.description) {
+                  <span class="quick-option-chip__description">{{ action.description }}</span>
+                }
               </button>
             }
           </div>
         }
 
         @for (msg of messages(); track msg.id; let first = $first) {
-          <!-- Operation Brief card for the first user message in an operation context -->
-          @if (first && msg.role === 'user' && isOperation) {
-            <div class="operation-brief">
-              <div class="operation-brief__header">
-                <svg
-                  class="agent-x-mark"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 612 792"
-                  fill="currentColor"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path [attr.d]="agentXLogoPath" />
-                  <polygon [attr.points]="agentXLogoPolygon" />
-                </svg>
-                <span class="operation-brief__label">Operation Brief</span>
-              </div>
-              <p class="operation-brief__text">{{ msg.content }}</p>
-            </div>
-          } @else {
-            <div
-              class="msg-row"
-              [class.msg-user]="msg.role === 'user'"
-              [class.msg-assistant]="msg.role === 'assistant'"
-              [class.msg-system]="msg.role === 'system'"
-              [class.msg-error]="msg.error"
-            >
-              <nxt1-chat-bubble
-                variant="agent-operation"
-                [isOwn]="msg.role === 'user'"
-                [content]="msg.content"
-                [isTyping]="!!msg.isTyping"
-                [isError]="!!msg.error"
-                [isSystem]="msg.role === 'system'"
-                [steps]="msg.steps ?? []"
-                [cards]="msg.cards ?? []"
-                [parts]="msg.parts ?? []"
-                (billingActionResolved)="onBillingActionResolved($event)"
-                (draftSubmitted)="onDraftSubmitted($event)"
-              />
-              @if (msg.attachments?.length) {
-                <div class="msg-attachments">
-                  @for (att of msg.attachments; track att.name + $index) {
-                    <div class="msg-attachment" [class.msg-attachment--media]="att.type !== 'doc'">
-                      @if (att.type === 'image') {
-                        <img
-                          [src]="att.url"
-                          [alt]="att.name"
-                          class="msg-attachment__thumb"
-                          (click)="openAttachmentViewer(msg.attachments!, $index)"
-                        />
-                      } @else if (att.type === 'video') {
-                        <video
-                          [src]="att.url"
-                          class="msg-attachment__thumb"
-                          preload="metadata"
-                          (click)="openAttachmentViewer(msg.attachments!, $index)"
-                        ></video>
-                        <div class="msg-attachment__play">
-                          <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-                            <path d="M8 5v14l11-7L8 5z" />
+          <div
+            class="msg-row"
+            [class.msg-user]="msg.role === 'user'"
+            [class.msg-assistant]="msg.role === 'assistant'"
+            [class.msg-system]="msg.role === 'system'"
+            [class.msg-error]="msg.error"
+            [class.msg-row--wide]="msgHasDataTable(msg)"
+          >
+            <nxt1-chat-bubble
+              variant="agent-operation"
+              [isOwn]="msg.role === 'user'"
+              [content]="msg.content"
+              [isTyping]="!!msg.isTyping"
+              [isError]="!!msg.error"
+              [isSystem]="msg.role === 'system'"
+              [steps]="msg.steps ?? []"
+              [cards]="msg.cards ?? []"
+              [parts]="msg.parts ?? []"
+              (billingActionResolved)="onBillingActionResolved($event)"
+              (draftSubmitted)="onDraftSubmitted($event)"
+            />
+            @if (msg.attachments?.length) {
+              <div class="msg-attachments">
+                @for (att of msg.attachments; track att.name + $index) {
+                  <div class="msg-attachment" [class.msg-attachment--media]="att.type !== 'doc'">
+                    @if (att.type === 'image') {
+                      <img
+                        [src]="att.url"
+                        [alt]="att.name"
+                        class="msg-attachment__thumb"
+                        (click)="openAttachmentViewer(msg.attachments!, $index)"
+                      />
+                    } @else if (att.type === 'video') {
+                      <video
+                        [src]="att.url"
+                        class="msg-attachment__thumb"
+                        preload="metadata"
+                        (click)="openAttachmentViewer(msg.attachments!, $index)"
+                      ></video>
+                      <div class="msg-attachment__play">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                          <path d="M8 5v14l11-7L8 5z" />
+                        </svg>
+                      </div>
+                    } @else {
+                      <div
+                        class="msg-attachment__doc"
+                        (click)="openAttachmentViewer(msg.attachments!, $index)"
+                        style="cursor: pointer;"
+                      >
+                        <div
+                          class="msg-attachment__doc-icon-wrap"
+                          [style.background]="getFileColor(att.name, 0.15)"
+                          [style.color]="getFileColor(att.name, 1)"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            width="14"
+                            height="14"
+                          >
+                            <path
+                              d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"
+                            />
+                            <polyline points="14 2 14 8 20 8" />
                           </svg>
                         </div>
-                      } @else {
-                        <div
-                          class="msg-attachment__doc"
-                          (click)="openAttachmentViewer(msg.attachments!, $index)"
-                          style="cursor: pointer;"
-                        >
-                          <div
-                            class="msg-attachment__doc-icon-wrap"
-                            [style.background]="getFileColor(att.name, 0.15)"
-                            [style.color]="getFileColor(att.name, 1)"
-                          >
-                            <svg
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              stroke-width="1.5"
-                              width="14"
-                              height="14"
-                            >
-                              <path
-                                d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"
-                              />
-                              <polyline points="14 2 14 8 20 8" />
-                            </svg>
-                          </div>
-                          <div class="msg-attachment__doc-info">
-                            <span class="msg-attachment__doc-name">{{ att.name }}</span>
-                            <span class="msg-attachment__doc-meta">{{ getFileExt(att.name) }}</span>
-                          </div>
+                        <div class="msg-attachment__doc-info">
+                          <span class="msg-attachment__doc-name">{{ att.name }}</span>
+                          <span class="msg-attachment__doc-meta">{{ getFileExt(att.name) }}</span>
                         </div>
-                      }
-                    </div>
-                  }
-                </div>
-              }
-            </div>
-          }
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            }
+          </div>
         }
 
         <!-- ═══ THINKING INDICATOR (Copilot-style: spinning icon + shimmering text) ═══ -->
@@ -549,6 +539,7 @@ interface OperationMessage {
         );
         --op-primary: var(--nxt1-color-primary, #ccff00);
         --op-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+        --op-glass-bg: var(--agent-glass-bg, var(--nxt1-glass-bg, rgba(18, 18, 18, 0.8)));
       }
 
       :host.agent-x-operation-chat--embedded {
@@ -643,8 +634,6 @@ interface OperationMessage {
         flex-direction: column;
         gap: 20px;
         -webkit-overflow-scrolling: touch;
-        /* Adjust for keyboard on mobile - no transition for instant response */
-        max-height: calc(100vh - var(--keyboard-offset, 0px) - 200px);
       }
 
       .messages-area--embedded {
@@ -664,6 +653,12 @@ interface OperationMessage {
         gap: 4px;
         max-width: 88%;
         animation: fadeSlideIn 0.25s ease-out;
+      }
+
+      /* Full-width row for messages containing data tables */
+      .msg-row--wide {
+        max-width: 100%;
+        width: 100%;
       }
 
       @keyframes fadeSlideIn {
@@ -951,8 +946,6 @@ interface OperationMessage {
         padding: 12px 20px;
         padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
         flex-shrink: 0;
-        transform: translateY(calc(-1 * var(--keyboard-offset, 0px)));
-        transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
       }
 
       :host.agent-x-operation-chat--embedded .embedded {
@@ -968,38 +961,188 @@ interface OperationMessage {
       }
 
       .quick-options {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        padding: 4px 0 12px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        padding: 8px 0 16px;
         animation: fadeSlideIn 0.3s ease-out;
       }
 
       .quick-option-chip {
-        display: inline-flex;
-        align-items: center;
-        padding: 8px 14px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        gap: 4px;
+        min-height: 74px;
+        padding: 10px 14px;
         border: 1px solid var(--op-border);
-        border-radius: 999px;
+        border-radius: 22px;
         background: var(--op-surface);
-        color: var(--op-text-secondary);
+        color: var(--op-text);
         font-size: 13px;
-        font-weight: 500;
+        font-weight: 600;
         font-family: inherit;
         line-height: 1.3;
         cursor: pointer;
-        white-space: nowrap;
+        text-align: left;
         -webkit-tap-highlight-color: transparent;
+        box-shadow:
+          0 14px 34px color-mix(in srgb, var(--op-shadow, #000) 22%, transparent),
+          inset 0 1px 0 color-mix(in srgb, white 7%, transparent);
         transition:
           background 0.15s ease,
           border-color 0.15s ease,
-          color 0.15s ease;
+          color 0.15s ease,
+          box-shadow 0.15s ease,
+          transform 0.15s ease;
       }
 
       .quick-option-chip:active {
         background: var(--op-primary-glow);
         border-color: var(--op-primary);
         color: var(--op-primary);
+        transform: translateY(1px) scale(0.99);
+      }
+
+      .quick-option-chip__topline {
+        display: flex;
+        align-items: flex-start;
+        width: 100%;
+      }
+
+      .quick-option-chip__title {
+        display: block;
+        font-size: 14px;
+        font-weight: 700;
+        line-height: 1.25;
+        letter-spacing: 0.01em;
+      }
+
+      .quick-option-chip__description {
+        display: -webkit-box;
+        overflow: hidden;
+        width: 100%;
+        color: var(--op-text-secondary);
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1.45;
+        margin-top: 1px;
+        text-wrap: pretty;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 3;
+      }
+
+      .quick-option-chip[data-coordinator] {
+        --coordinator-pill-accent: var(--op-primary);
+        --coordinator-pill-surface: color-mix(
+          in srgb,
+          var(--coordinator-pill-accent) 18%,
+          var(--op-glass-bg)
+        );
+        --coordinator-pill-border: color-mix(
+          in srgb,
+          var(--coordinator-pill-accent) 54%,
+          var(--op-border)
+        );
+        --coordinator-pill-shadow: color-mix(
+          in srgb,
+          var(--coordinator-pill-accent) 22%,
+          transparent
+        );
+        border-color: var(--coordinator-pill-border);
+        background: var(--coordinator-pill-surface);
+        color: var(--op-text);
+        font-weight: 600;
+        box-shadow:
+          0 16px 34px var(--coordinator-pill-shadow),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 10%, white);
+        backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+        -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+        transition:
+          border-color 0.15s ease,
+          background 0.15s ease,
+          box-shadow 0.15s ease,
+          color 0.15s ease,
+          transform 0.15s ease;
+      }
+
+      .quick-option-chip[data-coordinator]:active {
+        border-color: color-mix(in srgb, var(--coordinator-pill-accent) 72%, white);
+        background: color-mix(in srgb, var(--coordinator-pill-accent) 28%, var(--op-glass-bg));
+        color: var(--op-text);
+        box-shadow:
+          0 18px 36px color-mix(in srgb, var(--coordinator-pill-accent) 26%, transparent),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, white);
+        transform: translateY(1px) scale(0.99);
+      }
+
+      .quick-option-chip[data-coordinator='coord-recruiting'] {
+        --coordinator-pill-accent: #ccff00;
+      }
+
+      .quick-option-chip[data-coordinator='coord-media'] {
+        --coordinator-pill-accent: #ff7a45;
+      }
+
+      .quick-option-chip[data-coordinator='coord-scout'] {
+        --coordinator-pill-accent: #41b8ff;
+      }
+
+      .quick-option-chip[data-coordinator='coord-academics'] {
+        --coordinator-pill-accent: #9d7bff;
+      }
+
+      .quick-option-chip[data-coordinator='coord-roster'] {
+        --coordinator-pill-accent: #2fd39a;
+      }
+
+      .quick-option-chip[data-coordinator='coord-scouting'] {
+        --coordinator-pill-accent: #3fa3ff;
+      }
+
+      .quick-option-chip[data-coordinator='coord-team-media'] {
+        --coordinator-pill-accent: #ff5d8f;
+      }
+
+      .quick-option-chip[data-coordinator='coord-prospect-search'] {
+        --coordinator-pill-accent: #ffd447;
+      }
+
+      .quick-option-chip[data-coordinator='coord-evaluation'] {
+        --coordinator-pill-accent: #57d4ff;
+      }
+
+      .quick-option-chip[data-coordinator='coord-outreach'] {
+        --coordinator-pill-accent: #ff9a3d;
+      }
+
+      .quick-option-chip[data-coordinator='coord-compliance'] {
+        --coordinator-pill-accent: #44d6c2;
+      }
+
+      @media (max-width: 420px) {
+        .quick-options {
+          display: flex;
+          gap: 10px;
+          overflow-x: auto;
+          overflow-y: hidden;
+          padding: 8px 0 14px;
+          margin: 0 -2px;
+          scroll-snap-type: x proximity;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        .quick-option-chip {
+          flex: 0 0 224px;
+          min-height: 68px;
+          padding: 9px 12px;
+          scroll-snap-align: start;
+        }
+
+        .quick-options::-webkit-scrollbar {
+          display: none;
+        }
       }
 
       /* ── FAILURE BANNER ── */
@@ -1067,44 +1210,6 @@ interface OperationMessage {
         background: transparent;
         color: var(--op-text-secondary);
         border: 1px solid var(--op-border);
-      }
-
-      /* ── OPERATION BRIEF CARD ── */
-      .operation-brief {
-        margin: 4px 0 12px;
-        padding: 14px 16px;
-        border-radius: 14px;
-        border: 1px solid var(--op-border);
-        background: var(--op-surface, rgba(255, 255, 255, 0.04));
-        animation: fadeSlideIn 0.3s ease-out;
-      }
-
-      .operation-brief__header {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        margin-bottom: 8px;
-        color: var(--op-text-secondary);
-      }
-
-      .operation-brief__label {
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        color: var(--op-text-secondary);
-      }
-
-      .operation-brief__text {
-        font-size: 13px;
-        line-height: 1.55;
-        color: var(--op-text-primary);
-        margin: 0;
-        white-space: pre-line;
-        overflow: hidden;
-        display: -webkit-box;
-        -webkit-line-clamp: 4;
-        -webkit-box-orient: vertical;
       }
 
       /* ── THINKING INDICATOR (Copilot-style) ── */
@@ -1184,13 +1289,13 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private readonly toast = inject(NxtToastService);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
-  private readonly keyboard = inject(KeyboardService, { optional: true });
   private readonly platformId = inject(PLATFORM_ID);
   private readonly jobService = inject(AgentXJobService);
   private readonly mediaViewer = inject(NxtMediaViewerService);
   private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
   private readonly destroyRef = inject(DestroyRef);
   private readonly streamRegistry = inject(AgentXStreamRegistryService);
+  private readonly operationEventService = inject(AgentXOperationEventService);
   private readonly agentXService = inject(AgentXService);
 
   /** Pure API factory — used for SSE streaming. */
@@ -1207,6 +1312,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Active SSE abort controller — cancelled on destroy or when a new message starts. */
   private activeStream: AbortController | null = null;
+
+  /** Operation ID from the backend — used for explicit cancel endpoint. */
+  private _currentOperationId: string | null = null;
 
   // ============================================
   // INPUTS (from componentProps)
@@ -1234,11 +1342,17 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** When true, renders as a desktop-embedded panel instead of a dismissible sheet. */
   @Input() embedded = false;
 
+  /** When true, coordinator chips emit to the parent instead of auto-sending as chat text. */
+  @Input() delegateCoordinatorQuickActions = false;
+
   /** Optional list of quick action suggestions shown as tappable chips. */
   @Input() quickActions: readonly OperationQuickAction[] = [];
 
   /** Optional initial message to auto-send when the sheet opens. */
   @Input() initialMessage = '';
+
+  /** Optional initial files to seed into the pending files strip when opening. */
+  @Input() initialFiles: PendingFile[] = [];
 
   /**
    * Optional MongoDB thread ID — when provided, loads the historical
@@ -1375,6 +1489,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     }));
   });
 
+  protected resolveCoordinatorChipId(action: OperationQuickAction): string | null {
+    if (!action.id.startsWith('coord-')) return null;
+    return action.id.startsWith('coord-coord-') ? action.id.slice('coord-'.length) : action.id;
+  }
+
   /** Tracks whether the user has sent at least one message. */
   private readonly hasUserSent = signal(false);
 
@@ -1386,6 +1505,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Emitted when the user approves a draft email card (HITL send). */
   readonly draftSubmitted = output<DraftSubmittedEvent>();
+
+  /** Emitted when a coordinator chip should open a dedicated coordinator context. */
+  readonly coordinatorQuickActionSelected = output<OperationQuickAction>();
 
   /** Whether this chat was opened to view a historical thread (suppresses generic welcome). */
   private readonly _isThreadMode = signal(false);
@@ -1458,24 +1580,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         this.scrollToBottom();
       }
     });
-
-    // Apply keyboard offset to messages area (mobile only)
-    if (isPlatformBrowser(this.platformId) && this.keyboard) {
-      effect(() => {
-        const offset = this.keyboard!.keyboardHeight();
-        const messagesEl = this.messagesArea()?.nativeElement;
-        if (messagesEl) {
-          // Set keyboard offset immediately
-          messagesEl.style.setProperty('--keyboard-offset', `${offset}px`);
-          // Force immediate reflow for instant layout update
-          void messagesEl.offsetHeight;
-          // Auto-scroll instantly when keyboard opens
-          if (offset > 0) {
-            this.scrollToBottom();
-          }
-        }
-      });
-    }
   }
 
   // ============================================
@@ -1637,11 +1741,18 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    if (this.initialMessage?.trim() && !this.initialMessageSent) {
+    // Seed initial files if provided (from shell pending files)
+    if (this.initialFiles.length > 0) {
+      this.pendingFiles.set([...this.initialFiles]);
+    }
+
+    if ((this.initialMessage?.trim() || this.initialFiles.length > 0) && !this.initialMessageSent) {
       this.initialMessageSent = true;
       // Slight delay to let the sheet animation settle
       setTimeout(() => {
-        this.inputValue.set(this.initialMessage.trim());
+        if (this.initialMessage?.trim()) {
+          this.inputValue.set(this.initialMessage.trim());
+        }
         this.send();
       }, 150);
     }
@@ -1807,9 +1918,16 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /**
    * Cancel the active SSE stream (if any) and reset loading state.
    * Bound to the stop button in the input bar.
+   *
+   * This performs four actions:
+   * 1. Aborts the frontend fetch (drops the SSE connection).
+   * 2. Fires an explicit POST to /cancel/:operationId (belt-and-suspenders).
+   * 3. Transitions any in-flight tool steps from 'active' → 'error' with
+   *    a "Cancelled" label so the UI stops showing spinners immediately.
+   * 4. Resets the loading flag.
    */
   cancelStream(): void {
-    // Abort via registry (cleans up buffer + SSE connection)
+    // ✅ ACTION 1: Abort via registry (cleans up buffer + SSE connection)
     const threadId = this._resolvedThreadId();
     if (threadId) {
       this.streamRegistry.abort(threadId);
@@ -1820,11 +1938,69 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       this.activeStream = null;
     }
 
+    // ✅ ACTION 2: Notify backend explicitly (belt-and-suspenders)
+    if (this._currentOperationId) {
+      const opId = this._currentOperationId;
+      this._currentOperationId = null;
+      this._fireCancelRequest(opId);
+    }
+
+    // ✅ ACTION 3: Transition 'active' tool steps to 'error' (show "Cancelled")
+    this.messages.update((msgs) =>
+      msgs.map((m) => {
+        const hasActiveSteps = m.steps?.some((s) => s.status === 'active');
+        const hasActiveParts = m.parts?.some(
+          (p) => p.type === 'tool-steps' && p.steps.some((s) => s.status === 'active')
+        );
+        if (!hasActiveSteps && !hasActiveParts) return m;
+
+        const cancelStep = (s: AgentXToolStep): AgentXToolStep =>
+          s.status === 'active' ? { ...s, status: 'error', label: 'Cancelled' } : s;
+
+        return {
+          ...m,
+          isTyping: false,
+          steps: m.steps?.map(cancelStep),
+          parts: m.parts?.map((p) =>
+            p.type === 'tool-steps' ? { ...p, steps: p.steps.map(cancelStep) } : p
+          ),
+        };
+      })
+    );
+
+    // ✅ ACTION 4: Reset loading state
     this._loading.set(false);
     this.logger.info('Stream cancelled by user');
     this.breadcrumb.trackStateChange('agent-x-operation-chat:stream-cancelled', {
       contextId: this.contextId,
     });
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_STREAM_CANCELLED, {
+      threadId: threadId ?? undefined,
+      contextId: this.contextId,
+      contextType: this.contextType,
+    });
+  }
+
+  /**
+   * Fire-and-forget POST to explicit cancel endpoint.
+   * Non-critical — the SSE drop is the primary path; this is belt-and-suspenders.
+   * @internal
+   */
+  private _fireCancelRequest(operationId: string): void {
+    const url = `${this.baseUrl}/agent-x/cancel/${operationId}`;
+    this.getAuthToken?.()
+      .then((token) => {
+        if (!token) return;
+        return firstValueFrom(
+          this.http.post(url, {}, { headers: { Authorization: `Bearer ${token}` } })
+        );
+      })
+      .catch((err) => {
+        this.logger.debug('Explicit cancel request failed (non-critical)', {
+          operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
   }
 
   /** Send the current input as a user message. */
@@ -1910,6 +2086,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Handle a quick action chip tap — auto-sends as user message. */
   async onQuickAction(action: OperationQuickAction): Promise<void> {
+    if (this.delegateCoordinatorQuickActions && this.resolveCoordinatorChipId(action)) {
+      this.coordinatorQuickActionSelected.emit(action);
+      return;
+    }
+
     this.inputValue.set(action.label);
     await this.send();
   }
@@ -2169,6 +2350,13 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this._clearPendingFiles();
   }
 
+  /** Returns true when a message contains a data-table rich card (cards or parts). */
+  protected msgHasDataTable(msg: OperationMessage): boolean {
+    if (msg.cards?.some((c) => c.type === 'data-table')) return true;
+    if (msg.parts?.some((p) => p.type === 'card' && p.card.type === 'data-table')) return true;
+    return false;
+  }
+
   /** File extension → colour (returns rgba string). */
   protected getFileColor(filename: string, alpha: number): string {
     const ext = this.getFileExt(filename).toLowerCase();
@@ -2309,6 +2497,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         {
           onThread: (evt) => {
             this._resolvedThreadId.set(evt.threadId);
+            // Store operation ID for explicit cancellation support
+            if (evt.operationId) this._currentOperationId = evt.operationId;
             this.logger.debug('Stream thread resolved', { threadId: evt.threadId });
 
             // Register with the stream registry now that we have a threadId.
@@ -2395,11 +2585,41 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             );
           },
 
+          onOperation: (evt) => {
+            // Forward to the shared event service so the operations log sidebar
+            // updates in real-time (in-progress spinner, complete, error states).
+            this.operationEventService.emitOperationStatusUpdated(
+              evt.threadId,
+              evt.status,
+              evt.timestamp
+            );
+          },
+
+          onTitleUpdated: (evt) => {
+            // Forward to the shared event service so the operations log sidebar
+            // replaces "Processing…" with the auto-generated title instantly.
+            this.operationEventService.emitTitleUpdated(evt.threadId, evt.title);
+          },
+
           onPanel: (evt) => {
             this.agentXService.requestAutoOpenPanel(evt);
             this.logger.info('Forwarded panel event to AgentXService (immediate)', {
               type: evt.type,
             });
+          },
+
+          onMedia: (evt) => {
+            // Insert a first-class image/video part so it renders immediately
+            // (instead of waiting for the LLM to mention it in text).
+            const mediaPart: AgentXMessagePart =
+              evt.type === 'video'
+                ? { type: 'video', url: evt.url }
+                : { type: 'image', url: evt.url };
+            parts.push(mediaPart);
+
+            this.messages.update((msgs) =>
+              msgs.map((m) => (m.id === streamingId ? { ...m, parts: [...parts] } : m))
+            );
           },
 
           onDone: (evt) => {

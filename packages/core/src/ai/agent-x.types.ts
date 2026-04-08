@@ -60,7 +60,7 @@ export type AgentXMessagePart =
   | { readonly type: 'tool-steps'; readonly steps: readonly AgentXToolStep[] }
   | { readonly type: 'card'; readonly card: AgentXRichCard }
   | { readonly type: 'image'; readonly url: string; readonly alt?: string }
-  | { readonly type: 'video'; readonly url: string };
+  | { readonly type: 'video'; readonly url: string; readonly mimeType?: string };
 
 /**
  * A single message in the Agent X conversation.
@@ -599,6 +599,8 @@ export interface AgentXDocumentPayload {
  */
 export interface AgentXStreamThreadEvent {
   readonly threadId: string;
+  /** The backend operation ID for this chat request. Used for explicit cancellation via POST /cancel/:operationId. */
+  readonly operationId?: string;
 }
 
 /**
@@ -719,6 +721,17 @@ export interface AgentXStreamCallbacks {
   onOperation?: (event: AgentXStreamOperationEvent) => void;
   /** Called immediately when a tool emits an autoOpenPanel instruction (before done). */
   onPanel?: (event: AutoOpenPanelInstruction) => void;
+  /** Called when a tool produces a media artifact (image/video URL). */
+  onMedia?: (event: AgentXStreamMediaEvent) => void;
+}
+
+/**
+ * Emitted when a tool produces a media artifact (e.g. generated graphic, video).
+ */
+export interface AgentXStreamMediaEvent {
+  readonly type: 'image' | 'video';
+  readonly url: string;
+  readonly mimeType?: string;
 }
 
 /**

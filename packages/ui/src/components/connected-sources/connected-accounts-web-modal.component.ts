@@ -36,7 +36,10 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 import { LINK_SOURCES_TEST_IDS } from '@nxt1/core/testing';
 import type { LinkSourcesFormData, OnboardingUserType, PlatformScope } from '@nxt1/core/api';
 import { OnboardingLinkDropStepComponent } from '../../onboarding/onboarding-link-drop-step';
-import { FirecrawlSignInService, type FirecrawlSignInRequest } from './firecrawl-signin.service';
+import {
+  FirecrawlSignInService,
+  type FirecrawlSignInRequest,
+} from './firecrawl-signin.service';
 import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from './connected-accounts-modal.service';
 
 /** Result data emitted when the modal is dismissed with changes. */
@@ -113,8 +116,7 @@ export interface ConnectedAccountsModalCloseData {
         }
         <div class="nxt1-ca-body" [class.nxt1-ca-body--hidden]="firecrawlLoading()">
           <nxt1-onboarding-link-drop-step
-            #linkDropStep
-            [linkSourcesData]="linkSourcesData()"
+            [linkSourcesData]="effectiveLinkSources()"
             [selectedSports]="selectedSports()"
             [role]="role()"
             [scope]="scope()"
@@ -355,6 +357,16 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
   private readonly _hasChanges = signal(false);
   readonly hasChanges = computed(() => this._hasChanges());
 
+  /**
+   * Effective link sources: returns the latest child-emitted state if available,
+   * falling back to the original input. After a Firecrawl sign-in, we push the
+   * new connection into `_latestLinkSources` so the child's effect rebuilds its
+   * connected map through the normal data flow — no viewChild needed.
+   */
+  protected readonly effectiveLinkSources = computed(
+    () => this._latestLinkSources() ?? this.linkSourcesData()
+  );
+
   /** Expose firecrawl loading state for the template */
   protected readonly firecrawlLoading = this.firecrawlSignIn.loading;
   private readonly _firecrawlLabel = signal<string>('');
@@ -412,6 +424,21 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
     const success = await this.firecrawlSignIn.launchSignIn(request);
     this._firecrawlLabel.set('');
     if (success) {
+      // Push the new connection into the data flowing to the child.
+      // This triggers the child's linkSourcesData effect → rebuilds _connectedMap → UI updates.
+      const currentData = this._latestLinkSources() ?? this.linkSourcesData();
+      const currentLinks = currentData?.links ?? [];
+      this._latestLinkSources.set({
+        links: [
+          ...currentLinks.filter((l) => l.platform !== request.platform),
+          {
+            platform: request.platform,
+            connected: true,
+            connectionType: 'signin' as const,
+            scopeType: 'global' as const,
+          },
+        ],
+      });
       this._hasChanges.set(true);
     }
   }

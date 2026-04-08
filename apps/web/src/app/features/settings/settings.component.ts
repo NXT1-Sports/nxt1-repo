@@ -97,6 +97,8 @@ export class SettingsComponent implements OnInit {
           emailVerified: firebaseUser?.emailVerified ?? false,
           createdAt: user.createdAt,
           lastLoginAt: firebaseUser?.metadata?.lastSignInTime ?? null,
+          authProvider: firebaseUser?.providerData?.[0]?.providerId ?? undefined,
+          isNativeMobile: false,
         };
         this.settingsService.setUser(settingsUser);
 

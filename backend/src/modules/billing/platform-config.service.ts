@@ -60,14 +60,6 @@ export interface PlatformBillingConfig {
   defaultOrganizationBudget: number;
 
   /**
-   * Promotional credit granted to new organization accounts in cents.
-   * Applied chronologically against metered usage so early spend is covered
-   * at no charge until the credit is fully exhausted.
-   * Default: 2000 = $20.00
-   */
-  orgPromotionalCreditCents: number;
-
-  /**
    * Wallet hold expiry in milliseconds.
    */
   holdExpiryMs: number;
@@ -92,7 +84,6 @@ const FALLBACK_CONFIG: PlatformBillingConfig = {
   defaultIndividualBudget: 2000, // $20
   defaultTeamBudget: 20000, // $200
   defaultOrganizationBudget: 50000, // $500
-  orgPromotionalCreditCents: 2000, // $20 promotional credit for org accounts
   holdExpiryMs: 10 * 60 * 1000, // 10 minutes
   b2bDaysUntilDue: 30,
 };
@@ -173,11 +164,6 @@ export async function getPlatformConfig(db: Firestore): Promise<PlatformBillingC
         typeof data['defaultOrganizationBudget'] === 'number'
           ? data['defaultOrganizationBudget']
           : FALLBACK_CONFIG.defaultOrganizationBudget,
-      orgPromotionalCreditCents:
-        typeof data['orgPromotionalCreditCents'] === 'number' &&
-        data['orgPromotionalCreditCents'] >= 0
-          ? data['orgPromotionalCreditCents']
-          : FALLBACK_CONFIG.orgPromotionalCreditCents,
       holdExpiryMs:
         typeof data['holdExpiryMs'] === 'number' && data['holdExpiryMs'] > 0
           ? data['holdExpiryMs']

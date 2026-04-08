@@ -59,7 +59,7 @@ import {
   SaveMemoryTool,
   DeleteMemoryTool,
 } from '../tools/database/index.js';
-import { GenerateImageTool, AnalyzeVideoTool } from '../tools/media/index.js';
+import { GenerateGraphicTool, AnalyzeVideoTool } from '../tools/media/index.js';
 import { DynamicExportTool } from '../tools/data/index.js';
 import { WebSearchTool } from '../tools/integrations/web-search.tool.js';
 import { SendEmailTool } from '../tools/integrations/send-email.tool.js';
@@ -244,7 +244,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteAthleteVideosTool(stagingDb));
   toolRegistry.register(new SearchCollegesTool());
   toolRegistry.register(new SearchCollegeCoachesTool());
-  toolRegistry.register(new GenerateImageTool(llm));
+  toolRegistry.register(new GenerateGraphicTool(llm));
   toolRegistry.register(new AnalyzeVideoTool(scraperService, llm));
   toolRegistry.register(new DynamicExportTool());
 

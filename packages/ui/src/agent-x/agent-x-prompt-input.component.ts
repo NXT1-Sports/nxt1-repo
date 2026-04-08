@@ -57,9 +57,8 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
                 (click)="onRemoveFile($index)"
                 aria-label="Remove file"
               >
-                <nxt1-icon name="close" [size]="12" />
+                <nxt1-icon name="close" [size]="10" />
               </button>
-              <span class="attachment-name">{{ pending.file.name }}</span>
             </div>
           }
         </div>
@@ -219,10 +218,19 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
       .attachment-strip {
         display: flex;
         gap: 0.5rem;
-        padding: 0 0.75rem;
+        padding: 0.75rem;
         overflow-x: auto;
         scrollbar-width: none;
         -ms-overflow-style: none;
+        background: var(--agent-input-bg, rgba(18, 18, 18, 0.8));
+        border: 1px solid var(--agent-input-border, rgba(255, 255, 255, 0.08));
+        border-radius: var(--agent-input-radius, 24px);
+        box-shadow:
+          var(--agent-input-shadow, 0 4px 16px rgba(0, 0, 0, 0.16)),
+          0 0 0 1px var(--nxt1-color-alpha-primary10, var(--nxt1-color-alpha-primary15));
+        backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+        -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+        pointer-events: auto;
       }
 
       .attachment-strip::-webkit-scrollbar {
@@ -233,10 +241,8 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
         position: relative;
         flex: 0 0 auto;
         display: flex;
-        flex-direction: column;
         align-items: center;
-        gap: 0.25rem;
-        width: 64px;
+        justify-content: center;
       }
 
       .attachment-thumb {
@@ -262,7 +268,7 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
       .attachment-remove {
         position: absolute;
         top: -4px;
-        right: 0;
+        right: -4px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -270,24 +276,22 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
         height: 18px;
         border-radius: 50%;
         border: none;
-        background: var(--nxt1-color-error, #ff4444);
+        background: rgba(255, 255, 255, 0.15);
         color: #fff;
         cursor: pointer;
-        transition: transform 0.15s ease;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        transition:
+          transform 0.15s ease,
+          background 0.15s ease;
+      }
+
+      .attachment-remove:hover {
+        background: rgba(255, 255, 255, 0.25);
       }
 
       .attachment-remove:active {
         transform: scale(0.9);
-      }
-
-      .attachment-name {
-        font-size: 0.625rem;
-        color: var(--agent-text-secondary, rgba(255, 255, 255, 0.7));
-        max-width: 60px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        text-align: center;
       }
 
       .input-wrapper {

@@ -59,15 +59,39 @@ export async function getOrCreateCustomer(
 ): Promise<GetOrCreateCustomerResult> {
   try {
     // Check Firestore cache
-    const customerDoc = await db
+    const customerQuery = await db
       .collection(COLLECTIONS.STRIPE_CUSTOMERS)
       .where('userId', '==', userId)
       .where('environment', '==', environment)
       .limit(1)
       .get();
 
-    if (!customerDoc.empty) {
-      const customer = customerDoc.docs[0]?.data() as StripeCustomer;
+    if (!customerQuery.empty) {
+      const cachedDoc = customerQuery.docs[0]!;
+      const customer = cachedDoc.data() as StripeCustomer;
+
+      // Verify the cached customer still exists in Stripe.
+      // Stale entries can occur after switching Stripe accounts or environments.
+      const stripe = getStripeClient(environment);
+      try {
+        await stripe.customers.retrieve(customer.stripeCustomerId);
+      } catch (verifyErr: unknown) {
+        const stripeErr = verifyErr as { code?: string };
+        if (stripeErr.code === 'resource_missing') {
+          logger.warn(
+            '[getOrCreateCustomer] Cached customer missing from Stripe — purging stale entry',
+            {
+              userId,
+              staleCustomerId: customer.stripeCustomerId,
+            }
+          );
+          await cachedDoc.ref.delete();
+          // Fall through to create a new customer below
+          return createAndCacheCustomer(db, stripe, userId, email, teamId, environment);
+        }
+        throw verifyErr;
+      }
+
       logger.info('[getOrCreateCustomer] Customer found in cache', {
         userId,
         customerId: customer.stripeCustomerId,
@@ -81,42 +105,7 @@ export async function getOrCreateCustomer(
 
     // Create in Stripe
     const stripe = getStripeClient(environment);
-
-    const customer = await stripe.customers.create(
-      {
-        email,
-        metadata: {
-          userId,
-          teamId: teamId || '',
-          environment,
-        },
-      },
-      {
-        idempotencyKey: `customer-${userId}-${environment}`,
-      }
-    );
-
-    logger.info('[getOrCreateCustomer] Customer created in Stripe', {
-      userId,
-      customerId: customer.id,
-    });
-
-    // Cache in Firestore
-    const now = FieldValue.serverTimestamp();
-    await db.collection(COLLECTIONS.STRIPE_CUSTOMERS).add({
-      userId,
-      stripeCustomerId: customer.id,
-      teamId,
-      email,
-      environment,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    return {
-      customerId: customer.id,
-      isNew: true,
-    };
+    return createAndCacheCustomer(db, stripe, userId, email, teamId, environment);
   } catch (error) {
     logger.error('[getOrCreateCustomer] Failed to get or create customer', {
       error,
@@ -125,6 +114,52 @@ export async function getOrCreateCustomer(
     });
     throw error;
   }
+}
+
+/** Create a Stripe customer and cache the mapping in Firestore. */
+async function createAndCacheCustomer(
+  db: Firestore,
+  stripe: Stripe,
+  userId: string,
+  email: string,
+  teamId: string | undefined,
+  environment: string
+): Promise<GetOrCreateCustomerResult> {
+  const customer = await stripe.customers.create(
+    {
+      email,
+      metadata: {
+        userId,
+        teamId: teamId || '',
+        environment,
+      },
+    },
+    {
+      idempotencyKey: `customer-${userId}-${environment}-${Date.now()}`,
+    }
+  );
+
+  logger.info('[getOrCreateCustomer] Customer created in Stripe', {
+    userId,
+    customerId: customer.id,
+  });
+
+  // Cache in Firestore
+  const now = FieldValue.serverTimestamp();
+  await db.collection(COLLECTIONS.STRIPE_CUSTOMERS).add({
+    userId,
+    stripeCustomerId: customer.id,
+    teamId,
+    email,
+    environment,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return {
+    customerId: customer.id,
+    isNew: true,
+  };
 }
 
 /**

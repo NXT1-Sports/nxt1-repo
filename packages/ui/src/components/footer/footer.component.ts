@@ -171,6 +171,7 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
                       [src]="profileAvatarSrc()"
                       [name]="profileAvatarName()"
                       [isTeamRole]="profileAvatarIsTeam()"
+                      [defaultIcon]="profileAvatarIsTeam() ? 'shield' : 'athlete'"
                       [customSize]="32"
                       [showSkeleton]="false"
                       cssClass="footer-profile-avatar"
@@ -331,19 +332,13 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
         border-radius: 30px;
       }
 
-      .footer-pill-surface--translucent {
-        border-color: var(--nxt1-navigation-surface-glass-border);
-        background: var(--nxt1-navigation-surface-translucent-bg);
-        -webkit-backdrop-filter: var(--nxt1-navigation-surface-glass-backdrop);
-        backdrop-filter: var(--nxt1-navigation-surface-glass-backdrop);
-        overflow: visible;
-      }
-
+      .footer-pill-surface--translucent,
       .footer-pill-surface--glass {
-        border-color: var(--nxt1-navigation-surface-glass-border);
-        background: var(--nxt1-navigation-surface-glass-bg);
-        -webkit-backdrop-filter: var(--nxt1-navigation-surface-glass-backdrop);
-        backdrop-filter: var(--nxt1-navigation-surface-glass-backdrop);
+        border-color: var(--nxt1-navigation-surface-solid-border);
+        background: var(--nxt1-navigation-surface-solid-bg);
+        box-shadow: var(--nxt1-navigation-surface-solid-shadow);
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
         overflow: visible;
       }
 
@@ -748,10 +743,10 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
 
       /* iOS-specific - Ensure liquid glass effect only when glass mode enabled */
       :host-context(.ios) ion-tab-bar.footer--glass {
-        --background: var(--nxt1-navigation-surface-glass-bg) !important;
-        background: var(--nxt1-navigation-surface-glass-bg) !important;
-        -webkit-backdrop-filter: var(--nxt1-navigation-surface-glass-backdrop) !important;
-        backdrop-filter: var(--nxt1-navigation-surface-glass-backdrop) !important;
+        --background: transparent !important;
+        background: transparent !important;
+        -webkit-backdrop-filter: none !important;
+        backdrop-filter: none !important;
       }
 
       /* Android/MD-specific */
@@ -841,9 +836,9 @@ export class NxtMobileFooterComponent {
     resolveNavigationSurfaceState(this._config(), this.platform.os())
   );
 
-  /** Whether to use Ionic's native translucent surface handling. */
+  /** Footer surface is handled by the wrapper, so avoid Ionic's extra faded layer. */
   readonly isTranslucent = computed(() => {
-    return this.surfaceState().translucent;
+    return false;
   });
 
   /** Whether to show labels based on config and device */
@@ -1004,6 +999,8 @@ export class NxtMobileFooterComponent {
   /**
    * Handle tab click
    * Follows Instagram/Twitter/TikTok pattern: tapping active tab scrolls to top.
+   * Navigation is delegated to the parent shell so platforms can use their
+   * native routing primitives (NavController on mobile, Router on web).
    */
   async onTabClick(tab: FooterTabItem, event: Event): Promise<void> {
     if (tab.disabled) return;
@@ -1042,11 +1039,6 @@ export class NxtMobileFooterComponent {
         previousTab: this.previousTab,
         event,
       });
-
-      // Navigate (only if not handled externally)
-      if (this.isBrowser && tab.route) {
-        void this.router.navigate([tab.route]);
-      }
     } catch (error) {
       // Log but don't throw - tab click failures shouldn't crash the app
       this.logger.error('Tab click handler failed', error);

@@ -309,13 +309,11 @@ export interface BillingContext {
   proSubscriptionId?: string;
 
   /**
-   * Promotional credit granted to this billing context in cents.
-   * Applied chronologically against `currentMeteredUsage` before computing
-   * `nextPaymentAmount`. Org accounts receive $20 (2000¢) by default via
-   * the platform config `orgPromotionalCreditCents`.
-   * Omitting this field means the platform config default is used.
+   * Optional custom name for the primary budget.
+   * If omitted, falls back to "Overall Budget" in the UI.
+   * For example, default orgs can be named "Starter budget".
    */
-  promotionalCreditCents?: number;
+  budgetName?: string;
 
   /** Created timestamp */
   createdAt: Timestamp;

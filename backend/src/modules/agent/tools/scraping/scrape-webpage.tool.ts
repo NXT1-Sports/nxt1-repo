@@ -101,7 +101,11 @@ export class ScrapeWebpageTool extends BaseTool {
 
     // ── Scrape ─────────────────────────────────────────────────────────
     try {
-      const result = await this.scraper.scrape({ url: url.trim(), maxLength });
+      const result = await this.scraper.scrape({
+        url: url.trim(),
+        maxLength,
+        signal: context?.signal,
+      });
 
       // ── Stage extracted media to thread storage ──────────────────────
       // Replace ephemeral external URLs (CDN-signed, CORS-blocked) with

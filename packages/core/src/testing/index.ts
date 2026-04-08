@@ -594,7 +594,6 @@ export const USAGE_TEST_IDS = {
   // Overview section
   OVERVIEW_SECTION: 'usage-overview-section',
   OVERVIEW_METERED_USAGE: 'usage-overview-metered-usage',
-  OVERVIEW_INCLUDED_USAGE: 'usage-overview-included-usage',
   OVERVIEW_NEXT_PAYMENT: 'usage-overview-next-payment',
   OVERVIEW_PERIOD_LABEL: 'usage-overview-period-label',
   OVERVIEW_WALLET_BALANCE: 'usage-overview-wallet-balance',

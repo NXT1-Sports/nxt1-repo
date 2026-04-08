@@ -63,7 +63,7 @@ import type { BottomSheetAction, BottomSheetResult } from './bottom-sheet.types'
       />
     }
 
-    <ion-content [fullscreen]="true" class="nxt1-sheet-content">
+    <ion-content [scrollY]="true" [scrollEvents]="true" class="nxt1-sheet-content">
       @if (actionsLayout === 'row') {
         <!-- Row layout: status text left, compact buttons right -->
         <div class="nxt1-sheet-body nxt1-sheet-body--row">

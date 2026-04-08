@@ -152,8 +152,11 @@ export class WebSearchTool extends BaseTool {
     logger.debug('[WebSearch] Executing search', { query, maxResults, searchDepth });
 
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      // Combine timeout + cancellation signal — either one fires to abort
+      const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+      const combinedSignal = context?.signal
+        ? AbortSignal.any([timeoutSignal, context.signal])
+        : timeoutSignal;
 
       let response: Response;
       try {
@@ -171,10 +174,10 @@ export class WebSearchTool extends BaseTool {
             include_raw_content: false,
             include_images: false,
           }),
-          signal: controller.signal,
+          signal: combinedSignal,
         });
       } finally {
-        clearTimeout(timeout);
+        // no-op: AbortSignal.timeout handles its own cleanup
       }
 
       if (!response.ok) {

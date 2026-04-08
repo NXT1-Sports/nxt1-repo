@@ -1544,26 +1544,8 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     )
   );
 
-  /** Portal: cleaned team name for the top nav header */
-  protected readonly portalTeamName = computed(() => {
-    const team = this.teamProfile.team();
-    if (!team) return '';
-    const teamName = team.teamName?.trim() ?? '';
-    if (!teamName) return '';
-    const sport = team.sport?.trim();
-    const withoutHighSchool = teamName.replace(/\bhigh\s+school\b/gi, '').trim();
-    const withoutSport = sport
-      ? withoutHighSchool
-          .replace(new RegExp(`\\b${sport.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b`, 'gi'), '')
-          .trim()
-      : withoutHighSchool;
-    const baseName = withoutSport.replace(/\s{2,}/g, ' ').trim();
-    const cleanName = baseName || teamName;
-    const mascot = team.branding?.mascot?.trim();
-    if (!mascot) return cleanName;
-    if (cleanName.toLowerCase().endsWith(mascot.toLowerCase())) return cleanName;
-    return `${cleanName} ${mascot}`;
-  });
+  /** Portal: top nav header title */
+  protected readonly portalTeamName = computed(() => 'Team');
 
   /** Portal: team type + sport subtitle for top nav header */
   protected readonly portalTeamSubtitle = computed(() => {

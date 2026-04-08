@@ -37,8 +37,6 @@ export {
   type HapticFeedbackType,
 } from './haptics';
 
-export { KeyboardService } from './keyboard/keyboard.service';
-
 export { NxtLoggingService, LOGGING_CONFIG, type LoggingConfig } from './logging';
 
 // Analytics adapter token (provided by apps)

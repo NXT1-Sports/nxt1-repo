@@ -140,7 +140,9 @@ import type { AgentXRichCard, AgentXDataTableColumn, AgentXDataTablePayload } fr
       td {
         padding: 8px 12px;
         color: var(--nxt1-color-text-primary, #ffffff);
-        white-space: nowrap;
+        white-space: normal;
+        min-width: 80px;
+        word-break: break-word;
       }
 
       tr:not(:last-child) td {

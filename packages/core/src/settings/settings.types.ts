@@ -233,6 +233,10 @@ export interface SettingsUserInfo {
   readonly emailVerified: boolean;
   readonly createdAt: string;
   readonly lastLoginAt: string | null;
+  /** Auth provider used to sign in (e.g. 'email', 'google', 'apple'). */
+  readonly authProvider?: string;
+  /** True when running inside a native Capacitor app (iOS/Android). */
+  readonly isNativeMobile?: boolean;
 }
 
 /**

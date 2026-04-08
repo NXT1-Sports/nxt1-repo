@@ -17,7 +17,7 @@ export type { UserRole } from '../constants/user.constants';
 /**
  * Authentication provider used for sign-in
  */
-export type AuthProvider = 'email' | 'google' | 'apple' | 'anonymous';
+export type AuthProvider = 'email' | 'google' | 'apple' | 'microsoft' | 'anonymous';
 
 /**
  * Core user profile - platform agnostic

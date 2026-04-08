@@ -331,7 +331,7 @@ export class ServerAuthService implements IAuthService, OnDestroy {
         uid,
         email: data['email'] ?? '',
         displayName: data['displayName'] ?? data['firstName'] ?? 'User',
-        profileImg: data['profileImg'] ?? data['photoURL'] ?? data['profilePhoto'] ?? undefined,
+        profileImg: data['profileImgs']?.[0] ?? data['profileImg'] ?? undefined,
         connectedEmails: Array.isArray(data['connectedEmails'])
           ? data['connectedEmails']
           : undefined,

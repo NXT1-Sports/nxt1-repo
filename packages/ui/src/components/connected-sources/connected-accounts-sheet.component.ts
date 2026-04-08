@@ -80,7 +80,7 @@ import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from './connected-accounts-modal.ser
       <div class="nxt1-sheet-body" [class.nxt1-sheet-body--hidden]="firecrawlLoading()">
         <!-- Shared connected accounts editor (same as onboarding) -->
         <nxt1-onboarding-link-drop-step
-          [linkSourcesData]="_linkSourcesData()"
+          [linkSourcesData]="effectiveLinkSources()"
           [selectedSports]="_selectedSports()"
           [role]="_role()"
           [scope]="_scope()"
@@ -236,6 +236,17 @@ export class ConnectedAccountsSheetComponent implements OnInit {
 
   protected readonly testIds = LINK_SOURCES_TEST_IDS;
   readonly hasChanges = computed(() => this._hasChanges());
+
+  /**
+   * Effective link sources: returns the latest child-emitted state if available,
+   * falling back to the original input. After a Firecrawl sign-in, we push the
+   * new connection into `_latestLinkSources` so the child's effect rebuilds its
+   * connected map through the normal data flow.
+   */
+  protected readonly effectiveLinkSources = computed(
+    () => this._latestLinkSources() ?? this._linkSourcesData()
+  );
+
   protected readonly firecrawlLoading = this.firecrawlSignIn.loading;
   protected readonly firecrawlPlatformLabel = computed(
     () => this._firecrawlLabel() || 'this platform'
@@ -286,6 +297,21 @@ export class ConnectedAccountsSheetComponent implements OnInit {
     const success = await this.firecrawlSignIn.launchSignIn(request);
     this._firecrawlLabel.set('');
     if (success) {
+      // Push the new connection into the data flowing to the child.
+      // This triggers the child's linkSourcesData effect → rebuilds _connectedMap → UI updates.
+      const currentData = this._latestLinkSources() ?? this._linkSourcesData();
+      const currentLinks = currentData?.links ?? [];
+      this._latestLinkSources.set({
+        links: [
+          ...currentLinks.filter((l) => l.platform !== request.platform),
+          {
+            platform: request.platform,
+            connected: true,
+            connectionType: 'signin' as const,
+            scopeType: 'global' as const,
+          },
+        ],
+      });
       this._hasChanges.set(true);
     }
   }

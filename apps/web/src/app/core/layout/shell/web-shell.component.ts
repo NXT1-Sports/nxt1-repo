@@ -129,7 +129,6 @@ import {
   formatSportDisplayName,
   normalizeSportKey,
   buildUserDisplayContext,
-  shouldShowUsage,
 } from '@nxt1/core';
 import type { SidenavSportProfile, UserDisplayInput, UserDisplayFallback } from '@nxt1/core';
 
@@ -734,16 +733,9 @@ export class WebShellComponent {
 
   /** Base sidebar sections — auth-aware (Profile → /super-profiles when logged out) */
   private readonly _baseSidebarSections = computed(() => {
-    const sections = this.authFlow.isAuthenticated()
+    return this.authFlow.isAuthenticated()
       ? DESKTOP_SIDEBAR_SECTIONS
       : WEB_LOGGED_OUT_SIDEBAR_SECTIONS;
-    const ctx = this._userDisplayContext();
-    if (shouldShowUsage(ctx)) return sections;
-    // Hide Usage for athletes on a team/org
-    return sections.map((s) => ({
-      ...s,
-      items: s.items.filter((item) => item.id !== 'usage'),
-    }));
   });
 
   /** Desktop sidebar sections — computed from auth state */
@@ -1090,8 +1082,6 @@ export class WebShellComponent {
    * Help Center and Settings after Usage.
    */
   readonly mobileSidebarSections = computed(() => {
-    const ctx = this._userDisplayContext();
-    const showUsage = shouldShowUsage(ctx);
     const isAuthenticated = this.authFlow.isAuthenticated();
     const baseSections = this._baseSidebarSections()
       .filter((s) => s.id !== 'follow-us' && s.id !== 'account')
@@ -1103,19 +1093,14 @@ export class WebShellComponent {
             // Agent X and Explore are in the mobile footer — omit here
             ...s.items.filter((item) => item.id !== 'agent' && item.id !== 'explore'),
             ...(!isAuthenticated ? LOGGED_OUT_MOBILE_SIDEBAR_ITEMS : []),
-            ...(showUsage
-              ? [{ id: 'usage', label: 'Billing & Usage', icon: 'creditCard', route: '/usage' }]
-              : []),
+            { id: 'usage', label: 'Billing & Usage', icon: 'creditCard', route: '/usage' },
             { id: 'help-center', label: 'Help Center', icon: 'help', route: '/help-center' },
             { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
           ],
         };
       });
 
-    if (isAuthenticated) {
-      return baseSections;
-    }
-
+    // Follow Us — always shown for all users, matching native mobile app sidenav
     return [
       ...baseSections,
       {

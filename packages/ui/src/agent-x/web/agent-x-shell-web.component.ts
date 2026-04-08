@@ -259,77 +259,86 @@ interface AgentXDesktopResizeState {
           <button
             type="button"
             class="header-icon-btn"
+            (click)="openControlPanel('budget')"
+            [attr.aria-label]="'Billing and budget. ' + agentBudgetBadgeLabel()"
+          >
+            <nxt1-icon name="card" [size]="20" />
+          </button>
+          <button
+            type="button"
+            class="header-icon-btn"
             (click)="onActivityLogClick()"
-            aria-label="Agent Logs"
+            aria-label="Agent Sessions"
           >
             <nxt1-icon name="time" [size]="20" />
           </button>
+        } @else {
+          <button
+            type="button"
+            class="header-status-dot-btn"
+            [class.header-status-dot-btn--degraded]="agentStatusTone() === 'warning'"
+            [class.header-status-dot-btn--down]="agentStatusTone() === 'critical'"
+            (click)="openControlPanel('status')"
+            [attr.aria-label]="agentStatusLabel()"
+          >
+            <span
+              class="status-hint"
+              [class.status-hint--degraded]="agentStatusTone() === 'warning'"
+              [class.status-hint--down]="agentStatusTone() === 'critical'"
+              >{{ agentStatusLabel() }}</span
+            >
+            <span
+              class="status-dot"
+              [class.status-dot--degraded]="agentStatusTone() === 'warning'"
+              [class.status-dot--down]="agentStatusTone() === 'critical'"
+            ></span>
+          </button>
+          <button
+            type="button"
+            class="header-icon-btn"
+            (click)="openConnectedAccounts()"
+            aria-label="Connected Sources"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="header-icon-btn"
+            (click)="openControlPanel('budget')"
+            aria-label="Budget"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7z" />
+              <path d="M2 7l16-2" />
+              <path d="M17 13.5a.5.5 0 1 1 0-1 .5.5 0 0 1 0 1z" />
+            </svg>
+          </button>
         }
-        <button
-          type="button"
-          class="header-status-dot-btn"
-          [class.header-status-dot-btn--degraded]="agentStatusTone() === 'warning'"
-          [class.header-status-dot-btn--down]="agentStatusTone() === 'critical'"
-          (click)="openControlPanel('status')"
-          [attr.aria-label]="agentStatusLabel()"
-        >
-          <span
-            class="status-hint"
-            [class.status-hint--degraded]="agentStatusTone() === 'warning'"
-            [class.status-hint--down]="agentStatusTone() === 'critical'"
-            >{{ agentStatusLabel() }}</span
-          >
-          <span
-            class="status-dot"
-            [class.status-dot--degraded]="agentStatusTone() === 'warning'"
-            [class.status-dot--down]="agentStatusTone() === 'critical'"
-          ></span>
-        </button>
-        <button
-          type="button"
-          class="header-icon-btn"
-          (click)="openConnectedAccounts()"
-          aria-label="Connected Sources"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="header-icon-btn"
-          (click)="openControlPanel('budget')"
-          aria-label="Budget"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7z" />
-            <path d="M2 7l16-2" />
-            <path d="M17 13.5a.5.5 0 1 1 0-1 .5.5 0 0 1 0 1z" />
-          </svg>
-        </button>
       </div>
     </ng-template>
 
@@ -417,6 +426,7 @@ interface AgentXDesktopResizeState {
             @if (showDesktopBriefing()) {
               <div class="chat-briefing">
                 <h2 class="chat-briefing__greeting">{{ greeting() }}</h2>
+                <!-- chat-briefing__content hidden for now — re-enable when ready
                 <div class="chat-briefing__content">
                   @if (!isBriefingExpanded()) {
                     <p class="chat-briefing__preview">
@@ -444,11 +454,13 @@ interface AgentXDesktopResizeState {
                     </button>
                   }
                 </div>
+                -->
               </div>
             }
             @for (session of activeDesktopSessions(); track session.mountKey) {
               <nxt1-agent-x-operation-chat
                 [embedded]="true"
+                [delegateCoordinatorQuickActions]="true"
                 [contextId]="session.contextId"
                 [contextTitle]="session.contextTitle"
                 [contextIcon]="session.contextIcon"
@@ -463,6 +475,7 @@ interface AgentXDesktopResizeState {
                 (userMessageSent)="onUserMessageSent()"
                 (responseComplete)="onResponseComplete()"
                 (draftSubmitted)="onDraftSubmitted($event)"
+                (coordinatorQuickActionSelected)="onEmbeddedCoordinatorQuickAction($event)"
               />
             }
           </div>
@@ -667,6 +680,9 @@ interface AgentXDesktopResizeState {
                     Agent X will generate your personalized action plan based on your goals and
                     profile data.
                   </p>
+                  <button type="button" class="action-empty-btn" (click)="onGenerateActionsClick()">
+                    {{ agentX.goals().length > 0 ? 'Generate Actions' : 'Set Goals' }}
+                  </button>
                 </div>
               }
             </div>
@@ -770,30 +786,6 @@ interface AgentXDesktopResizeState {
                       <path
                         d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"
                       ></path>
-                    </svg>
-                  </button>
-                  <!-- Download / Export PDF -->
-                  <button
-                    type="button"
-                    class="rail-close-btn"
-                    (click)="downloadExpandedPanelContent(panel)"
-                    aria-label="Download content"
-                    title="Download"
-                    [attr.data-testid]="lvTestIds.DOWNLOAD_BUTTON"
-                  >
-                    <svg
-                      width="15"
-                      height="15"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                      <polyline points="7 10 12 15 17 10"></polyline>
-                      <line x1="12" y1="15" x2="12" y2="3"></line>
                     </svg>
                   </button>
                   <!-- Close Button -->
@@ -915,31 +907,60 @@ interface AgentXDesktopResizeState {
         <div class="m-container">
           <!-- ═══ 1. DAILY BRIEFING ═══ -->
           <section class="m-briefing" aria-label="Daily briefing">
-            <h2 class="m-greeting">{{ greeting() }}</h2>
-            <p class="m-briefing-summary">{{ briefingPreview() }}</p>
+            <button
+              type="button"
+              class="briefing-status-dot-btn"
+              [class.briefing-status-dot-btn--degraded]="agentStatusTone() === 'warning'"
+              [class.briefing-status-dot-btn--down]="agentStatusTone() === 'critical'"
+              (click)="openControlPanel('status')"
+              [attr.aria-label]="agentStatusLabel()"
+            >
+              <span class="briefing-status-label">{{ agentStatusLabel() }}</span>
+              <span
+                class="status-dot"
+                [class.status-dot--degraded]="agentStatusTone() === 'warning'"
+                [class.status-dot--down]="agentStatusTone() === 'critical'"
+              ></span>
+            </button>
 
-            <div class="m-badges">
+            <h2 class="m-greeting">{{ greeting() }}</h2>
+            <!-- m-briefing-summary hidden for now — re-enable when ready
+            <p class="m-briefing-summary">{{ briefingPreview() }}</p>
+            -->
+
+            <div class="inline-goals">
               <button
                 type="button"
-                class="header-badge status-badge"
-                [class.status-badge--degraded]="agentStatusTone() === 'warning'"
-                [class.status-badge--down]="agentStatusTone() === 'critical'"
-                (click)="openControlPanel('status')"
+                class="inline-goals__manage-btn"
+                (click)="openControlPanel('goals')"
               >
-                <div
-                  class="pulse-dot"
-                  [class.pulse-dot--degraded]="agentStatusTone() === 'warning'"
-                  [class.pulse-dot--down]="agentStatusTone() === 'critical'"
-                ></div>
-                <span>{{ agentStatusLabel() }}</span>
+                <nxt1-icon name="settings" [size]="14"></nxt1-icon>
+                <span>Manage Goals</span>
+                @if (agentX.goals().length > 0) {
+                  <span class="inline-goals__manage-count">{{ agentX.goals().length }}</span>
+                }
               </button>
               <button
                 type="button"
-                class="header-badge budget-badge"
-                (click)="openControlPanel('budget')"
+                class="inline-goals__manage-btn"
+                (click)="openConnectedAccounts()"
               >
-                <nxt1-icon name="wallet" [size]="14"></nxt1-icon>
-                <span>{{ agentBudgetBadgeLabel() }}</span>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                </svg>
+                <span>Connected Accounts</span>
               </button>
             </div>
           </section>
@@ -950,19 +971,21 @@ interface AgentXDesktopResizeState {
               <h3 class="m-section-title action-plan-title">Today's Action Plan</h3>
               @if (playbookTotalCount() > 0) {
                 <div class="action-plan-status">
-                  <span class="action-plan-percent">{{ actionPlanProgressPercent() }}%</span>
-                  <div
-                    class="action-plan-progress"
-                    aria-label="Action plan progress"
-                    [attr.aria-valuenow]="actionPlanProgressPercent()"
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                    role="progressbar"
-                  >
+                  <div class="action-plan-status-main">
+                    <span class="action-plan-percent">{{ actionPlanProgressPercent() }}%</span>
                     <div
-                      class="action-plan-progress-bar"
-                      [style.width.%]="actionPlanProgressPercent()"
-                    ></div>
+                      class="action-plan-progress"
+                      aria-label="Action plan progress"
+                      [attr.aria-valuenow]="actionPlanProgressPercent()"
+                      aria-valuemin="0"
+                      aria-valuemax="100"
+                      role="progressbar"
+                    >
+                      <div
+                        class="action-plan-progress-bar"
+                        [style.width.%]="actionPlanProgressPercent()"
+                      ></div>
+                    </div>
                   </div>
                   <p class="action-plan-meta">{{ actionPlanCompletionLabel() }}</p>
                 </div>
@@ -1093,6 +1116,9 @@ interface AgentXDesktopResizeState {
                   Agent X will generate your personalized action plan based on your goals and
                   profile data.
                 </p>
+                <button type="button" class="action-empty-btn" (click)="onGenerateActionsClick()">
+                  {{ agentX.goals().length > 0 ? 'Generate Actions' : 'Set Goals' }}
+                </button>
               </div>
             }
           </section>
@@ -1107,6 +1133,7 @@ interface AgentXDesktopResizeState {
               type="button"
               role="listitem"
               class="m-coordinator-pill"
+              [attr.data-coordinator]="cat.id"
               (click)="onMobileCategoryTap(cat)"
             >
               {{ cat.label }}
@@ -1158,6 +1185,7 @@ interface AgentXDesktopResizeState {
         --agent-text-muted: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.5));
         --agent-primary: var(--nxt1-color-primary, #ccff00);
         --agent-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+        --agent-glass-bg: var(--nxt1-glass-bg, rgba(255, 255, 255, 0.8));
       }
 
       :host-context(.dark),
@@ -1168,6 +1196,7 @@ interface AgentXDesktopResizeState {
         --agent-text-primary: var(--nxt1-color-text-primary, #ffffff);
         --agent-text-secondary: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         --agent-text-muted: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        --agent-glass-bg: var(--nxt1-glass-bg, rgba(18, 18, 18, 0.8));
       }
 
       .agent-main {
@@ -1726,6 +1755,38 @@ interface AgentXDesktopResizeState {
 
       .status-hint--down {
         color: rgb(239, 68, 68);
+      }
+
+      .briefing-status-dot-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 var(--nxt1-spacing-3, 12px);
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: var(--agent-primary, #ccff00);
+        cursor: pointer;
+        appearance: none;
+        -webkit-appearance: none;
+        font-family: inherit;
+      }
+
+      .briefing-status-dot-btn--degraded {
+        color: rgb(245, 158, 11);
+      }
+
+      .briefing-status-dot-btn--down {
+        color: rgb(239, 68, 68);
+      }
+
+      .briefing-status-label {
+        font-size: 0.6875rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        line-height: 1;
+        text-transform: uppercase;
+        color: currentColor;
       }
 
       /* ── Action Plan Panel (right column in desktop grid) ── */
@@ -3123,8 +3184,49 @@ interface AgentXDesktopResizeState {
         margin-top: 24px;
       }
 
-      .m-action-plan .action-plan-header {
+      .m-action-plan .inline-goals {
+        padding: 0;
         margin-bottom: 16px;
+        border-bottom: none;
+      }
+
+      .m-action-plan .inline-goals__manage-btn {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        padding: 10px 12px;
+      }
+
+      .m-action-plan .inline-goals__manage-btn:active {
+        color: var(--agent-text-primary);
+        background: var(--agent-surface-hover);
+      }
+
+      .m-action-plan .action-plan-header {
+        align-items: flex-start;
+        margin-bottom: 16px;
+      }
+
+      .m-action-plan .action-plan-title {
+        padding-top: 2px;
+        margin-bottom: 0;
+      }
+
+      .m-action-plan .action-plan-status {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 4px;
+        min-width: 0;
+      }
+
+      .m-action-plan .action-plan-status-main {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+        min-width: 0;
+        white-space: nowrap;
       }
 
       .m-action-plan .action-card {
@@ -3138,7 +3240,7 @@ interface AgentXDesktopResizeState {
         right: var(--nxt1-footer-right, 16px);
         /* Positioned above the input bar: footer-bottom + pill-height + input-gap + input-height */
         bottom: calc(
-          var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 52px +
+          var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 52px + 8px +
             var(--keyboard-offset, 0px)
         );
         z-index: calc(var(--nxt1-z-index-fixed, 999) - 1);
@@ -3163,31 +3265,102 @@ interface AgentXDesktopResizeState {
       }
 
       .m-coordinator-pill {
+        --coordinator-pill-accent: var(--agent-primary);
+        --coordinator-pill-surface: color-mix(
+          in srgb,
+          var(--coordinator-pill-accent) 18%,
+          var(--agent-glass-bg)
+        );
+        --coordinator-pill-border: color-mix(
+          in srgb,
+          var(--coordinator-pill-accent) 54%,
+          var(--agent-border)
+        );
+        --coordinator-pill-shadow: color-mix(
+          in srgb,
+          var(--coordinator-pill-accent) 22%,
+          transparent
+        );
         flex-shrink: 0;
-        padding: 12px 16px;
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid var(--agent-border);
         border-radius: var(--nxt1-radius-full, 9999px);
+        padding: 11px 16px;
+        background: var(--coordinator-pill-surface);
+        color: var(--agent-text-primary);
         font-size: 13px;
         font-weight: 600;
         line-height: 1;
-        background: var(--nxt1-glass-bg, rgba(18, 18, 18, 0.8));
-        color: var(--agent-text-primary);
-        border: 1px solid var(--agent-border);
-        cursor: pointer;
         white-space: nowrap;
+        box-shadow:
+          0 10px 24px var(--coordinator-pill-shadow),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 10%, white);
+        border-color: var(--coordinator-pill-border);
         backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         transition:
           border-color 0.15s ease,
           background 0.15s ease,
+          box-shadow 0.15s ease,
           transform 0.15s ease;
+        cursor: pointer;
         -webkit-appearance: none;
         appearance: none;
         font-family: inherit;
       }
 
       .m-coordinator-pill:active {
-        transform: scale(0.96);
-        border-color: var(--nxt1-color-accent, #e74c3c);
+        border-color: color-mix(in srgb, var(--coordinator-pill-accent) 72%, white);
+        background: color-mix(in srgb, var(--coordinator-pill-accent) 28%, var(--agent-glass-bg));
+        box-shadow:
+          0 12px 28px color-mix(in srgb, var(--coordinator-pill-accent) 26%, transparent),
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, white);
+        transform: scale(0.98);
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-recruiting'] {
+        --coordinator-pill-accent: #ccff00;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-media'] {
+        --coordinator-pill-accent: #ff7a45;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-scout'] {
+        --coordinator-pill-accent: #41b8ff;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-academics'] {
+        --coordinator-pill-accent: #9d7bff;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-roster'] {
+        --coordinator-pill-accent: #2fd39a;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-scouting'] {
+        --coordinator-pill-accent: #3fa3ff;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-team-media'] {
+        --coordinator-pill-accent: #ff5d8f;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-prospect-search'] {
+        --coordinator-pill-accent: #ffd447;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-evaluation'] {
+        --coordinator-pill-accent: #57d4ff;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-outreach'] {
+        --coordinator-pill-accent: #ff9a3d;
+      }
+
+      .m-coordinator-pill[data-coordinator='coord-compliance'] {
+        --coordinator-pill-accent: #44d6c2;
       }
 
       /* --- Input Bar (mobile) ---
@@ -3385,7 +3558,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
   protected readonly commandQuickActions = computed<readonly OperationQuickAction[]>(() =>
     this.commandCategories().map((coord, index) => ({
-      id: `coord-${coord.id || index}`,
+      id: coord.id || `coord-${index}`,
       label: coord.label,
       icon: coord.icon || 'sparkles',
       description: coord.description,
@@ -3865,9 +4038,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       });
 
       await this.agentX.setGoals(dashboardGoals);
-      this.agentX.generateBriefing(true).catch(() => {
-        /* noop */
-      });
+      // generateBriefing disabled — briefing display hidden
+      // this.agentX.generateBriefing(true).catch(() => {
+      //   /* noop */
+      // });
     }
   }
 
@@ -3967,15 +4141,19 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    */
   protected onCoordinatorTap(coord: CommandCategory): void {
     void this.haptics.impact('light');
-    this.setDesktopSession({
-      contextId: `coordinator-${coord.id}`,
-      contextTitle: coord.label,
-      contextIcon: coord.icon || 'sparkles',
-      contextType: 'command',
-      contextDescription: coord.description,
-      initialMessage: coord.label,
-      quickActions: this.commandQuickActions(),
-    });
+    this.activateDesktopCoordinatorSession(coord);
+    this.coordinatorTap.emit(coord);
+  }
+
+  protected onEmbeddedCoordinatorQuickAction(action: OperationQuickAction): void {
+    const coordinatorId = action.id.startsWith('coord-coord-')
+      ? action.id.slice('coord-'.length)
+      : action.id;
+    const coord = this.commandCategories().find((item) => item.id === coordinatorId);
+    if (!coord) return;
+
+    void this.haptics.impact('light');
+    this.activateDesktopCoordinatorSession(coord);
     this.coordinatorTap.emit(coord);
   }
 
@@ -3984,6 +4162,15 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    */
   protected async onRegeneratePlaybook(): Promise<void> {
     await this.agentX.generatePlaybook(true);
+  }
+
+  protected async onGenerateActionsClick(): Promise<void> {
+    if (this.agentX.goals().length > 0) {
+      await this.agentX.generatePlaybook(true);
+      return;
+    }
+
+    await this.openControlPanel('goals');
   }
 
   /**
@@ -4212,13 +4399,12 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       component: AgentXOperationChatComponent,
       inputs: {
         embedded: true,
-        contextId: `coordinator-${cat.id}`,
+        contextId: cat.id,
         contextTitle: cat.label,
         contextIcon: cat.icon || 'sparkles',
         contextType: 'command',
         contextDescription: cat.description ?? '',
-        initialMessage: cat.label,
-        quickActions: this.commandQuickActions(),
+        quickActions: this.buildCoordinatorQuickActions(cat),
       },
       size: 'full',
       backdropDismiss: true,
@@ -4232,14 +4418,26 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
   /**
    * Handle send from mobile input bar — opens a full-screen Agent X chat
-   * overlay pre-populated with the user's message.
+   * overlay pre-populated with the user's message and any pending files.
    */
   protected async onMobileSendMessage(): Promise<void> {
     const message = this.agentX.getUserMessage().trim();
-    if (!message) return;
+    const servicePendingFiles = this.agentX.pendingFiles();
+
+    // Allow send if there's a message OR pending files
+    if (!message && servicePendingFiles.length === 0) return;
+
+    // Capture pending files and convert to operation-chat PendingFile shape
+    const initialFiles = servicePendingFiles.map((f) => ({
+      file: f.file,
+      previewUrl: f.previewUrl,
+      isImage: f.type === 'image',
+      isVideo: f.type === 'video',
+    }));
 
     this.agentX.setUserMessage('');
     this.agentX.clearTask();
+    this.agentX.takePendingFiles();
 
     const ref = this.overlay.open<AgentXOperationChatComponent>({
       component: AgentXOperationChatComponent,
@@ -4250,6 +4448,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         contextIcon: 'bolt',
         contextType: 'command',
         initialMessage: message,
+        initialFiles,
         quickActions: this.commandQuickActions(),
       },
       size: 'full',
@@ -4269,7 +4468,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       size: 'full',
       backdropDismiss: true,
       escDismiss: true,
-      ariaLabel: 'Agent Logs',
+      ariaLabel: 'Agent Sessions',
       panelClass: 'agent-x-operations-log-overlay',
     });
 
@@ -4285,6 +4484,26 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       contextDescription: 'Use Coordinators to plan, create, and review work in one session.',
       quickActions: this.commandQuickActions(),
     });
+  }
+
+  private activateDesktopCoordinatorSession(coord: CommandCategory): void {
+    this.setDesktopSession({
+      contextId: coord.id,
+      contextTitle: coord.label,
+      contextIcon: coord.icon || 'sparkles',
+      contextType: 'command',
+      contextDescription: coord.description,
+      quickActions: this.buildCoordinatorQuickActions(coord),
+    });
+  }
+
+  private buildCoordinatorQuickActions(coord: CommandCategory): OperationQuickAction[] {
+    return coord.commands.map((cmd) => ({
+      id: cmd.id,
+      label: cmd.label,
+      icon: cmd.icon,
+      description: cmd.subLabel,
+    }));
   }
 
   private setDesktopSession(session: Omit<AgentXDesktopSession, 'mountKey'>): void {

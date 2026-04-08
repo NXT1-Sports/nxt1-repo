@@ -159,10 +159,7 @@ export type SheetHeaderClosePosition = 'left' | 'right';
         display: flex;
         align-items: center;
         gap: var(--nxt1-spacing-3, 12px);
-        padding: calc(
-            var(--nxt1-spacing-4, 16px) + var(--nxt1-sheet-header-offset-top, 16px) +
-              env(safe-area-inset-top, 0px)
-          )
+        padding: calc(var(--nxt1-spacing-4, 16px) + var(--nxt1-sheet-header-offset-top, 0px))
           var(--nxt1-spacing-5, 20px) var(--nxt1-spacing-3, 12px);
         min-height: var(--nxt1-touch-target-min, 44px);
       }

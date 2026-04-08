@@ -662,9 +662,12 @@ export class NxtThemeService {
     try {
       const { StatusBar, Style } = await import('@capacitor/status-bar');
 
-      // Light base theme = dark status bar content
-      // Dark base theme OR any sport theme = light status bar content
-      const style = useDarkStatusBarContent ? Style.Dark : Style.Light;
+      // Capacitor Style naming is counterintuitive:
+      //   Style.Dark  = "Light text for dark backgrounds" (WHITE icons)
+      //   Style.Light = "Dark text for light backgrounds" (BLACK icons)
+      // Light base theme → dark/black icons (Style.Light)
+      // Dark base theme OR any sport theme → light/white icons (Style.Dark)
+      const style = useDarkStatusBarContent ? Style.Light : Style.Dark;
       await StatusBar.setStyle({ style });
 
       // On Android, also set the background color

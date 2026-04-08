@@ -61,6 +61,7 @@ import {
   PERFORMANCE_ADAPTER,
   INTEL_API_BASE_URL,
 } from '@nxt1/ui';
+import { FEED_API } from '@nxt1/ui/feed';
 // Mobile-specific Activity API adapter (uses CapacitorHttpAdapter + auth)
 import { ActivityApiService as MobileActivityApiService } from './features/activity/services/activity-api.service';
 // News API adapter — wraps shared NewsApiService for NEWS_API_ADAPTER token
@@ -84,6 +85,7 @@ import { EditProfileApiService } from './core/services/edit-profile-api.service'
 import { CrashlyticsService } from './core/services/crashlytics.service';
 import { AnalyticsService } from './core/services/analytics.service';
 import { PerformanceService } from './core/services/performance.service';
+import { FeedApiService } from './core/services/feed-api.service';
 
 import { routes } from './app.routes';
 import { environment } from '../environments/environment';
@@ -254,6 +256,9 @@ export const appConfig: ApplicationConfig = {
 
     // News API adapter — root-level so shared NewsService (providedIn: 'root') resolves it
     { provide: NEWS_API_ADAPTER, useExisting: NewsApiAdapterService },
+
+    // Feed API adapter — root-level so shared FeedService (providedIn: 'root') resolves it
+    { provide: FEED_API, useExisting: FeedApiService },
 
     // Analytics Dashboard API base URL
     { provide: ANALYTICS_API_BASE_URL, useFactory: () => environment.apiUrl },

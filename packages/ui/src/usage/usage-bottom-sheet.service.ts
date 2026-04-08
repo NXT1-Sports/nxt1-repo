@@ -28,6 +28,23 @@ export interface UsageBottomSheetResult {
 export class UsageBottomSheetService {
   private readonly bottomSheet = inject(NxtBottomSheetService);
 
+  /**
+   * Optional override for the buy-credits flow (e.g. Apple IAP on iOS).
+   * When registered, `showBuyCreditsOptions()` delegates to this handler
+   * (which handles the entire purchase internally) and returns `null`.
+   */
+  private _buyCreditsOverride: (() => Promise<void>) | null = null;
+
+  /**
+   * Register a platform-specific buy-credits handler.
+   * On iOS the mobile app registers `IapService.showProductsAndPurchase()`
+   * so that every surface (Agent X, Usage, billing card) opens Apple IAP
+   * instead of the basic Stripe credit-package selector.
+   */
+  registerBuyCreditsHandler(handler: () => Promise<void>): void {
+    this._buyCreditsOverride = handler;
+  }
+
   /** Open timeframe selector */
   async selectTimeframe(): Promise<UsageTimeframe | null> {
     const result = await this.bottomSheet.show({
@@ -98,21 +115,47 @@ export class UsageBottomSheetService {
     return match ? parseInt(match[1], 10) * 100 : null;
   }
 
-  /** Open credit package selector for buying credits (B2C) */
+  /** Open credit package selector for buying credits (B2C).
+   * If a platform-specific handler is registered (e.g. Apple IAP), delegates
+   * to it and returns `null` (the handler completes the full purchase flow).
+   */
   async showBuyCreditsOptions(): Promise<number | null> {
-    const packages = [5, 10, 25, 50, 100, 250, 500];
+    // Delegate to IAP / platform override when registered
+    if (this._buyCreditsOverride) {
+      await this._buyCreditsOverride();
+      return null;
+    }
+
+    // Stripe credit packages: 100 credits per dollar
+    const packages = [
+      { credits: 500, price: '$4.99' },
+      { credits: 1_000, price: '$9.99' },
+      { credits: 2_500, price: '$24.99' },
+      { credits: 5_000, price: '$49.99' },
+      { credits: 10_000, price: '$99.99' },
+      { credits: 25_000, price: '$249.99' },
+      { credits: 50_000, price: '$499.99' },
+    ] as const;
+
     const result = await this.bottomSheet.show<BottomSheetAction>({
       title: 'Buy Credits',
       icon: 'card-outline',
-      actions: packages.map((amount) => ({
-        label: `$${amount}`,
+      subtitle: 'Credits let you unlock premium actions across NXT1.',
+      actions: packages.map((pkg) => ({
+        label: `${pkg.credits.toLocaleString()} Credits — ${pkg.price}`,
         role: 'primary' as const,
       })),
     });
 
     if (!result?.confirmed) return null;
     const selectedLabel = (result.data as BottomSheetAction | undefined)?.label;
-    const match = selectedLabel?.match(/^\$(\d+)$/);
-    return match ? parseInt(match[1], 10) * 100 : null;
+    const selected = packages.find(
+      (pkg) => `${pkg.credits.toLocaleString()} Credits — ${pkg.price}` === selectedLabel
+    );
+    if (!selected) return null;
+
+    // Parse price to cents for the Stripe checkout
+    const priceCents = Math.round(parseFloat(selected.price.replace('$', '')) * 100);
+    return priceCents;
   }
 }

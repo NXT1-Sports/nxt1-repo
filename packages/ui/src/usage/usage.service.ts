@@ -173,6 +173,11 @@ export class UsageService implements OnDestroy {
     return entity === 'organization' || entity === 'team';
   });
 
+  /** Whether the current user should see billing actions in shared UI. */
+  readonly canManageBilling = computed(
+    () => this.isPersonal() || this.isOrgAdmin() || this.isTeamAdmin()
+  );
+
   /** Dynamic section nav — hides org-only sections for personal users and admin-only sections for non-admin org members */
   readonly sectionNavs = computed((): readonly UsageSectionNav[] => {
     if (this.isPersonal()) {
@@ -203,11 +208,6 @@ export class UsageService implements OnDestroy {
   /** Current metered usage formatted */
   readonly currentUsageFormatted = computed(() =>
     formatPrice(this._overview()?.currentMeteredUsage ?? 0)
-  );
-
-  /** Included usage formatted */
-  readonly includedUsageFormatted = computed(() =>
-    formatPrice(this._overview()?.currentIncludedUsage ?? 0)
   );
 
   /** Period label */
@@ -325,6 +325,21 @@ export class UsageService implements OnDestroy {
   // DATA LOADING
   // ============================================
 
+  async ensureBillingAccessContext(force = false): Promise<void> {
+    if (!force && this._billingContext() !== null) {
+      return;
+    }
+
+    try {
+      const billingCtx = await this.api.getBillingContext();
+      this._billingContext.set(billingCtx);
+      this._isOrgAdmin.set(billingCtx.isOrgAdmin);
+      this._isTeamAdmin.set(billingCtx.isTeamAdmin);
+    } catch (err) {
+      this.logger.warn('Failed to load billing access context', { error: err });
+    }
+  }
+
   async loadDashboard(): Promise<void> {
     this.logger.info('Loading usage dashboard', { timeframe: this._timeframe() });
     this.breadcrumb.trackStateChange('usage:loading', { timeframe: this._timeframe() });
@@ -349,8 +364,8 @@ export class UsageService implements OnDestroy {
       this._coupon.set(dashboard.coupon);
       this._budgets.set(dashboard.budgets);
       this._billingContext.set(billingCtx);
-      this._isOrgAdmin.set(dashboard.isOrgAdmin ?? true);
-      this._isTeamAdmin.set(dashboard.isTeamAdmin ?? true);
+      this._isOrgAdmin.set(billingCtx.isOrgAdmin);
+      this._isTeamAdmin.set(billingCtx.isTeamAdmin);
       this._historyPage.set(1);
       this._historyHasMore.set(dashboard.paymentHistory.length >= USAGE_HISTORY_PAGE_SIZE);
 

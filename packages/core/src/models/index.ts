@@ -430,4 +430,5 @@ export {
   type UserDisplayFallback,
   type UserDisplayContext,
   buildUserDisplayContext,
+  deduplicateSportProfiles,
 } from './user-display-context';

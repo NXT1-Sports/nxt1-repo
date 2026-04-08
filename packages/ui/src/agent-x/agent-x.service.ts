@@ -31,7 +31,15 @@
  * ```
  */
 
-import { Injectable, inject, signal, computed, DestroyRef, PLATFORM_ID } from '@angular/core';
+import {
+  Injectable,
+  inject,
+  signal,
+  computed,
+  DestroyRef,
+  NgZone,
+  PLATFORM_ID,
+} from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import {
   type AgentXMessage,
@@ -99,6 +107,7 @@ export class AgentXService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
   private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
+  private readonly ngZone = inject(NgZone);
   private readonly operationEventService = inject(AgentXOperationEventService);
   private readonly liveView = inject(LiveViewSessionService);
 
@@ -130,6 +139,9 @@ export class AgentXService {
   private readonly _userContext = signal<AgentXUserContext | null>(null);
   /** The MongoDB thread ID for the current conversation (persisted across messages). */
   private readonly _currentThreadId = signal<string | null>(null);
+
+  /** The backend operationId for the currently active chat request. Used for explicit cancel. */
+  private _currentOperationId: string | null = null;
 
   /** Files staged for upload — shown as previews before the user sends the message. */
   private readonly _pendingFiles = signal<AgentXPendingFile[]>([]);
@@ -389,14 +401,80 @@ export class AgentXService {
   /**
    * Cancel the active SSE stream (if any) and reset the loading state.
    * Used by the stop button in the input bar.
+   *
+   * This performs three actions:
+   * 1. Aborts the frontend fetch (drops the SSE connection).
+   * 2. Transitions any in-flight tool steps from 'active' → 'error' with
+   *    a "Cancelled" label so the UI stops showing spinners immediately.
+   * 3. Resets the loading flag.
    */
   cancelStream(): void {
     if (this.activeStream) {
       this.activeStream.abort();
       this.activeStream = null;
+
+      // Fire explicit cancel to the backend (belt-and-suspenders with SSE drop).
+      // This ensures the backend aborts even if the TCP disconnect isn't detected
+      // immediately (e.g. behind App Engine / Firebase proxy buffering).
+      if (this._currentOperationId) {
+        const opId = this._currentOperationId;
+        this._currentOperationId = null;
+        this._fireCancelRequest(opId);
+      }
+
+      // Transition any 'active' tool steps to 'error' (visually "Cancelled")
+      this._messages.update((msgs) =>
+        msgs.map((m) => {
+          const hasActiveSteps = m.steps?.some((s) => s.status === 'active');
+          const hasActiveParts = m.parts?.some(
+            (p) => p.type === 'tool-steps' && p.steps.some((s) => s.status === 'active')
+          );
+          if (!hasActiveSteps && !hasActiveParts) return m;
+
+          const cancelStep = (s: AgentXToolStep): AgentXToolStep =>
+            s.status === 'active' ? { ...s, status: 'error', label: 'Cancelled' } : s;
+
+          return {
+            ...m,
+            isTyping: false,
+            steps: m.steps?.map(cancelStep),
+            parts: m.parts?.map((p) =>
+              p.type === 'tool-steps' ? { ...p, steps: p.steps.map(cancelStep) } : p
+            ),
+          };
+        })
+      );
+
       this._isLoading.set(false);
       this.logger.info('Stream cancelled by user');
+      this.breadcrumb.trackUserAction('agent-x:stream-cancelled');
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_STREAM_CANCELLED, {
+        threadId: this._currentThreadId() ?? undefined,
+      });
     }
+  }
+
+  /**
+   * Fire-and-forget POST to the explicit cancel endpoint.
+   * Non-critical — the SSE drop is the primary path; this is a belt-and-suspenders backup.
+   * @internal
+   */
+  private _fireCancelRequest(operationId: string): void {
+    const url = `${this.baseUrl}/agent-x/cancel/${operationId}`;
+    this.getAuthToken?.()
+      .then((token) => {
+        if (!token) return;
+        return firstValueFrom(
+          this.http.post(url, {}, { headers: { Authorization: `Bearer ${token}` } })
+        );
+      })
+      .catch((err) => {
+        // Non-critical — the SSE disconnect is the primary cancellation signal
+        this.logger.debug('Explicit cancel request failed (non-critical)', {
+          operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
   }
 
   // ============================================
@@ -714,6 +792,8 @@ export class AgentXService {
           onThread: (evt) => {
             // Persist threadId immediately — before LLM inference begins
             this._currentThreadId.set(evt.threadId);
+            // Store operation ID for explicit cancellation support
+            if (evt.operationId) this._currentOperationId = evt.operationId;
             this.logger.debug('Thread resolved', { threadId: evt.threadId });
           },
 
@@ -765,16 +845,23 @@ export class AgentXService {
               parts.push({ type: 'tool-steps', steps: [step] });
             }
 
-            this._messages.update((msgs) =>
-              msgs.map((m) => {
-                if (m.id !== streamingId) return m;
-                const prev = m.steps ?? [];
-                const idx = prev.findIndex((s) => s.id === evt.id);
-                const next =
-                  idx >= 0 ? prev.map((s, i) => (i === idx ? step : s)) : [...prev, step];
-                return { ...m, steps: next, parts: [...parts] };
-              })
-            );
+            // Run inside NgZone so change detection fires — the SSE
+            // ReadableStream reader.read() callback executes outside the
+            // Angular zone (native promise, not patched by zone.js).
+            // During tool execution only step events fire (no deltas), so
+            // without this the signal write never triggers a CD tick.
+            this.ngZone.run(() => {
+              this._messages.update((msgs) =>
+                msgs.map((m) => {
+                  if (m.id !== streamingId) return m;
+                  const prev = m.steps ?? [];
+                  const idx = prev.findIndex((s) => s.id === evt.id);
+                  const next =
+                    idx >= 0 ? prev.map((s, i) => (i === idx ? step : s)) : [...prev, step];
+                  return { ...m, steps: next, parts: [...parts] };
+                })
+              );
+            });
           },
 
           onCard: (evt: AgentXStreamCardEvent) => {
@@ -783,17 +870,20 @@ export class AgentXService {
             // Each card is its own part (always a new entry in the sequence)
             parts.push({ type: 'card', card });
 
-            this._messages.update((msgs) =>
-              msgs.map((m) =>
-                m.id === streamingId
-                  ? {
-                      ...m,
-                      cards: [...(m.cards ?? []), card],
-                      parts: [...parts],
-                    }
-                  : m
-              )
-            );
+            // Run inside NgZone — same reason as onStep above.
+            this.ngZone.run(() => {
+              this._messages.update((msgs) =>
+                msgs.map((m) =>
+                  m.id === streamingId
+                    ? {
+                        ...m,
+                        cards: [...(m.cards ?? []), card],
+                        parts: [...parts],
+                      }
+                    : m
+                )
+              );
+            });
           },
 
           onTitleUpdated: (evt: AgentXStreamTitleUpdatedEvent) => {
@@ -830,6 +920,23 @@ export class AgentXService {
             this.logger.info('Agent requested side panel (immediate)', { type: evt.type });
           },
 
+          onMedia: (evt) => {
+            // The backend emits a `media` SSE event when a tool produces an
+            // image or video (e.g. generate_graphic). Push an image/video
+            // part so the chat bubble renders it inline.
+            const part: AgentXMessagePart =
+              evt.type === 'video'
+                ? { type: 'video' as const, url: evt.url, mimeType: evt.mimeType }
+                : { type: 'image' as const, url: evt.url, alt: 'Generated image' };
+            parts.push(part);
+
+            this.ngZone.run(() => {
+              this._messages.update((msgs) =>
+                msgs.map((m) => (m.id === streamingId ? { ...m, parts: [...parts] } : m))
+              );
+            });
+          },
+
           onDone: (evt) => {
             // Freeze the final message with metadata
             this._messages.update((msgs) =>
@@ -852,6 +959,7 @@ export class AgentXService {
 
             this._isLoading.set(false);
             this.activeStream = null;
+            this._currentOperationId = null;
 
             // If the backend included an autoOpenPanel instruction AND the panel
             // event didn't already surface it, set it now as a fallback.
@@ -888,6 +996,7 @@ export class AgentXService {
             }
             this._isLoading.set(false);
             this.activeStream = null;
+            this._currentOperationId = null;
             this.haptics.notification('error').catch(() => undefined);
             resolve();
           },
@@ -1114,6 +1223,16 @@ export class AgentXService {
       }
     }
     this._pendingFiles.set([]);
+  }
+
+  /**
+   * Take all pending files and clear the queue WITHOUT revoking preview URLs.
+   * Used when transferring ownership to another component (e.g. operation-chat).
+   */
+  takePendingFiles(): AgentXPendingFile[] {
+    const files = this._pendingFiles();
+    this._pendingFiles.set([]);
+    return files;
   }
 
   /**

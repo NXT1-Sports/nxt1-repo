@@ -34,7 +34,13 @@ import type {
   RecruitingActivity,
   ProfileSeasonGameLog,
 } from '@nxt1/core';
-import { isTeamRole, isAthleteRole, USER_ROLES, buildTeamSlug } from '@nxt1/core';
+import {
+  isTeamRole,
+  isAthleteRole,
+  USER_ROLES,
+  buildTeamSlug,
+  getPositionAbbreviation,
+} from '@nxt1/core';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 /** Map a UserAward (User model) → ProfileAward (UI model). */
@@ -165,8 +171,13 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     ? {
         name: activeSport.sport ?? 'Sport',
         icon: (activeSport.sport ?? 'sport').toLowerCase().replace(/\s+/g, '-'),
-        position: activeSport.positions?.[0],
-        secondaryPositions: activeSport.positions?.slice(1),
+        position: activeSport.positions?.[0]
+          ? getPositionAbbreviation(activeSport.positions[0], activeSport.sport) ||
+            activeSport.positions[0]
+          : undefined,
+        secondaryPositions: activeSport.positions
+          ?.slice(1)
+          .map((p) => getPositionAbbreviation(p, activeSport.sport) || p),
         jerseyNumber: activeSport.jerseyNumber,
       }
     : undefined;
@@ -177,8 +188,12 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     .map((s) => ({
       name: s.sport ?? 'Sport',
       icon: (s.sport ?? 'sport').toLowerCase().replace(/\s+/g, '-'),
-      position: s.positions?.[0],
-      secondaryPositions: s.positions?.slice(1),
+      position: s.positions?.[0]
+        ? getPositionAbbreviation(s.positions[0], s.sport) || s.positions[0]
+        : undefined,
+      secondaryPositions: s.positions
+        ?.slice(1)
+        .map((p) => getPositionAbbreviation(p, s.sport) || p),
       jerseyNumber: s.jerseyNumber,
     }));
 

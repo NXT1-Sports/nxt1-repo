@@ -525,6 +525,22 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
                     }
                     break;
                   }
+                  case 'media': {
+                    const media = payload as Record<string, unknown>;
+                    if (
+                      media &&
+                      typeof media['type'] === 'string' &&
+                      typeof media['url'] === 'string'
+                    ) {
+                      callbacks.onMedia?.({
+                        type: media['type'] as 'image' | 'video',
+                        url: media['url'] as string,
+                        mimeType:
+                          typeof media['mimeType'] === 'string' ? media['mimeType'] : undefined,
+                      });
+                    }
+                    break;
+                  }
                   case 'error':
                     callbacks.onError(payload as AgentXStreamErrorEvent);
                     break;
