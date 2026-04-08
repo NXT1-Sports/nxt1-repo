@@ -112,7 +112,7 @@ export class MobileEmailConnectionService {
     } catch (error) {
       const providerName = platform === 'google' ? 'Google' : 'Microsoft';
       this.logger.error(`Failed to connect ${providerName} linked account`, error);
-      if (!this._isUserCanceled(error)) {
+      if (!this._isUserCanceled(error) && !this._isAlreadyInProgress(error)) {
         this.toast.error(`Failed to connect ${providerName}. Please try again.`);
       }
       return false;
@@ -137,7 +137,7 @@ export class MobileEmailConnectionService {
   private async _connectGoogleOAuth(userId: string): Promise<void> {
     if (this.isGoogleOAuthConnecting) {
       this.logger.warn('Google OAuth connection already in progress, ignoring...');
-      throw new Error('Google connection is already in progress. Please wait.');
+      return; // Silent no-op — treat duplicate taps as if user cancelled
     }
 
     if (!Capacitor.isNativePlatform()) {
@@ -147,9 +147,19 @@ export class MobileEmailConnectionService {
     }
 
     this.isGoogleOAuthConnecting = true;
+    // Safety valve: release the lock after 6 minutes in case the deep-link never arrives
+    const lockTimeout = setTimeout(
+      () => {
+        if (this.isGoogleOAuthConnecting) {
+          this.logger.warn('Google OAuth lock timed out — releasing');
+          this.isGoogleOAuthConnecting = false;
+        }
+      },
+      6 * 60 * 1000
+    );
 
     try {
-      this.logger.info('Starting Google OAuth connect flow (system browser)');
+      this.logger.info('Starting Google OAuth connect flow (backend-proxied)');
 
       const auth = getAuth();
       const idToken = await auth.currentUser?.getIdToken();
@@ -157,27 +167,26 @@ export class MobileEmailConnectionService {
         throw new Error('Failed to get authentication token. Please sign in again.');
       }
 
-      const redirectUri = `${environment.appScheme}://google/callback`;
-      const oauthUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-      oauthUrl.searchParams.set('client_id', environment.googleServerClientId);
-      oauthUrl.searchParams.set('response_type', 'code');
-      oauthUrl.searchParams.set('redirect_uri', redirectUri);
-      oauthUrl.searchParams.set(
-        'scope',
-        [
-          'email',
-          'profile',
-          'https://www.googleapis.com/auth/gmail.send',
-          'https://www.googleapis.com/auth/gmail.readonly',
-        ].join(' ')
-      );
-      oauthUrl.searchParams.set('access_type', 'offline');
-      oauthUrl.searchParams.set('prompt', 'select_account consent');
-      oauthUrl.searchParams.set('state', userId);
+      // Ask the backend for the OAuth URL — the backend uses its own HTTPS redirect_uri
+      // which IS registered in Google Cloud Console. The backend will redirect back to
+      // `${appScheme}://oauth/callback` after exchanging tokens.
+      const connectUrlEndpoint = `${environment.apiUrl}/auth/google/connect-url?mobileScheme=${encodeURIComponent(environment.appScheme)}`;
+      const connectUrlRes = await fetch(connectUrlEndpoint, {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      if (!connectUrlRes.ok) {
+        const errBody = await connectUrlRes.json().catch(() => null);
+        throw new Error(
+          (errBody as { message?: string } | null)?.message ??
+            `Failed to get Google OAuth URL (${connectUrlRes.status})`
+        );
+      }
+      const { url: oauthUrl } = (await connectUrlRes.json()) as { url: string };
 
-      this.logger.debug('Opening Google OAuth URL', { redirectUri });
+      const callbackPrefix = `${environment.appScheme}://oauth/callback`;
+      this.logger.debug('Opening backend-generated Google OAuth URL', { callbackPrefix });
 
-      const authCode = await new Promise<string>((resolve, reject) => {
+      await new Promise<void>((resolve, reject) => {
         let resolved = false;
         let listenerHandle: Awaited<ReturnType<typeof App.addListener>> | null = null;
 
@@ -196,50 +205,41 @@ export class MobileEmailConnectionService {
           listenerHandle = await App.addListener('appUrlOpen', (data: { url: string }) => {
             this.logger.debug('Received app URL open event', { url: data.url });
 
-            if (!resolved && data.url.startsWith(redirectUri)) {
+            if (!resolved && data.url.startsWith(callbackPrefix)) {
               resolved = true;
               clearTimeout(timeout);
               void listenerHandle?.remove();
               void Browser.close();
 
               const url = new URL(data.url);
-              const code = url.searchParams.get('code');
-              const error = url.searchParams.get('error');
-              const errorDescription = url.searchParams.get('error_description');
+              const success = url.searchParams.get('success') === 'true';
+              const message = url.searchParams.get('message') ?? '';
 
-              if (error) {
+              if (success) {
+                resolve();
+              } else {
                 reject(
                   new Error(
-                    error === 'access_denied'
+                    message.toLowerCase().includes('cancel') || message === 'Connection cancelled'
                       ? 'Google authentication was canceled'
-                      : `Google authentication failed: ${errorDescription ?? error}`
+                      : `Google authentication failed: ${message}`
                   )
                 );
-              } else if (code) {
-                resolve(code);
-              } else {
-                reject(new Error('No authorization code received from Google'));
               }
             }
           });
         })();
 
         void Browser.open({
-          url: oauthUrl.toString(),
+          url: oauthUrl,
           presentationStyle: 'popover',
         });
-      });
-
-      this.logger.debug('Got Google authorization code', { redirectUri });
-
-      await this._sendToBackend('/auth/google/connect-gmail', idToken, {
-        serverAuthCode: authCode,
-        redirectUri,
       });
 
       this.logger.info('Google account connected successfully', { userId });
       await this.profileService.load(userId);
     } finally {
+      clearTimeout(lockTimeout);
       this.isGoogleOAuthConnecting = false;
     }
   }
@@ -337,13 +337,6 @@ export class MobileEmailConnectionService {
       );
     }
 
-    // Validate Microsoft client ID is configured
-    if (!environment.msClientId) {
-      throw new Error(
-        'Microsoft authentication is not configured. Please set up an Azure AD app and add the client ID to environment.msClientId.'
-      );
-    }
-
     // Get Firebase ID token for backend authentication
     const auth = getAuth();
     const idToken = await auth.currentUser?.getIdToken();
@@ -352,25 +345,27 @@ export class MobileEmailConnectionService {
       throw new Error('Failed to get authentication token. Please sign in again.');
     }
 
-    // Build OAuth URL (authorization code flow, same pattern as Yahoo)
-    const redirectUri = `${environment.appScheme}://ms/callback`;
-    const oauthUrl = new URL('https://login.microsoftonline.com/common/oauth2/v2.0/authorize');
-    oauthUrl.searchParams.set('client_id', environment.msClientId);
-    oauthUrl.searchParams.set('redirect_uri', redirectUri);
-    oauthUrl.searchParams.set('response_type', 'code');
-    oauthUrl.searchParams.set('response_mode', 'query');
-    oauthUrl.searchParams.set('scope', 'User.Read Mail.Send Mail.Read offline_access');
-    oauthUrl.searchParams.set('state', userId);
-    oauthUrl.searchParams.set('prompt', 'select_account');
-
-    this.logger.debug('Opening Microsoft OAuth URL', {
-      redirectUri,
-      clientId: environment.msClientId,
-      fullUrl: oauthUrl.toString().substring(0, 150) + '...',
+    // Ask the backend for the OAuth URL — the backend uses its own HTTPS redirect_uri
+    // registered in Azure AD. The backend will redirect back to
+    // `${appScheme}://oauth/callback` after exchanging tokens.
+    const connectUrlEndpoint = `${environment.apiUrl}/auth/microsoft/connect-url?mobileScheme=${encodeURIComponent(environment.appScheme)}`;
+    const connectUrlRes = await fetch(connectUrlEndpoint, {
+      headers: { Authorization: `Bearer ${idToken}` },
     });
+    if (!connectUrlRes.ok) {
+      const errBody = await connectUrlRes.json().catch(() => null);
+      throw new Error(
+        (errBody as { message?: string } | null)?.message ??
+          `Failed to get Microsoft OAuth URL (${connectUrlRes.status})`
+      );
+    }
+    const { url: oauthUrl } = (await connectUrlRes.json()) as { url: string };
+
+    const callbackPrefix = `${environment.appScheme}://oauth/callback`;
+    this.logger.debug('Opening backend-generated Microsoft OAuth URL', { callbackPrefix });
 
     // Set up app URL listener for redirect callback
-    const authCode = await new Promise<string>((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       let resolved = false;
       let listenerHandle: Awaited<ReturnType<typeof App.addListener>> | null = null;
 
@@ -389,36 +384,26 @@ export class MobileEmailConnectionService {
         listenerHandle = await App.addListener('appUrlOpen', (data: { url: string }) => {
           this.logger.debug('Received app URL open event', { url: data.url });
 
-          if (!resolved && data.url.startsWith(redirectUri)) {
+          if (!resolved && data.url.startsWith(callbackPrefix)) {
             resolved = true;
             clearTimeout(timeout);
             void listenerHandle?.remove();
             void Browser.close();
 
             const url = new URL(data.url);
-            const code = url.searchParams.get('code');
-            const error = url.searchParams.get('error');
-            const errorDescription = url.searchParams.get('error_description');
+            const success = url.searchParams.get('success') === 'true';
+            const message = url.searchParams.get('message') ?? '';
 
-            this.logger.debug('Parsed Microsoft OAuth callback', {
-              hasCode: !!code,
-              error,
-              errorDescription,
-            });
-
-            if (error) {
-              const errorMsg = errorDescription
-                ? `${error}: ${decodeURIComponent(errorDescription)}`
-                : error === 'access_denied'
-                  ? 'Microsoft authentication was canceled'
-                  : `Microsoft authentication failed: ${error}`;
-
-              this.logger.error('Microsoft OAuth error', { error, errorDescription });
-              reject(new Error(errorMsg));
-            } else if (code) {
-              resolve(code);
+            if (success) {
+              resolve();
             } else {
-              reject(new Error('No authorization code received from Microsoft'));
+              reject(
+                new Error(
+                  message.toLowerCase().includes('cancel') || message === 'Connection cancelled'
+                    ? 'Microsoft authentication was canceled'
+                    : `Microsoft authentication failed: ${message}`
+                )
+              );
             }
           }
         });
@@ -426,17 +411,9 @@ export class MobileEmailConnectionService {
 
       // Open system browser for OAuth
       void Browser.open({
-        url: oauthUrl.toString(),
+        url: oauthUrl,
         presentationStyle: 'popover',
       });
-    });
-
-    this.logger.debug('Got Microsoft authorization code');
-
-    // Send code to backend for token exchange
-    await this._sendToBackend('/auth/microsoft/connect-mail', idToken, {
-      code: authCode,
-      redirectUri,
     });
 
     this.logger.info('Microsoft connected successfully', { userId });
@@ -734,6 +711,12 @@ export class MobileEmailConnectionService {
   /**
    * Check if error is from user canceling OAuth flow
    */
+  private _isAlreadyInProgress(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const msg = String((error as Record<string, unknown>)['message'] || '').toLowerCase();
+    return msg.includes('already in progress');
+  }
+
   private _isUserCanceled(error: unknown): boolean {
     if (!error || typeof error !== 'object') return false;
 

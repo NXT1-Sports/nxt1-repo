@@ -2430,27 +2430,34 @@ function getDefaultFrontendUrl(isStaging: boolean): string {
 }
 
 /**
- * Encode state payload as base64url JSON: { uid, origin }
+ * Encode state payload as base64url JSON: { uid, origin?, mobileScheme? }
  */
-function encodeOAuthState(uid: string, origin: string): string {
-  return Buffer.from(JSON.stringify({ uid, origin })).toString('base64url');
+function encodeOAuthState(uid: string, origin: string, mobileScheme?: string): string {
+  return Buffer.from(
+    JSON.stringify({ uid, origin, ...(mobileScheme && { mobileScheme }) })
+  ).toString('base64url');
 }
 
 /**
  * Decode state — supports both legacy plain-uid and new base64url JSON.
  */
-function decodeOAuthState(state: string): { uid: string; origin?: string } {
+function decodeOAuthState(state: string): { uid: string; origin?: string; mobileScheme?: string } {
   try {
     const decoded = JSON.parse(Buffer.from(state, 'base64url').toString()) as {
       uid?: string;
       origin?: string;
+      mobileScheme?: string;
     };
-    if (decoded.uid) return { uid: decoded.uid, origin: decoded.origin };
+    if (decoded.uid)
+      return { uid: decoded.uid, origin: decoded.origin, mobileScheme: decoded.mobileScheme };
   } catch {
     // legacy: state was just the uid string
   }
   return { uid: state };
 }
+
+/** Known mobile app URI schemes allowed as OAuth callback targets */
+const ALLOWED_MOBILE_SCHEMES = new Set(['nxt1sports', 'nxt1app', 'nxt1']);
 
 router.get(
   '/google/connect-url',
@@ -2458,12 +2465,24 @@ router.get(
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const uid = req.user!.uid;
     const origin = (req.query['origin'] as string | undefined)?.trim();
+    const mobileScheme = (req.query['mobileScheme'] as string | undefined)?.trim();
 
     // Validate origin if provided
     if (origin && !isAllowedOrigin(origin, req.isStaging)) {
       sendError(
         res,
         validationError([{ field: 'origin', message: 'Origin not allowed', rule: 'invalid' }])
+      );
+      return;
+    }
+
+    // Validate mobileScheme if provided
+    if (mobileScheme && !ALLOWED_MOBILE_SCHEMES.has(mobileScheme)) {
+      sendError(
+        res,
+        validationError([
+          { field: 'mobileScheme', message: 'Unknown mobile scheme', rule: 'invalid' },
+        ])
       );
       return;
     }
@@ -2486,13 +2505,19 @@ router.get(
     );
     oauthUrl.searchParams.set('access_type', 'offline');
     oauthUrl.searchParams.set('prompt', 'select_account consent');
-    // Encode uid + origin so the callback knows where to redirect
-    oauthUrl.searchParams.set('state', origin ? encodeOAuthState(uid, origin) : uid);
+    // Encode uid + origin/mobileScheme so the callback knows where to redirect
+    const statePayload = mobileScheme
+      ? encodeOAuthState(uid, '', mobileScheme)
+      : origin
+        ? encodeOAuthState(uid, origin)
+        : uid;
+    oauthUrl.searchParams.set('state', statePayload);
 
     logger.debug('[Google Connect URL] Generated OAuth URL', {
       uid: uid.substring(0, 8) + '...',
       redirectUri,
       origin,
+      mobileScheme,
       isStaging: req.isStaging,
     });
 
@@ -2513,20 +2538,24 @@ router.get(
   '/google/callback',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { code, state: rawState, error: oauthError } = req.query as Record<string, string>;
-    const { uid, origin: stateOrigin } = decodeOAuthState(rawState ?? '');
+    const { uid, origin: stateOrigin, mobileScheme } = decodeOAuthState(rawState ?? '');
 
-    // Use origin from state if valid; otherwise fall back to first allowed origin
-    const frontendUrl =
-      stateOrigin && isAllowedOrigin(stateOrigin, req.isStaging)
-        ? stateOrigin
-        : getDefaultFrontendUrl(req.isStaging);
     const renderResult = (success: boolean, message: string, provider = 'google') => {
       const params = new URLSearchParams({
         provider,
         success: String(success),
         message,
       });
-      res.redirect(`${frontendUrl}/oauth/success?${params.toString()}`);
+      if (mobileScheme && ALLOWED_MOBILE_SCHEMES.has(mobileScheme)) {
+        // Redirect back to the native mobile app via its custom URI scheme
+        res.redirect(`${mobileScheme}://oauth/callback?${params.toString()}`);
+      } else {
+        const frontendUrl =
+          stateOrigin && isAllowedOrigin(stateOrigin, req.isStaging)
+            ? stateOrigin
+            : getDefaultFrontendUrl(req.isStaging);
+        res.redirect(`${frontendUrl}/oauth/success?${params.toString()}`);
+      }
     };
 
     if (oauthError) {
@@ -2695,6 +2724,7 @@ router.get(
     );
     oauthUrl.searchParams.set('prompt', 'consent');
     const origin = (req.query['origin'] as string | undefined)?.trim();
+    const mobileScheme = (req.query['mobileScheme'] as string | undefined)?.trim();
     if (origin && !isAllowedOrigin(origin, req.isStaging)) {
       sendError(
         res,
@@ -2702,12 +2732,27 @@ router.get(
       );
       return;
     }
-    oauthUrl.searchParams.set('state', origin ? encodeOAuthState(uid, origin) : uid);
+    if (mobileScheme && !ALLOWED_MOBILE_SCHEMES.has(mobileScheme)) {
+      sendError(
+        res,
+        validationError([
+          { field: 'mobileScheme', message: 'Unknown mobile scheme', rule: 'invalid' },
+        ])
+      );
+      return;
+    }
+    const statePayload = mobileScheme
+      ? encodeOAuthState(uid, '', mobileScheme)
+      : origin
+        ? encodeOAuthState(uid, origin)
+        : uid;
+    oauthUrl.searchParams.set('state', statePayload);
 
     logger.debug('[Microsoft Connect URL] Generated OAuth URL', {
       uid: uid.substring(0, 8) + '...',
       redirectUri,
       origin,
+      mobileScheme,
     });
 
     res.json({ url: oauthUrl.toString() });
@@ -2731,19 +2776,23 @@ router.get(
       error: oauthError,
       error_description: errorDescription,
     } = req.query as Record<string, string>;
-    const { uid, origin: stateOrigin } = decodeOAuthState(rawState ?? '');
+    const { uid, origin: stateOrigin, mobileScheme } = decodeOAuthState(rawState ?? '');
 
-    const frontendUrl =
-      stateOrigin && isAllowedOrigin(stateOrigin, req.isStaging)
-        ? stateOrigin
-        : getDefaultFrontendUrl(req.isStaging);
     const renderResult = (success: boolean, message: string) => {
       const params = new URLSearchParams({
         provider: 'microsoft',
         success: String(success),
         message,
       });
-      res.redirect(`${frontendUrl}/oauth/success?${params.toString()}`);
+      if (mobileScheme && ALLOWED_MOBILE_SCHEMES.has(mobileScheme)) {
+        res.redirect(`${mobileScheme}://oauth/callback?${params.toString()}`);
+      } else {
+        const frontendUrl =
+          stateOrigin && isAllowedOrigin(stateOrigin, req.isStaging)
+            ? stateOrigin
+            : getDefaultFrontendUrl(req.isStaging);
+        res.redirect(`${frontendUrl}/oauth/success?${params.toString()}`);
+      }
     };
 
     if (oauthError) {
