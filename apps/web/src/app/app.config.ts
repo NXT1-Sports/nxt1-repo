@@ -5,8 +5,6 @@
  * Production application configuration following 2026 Angular + Firebase best practices.
  *
  * Key Features:
- * - Incremental Hydration: Components hydrate progressively as needed
- * - HTTP Transfer Cache: Server-fetched data transferred to client
  * - Event Replay: User interactions during hydration are replayed
  * - Platform-specific Auth: Uses injection token pattern for SSR safety
  * - Global Error Handling: Enterprise-grade error recovery and tracking
@@ -227,8 +225,8 @@ export const appConfig: ApplicationConfig = {
       // Replay user events that occurred during hydration
       withEventReplay(),
 
-      // Incremental hydration - only hydrate visible/interacted components
-      // Drastically improves Time to Interactive (TTI)
+      // Incremental hydration — only hydrate @defer blocks on demand on the client.
+      // Safe in production (no HMR), dev is CSR-only (ssr: false in angular.json).
       withIncrementalHydration(),
 
       // Transfer HTTP cache from server to client

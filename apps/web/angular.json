@@ -54,7 +54,8 @@
               "src/favicon.ico",
               "src/robots.txt",
               "src/manifest.webmanifest",
-              "src/firebase-messaging-sw.js"
+              "src/firebase-messaging-sw.js",
+              "src/ngsw.json"
             ],
             "styles": [
               {
@@ -69,14 +70,10 @@
               }
             ],
             "scripts": [],
-            "serviceWorker": "ngsw-config.json",
             "optimization": {
               "scripts": true,
               "styles": true,
               "fonts": true
-            },
-            "define": {
-              "ngDevMode": "false"
             },
             "allowedCommonJsDependencies": [
               "qrcode",
@@ -107,6 +104,10 @@
                 }
               ],
               "outputHashing": "all",
+              "serviceWorker": "ngsw-config.json",
+              "define": {
+                "ngDevMode": "false"
+              },
               "optimization": {
                 "scripts": true,
                 "styles": {
@@ -138,6 +139,10 @@
                 }
               ],
               "outputHashing": "all",
+              "serviceWorker": "ngsw-config.json",
+              "define": {
+                "ngDevMode": "false"
+              },
               "optimization": {
                 "scripts": true,
                 "styles": {
@@ -153,7 +158,11 @@
               "optimization": false,
               "extractLicenses": false,
               "sourceMap": true,
-              "serviceWorker": false
+              "ssr": false,
+              "prerender": false,
+              "define": {
+                "ngDevMode": "true"
+              }
             }
           },
           "defaultConfiguration": "production"
