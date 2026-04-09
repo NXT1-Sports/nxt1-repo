@@ -421,18 +421,9 @@ let shutdownAgentFn: (() => Promise<void>) | null = null;
 initializeServices().then(() => {
   server = app.listen(PORT, () => {
     const env = process.env['NODE_ENV'] || 'development';
-    const firebaseProject = process.env['FIREBASE_PROJECT_ID'] || '(applicationDefault)';
-    const stripeKey =
-      process.env['STRIPE_SECRET_KEY'] || process.env['STRIPE_TEST_SECRET_KEY'] || '';
-    const stripeMode = stripeKey.includes('live') ? 'LIVE' : stripeKey ? 'TEST' : 'NOT SET';
-    const redisDb = process.env['REDIS_DB'] || '0 (default)';
-
     logger.info(`Backend server running on port ${PORT}`);
     logger.info('========================================');
     logger.info(`ENV:              ${env}`);
-    logger.info(`Firebase Project: ${firebaseProject}`);
-    logger.info(`Stripe Mode:      ${stripeMode}`);
-    logger.info(`Redis DB:         ${redisDb}`);
     logger.info('========================================');
     logger.info(`API Endpoints:`);
     logger.info(`   Production: /api/v1/*`);

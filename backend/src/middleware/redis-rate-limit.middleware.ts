@@ -29,7 +29,6 @@ async function getRedisStore(): Promise<RedisStore | undefined> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const redisClient = (cache as any).client;
       if (redisClient && redisClient.isReady) {
-        logger.info('[Rate Limit] Using Redis store for distributed rate limiting');
         return new RedisStore({
           sendCommand: (...args: string[]) => redisClient.sendCommand(args),
           prefix: 'nxt1:rate-limit:',
