@@ -1,5 +1,5 @@
 /** Disposable (temporary) email domains — blocked during registration */
-export const USER_SCHEMA_VERSION = 2;
+export const USER_SCHEMA_VERSION = 3;
 
 export const DISPOSABLE_EMAIL_DOMAINS = [
   'tempmail.com',
@@ -32,9 +32,6 @@ export const VALIDATION_PATTERNS = {
   /** URL */
   URL: /^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&//=]*)$/,
 
-  /** Username (alphanumeric + underscore, 3-30 ký tự) */
-  USERNAME: /^[a-zA-Z0-9_]{3,30}$/,
-
   /** Alpha only */
   ALPHA: /^[a-zA-Z\s]+$/,
 
@@ -66,51 +63,3 @@ export const VALIDATION_PATTERNS = {
   /** Team code */
   TEAM_CODE: /^[A-Z0-9]{6,10}$/,
 } as const;
-
-// ============================================
-// FIELD LENGTHS
-// Source: packages/core/src/constants/validation.constants.ts
-// ============================================
-
-export const FIELD_LENGTHS = {
-  FIRST_NAME: { min: 1, max: 50 },
-  LAST_NAME: { min: 1, max: 50 },
-  USERNAME: { min: 3, max: 30 },
-  BIO: { min: 0, max: 500 },
-  HEADLINE: { min: 0, max: 150 },
-  POST_TEXT: { min: 1, max: 2000 },
-  COMMENT: { min: 1, max: 500 },
-  VIDEO_TITLE: { min: 1, max: 100 },
-  VIDEO_DESCRIPTION: { min: 0, max: 1000 },
-  MESSAGE: { min: 1, max: 2000 },
-  SUBJECT: { min: 1, max: 200 },
-  SEARCH_QUERY: { min: 1, max: 100 },
-  TEAM_NAME: { min: 2, max: 100 },
-  TEAM_DESCRIPTION: { min: 0, max: 500 },
-} as const;
-
-// ============================================
-// RESERVED USERNAMES
-// Source: packages/core/src/constants/validation.constants.ts
-// ============================================
-
-export const RESERVED_USERNAMES = [
-  'admin',
-  'administrator',
-  'nxt1',
-  'nxt1sports',
-  'support',
-  'help',
-  'api',
-  'www',
-  'app',
-  'mail',
-  'email',
-  'root',
-  'system',
-  'test',
-  'info',
-  'contact',
-  'sales',
-  'billing',
-] as const;

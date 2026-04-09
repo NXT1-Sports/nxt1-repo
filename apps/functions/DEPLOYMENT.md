@@ -137,7 +137,7 @@ firebase deploy --only functions:beforeUserCreate
 firebase deploy --only functions:func1,functions:func2,functions:func3
 
 # Example:
-firebase deploy --only functions:healthCheck,functions:checkUsernameAvailability
+firebase deploy --only functions:healthCheck,functions:validateEmail
 ```
 
 ### Deploy by Group (Module)
@@ -627,13 +627,11 @@ apps/functions/
 ├── src/
 │   ├── index.ts          # Main entry point
 │   ├── auth/             # Auth triggers
-│   │   ├── index.ts      # Export all auth functions
-│   │   └── *.ts          # Individual functions
+│   ├── monitoring/       # Monitoring and health checks
 │   ├── user/             # User triggers
 │   ├── notification/     # Notification functions
 │   ├── scheduled/        # Cron/scheduled tasks
 │   └── util/             # Callable utility functions
-├── lib/                  # Compiled output (git ignored)
 ├── package.json
 ├── tsconfig.json
 └── DEPLOYMENT.md         # This file
@@ -647,7 +645,6 @@ apps/functions/
 
 - [Firebase Functions Docs](https://firebase.google.com/docs/functions)
 - [NXT1 Functions TESTING.md](./TESTING.md)
-- [NXT1 Functions TEST-COMMANDS.md](./TEST-COMMANDS.md)
 
 ### Contact
 
@@ -657,6 +654,6 @@ apps/functions/
 
 ---
 
-**Last Updated:** February 2, 2026  
+**Last Updated:** April 8, 2026  
 **Version:** 2.0.0  
 **Maintainer:** NXT1 DevOps Team

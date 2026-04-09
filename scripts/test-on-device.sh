@@ -37,5 +37,6 @@ echo ""
 if [[ $REPLY =~ ^[Yy]$ ]]
 then
     echo "🔧 Starting development server and deploying to device..."
+    cd "$(dirname "$0")/../apps/mobile"
     npm run ios:live
 fi

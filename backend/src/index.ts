@@ -40,7 +40,6 @@ import sitemapRoutes from './routes/sitemap.routes.js';
 import feedRoutes from './routes/feed.routes.js';
 import exploreRoutes from './routes/explore.routes.js';
 import activityRoutes from './routes/activity.routes.js';
-import postsRoutes from './routes/posts.routes.js';
 import scoutReportsRoutes from './routes/scout-reports.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
 import newsRoutes from './routes/news.routes.js';
@@ -49,26 +48,14 @@ import missionsRoutes from './routes/missions.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import helpCenterRoutes from './routes/help-center.routes.js';
 import editProfileRoutes from './routes/edit-profile.routes.js';
-import usersRoutes from './routes/users.routes.js';
-import locationsRoutes from './routes/locations.routes.js';
 import agentXRoutes from './routes/agent-x.routes.js';
-import knowledgeRoutes from './routes/knowledge.routes.js';
 import messagesRoutes from './routes/messages.routes.js';
 
 import { bootstrapAgentQueue } from './modules/agent/queue/bootstrap.js';
 import { ensureTopicExists } from './modules/billing/index.js';
 import ssrRoutes from './routes/ssr.routes.js';
 // Detail routes for explore
-import collegesRoutes from './routes/colleges.routes.js';
-import athletesRoutes from './routes/athletes.routes.js';
-import teamsRoutes from './routes/teams.routes.js';
-import videosRoutes from './routes/videos.routes.js';
-import leaderboardsRoutes from './routes/leaderboards.routes.js';
-import campsRoutes from './routes/camps.routes.js';
-import eventsRoutes from './routes/events.routes.js';
-import statsRoutes from './routes/stats.routes.js';
 // Programs (Organization search)
-import programsRoutes from './routes/programs.routes.js';
 // Billing routes
 import billingRoutes from './routes/billing.routes.js';
 import webhookRoutes, { webhookRawBodyMiddleware } from './routes/webhook.routes.js';
@@ -294,7 +281,6 @@ async function setupApplication() {
     { path: '/feed', rateLimitType: 'api', handler: feedRoutes },
     { path: '/explore', rateLimitType: 'api', handler: exploreRoutes },
     { path: '/activity', rateLimitType: 'api', handler: activityRoutes },
-    { path: '/posts', rateLimitType: 'api', handler: postsRoutes },
     { path: '/scout-reports', rateLimitType: 'api', handler: scoutReportsRoutes },
     { path: '/analytics', rateLimitType: 'api', handler: analyticsRoutes },
     { path: '/news', rateLimitType: 'api', handler: newsRoutes },
@@ -303,21 +289,9 @@ async function setupApplication() {
     { path: '/help-center', rateLimitType: 'api', handler: helpCenterRoutes },
     { path: '/profile', rateLimitType: 'api', handler: editProfileRoutes },
     { path: '/agent-x', rateLimitType: 'api', handler: agentXRoutes },
-    { path: '/knowledge', rateLimitType: 'api', handler: knowledgeRoutes },
-    { path: '/users', rateLimitType: 'api', handler: usersRoutes },
-    { path: '/locations', rateLimitType: 'api', handler: locationsRoutes },
     // Messages routes
     { path: '/messages', rateLimitType: 'api', handler: messagesRoutes },
     // Search/Discovery routes with search-specific rate limiting
-    { path: '/colleges', rateLimitType: 'search', handler: collegesRoutes },
-    { path: '/athletes', rateLimitType: 'search', handler: athletesRoutes },
-    { path: '/teams', rateLimitType: 'api', handler: teamsRoutes },
-    { path: '/programs', rateLimitType: 'search', handler: programsRoutes },
-    { path: '/videos', rateLimitType: 'upload', handler: videosRoutes },
-    { path: '/leaderboards', rateLimitType: 'search', handler: leaderboardsRoutes },
-    { path: '/camps', rateLimitType: 'api', handler: campsRoutes },
-    { path: '/events', rateLimitType: 'api', handler: eventsRoutes },
-    { path: '/stats', rateLimitType: 'api', handler: statsRoutes },
     // Billing routes with strict rate limiting
     { path: '/billing', rateLimitType: 'billing', handler: billingRoutes },
     { path: '/webhook', rateLimitType: 'billing', handler: webhookRoutes },

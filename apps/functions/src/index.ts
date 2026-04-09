@@ -8,9 +8,10 @@
  *
  * Architecture (2026 Best Practices):
  * ├── auth/         - Authentication triggers (user lifecycle)
- * ├── user/         - User data triggers (profile updates)
- * ├── notification/ - Notification triggers (push, email)
+ * ├── monitoring/   - Monitoring & alerting (Crashlytics webhook)
+ * ├── notification/ - Notification triggers (push)
  * ├── scheduled/    - Cron/scheduled tasks
+ * ├── user/         - User data triggers (profile updates)
  * └── util/         - Utility/callable functions
  *
  * @see https://firebase.google.com/docs/functions/typescript
@@ -42,10 +43,6 @@ export * from './user';
 
 // Notification triggers (push, email)
 export * from './notification';
-
-// Email triggers (transactional & marketing)
-// TODO: Enable when SMTP credentials are configured
-// export * from './email';
 
 // Scheduled/cron tasks
 export * from './scheduled';

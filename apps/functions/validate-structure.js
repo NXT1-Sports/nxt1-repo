@@ -17,8 +17,8 @@ console.log('='.repeat(60));
 
 // 1. Check required folder structure
 console.log('\n📁 Checking folder structure...');
-const requiredFolders = ['auth', 'user', 'notification', 'scheduled', 'util'];
-const optionalFolders = ['email'];
+const requiredFolders = ['auth', 'monitoring', 'notification', 'scheduled', 'user', 'util'];
+const optionalFolders = [];
 
 requiredFolders.forEach((folder) => {
   const folderPath = path.join(srcPath, folder);

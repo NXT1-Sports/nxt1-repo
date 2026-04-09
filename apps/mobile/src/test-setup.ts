@@ -53,6 +53,7 @@ global.IntersectionObserver = class IntersectionObserver {
   readonly root: Element | null = null;
   readonly rootMargin: string = '';
   readonly thresholds: ReadonlyArray<number> = [];
+  readonly scrollMargin: string = '';
   /* eslint-disable @typescript-eslint/no-empty-function */
   observe() {}
   unobserve() {}
@@ -61,7 +62,7 @@ global.IntersectionObserver = class IntersectionObserver {
   takeRecords(): IntersectionObserverEntry[] {
     return [];
   }
-};
+} as unknown as typeof IntersectionObserver;
 
 // Mock Capacitor plugins for unit tests
 (globalThis as Record<string, unknown>)['Capacitor'] = {

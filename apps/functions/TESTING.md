@@ -46,41 +46,38 @@ npm run shell
 ### Test Template: Callable Function
 
 ```typescript
-// src/util/__tests__/checkUsernameAvailability.spec.ts
-import * as functions from 'firebase-functions';
+// src/util/__tests__/validateEmail.spec.ts
 import * as admin from 'firebase-admin';
-import { checkUsernameAvailability } from '../checkUsernameAvailability';
+import * as functions from 'firebase-functions-test';
+import { validateEmail } from '../validateEmail';
+
+const testEnv = functions();
 
 let wrapped: any;
 
 beforeAll(() => {
   // Wrap the callable function for testing
-  wrapped = functions.wrap(checkUsernameAvailability);
+  wrapped = testEnv.wrap(validateEmail);
 });
 
-describe('checkUsernameAvailability', () => {
-  it('should reject reserved usernames', async () => {
+describe('validateEmail', () => {
+  it('should reject invalid email strings', async () => {
     const req = {
-      data: { username: 'admin' },
-      auth: { uid: 'user123' },
-    };
-
-    try {
-      await wrapped(req);
-      fail('Should have thrown');
-    } catch (err: any) {
-      expect(err.message).toContain('reserved');
-    }
-  });
-
-  it('should allow available usernames', async () => {
-    const req = {
-      data: { username: 'uniqueuser123' },
-      auth: { uid: 'user123' },
+      data: { email: 'not-an-email' },
     };
 
     const result = await wrapped(req);
-    expect(result.available).toBe(true);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toBe('Invalid email format');
+  });
+
+  it('should allow valid emails', async () => {
+    const req = {
+      data: { email: 'test12345@example.com' },
+    };
+
+    const result = await wrapped(req);
+    expect(result.valid).toBe(true);
   });
 });
 ```
@@ -126,46 +123,6 @@ Create `.env.emulator` (if needed):
 FIREBASE_DATABASE_EMULATOR_HOST=127.0.0.1:9000
 FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099
-```
-
----
-
-## Testing Email Functions
-
-Email functions use Firebase Secrets. To test locally:
-
-```bash
-# Set local secrets (only needed for emulator)
-export SMTP_USER=test@example.com
-export SMTP_PASS=test-password
-
-npm run serve
-```
-
-Or mock the email service:
-
-```typescript
-// src/email/__tests__/sendEmail.spec.ts
-import * as nodemailer from 'nodemailer';
-
-jest.mock('nodemailer');
-
-const mockSendMail = jest.fn().mockResolvedValue({ messageId: 'test123' });
-(nodemailer.createTransport as jest.Mock).mockReturnValue({
-  sendMail: mockSendMail,
-});
-
-describe('sendEmail', () => {
-  it('should send email with template', async () => {
-    // ... test code
-    expect(mockSendMail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        to: 'user@example.com',
-        subject: expect.any(String),
-      })
-    );
-  });
-});
 ```
 
 ---
@@ -242,7 +199,7 @@ In GitHub Actions:
    npm install --save-dev vitest @vitest/ui
    ```
 
-2. **Create test files** for each module (auth, user, email, etc.)
+2. **Create test files** for each module (auth, user, util, etc.)
 
 3. **Run emulator** locally to test triggers and HTTP endpoints
 

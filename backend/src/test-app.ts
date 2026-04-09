@@ -9,7 +9,6 @@ import sitemapRoutes from './routes/sitemap.routes.js';
 import feedRoutes from './routes/feed.routes.js';
 import exploreRoutes from './routes/explore.routes.js';
 import activityRoutes from './routes/activity.routes.js';
-import postsRoutes from './routes/posts.routes.js';
 import scoutReportsRoutes from './routes/scout-reports.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
 import newsRoutes from './routes/news.routes.js';
@@ -18,19 +17,8 @@ import missionsRoutes from './routes/missions.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import helpCenterRoutes from './routes/help-center.routes.js';
 import editProfileRoutes from './routes/edit-profile.routes.js';
-import usersRoutes from './routes/users.routes.js';
-import locationsRoutes from './routes/locations.routes.js';
 import agentXRoutes from './routes/agent-x.routes.js';
 import ssrRoutes from './routes/ssr.routes.js';
-import collegesRoutes from './routes/colleges.routes.js';
-import athletesRoutes from './routes/athletes.routes.js';
-import teamsRoutes from './routes/teams.routes.js';
-import videosRoutes from './routes/videos.routes.js';
-import leaderboardsRoutes from './routes/leaderboards.routes.js';
-import campsRoutes from './routes/camps.routes.js';
-import eventsRoutes from './routes/events.routes.js';
-import statsRoutes from './routes/stats.routes.js';
-import programsRoutes from './routes/programs.routes.js';
 import billingRoutes from './routes/billing.routes.js';
 import webhookRoutes, { webhookRawBodyMiddleware } from './routes/webhook.routes.js';
 import usageRoutes from './routes/usage.routes.js';
@@ -157,7 +145,6 @@ const routeConfigs = [
   ['/feed', feedRoutes],
   ['/explore', exploreRoutes],
   ['/activity', activityRoutes],
-  ['/posts', postsRoutes],
   ['/scout-reports', scoutReportsRoutes],
   ['/analytics', analyticsRoutes],
   ['/news', newsRoutes],
@@ -166,17 +153,6 @@ const routeConfigs = [
   ['/help-center', helpCenterRoutes],
   ['/profile', editProfileRoutes],
   ['/agent-x', agentXRoutes],
-  ['/users', usersRoutes],
-  ['/locations', locationsRoutes],
-  ['/colleges', collegesRoutes],
-  ['/athletes', athletesRoutes],
-  ['/teams', teamsRoutes],
-  ['/programs', programsRoutes],
-  ['/videos', videosRoutes],
-  ['/leaderboards', leaderboardsRoutes],
-  ['/camps', campsRoutes],
-  ['/events', eventsRoutes],
-  ['/stats', statsRoutes],
   ['/billing', billingRoutes],
   ['/webhook', webhookRoutes],
   ['/usage', usageRoutes],
