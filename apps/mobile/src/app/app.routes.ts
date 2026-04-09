@@ -110,21 +110,6 @@ export const routes: Routes = [
           import('./features/settings/settings.routes').then((m) => m.SETTINGS_ROUTES),
       },
 
-      // XP - Gamified Tasks & Achievements
-      {
-        path: 'xp',
-        loadChildren: () => import('./features/xp/xp.routes').then((m) => m.XP_ROUTES),
-      },
-
-      // Scout Reports - Premium recruiting analysis
-      {
-        path: 'scout-reports',
-        loadChildren: () =>
-          import('./features/scout-reports/scout-reports.routes').then(
-            (m) => m.SCOUT_REPORTS_ROUTES
-          ),
-      },
-
       // Usage - Payment Usage Dashboard
       {
         path: 'usage',
@@ -142,12 +127,6 @@ export const routes: Routes = [
       {
         path: 'invite',
         loadChildren: () => import('./features/invite/invite.routes').then((m) => m.INVITE_ROUTES),
-      },
-
-      // About - Company information
-      {
-        path: 'about',
-        loadChildren: () => import('./features/about/about.routes').then((m) => m.ABOUT_ROUTES),
       },
 
       // Terms - Terms of Service

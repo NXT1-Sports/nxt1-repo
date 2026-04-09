@@ -26,7 +26,7 @@ import {
   type ExploreUser,
   ExploreService,
 } from '@nxt1/ui';
-import type { ExploreTabId, ExploreItem, ScoutReport, FeedPost, FeedAuthor } from '@nxt1/core';
+import type { ExploreTabId, ExploreItem, FeedPost, FeedAuthor } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 import { ProfileService } from '../../core/services/profile.service';
 
@@ -45,8 +45,6 @@ import { ProfileService } from '../../core/services/profile.service';
         (avatarClick)="onAvatarClick()"
         (tabChange)="onTabChange($event)"
         (itemClick)="onItemClick($event)"
-        (scoutReportSelect)="onScoutReportSelect($event)"
-        (scoutReportFiltersOpen)="onScoutReportFiltersOpen()"
         (postSelect)="onPostSelect($event)"
         (authorSelect)="onAuthorSelect($event)"
         (newsArticleSelect)="onNewsArticleSelect($event)"
@@ -137,21 +135,6 @@ export class ExploreComponent {
     if (item.route) {
       this.navController.navigateForward(item.route);
     }
-  }
-
-  /**
-   * Handle scout report selection - navigate to detail page.
-   */
-  protected onScoutReportSelect(report: ScoutReport): void {
-    this.logger.debug('Scout report selected', { reportId: report.id });
-    this.navController.navigateForward(`/scout-reports/${report.id}`);
-  }
-
-  /**
-   * Handle scout report filters open.
-   */
-  protected onScoutReportFiltersOpen(): void {
-    this.logger.debug('Scout report filters opened');
   }
 
   // ── Feed / Following / News Handlers ──
