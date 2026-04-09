@@ -84,7 +84,7 @@ const HelpArticleSchema = new Schema<HelpArticleDocument>(
     isPublished: { type: Boolean, default: true, index: true },
     seo: { type: SeoSchema },
   },
-  { versionKey: false, timestamps: false }
+  { versionKey: false, timestamps: false, suppressReservedKeysWarning: true }
 );
 
 // Text index for full-text search
