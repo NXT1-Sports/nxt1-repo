@@ -66,20 +66,20 @@ import { httpCacheInterceptor, authInterceptor } from './core/infrastructure';
 import { httpPerformanceInterceptor } from './core/infrastructure/performance-interceptor';
 
 // Crashlytics service (web uses GA4 fallback)
-import { CrashlyticsService } from './core/services/crashlytics.service';
-import { AnalyticsService } from './core/services/analytics.service';
-import { PerformanceService } from './core/services/performance.service';
+import { CrashlyticsService } from './core/services';
+import { AnalyticsService } from './core/services';
+import { PerformanceService } from './core/services';
 
 // Badge bridge: connects ActivityService (from @nxt1/ui) → BadgeCountService
 import { provideBadgeBridge } from './core/services';
 
 // Web push notifications: FCM token management + foreground message handling
-import { provideWebPush } from './core/services/web-push.service';
+import { provideWebPush } from './core/services';
 
 // News API adapter — wired at root so the shared NewsService
 // (providedIn: 'root') can resolve the token when it's first injected.
 import { NEWS_API_BASE_URL, NEWS_API_ADAPTER } from '@nxt1/ui/news';
-import { NewsApiAdapterService } from './features/news/services/news-api-adapter.service';
+import { PulseApiAdapterService } from './core/services/api/pulse-api-adapter.service';
 import { TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui/team-profile';
 import { INTEL_API_BASE_URL } from '@nxt1/ui/intel';
 import { MANAGE_TEAM_API_BASE_URL } from '@nxt1/ui/manage-team';
@@ -101,9 +101,9 @@ import { USAGE_API_BASE_URL, STRIPE_PUBLISHABLE_KEY } from '@nxt1/ui/usage';
 // (providedIn: 'root') can resolve the token when it's first injected.
 import { HELP_CENTER_API } from '@nxt1/ui/help-center';
 import { FEED_API } from '@nxt1/ui/feed';
-import { HelpCenterApiService } from './features/help-center/services/help-center-api.service';
-import { FeedApiService } from './core/services/feed-api.service';
-import { ActivityApiService as WebActivityApiService } from './features/activity/services/activity-api.service';
+import { HelpCenterApiService } from './core/services/api/help-center-api.service';
+import { FeedApiService } from './core/services';
+import { ActivityApiService as WebActivityApiService } from './core/services/api/activity-api.service';
 
 // Firebase
 // IMPORTANT: Only import what's actually used in browser bundle
@@ -127,13 +127,13 @@ import {
 } from '@angular/fire/firestore';
 
 // Auth service with injection token pattern
-import { AUTH_SERVICE, BrowserAuthService } from './features/auth';
-import { AuthFlowService, type IAuthService } from './features/auth/services';
-import { WebEmailConnectionService } from './features/activity/services/email-connection.service';
+import { AUTH_SERVICE, BrowserAuthService } from './core/services/auth';
+import { AuthFlowService, type IAuthService } from './core/services/auth';
+import { WebEmailConnectionService } from './core/services/web/email-connection.service';
 
 // Settings persistence adapter (connects SettingsService → backend API)
 import { SETTINGS_PERSISTENCE_ADAPTER, APP_VERSION } from '@nxt1/ui/settings';
-import { SettingsApiService } from './features/settings/services/settings-api.service';
+import { SettingsApiService } from './core/services/api/settings-api.service';
 
 import { environment } from '../environments/environment';
 
@@ -323,7 +323,7 @@ export const appConfig: ApplicationConfig = {
     { provide: NEWS_API_BASE_URL, useFactory: () => environment.apiURL },
 
     // News API adapter — root-level so shared NewsService resolves it
-    { provide: NEWS_API_ADAPTER, useExisting: NewsApiAdapterService },
+    { provide: NEWS_API_ADAPTER, useExisting: PulseApiAdapterService },
 
     // Team Profile API base URL
     { provide: TEAM_PROFILE_API_BASE_URL, useFactory: () => environment.apiURL },

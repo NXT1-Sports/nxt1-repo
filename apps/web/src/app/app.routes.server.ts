@@ -88,22 +88,6 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
-    path: 'rankings',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'rankings/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'colleges',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'colleges/**',
-    renderMode: RenderMode.Server,
-  },
-  {
     path: 'messages',
     renderMode: RenderMode.Server,
   },
@@ -141,22 +125,6 @@ export const serverRoutes: ServerRoute[] = [
   },
   {
     path: 'agent/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'xp',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'xp/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'scout-reports',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'scout-reports/**',
     renderMode: RenderMode.Server,
   },
   {
@@ -213,14 +181,6 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
-    path: 'manage-team',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'manage-team/**',
-    renderMode: RenderMode.Server,
-  },
-  {
     path: 'team-platform',
     renderMode: RenderMode.Server,
   },
@@ -234,14 +194,6 @@ export const serverRoutes: ServerRoute[] = [
   },
   {
     path: 'super-profiles/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'recruiting-scouts-colleges',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'recruiting-scouts-colleges/**',
     renderMode: RenderMode.Server,
   },
 

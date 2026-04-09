@@ -10,7 +10,7 @@ import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/cor
 import { Router, ActivatedRoute } from '@angular/router';
 import { HelpArticleDetailWebComponent } from '@nxt1/ui/help-center';
 import { HelpCenterService } from '@nxt1/ui/help-center';
-import { SeoService } from '../../core/services/seo.service';
+import { SeoService } from '../../core/services';
 
 @Component({
   selector: 'app-help-center-article',

@@ -8,7 +8,7 @@ import {
   platformBrowserDynamicTesting,
 } from '@angular/platform-browser-dynamic/testing';
 import { Router } from '@angular/router';
-import { SeoService } from '../seo.service';
+import { SeoService } from '../web/seo.service';
 import type { SeoConfig } from '@nxt1/core/seo';
 
 describe('SeoService (SSR canonical + JSON-LD)', () => {

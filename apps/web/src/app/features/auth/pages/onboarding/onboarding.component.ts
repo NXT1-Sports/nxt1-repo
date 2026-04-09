@@ -136,8 +136,9 @@ import {
   AuthErrorHandler,
   AuthApiService,
   OnboardingAnalyticsService,
-} from '../../services';
-import { AUTH_SERVICE, type IAuthService } from '../../services/auth.interface';
+  AUTH_SERVICE,
+  type IAuthService,
+} from '../../../../core/services/auth';
 import type { OnboardingProfileData } from '@nxt1/core/auth';
 import { SeoService } from '../../../../core/services';
 import { ProfileGenerationStateService } from '@nxt1/ui/profile';

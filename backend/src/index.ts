@@ -40,11 +40,9 @@ import sitemapRoutes from './routes/sitemap.routes.js';
 import feedRoutes from './routes/feed.routes.js';
 import exploreRoutes from './routes/explore.routes.js';
 import activityRoutes from './routes/activity.routes.js';
-import scoutReportsRoutes from './routes/scout-reports.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
-import newsRoutes from './routes/news.routes.js';
+import pulseRoutes from './routes/pulse.routes.js';
 import inviteRoutes from './routes/invite.routes.js';
-import missionsRoutes from './routes/missions.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import helpCenterRoutes from './routes/help-center.routes.js';
 import editProfileRoutes from './routes/edit-profile.routes.js';
@@ -53,7 +51,6 @@ import messagesRoutes from './routes/messages.routes.js';
 
 import { bootstrapAgentQueue } from './modules/agent/queue/bootstrap.js';
 import { ensureTopicExists } from './modules/billing/index.js';
-import ssrRoutes from './routes/ssr.routes.js';
 // Detail routes for explore
 // Programs (Organization search)
 // Billing routes
@@ -63,7 +60,6 @@ import heliconeRoutes from './routes/helicone.routes.js';
 import usageRoutes from './routes/usage.routes.js';
 import iapRoutes from './routes/iap.routes.js';
 // Staging-only dev utilities
-import seedRoutes from './routes/seed.routes.js';
 
 const app: ReturnType<typeof express> = express();
 const PORT = process.env['PORT'] || 3000;
@@ -281,10 +277,8 @@ async function setupApplication() {
     { path: '/feed', rateLimitType: 'api', handler: feedRoutes },
     { path: '/explore', rateLimitType: 'api', handler: exploreRoutes },
     { path: '/activity', rateLimitType: 'api', handler: activityRoutes },
-    { path: '/scout-reports', rateLimitType: 'api', handler: scoutReportsRoutes },
     { path: '/analytics', rateLimitType: 'api', handler: analyticsRoutes },
-    { path: '/news', rateLimitType: 'api', handler: newsRoutes },
-    { path: '/missions', rateLimitType: 'api', handler: missionsRoutes },
+    { path: '/pulse', rateLimitType: 'api', handler: pulseRoutes },
     { path: '/settings', rateLimitType: 'api', handler: settingsRoutes },
     { path: '/help-center', rateLimitType: 'api', handler: helpCenterRoutes },
     { path: '/profile', rateLimitType: 'api', handler: editProfileRoutes },
@@ -302,7 +296,6 @@ async function setupApplication() {
     // Apple IAP wallet routes
     { path: '/iap', rateLimitType: 'billing', handler: iapRoutes },
     // SSR routes with lighter limits (for SEO crawlers)
-    { path: '/ssr', rateLimitType: 'api', handler: ssrRoutes },
   ];
 
   /**
@@ -324,10 +317,6 @@ async function setupApplication() {
 
   // Setup staging routes: /api/v1/staging/*
   await setupRoutes('/api/v1/staging', routeConfigs);
-
-  // Staging-only: seed helper (never exposed on /api/v1/ prod path)
-  const seedLimiter = await getRedisRateLimiter('api');
-  app.use('/api/v1/staging/seed', seedLimiter, seedRoutes);
 
   // Log all protected endpoints
   logger.info('🛡️ Rate Limiting Coverage:');

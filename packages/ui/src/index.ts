@@ -525,11 +525,6 @@ export {
 } from './agent-x/onboarding';
 
 // ============================================
-// BRAND VAULT (Mobile)
-// ============================================
-export { BrandService, BrandCategoryCardComponent, BrandShellComponent } from './brand';
-
-// ============================================
 // ACTIVITY (Notifications - Shared Web & Mobile)
 // ============================================
 export {
@@ -1086,53 +1081,6 @@ export {
 } from './components/refresh-container';
 
 // ============================================
-// ANALYTICS DASHBOARD (Shared Web & Mobile)
-// ============================================
-export {
-  // Service
-  AnalyticsDashboardService,
-  // API Token (used by apps to configure base URL)
-  ANALYTICS_API_BASE_URL,
-  // Components (Ionic — Mobile)
-  AnalyticsDashboardShellComponent,
-  // Components (Web — Zero Ionic)
-  AnalyticsDashboardShellWebComponent,
-  // Skeleton Loading
-  AnalyticsDashboardSkeletonComponent,
-  // Landing Page (Auth-aware marketing page)
-  NxtAnalyticsLandingComponent,
-  // Dashboard Preview (Interactive mockup)
-  NxtAnalyticsDashboardPreviewComponent,
-  // Types
-  type AnalyticsUser,
-  // Mock Data (Development Only)
-  getMockAthleteReport,
-  getMockCoachReport,
-} from './analytics-dashboard';
-
-// ============================================
-// XP (Gamified Tasks - Shared Web & Mobile)
-// ============================================
-export {
-  // Service
-  XpService,
-  // Components
-  XpShellComponent,
-  XpShellWebComponent,
-  XpProgressComponent,
-  XpCategoryComponent,
-  XpItemComponent,
-  XpBadgeComponent,
-  XpBadgeGridComponent,
-  XpSkeletonComponent,
-  XpProgressSkeletonComponent,
-  XpItemSkeletonComponent,
-  // Landing Page (Public marketing)
-  NxtXpLandingComponent,
-  NxtXpDashboardPreviewComponent,
-} from './xp';
-
-// ============================================
 // SCOUT REPORTS (Athlete Scouting - Shared Web & Mobile)
 // ============================================
 export {
@@ -1370,11 +1318,7 @@ export {
 // ============================================
 // LEGAL (About, Terms, Privacy - Shared Web & Mobile)
 // ============================================
-export {
-  AboutContentShellComponent,
-  TermsContentShellComponent,
-  PrivacyContentShellComponent,
-} from './legal';
+export { TermsContentShellComponent, PrivacyContentShellComponent } from './legal';
 
 // ============================================
 // TEAM (Team Pages - Shared Web & Mobile)

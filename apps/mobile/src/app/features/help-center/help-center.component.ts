@@ -17,7 +17,7 @@ import { CommonModule } from '@angular/common';
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import { HelpCenterShellComponent, HelpCenterService, type HelpNavigateEvent } from '@nxt1/ui';
 import { NxtBrowserService } from '@nxt1/ui';
-import { AuthFlowService } from '../auth/services/auth-flow.service';
+import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
 import type { HelpUserType } from '@nxt1/core';
 
 @Component({

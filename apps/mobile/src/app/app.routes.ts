@@ -132,14 +132,13 @@ export const routes: Routes = [
       // Terms - Terms of Service
       {
         path: 'terms',
-        loadChildren: () => import('./features/terms/terms.routes').then((m) => m.TERMS_ROUTES),
+        loadChildren: () => import('./legal/terms/terms.routes').then((m) => m.TERMS_ROUTES),
       },
 
       // Privacy - Privacy Policy
       {
         path: 'privacy',
-        loadChildren: () =>
-          import('./features/privacy/privacy.routes').then((m) => m.PRIVACY_ROUTES),
+        loadChildren: () => import('./legal/privacy/privacy.routes').then((m) => m.PRIVACY_ROUTES),
       },
 
       // Team - Team pages

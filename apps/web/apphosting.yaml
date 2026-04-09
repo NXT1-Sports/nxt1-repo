@@ -21,7 +21,7 @@ runConfig:
   concurrency: 80
 
   # Minimum instances (0 = scale to zero when idle)
-  minInstances: 0
+  minInstances: 1
 
   # Maximum instances (controls cost ceiling)
   maxInstances: 10

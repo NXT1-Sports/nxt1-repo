@@ -110,8 +110,8 @@ import {
   getPositionAbbreviation,
 } from '@nxt1/core';
 import type { InviteTeam } from '@nxt1/core';
-import { AuthFlowService } from '../../features/auth/services/auth-flow.service';
-import { ProfileService } from '../services/profile.service';
+import { AuthFlowService } from '../services/auth/auth-flow.service';
+import { ProfileService } from '../services/state/profile.service';
 import { EditProfileApiService } from '../services/api/edit-profile-api.service';
 
 /**

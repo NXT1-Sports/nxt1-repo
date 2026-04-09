@@ -31,7 +31,7 @@ import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import type { ExploreItem, ExploreTabId, ScoutReport, FeedPost, FeedAuthor } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
+import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
 import { SeoService } from '../../core/services';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 
@@ -151,7 +151,7 @@ export class ExploreComponent implements OnInit {
    */
   protected onScoutReportSelect(report: ScoutReport): void {
     this.logger.debug('Scout report selected', { reportId: report.id });
-    void this.router.navigate(['/scout-reports', report.id]);
+    // void this.router.navigate(['/scout-reports', report.id]);
   }
 
   /**

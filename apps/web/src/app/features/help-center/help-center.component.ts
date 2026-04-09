@@ -11,9 +11,9 @@ import { Router } from '@angular/router';
 import { HelpCenterShellWebComponent, type HelpNavigateEvent } from '@nxt1/ui/help-center';
 import { HelpCenterService } from '@nxt1/ui/help-center';
 import { NxtBrowserService } from '@nxt1/ui/services/browser';
-import { AuthFlowService } from '../auth/services/auth-flow.service';
+import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
 import type { HelpUserType } from '@nxt1/core';
-import { SeoService } from '../../core/services/seo.service';
+import { SeoService } from '../../core/services';
 
 @Component({
   selector: 'app-help-center',

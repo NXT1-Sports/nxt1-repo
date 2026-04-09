@@ -122,7 +122,7 @@ import {
   AuthErrorHandler,
   AuthApiService,
   OnboardingAnalyticsService,
-} from '../../services';
+} from '../../../../core/services/auth';
 import { EditProfileApiService } from '../../../../core/services/api/edit-profile-api.service';
 import { ProfileGenerationStateService } from '@nxt1/ui';
 import type { OnboardingProfileData } from '@nxt1/core/auth';

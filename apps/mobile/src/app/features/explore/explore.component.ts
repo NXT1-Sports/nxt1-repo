@@ -27,8 +27,8 @@ import {
   ExploreService,
 } from '@nxt1/ui';
 import type { ExploreTabId, ExploreItem, FeedPost, FeedAuthor } from '@nxt1/core';
-import { AuthFlowService } from '../auth/services/auth-flow.service';
-import { ProfileService } from '../../core/services/profile.service';
+import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
+import { ProfileService } from '../../core/services/state/profile.service';
 
 @Component({
   selector: 'app-explore',

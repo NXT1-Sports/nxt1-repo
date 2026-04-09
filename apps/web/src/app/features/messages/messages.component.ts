@@ -20,7 +20,7 @@ import { Router } from '@angular/router';
 import { MessagesShellWebComponent, type MessagesUser } from '@nxt1/ui/messages';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { Conversation } from '@nxt1/core';
-import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
+import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
 import { SeoService } from '../../core/services';
 
 @Component({

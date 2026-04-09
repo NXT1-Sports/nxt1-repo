@@ -100,7 +100,6 @@ import {
   GeneralAgent,
 } from '../agents/index.js';
 import { setAgentDependencies } from '../../../routes/agent-x.routes.js';
-import { setKnowledgeDependencies } from '../../../routes/knowledge.routes.js';
 import { setWelcomeDependencies } from '../../../services/agent-welcome.service.js';
 import { setScrapeDependencies } from '../../../services/agent-scrape.service.js';
 import { stagingDb } from '../../../utils/firebase-staging.js';
@@ -337,7 +336,6 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry,
     pubsub,
   });
-  setKnowledgeDependencies(llm);
   setWelcomeDependencies({ queueService, jobRepository, chatService: agentChatService });
   setScrapeDependencies({ queueService, jobRepository, chatService: agentChatService });
 

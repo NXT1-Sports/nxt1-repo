@@ -36,9 +36,9 @@ import type { OnboardingUserType } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { mapToConnectedSources, mergeConnectedSources } from '@nxt1/core/profile';
 
-import { AuthFlowService } from '../auth/services/auth-flow.service';
+import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
 import { ProfileApiService } from '../../core/services/api/profile-api.service';
-import { ProfileService } from '../../core/services/profile.service';
+import { ProfileService } from '../../core/services/state/profile.service';
 
 // ============================================
 // TYPES

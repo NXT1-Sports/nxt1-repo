@@ -48,23 +48,20 @@ import { provideIonicAngular } from '@ionic/angular/standalone';
 import { GLOBAL_CRASHLYTICS } from '@nxt1/ui/infrastructure';
 
 // Crashlytics service (web uses GA4 fallback, SSR-safe)
-import { CrashlyticsService } from './core/services/crashlytics.service';
+import { CrashlyticsService } from './core/services';
 
 // Auth service with injection token pattern
 // IMPORTANT: Import directly from files, NOT from barrel export
 // Barrel exports would pull in BrowserAuthService which imports Firebase Auth
-import { AUTH_SERVICE } from './features/auth/services/auth.interface';
-import {
-  ServerAuthService,
-  initializeServerAuth,
-} from './features/auth/services/server-auth.service';
-import { SSR_AUTH_TOKEN, SSR_FIREBASE_CONFIG } from './features/auth/services/ssr-tokens';
+import { AUTH_SERVICE } from './core/services/auth/auth.interface';
+import { ServerAuthService, initializeServerAuth } from './core/services/auth/server-auth.service';
+import { SSR_AUTH_TOKEN, SSR_FIREBASE_CONFIG } from './core/services/auth/ssr-tokens';
 import { TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui/team-profile';
 import { INTEL_API_BASE_URL } from '@nxt1/ui/intel';
 import { MANAGE_TEAM_API_BASE_URL } from '@nxt1/ui/manage-team';
 import { AGENT_X_API_BASE_URL } from '@nxt1/ui/agent-x';
 import { FEED_API } from '@nxt1/ui/feed';
-import { FeedApiService } from './core/services/feed-api.service';
+import { FeedApiService } from './core/services';
 
 // Environment for Firebase config
 import { environment } from '../environments/environment';

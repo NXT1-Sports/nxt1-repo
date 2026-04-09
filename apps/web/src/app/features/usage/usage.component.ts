@@ -35,7 +35,7 @@ import {
   UsageService,
   type UsageSection,
 } from '@nxt1/ui/usage';
-import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
+import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
 import { SeoService } from '../../core/services';
 
 @Component({

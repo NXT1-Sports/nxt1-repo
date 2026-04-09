@@ -85,8 +85,8 @@ import type {
   UserSummary,
 } from '@nxt1/core';
 import type { ApiResponse } from '@nxt1/core/profile';
-import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
-import { AuthFlowService } from '../auth/services';
+import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
+import { AuthFlowService } from '../../core/services/auth';
 import {
   SeoService,
   AnalyticsService,
@@ -94,8 +94,8 @@ import {
   ProfilePageActionsService,
 } from '../../core/services';
 import { clearHttpCache } from '../../core/infrastructure';
-import { EditProfileApiService } from '../../core/services/edit-profile-api.service';
-import { ProfileService as ApiProfileService } from './services/profile.service';
+import { EditProfileApiService } from '../../core/services';
+import { ProfileService as ApiProfileService } from '../../core/services/api/profile-api.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import { environment } from '../../../environments/environment';
@@ -207,7 +207,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
   private readonly profilePageActions = inject(ProfilePageActionsService);
   /**
    * Platform-specific API service — fetches real profile data from the backend.
-   * @see apps/web/src/app/features/profile/services/profile.service.ts
+   * @see apps/web/src/app/core/services/api/profile-api.service.ts
    */
   private readonly apiProfileService = inject(ApiProfileService);
   private readonly editProfileApiService = inject(EditProfileApiService);

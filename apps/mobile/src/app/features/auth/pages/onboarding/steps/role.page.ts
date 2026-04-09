@@ -22,7 +22,7 @@ import {
   NxtLogoComponent,
 } from '@nxt1/ui';
 
-import { OnboardingService } from '../../../services/onboarding.service';
+import { OnboardingService } from '../../../../../core/services/auth/onboarding.service';
 
 @Component({
   selector: 'app-onboarding-role-step',

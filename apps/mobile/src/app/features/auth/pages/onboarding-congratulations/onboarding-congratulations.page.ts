@@ -63,7 +63,7 @@ import { getWelcomeSlidesForRole, type OnboardingUserType } from '@nxt1/core/api
 import type { AgentGoal, AgentDashboardGoal } from '@nxt1/core';
 
 // App Services
-import { AuthFlowService } from '../../services';
+import { AuthFlowService } from '../../../../core/services/auth';
 
 @Component({
   selector: 'app-onboarding-congratulations',

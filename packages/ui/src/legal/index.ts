@@ -7,6 +7,5 @@
  * Platform-agnostic, reusable across web and mobile.
  */
 
-export * from './about-content-shell.component';
 export * from './terms-content-shell.component';
 export * from './privacy-content-shell.component';

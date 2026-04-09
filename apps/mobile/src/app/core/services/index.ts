@@ -7,12 +7,21 @@
  */
 
 // Profile Service (Business logic root)
-export { ProfileService, type IProfileService, type ProfileLoadingState } from './profile.service';
+export {
+  ProfileService,
+  type IProfileService,
+  type ProfileLoadingState,
+} from './state/profile.service';
 
 // API Adapters
-export { ProfileApiService } from './api/profile-api.service';
+export { ActivityApiService } from './api/activity-api.service';
 export { EditProfileApiService } from './api/edit-profile-api.service';
+export { MobileEmailConnectionService } from './api/email-connection.service';
 export { FeedApiService } from './api/feed-api.service';
+export { ProfileApiService } from './api/profile-api.service';
+export { PulseApiAdapterService } from './api/pulse-api-adapter.service';
+export { SettingsApiService } from './api/settings-api.service';
+export { TeamProfileApiService } from './api/team-profile-api.service';
 
 // Native Services
 export { DeepLinkService, type DeepLinkEvent } from './native/deep-link.service';

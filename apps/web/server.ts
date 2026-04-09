@@ -29,7 +29,7 @@ import bootstrap from './src/main.server';
 // Import the SSR_AUTH_TOKEN injection token from the dedicated tokens file
 // IMPORTANT: Do NOT import from server-auth.service.ts as it has Firebase imports
 // that cause module resolution issues in the dev server
-import { SSR_AUTH_TOKEN } from './src/app/features/auth/services/ssr-tokens';
+import { SSR_AUTH_TOKEN } from './src/app/core/services/auth/ssr-tokens';
 
 // Theme SSR tokens (defined in @nxt1/ui package, safe to import)
 import { SSR_INITIAL_THEME, SSR_INITIAL_SPORT_THEME } from '@nxt1/ui/services/theme';

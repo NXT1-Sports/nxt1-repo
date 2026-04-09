@@ -24,7 +24,7 @@
 import { Component, ChangeDetectionStrategy, inject, OnInit, OnDestroy } from '@angular/core';
 import { IonRouterOutlet } from '@ionic/angular/standalone';
 import { OnboardingButtonMobileComponent } from '@nxt1/ui';
-import { OnboardingService } from '../../services/onboarding.service';
+import { OnboardingService } from '../../../../core/services/auth/onboarding.service';
 
 @Component({
   selector: 'app-onboarding-shell',

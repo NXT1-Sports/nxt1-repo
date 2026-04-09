@@ -34,7 +34,7 @@ import {
 } from '@nxt1/core/errors';
 import type { InboxEmailProvider } from '@nxt1/core';
 import { environment } from '../../../../environments/environment';
-import { ProfileService } from '../profile.service';
+import { ProfileService } from '../state/profile.service';
 
 /**
  * Mobile Email Connection Service

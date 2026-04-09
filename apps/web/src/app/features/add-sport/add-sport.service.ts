@@ -30,8 +30,8 @@ import { DEFAULT_SPORTS, isTeamRole, type SportCell } from '@nxt1/core/constants
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { mapToConnectedSources, mergeConnectedSources } from '@nxt1/core/profile';
 
-import { AuthFlowService } from '../auth/services/auth-flow.service';
-import { ProfileService } from '../profile/services/profile.service';
+import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
+import { ProfileService } from '../../core/services/api/profile-api.service';
 
 // ============================================
 // TYPES

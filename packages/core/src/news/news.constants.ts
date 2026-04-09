@@ -265,15 +265,15 @@ export const NEWS_CACHE_TTL = {
  */
 export const NEWS_API_ENDPOINTS = {
   /** Get news feed */
-  FEED: '/news',
+  FEED: '/pulse',
   /** Get single article */
-  ARTICLE: '/news/:id',
+  ARTICLE: '/pulse/:id',
   /** Generate news (AI endpoint) */
-  GENERATE: '/news/generate',
+  GENERATE: '/pulse/generate',
   /** Get trending articles */
-  TRENDING: '/news/trending',
+  TRENDING: '/pulse/trending',
   /** Search articles */
-  SEARCH: '/news/search',
+  SEARCH: '/pulse/search',
 } as const;
 
 // ============================================

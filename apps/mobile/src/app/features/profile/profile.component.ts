@@ -68,8 +68,8 @@ import type { ProfileEvent } from '@nxt1/core/profile';
 import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from '@nxt1/core';
 
 // Mobile-specific services
-import { MobileAuthService } from '../auth/services/mobile-auth.service';
-import { AuthFlowService } from '../auth/services';
+import { MobileAuthService } from '../../core/services/auth/mobile-auth.service';
+import { AuthFlowService } from '../../core/services/auth';
 import { ShareService } from '../../core/services/native/share.service';
 import { ProfileApiService } from '../../core/services/api/profile-api.service';
 import { EditProfileApiService } from '../../core/services/api/edit-profile-api.service';

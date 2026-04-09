@@ -29,9 +29,9 @@ import { NxtToastService } from '@nxt1/ui/services/toast';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { PlatformScope } from '@nxt1/core/api';
-import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
+import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
 import { SeoService } from '../../core/services';
-import { WebEmailConnectionService } from '../activity/services/email-connection.service';
+import { WebEmailConnectionService } from '../../core/services/web/email-connection.service';
 
 @Component({
   selector: 'app-connected-accounts',

@@ -28,7 +28,7 @@ import { GEOLOCATION_DEFAULTS } from '@nxt1/core/geolocation';
 import type { ProfileLocationData } from '@nxt1/core/api';
 import type { ILogger } from '@nxt1/core/logging';
 
-import { OnboardingService } from '../../../services/onboarding.service';
+import { OnboardingService } from '../../../../../core/services/auth/onboarding.service';
 
 @Component({
   selector: 'app-onboarding-profile-step',

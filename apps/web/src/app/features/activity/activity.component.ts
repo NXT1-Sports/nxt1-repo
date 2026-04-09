@@ -23,10 +23,10 @@ import { NxtBottomSheetService, SHEET_PRESETS } from '@nxt1/ui/components/bottom
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ActivityItem, InboxEmailProvider, AgentTaskActivityMetadata } from '@nxt1/core';
-import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
+import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
 import { SeoService } from '../../core/services';
-import { WebEmailConnectionService } from './services/email-connection.service';
-import { EmailTokensService } from './services/email-tokens.service';
+import { WebEmailConnectionService } from '../../core/services/web/email-connection.service';
+import { EmailTokensService } from '../../core/services/web/email-tokens.service';
 
 @Component({
   selector: 'app-activity',

@@ -6,7 +6,7 @@ import { bootstrapApplication } from '@angular/platform-browser';
 import { AppComponent } from './app/app.component';
 import { appConfig } from './app/app.config';
 import { environment } from './environments/environment';
-import { PerformanceService } from './app/core/services/performance.service';
+import { PerformanceService } from './app/core/services';
 import { Auth } from '@angular/fire/auth';
 
 if (environment.production) {

@@ -475,6 +475,6 @@ jobs:
                 "security": "${{ needs.security.result }}"
               }
             }
-          n8n_webhook_url: ${{ vars.N8N_WEBHOOK_URL }}
+
           slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
           mention_on_failure: '@channel'

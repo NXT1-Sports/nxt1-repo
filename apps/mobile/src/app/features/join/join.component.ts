@@ -22,7 +22,7 @@ import { IonSpinner } from '@ionic/angular/standalone';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtLogoComponent } from '@nxt1/ui/components/logo';
 import type { ValidatedTeamInfo } from '@nxt1/core';
-import { AuthApiService } from '../auth/services/auth-api.service';
+import { AuthApiService } from '../../core/services/auth/auth-api.service';
 import { createNativeStorageAdapter } from '../../core/infrastructure/native-storage.adapter';
 
 /** Shape of referral data persisted to sessionStorage. */

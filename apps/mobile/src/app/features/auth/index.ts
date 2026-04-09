@@ -20,7 +20,7 @@
 export { AUTH_ROUTES } from './auth.routes';
 
 // Services
-export * from './services';
+export * from '../../core/services/auth';
 
 // Guards
 export * from './guards';

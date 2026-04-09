@@ -24,9 +24,9 @@ import {
   PushHandlerService,
   FcmRegistrationService,
   NativeBadgeService,
+  IapService,
 } from './core/services';
-import { BiometricService, AuthFlowService } from './features/auth/services';
-import { IapService } from './core/services/native/iap.service';
+import { BiometricService, AuthFlowService } from './core/services/auth';
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
 import { filter } from 'rxjs/operators';
 

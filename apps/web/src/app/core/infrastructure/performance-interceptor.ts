@@ -12,7 +12,7 @@
 import { HttpInterceptorFn, HttpResponse, HttpErrorResponse } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { tap, finalize } from 'rxjs/operators';
-import { PerformanceService } from '../services/performance.service';
+import { PerformanceService } from '../services';
 import { ATTRIBUTE_NAMES } from '@nxt1/core/performance';
 
 /**

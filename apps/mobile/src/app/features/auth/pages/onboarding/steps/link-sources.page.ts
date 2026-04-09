@@ -29,7 +29,7 @@ import type { PlatformScope } from '@nxt1/core/api';
 import { Auth } from '@angular/fire/auth';
 import { environment } from '../../../../../../environments/environment';
 
-import { OnboardingService } from '../../../services/onboarding.service';
+import { OnboardingService } from '../../../../../core/services/auth/onboarding.service';
 
 @Component({
   selector: 'app-onboarding-link-sources-step',

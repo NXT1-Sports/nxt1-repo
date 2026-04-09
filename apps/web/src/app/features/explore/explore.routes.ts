@@ -9,12 +9,12 @@
 import { Routes } from '@angular/router';
 import { NEWS_API_ADAPTER } from '@nxt1/ui/news';
 import { EXPLORE_API } from '@nxt1/ui/explore';
-import { NewsApiAdapterService } from '../news/services/news-api-adapter.service';
-import { ExploreApiService } from './services/explore-api.service';
+import { PulseApiAdapterService } from '../../core/services/api/pulse-api-adapter.service';
+import { ExploreApiService } from '../../core/services/api/explore-api.service';
 
 const newsProviders = [
-  NewsApiAdapterService,
-  { provide: NEWS_API_ADAPTER, useExisting: NewsApiAdapterService },
+  PulseApiAdapterService,
+  { provide: NEWS_API_ADAPTER, useExisting: PulseApiAdapterService },
 ];
 
 const exploreProviders = [
@@ -32,7 +32,8 @@ export const EXPLORE_ROUTES: Routes = [
   // Pulse article detail — MUST come before :tab to avoid being swallowed by the generic matcher
   {
     path: 'pulse/:id',
-    loadComponent: () => import('../news/news-detail.component').then((m) => m.NewsDetailComponent),
+    loadComponent: () =>
+      import('../pulse/pulse-detail.component').then((m) => m.PulseDetailComponent),
     providers: [...newsProviders],
   },
   {

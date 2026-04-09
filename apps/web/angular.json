@@ -202,7 +202,7 @@
               },
               "src/favicon.ico"
             ],
-            "styles": ["src/styles.css"],
+            "styles": ["src/styles-critical.css", "src/styles-deferred.css"],
             "scripts": []
           }
         },

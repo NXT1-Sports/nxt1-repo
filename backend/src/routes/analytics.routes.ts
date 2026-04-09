@@ -17,7 +17,7 @@ import {
   buildOverviewMetrics,
   recordProfileView,
 } from '../services/analytics.service.js';
-import type { AnalyticsPeriod } from '@nxt1/core';
+import type { AnalyticsPeriod, VideoAnalytics } from '@nxt1/core';
 
 const router: ExpressRouter = Router();
 const exportService = new ExportService();
@@ -213,8 +213,14 @@ router.get('/content', appGuard, async (req: Request, res: Response) => {
     const result = {
       videos: report.content.videos,
       topContent: report.content.topContent,
-      totalViews: report.content.videos.reduce((acc, v) => acc + v.views, 0),
-      totalWatchTime: report.content.videos.reduce((acc, v) => acc + v.totalWatchTime, 0),
+      totalViews: report.content.videos.reduce(
+        (acc: number, v: VideoAnalytics) => acc + v.views,
+        0
+      ),
+      totalWatchTime: report.content.videos.reduce(
+        (acc: number, v: VideoAnalytics) => acc + v.totalWatchTime,
+        0
+      ),
     };
 
     await cache.set(cacheKey, JSON.stringify(result), { ttl: CACHE_TTL.PROFILES });

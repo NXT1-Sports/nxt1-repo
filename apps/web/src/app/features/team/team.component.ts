@@ -47,8 +47,8 @@ import {
 } from '@nxt1/ui/components/bottom-sheet';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from '@nxt1/core';
-import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
-import { AuthFlowService } from '../auth/services';
+import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
+import { AuthFlowService } from '../../core/services/auth';
 import {
   SeoService,
   AnalyticsService,

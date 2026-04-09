@@ -5,4 +5,7 @@
 
 export { ExploreComponent } from './explore.component';
 export { EXPLORE_ROUTES } from './explore.routes';
-export { ExploreService, ExploreApiService, EXPLORE_API_BASE_URL } from './services';
+export {
+  ExploreApiService,
+  EXPLORE_API_BASE_URL,
+} from '../../core/services/api/explore-api.service';

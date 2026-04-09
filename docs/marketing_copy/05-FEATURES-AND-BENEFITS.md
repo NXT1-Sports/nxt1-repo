@@ -33,13 +33,13 @@ How to translate our technical architecture into marketing benefits.
   NCAA-benchmarked scouting reports that break down your game, rank you against
   the competition, and show you exactly what to improve."
 
-## 5. Success Simulation & Gamification
+## 5. Success Simulation & Analysis
 
 - **What it is:** AI-predicted offer probability mapped to measurable
-  improvements, tracked via an XP system and badges.
-- **How to sell it:** "Turn your career into a measurable mission. See the exact
-  metrics you need to hit to increase your scholarship probability, earn XP for
-  completing milestones, and rank up from Rookie to Legend."
+  improvements, tracked via intelligent scout reports.
+- **How to sell it:** "Turn your career into a measurable plan. See the exact
+  metrics you need to hit to increase your scholarship probability, and track
+  your progress through AI-generated evaluations."
 
 ## 6. Real-Time Recruitment Engine
 

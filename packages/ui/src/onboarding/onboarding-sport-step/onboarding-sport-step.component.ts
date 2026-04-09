@@ -67,7 +67,6 @@ import { USER_ROLES } from '@nxt1/core';
 import type { ILogger } from '@nxt1/core/logging';
 import { HapticButtonDirective } from '../../services/haptics';
 import { NxtLoggingService } from '../../services/logging';
-import { NxtToastService } from '../../services/toast';
 import { NxtValidationSummaryComponent } from '../../components/validation-summary';
 import { NxtChipComponent } from '../../components/chip';
 import { NxtListRowComponent } from '../../components/list-row';
@@ -410,7 +409,6 @@ export class OnboardingSportStepComponent {
   // ============================================
 
   private readonly loggingService = inject(NxtLoggingService);
-  private readonly toast = inject(NxtToastService);
   private readonly nxtModal = inject(NxtModalService);
   private readonly picker = inject(NxtPickerService);
 
@@ -746,7 +744,6 @@ export class OnboardingSportStepComponent {
    * consistent native-feel matching all other onboarding steps.
    */
   async openSportPicker(): Promise<void> {
-    const selected = this.selectedSports();
     const sports = this.availableSports();
 
     const result = await this.nxtModal.actionSheet({

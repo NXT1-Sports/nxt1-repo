@@ -27,7 +27,7 @@ import {
   NxtLoggingService,
   type AgentXUser,
 } from '@nxt1/ui';
-import { AuthFlowService } from '../auth/services/auth-flow.service';
+import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
 
 @Component({
   selector: 'app-agent-x',

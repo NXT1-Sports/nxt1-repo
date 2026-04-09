@@ -25,7 +25,7 @@ import {
   effect,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import { EditProfileApiService } from '../../core/services/edit-profile-api.service';
+import { EditProfileApiService } from '../../core/services';
 import {
   SettingsShellComponent,
   type SettingsUser,
@@ -39,7 +39,7 @@ import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { NxtModalService } from '@nxt1/ui/services/modal';
-import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
+import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
 import { SeoService } from '../../core/services';
 import type { SettingsUserInfo, SettingsSubscription, SettingsItem } from '@nxt1/core';
 import type { LinkSourcesFormData, OnboardingUserType } from '@nxt1/core/api';

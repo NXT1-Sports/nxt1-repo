@@ -18,8 +18,8 @@ import { UserCancelledError } from '@nxt1/ui/settings';
 import { AlertController } from '@ionic/angular/standalone';
 import { CapacitorHttpAdapter } from '../../infrastructure';
 import { environment } from '../../../../environments/environment';
-import { BiometricService } from '../../../features/auth/services/biometric.service';
-import { AuthFlowService } from '../../../features/auth/services/auth-flow.service';
+import { BiometricService } from '../auth/biometric.service';
+import { AuthFlowService } from '../auth/auth-flow.service';
 import { FcmRegistrationService } from '../native/fcm-registration.service';
 
 /** Shape of all settings API responses */

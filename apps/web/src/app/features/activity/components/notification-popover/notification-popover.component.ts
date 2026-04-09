@@ -48,9 +48,9 @@ import { ActivityService, ActivityListComponent } from '@nxt1/ui/activity';
 
 import { NxtIconComponent } from '@nxt1/ui/components/icon';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
-import { AUTH_SERVICE, type IAuthService } from '../../../../features/auth/services/auth.interface';
-import { WebEmailConnectionService } from '../../services/email-connection.service';
-import { EmailTokensService } from '../../services/email-tokens.service';
+import { AUTH_SERVICE, type IAuthService } from '../../../../core/services/auth/auth.interface';
+import { WebEmailConnectionService } from '../../../../core/services/web/email-connection.service';
+import { EmailTokensService } from '../../../../core/services/web/email-tokens.service';
 
 @Component({
   selector: 'app-notification-popover',

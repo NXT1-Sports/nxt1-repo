@@ -38,7 +38,7 @@ import { AgentXService } from '@nxt1/ui/agent-x';
 import { NxtAgentXExecutionLayerSectionComponent } from '@nxt1/ui/components/agent-x-execution-layer-section';
 import { NxtAgentXWelcomeHeaderComponent } from '@nxt1/ui/components/agent-x-welcome-header';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
-import { AuthFlowService } from '../auth/services/auth-flow.service';
+import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
 import { SeoService } from '../../core/services';
 
 @Component({

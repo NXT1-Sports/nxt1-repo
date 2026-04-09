@@ -3,13 +3,12 @@
  * @module @nxt1/web/features/auth
  *
  * Single entry point for all auth-related exports.
- * This is the 2026 best practice: feature-first architecture
- * with everything auth-related colocated.
+ * Auth services have been consolidated to core/services/auth/
+ * to match mobile app architecture.
  *
  * Structure:
  * ```
  * features/auth/
- * ├── services/      # All auth services
  * ├── guards/        # Route guards
  * ├── pages/         # Page components (login, signup, etc.)
  * └── auth.routes.ts # Feature routes
@@ -19,8 +18,8 @@
 // Routes
 export { AUTH_ROUTES } from './auth.routes';
 
-// Services
-export * from './services';
+// Services (consolidated to core/services/auth/)
+export * from '../../core/services/auth';
 
 // Guards
 export * from './guards';

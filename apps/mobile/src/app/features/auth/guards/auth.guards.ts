@@ -43,7 +43,7 @@ import {
   type UserRole,
 } from '@nxt1/core';
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
-import { AuthFlowService } from '../services/auth-flow.service';
+import { AuthFlowService } from '../../../core/services/auth/auth-flow.service';
 
 // ============================================
 // HELPER FUNCTIONS

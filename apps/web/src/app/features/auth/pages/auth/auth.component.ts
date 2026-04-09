@@ -42,7 +42,7 @@ import {
   AuthTeamCodeBannerComponent,
   type TeamCodeValidationState,
 } from '@nxt1/ui/auth/auth-team-code';
-import { AuthFlowService, AuthApiService } from '../../services';
+import { AuthFlowService, AuthApiService } from '../../../../core/services/auth';
 import { AuthNavigationService, NxtLoggingService } from '@nxt1/ui/services';
 import { SeoService } from '../../../../core/services';
 import { NxtToastService } from '@nxt1/ui/services';

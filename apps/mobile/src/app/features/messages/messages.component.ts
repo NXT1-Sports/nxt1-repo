@@ -25,7 +25,7 @@ import {
   type MessagesUser,
 } from '@nxt1/ui';
 import type { Conversation } from '@nxt1/core';
-import { AuthFlowService } from '../auth/services/auth-flow.service';
+import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
 
 @Component({
   selector: 'app-messages',

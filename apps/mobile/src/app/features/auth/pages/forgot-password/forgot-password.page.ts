@@ -16,7 +16,7 @@ import { IonButton } from '@ionic/angular/standalone';
 import { AuthShellComponent, AuthEmailFormComponent, type AuthEmailFormData } from '@nxt1/ui';
 import { NxtIconComponent, HapticsService } from '@nxt1/ui';
 import { AuthNavigationService } from '@nxt1/ui/services';
-import { AuthFlowService } from '../../services';
+import { AuthFlowService } from '../../../../core/services/auth';
 
 @Component({
   selector: 'app-forgot-password',

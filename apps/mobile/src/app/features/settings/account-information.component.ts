@@ -16,7 +16,7 @@ import {
 import { SHEET_PRESETS } from '@nxt1/ui/components/bottom-sheet';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { AnalyticsAdapter } from '@nxt1/core/analytics';
-import { AuthFlowService } from '../auth/services/auth-flow.service';
+import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
 
 @Component({
   selector: 'app-account-information',

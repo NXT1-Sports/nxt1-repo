@@ -22,9 +22,9 @@ import {
 } from '@nxt1/ui/components/app-download-bar';
 import type { ILogger } from '@nxt1/core/logging';
 import { filter } from 'rxjs/operators';
-import { AnalyticsService } from './core/services/analytics.service';
-import { WebVitalsService } from './core/services/web-vitals.service';
-import { AuthFlowService } from './features/auth/services/auth-flow.service';
+import { AnalyticsService } from './core/services';
+import { WebVitalsService } from './core/services';
+import { AuthFlowService } from './core/services/auth/auth-flow.service';
 
 /**
  * Root Application Component

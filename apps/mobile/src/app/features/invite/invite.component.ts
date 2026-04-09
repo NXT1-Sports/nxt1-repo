@@ -14,7 +14,7 @@ import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@a
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import { InviteShellComponent, InviteService, type InviteUser } from '@nxt1/ui';
 import type { InviteType } from '@nxt1/core';
-import { ProfileService } from '../../core/services/profile.service';
+import { ProfileService } from '../../core/services/state/profile.service';
 
 @Component({
   selector: 'app-invite',

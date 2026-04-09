@@ -1,7 +1,7 @@
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { PLATFORM_ID } from '@angular/core';
-import { ShareService } from '../share.service';
+import { ShareService } from '../web/share.service';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics/analytics-adapter.token';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtToastService } from '@nxt1/ui/services/toast';

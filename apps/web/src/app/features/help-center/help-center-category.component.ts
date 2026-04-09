@@ -11,7 +11,7 @@ import { Router, ActivatedRoute } from '@angular/router';
 import type { HelpCategoryId } from '@nxt1/core';
 import { HelpCategoryDetailWebComponent } from '@nxt1/ui/help-center';
 import { HelpCenterService } from '@nxt1/ui/help-center';
-import { SeoService } from '../../core/services/seo.service';
+import { SeoService } from '../../core/services';
 
 @Component({
   selector: 'app-help-center-category',

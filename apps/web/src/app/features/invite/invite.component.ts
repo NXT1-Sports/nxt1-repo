@@ -21,8 +21,8 @@ import { Router } from '@angular/router';
 import { InviteShellComponent, InviteService, type InviteUser } from '@nxt1/ui/invite';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { InviteType } from '@nxt1/core';
-import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
-import { SeoService } from '../../core/services/seo.service';
+import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
+import { SeoService } from '../../core/services';
 
 @Component({
   selector: 'app-invite',

@@ -39,12 +39,6 @@ export * from './constants';
 export * from './ai';
 
 // ============================================
-// BRAND VAULT
-// ============================================
-
-export * from './brand';
-
-// ============================================
 // BROWSER (In-App Browser Types & Utilities)
 // ============================================
 
@@ -990,78 +984,6 @@ export * from './content-card';
 export * from './settings';
 
 // ============================================
-// ANALYTICS DASHBOARD
-// ============================================
-
-export * from './analytics-dashboard';
-
-// ============================================
-// MISSIONS (Gamified Tasks & Achievements)
-// ============================================
-
-export {
-  // Types - User & Role
-  type MissionUserRole,
-  // Types - Category
-  type AthleteMissionCategory,
-  type CoachMissionCategory,
-  type MissionCategory,
-  type MissionCategoryConfig,
-  // Types - Mission
-  type MissionStatus,
-  type MissionPriority,
-  type MissionRecurrence,
-  type MissionQuickAction,
-  type MissionReward,
-  type Mission,
-  // Types - Level
-  type LevelId,
-  type LevelConfig,
-  // Types - Badge
-  type BadgeId,
-  type BadgeRarity,
-  type Badge,
-  type EarnedBadge,
-  // Types - Streak
-  type StreakStatus,
-  type Streak,
-  // Types - Progress
-  type MissionProgress,
-  type CategoryProgress,
-  // Types - State & Filter
-  type MissionFilter,
-  type MissionSortBy,
-  type SortDirection,
-  type MissionsState,
-  // Types - API Response
-  type MissionsResponse,
-  type MissionCompleteResponse,
-  // Types - Celebration
-  type CelebrationType,
-  type CelebrationConfig,
-  // Constants
-  MISSION_LEVELS,
-  getLevelById,
-  getLevelByXp,
-  calculateLevelProgress,
-  ATHLETE_CATEGORIES,
-  COACH_CATEGORIES,
-  ALL_CATEGORIES,
-  getCategoryById,
-  MISSION_BADGES,
-  getBadgeById,
-  POINTS_CONFIG,
-  CELEBRATION_CONFIGS,
-  MISSIONS_UI_CONFIG,
-  MISSIONS_API_ENDPOINTS,
-  MISSIONS_CACHE_KEYS,
-  MISSIONS_CACHE_TTL,
-  // API Factory
-  createMissionsApi,
-  type MissionsApi,
-} from './missions';
-
-// ============================================
 // SCOUT REPORTS
 // ============================================
 
@@ -1378,12 +1300,6 @@ export * from './usage';
 // ============================================
 
 export * from './sport-landing';
-
-// ============================================
-// CREATE POST (Post Authoring Types & Constants)
-// ============================================
-
-export * from './create-post';
 
 // ============================================
 // INTEL (AI-Generated Profile Intelligence)

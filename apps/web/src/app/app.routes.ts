@@ -93,7 +93,7 @@ export const routes: Routes = [
   {
     path: '',
     loadComponent: () =>
-      import('./core/layout/shell/web-shell.component').then((m) => m.WebShellComponent),
+      import('./core/layout/web-shell.component').then((m) => m.WebShellComponent),
     children: [
       // Default route → Agent X (AI-first landing)
       {
@@ -113,18 +113,6 @@ export const routes: Routes = [
       {
         path: 'explore',
         loadChildren: () => import('./features/explore/explore.routes'),
-      },
-
-      // Rankings - Athlete Rankings & Leaderboards
-      {
-        path: 'rankings',
-        loadChildren: () => import('./features/rankings/rankings.routes'),
-      },
-
-      // Colleges - College Search & Information
-      {
-        path: 'colleges',
-        loadChildren: () => import('./features/colleges/colleges.routes'),
       },
 
       // Messages - User Messages & Conversations
@@ -152,7 +140,7 @@ export const routes: Routes = [
       // Pulse - Sports Recruiting News Feed
       {
         path: 'pulse',
-        loadChildren: () => import('./features/news/news.routes'),
+        loadChildren: () => import('./features/pulse/pulse.routes'),
       },
 
       // Legacy /news redirect → /pulse
@@ -171,18 +159,6 @@ export const routes: Routes = [
       {
         path: 'settings',
         loadChildren: () => import('./features/settings/settings.routes'),
-      },
-
-      // XP - Gamified Tasks & Achievements
-      {
-        path: 'xp',
-        loadChildren: () => import('./features/xp/xp.routes'),
-      },
-
-      // Scout Reports - Athlete Scout Reports & Ratings
-      {
-        path: 'scout-reports',
-        loadChildren: () => import('./features/scout-reports/scout-reports.routes'),
       },
 
       // Help Center - Help Articles, Videos, FAQs, AI Chat
@@ -204,13 +180,7 @@ export const routes: Routes = [
       // NIL - NIL & Monetization campaign page
       {
         path: 'nil',
-        loadChildren: () => import('./features/nil/nil.routes'),
-      },
-
-      // Manage Team - Team Management
-      {
-        path: 'manage-team',
-        loadChildren: () => import('./features/manage-team/manage-team.routes'),
+        loadChildren: () => import('./marketing/nil/nil.routes'),
       },
 
       // Team Profile - Public Team Pages (with shell)
@@ -223,19 +193,13 @@ export const routes: Routes = [
       // Team Platform - Programs/Organizations Page
       {
         path: 'team-platform',
-        loadChildren: () => import('./features/team-platform/team-platform.routes'),
+        loadChildren: () => import('./marketing/team-platform/team-platform.routes'),
       },
 
       // Super Profiles - Interactive Profile Breakdown + Athlete Landing
       {
         path: 'super-profiles',
-        loadChildren: () => import('./features/super-profiles/super-profiles.routes'),
-      },
-
-      // For Scouts & Colleges - Athlete Directory & Intelligence Platform
-      {
-        path: 'recruiting-scouts-colleges',
-        loadChildren: () => import('./features/athlete-profiles/athlete-profiles.routes'),
+        loadChildren: () => import('./marketing/super-profiles/super-profiles.routes'),
       },
 
       // ---- Persona-Specific Marketing Pages ----
@@ -243,38 +207,38 @@ export const routes: Routes = [
       // Athletes - Student-Athlete Intelligence & Discovery
       {
         path: 'athletes',
-        loadChildren: () => import('./features/athletes/athletes.routes'),
+        loadChildren: () => import('./marketing/athletes/athletes.routes'),
       },
 
       // Recruiting Athletes - Recruiting Radar & Signals
       {
         path: 'recruiting-athletes',
-        loadChildren: () => import('./features/recruiting-athletes/recruiting-athletes.routes'),
+        loadChildren: () => import('./marketing/recruiting-athletes/recruiting-athletes.routes'),
       },
 
       // Content Creation for Athletes
       {
         path: 'content-creation-athletes',
         loadChildren: () =>
-          import('./features/content-creation-athletes/content-creation-athletes.routes'),
+          import('./marketing/content-creation-athletes/content-creation-athletes.routes'),
       },
 
       // Media & Coverage for Athletes
       {
         path: 'media-coverage',
-        loadChildren: () => import('./features/media-coverage/media-coverage.routes'),
+        loadChildren: () => import('./marketing/media-coverage/media-coverage.routes'),
       },
 
       // AI for Athletes - Intelligent Outreach & Profile Distribution
       {
         path: 'ai-athletes',
-        loadChildren: () => import('./features/ai-athletes/ai-athletes.routes'),
+        loadChildren: () => import('./marketing/ai-athletes/ai-athletes.routes'),
       },
 
       // College Coaches - Prospect Discovery & Management Tools (canonical)
       {
         path: 'college-coaches',
-        loadChildren: () => import('./features/coaches/coaches.routes'),
+        loadChildren: () => import('./marketing/coaches/coaches.routes'),
       },
 
       // Legacy alias
@@ -287,13 +251,13 @@ export const routes: Routes = [
       // Parents - Family Recruiting Dashboard
       {
         path: 'parents',
-        loadChildren: () => import('./features/parents/parents.routes'),
+        loadChildren: () => import('./marketing/parents/parents.routes'),
       },
 
       // Scouts - Scouting & Evaluation Tools
       {
         path: 'scouts',
-        loadChildren: () => import('./features/scouts/scouts.routes'),
+        loadChildren: () => import('./marketing/scouts/scouts.routes'),
       },
 
       // ---- Sport-Vertical Marketing Pages ----
@@ -302,27 +266,22 @@ export const routes: Routes = [
       {
         path: 'football',
         data: { sport: 'football' },
-        loadChildren: () => import('./features/sport-landing/sport-landing.routes'),
+        loadChildren: () => import('./marketing/sport-landing/sport-landing.routes'),
       },
       {
         path: 'basketball',
         data: { sport: 'basketball' },
-        loadChildren: () => import('./features/sport-landing/sport-landing.routes'),
+        loadChildren: () => import('./marketing/sport-landing/sport-landing.routes'),
       },
 
       // ---- Legal Pages (inside shell for consistent layout) ----
       {
-        path: 'about',
-        loadChildren: () => import('./features/about/about.routes').then((m) => m.ABOUT_ROUTES),
-      },
-      {
         path: 'terms',
-        loadChildren: () => import('./features/terms/terms.routes').then((m) => m.TERMS_ROUTES),
+        loadChildren: () => import('./legal/terms/terms.routes').then((m) => m.TERMS_ROUTES),
       },
       {
         path: 'privacy',
-        loadChildren: () =>
-          import('./features/privacy/privacy.routes').then((m) => m.PRIVACY_ROUTES),
+        loadChildren: () => import('./legal/privacy/privacy.routes').then((m) => m.PRIVACY_ROUTES),
       },
     ],
   },

@@ -20,8 +20,8 @@ import { isPlatformBrowser } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtLogoComponent } from '@nxt1/ui/components/logo';
-import { SeoService } from '../../core/services/seo.service';
-import { AuthApiService } from '../auth/services/auth-api.service';
+import { SeoService } from '../../core/services';
+import { AuthApiService } from '../../core/services/auth/auth-api.service';
 import type { ValidatedTeamInfo } from '@nxt1/core';
 
 /** Shape of referral data persisted to sessionStorage. */

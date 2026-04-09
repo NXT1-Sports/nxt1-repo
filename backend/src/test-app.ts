@@ -9,20 +9,16 @@ import sitemapRoutes from './routes/sitemap.routes.js';
 import feedRoutes from './routes/feed.routes.js';
 import exploreRoutes from './routes/explore.routes.js';
 import activityRoutes from './routes/activity.routes.js';
-import scoutReportsRoutes from './routes/scout-reports.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
-import newsRoutes from './routes/news.routes.js';
+import pulseRoutes from './routes/pulse.routes.js';
 import inviteRoutes from './routes/invite.routes.js';
-import missionsRoutes from './routes/missions.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import helpCenterRoutes from './routes/help-center.routes.js';
 import editProfileRoutes from './routes/edit-profile.routes.js';
 import agentXRoutes from './routes/agent-x.routes.js';
-import ssrRoutes from './routes/ssr.routes.js';
 import billingRoutes from './routes/billing.routes.js';
 import webhookRoutes, { webhookRawBodyMiddleware } from './routes/webhook.routes.js';
 import usageRoutes from './routes/usage.routes.js';
-import seedRoutes from './routes/seed.routes.js';
 import { initializeCacheService } from './services/cache.service.js';
 
 type MockFirestoreSnapshot = {
@@ -145,10 +141,8 @@ const routeConfigs = [
   ['/feed', feedRoutes],
   ['/explore', exploreRoutes],
   ['/activity', activityRoutes],
-  ['/scout-reports', scoutReportsRoutes],
   ['/analytics', analyticsRoutes],
-  ['/news', newsRoutes],
-  ['/missions', missionsRoutes],
+  ['/pulse', pulseRoutes],
   ['/settings', settingsRoutes],
   ['/help-center', helpCenterRoutes],
   ['/profile', editProfileRoutes],
@@ -156,15 +150,12 @@ const routeConfigs = [
   ['/billing', billingRoutes],
   ['/webhook', webhookRoutes],
   ['/usage', usageRoutes],
-  ['/ssr', ssrRoutes],
 ] as const;
 
 for (const [path, handler] of routeConfigs) {
   app.use(`/api/v1${path}`, handler);
   app.use(`/api/v1/staging${path}`, handler);
 }
-
-app.use('/api/v1/staging/seed', seedRoutes);
 
 app.use(notFoundHandler);
 app.use(

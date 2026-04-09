@@ -40,7 +40,6 @@
     "@mendable/firecrawl-js": "^4.16.0",
     "@nxt1/cache": "*",
     "@nxt1/core": "*",
-    "@nxt1/shared-types": "*",
     "apify-client": "^2.22.3",
     "axios": "^1.13.5",
     "bullmq": "^5.70.4",

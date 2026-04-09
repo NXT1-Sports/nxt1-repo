@@ -12,7 +12,6 @@
 import { Component, ChangeDetectionStrategy, inject, output } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NxtIconComponent } from '../../components/icon';
-import { NxtPlatformIconComponent } from '../../components/platform-icon';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
@@ -106,7 +105,7 @@ const LAUNCHER_PLATFORMS: readonly LauncherPlatform[] = [
 @Component({
   selector: 'nxt1-live-view-launcher',
   standalone: true,
-  imports: [FormsModule, NxtIconComponent, NxtPlatformIconComponent],
+  imports: [FormsModule, NxtIconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="launcher" [attr.data-testid]="testIds.CONTAINER">

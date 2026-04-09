@@ -4,4 +4,4 @@
  */
 
 // Web Shell (main authenticated shell with top nav + mobile footer)
-export { WebShellComponent, MainLayoutComponent } from './shell';
+export { WebShellComponent, MainLayoutComponent } from './web-shell.component';

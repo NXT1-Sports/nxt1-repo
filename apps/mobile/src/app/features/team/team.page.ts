@@ -54,7 +54,7 @@ import {
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from '@nxt1/core';
 
-import { MobileAuthService } from '../auth/services/mobile-auth.service';
+import { MobileAuthService } from '../../core/services/auth/mobile-auth.service';
 import { AnalyticsService } from '../../core/services/infrastructure/analytics.service';
 import { ShareService } from '../../core/services/native/share.service';
 import { TeamProfileApiService } from '../../core/services/api/team-profile-api.service';

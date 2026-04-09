@@ -51,7 +51,7 @@ import {
   type AuthMode,
   type TeamCodeValidationState,
 } from '@nxt1/ui';
-import { AuthFlowService, AuthApiService, BiometricService } from '../../services';
+import { AuthFlowService, AuthApiService, BiometricService } from '../../../../core/services/auth';
 import { AuthNavigationService } from '@nxt1/ui/services';
 import { HapticsService } from '@nxt1/ui';
 import { isValidTeamCode } from '@nxt1/core';
