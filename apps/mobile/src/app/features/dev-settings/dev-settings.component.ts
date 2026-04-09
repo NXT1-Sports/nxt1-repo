@@ -52,7 +52,7 @@ import {
   informationCircleOutline,
 } from 'ionicons/icons';
 
-import { CrashlyticsService } from '../../core/services/crashlytics.service';
+import { CrashlyticsService } from '../../core/services/infrastructure/crashlytics.service';
 import { CRASH_KEYS } from '@nxt1/core/crashlytics';
 import { environment } from '../../../environments/environment';
 

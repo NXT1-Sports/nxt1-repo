@@ -49,7 +49,7 @@ import {
   type OnboardingStep,
 } from '@nxt1/core/api';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import { AnalyticsService } from '../../../core/services/analytics.service';
+import { AnalyticsService } from '../../../core/services/infrastructure/analytics.service';
 
 /**
  * Step timing data for analytics

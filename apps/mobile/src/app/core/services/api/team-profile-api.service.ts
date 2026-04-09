@@ -18,8 +18,8 @@ import {
   TEAM_PROFILE_CACHE_KEYS,
 } from '@nxt1/core';
 import { CACHE_CONFIG } from '@nxt1/core/cache';
-import { CapacitorHttpAdapter } from '../infrastructure';
-import { environment } from '../../../environments/environment';
+import { CapacitorHttpAdapter } from '../../infrastructure';
+import { environment } from '../../../../environments/environment';
 
 /**
  * In-memory cache entry for team profile responses.

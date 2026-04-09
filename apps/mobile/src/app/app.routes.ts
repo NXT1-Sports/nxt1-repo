@@ -46,7 +46,7 @@ export const routes: Routes = [
     path: '',
     canActivate: [authGuard], // Protect all shell routes - require authentication
     loadComponent: () =>
-      import('./core/layout/shell/mobile-shell.component').then((m) => m.MobileShellComponent),
+      import('./core/layout/mobile-shell.component').then((m) => m.MobileShellComponent),
     children: [
       // Default route → Agent X (AI-first landing)
       {
@@ -90,10 +90,10 @@ export const routes: Routes = [
           import('./features/activity/activity.routes').then((m) => m.ACTIVITY_ROUTES),
       },
 
-      // News - Sports Recruiting News Feed
+      // Pulse - Sports Recruiting Pulse Feed
       {
-        path: 'news',
-        loadChildren: () => import('./features/news/news.routes').then((m) => m.NEWS_ROUTES),
+        path: 'pulse',
+        loadChildren: () => import('./features/pulse/pulse.routes').then((m) => m.PULSE_ROUTES),
       },
 
       // Messages - User Conversations & Direct Messages

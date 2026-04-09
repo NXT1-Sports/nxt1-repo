@@ -1,6 +1,6 @@
 /**
  * @fileoverview News API Adapter - Mobile Platform Implementation
- * @module @nxt1/mobile/features/news
+ * @module @nxt1/mobile/core/services
  * @version 1.0.0
  *
  * Implements INewsApiAdapter for the mobile platform by wrapping the shared
@@ -12,7 +12,7 @@ import { type NewsArticle, type NewsCategoryId, type NewsPagination } from '@nxt
 import { NewsApiService, type INewsApiAdapter } from '@nxt1/ui';
 
 @Injectable({ providedIn: 'root' })
-export class NewsApiAdapterService implements INewsApiAdapter {
+export class PulseApiAdapterService implements INewsApiAdapter {
   private readonly api = inject(NewsApiService);
 
   async getFeed(

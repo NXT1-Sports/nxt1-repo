@@ -16,11 +16,11 @@ import { DEFAULT_SETTINGS_PREFERENCES } from '@nxt1/core';
 import type { SettingsPersistenceAdapter } from '@nxt1/ui/settings';
 import { UserCancelledError } from '@nxt1/ui/settings';
 import { AlertController } from '@ionic/angular/standalone';
-import { CapacitorHttpAdapter } from '../infrastructure';
-import { environment } from '../../../environments/environment';
-import { BiometricService } from '../../features/auth/services/biometric.service';
-import { AuthFlowService } from '../../features/auth/services/auth-flow.service';
-import { FcmRegistrationService } from './fcm-registration.service';
+import { CapacitorHttpAdapter } from '../../infrastructure';
+import { environment } from '../../../../environments/environment';
+import { BiometricService } from '../../../features/auth/services/biometric.service';
+import { AuthFlowService } from '../../../features/auth/services/auth-flow.service';
+import { FcmRegistrationService } from '../native/fcm-registration.service';
 
 /** Shape of all settings API responses */
 interface ApiResponse<T> {

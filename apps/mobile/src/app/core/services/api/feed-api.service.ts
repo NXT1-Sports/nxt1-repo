@@ -18,9 +18,9 @@ import {
   FEED_PAGINATION_DEFAULTS,
 } from '@nxt1/core';
 import { TRACE_NAMES, ATTRIBUTE_NAMES, METRIC_NAMES } from '@nxt1/core/performance';
-import { CapacitorHttpAdapter } from '../infrastructure';
-import { environment } from '../../../environments/environment';
-import { PerformanceService } from './performance.service';
+import { CapacitorHttpAdapter } from '../../infrastructure';
+import { environment } from '../../../../environments/environment';
+import { PerformanceService } from '../infrastructure/performance.service';
 
 @Injectable({ providedIn: 'root' })
 export class FeedApiService implements FeedApi {

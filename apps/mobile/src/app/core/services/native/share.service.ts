@@ -59,7 +59,7 @@ import {
   buildPostShareText,
 } from '@nxt1/core/seo';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui';
-import { environment } from '../../../environments/environment';
+import { environment } from '../../../../environments/environment';
 
 // ============================================
 // TYPES

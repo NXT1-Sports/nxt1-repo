@@ -47,7 +47,7 @@ import { type User, type SportProfile, getPrimarySport } from '@nxt1/core/models
 import { type UpdateProfileRequest } from '@nxt1/core/api';
 import { NxtLoggingService } from '@nxt1/ui';
 import { type ILogger } from '@nxt1/core/logging';
-import { ProfileApiService } from './profile-api.service';
+import { ProfileApiService } from './api/profile-api.service';
 
 // ============================================
 // TYPES

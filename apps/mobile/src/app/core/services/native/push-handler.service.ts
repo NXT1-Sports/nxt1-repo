@@ -31,8 +31,7 @@ import {
 } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import { ActivityService } from '@nxt1/ui';
-import { AgentXService } from '../../features/agent-x/services';
+import { ActivityService, AgentXService } from '@nxt1/ui';
 
 /**
  * Push notification data payload from FCM (passed through Cloud Function).

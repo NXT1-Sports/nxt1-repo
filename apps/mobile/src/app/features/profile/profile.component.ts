@@ -70,12 +70,12 @@ import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from 
 // Mobile-specific services
 import { MobileAuthService } from '../auth/services/mobile-auth.service';
 import { AuthFlowService } from '../auth/services';
-import { ShareService } from '../../core/services/share.service';
-import { ProfileApiService } from '../../core/services/profile-api.service';
-import { EditProfileApiService } from '../../core/services/edit-profile-api.service';
-import { MobileEmailConnectionService } from '../activity/services/email-connection.service';
-import { TeamProfileApiService } from '../../core/services/team-profile-api.service';
-import { AnalyticsService } from '../../core/services/analytics.service';
+import { ShareService } from '../../core/services/native/share.service';
+import { ProfileApiService } from '../../core/services/api/profile-api.service';
+import { EditProfileApiService } from '../../core/services/api/edit-profile-api.service';
+import { MobileEmailConnectionService } from '../../core/services/api/email-connection.service';
+import { TeamProfileApiService } from '../../core/services/api/team-profile-api.service';
+import { AnalyticsService } from '../../core/services/infrastructure/analytics.service';
 import { CapacitorHttpAdapter } from '../../core/infrastructure';
 import { environment } from '../../../environments/environment';
 

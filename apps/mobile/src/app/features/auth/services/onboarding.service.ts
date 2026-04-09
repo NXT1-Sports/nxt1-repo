@@ -85,8 +85,8 @@ import { AuthApiService } from './auth-api.service';
 import { OnboardingAnalyticsService } from './onboarding-analytics.service';
 
 // Feature services
-import { EditProfileApiService } from '../../../core/services/edit-profile-api.service';
-import { PerformanceService } from '../../../core/services/performance.service';
+import { EditProfileApiService } from '../../../core/services/api/edit-profile-api.service';
+import { PerformanceService } from '../../../core/services/infrastructure/performance.service';
 
 import type { TeamSearchResult } from '@nxt1/ui';
 

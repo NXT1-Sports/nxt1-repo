@@ -123,7 +123,7 @@ import {
   AuthApiService,
   OnboardingAnalyticsService,
 } from '../../services';
-import { EditProfileApiService } from '../../../../core/services/edit-profile-api.service';
+import { EditProfileApiService } from '../../../../core/services/api/edit-profile-api.service';
 import { ProfileGenerationStateService } from '@nxt1/ui';
 import type { OnboardingProfileData } from '@nxt1/core/auth';
 import { NxtThemeService } from '@nxt1/ui';

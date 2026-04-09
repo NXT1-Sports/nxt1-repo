@@ -39,7 +39,7 @@ import {
 } from '@nxt1/core/analytics';
 import type { ILogger } from '@nxt1/core/logging';
 import { NxtLoggingService } from '@nxt1/ui';
-import { environment } from '../../../environments/environment';
+import { environment } from '../../../../environments/environment';
 
 /** Mobile-specific platform type */
 type MobilePlatform = 'ios' | 'android';

@@ -26,7 +26,7 @@ import {
   NativeBadgeService,
 } from './core/services';
 import { BiometricService, AuthFlowService } from './features/auth/services';
-import { IapService } from './core/services/iap.service';
+import { IapService } from './core/services/native/iap.service';
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
 import { filter } from 'rxjs/operators';
 

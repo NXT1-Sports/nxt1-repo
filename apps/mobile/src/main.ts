@@ -15,7 +15,7 @@ import { appConfig } from './app/app.config';
 import { environment } from './environments/environment';
 
 // Import Crashlytics for early initialization
-import { CrashlyticsService } from './app/core/services/crashlytics.service';
+import { CrashlyticsService } from './app/core/services/infrastructure/crashlytics.service';
 
 // Icons: Each @nxt1/ui component registers its own icons via addIcons() in its constructor.
 // No global registration needed — this avoids bundling all 1,357 ionicon SVG paths (~800 KB).

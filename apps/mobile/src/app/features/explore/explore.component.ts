@@ -161,7 +161,7 @@ export class ExploreComponent {
    */
   protected onNewsArticleSelect(article: { id: string; title: string }): void {
     this.logger.debug('News article selected', { id: article.id });
-    this.navController.navigateForward(['/news', article.id]);
+    this.navController.navigateForward(['/pulse', article.id]);
   }
 
   /**

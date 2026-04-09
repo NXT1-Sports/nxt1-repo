@@ -32,7 +32,7 @@ import {
 import type { SettingsUserInfo, SettingsSubscription, InboxEmailProvider } from '@nxt1/core';
 import type { LinkSourcesFormData, OnboardingUserType } from '@nxt1/core/api';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
-import { MobileEmailConnectionService } from '../activity/services/email-connection.service';
+import { MobileEmailConnectionService } from '../../core/services/api/email-connection.service';
 
 @Component({
   selector: 'app-settings',

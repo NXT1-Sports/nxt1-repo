@@ -18,7 +18,7 @@ import {
   type ActivityItem,
   type ActivitySummary,
 } from '@nxt1/core';
-import { CapacitorHttpAdapter } from '../../../core/infrastructure';
+import { CapacitorHttpAdapter } from '../../infrastructure';
 import { environment } from '../../../../environments/environment';
 
 /**

@@ -1,6 +1,6 @@
 /**
  * @fileoverview Email Connection Service - Mobile
- * @module @nxt1/mobile/features/activity/services
+ * @module @nxt1/mobile/core/services
  * @version 1.0.0
  *
  * Handles connecting Gmail, Microsoft, and Yahoo email accounts for inbox sync.
@@ -34,7 +34,7 @@ import {
 } from '@nxt1/core/errors';
 import type { InboxEmailProvider } from '@nxt1/core';
 import { environment } from '../../../../environments/environment';
-import { ProfileService } from '../../../core/services/profile.service';
+import { ProfileService } from '../profile.service';
 
 /**
  * Mobile Email Connection Service

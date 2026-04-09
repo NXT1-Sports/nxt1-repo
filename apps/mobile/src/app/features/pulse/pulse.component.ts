@@ -1,9 +1,9 @@
 /**
- * @fileoverview News Page - Mobile App Wrapper
- * @module @nxt1/mobile/features/news
+ * @fileoverview Pulse Page - Mobile App Wrapper
+ * @module @nxt1/mobile/features/pulse
  * @version 1.0.0
  *
- * Thin wrapper component that imports the shared News shell
+ * Thin wrapper component that imports the shared Pulse shell
  * from @nxt1/ui and wires up platform-specific concerns.
  *
  * ⭐ THIS IS THE RECOMMENDED PATTERN FOR SHARED COMPONENTS ⭐
@@ -22,7 +22,7 @@ import { NewsShellComponent, NxtLoggingService } from '@nxt1/ui';
 import type { NewsArticle } from '@nxt1/core';
 
 @Component({
-  selector: 'app-news',
+  selector: 'app-pulse',
   standalone: true,
   imports: [IonHeader, IonContent, IonToolbar, NewsShellComponent],
   template: `
@@ -63,16 +63,16 @@ import type { NewsArticle } from '@nxt1/core';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class NewsComponent {
+export class PulseComponent {
   private readonly navController = inject(NavController);
   private readonly router = inject(Router);
-  private readonly logger = inject(NxtLoggingService).child('NewsComponent');
+  private readonly logger = inject(NxtLoggingService).child('PulseComponent');
 
   /**
    * Handle article selection for analytics/logging.
    */
   protected onArticleSelect(article: NewsArticle): void {
-    this.logger.debug('News article selected', {
+    this.logger.debug('Pulse article selected', {
       articleId: article.id,
       source: article.source,
     });
@@ -82,8 +82,8 @@ export class NewsComponent {
    * Handle search click - could open search overlay.
    */
   protected async onSearchClick(): Promise<void> {
-    this.logger.debug('News search clicked');
+    this.logger.debug('Pulse search clicked');
     // Future: Navigate to search page using NavController
-    // await this.navController.navigateForward('/news/search');
+    // await this.navController.navigateForward('/pulse/search');
   }
 }

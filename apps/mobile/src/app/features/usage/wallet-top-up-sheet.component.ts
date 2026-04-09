@@ -19,7 +19,7 @@ import {
   IapService,
   type IapProductDisplay,
   type IapProductId,
-} from '../../core/services/iap.service';
+} from '../../core/services/native/iap.service';
 
 @Component({
   selector: 'app-wallet-top-up-sheet',

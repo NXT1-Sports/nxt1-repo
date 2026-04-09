@@ -6,19 +6,24 @@
  * @module @nxt1/mobile/core/services
  */
 
-// ============================================
-// PROFILE SERVICE (User data - Single Source of Truth)
-// ============================================
+// Profile Service (Business logic root)
 export { ProfileService, type IProfileService, type ProfileLoadingState } from './profile.service';
-export { ProfileApiService } from './profile-api.service';
-export { EditProfileApiService } from './edit-profile-api.service';
-export { FeedApiService } from './feed-api.service';
 
-// ============================================
-// NATIVE SERVICES
-// ============================================
+// API Adapters
+export { ProfileApiService } from './api/profile-api.service';
+export { EditProfileApiService } from './api/edit-profile-api.service';
+export { FeedApiService } from './api/feed-api.service';
 
-// Native app initialization & lifecycle
+// Native Services
+export { DeepLinkService, type DeepLinkEvent } from './native/deep-link.service';
+export { FcmRegistrationService } from './native/fcm-registration.service';
+export {
+  IapService,
+  IAP_PRODUCT_IDS,
+  IAP_CREDIT_MAP,
+  type IapProductId,
+  type IapProductDisplay,
+} from './native/iap.service';
 export {
   NativeAppService,
   type StatusBarStyle,
@@ -26,42 +31,18 @@ export {
   type NativeAppConfig,
   type AppLifecycleEvent,
   type AppLifecycleHandler,
-} from './native-app.service';
-
-// Analytics service
-export { AnalyticsService } from './analytics.service';
-
-// Deep link handling (Universal Links / App Links)
-export { DeepLinkService, type DeepLinkEvent } from './deep-link.service';
-
-// Two-tier caching (memory + persistent)
-export { MobileCacheService } from './cache.service';
-
-// Network connectivity monitoring (Capacitor Network plugin)
-export { NetworkService } from './network.service';
-
-// Crashlytics for native crash reporting (Capacitor Firebase)
-export { CrashlyticsService } from './crashlytics.service';
-
-// Share service for native social sharing
-export { ShareService, type ShareResultData, type ShareContentOptions } from './share.service';
-
-// Push notification handling (foreground + background interception)
-export { PushHandlerService } from './push-handler.service';
-
-// FCM token registration (call after login to enable push notifications)
-export { FcmRegistrationService } from './fcm-registration.service';
-
-// Native app icon badge sync (totalUnread → iOS/Android badge)
-export { NativeBadgeService } from './native-badge.service';
-
-// ============================================
-// IN-APP PURCHASES (Apple StoreKit 2)
-// ============================================
+} from './native/native-app.service';
+export { NativeBadgeService } from './native/native-badge.service';
+export { PushHandlerService } from './native/push-handler.service';
 export {
-  IapService,
-  IAP_PRODUCT_IDS,
-  IAP_CREDIT_MAP,
-  type IapProductId,
-  type IapProductDisplay,
-} from './iap.service';
+  ShareService,
+  type ShareResultData,
+  type ShareContentOptions,
+} from './native/share.service';
+
+// Infrastructure Services
+export { AnalyticsService } from './infrastructure/analytics.service';
+export { MobileCacheService } from './infrastructure/cache.service';
+export { CrashlyticsService } from './infrastructure/crashlytics.service';
+export { NetworkService } from './infrastructure/network.service';
+export { PerformanceService } from './infrastructure/performance.service';

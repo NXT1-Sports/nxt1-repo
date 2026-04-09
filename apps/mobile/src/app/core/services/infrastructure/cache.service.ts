@@ -47,7 +47,7 @@ import {
 } from '@nxt1/core/cache';
 
 // Import native storage adapter that properly handles Preferences plugin availability
-import { createNativeStorageAdapter } from '../infrastructure/native-storage.adapter';
+import { createNativeStorageAdapter } from '../../infrastructure/native-storage.adapter';
 
 /**
  * Capacitor Preferences storage adapter with proper fallback handling.

@@ -37,7 +37,7 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 import { mapToConnectedSources, mergeConnectedSources } from '@nxt1/core/profile';
 
 import { AuthFlowService } from '../auth/services/auth-flow.service';
-import { ProfileApiService } from '../../core/services/profile-api.service';
+import { ProfileApiService } from '../../core/services/api/profile-api.service';
 import { ProfileService } from '../../core/services/profile.service';
 
 // ============================================

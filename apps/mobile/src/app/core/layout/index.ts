@@ -6,4 +6,4 @@
  */
 
 // Mobile Shell (main authenticated shell with bottom tabs)
-export { MobileShellComponent, TabsLayoutComponent } from './shell';
+export { MobileShellComponent, TabsLayoutComponent } from './mobile-shell.component';

@@ -14,8 +14,8 @@ import type {
   EditProfileUpdateResponse,
   ProfileCompletionData,
 } from '@nxt1/core/edit-profile';
-import { CapacitorHttpAdapter } from '../infrastructure';
-import { environment } from '../../../environments/environment';
+import { CapacitorHttpAdapter } from '../../infrastructure';
+import { environment } from '../../../../environments/environment';
 
 /**
  * Edit Profile API Service

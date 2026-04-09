@@ -63,29 +63,29 @@ import {
 } from '@nxt1/ui';
 import { FEED_API } from '@nxt1/ui/feed';
 // Mobile-specific Activity API adapter (uses CapacitorHttpAdapter + auth)
-import { ActivityApiService as MobileActivityApiService } from './features/activity/services/activity-api.service';
+import { ActivityApiService as MobileActivityApiService } from './core/services/api/activity-api.service';
 // News API adapter — wraps shared NewsApiService for NEWS_API_ADAPTER token
-import { NewsApiAdapterService } from './features/news/services/news-api-adapter.service';
+import { PulseApiAdapterService } from './core/services/api/pulse-api-adapter.service';
 import { mobileAuthInterceptor } from './core/infrastructure/interceptors/auth.interceptor';
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 
 // Settings persistence adapter (connects SettingsService → backend API)
 import { SETTINGS_PERSISTENCE_ADAPTER, APP_VERSION } from '@nxt1/ui/settings';
-import { SettingsApiService } from './core/services/settings-api.service';
+import { SettingsApiService } from './core/services/api/settings-api.service';
 
 // Email connection service (OAuth connect flow for linked accounts in settings)
-import { MobileEmailConnectionService } from './features/activity/services/email-connection.service';
+import { MobileEmailConnectionService } from './core/services/api/email-connection.service';
 import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from '@nxt1/ui/components/connected-sources';
 
 // Edit Profile API configuration
 import { EditProfileService } from '@nxt1/ui/edit-profile';
-import { EditProfileApiService } from './core/services/edit-profile-api.service';
+import { EditProfileApiService } from './core/services/api/edit-profile-api.service';
 
 // Local services
-import { CrashlyticsService } from './core/services/crashlytics.service';
-import { AnalyticsService } from './core/services/analytics.service';
-import { PerformanceService } from './core/services/performance.service';
-import { FeedApiService } from './core/services/feed-api.service';
+import { CrashlyticsService } from './core/services/infrastructure/crashlytics.service';
+import { AnalyticsService } from './core/services/infrastructure/analytics.service';
+import { PerformanceService } from './core/services/infrastructure/performance.service';
+import { FeedApiService } from './core/services/api/feed-api.service';
 
 import { routes } from './app.routes';
 import { environment } from '../environments/environment';
@@ -255,7 +255,7 @@ export const appConfig: ApplicationConfig = {
     { provide: NEWS_API_BASE_URL, useFactory: () => environment.apiUrl },
 
     // News API adapter — root-level so shared NewsService (providedIn: 'root') resolves it
-    { provide: NEWS_API_ADAPTER, useExisting: NewsApiAdapterService },
+    { provide: NEWS_API_ADAPTER, useExisting: PulseApiAdapterService },
 
     // Feed API adapter — root-level so shared FeedService (providedIn: 'root') resolves it
     { provide: FEED_API, useExisting: FeedApiService },
