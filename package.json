@@ -138,7 +138,11 @@
     "@capacitor/ios": "^8.0.1",
     "@capacitor/android": "^8.0.1",
     "chokidar": "^4.0.3",
-    "fast-xml-parser": ">=5.3.6"
+    "fast-xml-parser": ">=5.3.6",
+    "vite": ">=7.3.2",
+    "tar": ">=7.5.13",
+    "nodemailer": ">=8.0.5",
+    "minimatch": ">=3.1.4"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [

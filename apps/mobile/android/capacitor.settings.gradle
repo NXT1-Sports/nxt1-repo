@@ -11,6 +11,9 @@ project(':capacitor-firebase-authentication').projectDir = new File('../../../no
 include ':capacitor-firebase-crashlytics'
 project(':capacitor-firebase-crashlytics').projectDir = new File('../../../node_modules/@capacitor-firebase/crashlytics/android')
 
+include ':capacitor-firebase-messaging'
+project(':capacitor-firebase-messaging').projectDir = new File('../../../node_modules/@capacitor-firebase/messaging/android')
+
 include ':capacitor-firebase-performance'
 project(':capacitor-firebase-performance').projectDir = new File('../../../node_modules/@capacitor-firebase/performance/android')
 
@@ -61,6 +64,12 @@ project(':capacitor-splash-screen').projectDir = new File('../../../node_modules
 
 include ':capacitor-status-bar'
 project(':capacitor-status-bar').projectDir = new File('../../../node_modules/@capacitor/status-bar/android')
+
+include ':capawesome-capacitor-badge'
+project(':capawesome-capacitor-badge').projectDir = new File('../../../node_modules/@capawesome/capacitor-badge/android')
+
+include ':capgo-native-purchases'
+project(':capgo-native-purchases').projectDir = new File('../../../node_modules/@capgo/native-purchases/android')
 
 include ':recognizebv-capacitor-plugin-msauth'
 project(':recognizebv-capacitor-plugin-msauth').projectDir = new File('../../../node_modules/@recognizebv/capacitor-plugin-msauth/android')
