@@ -1082,6 +1082,23 @@ export const LIVE_VIEW_TEST_IDS = {
   ERROR_STATE: 'live-view-error-state',
 } as const;
 
+export const LIVE_VIEW_LAUNCHER_TEST_IDS = {
+  /** Root container for the live-view launcher panel */
+  CONTAINER: 'live-view-launcher-container',
+  /** Custom URL text input */
+  URL_INPUT: 'live-view-launcher-url-input',
+  /** Submit button for the custom URL */
+  URL_SUBMIT_BUTTON: 'live-view-launcher-url-submit',
+  /** Connected account card/button (repeated per platform) */
+  ACCOUNT_CARD: 'live-view-launcher-account-card',
+  /** Section heading for connected accounts */
+  ACCOUNTS_SECTION: 'live-view-launcher-accounts-section',
+  /** Section heading for custom URL */
+  URL_SECTION: 'live-view-launcher-url-section',
+  /** Recent sessions list */
+  RECENT_SECTION: 'live-view-launcher-recent-section',
+} as const;
+
 export const TEST_IDS = {
   AUTH: AUTH_TEST_IDS,
   AUTH_PAGE: AUTH_PAGE_TEST_IDS,
@@ -1107,6 +1124,7 @@ export const TEST_IDS = {
   INTEL: INTEL_TEST_IDS,
   MEDIA_VIEWER: MEDIA_VIEWER_TEST_IDS,
   LIVE_VIEW: LIVE_VIEW_TEST_IDS,
+  LIVE_VIEW_LAUNCHER: LIVE_VIEW_LAUNCHER_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript

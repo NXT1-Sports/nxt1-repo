@@ -3,7 +3,7 @@
  * @module @nxt1/web
  *
  * Unit testing configuration for the Angular web application.
- * Uses jsdom environment for DOM testing with Angular components.
+ * Uses happy-dom environment for DOM testing with Angular components.
  *
  * Note: For Angular component testing, consider using:
  * - @analogjs/vitest-angular plugin for full Angular TestBed support
@@ -21,8 +21,9 @@ export default defineConfig({
     // Project name (shown in reports)
     name: '@nxt1/web',
 
-    // Use jsdom for DOM access in tests
-    environment: 'jsdom',
+    // Use happy-dom for DOM access in tests (jsdom 28+ breaks on Node 22
+    // due to @asamuzakjp/css-color top-level await in ESM)
+    environment: 'happy-dom',
 
     // Enable globals (describe, it, expect without imports)
     globals: true,

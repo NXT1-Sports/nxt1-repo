@@ -134,6 +134,15 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
         --nxt1-btn-height: 36px;
       }
 
+      :host-context(.light),
+      :host-context([data-theme='light']) {
+        --agent-input-bg: var(--nxt1-glass-bg, rgba(255, 255, 255, 0.8));
+        --agent-input-border: var(--nxt1-glass-borderSubtle, rgba(0, 0, 0, 0.08));
+        --agent-input-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+        --agent-text-secondary: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.7));
+        --agent-surface-hover: var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.05));
+      }
+
       :host(.embedded) {
         position: static;
         left: auto;
@@ -436,6 +445,21 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
           --nxt1-nav-text-muted,
           var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5))
         );
+      }
+
+      :host-context(.light) .message-input,
+      :host-context([data-theme='light']) .message-input {
+        color: var(--nxt1-color-text-primary, #1a1a1a);
+      }
+
+      :host-context(.light) .message-input::placeholder,
+      :host-context([data-theme='light']) .message-input::placeholder {
+        color: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.45));
+      }
+
+      :host-context(.light) .message-input::-webkit-scrollbar-thumb,
+      :host-context([data-theme='light']) .message-input::-webkit-scrollbar-thumb {
+        background: rgba(0, 0, 0, 0.15);
       }
 
       .message-input::-webkit-scrollbar {

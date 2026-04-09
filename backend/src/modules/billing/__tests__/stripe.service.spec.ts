@@ -22,6 +22,11 @@ vi.mock('stripe', () => {
           id: 'cus_test123',
           email: 'test@example.com',
         }),
+        retrieve: vi.fn().mockResolvedValue({
+          id: 'cus_existing',
+          email: 'test@example.com',
+          deleted: false,
+        }),
         update: vi.fn().mockResolvedValue({}),
       },
       invoiceItems: {

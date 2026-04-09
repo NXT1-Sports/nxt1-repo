@@ -103,12 +103,6 @@ export const routes: Routes = [
           import('./features/messages/messages.routes').then((m) => m.MESSAGES_ROUTES),
       },
 
-      // Analytics Dashboard - User Analytics & Insights
-      {
-        path: 'analytics',
-        loadChildren: () => import('./features/analytics-dashboard/analytics-dashboard.routes'),
-      },
-
       // Settings - User Settings & Preferences
       {
         path: 'settings',

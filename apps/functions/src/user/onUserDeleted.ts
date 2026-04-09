@@ -364,7 +364,7 @@ async function runUserDeletionCleanup(
  * On user deleted - cleanup related data.
  * Triggered from the primary Users collection used by the account deletion API.
  */
-export const onUserDeletedV2 = onDocumentDeleted(
+export const onUserDeletedV3 = onDocumentDeleted(
   {
     document: 'Users/{userId}',
     region: 'us-central1',

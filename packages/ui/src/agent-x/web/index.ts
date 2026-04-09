@@ -15,3 +15,8 @@ export {
   type ExpandedSidePanelContent,
 } from './agent-x-shell-web.component';
 export { AgentXWelcomeWebComponent } from './agent-x-welcome-web.component';
+export {
+  LiveViewLauncherComponent,
+  type LiveViewLaunchEvent,
+  type LauncherPlatform,
+} from './live-view-launcher.component';

@@ -25,7 +25,7 @@ import {
   HttpRequest,
   HttpHandlerFn,
 } from '@angular/common/http';
-import { catchError, throwError } from 'rxjs';
+import { catchError, retry, throwError, timer } from 'rxjs';
 import {
   parseApiError,
   API_ERROR_CODES,
@@ -93,6 +93,16 @@ export function httpErrorInterceptor(options: HttpErrorInterceptorOptions = {}):
     }
 
     return next(req).pipe(
+      retry({
+        count: 2,
+        delay: (error, retryCount) => {
+          if (shouldRetryGetRequest(req, error)) {
+            return timer(getGetRetryDelayMs(retryCount, error));
+          }
+
+          return throwError(() => error);
+        },
+      }),
       catchError((error: HttpErrorResponse) => {
         // Extract the actual backend response body from HttpErrorResponse.
         // Angular wraps the body in `error.error`; our backend returns
@@ -140,7 +150,7 @@ export function httpErrorInterceptor(options: HttpErrorInterceptorOptions = {}):
 
         // Show notification if enabled
         if (config.showNotifications && isPlatformBrowser(platformId)) {
-          showErrorNotification(toast, apiError, error.status);
+          showErrorNotification(toast, apiError, error.status, req.method);
         }
 
         // Re-throw as parsed error for consumers
@@ -148,6 +158,24 @@ export function httpErrorInterceptor(options: HttpErrorInterceptorOptions = {}):
       })
     );
   };
+}
+
+function shouldRetryGetRequest(
+  req: HttpRequest<unknown>,
+  error: unknown
+): error is HttpErrorResponse {
+  return req.method === 'GET' && error instanceof HttpErrorResponse && error.status === 429;
+}
+
+function getGetRetryDelayMs(retryCount: number, error: HttpErrorResponse): number {
+  const retryAfterHeader = error.headers.get('Retry-After');
+  const retryAfterSeconds = retryAfterHeader ? Number.parseInt(retryAfterHeader, 10) : Number.NaN;
+  const boundedHeaderDelay = Number.isFinite(retryAfterSeconds)
+    ? Math.min(Math.max(retryAfterSeconds * 1000, 0), 4_000)
+    : 0;
+  const exponentialDelay = retryCount * 2_000;
+
+  return Math.max(exponentialDelay, boundedHeaderDelay);
 }
 
 /**
@@ -225,7 +253,8 @@ function handleNetworkError(platformId: object, logger: ILogger): void {
 function showErrorNotification(
   toast: NxtToastService,
   apiError: ApiErrorDetail,
-  status: number
+  status: number,
+  requestMethod: string
 ): void {
   // Skip showing notifications for expected auth errors (handled by auth flow)
   if (
@@ -248,6 +277,11 @@ function showErrorNotification(
   // Skip 404 errors for API calls that handle their own errors
   // (e.g., team code validation returns valid: false instead of throwing)
   if (status === 404) {
+    return;
+  }
+
+  // Background GET requests should fail quietly when rate limited.
+  if (status === 429 && requestMethod === 'GET') {
     return;
   }
 

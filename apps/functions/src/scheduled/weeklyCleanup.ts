@@ -3,7 +3,7 @@
  * @module @nxt1/functions/scheduled/weeklyCleanup
  *
  * Runs every Sunday at midnight UTC.
- * - Deletes old read notifications (30 days)
+ * - Deletes old read notifications (90 days)
  * - Removes expired FCM tokens (90 days)
  */
 
@@ -25,14 +25,14 @@ export const weeklyCleanup = onSchedule(
   async () => {
     logger.info('Starting weekly cleanup job');
 
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
     try {
-      // Delete processed notifications older than 30 days
+      const ninetyDaysAgo = new Date();
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+      // Delete processed notifications older than 90 days
       const oldNotifications = await db
         .collection('notifications')
-        .where('createdAt', '<', thirtyDaysAgo)
+        .where('createdAt', '<', ninetyDaysAgo)
         .limit(500)
         .get();
 
@@ -43,9 +43,6 @@ export const weeklyCleanup = onSchedule(
       logger.info('Deleted processed notifications', { count: oldNotifications.size });
 
       // Clean up expired sessions/tokens (90 days)
-      const ninetyDaysAgo = new Date();
-      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-
       const expiredTokens = await db
         .collection('FcmTokens')
         .where('updatedAt', '<', ninetyDaysAgo)

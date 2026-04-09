@@ -181,7 +181,7 @@ export interface LiveViewSession {
  * Attached to a message when the agent wants to surface a live view or media.
  */
 export interface AutoOpenPanelInstruction {
-  readonly type: 'live-view' | 'image' | 'video' | 'doc';
+  readonly type: 'live-view' | 'live-view-launcher' | 'image' | 'video' | 'doc';
   readonly url: string;
   readonly title?: string;
   /**
@@ -805,6 +805,8 @@ export interface ShellCommandCategory {
   /** Short intro shown as the coordinator's opening message. */
   readonly description: string;
   readonly commands: readonly ShellActionChip[];
+  /** Repeatable tasks the user can schedule (daily, weekly, etc.). */
+  readonly scheduledActions?: readonly ShellActionChip[];
 }
 
 /** Daily briefing insight from Agent X. */

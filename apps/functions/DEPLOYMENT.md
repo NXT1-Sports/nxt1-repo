@@ -653,7 +653,7 @@ apps/functions/
 
 - Team: Functions Team
 - Slack: #functions-support
-- Email: dev@nxt1sports.com
+- Email: john@nxt1sports.com
 
 ---
 

@@ -16,18 +16,18 @@ import { logger } from '../utils/logger.js';
 // ============================================
 
 /**
- * Standard API rate limit - 100 requests per 15 minutes
+ * Standard API rate limit - 150 requests per minute
  */
 export const apiRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  windowMs: 60 * 1000, // 1 minute
+  max: 150, // Limit each IP to 150 requests per minute
   message: (req: Request): void => {
     logger.warn('[Rate Limit] API limit exceeded', {
       ip: req.ip,
       path: req.path,
       method: req.method,
     });
-    throw rateLimitError(900, 'api'); // 15 minutes retry
+    throw rateLimitError(60, 'api'); // 1 minute retry
   },
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
@@ -145,6 +145,27 @@ export const searchRateLimit = rateLimit({
   legacyHeaders: false,
 });
 
+/**
+ * Lenient rate limit - 300 requests per minute
+ */
+export const lenientRateLimit = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 300, // High-volume but still protected
+  message: (req: Request): void => {
+    logger.warn('[Rate Limit] Lenient limit exceeded', {
+      ip: req.ip,
+      path: req.path,
+      method: req.method,
+    });
+    throw rateLimitError(60, 'api'); // 1 minute retry
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req: Request): boolean => {
+    return req.path === '/health' || req.path === '/staging/health';
+  },
+});
+
 // ============================================
 // DEVELOPMENT OVERRIDES
 // ============================================
@@ -179,7 +200,7 @@ function createDevRateLimit(maxRequests: number = 1000) {
  * Get appropriate rate limiter based on environment
  */
 export function getRateLimiter(
-  type: 'api' | 'auth' | 'billing' | 'email' | 'upload' | 'search' | 'password'
+  type: 'api' | 'auth' | 'billing' | 'email' | 'upload' | 'search' | 'password' | 'lenient'
 ) {
   // Use relaxed limits in development
   if (process.env['NODE_ENV'] !== 'production') {
@@ -198,6 +219,8 @@ export function getRateLimiter(
       return uploadRateLimit;
     case 'search':
       return searchRateLimit;
+    case 'lenient':
+      return lenientRateLimit;
     case 'password':
       return passwordResetRateLimit;
     case 'api':

@@ -7,4 +7,4 @@
 
 export { beforeUserCreate } from './beforeUserCreate';
 export { beforeUserSignIn } from './beforeUserSignIn';
-export { onUserProfileCreatedV2 } from './onUserProfileCreated';
+export { onUserProfileCreatedV3 } from './onUserProfileCreated';

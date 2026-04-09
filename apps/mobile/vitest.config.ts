@@ -3,7 +3,7 @@
  * @module @nxt1/mobile
  *
  * Unit testing configuration for the Ionic/Capacitor mobile application.
- * Uses jsdom environment for DOM testing.
+ * Uses happy-dom environment for DOM testing.
  *
  * @see https://vitest.dev/config/
  */
@@ -16,8 +16,9 @@ export default defineConfig({
     // Project name (shown in reports)
     name: '@nxt1/mobile',
 
-    // Use jsdom for DOM access in tests
-    environment: 'jsdom',
+    // Use happy-dom for DOM access in tests (jsdom 28+ breaks on Node 22
+    // due to @asamuzakjp/css-color top-level await in ESM)
+    environment: 'happy-dom',
 
     // Enable globals (describe, it, expect without imports)
     globals: true,

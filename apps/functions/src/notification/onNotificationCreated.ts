@@ -53,7 +53,7 @@ interface UserNotificationPreferences {
  * Every push notification on the entire NXT1 platform flows through this
  * single function. Features never call FCM directly.
  */
-export const onNotificationCreatedV2 = onDocumentCreated(
+export const onNotificationCreatedV3 = onDocumentCreated(
   'notifications/{notificationId}',
   async (event) => {
     const snapshot = event.data;

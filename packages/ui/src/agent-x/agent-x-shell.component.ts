@@ -101,6 +101,7 @@ export interface CommandCategory {
   readonly icon: string;
   readonly description: string;
   readonly commands: readonly ActionChip[];
+  readonly scheduledActions?: readonly ActionChip[];
 }
 
 /** Daily briefing insight from Agent X. Kept as shared contract for consumers. */
@@ -2059,13 +2060,25 @@ export class AgentXShellComponent {
       icon: cmd.icon,
       description: cmd.subLabel,
     }));
+    const scheduledActions: OperationQuickAction[] = (cat.scheduledActions ?? []).map((cmd) => ({
+      id: cmd.id,
+      label: cmd.label,
+      icon: cmd.icon,
+      description: cmd.subLabel,
+    }));
     await this.openOperationChat(
       cat.id,
       cat.label,
       cat.icon,
       'command',
       quickActions,
-      cat.description
+      cat.description,
+      '',
+      '',
+      null,
+      'processing',
+      null,
+      scheduledActions
     );
   }
 
@@ -2092,7 +2105,8 @@ export class AgentXShellComponent {
     initialMessage = '',
     yieldState: AgentYieldState | null = null,
     operationStatus: 'processing' | 'complete' | 'error' | 'awaiting_input' = 'processing',
-    errorMessage: string | null = null
+    errorMessage: string | null = null,
+    scheduledActions: OperationQuickAction[] = []
   ): Promise<void> {
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
@@ -2108,6 +2122,7 @@ export class AgentXShellComponent {
         yieldState,
         operationStatus,
         errorMessage,
+        scheduledActions,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

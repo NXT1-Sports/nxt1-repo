@@ -59,6 +59,11 @@ interface CacheTTLConfig {
   ttl: number;
 }
 
+interface CacheInvalidationConfig {
+  pattern: RegExp;
+  invalidate: readonly string[];
+}
+
 /**
  * HTTP cache interceptor options
  */
@@ -92,16 +97,35 @@ const inFlightRequests = new Map<string, Observable<HttpEvent<unknown>>>();
  * - EXTENDED_TTL (24 hr): Sports list, positions, rarely changing data
  */
 const DEFAULT_TTL_CONFIG: CacheTTLConfig[] = [
+  // Feed - Short TTL (high churn, infinite-scroll heavy)
+  { pattern: /\/feed(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
+
   // Activity - Short TTL (real-time notifications)
   { pattern: /\/activity\/feed/, ttl: CACHE_CONFIG.SHORT_TTL },
   { pattern: /\/activity\/badges/, ttl: 30_000 }, // 30 seconds for badges
   { pattern: /\/activity\/summary/, ttl: CACHE_CONFIG.SHORT_TTL },
 
-  // Explore - Medium TTL (search results, trending)
-  { pattern: /\/explore\/search/, ttl: 5 * 60_000 }, // 5 minutes
-  { pattern: /\/explore\/trending/, ttl: 30 * 60_000 }, // 30 minutes
-  { pattern: /\/explore\/suggestions/, ttl: CACHE_CONFIG.SHORT_TTL },
-  { pattern: /\/explore\/counts/, ttl: CACHE_CONFIG.SHORT_TTL },
+  // News / Pulse
+  { pattern: /\/news\/trending(?:\/|$)/, ttl: 30 * 60_000 },
+  { pattern: /\/news\/search(?:\/|$)/, ttl: 5 * 60_000 },
+  { pattern: /\/news(?:\/|$)/, ttl: 5 * 60_000 },
+
+  // Usage - mixed TTL by data volatility
+  { pattern: /\/usage\/overview(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
+  { pattern: /\/usage\/dashboard(?:\/|$)/, ttl: 5 * 60_000 },
+  { pattern: /\/usage\/chart(?:\/|$)/, ttl: 5 * 60_000 },
+  { pattern: /\/usage\/breakdown(?:\/|$)/, ttl: 5 * 60_000 },
+  { pattern: /\/usage\/history(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL },
+  { pattern: /\/usage\/payment-methods(?:\/|$)/, ttl: 30 * 60_000 },
+  { pattern: /\/usage\/budgets(?:\/|$)/, ttl: 10 * 60_000 },
+  { pattern: /\/billing\/budget(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
+
+  // Help Center - mostly document content
+  { pattern: /\/help-center\/articles\//, ttl: 30 * 60_000 },
+  { pattern: /\/help-center\/categories\//, ttl: 10 * 60_000 },
+  { pattern: /\/help-center\/faqs(?:\/|$)/, ttl: CACHE_CONFIG.LONG_TTL },
+  { pattern: /\/help-center\/search(?:\/|$)/, ttl: 5 * 60_000 },
+  { pattern: /\/help-center(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL },
 
   // Colleges - Long TTL (static data)
   { pattern: /\/college\//, ttl: CACHE_CONFIG.LONG_TTL },
@@ -111,11 +135,23 @@ const DEFAULT_TTL_CONFIG: CacheTTLConfig[] = [
   { pattern: /\/profile\//, ttl: CACHE_CONFIG.MEDIUM_TTL },
 
   // Teams - Medium TTL
-  { pattern: /\/team\//, ttl: CACHE_CONFIG.MEDIUM_TTL },
+  { pattern: /\/teams(?:\/|$)/, ttl: CACHE_CONFIG.MEDIUM_TTL },
 
   // Static data - Extended TTL
   { pattern: /\/sports/, ttl: CACHE_CONFIG.EXTENDED_TTL },
   { pattern: /\/positions/, ttl: CACHE_CONFIG.EXTENDED_TTL },
+];
+
+const DEFAULT_INVALIDATION_CONFIG: readonly CacheInvalidationConfig[] = [
+  { pattern: /\/auth\/profile|\/profile\//, invalidate: ['*auth/profile*', '*profile*'] },
+  { pattern: /\/teams(?:\/|$)/, invalidate: ['*teams*'] },
+  { pattern: /\/feed|\/posts\//, invalidate: ['*feed*', '*posts*'] },
+  { pattern: /\/activity\//, invalidate: ['*activity*'] },
+  { pattern: /\/news\//, invalidate: ['*news*'] },
+  { pattern: /\/usage\//, invalidate: ['*usage*'] },
+  { pattern: /\/billing\/budget/, invalidate: ['*billing/budget*', '*usage*'] },
+  { pattern: /\/help-center\//, invalidate: ['*help-center*'] },
+  { pattern: /\/invite\//, invalidate: ['*invite*'] },
 ];
 
 /**
@@ -123,7 +159,7 @@ const DEFAULT_TTL_CONFIG: CacheTTLConfig[] = [
  * Generic patterns for auth, payments, admin, chat
  */
 const DEFAULT_EXCLUDE_URLS: RegExp[] = [
-  /\/auth\//,
+  /\/auth\/(?:login|register|signup|logout|token|refresh|verify|password|connect-url|callback|google|microsoft|apple|yahoo)/,
   /\/login/,
   /\/register/,
   /\/stripe\//,
@@ -189,6 +225,36 @@ function isCacheable(req: HttpRequest<unknown>, excludePatterns: RegExp[]): bool
   return true;
 }
 
+function isMutationRequest(req: HttpRequest<unknown>): boolean {
+  return (
+    req.method === 'POST' ||
+    req.method === 'PUT' ||
+    req.method === 'PATCH' ||
+    req.method === 'DELETE'
+  );
+}
+
+async function invalidateRelatedCacheEntries(
+  req: HttpRequest<unknown>,
+  cache: LRUCache<HttpCacheEntry>
+): Promise<void> {
+  const patterns = new Set<string>();
+
+  for (const config of DEFAULT_INVALIDATION_CONFIG) {
+    if (config.pattern.test(req.url)) {
+      for (const invalidatePattern of config.invalidate) {
+        patterns.add(invalidatePattern);
+      }
+    }
+  }
+
+  if (patterns.size === 0) {
+    return;
+  }
+
+  await Promise.all(Array.from(patterns, (pattern) => cache.invalidate(pattern)));
+}
+
 /**
  * Create HTTP cache interceptor
  * @param options - Interceptor configuration
@@ -210,12 +276,23 @@ export function httpCacheInterceptor(options: HttpCacheInterceptorOptions = {}):
       return next(req);
     }
 
-    // Check if request is cacheable
+    const cache = getCache({ maxSize, defaultTtl });
+
+    // Non-cacheable requests can still invalidate cache after successful mutations.
     if (!isCacheable(req, excludeUrls)) {
-      return next(req);
+      if (!isMutationRequest(req)) {
+        return next(req);
+      }
+
+      return next(req).pipe(
+        tap((event) => {
+          if (event instanceof HttpResponse && event.status >= 200 && event.status < 300) {
+            void invalidateRelatedCacheEntries(req, cache);
+          }
+        })
+      );
     }
 
-    const cache = getCache({ maxSize, defaultTtl });
     const cacheKey = generateCacheKey(req.urlWithParams);
 
     // Check for in-flight request (deduplication)

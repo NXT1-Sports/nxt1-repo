@@ -97,6 +97,7 @@ import type { BillingActionResolvedEvent } from './agent-x-billing-action-card.c
 import type { DraftSubmittedEvent } from './agent-x-draft-card.component';
 import type { AgentYieldState } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './fab/agent-x-logo.constants';
+import type { AgentXPendingFile } from './agent-x-pending-file';
 
 // ============================================
 // INTERFACES
@@ -193,7 +194,9 @@ interface OperationMessage {
           </div>
 
           <!-- ═══ QUICK OPTIONS ═══ -->
-          <div class="quick-options">
+          <h4 class="quick-prompts-title">Quick Prompts</h4>
+          <!-- Desktop: single 2-col grid -->
+          <div class="quick-options quick-options--desktop">
             @for (action of normalizedQuickActions(); track action.id) {
               <button
                 type="button"
@@ -210,6 +213,71 @@ interface OperationMessage {
               </button>
             }
           </div>
+          <!-- Mobile: rows of 4, each row scrolls horizontally -->
+          <div class="quick-options-rows quick-options--mobile">
+            @for (row of quickActionRows(); track $index) {
+              <div class="quick-options-row">
+                @for (action of row; track action.id) {
+                  <button
+                    type="button"
+                    class="quick-option-chip"
+                    [attr.data-coordinator]="resolveCoordinatorChipId(action)"
+                    (click)="onQuickAction(action)"
+                  >
+                    <span class="quick-option-chip__topline">
+                      <span class="quick-option-chip__title">{{ action.label }}</span>
+                    </span>
+                    @if (action.description) {
+                      <span class="quick-option-chip__description">{{ action.description }}</span>
+                    }
+                  </button>
+                }
+              </div>
+            }
+          </div>
+
+          <!-- ═══ SCHEDULED ACTIONS ═══ -->
+          @if (scheduledActions.length > 0) {
+            <h4 class="quick-prompts-title scheduled-title">Scheduled Actions</h4>
+            <!-- Desktop: single 2-col grid -->
+            <div class="quick-options quick-options--desktop scheduled-options">
+              @for (action of scheduledActions; track action.id) {
+                <button
+                  type="button"
+                  class="quick-option-chip scheduled-chip"
+                  (click)="onQuickAction(action)"
+                >
+                  <span class="quick-option-chip__topline">
+                    <span class="quick-option-chip__title">{{ action.label }}</span>
+                  </span>
+                  @if (action.description) {
+                    <span class="quick-option-chip__description">{{ action.description }}</span>
+                  }
+                </button>
+              }
+            </div>
+            <!-- Mobile: rows of 4, each row scrolls horizontally -->
+            <div class="quick-options-rows quick-options--mobile scheduled-options">
+              @for (row of scheduledActionRows(); track $index) {
+                <div class="quick-options-row">
+                  @for (action of row; track action.id) {
+                    <button
+                      type="button"
+                      class="quick-option-chip scheduled-chip"
+                      (click)="onQuickAction(action)"
+                    >
+                      <span class="quick-option-chip__topline">
+                        <span class="quick-option-chip__title">{{ action.label }}</span>
+                      </span>
+                      @if (action.description) {
+                        <span class="quick-option-chip__description">{{ action.description }}</span>
+                      }
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+          }
         }
 
         @for (msg of messages(); track msg.id; let first = $first) {
@@ -385,77 +453,6 @@ interface OperationMessage {
         }
       </div>
 
-      <!-- ═══ PENDING FILES PREVIEW ═══ -->
-      @if (pendingFiles().length > 0) {
-        <div class="pending-files-strip">
-          @for (pf of pendingFiles(); track pf.file.name + $index) {
-            <div class="pending-file" [class.pending-file--media]="pf.isImage || pf.isVideo">
-              @if (pf.isImage && pf.previewUrl) {
-                <img
-                  [src]="pf.previewUrl"
-                  [alt]="pf.file.name"
-                  class="pending-file__thumb"
-                  (click)="openPendingFileViewer($index)"
-                />
-              } @else if (pf.isVideo && pf.previewUrl) {
-                <video
-                  [src]="pf.previewUrl"
-                  class="pending-file__thumb"
-                  preload="metadata"
-                  (click)="openPendingFileViewer($index)"
-                ></video>
-                <div class="pending-file__play">
-                  <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                    <path d="M8 5v14l11-7L8 5z" />
-                  </svg>
-                </div>
-              } @else {
-                <div
-                  class="pending-file__doc"
-                  (click)="openPendingFileViewer($index)"
-                  style="cursor: pointer;"
-                >
-                  <div
-                    class="pending-file__doc-icon-wrap"
-                    [style.background]="getFileColor(pf.file.name, 0.15)"
-                    [style.color]="getFileColor(pf.file.name, 1)"
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.5"
-                      width="16"
-                      height="16"
-                    >
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" />
-                      <polyline points="14 2 14 8 20 8" />
-                    </svg>
-                  </div>
-                  <div class="pending-file__doc-info">
-                    <span class="pending-file__doc-name">{{ pf.file.name }}</span>
-                    <span class="pending-file__doc-meta"
-                      >{{ getFileExt(pf.file.name) }} · {{ formatFileSize(pf.file.size) }}</span
-                    >
-                  </div>
-                </div>
-              }
-              <button
-                class="pending-file__remove"
-                (click)="removePendingFile($index)"
-                aria-label="Remove file"
-              >
-                <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12">
-                  <path
-                    d="M4.11 3.05a.75.75 0 0 0-1.06 1.06L6.94 8l-3.89 3.89a.75.75 0 1 0 1.06 1.06L8 9.06l3.89 3.89a.75.75 0 1 0 1.06-1.06L9.06 8l3.89-3.89a.75.75 0 0 0-1.06-1.06L8 6.94 4.11 3.05z"
-                  />
-                </svg>
-              </button>
-            </div>
-          }
-        </div>
-      }
-
       <!-- ═══ INPUT ═══ -->
       <nxt1-agent-x-prompt-input
         class="embedded"
@@ -464,12 +461,14 @@ interface OperationMessage {
         [isLoading]="_loading()"
         [canSend]="canSend()"
         [userMessage]="inputValue()"
-        [placeholder]="'Start your agent'"
+        [placeholder]="'Message A Coordinator'"
+        [pendingFiles]="promptInputPendingFiles()"
         [plusButtonAriaLabel]="'Add attachments'"
         (messageChange)="inputValue.set($event)"
         (send)="send()"
         (stop)="cancelStream()"
         (toggleTasks)="onUploadClick()"
+        (fileRemoved)="removePendingFile($event)"
       />
       <input
         #fileInput
@@ -540,6 +539,27 @@ interface OperationMessage {
         --op-primary: var(--nxt1-color-primary, #ccff00);
         --op-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
         --op-glass-bg: var(--agent-glass-bg, var(--nxt1-glass-bg, rgba(18, 18, 18, 0.8)));
+      }
+
+      :host-context(.light),
+      :host-context([data-theme='light']) {
+        background: var(--ion-background-color, var(--nxt1-color-bg-primary, #ffffff));
+        color: var(--nxt1-color-text-primary, #1a1a1a);
+
+        --op-surface: var(--nxt1-color-surface-100, rgba(0, 0, 0, 0.03));
+        --op-border: var(--nxt1-color-border-subtle, rgba(0, 0, 0, 0.08));
+        --op-text: var(--nxt1-color-text-primary, #1a1a1a);
+        --op-text-secondary: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.7));
+        --op-text-muted: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.45));
+        --op-glass-bg: var(--nxt1-glass-bg, rgba(255, 255, 255, 0.8));
+
+        --agent-surface: var(--nxt1-color-surface-100, rgba(0, 0, 0, 0.03));
+        --agent-surface-hover: var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.05));
+        --agent-border: var(--nxt1-color-border-subtle, rgba(0, 0, 0, 0.08));
+        --agent-text-primary: var(--nxt1-color-text-primary, #1a1a1a);
+        --agent-text-secondary: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.7));
+        --agent-text-muted: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.45));
+        --agent-glass-bg: var(--nxt1-glass-bg, rgba(255, 255, 255, 0.8));
       }
 
       :host.agent-x-operation-chat--embedded {
@@ -964,7 +984,7 @@ interface OperationMessage {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 12px;
-        padding: 8px 0 16px;
+        padding: 0 0 16px;
         animation: fadeSlideIn 0.3s ease-out;
       }
 
@@ -1121,27 +1141,69 @@ interface OperationMessage {
         --coordinator-pill-accent: #44d6c2;
       }
 
+      /* Scheduled actions — different outline color */
+      .scheduled-title {
+        margin-top: 12px;
+      }
+
+      .scheduled-chip {
+        border-color: rgba(168, 130, 255, 0.45);
+        border-style: dashed;
+      }
+
+      .scheduled-chip:active {
+        border-color: #a882ff;
+        color: #a882ff;
+        background: color-mix(in srgb, #a882ff 10%, transparent);
+      }
+
+      /* Desktop: show grid, hide mobile rows */
+      .quick-prompts-title {
+        margin: 0;
+        padding: 0;
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1.1;
+        color: var(--ion-text-color, #fff);
+        text-align: left;
+        opacity: 0.85;
+      }
+
+      .quick-options--mobile {
+        display: none;
+      }
+
       @media (max-width: 420px) {
-        .quick-options {
+        /* Mobile: hide desktop grid, show row layout */
+        .quick-options--desktop {
+          display: none;
+        }
+
+        .quick-options--mobile {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          padding: 0 0 14px;
+        }
+
+        .quick-options-row {
           display: flex;
           gap: 10px;
           overflow-x: auto;
           overflow-y: hidden;
-          padding: 8px 0 14px;
-          margin: 0 -2px;
           scroll-snap-type: x proximity;
           -webkit-overflow-scrolling: touch;
         }
 
-        .quick-option-chip {
+        .quick-options-row::-webkit-scrollbar {
+          display: none;
+        }
+
+        .quick-options-row .quick-option-chip {
           flex: 0 0 224px;
           min-height: 68px;
           padding: 9px 12px;
           scroll-snap-align: start;
-        }
-
-        .quick-options::-webkit-scrollbar {
-          display: none;
         }
       }
 
@@ -1348,6 +1410,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Optional list of quick action suggestions shown as tappable chips. */
   @Input() quickActions: readonly OperationQuickAction[] = [];
 
+  /** Optional list of schedulable actions shown in a separate row. */
+  @Input() scheduledActions: readonly OperationQuickAction[] = [];
+
   /** Optional initial message to auto-send when the sheet opens. */
   @Input() initialMessage = '';
 
@@ -1434,6 +1499,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Files staged for upload — displayed as previews above the input bar. */
   protected readonly pendingFiles = signal<PendingFile[]>([]);
 
+  /** Pending files converted to AgentXPendingFile shape for prompt-input component. */
+  protected readonly promptInputPendingFiles = computed<readonly AgentXPendingFile[]>(() =>
+    this.pendingFiles().map((pf) => ({
+      file: pf.file,
+      previewUrl: pf.previewUrl,
+      type: resolveAttachmentType(pf.file.type),
+    }))
+  );
+
   /** Whether a drag operation is hovering over the chat surface. */
   protected readonly isDragActive = signal(false);
 
@@ -1487,6 +1561,27 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       icon: this.contextIcon,
       ...item,
     }));
+  });
+
+  /** Quick actions chunked into rows of 4 for mobile horizontal-scroll layout. */
+  protected readonly quickActionRows = computed<OperationQuickAction[][]>(() => {
+    const all = this.normalizedQuickActions();
+    const rows: OperationQuickAction[][] = [];
+    for (let i = 0; i < all.length; i += 4) {
+      rows.push(all.slice(i, i + 4));
+    }
+    return rows;
+  });
+
+  /** Scheduled actions chunked into rows of 4 for mobile horizontal-scroll layout. */
+  protected readonly scheduledActionRows = computed<OperationQuickAction[][]>(() => {
+    const all = this.scheduledActions;
+    if (!all || all.length === 0) return [];
+    const rows: OperationQuickAction[][] = [];
+    for (let i = 0; i < all.length; i += 4) {
+      rows.push(all.slice(i, i + 4));
+    }
+    return rows;
   });
 
   protected resolveCoordinatorChipId(action: OperationQuickAction): string | null {

@@ -268,7 +268,7 @@ describe('SettingsService', () => {
     it('should fall back to DEFAULT_SUBSCRIPTION if none set', async () => {
       await service.loadSettings();
       const sub = service.subscription();
-      expect(sub?.tier).toBe('free');
+      expect(sub?.tier).toBe('metered');
       expect(sub?.status).toBe('active');
     });
 

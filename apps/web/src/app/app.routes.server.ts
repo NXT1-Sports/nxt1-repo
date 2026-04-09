@@ -120,14 +120,6 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
-    path: 'analytics',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'analytics/**',
-    renderMode: RenderMode.Server,
-  },
-  {
     path: 'settings',
     renderMode: RenderMode.Server,
   },

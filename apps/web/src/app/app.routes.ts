@@ -167,12 +167,6 @@ export const routes: Routes = [
         loadChildren: () => import('./features/profile/profile.routes'),
       },
 
-      // Analytics Dashboard - User Analytics & Insights
-      {
-        path: 'analytics',
-        loadChildren: () => import('./features/analytics-dashboard/analytics-dashboard.routes'),
-      },
-
       // Settings - User Settings & Preferences
       {
         path: 'settings',

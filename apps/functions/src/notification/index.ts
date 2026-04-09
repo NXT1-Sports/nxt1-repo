@@ -5,7 +5,7 @@
  * Push notification and FCM token management.
  */
 
-export { onNotificationCreatedV2 } from './onNotificationCreated';
+export { onNotificationCreatedV3 } from './onNotificationCreated';
 export { registerFcmToken } from './registerFcmToken';
 export { unregisterFcmToken } from './unregisterFcmToken';
 export { sendNotification } from './sendNotification';

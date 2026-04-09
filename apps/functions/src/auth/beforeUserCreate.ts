@@ -5,22 +5,22 @@
  * Runs before Firebase creates a user account.
  * - Blocks disposable email domains
  * - Sets initial custom claims
- * - Creates Firestore user document (V2 schema) for OAuth providers ONLY when
+ * - Creates Firestore user document (V3 schema) for OAuth providers ONLY when
  *   OAuth tokens (Gmail / Microsoft refresh tokens) need to be persisted.
  *
  * ┌─────────────────────────────────────────────────────────────────────┐
  * │  Email / Password sign-up                                           │
  * │  → NO Firestore write here.                                         │
- * │    POST /auth/create-user (backend) creates the doc with V2 schema. │
+ * │    POST /auth/create-user (backend) creates the doc with V3 schema. │
  * │    Writing here would cause a 409 conflict on that endpoint.        │
  * ├─────────────────────────────────────────────────────────────────────┤
  * │  Google (gmail.send scope + refresh token present)                  │
  * │  Microsoft (refresh token present)                                  │
- * │  → Write V2 doc NOW because the token is only available here.       │
+ * │  → Write V3 doc NOW because the token is only available here.       │
  * │    Backend /create-user call will see an existing doc and skip.     │
  * ├─────────────────────────────────────────────────────────────────────┤
  * │  Apple                                                              │
- * │  → Write base V2 doc here (no token available, but frontend does    │
+ * │  → Write base V3 doc here (no token available, but frontend does    │
  * │    NOT call POST /auth/create-user after Apple sign-in).            │
  * ├─────────────────────────────────────────────────────────────────────┤
  * │  Google (no token) or any other provider                            │
@@ -39,7 +39,7 @@
  *
  * Firestore security rules lock emailTokens to backend/Functions only.
  *
- * V2 document schema (mirrors UserV2Document in backend/src/routes/auth.routes.ts):
+ * V3 document schema (mirrors UserV3Document in backend/src/routes/auth.routes.ts):
  *   email, onboardingCompleted, createdAt, updatedAt, _schemaVersion
  *   + OAuth-specific: connectedEmails[] (ConnectedEmail metadata, NO tokens)
  */
@@ -60,11 +60,11 @@ function isDisposableDomain(email: string): boolean {
 }
 
 /**
- * Build a V2-compatible base user document.
+ * Build a V3-compatible base user document.
  * Matches the structure created by POST /auth/create-user in the backend.
  * NOTE: `uid` is intentionally NOT stored on the document (Firestore doc ID is the uid).
  */
-function buildV2User(email: string): Record<string, unknown> {
+function buildV3User(email: string): Record<string, unknown> {
   const now = new Date().toISOString();
   return {
     email,
@@ -139,7 +139,7 @@ export const beforeUserCreate = beforeUserCreated(async (event) => {
             isActive: true,
             connectedAt: now,
           };
-          const newUser = buildV2User(email);
+          const newUser = buildV3User(email);
           newUser['connectedEmails'] = [connectedEmailMeta];
 
           // Use a batch so both writes succeed or both fail atomically.
@@ -152,11 +152,11 @@ export const beforeUserCreate = beforeUserCreated(async (event) => {
           });
           await batch.commit();
 
-          logger.info('[beforeUserCreate] Google – V2 doc + Gmail token written to subcollection', {
+          logger.info('[beforeUserCreate] Google – V3 doc + Gmail token written to subcollection', {
             uid,
           });
         } else {
-          // No token to save – backend /create-user will create the standard V2 doc.
+          // No token to save – backend /create-user will create the standard V3 doc.
           if (hasSendEmailPermission) {
             logger.info(
               '[beforeUserCreate] Google – gmail.send scope but no refresh token, skipping write',
@@ -182,7 +182,7 @@ export const beforeUserCreate = beforeUserCreated(async (event) => {
             isActive: true,
             connectedAt: now,
           };
-          const newUser = buildV2User(email);
+          const newUser = buildV3User(email);
           newUser['connectedEmails'] = [connectedEmailMeta];
 
           // Atomic batch: user doc + token subcollection
@@ -195,7 +195,7 @@ export const beforeUserCreate = beforeUserCreated(async (event) => {
           });
           await batch.commit();
 
-          logger.info('[beforeUserCreate] Microsoft – V2 doc + token written to subcollection', {
+          logger.info('[beforeUserCreate] Microsoft – V3 doc + token written to subcollection', {
             uid,
           });
         } else {
@@ -208,9 +208,9 @@ export const beforeUserCreate = beforeUserCreated(async (event) => {
       } else if (providerId === 'apple.com' && uid && email) {
         // Apple – no refresh token available from beforeUserCreate, but the frontend
         // does NOT call POST /auth/create-user after Apple sign-in, so we must create
-        const newUser = buildV2User(email);
+        const newUser = buildV3User(email);
         await db.collection('Users').doc(uid).set(newUser);
-        logger.info('[beforeUserCreate] Apple – base V2 doc created (no token)', { uid });
+        logger.info('[beforeUserCreate] Apple – base V3 doc created (no token)', { uid });
       } else {
         // Other unknown provider – no tokens to capture; backend handles doc creation.
         logger.info(

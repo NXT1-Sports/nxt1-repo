@@ -6,7 +6,7 @@
  */
 
 export { generateProfileSlug } from './generateProfileSlug';
-export { onUserProfileUpdatedV2 } from './onUserProfileUpdated';
-export { onUserDeletedV2 } from './onUserDeleted';
-export { onUserCreatedV2 } from './onUserCreated';
+export { onUserProfileUpdatedV3 } from './onUserProfileUpdated';
+export { onUserDeletedV3 } from './onUserDeleted';
+export { onUserCreatedV3 } from './onUserCreated';
 export { generateUnicodeForUser, releaseUnicode } from './generateUnicode';

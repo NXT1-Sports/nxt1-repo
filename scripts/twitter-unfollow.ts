@@ -22,7 +22,7 @@ const CONFIG = {
 async function autoUnfollow() {
   console.log('🚀 Starting Twitter auto-unfollower...\n');
 
-  let browser;
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 
   try {
     console.log('⏳ Launching Chrome browser...');
@@ -207,7 +207,9 @@ async function autoUnfollow() {
   } catch (error) {
     console.error('❌ Error:', error);
   } finally {
-    await browser.close();
+    if (browser) {
+      await browser.close();
+    }
     console.log('👋 Browser closed. Done!\n');
   }
 }

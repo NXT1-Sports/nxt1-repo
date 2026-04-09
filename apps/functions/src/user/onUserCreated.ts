@@ -25,7 +25,7 @@ import { generateUnicodeForUser } from './generateUnicode';
  * // Triggered automatically by Firestore:
  * // POST /auth/signup → Backend creates user → Trigger fires → Unicode assigned
  */
-export const onUserCreatedV2 = onDocumentCreated(
+export const onUserCreatedV3 = onDocumentCreated(
   {
     document: 'Users/{userId}',
     region: 'us-central1',

@@ -275,7 +275,7 @@ async function setupApplication() {
    */
   interface RouteConfig {
     path: string;
-    rateLimitType: RateLimitType;
+    rateLimitType?: RateLimitType;
     handler: ReturnType<typeof express.Router>;
   }
 
@@ -288,7 +288,8 @@ async function setupApplication() {
     // not password-based login. 'auth' (5 req/15min) was causing 429s on profile fetch.
     { path: '/auth', rateLimitType: 'api', handler: authRoutes },
     { path: '/upload', rateLimitType: 'upload', handler: uploadRoutes },
-    { path: '/invite', rateLimitType: 'email', handler: inviteRoutes },
+    // Invite links/QR flows need to stay frictionless for coaches and team admins.
+    { path: '/invite', handler: inviteRoutes },
     // Content routes with standard API rate limiting
     { path: '/feed', rateLimitType: 'api', handler: feedRoutes },
     { path: '/explore', rateLimitType: 'api', handler: exploreRoutes },
@@ -335,8 +336,12 @@ async function setupApplication() {
    */
   async function setupRoutes(prefix: string, configs: Array<RouteConfig>): Promise<void> {
     for (const { path, rateLimitType, handler } of configs) {
-      const rateLimiter = await getRedisRateLimiter(rateLimitType);
-      app.use(`${prefix}${path}`, rateLimiter, handler);
+      if (rateLimitType) {
+        const rateLimiter = await getRedisRateLimiter(rateLimitType);
+        app.use(`${prefix}${path}`, rateLimiter, handler);
+      } else {
+        app.use(`${prefix}${path}`, handler);
+      }
     }
   }
 
@@ -353,8 +358,9 @@ async function setupApplication() {
   // Log all protected endpoints
   logger.info('🛡️ Rate Limiting Coverage:');
   logger.info(`   Health checks: SKIPPED (automatic)`);
-  logger.info(`   Sitemap (SEO): lenient (200/15min)`);
-  logger.info(`   Debug endpoint: api (100/15min)`);
+  logger.info(`   Sitemap (SEO): lenient (300/1min)`);
+  logger.info(`   Debug endpoint: api (150/1min)`);
+  logger.info(`   Invite routes: UNTHROTTLED (QR/link-first flow)`);
   logger.info(`   Production routes (${routeConfigs.length}): /api/v1/*`);
   logger.info(`   Staging routes (${routeConfigs.length}): /api/v1/staging/*`);
   logger.info(`   Total protected endpoints: ${routeConfigs.length * 2 + 2}`); // production + staging + debug + sitemap

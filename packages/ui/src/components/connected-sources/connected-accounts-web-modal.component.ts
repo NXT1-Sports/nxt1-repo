@@ -36,10 +36,7 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 import { LINK_SOURCES_TEST_IDS } from '@nxt1/core/testing';
 import type { LinkSourcesFormData, OnboardingUserType, PlatformScope } from '@nxt1/core/api';
 import { OnboardingLinkDropStepComponent } from '../../onboarding/onboarding-link-drop-step';
-import {
-  FirecrawlSignInService,
-  type FirecrawlSignInRequest,
-} from './firecrawl-signin.service';
+import { FirecrawlSignInService, type FirecrawlSignInRequest } from './firecrawl-signin.service';
 import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from './connected-accounts-modal.service';
 
 /** Result data emitted when the modal is dismissed with changes. */

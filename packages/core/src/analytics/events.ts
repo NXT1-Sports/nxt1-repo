@@ -901,6 +901,16 @@ export const APP_EVENTS = {
   LIVE_VIEW_AUTH_EXPIRED: 'live_view_auth_expired',
   /** Live view session creation failed */
   LIVE_VIEW_SESSION_FAILED: 'live_view_session_failed',
+
+  // ============================================
+  // LIVE VIEW LAUNCHER EVENTS
+  // ============================================
+  /** Live view launcher panel opened (native UI) */
+  LIVE_VIEW_LAUNCHER_OPENED: 'live_view_launcher_opened',
+  /** User launched a session from connected account in launcher */
+  LIVE_VIEW_LAUNCHER_ACCOUNT_SELECTED: 'live_view_launcher_account_selected',
+  /** User submitted a custom URL from launcher */
+  LIVE_VIEW_LAUNCHER_URL_SUBMITTED: 'live_view_launcher_url_submitted',
 } as const;
 
 export type AppEventName = (typeof APP_EVENTS)[keyof typeof APP_EVENTS];

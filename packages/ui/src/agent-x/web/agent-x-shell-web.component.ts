@@ -57,6 +57,10 @@ import { ConnectedAccountsModalService } from '../../components/connected-source
 import { AgentXService } from '../agent-x.service';
 import { LiveViewSessionService } from '../live-view-session.service';
 import { AgentXDashboardSkeletonComponent } from '../agent-x-dashboard-skeleton.component';
+import {
+  LiveViewLauncherComponent,
+  type LiveViewLaunchEvent,
+} from './live-view-launcher.component';
 import { AgentXControlPanelComponent } from '../agent-x-control-panel.component';
 import { AgentXOperationsLogComponent } from '../agent-x-operations-log.component';
 import {
@@ -73,6 +77,7 @@ import {
 import { NxtToastService } from '../../services/toast/toast.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import { NxtLoggingService } from '../../services/logging/logging.service';
+import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { NxtPlatformService } from '../../services/platform/platform.service';
 import {
   AgentXOperationEventService,
@@ -91,13 +96,14 @@ import { TEST_IDS } from '@nxt1/core/testing';
 
 /**
  * Content descriptor for the expanded side panel.
- * - `'live-view'` — Firecrawl interactive browser iframe
- * - `'image'`     — Rich image preview
- * - `'video'`     — Inline video player
- * - `'doc'`       — Document / PDF preview placeholder
+ * - `'live-view'`          — Firecrawl interactive browser iframe
+ * - `'live-view-launcher'` — Native launcher UI (connected sources + custom URL)
+ * - `'image'`              — Rich image preview
+ * - `'video'`              — Inline video player
+ * - `'doc'`                — Document / PDF preview placeholder
  */
 export interface ExpandedSidePanelContent {
-  readonly type: 'live-view' | 'image' | 'video' | 'doc';
+  readonly type: 'live-view' | 'live-view-launcher' | 'image' | 'video' | 'doc';
   readonly url: string;
   readonly title?: string;
   /** When type is 'live-view', the session ID for backend refresh/navigate/close. */
@@ -121,6 +127,7 @@ interface AgentXDesktopSession {
   readonly contextType: 'operation' | 'command';
   readonly contextDescription?: string;
   readonly quickActions?: readonly OperationQuickAction[];
+  readonly scheduledActions?: readonly OperationQuickAction[];
   readonly initialMessage?: string;
   readonly threadId?: string;
   readonly operationStatus?: 'processing' | 'complete' | 'error' | 'awaiting_input' | null;
@@ -146,6 +153,7 @@ interface AgentXDesktopResizeState {
     AgentXOperationsLogComponent,
     AgentXOperationChatComponent,
     AgentXPromptInputComponent,
+    LiveViewLauncherComponent,
   ],
   template: `
     <!-- Portal: center — Agent X title + centered nav pills -->
@@ -467,6 +475,7 @@ interface AgentXDesktopResizeState {
                 [contextType]="session.contextType"
                 [contextDescription]="session.contextDescription ?? ''"
                 [quickActions]="session.quickActions ?? []"
+                [scheduledActions]="session.scheduledActions ?? []"
                 [initialMessage]="session.initialMessage ?? ''"
                 [threadId]="session.threadId ?? ''"
                 [yieldState]="session.yieldState ?? null"
@@ -714,80 +723,82 @@ interface AgentXDesktopResizeState {
               <div class="agent-column-header-row">
                 <h2 class="agent-column-title">{{ expandedPanelTitle() }}</h2>
                 <div class="expanded-panel__actions">
-                  <!-- Copy Link -->
-                  <button
-                    type="button"
-                    class="rail-close-btn"
-                    (click)="copyExpandedPanelUrl(panel.url)"
-                    aria-label="Copy link"
-                    title="Copy link"
-                    [attr.data-testid]="lvTestIds.COPY_LINK_BUTTON"
-                  >
-                    <nxt1-icon name="link" [size]="16"></nxt1-icon>
-                  </button>
-                  <!-- Open in New Tab -->
-                  <a
-                    [href]="panel.url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="rail-close-btn"
-                    style="text-decoration: none;"
-                    aria-label="Open in new tab"
-                    title="Open in new tab"
-                    [attr.data-testid]="lvTestIds.OPEN_EXTERNAL_LINK"
-                  >
-                    <svg
-                      width="15"
-                      height="15"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                      <polyline points="15 3 21 3 21 9"></polyline>
-                      <line x1="10" y1="14" x2="21" y2="3"></line>
-                    </svg>
-                  </a>
-                  <!-- Refresh (Live View Only) -->
-                  @if (panel.type === 'live-view') {
+                  @if (panel.type !== 'live-view-launcher') {
+                    <!-- Copy Link -->
                     <button
                       type="button"
                       class="rail-close-btn"
-                      (click)="refreshExpandedPanel()"
-                      aria-label="Refresh view"
-                      title="Refresh"
-                      [attr.data-testid]="lvTestIds.REFRESH_BUTTON"
+                      (click)="copyExpandedPanelUrl(panel.url)"
+                      aria-label="Copy link"
+                      title="Copy link"
+                      [attr.data-testid]="lvTestIds.COPY_LINK_BUTTON"
                     >
-                      <nxt1-icon name="refresh" [size]="16"></nxt1-icon>
+                      <nxt1-icon name="link" [size]="16"></nxt1-icon>
+                    </button>
+                    <!-- Open in New Tab -->
+                    <a
+                      [href]="panel.url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="rail-close-btn"
+                      style="text-decoration: none;"
+                      aria-label="Open in new tab"
+                      title="Open in new tab"
+                      [attr.data-testid]="lvTestIds.OPEN_EXTERNAL_LINK"
+                    >
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                        <polyline points="15 3 21 3 21 9"></polyline>
+                        <line x1="10" y1="14" x2="21" y2="3"></line>
+                      </svg>
+                    </a>
+                    <!-- Refresh (Live View Only) -->
+                    @if (panel.type === 'live-view') {
+                      <button
+                        type="button"
+                        class="rail-close-btn"
+                        (click)="refreshExpandedPanel()"
+                        aria-label="Refresh view"
+                        title="Refresh"
+                        [attr.data-testid]="lvTestIds.REFRESH_BUTTON"
+                      >
+                        <nxt1-icon name="refresh" [size]="16"></nxt1-icon>
+                      </button>
+                    }
+                    <!-- Fullscreen (Big Screen / HDMI) -->
+                    <button
+                      type="button"
+                      class="rail-close-btn"
+                      (click)="toggleExpandedPanelFullscreen()"
+                      aria-label="Toggle fullscreen"
+                      title="Fullscreen"
+                      [attr.data-testid]="lvTestIds.FULLSCREEN_BUTTON"
+                    >
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path
+                          d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"
+                        ></path>
+                      </svg>
                     </button>
                   }
-                  <!-- Fullscreen (Big Screen / HDMI) -->
-                  <button
-                    type="button"
-                    class="rail-close-btn"
-                    (click)="toggleExpandedPanelFullscreen()"
-                    aria-label="Toggle fullscreen"
-                    title="Fullscreen"
-                    [attr.data-testid]="lvTestIds.FULLSCREEN_BUTTON"
-                  >
-                    <svg
-                      width="15"
-                      height="15"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path
-                        d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"
-                      ></path>
-                    </svg>
-                  </button>
                   <!-- Close Button -->
                   <button
                     type="button"
@@ -805,6 +816,19 @@ interface AgentXDesktopResizeState {
 
             <div class="expanded-panel__body">
               @switch (panel.type) {
+                @case ('live-view-launcher') {
+                  @if (expandedPanelIframeLoading()) {
+                    <div
+                      class="expanded-panel__loader"
+                      [attr.data-testid]="lvTestIds.LOADING_STATE"
+                    >
+                      <div class="expanded-panel__spinner"></div>
+                      <span class="expanded-panel__loader-text">Starting live view session…</span>
+                    </div>
+                  } @else {
+                    <nxt1-live-view-launcher (launch)="onLiveViewLaunch($event)" />
+                  }
+                }
                 @case ('live-view') {
                   @if (expandedPanelIframeLoading()) {
                     <div
@@ -3383,6 +3407,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly agentX = inject(AgentXService);
   protected readonly controlPanelState = inject(AgentXControlPanelStateService);
   private readonly logger = inject(NxtLoggingService).child('AgentXShellWeb');
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly overlay = inject(NxtOverlayService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
   private readonly headerPortal = inject(NxtHeaderPortalService);
@@ -3530,6 +3555,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly expandedPanelTitle = computed(() => {
     const panel = this.expandedSidePanel();
     if (!panel) return '';
+    if (panel.type === 'live-view-launcher') return 'Live View';
     return panel.title || (panel.type === 'live-view' ? 'Live View' : 'Preview');
   });
 
@@ -4357,7 +4383,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  /** Dev toggle: starts a real Firecrawl live view session or closes the panel. */
+  /** Toggle the live-view launcher panel (or close it if already open). */
   protected async toggleDevLiveView(): Promise<void> {
     await this.haptics.impact('light');
 
@@ -4366,16 +4392,39 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    // Start a real session via the backend
-    const defaultUrl = 'https://www.google.com';
-    const session = await this.liveView.startSession(defaultUrl);
+    // Open the native launcher UI inside the panel instead of starting a session immediately
+    this.openExpandedSidePanel({
+      type: 'live-view-launcher',
+      url: '',
+      title: 'Live View',
+    });
+  }
+
+  /** Called when the launcher component emits a destination (account card or custom URL). */
+  protected async onLiveViewLaunch(event: LiveViewLaunchEvent): Promise<void> {
+    this.logger.info('Live view launch requested', {
+      url: event.url,
+      source: event.source,
+      platform: event.platformKey,
+    });
+    this.breadcrumb.trackStateChange('live-view-session-starting', { source: event.source });
+
+    // Show loading state in the panel
+    this.expandedPanelIframeLoading.set(true);
+
+    const session = await this.liveView.startSession(event.url, event.platformKey);
     if (session) {
-      this.openExpandedSidePanel({
+      // Seamlessly swap from the launcher UI to the live iframe
+      this.expandedSidePanel.set({
         type: 'live-view',
         url: session.interactiveUrl,
         title: `Live View — ${session.domainLabel}`,
         sessionId: session.sessionId,
       });
+    } else {
+      // Session failed — stay on launcher, clear loading
+      this.expandedPanelIframeLoading.set(false);
+      this.toast.error('Failed to start live view session. Please try again.');
     }
   }
 
@@ -4405,6 +4454,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         contextType: 'command',
         contextDescription: cat.description ?? '',
         quickActions: this.buildCoordinatorQuickActions(cat),
+        scheduledActions: this.buildCoordinatorScheduledActions(cat),
       },
       size: 'full',
       backdropDismiss: true,
@@ -4494,11 +4544,21 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       contextType: 'command',
       contextDescription: coord.description,
       quickActions: this.buildCoordinatorQuickActions(coord),
+      scheduledActions: this.buildCoordinatorScheduledActions(coord),
     });
   }
 
   private buildCoordinatorQuickActions(coord: CommandCategory): OperationQuickAction[] {
     return coord.commands.map((cmd) => ({
+      id: cmd.id,
+      label: cmd.label,
+      icon: cmd.icon,
+      description: cmd.subLabel,
+    }));
+  }
+
+  private buildCoordinatorScheduledActions(coord: CommandCategory): OperationQuickAction[] {
+    return (coord.scheduledActions ?? []).map((cmd) => ({
       id: cmd.id,
       label: cmd.label,
       icon: cmd.icon,

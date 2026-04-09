@@ -17,8 +17,8 @@ export const RATE_LIMIT_THRESHOLDS = {
   email: { window: '1hour', max: 3, description: 'Email sending' },
   upload: { window: '15min', max: 20, description: 'File/video uploads' },
   search: { window: '15min', max: 50, description: 'Search and discovery' },
-  api: { window: '15min', max: 100, description: 'Standard API endpoints' },
-  lenient: { window: '15min', max: 200, description: 'Less sensitive endpoints' },
+  api: { window: '1min', max: 150, description: 'Standard API endpoints' },
+  lenient: { window: '1min', max: 300, description: 'Less sensitive endpoints' },
 } as const;
 
 /**
@@ -43,11 +43,11 @@ export const ROUTE_COVERAGE = {
     description: 'File uploads and video processing',
   },
 
-  // Email operations (very strict)
+  // Invite flows (unthrottled for QR/link onboarding)
   invite: {
-    rateLimitType: 'email' as RateLimitType,
     paths: ['/api/v1/invite', '/api/v1/staging/invite'],
-    description: 'Email invitations and sending',
+    description: 'Invite links, QR onboarding, and invite tracking',
+    protection: 'UNTHROTTLED',
   },
 
   // Search and discovery (moderate)
@@ -142,7 +142,9 @@ export function getCoverageStats() {
     .filter((route) => 'rateLimitType' in route)
     .reduce((total, route) => total + route.paths.length, 0);
 
-  const skipped_endpoints = ROUTE_COVERAGE.healthChecks.paths.length;
+  const skipped_endpoints = Object.values(ROUTE_COVERAGE)
+    .filter((route) => !('rateLimitType' in route))
+    .reduce((total, route) => total + route.paths.length, 0);
 
   const total_endpoints = protected_endpoints + skipped_endpoints;
 

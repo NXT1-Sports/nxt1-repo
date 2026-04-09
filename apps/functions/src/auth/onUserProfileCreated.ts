@@ -17,7 +17,7 @@ const db = admin.firestore();
  * On user profile created - initialize user data
  * Triggered when a new user document is created in Firestore.
  */
-export const onUserProfileCreatedV2 = onDocumentCreated('users/{userId}', async (event) => {
+export const onUserProfileCreatedV3 = onDocumentCreated('users/{userId}', async (event) => {
   const snapshot = event.data;
   if (!snapshot) {
     logger.warn('No data in user profile creation event');

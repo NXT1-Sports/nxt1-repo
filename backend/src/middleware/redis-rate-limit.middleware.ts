@@ -88,18 +88,18 @@ const RATE_LIMIT_CONFIGS = {
     retryAfterSeconds: 900, // 15 minutes
   },
 
-  // Standard API endpoints
+  // Standard API endpoints sized for SPA burst traffic
   api: {
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // 100 requests per window
-    retryAfterSeconds: 900, // 15 minutes
+    windowMs: 60 * 1000, // 1 minute
+    max: 150, // 150 requests per minute
+    retryAfterSeconds: 60, // 1 minute
   },
 
-  // Lenient rate limit for less sensitive endpoints
+  // Lenient rate limit for less sensitive or high-volume endpoints
   lenient: {
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 200, // 200 requests per window
-    retryAfterSeconds: 900, // 15 minutes
+    windowMs: 60 * 1000, // 1 minute
+    max: 300, // 300 requests per minute
+    retryAfterSeconds: 60, // 1 minute
   },
 } as const;
 
