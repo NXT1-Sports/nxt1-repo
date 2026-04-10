@@ -103,7 +103,7 @@ jobs:
           cache: 'npm'
 
       - name: Download web assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: mobile-www
           path: apps/mobile/www
@@ -212,7 +212,7 @@ jobs:
           cache: 'gradle'
 
       - name: Download web assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: mobile-www
           path: apps/mobile/www
@@ -308,14 +308,14 @@ jobs:
 
       - name: Download iOS artifact
         if: needs.build-ios.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ios-build-${{ inputs.profile || 'development' }}
           path: artifacts/ios
 
       - name: Download Android artifact
         if: needs.build-android.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: android-build-${{ inputs.profile || 'development' }}
           path: artifacts/android
