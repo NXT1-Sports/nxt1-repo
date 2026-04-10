@@ -105,7 +105,7 @@
     "tailwindcss": "^3.4.19",
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
-    "typescript-eslint": "^8.52.0"
+    "typescript-eslint": "^8.58.1"
   },
   "dependencies": {
     "@angular/animations": "^21.2.0",
