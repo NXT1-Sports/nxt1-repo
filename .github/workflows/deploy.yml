@@ -53,7 +53,7 @@ jobs:
       core: ${{ steps.filter.outputs.core }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Filter paths
         uses: dorny/paths-filter@v3
@@ -81,7 +81,7 @@ jobs:
     needs: changes
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -131,7 +131,7 @@ jobs:
       url: ${{ steps.deploy.outputs.url }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download web artifacts
         uses: actions/download-artifact@v8
@@ -163,7 +163,7 @@ jobs:
       name: ${{ github.event.inputs.environment || 'staging' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download backend artifacts
         uses: actions/download-artifact@v8
@@ -217,7 +217,7 @@ jobs:
       name: ${{ github.event.inputs.environment || 'staging' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

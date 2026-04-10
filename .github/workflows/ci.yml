@@ -43,7 +43,7 @@ jobs:
       any_code: ${{ steps.filter.outputs.any_code }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Filter paths
         uses: dorny/paths-filter@v3
@@ -110,7 +110,7 @@ jobs:
     if: needs.changes.outputs.any_code == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -145,7 +145,7 @@ jobs:
     if: needs.changes.outputs.any_code == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -176,7 +176,7 @@ jobs:
     needs: [lint, typecheck]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -212,7 +212,7 @@ jobs:
     if: needs.changes.outputs.web == 'true' || needs.changes.outputs.core == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -258,7 +258,7 @@ jobs:
     if: needs.changes.outputs.mobile == 'true' || needs.changes.outputs.core == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -300,7 +300,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -340,7 +340,7 @@ jobs:
     if: needs.changes.outputs.any_code == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run npm audit
         run: npm audit --audit-level=high
@@ -435,7 +435,7 @@ jobs:
     if: always()
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Determine overall status
         id: status
