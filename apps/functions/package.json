@@ -35,7 +35,7 @@
     "@types/lodash": "^4.17.13",
     "@types/node": "^25.2.3",
     "@types/nodemailer": "^7.0.9",
-    "@vitest/coverage-v8": "^4.0.18",
+    "@vitest/coverage-v8": "^4.1.4",
     "@vitest/ui": "^4.0.18",
     "firebase-functions-test": "^3.3.0",
     "typescript": "~5.9.3",
