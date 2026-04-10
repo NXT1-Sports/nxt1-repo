@@ -148,7 +148,7 @@
     "firebase": "^12.9.0",
     "rimraf": "^6.1.2",
     "typescript": "~5.9.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.4"
   },
   "peerDependencies": {
     "firebase": ">=10.0.0"
