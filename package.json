@@ -85,7 +85,7 @@
     "@capgo/native-purchases": "^8.3.0",
     "@commitlint/cli": "^20.4.1",
     "@commitlint/config-conventional": "^20.4.1",
-    "@eslint/js": "^9.39.2",
+    "@eslint/js": "^10.0.1",
     "@tailwindcss/aspect-ratio": "^0.4.2",
     "@tailwindcss/forms": "^0.5.11",
     "@tailwindcss/typography": "^0.5.19",
@@ -94,7 +94,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^25.2.3",
     "dotenv": "^17.2.3",
-    "eslint": "^9.39.2",
+    "eslint": "^10.2.0",
     "globals": "^17.0.0",
     "happy-dom": "^20.8.9",
     "husky": "^9.1.0",
@@ -105,7 +105,7 @@
     "tailwindcss": "^3.4.19",
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
-    "typescript-eslint": "^8.52.0"
+    "typescript-eslint": "^8.58.1"
   },
   "dependencies": {
     "@angular/animations": "^21.2.0",
