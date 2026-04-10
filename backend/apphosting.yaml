@@ -1,8 +1,9 @@
 # Firebase App Hosting Configuration - Backend (Express.js API)
-# rootDirectory is set to backend/ in the Firebase console
+# rootDirectory MUST be set to "backend" in the Firebase console.
 
 scripts:
-  buildCommand: npm run build
+  # Move to monorepo root, install all deps, then build just the backend (and @nxt1/core)
+  buildCommand: cd .. && npm ci && npx turbo run build --filter=@nxt1/backend
   runCommand: node dist/index.js
 
 runConfig:
