@@ -389,7 +389,7 @@ jobs:
     if: github.event_name == 'pull_request' && always()
     steps:
       - name: Post PR comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const results = {
