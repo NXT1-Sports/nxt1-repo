@@ -232,7 +232,7 @@ describe('ContextBuilder', () => {
       expect(ctx.weightLbs).toBe(195);
       expect(ctx.graduationYear).toBe(2027);
       expect(ctx.gpa).toBe(3.8);
-      expect(ctx.school).toBe('Lincoln High School');
+      expect(ctx.school).toBe('Lincoln HS');
       expect(ctx.city).toBe('Dallas');
       expect(ctx.state).toBe('TX');
     });
@@ -369,7 +369,7 @@ describe('ContextBuilder', () => {
       expect(prompt).toContain('Sport: football');
       expect(prompt).toContain('Pos: QB');
       expect(prompt).toContain('Class: 2027');
-      expect(prompt).toContain('School: Lincoln High School, Dallas, TX');
+      expect(prompt).toContain('School: Lincoln HS, Dallas, TX');
       expect(prompt).toContain('GPA: 3.8');
       expect(prompt).toContain('Height: 6\'2"');
       expect(prompt).toContain('Weight: 195lb');

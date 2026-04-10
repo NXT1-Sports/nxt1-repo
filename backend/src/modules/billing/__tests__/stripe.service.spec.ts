@@ -6,12 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Firestore } from 'firebase-admin/firestore';
 import Stripe from 'stripe';
-import {
-  getOrCreateCustomer,
-  createInvoiceItem,
-  attachPaymentMethod,
-  cancelActiveSubscriptionsForUser,
-} from '../stripe.service.js';
+import { getOrCreateCustomer, createInvoiceItem, attachPaymentMethod } from '../stripe.service.js';
 
 // Mock Stripe
 vi.mock('stripe', () => {
@@ -200,17 +195,6 @@ describe('Stripe Service', () => {
       });
 
       await expect(attachPaymentMethod('cus_test123', 'invalid_pm', 'staging')).rejects.toThrow();
-    });
-  });
-
-  describe('cancelActiveSubscriptionsForUser', () => {
-    it('should cancel active subscriptions for cached Stripe customers', async () => {
-      const { mockDb } = createMockFirestore();
-
-      const result = await cancelActiveSubscriptionsForUser(mockDb, 'user123', 'production');
-
-      expect(result.customerIds).toEqual(['cus_existing']);
-      expect(result.canceledSubscriptionIds).toEqual(['sub_active']);
     });
   });
 });

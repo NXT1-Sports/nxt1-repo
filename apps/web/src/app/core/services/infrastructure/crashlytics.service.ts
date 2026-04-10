@@ -580,9 +580,6 @@ export class CrashlyticsService implements CrashlyticsAdapter {
       if (this._customKeys[CRASH_KEYS.USER_ROLE]) {
         properties['user_role'] = String(this._customKeys[CRASH_KEYS.USER_ROLE]);
       }
-      if (this._customKeys[CRASH_KEYS.SUBSCRIPTION_TIER]) {
-        properties['subscription_tier'] = String(this._customKeys[CRASH_KEYS.SUBSCRIPTION_TIER]);
-      }
       if (this._customKeys[CRASH_KEYS.ENVIRONMENT]) {
         properties['app_env'] = String(this._customKeys[CRASH_KEYS.ENVIRONMENT]);
       }

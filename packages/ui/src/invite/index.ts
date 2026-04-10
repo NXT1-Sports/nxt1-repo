@@ -42,18 +42,3 @@ export {
 } from './invite-bottom-sheet.service';
 
 // ============================================
-// MOCK DATA (for development)
-// ============================================
-
-export {
-  MOCK_INVITE_STATS,
-  MOCK_INVITE_ACHIEVEMENTS,
-  MOCK_INVITE_HISTORY,
-  MOCK_INVITE_LINK,
-  MOCK_TEAMS as MOCK_INVITE_TEAMS,
-  getMockInviteStats,
-  getMockAchievements,
-  getMockInviteHistory,
-  getMockInviteLink,
-  getMockTeams,
-} from './invite.mock-data';

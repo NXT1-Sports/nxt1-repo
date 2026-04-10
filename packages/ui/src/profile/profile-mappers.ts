@@ -253,16 +253,12 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     ? user.connectedSources.map(mapConnectedSource)
     : undefined;
 
-  // ── Stats verification (from active sport's verification) ───────────────────
-  const sportVerif = activeSport?.verification;
-  const statsVerifiedBy = sportVerif?.statsVerifiedBy ?? undefined;
-  const statsVerifiedUrl = sportVerif?.statsVerifiedUrl ?? undefined;
-
-  // Agnostic section-level verifications (2026 architecture).
-  // Merge sport-level verifications into the ProfileUser.verifications array.
-  const verifications: readonly DataVerification[] | undefined = activeSport?.verifications?.length
-    ? (activeSport.verifications as DataVerification[])
-    : undefined;
+  // ── Stats verification ───────────────────────────────────────────────────
+  // Legacy sport.verification / sport.verifications have been removed.
+  // statsVerifiedBy / statsVerifiedUrl are no longer populated from sport data.
+  const statsVerifiedBy: string | undefined = undefined;
+  const statsVerifiedUrl: string | undefined = undefined;
+  const verifications: readonly DataVerification[] | undefined = undefined;
 
   // ── Academic data (top-level canonical, athlete.academics fallback) ────────
   const academics = user.academics ?? user.athlete?.academics;
@@ -345,8 +341,8 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
 
     // Physical attributes
     classYear: user.classOf?.toString(),
-    height: user.height,
-    weight: user.weight,
+    height: user.measurables?.find((m) => m.field === 'height')?.value?.toString(),
+    weight: user.measurables?.find((m) => m.field === 'weight')?.value?.toString(),
 
     // Verification — deprecated flat fields (sport.verification)
     statsVerifiedBy,

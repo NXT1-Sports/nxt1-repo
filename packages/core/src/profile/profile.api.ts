@@ -29,7 +29,7 @@ import type {
   MediaData,
   ParentData,
   UserPreferences,
-} from '../models/user.model';
+} from '../models/user';
 
 // ============================================
 // COMMON API RESPONSE TYPES

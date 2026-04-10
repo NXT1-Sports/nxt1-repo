@@ -172,7 +172,7 @@ export class ContextBuilder {
 
   /**
    * Invalidate the cached context for a user.
-   * Call this when the user updates their profile, subscription, or connected accounts.
+   * Call this when the user updates their profile or connected accounts.
    */
   async invalidateContext(userId: string): Promise<void> {
     try {
@@ -192,7 +192,7 @@ export class ContextBuilder {
    * "User: John Doe | Role: Athlete | Sport: Football | Pos: QB | Class: 2027
    *  School: Lincoln HS, Dallas TX | GPA: 3.8 | Height: 6'2" | Weight: 195lb
    *  Targets: D1, D2 | Top Schools: Georgia, Texas, Ohio State
-   *  Status: Uncommitted | Tier: Premium | Profile: 85% complete"
+   *  Status: Uncommitted | Profile: 85% complete"
    */
   compressToPrompt(context: AgentUserContext): string {
     const lines: string[] = [];
@@ -285,9 +285,6 @@ export class ContextBuilder {
       (user['displayName'] as string) ??
       ([firstName, lastName].filter(Boolean).join(' ') || 'Unknown User');
 
-    // Resolve subscription tier
-    // (planTier removed — metered billing only)
-
     // ── Active sport profile ──────────────────────────────────────────────
     const sports = user['sports'] as Array<Record<string, unknown>> | undefined;
     const activeSportIndex = (user['activeSportIndex'] as number) ?? 0;
@@ -298,15 +295,19 @@ export class ContextBuilder {
     const position = positions?.[0];
 
     // ── Physical attributes ───────────────────────────────────────────────
-    // Try top-level fields first (some docs store height/weight at root),
-    // then fall back to metrics inside the active sport profile
+    // Try top-level fields first (legacy), then measurables[], then sport metrics
+    const measurables = user['measurables'] as
+      | Array<{ field: string; value: string | number }>
+      | undefined;
     const heightInches =
       parseHeightToInches(user['height'] as string | undefined) ??
+      parseHeightToInches(measurables?.find((m) => m.field === 'height')?.value?.toString()) ??
       parseHeightToInches(
         (activeSport?.['metrics'] as Record<string, string> | undefined)?.['height']
       );
     const weightLbs =
       parseWeight(user['weight'] as string | undefined) ??
+      parseWeight(measurables?.find((m) => m.field === 'weight')?.value?.toString()) ??
       parseWeight((activeSport?.['metrics'] as Record<string, string> | undefined)?.['weight']);
 
     // ── Athlete / graduation data ─────────────────────────────────────────
@@ -324,17 +325,25 @@ export class ContextBuilder {
     const state = location?.['state'] ?? (user['state'] as string | undefined);
 
     // ── School ────────────────────────────────────────────────────────────
-    const school =
-      (user['highSchool'] as string | undefined) ?? (athlete?.['highSchool'] as string | undefined);
+    // (resolved below after activeSportTeam is available)
 
     // ── Team context (from active sport profile) ─────────────────────────
     const activeSportTeam = activeSport?.['team'] as Record<string, unknown> | undefined;
     const teamId = activeSportTeam?.['teamId'] as string | undefined;
     const organizationId = activeSportTeam?.['organizationId'] as string | undefined;
 
+    // V2-first: extract team name from sports[].team, fall back to legacy highSchool
+    const school =
+      (activeSportTeam?.['name'] as string | undefined) ??
+      (user['highSchool'] as string | undefined) ??
+      (athlete?.['highSchool'] as string | undefined);
+
     // ── Coach-specific ────────────────────────────────────────────────────
     const coach = user['coach'] as Record<string, unknown> | undefined;
-    const coachProgram = coach?.['organization'] as string | undefined;
+    // V2-first: prefer team name from sports[].team over legacy coach.organization
+    const coachProgram =
+      (activeSportTeam?.['name'] as string | undefined) ??
+      (coach?.['organization'] as string | undefined);
     const coachDivision = coach?.['division'] as string | undefined;
     const coachSport = role === 'coach' ? sport : undefined;
 

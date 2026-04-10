@@ -5,13 +5,9 @@
  *
  * Role-aware sport selection step for onboarding.
  * Collects the primary sport plus role-specific details:
- * - Athletes/Parents: sport + position
+ * - Athletes: sport + position
  * - Coaches: sport + title
- *
- * Team info and positions are collected LATER based on role:
- * - Athletes: Asked for team/positions in athlete-specific flow
- * - Coaches: Asked for team they coach
- * - Fans: No team/positions needed
+ * - Directors: sport only
  *
  * ⭐ 2026 UX BEST PRACTICES:
  * - Progressive disclosure: Only ask what's needed NOW
@@ -478,7 +474,7 @@ export class OnboardingSportStepComponent {
 
   readonly showPositionSelection = computed(() => {
     const currentRole = this.role();
-    return currentRole === USER_ROLES.ATHLETE || currentRole === USER_ROLES.PARENT;
+    return currentRole === USER_ROLES.ATHLETE;
   });
 
   readonly showCoachTitleSelection = computed(() => this.role() === USER_ROLES.COACH);
@@ -554,12 +550,6 @@ export class OnboardingSportStepComponent {
     if (currentRole === USER_ROLES.DIRECTOR) {
       return 'Choose one sport for now. You can add more later.';
     }
-    if (currentRole === USER_ROLES.RECRUITER) {
-      return 'Choose one sport for now. You can add more later.';
-    }
-    if (currentRole === USER_ROLES.PARENT) {
-      return "Choose your athlete's sport and position.";
-    }
     if (currentRole === USER_ROLES.ATHLETE) {
       return 'Choose your sport and position.';
     }
@@ -569,8 +559,7 @@ export class OnboardingSportStepComponent {
   /** Whether to show the "Choose up to X" hint (athletes only) */
   readonly showMaxHint = computed((): boolean => {
     const currentRole = this.role();
-    const isAthlete =
-      !currentRole || currentRole === USER_ROLES.ATHLETE || currentRole === USER_ROLES.PARENT;
+    const isAthlete = !currentRole || currentRole === USER_ROLES.ATHLETE;
     return isAthlete && this.maxSports() > 1;
   });
 

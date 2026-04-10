@@ -459,7 +459,7 @@ export const AGENT_MODEL_PRICING: Record<string, { input: number; output: number
   'meta-llama/llama-guard-3-8b': { input: 0.2, output: 0.2 },
   'minimax/minimax-m2.7': { input: 0.3, output: 1.2 },
   'openai/text-embedding-3-small': { input: 0.02, output: 0.0 },
-  'qwen/qwen3.6-plus:free': { input: 0.0, output: 0.0 },
+  'qwen/qwen3.6-plus': { input: 0.4, output: 1.2 },
 } as const;
 
 /** @deprecated Use OPERATION_STATUS_LABELS directly — all statuses are now included. */

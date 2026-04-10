@@ -44,7 +44,6 @@ export type {
 // Section Components
 export {
   UsageOverviewComponent,
-  UsageSubscriptionsComponent,
   UsageChartComponent,
   UsageBreakdownTableComponent,
   UsagePaymentHistoryComponent,

@@ -100,8 +100,6 @@ export {
   type PersistenceSchoolFormData,
   type PersistenceOrganizationFormData,
   type PersistenceSportFormData,
-  type PersistencePositionsFormData,
-  type PersistenceContactFormData,
   type PersistenceFormData,
   type PersistenceUserType,
   DEFAULT_RETRY_CONFIG,
@@ -154,9 +152,7 @@ export {
   // Legacy types (deprecated)
   type TeamFormData,
   type SchoolFormData, // @deprecated - use SportFormData
-  type PositionsFormData, // @deprecated - use SportFormData
   type OrganizationFormData,
-  type ContactFormData,
   // ReferralSourceData is NOT re-exported - use from auth/auth.api
   type OnboardingFormData,
   type NavigationState,
@@ -186,8 +182,6 @@ export {
   validateSchool, // @deprecated - use validateTeam
   validateOrganization,
   validateSport,
-  validatePositions, // @deprecated - use validateSport
-  validateContact,
   canNavigateNext,
   canNavigatePrevious,
   canNavigateToStep,

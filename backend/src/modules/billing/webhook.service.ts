@@ -549,15 +549,6 @@ export async function handleWebhookEvent(
       await handleCheckoutSessionCompleted(db, event.data.object as Stripe.Checkout.Session);
       break;
 
-    case 'customer.subscription.created':
-    case 'customer.subscription.updated':
-    case 'customer.subscription.deleted':
-      // We don't use subscriptions, but log for debugging
-      logger.info('[handleWebhookEvent] Subscription event ignored (usage-based billing only)', {
-        eventType: event.type,
-      });
-      break;
-
     default:
       logger.info('[handleWebhookEvent] Unhandled event type', {
         eventType: event.type,

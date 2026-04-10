@@ -37,7 +37,7 @@ import type {
   UserAward,
   AcademicInfo,
 } from './user-base.model';
-import type { SportProfile } from './user-sport.model';
+import type { SportProfile, VerifiedMetric } from './user-sport.model';
 import type {
   AthleteData,
   CoachData,
@@ -55,11 +55,8 @@ export type { Gender } from '../../constants/user.constants';
 // TEAM CODE (legacy import)
 // ============================================
 
-import type { TeamCode } from '../team-code.model';
-export type { TeamCode } from '../team-code.model';
-
-// Legacy types
-import type { TeamCustomLink } from '../legacy/user-legacy.model';
+import type { TeamCode } from '../team/team-code.model';
+export type { TeamCode } from '../team/team-code.model';
 
 // ============================================
 // USER PREFERENCES
@@ -176,12 +173,14 @@ export interface User {
   verificationStatus?: VerificationStatus;
 
   // ============================================
-  // PHYSICAL ATTRIBUTES (top-level for quick access)
+  // MEASURABLES (2026 Agentic Architecture)
   // ============================================
-  /** Height (e.g., '6\'2"' or '188cm') */
-  height?: string;
-  /** Weight (e.g., '185 lbs' or '84kg') */
-  weight?: string;
+  /**
+   * Verified athletic measurements (height, weight, combine metrics, etc.).
+   * Root-level because physical traits are per-human, not per-sport.
+   * Replaces legacy flat `height` / `weight` string fields.
+   */
+  measurables?: VerifiedMetric[];
 
   // ============================================
   // CLASS / GRADUATION (top-level, source of truth)
@@ -309,13 +308,6 @@ export interface User {
   // ============================================
   /** Team code reference */
   teamCode?: TeamCode | null;
-  /** Team code trial info */
-  teamCodeTrial?: {
-    id: string;
-    expireAt: Date | string;
-    isActive: boolean;
-    expiredAt?: Date | string;
-  };
 
   // ============================================
   // SUB-COLLECTIONS ARCHITECTURE
@@ -336,14 +328,6 @@ export interface User {
   //   users/{uid}/following/{userId}         — Follow relationships
   //   users/{uid}/sports/{sportId}/gameStats/ — Game stats
   // ============================================
-
-  /** Team links for coach pages */
-  teamLinks?: {
-    newsPageUrl?: string;
-    schedulePageUrl?: string;
-    registrationUrl?: string;
-    customLinks?: TeamCustomLink[];
-  };
 }
 
 // ============================================

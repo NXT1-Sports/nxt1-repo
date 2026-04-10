@@ -27,6 +27,8 @@ import {
 import { getCacheService, CACHE_TTL } from './cache.service.js';
 import { notFoundError, conflictError, validationError, forbiddenError } from '@nxt1/core/errors';
 import { logger } from '../utils/logger.js';
+import { RosterEntryService } from './roster-entry.service.js';
+import { RosterEntryStatus } from '@nxt1/core/models';
 
 // Helper to get cache
 const getCache = () => getCacheService();
@@ -76,21 +78,17 @@ function docToTeamCode(doc: FirebaseFirestore.DocumentSnapshot): TeamCode {
     panelMember: data['panelMember'] ?? 0,
     members: data['members'] ?? [],
     memberIds: data['memberIds'] ?? [],
-    packageId: data['packageId'] ?? '',
     isActive: data['isActive'] ?? false,
     createdAt:
       data['createdAt']?.toDate?.() ??
       data['createdAt'] ??
       data['createAt']?.toDate?.() ??
       data['createAt'],
-    createAt: data['createAt']?.toDate?.() ?? data['createAt'],
     expireAt: data['expireAt']?.toDate?.() ?? data['expireAt'],
     logoUrl: data['logoUrl'] ?? data['teamLogoImg'],
     teamLogoImg: data['teamLogoImg'] ?? data['logoUrl'],
     primaryColor: data['primaryColor'] ?? data['teamColor1'],
-    teamColor1: data['teamColor1'] ?? data['primaryColor'],
     secondaryColor: data['secondaryColor'] ?? data['teamColor2'],
-    teamColor2: data['teamColor2'] ?? data['secondaryColor'],
     mascot: data['mascot'],
     unicode: data['unicode'],
     slug: data['slug'],
@@ -133,28 +131,6 @@ function validateTeamCodeFormat(code: string): void {
       {
         field: 'teamCode',
         message: 'Team code can only contain letters, numbers, hyphens, and underscores',
-        rule: 'pattern',
-      },
-    ]);
-  }
-}
-
-/**
- * Validate unicode format
- * - Team (created by admin): 6 digits
- * - Member profiles (athlete/coach/media): 8 digits (team_unicode + role_suffix)
- * - Legacy data: Accept 6-8 digits for backward compatibility
- */
-function validateUnicodeFormat(unicode: string): void {
-  if (!unicode || typeof unicode !== 'string') {
-    throw validationError([{ field: 'unicode', message: 'Unicode is required', rule: 'required' }]);
-  }
-
-  if (!/^\d{6,8}$/.test(unicode)) {
-    throw validationError([
-      {
-        field: 'unicode',
-        message: 'Unicode must be 6-8 digits',
         rule: 'pattern',
       },
     ]);
@@ -352,34 +328,6 @@ export async function getTeamCodeByUnicode(
 }
 
 /**
- * Generate unique 6-digit unicode for team (created by admin)
- * Note: Athletes/Coaches/Media who join teams don't create new teams,
- * they just become members of existing teams
- */
-async function generateUniqueUnicode(db: Firestore): Promise<string> {
-  let attempts = 0;
-  const maxAttempts = 10;
-
-  while (attempts < maxAttempts) {
-    // Generate random 6-digit number (with leading zeros if needed)
-    const randomNum = Math.floor(Math.random() * 1000000); // 0 to 999999
-    const unicode = randomNum.toString().padStart(6, '0');
-
-    // Check if unique
-    const existing = await db.collection('Teams').where('unicode', '==', unicode).limit(1).get();
-
-    if (existing.empty) {
-      return unicode;
-    }
-
-    attempts++;
-  }
-
-  // Fallback: use timestamp-based if max attempts reached
-  return Date.now().toString().slice(-6);
-}
-
-/**
  * Generate member unicode based on team unicode and role
  * Used when member needs individual profile unicode
  * @param teamUnicode - Base team unicode (6 digits)
@@ -433,51 +381,6 @@ export async function createTeamCode(
     throw conflictError('teamCode');
   }
 
-  // Generate unicode if not provided, or validate if provided
-  let unicode: string;
-  if (input.unicode) {
-    validateUnicodeFormat(input.unicode);
-    // Check if unicode already exists
-    const existingUnicode = await db
-      .collection('Teams')
-      .where('unicode', '==', input.unicode)
-      .limit(1)
-      .get();
-    if (!existingUnicode.empty) {
-      throw conflictError('unicode');
-    }
-    unicode = input.unicode;
-  } else {
-    unicode = await generateUniqueUnicode(db);
-  }
-
-  // Map creator role to team membership role
-  const creatorRoleMap: Record<string, ROLE> = {
-    athlete: ROLE.athlete,
-    coach: ROLE.coach,
-    media: ROLE.media,
-    director: ROLE.admin,
-    admin: ROLE.admin,
-  };
-  const memberRole = creatorRoleMap[input.creatorRole ?? ''] ?? ROLE.admin;
-  const creatorName = input.creatorName?.trim() || '';
-  const [creatorFirstName = '', ...creatorLastNameParts] = creatorName.split(/\s+/).filter(Boolean);
-  const creatorLastName = creatorLastNameParts.join(' ');
-  const memberName = creatorName || (memberRole === ROLE.admin ? 'Team Owner' : '');
-
-  // Create creator as first member
-  const creatorMember: TeamMember = {
-    id: input.createdBy,
-    firstName: creatorFirstName,
-    lastName: creatorLastName,
-    name: memberName,
-    joinTime: new Date().toISOString(),
-    role: memberRole,
-    isVerify: true,
-    email: input.creatorEmail?.trim() ?? '',
-    phoneNumber: input.creatorPhoneNumber?.trim() ?? '',
-  };
-
   // Generate a unique URL slug derived from the team name
   const slug = await generateUniqueTeamSlug(db, input.teamName);
 
@@ -492,10 +395,9 @@ export async function createTeamCode(
     athleteMember: 0,
     panelMember: 0,
     isActive: true,
-    members: [creatorMember],
-    memberIds: [input.createdBy],
+    // V2: membership is tracked exclusively via RosterEntry docs.
+    // Legacy members[] and memberIds[] arrays are no longer written.
     createdAt: FieldValue.serverTimestamp(),
-    unicode,
     level: input.level ?? '',
     division: input.division ?? '',
     conference: input.conference ?? '',
@@ -519,9 +421,6 @@ export async function createTeamCode(
       athleteMember: 0,
       panelMember: 0,
       isActive: true,
-      members: teamData.members as TeamMember[],
-      memberIds: teamData.memberIds as string[],
-      unicode,
       createdAt: new Date(),
     } as TeamCode;
   }
@@ -625,14 +524,28 @@ export async function joinTeam(db: Firestore, input: JoinTeamInput): Promise<Tea
     throw validationError([{ field: 'teamCode', message: 'Team is not active', rule: 'active' }]);
   }
 
-  // Check if already a member
-  if (team.memberIds?.includes(input.userId)) {
-    logger.debug('User already member', { userId: input.userId, teamId: team.id });
+  // V2: Check membership via RosterEntry (source of truth)
+  const existingEntry = await db
+    .collection('RosterEntries')
+    .where('teamId', '==', team.id)
+    .where('userId', '==', input.userId)
+    .where('status', 'in', [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING])
+    .limit(1)
+    .get();
+
+  if (!existingEntry.empty) {
+    logger.debug('User already member (RosterEntry)', { userId: input.userId, teamId: team.id });
     return team;
   }
 
-  // Check member limit
-  const currentMemberCount = team.memberIds?.length ?? 0;
+  // V2: Check capacity via RosterEntry count (source of truth)
+  const rosterCountSnap = await db
+    .collection('RosterEntries')
+    .where('teamId', '==', team.id)
+    .where('status', 'in', [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING])
+    .count()
+    .get();
+  const currentMemberCount = rosterCountSnap.data().count;
   const maxMembers = team.athleteMember + team.panelMember;
 
   if (currentMemberCount >= maxMembers) {
@@ -643,13 +556,8 @@ export async function joinTeam(db: Firestore, input: JoinTeamInput): Promise<Tea
 
   const role = input.role ?? ROLE.athlete;
 
-  // Update team with new member (only memberIds — members map is deprecated)
-  await db
-    .collection('Teams')
-    .doc(team.id!)
-    .update({
-      memberIds: FieldValue.arrayUnion(input.userId) as unknown as FieldValueType,
-    });
+  // V2: Membership tracked via RosterEntry docs only.
+  // No more memberIds[] writes on the Team doc.
 
   // Invalidate cache
   const cache = getCache();
@@ -674,13 +582,27 @@ export async function inviteMember(db: Firestore, input: InviteMemberInput): Pro
     throw forbiddenError('admin');
   }
 
-  // Check if already a member
-  if (team.memberIds?.includes(input.userId)) {
+  // V2: Check membership via RosterEntry (source of truth)
+  const existingEntry = await db
+    .collection('RosterEntries')
+    .where('teamId', '==', input.teamId)
+    .where('userId', '==', input.userId)
+    .where('status', 'in', [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING])
+    .limit(1)
+    .get();
+
+  if (!existingEntry.empty) {
     throw conflictError('member');
   }
 
-  // Check member limit
-  const currentMemberCount = team.memberIds?.length ?? 0;
+  // V2: Check capacity via RosterEntry count (source of truth)
+  const rosterCountSnap = await db
+    .collection('RosterEntries')
+    .where('teamId', '==', input.teamId)
+    .where('status', 'in', [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING])
+    .count()
+    .get();
+  const currentMemberCount = rosterCountSnap.data().count;
   const maxMembers = team.athleteMember + team.panelMember;
 
   if (currentMemberCount >= maxMembers) {
@@ -689,13 +611,8 @@ export async function inviteMember(db: Firestore, input: InviteMemberInput): Pro
     ]);
   }
 
-  // Update team with invited member (only memberIds — members map is deprecated)
-  await db
-    .collection('Teams')
-    .doc(input.teamId)
-    .update({
-      memberIds: FieldValue.arrayUnion(input.userId) as unknown as FieldValueType,
-    });
+  // V2: Membership tracked via RosterEntry docs only.
+  // No more memberIds[] writes on the Team doc.
 
   // Invalidate cache
   await invalidateTeamCache(input.teamId, team.teamCode, team.unicode);
@@ -740,12 +657,19 @@ export async function removeMember(
     }
   }
 
-  // Remove member (only update memberIds — members map is deprecated)
-  const updatedMemberIds = team.memberIds?.filter((id: string) => id !== userId) ?? [];
+  // V2: Remove via RosterEntry (soft-delete), no more memberIds[] writes.
+  const rosterService = new RosterEntryService(db);
+  const rosterSnap = await db
+    .collection('RosterEntries')
+    .where('teamId', '==', teamId)
+    .where('userId', '==', userId)
+    .where('status', 'in', [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING])
+    .limit(1)
+    .get();
 
-  await db.collection('Teams').doc(teamId).update({
-    memberIds: updatedMemberIds,
-  });
+  if (!rosterSnap.empty) {
+    await rosterService.removeFromTeam(rosterSnap.docs[0].id);
+  }
 
   // Invalidate cache
   const cache = getCache();

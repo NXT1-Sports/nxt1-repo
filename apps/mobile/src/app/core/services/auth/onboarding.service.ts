@@ -830,9 +830,7 @@ export class OnboardingService {
       const sportEntries = formData.sport?.sports || [];
 
       const userType: OnboardingProfileData['userType'] =
-        formData.userType === USER_ROLES.RECRUITER
-          ? 'recruiting-service'
-          : (formData.userType as OnboardingProfileData['userType']);
+        formData.userType as OnboardingProfileData['userType'];
 
       const profileData: OnboardingProfileData = {
         userType,
@@ -840,7 +838,7 @@ export class OnboardingService {
         lastName: formData.profile?.lastName || '',
         profileImg: formData.profile?.profileImgs?.[0] || undefined,
         profileImgs: formData.profile?.profileImgs || undefined,
-        bio: formData.profile?.bio,
+        gender: formData.profile?.gender ?? undefined,
         sports: sportEntries.map((entry) => ({
           sport: entry.sport,
           isPrimary: entry.isPrimary,
@@ -860,19 +858,12 @@ export class OnboardingService {
               }
             : undefined,
         })),
-        highSchool: sportEntries[0]?.team?.name || formData.school?.schoolName,
-        highSchoolSuffix: sportEntries[0]?.team?.type || formData.school?.schoolType,
-        classOf: formData.profile?.classYear ?? formData.school?.classYear ?? undefined,
-        state: sportEntries[0]?.team?.state || formData.school?.state,
-        city: sportEntries[0]?.team?.city || formData.school?.city,
-        club: formData.school?.club,
+        classOf: formData.profile?.classYear ?? undefined,
+        // Location from profile step geolocation
+        state: formData.profile?.location?.state,
+        city: formData.profile?.location?.city,
         organization: formData.organization?.organizationName,
         coachTitle: formData.sport?.coachTitle ?? formData.organization?.title,
-        teamLogo:
-          formData.school?.teamLogo ||
-          sportEntries[0]?.team?.logoUrl ||
-          sportEntries[0]?.team?.logo,
-        teamColors: formData.school?.teamColors || sportEntries[0]?.team?.colors,
         linkSources: formData.linkSources,
         teamSelection: formData.teamSelection,
         createTeamProfile: formData.createTeamProfile,
@@ -921,19 +912,7 @@ export class OnboardingService {
     // Accept pending team invite before completing onboarding (creates RosterEntry + links sport)
     await this.authFlow.acceptPendingInvite(formData.userType ?? undefined);
 
-    this.logger.debug('Calling completeOnboarding API', { userId: user.uid });
-    try {
-      await this.performance.trace(
-        TRACE_NAMES.ONBOARDING_COMPLETE,
-        () => this.authApi.completeOnboarding(user.uid),
-        {
-          attributes: { userType: formData.userType ?? 'unknown' },
-        }
-      );
-    } catch (apiError) {
-      this.logger.error('completeOnboarding API failed', apiError);
-    }
-
+    // Refresh user profile (bulk save already set onboardingCompleted: true)
     this.logger.debug('Refreshing user profile');
     try {
       await this.authFlow.refreshUserProfile();

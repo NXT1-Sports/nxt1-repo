@@ -348,27 +348,29 @@ function normalizePlatformConnectionValue(
   imports: [NxtConnectedSourcesComponent],
   template: `
     <div class="nxt1-link-drop-step" [attr.data-testid]="testIds.CONTAINER">
-      <!-- Mode toggle: Linked / Signed In -->
-      <div class="nxt1-mode-toggle" [attr.data-testid]="testIds.MODE_TOGGLE">
-        <button
-          type="button"
-          class="nxt1-mode-btn"
-          [class.nxt1-mode-btn--active]="activeMode() === 'link'"
-          [attr.data-testid]="testIds.MODE_LINK_BTN"
-          (click)="setMode('link')"
-        >
-          Linked
-        </button>
-        <button
-          type="button"
-          class="nxt1-mode-btn"
-          [class.nxt1-mode-btn--active]="activeMode() === 'signin'"
-          [attr.data-testid]="testIds.MODE_SIGNIN_BTN"
-          (click)="setMode('signin')"
-        >
-          Signed In
-        </button>
-      </div>
+      <!-- Mode toggle: Linked / Signed In (hidden during onboarding) -->
+      @if (!hideSigninMode()) {
+        <div class="nxt1-mode-toggle" [attr.data-testid]="testIds.MODE_TOGGLE">
+          <button
+            type="button"
+            class="nxt1-mode-btn"
+            [class.nxt1-mode-btn--active]="activeMode() === 'link'"
+            [attr.data-testid]="testIds.MODE_LINK_BTN"
+            (click)="setMode('link')"
+          >
+            Linked
+          </button>
+          <button
+            type="button"
+            class="nxt1-mode-btn"
+            [class.nxt1-mode-btn--active]="activeMode() === 'signin'"
+            [attr.data-testid]="testIds.MODE_SIGNIN_BTN"
+            (click)="setMode('signin')"
+          >
+            Signed In
+          </button>
+        </div>
+      }
       <p class="nxt1-mode-hint">
         @if (activeMode() === 'link') {
           Linking accounts automatically pulls your information and stats into NXT1.
@@ -640,6 +642,8 @@ export class OnboardingLinkDropStepComponent {
   readonly role = input<OnboardingUserType | null>(null);
   readonly disabled = input(false);
   readonly scope = input<'athlete' | 'team'>('athlete');
+  /** When true, hides the Signed In mode toggle (used during onboarding). */
+  readonly hideSigninMode = input(false);
   /**
    * When true, tapping Google / Microsoft in sign-in mode emits `oauthSigninRequest`
    * so the parent can launch the real OAuth account-picker instead of the token-entry modal.

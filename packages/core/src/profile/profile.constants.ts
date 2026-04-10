@@ -22,7 +22,7 @@ import type {
   ProfileHeaderAction,
   ProfileUser,
 } from './profile.types';
-import type { VerificationScope } from '../models/user.model';
+import type { VerificationScope } from '../models/user';
 
 // ============================================
 // TAB CONFIGURATION

@@ -145,9 +145,6 @@ import { formatSportDisplayName } from '@nxt1/core';
                         [showSkeleton]="false"
                         class="nxt1-sidenav-profile-row__avatar-img"
                       />
-                      @if (user()!.isPremium) {
-                        <span class="nxt1-sidenav-profile-row__pro">PRO</span>
-                      }
                     </div>
 
                     <div class="nxt1-sidenav-profile-row__info">

@@ -15,6 +15,7 @@ import {
   NxtBreadcrumbService,
   NxtThemeService,
   UsageBottomSheetService,
+  ANALYTICS_ADAPTER,
 } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 import {
@@ -61,6 +62,7 @@ export class AppComponent {
 
   private readonly iap = inject(IapService);
   private readonly usageBottomSheet = inject(UsageBottomSheetService);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
   /** Track if we've performed initial navigation */
   private hasPerformedInitialNavigation = false;
@@ -80,6 +82,7 @@ export class AppComponent {
       .pipe(filter((event) => event instanceof NavigationEnd))
       .subscribe((event) => {
         this.logger.debug('Navigation completed', { url: event.url });
+        this.analytics?.trackPageView(event.urlAfterRedirects || event.url);
       });
 
     // Handle initial navigation after auth initializes

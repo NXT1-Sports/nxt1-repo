@@ -69,8 +69,6 @@ export interface AuthGuardOptions {
   requiredRoles?: UserRole[];
   /** Whether user must have completed onboarding */
   requireOnboarding?: boolean;
-  /** Whether premium subscription is required */
-  requirePremium?: boolean;
 }
 
 const DEFAULT_OPTIONS: AuthGuardOptions = {
@@ -78,7 +76,6 @@ const DEFAULT_OPTIONS: AuthGuardOptions = {
   homePath: '/home',
   requiredRoles: undefined,
   requireOnboarding: false,
-  requirePremium: false,
 };
 
 // ============================================
@@ -132,15 +129,6 @@ export function requireAuth(state: AuthState, options: AuthGuardOptions = {}): G
     };
   }
 
-  // Check premium requirement
-  if (opts.requirePremium && !state.user.isPremium) {
-    return {
-      allowed: false,
-      redirectTo: '/premium',
-      reason: 'Premium subscription required',
-    };
-  }
-
   return { allowed: true };
 }
 
@@ -187,17 +175,6 @@ export function requireRole(
   options: AuthGuardOptions = {}
 ): GuardResult {
   return requireAuth(state, { ...options, requiredRoles: roles });
-}
-
-/**
- * Guard that requires premium subscription
- *
- * @param state - Current auth state
- * @param options - Guard options
- * @returns Guard result
- */
-export function requirePremium(state: AuthState, options: AuthGuardOptions = {}): GuardResult {
-  return requireAuth(state, { ...options, requirePremium: true });
 }
 
 /**

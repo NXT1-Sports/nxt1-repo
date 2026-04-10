@@ -305,9 +305,6 @@ export interface BillingContext {
    */
   pendingHoldsCents: number;
 
-  /** Stripe subscription ID for Pro plan ($50/m) — null if free tier */
-  proSubscriptionId?: string;
-
   /**
    * Optional custom name for the primary budget.
    * If omitted, falls back to "Overall Budget" in the UI.

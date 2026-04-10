@@ -62,8 +62,6 @@ export {
   type TeamCode,
   // User model
   USER_SCHEMA_VERSION,
-  // Legacy types (StatData, SportInfo, PlayerTag, etc.) removed —
-  // see packages/core/src/models/legacy/user-legacy.model.ts for reference
   type Location,
   type SocialLinks,
   type UserSocialLink,
@@ -349,7 +347,6 @@ export {
   requireAuth,
   requireGuest,
   requireRole,
-  requirePremium,
   requireOnboarding,
   hasAnyRole,
   isFullyAuthenticated,
@@ -833,8 +830,6 @@ export {
   type PersistenceSchoolFormData,
   type PersistenceOrganizationFormData,
   type PersistenceSportFormData,
-  type PersistencePositionsFormData,
-  type PersistenceContactFormData,
   type PersistenceFormData,
   type PersistenceUserType,
   DEFAULT_RETRY_CONFIG,
@@ -881,9 +876,7 @@ export {
   // Legacy types (deprecated)
   type TeamFormData,
   type SchoolFormData,
-  type PositionsFormData,
   type OrganizationFormData,
-  type ContactFormData,
   // ReferralSourceData aliased to avoid conflict with auth export
   type ReferralSourceData as OnboardingReferralSourceData,
   type OnboardingFormData,
@@ -899,8 +892,6 @@ export {
   validateSchool,
   validateOrganization,
   validateSport,
-  validatePositions,
-  validateContact,
   canNavigateNext,
   canNavigatePrevious,
   canNavigateToStep,
@@ -1300,6 +1291,12 @@ export * from './usage';
 // ============================================
 
 export * from './sport-landing';
+
+// ============================================
+// ANALYTICS (Analytics Types)
+// ============================================
+
+export * from './analytics/analytics.types';
 
 // ============================================
 // INTEL (AI-Generated Profile Intelligence)

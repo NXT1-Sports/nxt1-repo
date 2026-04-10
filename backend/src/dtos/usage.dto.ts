@@ -229,10 +229,6 @@ export class ApplyCouponDto {
   @Matches(/^[A-Z0-9]{6,20}$/, { message: 'Invalid coupon code format' })
   @Length(6, 20)
   code!: string;
-
-  @IsString()
-  @IsOptional()
-  subscriptionId?: string;
 }
 
 // ============================================

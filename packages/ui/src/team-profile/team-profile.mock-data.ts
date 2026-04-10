@@ -160,7 +160,6 @@ export const MOCK_TEAM: TeamProfileTeam = {
   verificationStatus: 'verified',
   verifications: [],
   isActive: true,
-  packageId: 'team_premium',
   createdAt: '2024-01-15T00:00:00.000Z',
   updatedAt: '2025-03-01T00:00:00.000Z',
 };

@@ -49,7 +49,6 @@
  * analytics.setUserProperties({
  *   [USER_PROPERTIES.USER_TYPE]: 'athlete',
  *   [USER_PROPERTIES.SPORT]: 'football',
- *   [USER_PROPERTIES.SUBSCRIPTION_TIER]: 'pro',
  * });
  * ```
  *
@@ -138,7 +137,6 @@ export {
   type DeviceType,
   type ContentType,
   type AuthMethod,
-  type PlanType,
 
   // Base event properties
   type BaseEventProperties,
@@ -188,8 +186,6 @@ export {
   type SearchResultClickedEvent,
 
   // Subscription events
-  type SubscriptionStartedEvent,
-  type SubscriptionChangedEvent,
   type CreditsUsedEvent,
 
   // AI events
@@ -250,3 +246,9 @@ export {
   type MemoryAnalyticsAdapter,
   type TrackedEvent,
 } from './memory-analytics';
+
+// ============================================
+// ANALYTICS TYPES
+// ============================================
+
+export * from './analytics.types';

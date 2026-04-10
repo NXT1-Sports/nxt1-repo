@@ -164,23 +164,6 @@ export class AuthApiService {
     );
   }
 
-  /**
-   * Complete onboarding flow
-   */
-  completeOnboarding(
-    ...args: Parameters<AuthApi['completeOnboarding']>
-  ): ReturnType<AuthApi['completeOnboarding']> {
-    return this.performance.trace(
-      TRACE_NAMES.ONBOARDING_COMPLETE,
-      () => this.api.completeOnboarding(...args),
-      {
-        attributes: {
-          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'onboarding',
-        },
-      }
-    );
-  }
-
   // ============================================
   // PRELOAD SCRAPE
   // ============================================

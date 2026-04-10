@@ -14,10 +14,10 @@
  * see @nxt1/core/manage-team.
  */
 
-import type { VerificationStatus, DataVerification } from '../models/user.model';
+import type { VerificationStatus, DataVerification } from '../models/user';
 import type { NewsArticle } from '../news/news.types';
-export type { VerificationStatus } from '../models/user.model';
-export type { DataVerification } from '../models/user.model';
+export type { VerificationStatus } from '../models/user';
+export type { DataVerification } from '../models/user';
 
 // ============================================
 // TEAM PROFILE TAB TYPES
@@ -176,8 +176,6 @@ export interface TeamProfileTeam {
   readonly verifications?: readonly DataVerification[];
   /** Whether the team has an active subscription */
   readonly isActive: boolean;
-  /** Package/tier */
-  readonly packageId?: string;
   /** Created timestamp */
   readonly createdAt: string;
   /** Last updated timestamp */

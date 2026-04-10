@@ -68,7 +68,6 @@ export {
   requireAuth,
   requireGuest,
   requireRole,
-  requirePremium,
   requireOnboarding,
   hasAnyRole,
   isFullyAuthenticated,

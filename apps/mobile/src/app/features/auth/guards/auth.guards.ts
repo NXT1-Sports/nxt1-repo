@@ -37,7 +37,6 @@ import {
   requireAuth,
   requireGuest,
   requireRole,
-  requirePremium,
   requireOnboarding,
   type AuthState,
   type UserRole,
@@ -62,7 +61,6 @@ function getAuthState(authService: AuthFlowService): AuthState {
           displayName: user.displayName,
           profileImg: user.profileImg ?? undefined,
           role: user.role,
-          isPremium: user.isPremium,
           hasCompletedOnboarding: user.hasCompletedOnboarding,
           provider: user.provider ?? 'email',
           emailVerified: user.emailVerified ?? true,
@@ -183,33 +181,6 @@ export const onboardingCompleteGuard: CanActivateFn = () => {
       });
       if (result.allowed) return true;
       return router.createUrlTree([result.redirectTo ?? AUTH_REDIRECTS.ONBOARDING]);
-    })
-  );
-};
-
-/**
- * Guard that requires premium subscription
- */
-export const premiumGuard: CanActivateFn = () => {
-  const authService = inject(AuthFlowService);
-  const router = inject(Router);
-
-  if (authService.isInitialized()) {
-    const state = getAuthState(authService);
-    const result = requirePremium(state, { loginPath: AUTH_ROUTES.ROOT });
-    if (result.allowed) return true;
-    return router.createUrlTree([result.redirectTo ?? '/premium']);
-  }
-
-  // Wait for initialization - toObservable must be called in injection context
-  return toObservable(authService.isInitialized).pipe(
-    filter((isInitialized) => isInitialized === true),
-    take(1),
-    map(() => {
-      const state = getAuthState(authService);
-      const result = requirePremium(state, { loginPath: AUTH_ROUTES.ROOT });
-      if (result.allowed) return true;
-      return router.createUrlTree([result.redirectTo ?? '/premium']);
     })
   );
 };

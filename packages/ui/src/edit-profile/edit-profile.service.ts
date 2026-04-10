@@ -440,8 +440,8 @@ export class EditProfileService {
         graduationDate: rawUser.classOf ? String(rawUser.classOf) : undefined,
       },
       physical: {
-        height: rawUser.height,
-        weight: rawUser.weight,
+        height: rawUser.measurables?.find((m: any) => m.field === 'height')?.value?.toString(),
+        weight: rawUser.measurables?.find((m: any) => m.field === 'weight')?.value?.toString(),
         wingspan: targetSport.metrics?.['wingspan']
           ? String(targetSport.metrics['wingspan'])
           : undefined,

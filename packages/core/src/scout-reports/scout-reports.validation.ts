@@ -357,10 +357,6 @@ export function sanitizeFilter(filter: Partial<ScoutReportFilter>): ScoutReportF
     result.verifiedOnly = filter.verifiedOnly;
   }
 
-  if (typeof filter.includePremium === 'boolean') {
-    result.includePremium = filter.includePremium;
-  }
-
   if (filter.searchQuery && typeof filter.searchQuery === 'string') {
     result.searchQuery = filter.searchQuery.trim();
   }

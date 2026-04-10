@@ -276,6 +276,14 @@ function computeProfileScore(profile: Record<string, unknown>): number {
   if (Array.isArray(sports) && sports.length > 0) score += 20;
   if (profile['height']) score += 5;
   if (profile['weight']) score += 5;
+  // Also check measurables[] for height/weight (2026 canonical location)
+  if (!profile['height'] || !profile['weight']) {
+    const measurables = profile['measurables'] as
+      | Array<{ field: string; value: string | number }>
+      | undefined;
+    if (!profile['height'] && measurables?.some((m) => m.field === 'height')) score += 5;
+    if (!profile['weight'] && measurables?.some((m) => m.field === 'weight')) score += 5;
+  }
   if (profile['classOf']) score += 10;
   if (profile['location']) score += 5;
   const social = profile['social'];

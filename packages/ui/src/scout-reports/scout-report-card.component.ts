@@ -77,7 +77,6 @@ import { NxtChipComponent } from '../components/chip';
       [class.scout-card--grid]="viewMode() === 'grid'"
       [class.scout-card--list]="viewMode() === 'list'"
       [class.scout-card--compact]="viewMode() === 'compact'"
-      [class.scout-card--premium]="report().isPremium"
       [class.scout-card--bookmarked]="report().isBookmarked"
       (click)="handleCardClick($event)"
       role="article"
@@ -105,11 +104,6 @@ import { NxtChipComponent } from '../components/chip';
               title="Verified Scout Report"
             >
               <ion-icon name="checkmark-circle"></ion-icon>
-            </div>
-          }
-          @if (report().isPremium) {
-            <div class="scout-card__badge scout-card__badge--premium" title="Premium Content">
-              <ion-icon name="diamond"></ion-icon>
             </div>
           }
         </div>
@@ -278,15 +272,6 @@ import { NxtChipComponent } from '../components/chip';
         border-color: var(--nxt1-color-primary, #3b82f6);
       }
 
-      /* Premium card styling */
-      .scout-card--premium {
-        background: linear-gradient(
-          135deg,
-          var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.03)) 0%,
-          rgba(251, 191, 36, 0.05) 100%
-        );
-      }
-
       /* ============================================
          LIST VIEW LAYOUT
          ============================================ */
@@ -385,11 +370,6 @@ import { NxtChipComponent } from '../components/chip';
 
       .scout-card__badge--verified {
         background: rgba(59, 130, 246, 0.9);
-        color: white;
-      }
-
-      .scout-card__badge--premium {
-        background: linear-gradient(135deg, #fbbf24, #f59e0b);
         color: white;
       }
 

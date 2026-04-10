@@ -24,8 +24,6 @@ concurrency:
 env:
   NODE_VERSION: '22'
   CI: true
-  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
 
 jobs:
   # ============================================================================
@@ -34,6 +32,9 @@ jobs:
   changes:
     name: Detect Changes
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
     outputs:
       web: ${{ steps.filter.outputs.web }}
       mobile: ${{ steps.filter.outputs.mobile }}
@@ -106,6 +107,9 @@ jobs:
   lint:
     name: Lint & Format
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
     needs: changes
     if: needs.changes.outputs.any_code == 'true'
     steps:
@@ -141,6 +145,9 @@ jobs:
   typecheck:
     name: TypeScript Check
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
     needs: changes
     if: needs.changes.outputs.any_code == 'true'
     steps:
@@ -173,6 +180,9 @@ jobs:
   build-core:
     name: Build Core
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
     needs: [lint, typecheck]
     steps:
       - name: Checkout
@@ -208,6 +218,9 @@ jobs:
   build-web:
     name: Build Web
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
     needs: [build-core, changes]
     if: needs.changes.outputs.web == 'true' || needs.changes.outputs.core == 'true'
     steps:
@@ -254,6 +267,9 @@ jobs:
   build-mobile:
     name: Build Mobile (Web Assets)
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
     needs: [build-core, changes]
     if: needs.changes.outputs.mobile == 'true' || needs.changes.outputs.core == 'true'
     steps:
@@ -295,6 +311,9 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
     needs: [build-core, changes]
     if: needs.changes.outputs.any_code == 'true'
     continue-on-error: true
@@ -336,6 +355,9 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
     needs: changes
     if: needs.changes.outputs.any_code == 'true'
     steps:
@@ -360,6 +382,9 @@ jobs:
   pr-comment:
     name: PR Summary
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
     needs: [lint, typecheck, build-web, build-mobile, test]
     if: github.event_name == 'pull_request' && always()
     steps:
@@ -431,6 +456,9 @@ jobs:
   notify:
     name: Send Notifications
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
     needs: [lint, typecheck, build-web, build-mobile, test, security]
     if: always()
     steps:

@@ -14,7 +14,7 @@
 
 import { isTeamRole } from '../constants/user.constants';
 import { formatSportDisplayName, getPositionAbbreviation } from '../constants/sport.constants';
-import type { SidenavSportProfile } from './navigation.model';
+import type { SidenavSportProfile } from './platform/navigation.model';
 
 // ============================================
 // INPUT TYPE — What the auth layer provides
@@ -31,7 +31,6 @@ export interface UserDisplayInput {
   readonly profileImg?: string;
   readonly unicode?: string;
   readonly role?: string | null;
-  readonly isPremium?: boolean;
   readonly teamCode?: {
     readonly slug?: string;
     readonly teamName?: string;
@@ -84,7 +83,6 @@ export interface UserDisplayContext {
   readonly handle?: string;
 
   /** Whether the user has a premium subscription */
-  readonly isPremium: boolean;
 
   /** Whether the user is verified */
   readonly verified: boolean;
@@ -155,23 +153,18 @@ export function buildUserDisplayContext(
   const isTeam = user?.role ? isTeamRole(user.role) : false;
 
   // ── Premium Status ──
-  const isPremium = !!user?.isPremium;
 
   if (isTeam) {
-    return buildTeamContext(user!, personalName, isPremium);
+    return buildTeamContext(user!, personalName);
   }
-  return buildAthleteContext(user, fallback, personalName, isPremium);
+  return buildAthleteContext(user, fallback, personalName);
 }
 
 // ============================================
 // PRIVATE BUILDERS
 // ============================================
 
-function buildTeamContext(
-  user: UserDisplayInput,
-  personalName: string,
-  isPremium: boolean
-): UserDisplayContext {
+function buildTeamContext(user: UserDisplayInput, personalName: string): UserDisplayContext {
   const teamCode = user.teamCode;
   const slug = teamCode?.slug ?? user.managedTeamCodes?.[0];
   const teamName = teamCode?.teamName;
@@ -225,7 +218,6 @@ function buildTeamContext(
     profileImg,
     initials: getInitials(name),
     handle: user.unicode ? `@${user.unicode}` : undefined,
-    isPremium,
     verified: false,
     isTeamRole: true,
     isOnTeam: true,
@@ -240,8 +232,7 @@ function buildTeamContext(
 function buildAthleteContext(
   user: UserDisplayInput | null | undefined,
   fallback: UserDisplayFallback | null | undefined,
-  personalName: string,
-  isPremium: boolean
+  personalName: string
 ): UserDisplayContext {
   const profileImg = user?.profileImg || undefined;
 
@@ -278,7 +269,6 @@ function buildAthleteContext(
     profileImg,
     initials: getInitials(personalName),
     handle: user?.unicode ? `@${user.unicode}` : undefined,
-    isPremium,
     verified: false,
     isTeamRole: false,
     isOnTeam: !!(user?.teamCode?.slug || user?.teamCode?.teamName),

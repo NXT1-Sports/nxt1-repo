@@ -10,13 +10,7 @@
  */
 
 import type { ScholarshipType, CommitmentStatus, VisitType } from '../../constants/user.constants';
-import type {
-  DataSource,
-  TeamInfo,
-  CoachContact,
-  SportVerification,
-  DataVerification,
-} from './user-base.model';
+import type { DataSource, TeamInfo, CoachContact } from './user-base.model';
 
 // ============================================
 // AGENT X / SCOUTING
@@ -317,19 +311,6 @@ export interface SeasonStats {
   gamesPlayed?: number;
 }
 
-/**
- * @deprecated Use VerifiedStat[] + ScheduleEvent[] in sub-collections instead.
- * Game-by-game statistics as a flat key-value map.
- * Migration: convert to VerifiedStat[] per game + ScheduleEvent for the game itself.
- */
-export interface GameStats {
-  date: Date | string;
-  opponent: string;
-  stats: Record<string, string | number>;
-  result?: 'win' | 'loss' | 'tie';
-  score?: string;
-}
-
 /** Season record */
 export interface SeasonRecord {
   wins: number;
@@ -460,30 +441,8 @@ export interface SportProfile {
    */
   recruiting?: RecruitingSummary;
 
-  /**
-   * @deprecated V3: Schedule data is now in the top-level Events collection,
-   * fetched via the /schedule API endpoint. Do not read or write this field.
-   */
-  schedule?: {
-    /** Schedule page URL */
-    url?: string;
-    /** Upcoming event description */
-    upcomingEvent?: string;
-    /** Link to upcoming event */
-    eventLink?: string;
-  };
-
   /** Season win/loss record */
   seasonRecord?: SeasonRecord;
-
-  /** Verification info for this sport's data */
-  verification?: SportVerification;
-
-  /**
-   * Agnostic section-level verification entries.
-   * Preferred over deprecated `verification` field.
-   */
-  verifications?: DataVerification[];
 
   /** Primary highlight video */
   primaryVideo?: {

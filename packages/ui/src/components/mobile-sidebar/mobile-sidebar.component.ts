@@ -137,9 +137,6 @@ import { formatSportDisplayName } from '@nxt1/core';
                       [isTeamRole]="user()!.isTeamRole"
                       size="md"
                     />
-                    @if (user()!.isPremium) {
-                      <span class="mobile-sidebar__pro-badge">PRO</span>
-                    }
                   </div>
                   <div class="mobile-sidebar__user-info">
                     <span class="mobile-sidebar__user-name">{{ user()!.name }}</span>

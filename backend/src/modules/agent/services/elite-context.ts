@@ -467,6 +467,13 @@ function str(val: unknown): string {
   return '';
 }
 
+/** V2-first: resolve team/org name from sports[].team.name, then legacy fields. */
+function resolveV2TeamName(userData: Record<string, unknown>): string {
+  const sports = userData['sports'] as Array<Record<string, unknown>> | undefined;
+  const v2Name = sports?.[0]?.['team'] as Record<string, unknown> | undefined;
+  return str(v2Name?.['name']) || str(userData['teamName']);
+}
+
 /** Build "City, State" location string from various possible field shapes. */
 function buildLocation(userData: Record<string, unknown>): string {
   const city = str(userData['city']);
@@ -559,7 +566,7 @@ function buildAthleteIdentity(
   const physicals = buildPhysicals(userData);
   if (physicals) parts.push(`(${physicals})`);
 
-  const team = str(userData['teamName']) || str(userData['school']);
+  const team = resolveV2TeamName(userData) || str(userData['school']);
   if (team) parts.push(`playing for ${team}`);
 
   if (location) parts.push(`in ${location}`);
@@ -578,7 +585,7 @@ function buildCoachIdentity(
 ): string {
   const coach = userData['coach'] as Record<string, unknown> | undefined;
   const title = (coach && str(coach['title'])) || 'Coach';
-  const team = str(userData['teamName']);
+  const team = resolveV2TeamName(userData);
   const level = resolveCoachingLevel(userData);
 
   const parts: string[] = [`${name} is a ${title}`];
@@ -613,7 +620,8 @@ function buildDirectorIdentity(
 ): string {
   const director = userData['director'] as Record<string, unknown> | undefined;
   const title = (director && str(director['title'])) || 'Athletic Director';
-  const org = (director && str(director['organization'])) || str(userData['teamName']);
+  // V2-first: sports[].team.name → legacy director.organization → teamName
+  const org = resolveV2TeamName(userData) || (director && str(director['organization']));
 
   const parts: string[] = [`${name} is a ${title}`];
   if (org) parts.push(`at ${org}`);
@@ -631,7 +639,8 @@ function buildRecruiterIdentity(
   const recruiter = userData['recruiter'] as Record<string, unknown> | undefined;
   const title = (recruiter && str(recruiter['title'])) || 'Recruiter';
   const institution = recruiter && str(recruiter['institution']);
-  const organization = recruiter && str(recruiter['organization']);
+  // V2-first: sports[].team.name → legacy recruiter.organization
+  const organization = resolveV2TeamName(userData) || (recruiter && str(recruiter['organization']));
   const division = recruiter && str(recruiter['division']);
 
   const parts: string[] = [`${name} is a ${title}`];
@@ -664,8 +673,17 @@ function resolvePositions(userData: Record<string, unknown>): string {
 /** Build "height, weight" string, omitting any missing value. */
 function buildPhysicals(userData: Record<string, unknown>): string {
   const parts: string[] = [];
-  const height = str(userData['height']);
-  const weight = str(userData['weight']);
+  const measurables = userData['measurables'] as
+    | Array<{ field: string; value: string | number }>
+    | undefined;
+  const height =
+    str(userData['height']) ||
+    measurables?.find((m) => m.field === 'height')?.value?.toString() ||
+    '';
+  const weight =
+    str(userData['weight']) ||
+    measurables?.find((m) => m.field === 'weight')?.value?.toString() ||
+    '';
   if (height) parts.push(height);
   if (weight) parts.push(weight);
   return parts.join(', ');
@@ -685,7 +703,7 @@ function buildAcademics(userData: Record<string, unknown>): string {
 
 /**
  * Resolve the coaching level from the user's team type.
- * Checks sports[0].team.type → subscription.teamCode.teamType.
+ * Checks sports[0].team.type.
  * Returns a display-friendly label or empty string.
  */
 function resolveCoachingLevel(userData: Record<string, unknown>): string {
@@ -697,12 +715,6 @@ function resolveCoachingLevel(userData: Record<string, unknown>): string {
     const type = team && str(team['type']);
     if (type) return coachingLevelLabel(type);
   }
-
-  // Try subscription team code
-  const sub = userData['subscription'] as Record<string, unknown> | undefined;
-  const teamCode = sub?.['teamCode'] as Record<string, unknown> | undefined;
-  const teamType = teamCode && str(teamCode['teamType']);
-  if (teamType) return coachingLevelLabel(teamType);
 
   return '';
 }
@@ -789,15 +801,21 @@ function buildCoachRoleContext(userData: Record<string, unknown>): string | null
     );
   }
 
-  // Multi-team management
-  if (coach) {
-    const managedTeams = coach['managedTeamCodes'];
-    if (Array.isArray(managedTeams) && managedTeams.length > 1) {
-      lines.push(
-        `This coach manages ${managedTeams.length} teams.` +
-          ` Consider tasks that span team management, roster coordination, and cross-team scheduling.`
-      );
-    }
+  // Multi-team management — V2-first: count sports entries, fall back to legacy managedTeamCodes
+  const sports = userData['sports'] as unknown[] | undefined;
+  const managedTeamCount =
+    (Array.isArray(sports) && sports.length > 1 ? sports.length : 0) ||
+    (coach
+      ? (() => {
+          const managedTeams = coach['managedTeamCodes'];
+          return Array.isArray(managedTeams) && managedTeams.length > 1 ? managedTeams.length : 0;
+        })()
+      : 0);
+  if (managedTeamCount > 1) {
+    lines.push(
+      `This coach manages ${managedTeamCount} teams.` +
+        ` Consider tasks that span team management, roster coordination, and cross-team scheduling.`
+    );
   }
 
   return lines.length > 0 ? lines.join(' ') : null;

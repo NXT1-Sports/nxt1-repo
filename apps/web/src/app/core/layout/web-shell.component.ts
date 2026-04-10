@@ -796,7 +796,6 @@ export class WebShellComponent {
       initials: ctx.initials,
       handle: ctx.handle,
       verified: ctx.verified,
-      isPremium: ctx.isPremium,
       isTeamRole: ctx.isTeamRole,
     };
   });
@@ -812,7 +811,6 @@ export class WebShellComponent {
       initials: ctx.initials,
       handle: ctx.handle,
       verified: ctx.verified,
-      isPremium: ctx.isPremium,
       sportLabel: ctx.sportLabel,
       sportProfiles: ctx.sportProfiles as SidenavSportProfile[],
       switcherTitle: ctx.switcherTitle,
@@ -864,7 +862,6 @@ export class WebShellComponent {
       email: ctx.email,
       profileImg: ctx.profileImg,
       verified: ctx.verified,
-      isPremium: ctx.isPremium,
       sportLabel: ctx.sportLabel,
       profileRoute: ctx.profileRoute,
       switcherTitle: ctx.switcherTitle,

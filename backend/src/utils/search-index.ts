@@ -95,9 +95,16 @@ export function buildAthleteSearchIndex(data: {
   position?: string;
   location?: string;
   highSchool?: string;
+  teamName?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sports?: any[];
   state?: string;
   city?: string;
 }): string[] {
+  // V2-first: extract team name from sports[].team.name, then explicit teamName, then legacy highSchool
+  const v2TeamName =
+    (data.sports?.[0]?.team?.name as string | undefined) ?? data.teamName ?? data.highSchool;
+
   return buildSearchIndex([
     data.displayName,
     data.firstName,
@@ -106,6 +113,7 @@ export function buildAthleteSearchIndex(data: {
     data.sport,
     data.position,
     data.location,
+    v2TeamName,
     data.highSchool,
     data.city,
     data.state,

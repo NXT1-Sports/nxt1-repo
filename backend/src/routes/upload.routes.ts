@@ -37,6 +37,7 @@ import { getStorage } from 'firebase-admin/storage';
 import { asyncHandler } from '@nxt1/core/errors/express';
 import { fieldError, forbiddenError } from '@nxt1/core/errors';
 import { logger } from '../utils/logger.js';
+import { appGuard } from '../middleware/auth.middleware.js';
 import type { FileCategory, FileUploadResult } from '@nxt1/core';
 import { FILE_UPLOAD_RULES, formatFileSize } from '@nxt1/core';
 
@@ -44,6 +45,9 @@ import { FILE_UPLOAD_RULES, formatFileSize } from '@nxt1/core';
 import { THUMBNAIL_SIZES, IMAGE_FORMATS } from '@nxt1/core/constants';
 
 const router: RouterType = Router();
+
+// All upload routes require authentication
+router.use(appGuard);
 
 // ============================================
 // MULTER CONFIGURATION
@@ -433,13 +437,9 @@ router.post(
   '/profile-photo',
   upload.single('file'),
   asyncHandler(async (req: Request, res: Response) => {
-    const { userId, fileName } = req.body;
+    const userId = req.user!.uid;
+    const { fileName } = req.body;
     const file = req.file;
-
-    // Validate required fields
-    if (!userId) {
-      throw fieldError('userId', 'User ID is required', 'required');
-    }
 
     if (!file) {
       throw fieldError('file', 'File is required', 'required');
@@ -531,12 +531,7 @@ router.post(
   upload.single('file'),
   asyncHandler(async (req: Request, res: Response) => {
     req.body.category = 'cover-photo'; // Map to existing category
-    const { userId } = req.body;
     const file = req.file;
-
-    if (!userId) {
-      throw fieldError('userId', 'User ID is required', 'required');
-    }
 
     if (!file) {
       throw fieldError('file', 'File is required', 'required');
@@ -575,11 +570,8 @@ router.post(
 router.post(
   '/highlight-video',
   asyncHandler(async (req: Request, res: Response) => {
-    const { userId, fileName, mimeType, fileSize } = req.body;
-
-    if (!userId) {
-      throw fieldError('userId', 'User ID is required', 'required');
-    }
+    const userId = req.user!.uid;
+    const { fileName, mimeType, fileSize } = req.body;
 
     if (!fileName) {
       throw fieldError('fileName', 'File name is required', 'required');
@@ -660,11 +652,8 @@ router.post(
 router.post(
   '/highlight-video/confirm',
   asyncHandler(async (req: Request, res: Response) => {
-    const { userId, storagePath, mimeType, fileSize } = req.body;
-
-    if (!userId) {
-      throw fieldError('userId', 'User ID is required', 'required');
-    }
+    const userId = req.user!.uid;
+    const { storagePath, mimeType, fileSize } = req.body;
 
     if (!storagePath) {
       throw fieldError('storagePath', 'Storage path is required', 'required');
@@ -735,12 +724,9 @@ router.post(
   '/cover-photo',
   upload.single('file'),
   asyncHandler(async (req: Request, res: Response) => {
-    const { userId, fileName } = req.body;
+    const userId = req.user!.uid;
+    const { fileName } = req.body;
     const file = req.file;
-
-    if (!userId) {
-      throw fieldError('userId', 'User ID is required', 'required');
-    }
 
     if (!file) {
       throw fieldError('file', 'File is required', 'required');
@@ -806,12 +792,9 @@ router.post(
   '/document',
   upload.single('file'),
   asyncHandler(async (req: Request, res: Response) => {
-    const { userId, fileName } = req.body;
+    const userId = req.user!.uid;
+    const { fileName } = req.body;
     const file = req.file;
-
-    if (!userId) {
-      throw fieldError('userId', 'User ID is required', 'required');
-    }
 
     if (!file) {
       throw fieldError('file', 'File is required', 'required');
@@ -864,12 +847,6 @@ router.post(
   '/graphic',
   upload.single('file'),
   asyncHandler(async (req: Request, res: Response) => {
-    const { userId } = req.body;
-
-    if (!userId) {
-      throw fieldError('userId', 'User ID is required', 'required');
-    }
-
     if (!req.file) {
       throw fieldError('file', 'File is required', 'required');
     }
@@ -903,11 +880,8 @@ router.delete(
 router.delete(
   '/file',
   asyncHandler(async (req: Request, res: Response) => {
-    const { userId, path: storagePath } = req.query;
-
-    if (!userId) {
-      throw fieldError('userId', 'User ID is required', 'required');
-    }
+    const userId = req.user!.uid;
+    const { path: storagePath } = req.query;
 
     if (!storagePath) {
       throw fieldError('path', 'Storage path is required', 'required');
@@ -1001,11 +975,8 @@ router.delete(
 router.post(
   '/signed-url',
   asyncHandler(async (req: Request, res: Response) => {
-    const { userId, category, fileName, mimeType } = req.body;
-
-    if (!userId) {
-      throw fieldError('userId', 'User ID is required', 'required');
-    }
+    const userId = req.user!.uid;
+    const { category, fileName, mimeType } = req.body;
 
     if (!category) {
       throw fieldError('category', 'File category is required', 'required');

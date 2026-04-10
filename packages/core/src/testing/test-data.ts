@@ -209,17 +209,7 @@ export const TEST_PROFILES: Record<UserRole, TestProfile> = {
     sport: 'Basketball',
     team: 'Test High School',
   },
-  parent: {
-    role: 'parent',
-    displayName: 'Parent Test',
-    childName: 'Test Athlete Jr',
-  },
-  recruiter: {
-    role: 'recruiter',
-    displayName: 'Recruiter Test',
-    organization: 'Test University',
-    sport: 'Football',
-  },
+
   director: {
     role: 'director',
     displayName: 'Director Test',

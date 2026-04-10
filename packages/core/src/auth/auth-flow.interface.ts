@@ -141,9 +141,6 @@ export interface IAuthFlowService {
   /** Current user's role */
   readonly userRole: ReadonlySignal<UserRole | null>;
 
-  /** Whether user has premium subscription */
-  readonly isPremium: ReadonlySignal<boolean>;
-
   /** Whether user has completed onboarding */
   readonly hasCompletedOnboarding: ReadonlySignal<boolean>;
 

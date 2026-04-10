@@ -47,9 +47,6 @@ permissions:
 env:
   NODE_VERSION: '22'
   CI: true
-  # Optional Turborepo caching (set in repo secrets if using Turbo remote caching)
-  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN || '' }}
-  TURBO_TEAM: ${{ vars.TURBO_TEAM || '' }}
 
 jobs:
   # ===========================================================================
@@ -58,6 +55,9 @@ jobs:
   build:
     name: Build Web App
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -90,6 +90,9 @@ jobs:
   e2e:
     name: E2E Tests (${{ matrix.browser }})
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
     needs: build
     timeout-minutes: 30
     strategy:
@@ -169,6 +172,9 @@ jobs:
   report:
     name: Publish Report
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
     needs: e2e
     if: always()
     steps:
@@ -212,6 +218,9 @@ jobs:
   e2e-mobile:
     name: E2E Tests (Mobile)
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
     needs: build
     timeout-minutes: 20
     steps:

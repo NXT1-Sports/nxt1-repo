@@ -211,7 +211,7 @@ describe('validateOnboarding', () => {
       const result = validateOnboarding({
         firstName: 'John',
         lastName: 'Doe',
-        userType: 'parent',
+        userType: 'director',
       });
       expect(result.success).toBe(true);
     });
@@ -246,7 +246,7 @@ describe('validateOnboarding', () => {
     });
 
     it('should accept all valid user types', () => {
-      const types = ['athlete', 'coach', 'director', 'recruiter', 'parent'] as const;
+      const types = ['athlete', 'coach', 'director'] as const;
       types.forEach((userType) => {
         const result = validateOnboarding({ ...validData, userType });
         expect(result.success).toBe(true);

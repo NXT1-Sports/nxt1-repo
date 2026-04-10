@@ -1,73 +1,10 @@
-# ============================================================================
-# NXT1 Monorepo - Dependabot Configuration
-# ============================================================================
-# Automatically creates PRs to update dependencies
-# ============================================================================
-
 version: 2
-
 updates:
-  # Root package.json (covers all npm workspaces: packages/*, apps/*, backend)
-  - package-ecosystem: 'npm'
-    directory: '/'
+  - package-ecosystem: "npm"
+    directory: "/"
     schedule:
-      interval: 'weekly'
-      day: 'monday'
-      time: '09:00'
-      timezone: 'America/New_York'
-    open-pull-requests-limit: 10
-    groups:
-      angular:
-        patterns:
-          - '@angular*'
-      ionic:
-        patterns:
-          - '@ionic*'
-          - '@capacitor*'
-      firebase:
-        patterns:
-          - 'firebase*'
-          - '@firebase*'
-      dev-dependencies:
-        dependency-type: 'development'
-        update-types:
-          - 'minor'
-          - 'patch'
-    commit-message:
-      prefix: 'chore(deps)'
-      include: 'scope'
-    labels:
-      - 'dependencies'
-      - 'automated'
-
-  # E2E tests (separate lockfile, not in npm workspaces)
-  - package-ecosystem: 'npm'
-    directory: '/apps/web/e2e'
+      interval: "weekly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
     schedule:
-      interval: 'weekly'
-      day: 'monday'
-      time: '09:00'
-      timezone: 'America/New_York'
-    open-pull-requests-limit: 5
-    groups:
-      playwright:
-        patterns:
-          - '@playwright*'
-    commit-message:
-      prefix: 'chore(deps)'
-      include: 'scope'
-    labels:
-      - 'dependencies'
-      - 'automated'
-
-  # GitHub Actions
-  - package-ecosystem: 'github-actions'
-    directory: '/'
-    schedule:
-      interval: 'weekly'
-      day: 'monday'
-    commit-message:
-      prefix: 'chore(ci)'
-    labels:
-      - 'ci'
-      - 'automated'
+      interval: "weekly"

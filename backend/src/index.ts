@@ -53,6 +53,7 @@ import { bootstrapAgentQueue } from './modules/agent/queue/bootstrap.js';
 import { ensureTopicExists } from './modules/billing/index.js';
 // Detail routes for explore
 // Programs (Organization search)
+import programsRoutes from './routes/programs.routes.js';
 // Billing routes
 import billingRoutes from './routes/billing.routes.js';
 import webhookRoutes, { webhookRawBodyMiddleware } from './routes/webhook.routes.js';
@@ -286,6 +287,7 @@ async function setupApplication() {
     // Messages routes
     { path: '/messages', rateLimitType: 'api', handler: messagesRoutes },
     // Search/Discovery routes with search-specific rate limiting
+    { path: '/programs', rateLimitType: 'search', handler: programsRoutes },
     // Billing routes with strict rate limiting
     { path: '/billing', rateLimitType: 'billing', handler: billingRoutes },
     { path: '/webhook', rateLimitType: 'billing', handler: webhookRoutes },

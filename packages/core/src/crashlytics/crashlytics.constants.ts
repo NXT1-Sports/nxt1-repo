@@ -28,7 +28,6 @@ export const CRASH_KEYS = {
   // User context
   USER_ROLE: 'user_role',
   USER_ID: 'user_id',
-  SUBSCRIPTION_TIER: 'subscription_tier',
 
   // App context
   APP_VERSION: 'app_version',

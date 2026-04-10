@@ -35,4 +35,41 @@ describe('Auth Routes', () => {
       expect(response.status).toBe(400);
     });
   });
+
+  describe('Onboarding DTO Validation', () => {
+    describe('POST /api/v1/auth/profile/onboarding', () => {
+      it('should return 400 when body is empty', async () => {
+        const response = await request(app).post('/api/v1/auth/profile/onboarding').send({});
+        expect(response.status).toBe(400);
+      });
+
+      it('should return 400 when userId is missing', async () => {
+        const response = await request(app)
+          .post('/api/v1/auth/profile/onboarding')
+          .send({ firstName: 'John', lastName: 'Doe' });
+        expect(response.status).toBe(400);
+      });
+    });
+
+    describe('POST /api/v1/auth/profile/onboarding-step', () => {
+      it('should return 400 when body is empty', async () => {
+        const response = await request(app).post('/api/v1/auth/profile/onboarding-step').send({});
+        expect(response.status).toBe(400);
+      });
+
+      it('should return 400 when stepId is missing', async () => {
+        const response = await request(app)
+          .post('/api/v1/auth/profile/onboarding-step')
+          .send({ userId: 'user123', stepData: { role: 'athlete' } });
+        expect(response.status).toBe(400);
+      });
+
+      it('should return 400 when stepData is missing', async () => {
+        const response = await request(app)
+          .post('/api/v1/auth/profile/onboarding-step')
+          .send({ userId: 'user123', stepId: 'role' });
+        expect(response.status).toBe(400);
+      });
+    });
+  });
 });

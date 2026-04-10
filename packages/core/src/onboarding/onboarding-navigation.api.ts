@@ -30,7 +30,7 @@
 import type { Gender } from '../constants/user.constants';
 import { GENDER_CONFIGS, USER_ROLES } from '../constants/user.constants';
 import { getPositionsForSport } from '../constants';
-import type { Location } from '../models/user.model';
+import type { Location } from '../models/user';
 
 // ============================================
 // TYPES
@@ -38,9 +38,9 @@ import type { Location } from '../models/user.model';
 
 /**
  * User type for onboarding - matches UserRole from constants.
- * 5 core roles supported by the platform.
+ * 3 core roles supported by the platform.
  */
-export type OnboardingUserType = 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent';
+export type OnboardingUserType = 'athlete' | 'coach' | 'director';
 
 /** Step IDs */
 export type OnboardingStepId =
@@ -53,8 +53,6 @@ export type OnboardingStepId =
   | 'sport'
   | 'select-teams'
   | 'create-team-profile'
-  | 'positions'
-  | 'contact'
   | 'social'
   | 'referral-source'
   | 'complete';
@@ -73,9 +71,9 @@ export interface TeamCodePrefillData {
   teamCode: string;
   teamName?: string;
   teamType?: string;
-  teamColor1?: string;
-  teamColor2?: string;
-  teamLogoImg?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  logoUrl?: string;
   sport?: string;
   state?: string;
   role?: string;
@@ -153,7 +151,6 @@ export interface ProfileFormData {
   firstName: string;
   lastName: string;
   profileImgs?: string[] | null;
-  bio?: string;
   /**
    * Gender selection (inclusive options).
    * @see Gender in @nxt1/core/constants
@@ -2184,8 +2181,6 @@ export const RECOMMENDED_PLATFORMS_BY_ROLE: Readonly<
   athlete: ['twitter', 'hudl', 'maxpreps', 'sportsrecruits'],
   coach: ['twitter', 'hudl', 'maxpreps', 'gamechanger'],
   director: ['twitter', 'hudl', 'maxpreps', 'gamechanger'],
-  recruiter: ['twitter', 'maxpreps', 'fieldlevel', 'on3'],
-  parent: ['twitter', 'youtube', 'maxpreps'],
 } as const;
 
 /**
@@ -2391,11 +2386,11 @@ const REFERRAL_STEP: OnboardingStep = {
   order: 6,
 };
 
-/** Shared team selection step config (DRY) */
+/** Shared organization/program selection step config (DRY) */
 const SELECT_TEAMS_STEP: OnboardingStep = {
   id: 'select-teams',
-  title: 'Select Teams',
-  subtitle: 'Find your team or create a program',
+  title: 'Select Program',
+  subtitle: 'Find your program or create a new one',
   required: false,
   order: 4,
 };
@@ -2414,7 +2409,7 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
     {
       id: 'sport',
       title: 'Your Sports',
-      subtitle: 'What sports do you follow?',
+      subtitle: 'What sports do you play?',
       required: true,
       order: 3,
     },
@@ -2434,51 +2429,11 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
     {
       id: 'sport',
       title: 'Your Sports',
-      subtitle: 'What sports do you follow?',
+      subtitle: 'What sports do you coach?',
       required: true,
       order: 3,
     },
     { ...SELECT_TEAMS_STEP, required: false },
-    LINK_SOURCES_STEP,
-    REFERRAL_STEP,
-  ],
-  parent: [
-    ROLE_STEP,
-    {
-      id: 'profile',
-      title: 'Get Started',
-      subtitle: "Let's get to know you",
-      required: true,
-      order: 2,
-    },
-    {
-      id: 'sport',
-      title: 'Your Sports',
-      subtitle: 'What sports do you follow?',
-      required: true,
-      order: 3,
-    },
-    { ...SELECT_TEAMS_STEP, required: false },
-    LINK_SOURCES_STEP,
-    REFERRAL_STEP,
-  ],
-  recruiter: [
-    ROLE_STEP,
-    {
-      id: 'profile',
-      title: 'Get Started',
-      subtitle: "Let's get to know you",
-      required: true,
-      order: 2,
-    },
-    {
-      id: 'sport',
-      title: 'Your Sports',
-      subtitle: 'What sports do you recruit for?',
-      required: true,
-      order: 3,
-    },
-    { ...SELECT_TEAMS_STEP, required: true },
     LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
@@ -2526,8 +2481,6 @@ export const AGENT_X_ONBOARDING_MESSAGES: Readonly<Record<string, string>> = Obj
   'referral-source': 'Last one — how did you find us?',
   school: 'Tell me about your school.',
   organization: 'Tell me about your organization.',
-  positions: 'What positions do you play?',
-  contact: 'How can teams reach you?',
   complete: "You're all set. Let's go.",
 });
 
@@ -2564,24 +2517,6 @@ const ROLE_MESSAGES: Readonly<
     'select-teams': 'Search for your organization or create a new one.',
     'referral-source': 'Last one — how did you find NXT1?',
     complete: "All set. Let's manage your program.",
-  }),
-  recruiter: Object.freeze({
-    profile: "Let's get to know you — just the basics.",
-    'link-sources':
-      'Connect your accounts so I can pull data, run tasks, and act on opportunities — no manual work required.',
-    sport: 'Choose one sport for now. You can add more later.',
-    'select-teams': "Search for a program you're scouting for.",
-    'referral-source': 'Last one — how did you hear about us?',
-    complete: "You're ready. Let's scout some talent.",
-  }),
-  parent: Object.freeze({
-    profile: "Let's get to know you — just the basics.",
-    'link-sources':
-      'These links let me work for your athlete automatically — keeping their profile current, tracking progress, and acting on what matters.',
-    sport: 'Choose one sport for now. You can add more later.',
-    'select-teams': "Search for your athlete's program. If it's missing, you can add it.",
-    'referral-source': 'Last one — how did you find NXT1?',
-    complete: "You're all set. Let's support your athlete.",
   }),
 });
 
@@ -2669,7 +2604,7 @@ export function validateSportEntry(
 
   if (!entry.sport?.trim()) return false;
 
-  if (userType === USER_ROLES.ATHLETE || userType === USER_ROLES.PARENT) {
+  if (userType === USER_ROLES.ATHLETE) {
     const availablePositions = getPositionsForSport(entry.sport);
     if (availablePositions.length > 0) {
       return Array.isArray(entry.positions) && entry.positions.length > 0;
@@ -2695,24 +2630,6 @@ export function validateSport(data?: SportFormData, userType?: OnboardingUserTyp
   }
 
   return data.sports.every((entry) => validateSportEntry(entry, userType));
-}
-
-/**
- * Validate positions step data
- * @deprecated Positions are now collected later based on role
- * ⭐ PURE FUNCTION - No dependencies
- */
-export function validatePositions(data?: PositionsFormData): boolean {
-  if (!data) return false;
-  return data.positions?.length > 0;
-}
-
-/**
- * Validate contact step data (always valid - optional step)
- * ⭐ PURE FUNCTION - No dependencies
- */
-export function validateContact(_data?: ContactFormData): boolean {
-  return true;
 }
 
 /**
@@ -2751,11 +2668,7 @@ export function validateStep(
       return validateOrganization(formData.organization);
     case 'sport':
       return validateSport(formData.sport, pendingRole ?? formData.userType ?? null);
-    case 'positions':
-      // Legacy support - positions are now part of sport entries
-      return validatePositions(formData.positions);
-    case 'contact':
-      return validateContact(formData.contact);
+
     case 'select-teams':
       return validateTeamSelection(formData.teamSelection);
     case 'create-team-profile':
@@ -2877,14 +2790,14 @@ export function mapTeamCodeRole(role: string): OnboardingUserType {
     coach: 'coach',
     director: 'director',
     admin: 'director',
-    recruiter: 'recruiter',
-    parent: 'parent',
-    // Legacy aliases
-    'college-coach': 'recruiter',
-    'recruiting-service': 'recruiter',
-    service: 'recruiter',
-    scout: 'recruiter',
-    media: 'recruiter',
+    // Legacy aliases → 3 core roles
+    recruiter: 'coach',
+    parent: 'athlete',
+    'college-coach': 'coach',
+    'recruiting-service': 'coach',
+    service: 'coach',
+    scout: 'coach',
+    media: 'coach',
     fan: 'athlete',
   };
   return roleMap[role.toLowerCase()] ?? 'athlete';
@@ -2992,8 +2905,6 @@ export function getSkipStepIdsForInviteUser(
   } else {
     switch (role) {
       case 'athlete':
-      case 'parent':
-      case 'recruiter':
         skipIds = ['select-teams'];
         break;
       case 'coach':
@@ -3037,8 +2948,8 @@ export function buildInitialFormDataFromTeamCode(
           name: teamCode.teamName ?? '',
           type: mapTeamType(teamCode.teamType),
           state: teamCode.state,
-          logo: teamCode.teamLogoImg ?? null,
-          colors: [teamCode.teamColor1, teamCode.teamColor2].filter(Boolean) as string[],
+          logo: teamCode.logoUrl ?? null,
+          colors: [teamCode.primaryColor, teamCode.secondaryColor].filter(Boolean) as string[],
         },
         positions: [],
       };
@@ -3136,8 +3047,6 @@ export function createOnboardingNavigationApi() {
     validateOrganization,
     validateSport,
     validateSportEntry,
-    validatePositions, // @deprecated - use validateSport
-    validateContact,
 
     // Navigation
     canNavigateNext,

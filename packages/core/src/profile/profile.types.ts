@@ -58,9 +58,9 @@ export type ProfileUserRole = 'athlete' | 'coach' | 'director' | 'recruiter' | '
  * Verification status for profiles.
  * Re-exported from user.model.ts (single source of truth).
  */
-import type { VerificationStatus, DataVerification, Gender } from '../models/user.model';
-export type { VerificationStatus } from '../models/user.model';
-export type { DataVerification } from '../models/user.model';
+import type { VerificationStatus, DataVerification, Gender } from '../models/user';
+export type { VerificationStatus } from '../models/user';
+export type { DataVerification } from '../models/user';
 
 /**
  * Sport information for an athlete.

@@ -339,7 +339,6 @@ export function countActiveFilters(filter: ScoutReportFilter): number {
   if (filter.gradYears?.length) count += filter.gradYears.length;
   if (filter.minRating) count += 1;
   if (filter.verifiedOnly) count += 1;
-  if (filter.includePremium === false) count += 1;
   if (filter.states?.length) count += filter.states.length;
 
   return count;
@@ -429,8 +428,6 @@ export function buildFilterFromCategory(
       return { ...filter, sortBy: 'recent', sortOrder: 'desc' };
     case 'trending':
       return { ...filter, sortBy: 'trending', sortOrder: 'desc' };
-    case 'premium':
-      return { ...filter, includePremium: true };
     case 'saved':
       // Handled by API
       return filter;

@@ -38,12 +38,3 @@ export { FeedService } from './feed.service';
 export { FEED_API } from './feed-api.token';
 
 // ============================================
-// MOCK DATA (Development only)
-// ============================================
-export {
-  MOCK_FEED_POSTS,
-  getMockFeedPosts,
-  getMockPost,
-  mockToggleLike,
-  mockToggleBookmark,
-} from './feed.mock-data';

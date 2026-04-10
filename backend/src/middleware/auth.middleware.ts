@@ -9,6 +9,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { auth as prodAuth } from '../utils/firebase.js';
+import { logger } from '../utils/logger.js';
 import { unauthorizedError, forbiddenError } from '@nxt1/core/errors';
 
 /**
@@ -60,7 +61,10 @@ export async function appGuard(req: Request, res: Response, next: NextFunction):
 
     next();
   } catch (error) {
-    console.error('[Auth] Token verification failed:', error);
+    logger.error('[Auth] Token verification failed:', {
+      error,
+      authHeader: !!req.headers.authorization,
+    });
 
     // Provide specific error messages using unified error codes
     if (error instanceof Error) {
@@ -146,7 +150,7 @@ export async function adminGuard(req: Request, res: Response, next: NextFunction
 
     next();
   } catch (error) {
-    console.error('[Auth] Admin verification failed:', error);
+    logger.error('[Auth] Admin verification failed:', { error, uid: req.user?.uid });
     const apiError = forbiddenError('admin');
     res.status(403).json(apiError.toResponse());
   }

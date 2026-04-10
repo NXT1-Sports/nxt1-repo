@@ -115,10 +115,13 @@ export class RosterEntryService {
   /**
    * Create a roster entry (user joins team).
    *
-   * The RosterEntry creation and parent Team `athleteMember` counter increment
+   * The RosterEntry creation and parent Team member counter increment
    * are always written atomically:
    *  - If `externalBatch` is provided, both ops are queued onto it (caller commits).
    *  - Otherwise an internal WriteBatch is used and committed here.
+   *
+   * Counter logic: Athletes increment `athleteMember`, all other roles
+   * (coaches, directors, staff) increment `panelMember`.
    *
    * @param input          Roster entry payload
    * @param externalBatch  Optional WriteBatch for cross-service atomicity
@@ -170,12 +173,15 @@ export class RosterEntryService {
     const docRef = this.db.collection(this.COLLECTION).doc();
     const teamRef = this.db.collection('Teams').doc(input.teamId);
 
+    // Athletes increment athleteMember; everyone else increments panelMember
+    const isAthlete = input.role === RosterRole.ATHLETE;
+    const counterField = isAthlete ? 'athleteMember' : 'panelMember';
+
     if (externalBatch) {
       // Add to caller's batch — caller is responsible for committing
       externalBatch.set(docRef, entryData);
       externalBatch.update(teamRef, {
-        athleteMember: FieldValue.increment(1),
-        memberIds: FieldValue.arrayUnion(input.userId),
+        [counterField]: FieldValue.increment(1),
       });
 
       logger.info('[RosterEntryService] Roster entry queued in batch', { entryId: docRef.id });
@@ -211,8 +217,7 @@ export class RosterEntryService {
     const batch = this.db.batch();
     batch.set(docRef, entryData);
     batch.update(teamRef, {
-      athleteMember: FieldValue.increment(1),
-      memberIds: FieldValue.arrayUnion(input.userId),
+      [counterField]: FieldValue.increment(1),
     });
     await batch.commit();
 

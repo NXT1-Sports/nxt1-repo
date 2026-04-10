@@ -13,19 +13,21 @@ import { USER_ROLES, ROLE_CONFIGS, normalizeRole, type UserRole } from './user.c
 // ============================================
 
 describe('USER_ROLES', () => {
-  it('should have exactly 5 core roles', () => {
-    const coreRoles: UserRole[] = ['athlete', 'coach', 'director', 'recruiter', 'parent'];
+  it('should have exactly 3 core roles', () => {
+    const coreRoles: UserRole[] = ['athlete', 'coach', 'director'];
     coreRoles.forEach((role) => {
       expect(Object.values(USER_ROLES)).toContain(role);
     });
   });
 
   it('should have deprecated aliases pointing to correct values', () => {
-    expect(USER_ROLES.COLLEGE_COACH).toBe('recruiter');
-    expect(USER_ROLES.SCOUT).toBe('recruiter');
-    expect(USER_ROLES.RECRUITING_SERVICE).toBe('recruiter');
-    expect(USER_ROLES.MEDIA).toBe('recruiter');
+    expect(USER_ROLES.COLLEGE_COACH).toBe('coach');
+    expect(USER_ROLES.SCOUT).toBe('coach');
+    expect(USER_ROLES.RECRUITING_SERVICE).toBe('coach');
+    expect(USER_ROLES.MEDIA).toBe('coach');
     expect(USER_ROLES.FAN).toBe('athlete');
+    expect(USER_ROLES.RECRUITER).toBe('coach');
+    expect(USER_ROLES.PARENT).toBe('athlete');
   });
 });
 
@@ -34,15 +36,13 @@ describe('USER_ROLES', () => {
 // ============================================
 
 describe('ROLE_CONFIGS', () => {
-  it('should have exactly 5 entries matching core roles', () => {
-    expect(ROLE_CONFIGS).toHaveLength(5);
+  it('should have exactly 3 entries matching core roles', () => {
+    expect(ROLE_CONFIGS).toHaveLength(3);
 
     const configIds = ROLE_CONFIGS.map((c) => c.id);
     expect(configIds).toContain('athlete');
     expect(configIds).toContain('coach');
     expect(configIds).toContain('director');
-    expect(configIds).toContain('recruiter');
-    expect(configIds).toContain('parent');
   });
 
   it('should have required fields on every config', () => {
@@ -54,9 +54,11 @@ describe('ROLE_CONFIGS', () => {
     });
   });
 
-  it('should mark recruiter as canRecruit', () => {
-    const recruiter = ROLE_CONFIGS.find((c) => c.id === 'recruiter');
-    expect(recruiter?.canRecruit).toBe(true);
+  it('should mark coach and director as canManageAthletes', () => {
+    const coach = ROLE_CONFIGS.find((c) => c.id === 'coach');
+    expect(coach?.canManageAthletes).toBe(true);
+    const director = ROLE_CONFIGS.find((c) => c.id === 'director');
+    expect(director?.canManageAthletes).toBe(true);
   });
 });
 
@@ -69,28 +71,31 @@ describe('normalizeRole', () => {
     expect(normalizeRole('athlete')).toBe('athlete');
     expect(normalizeRole('coach')).toBe('coach');
     expect(normalizeRole('director')).toBe('director');
-    expect(normalizeRole('recruiter')).toBe('recruiter');
-    expect(normalizeRole('parent')).toBe('parent');
   });
 
-  it('should map college-coach to recruiter', () => {
-    expect(normalizeRole('college-coach')).toBe('recruiter');
+  it('should map legacy recruiter and parent to core roles', () => {
+    expect(normalizeRole('recruiter')).toBe('coach');
+    expect(normalizeRole('parent')).toBe('athlete');
   });
 
-  it('should map scout to recruiter', () => {
-    expect(normalizeRole('scout')).toBe('recruiter');
+  it('should map college-coach to coach', () => {
+    expect(normalizeRole('college-coach')).toBe('coach');
   });
 
-  it('should map recruiting-service to recruiter', () => {
-    expect(normalizeRole('recruiting-service')).toBe('recruiter');
+  it('should map scout to coach', () => {
+    expect(normalizeRole('scout')).toBe('coach');
   });
 
-  it('should map media to recruiter', () => {
-    expect(normalizeRole('media')).toBe('recruiter');
+  it('should map recruiting-service to coach', () => {
+    expect(normalizeRole('recruiting-service')).toBe('coach');
   });
 
-  it('should map service to recruiter', () => {
-    expect(normalizeRole('service')).toBe('recruiter');
+  it('should map media to coach', () => {
+    expect(normalizeRole('media')).toBe('coach');
+  });
+
+  it('should map service to coach', () => {
+    expect(normalizeRole('service')).toBe('coach');
   });
 
   it('should map fan to athlete', () => {

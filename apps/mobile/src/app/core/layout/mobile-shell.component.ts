@@ -435,7 +435,6 @@ export class MobileShellComponent implements OnInit, OnDestroy {
         profileImg,
         initials: this.getInitials(displayName || profile.email || 'U'),
         verified: false,
-        isPremium: this.profileService.isPremium(),
         isTeamRole: isTeamRole(profile.role),
         switcherTitle: isTeamRole(profile.role) ? 'Teams' : 'Sports',
         actionLabel: isTeamRole(profile.role) ? 'Add Team' : 'Add Sport',
@@ -501,7 +500,6 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       profileImg: authUser.profileImg,
       initials: this.getInitials(authUser.displayName || authUser.email || 'U'),
       verified: authUser.emailVerified,
-      isPremium: authUser.isPremium,
       isTeamRole: isTeamRole(authUser.role),
       actionLabel: isTeamRole(authUser.role) ? 'Add Team' : 'Add Sport',
       userId: authUser.uid,
@@ -1040,7 +1038,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
         await this.openInviteSheet();
         break;
       case 'help':
-        // TODO: Open help/support modal or page
+        void this.navController.navigateForward('/help-center');
         break;
       default:
         // Unknown action - silently ignore

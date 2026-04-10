@@ -42,7 +42,6 @@ import {
   requireAuth,
   requireGuest,
   requireRole,
-  requirePremium,
   requireOnboarding,
   type AuthState,
   type UserRole,
@@ -69,7 +68,6 @@ function getAuthState(authService: AuthFlowService): AuthState {
           displayName: user.displayName,
           profileImg: user.profileImg ?? undefined,
           role: user.role,
-          isPremium: user.isPremium,
           hasCompletedOnboarding: user.hasCompletedOnboarding,
           provider: user.provider ?? 'email',
           emailVerified: user.emailVerified ?? true,
@@ -232,50 +230,6 @@ export const onboardingCompleteGuard: CanActivateFn = () => {
 
       if (result.allowed) return true;
       return router.createUrlTree([result.redirectTo ?? AUTH_REDIRECTS.ONBOARDING]);
-    })
-  );
-};
-
-/**
- * Guard that requires premium subscription
- *
- * SSR STRATEGY: Allow on server, let client handle redirect
- *
- * @example canActivate: [premiumGuard]
- */
-export const premiumGuard: CanActivateFn = () => {
-  const platformId = inject(PLATFORM_ID);
-  const authService = inject(AuthFlowService);
-  const router = inject(Router);
-
-  // SSR: Allow access, let client handle auth check after hydration
-  if (!isPlatformBrowser(platformId)) {
-    return true;
-  }
-
-  // If already initialized, check immediately
-  if (authService.isInitialized()) {
-    const state = getAuthState(authService);
-    const result = requirePremium(state, {
-      loginPath: AUTH_ROUTES.ROOT,
-    });
-
-    if (result.allowed) return true;
-    return router.createUrlTree([result.redirectTo ?? '/premium']);
-  }
-
-  // Wait for initialization - toObservable must be called in injection context
-  return toObservable(authService.isInitialized).pipe(
-    filter((isInitialized) => isInitialized === true),
-    take(1),
-    map(() => {
-      const state = getAuthState(authService);
-      const result = requirePremium(state, {
-        loginPath: AUTH_ROUTES.ROOT,
-      });
-
-      if (result.allowed) return true;
-      return router.createUrlTree([result.redirectTo ?? '/premium']);
     })
   );
 };

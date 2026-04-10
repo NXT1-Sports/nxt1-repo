@@ -222,19 +222,3 @@ export interface MediaData {
   /** Press credentials */
   credentials?: string;
 }
-
-/**
- * Fan-specific data
- * For fans following athletes and teams.
- * @deprecated Removed role — kept for backward compatibility only.
- */
-export interface FanData {
-  /** Team codes or IDs they follow */
-  followedTeams?: string[];
-  /** Athlete UIDs they follow */
-  followedAthletes?: string[];
-  /** Colleges they're interested in */
-  favoriteColleges?: string[];
-  /** Sports they're interested in */
-  favoriteSports?: string[];
-}

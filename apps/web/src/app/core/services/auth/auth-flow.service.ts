@@ -215,7 +215,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   readonly isAuthenticated = computed(() => this._state().user !== null);
 
   readonly userRole = computed(() => this._state().user?.role ?? null);
-  readonly isPremium = computed(() => this._state().user?.isPremium ?? false);
   readonly hasCompletedOnboarding = computed(
     () => this._state().user?.hasCompletedOnboarding ?? false
   );
@@ -338,7 +337,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         displayName: transferred.user.displayName,
         profileImg: transferred.user.profileImg,
         role: (transferred.user.role as UserRole) ?? 'athlete',
-        isPremium: transferred.user.isPremium,
+
         hasCompletedOnboarding: transferred.user.hasCompletedOnboarding,
         provider: 'email', // default for SSR transfer
         emailVerified: transferred.firebaseUser?.emailVerified ?? true,
@@ -750,7 +749,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             : null
         ),
         // Premium status — metered billing only, no plan tiers
-        isPremium: false,
         hasCompletedOnboarding,
         provider: this.getProviderFromFirebase(firebaseUser),
         emailVerified: firebaseUser.emailVerified,
@@ -764,7 +762,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       this.analytics.setUserId(authUser.uid);
       this.analytics.setUserProperties({
         user_type: authUser.role,
-        is_premium: authUser.isPremium,
+
         auth_provider: authUser.provider,
       });
 
@@ -777,7 +775,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       await this.crashlytics.setUser(crashUser);
       await this.crashlytics.setCustomKeys({
         user_role: authUser.role,
-        is_premium: authUser.isPremium,
+
         auth_provider: authUser.provider,
       });
 

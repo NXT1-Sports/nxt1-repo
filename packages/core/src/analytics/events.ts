@@ -33,7 +33,6 @@
  * // Set user properties
  * analytics.setUserProperties({
  *   [USER_PROPERTIES.USER_TYPE]: 'athlete',
- *   [USER_PROPERTIES.SUBSCRIPTION_TIER]: 'pro',
  * });
  * ```
  *
@@ -500,15 +499,10 @@ export const APP_EVENTS = {
   // SUBSCRIPTION EVENTS (Extended - beyond purchase)
   // ============================================
   /** Subscription started (initial purchase) */
-  SUBSCRIPTION_STARTED: 'subscription_started',
   /** Subscription upgraded */
-  SUBSCRIPTION_UPGRADED: 'subscription_upgraded',
   /** Subscription downgraded */
-  SUBSCRIPTION_DOWNGRADED: 'subscription_downgraded',
   /** Subscription cancelled */
-  SUBSCRIPTION_CANCELLED: 'subscription_cancelled',
   /** Subscription renewed */
-  SUBSCRIPTION_RENEWED: 'subscription_renewed',
   /** Credits purchased (in-app purchase) */
   CREDITS_PURCHASED: 'credits_purchased',
   /** Credits used */
@@ -932,7 +926,6 @@ export type AppEventName = (typeof APP_EVENTS)[keyof typeof APP_EVENTS];
  * analytics.setUserProperties({
  *   [USER_PROPERTIES.USER_TYPE]: 'athlete',
  *   [USER_PROPERTIES.SPORT]: 'football',
- *   [USER_PROPERTIES.SUBSCRIPTION_TIER]: 'pro',
  * });
  * ```
  */
@@ -951,9 +944,7 @@ export const USER_PROPERTIES = {
   // SUBSCRIPTION & MONETIZATION
   // ============================================
   /** Subscription tier: free, starter, pro, elite */
-  SUBSCRIPTION_TIER: 'subscription_tier',
   /** Whether user is premium */
-  IS_PREMIUM: 'is_premium',
   /** Remaining AI credits */
   CREDITS_BALANCE: 'credits_balance',
   /** Lifetime value (for high-value user segmentation) */
@@ -1019,8 +1010,6 @@ export interface UserPropertiesMap {
   [USER_PROPERTIES.USER_TYPE]?: UserRole;
   [USER_PROPERTIES.IS_VERIFIED]?: boolean;
   [USER_PROPERTIES.ACCOUNT_STATUS]?: 'active' | 'suspended' | 'deleted';
-  [USER_PROPERTIES.SUBSCRIPTION_TIER]?: PlanType;
-  [USER_PROPERTIES.IS_PREMIUM]?: boolean;
   [USER_PROPERTIES.CREDITS_BALANCE]?: number;
   [USER_PROPERTIES.LIFETIME_VALUE]?: number;
   [USER_PROPERTIES.SPORT]?: string;
@@ -1061,7 +1050,6 @@ export const EVENT_CATEGORIES = {
   RECRUITING: 'recruiting',
   CAMPAIGN: 'campaign',
   TEAM: 'team',
-  SUBSCRIPTION: 'subscription',
   AI: 'ai',
   NAVIGATION: 'navigation',
   ERROR: 'error',
@@ -1107,7 +1095,6 @@ export type ContentType = 'video' | 'post' | 'card' | 'profile' | 'mixtape' | 'h
 export type AuthMethod = 'email' | 'google' | 'apple' | 'facebook';
 
 /** Subscription plan type */
-export type PlanType = 'free' | 'starter' | 'pro' | 'elite' | 'team';
 
 // ============================================
 // BASE EVENT PROPERTIES
@@ -1204,9 +1191,7 @@ export function getEventCategory(eventName: string): EventCategory {
   }
   if (eventName.startsWith('campaign_')) return EVENT_CATEGORIES.CAMPAIGN;
   if (eventName.startsWith('team_')) return EVENT_CATEGORIES.TEAM;
-  if (eventName.startsWith('subscription_') || eventName.startsWith('credits_')) {
-    return EVENT_CATEGORIES.SUBSCRIPTION;
-  }
+  if (eventName.startsWith('credits_')) return EVENT_CATEGORIES.ECOMMERCE;
   if (eventName.startsWith('ai_')) return EVENT_CATEGORIES.AI;
   if (
     eventName.startsWith('screen_') ||
@@ -1247,7 +1232,6 @@ export function getFirebaseEquivalent(customEvent: string): FirebaseEventName | 
     onboarding_started: FIREBASE_EVENTS.TUTORIAL_BEGIN,
     onboarding_completed: FIREBASE_EVENTS.TUTORIAL_COMPLETE,
     search_performed: FIREBASE_EVENTS.SEARCH,
-    subscription_started: FIREBASE_EVENTS.PURCHASE,
     team_code_joined: FIREBASE_EVENTS.JOIN_GROUP,
   };
 

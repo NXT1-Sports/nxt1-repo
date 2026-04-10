@@ -120,7 +120,7 @@ export type RetryErrorType =
   | 'unknown'; // Unknown, retry cautiously
 
 /** User type for onboarding */
-export type OnboardingUserType = 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent';
+export type OnboardingUserType = 'athlete' | 'coach' | 'director';
 
 /** Team code prefill data */
 export interface TeamCodePrefillData {
@@ -130,9 +130,6 @@ export interface TeamCodePrefillData {
   primaryColor?: string;
   secondaryColor?: string;
   logoUrl?: string;
-  /** @deprecated Use primaryColor */ teamColor1?: string;
-  /** @deprecated Use secondaryColor */ teamColor2?: string;
-  /** @deprecated Use logoUrl */ teamLogoImg?: string;
   sport?: string;
   state?: string;
   role?: string;
@@ -414,10 +411,6 @@ function mapUserTypeToRole(userType: OnboardingUserType): string {
       return 'coach';
     case 'director':
       return 'director';
-    case 'recruiter':
-      return 'recruiter';
-    case 'parent':
-      return 'parent';
     default:
       return 'athlete';
   }
@@ -452,44 +445,26 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
     if (formData.profile.profileImg) {
       payload['profileImgs'] = [formData.profile.profileImg];
     }
-    if (formData.profile.bio) {
-      payload['aboutMe'] = formData.profile.bio;
-    }
   }
 
   // =========== ROLE ===========
   payload['role'] = mapUserTypeToRole(userType);
 
-  // =========== LOCATION (nested object) ===========
+  // =========== LOCATION (from profile step geolocation) ===========
   const location: Record<string, string> = {
-    country: 'USA',
+    country: formData.profile?.location?.country || 'USA',
   };
-  if (formData.school?.state || formData.contact?.state) {
-    location['state'] = formData.school?.state || formData.contact?.state || '';
+  if (formData.profile?.location?.state) {
+    location['state'] = formData.profile.location.state;
   }
-  if (formData.school?.city || formData.contact?.city) {
-    location['city'] = formData.school?.city || formData.contact?.city || '';
-  }
-  if (formData.contact?.address) {
-    location['address'] = formData.contact.address;
-  }
-  if (formData.contact?.country) {
-    location['country'] = formData.contact.country;
+  if (formData.profile?.location?.city) {
+    location['city'] = formData.profile.location.city;
   }
   payload['location'] = location;
 
-  // =========== CONTACT (nested object) ===========
-  const contact: Record<string, string | undefined> = {};
-  if (formData.contact?.contactEmail) {
-    contact['email'] = formData.contact.contactEmail;
-  }
-  // Phone can come from profile step (basics) or contact step
-  const phoneNumber = formData.contact?.phoneNumber || formData.profile?.phoneNumber;
-  if (phoneNumber) {
-    contact['phone'] = phoneNumber;
-  }
-  if (Object.keys(contact).length > 0) {
-    payload['contact'] = contact;
+  // =========== CONTACT (phone from profile step) ===========
+  if (formData.profile?.phoneNumber) {
+    payload['contact'] = { phone: formData.profile.phoneNumber };
   }
 
   // =========== SOCIAL & CONNECTED SOURCES ===========
@@ -504,7 +479,6 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
     scopeId?: string;
   }> = [];
 
-  const hasModernLinkSources = !!formData.linkSources?.links?.length;
   const socialPlatformIds = new Set([
     'instagram',
     'twitter',
@@ -516,49 +490,26 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
     'threads',
   ]);
 
-  if (hasModernLinkSources) {
-    for (const link of formData.linkSources?.links ?? []) {
-      if (!link.connected || link.connectionType === 'signin') continue;
+  for (const link of formData.linkSources?.links ?? []) {
+    if (!link.connected || link.connectionType === 'signin') continue;
 
-      const value = link.url?.trim() || link.username?.trim();
-      if (!value) continue;
+    const value = link.url?.trim() || link.username?.trim();
+    if (!value) continue;
 
-      if (socialPlatformIds.has(link.platform)) {
-        socialData[link.platform] = value;
-        continue;
-      }
-
-      connectedSourcesList.push({
-        platform: link.platform,
-        profileUrl: value.startsWith('http') ? value : `https://${value}`,
-        syncStatus: 'idle',
-        scopeType: link.scopeType,
-        scopeId: link.scopeId,
-      });
+    if (socialPlatformIds.has(link.platform)) {
+      socialData[link.platform] = value;
+      continue;
     }
-  }
 
-  if (!hasModernLinkSources && formData.contact?.instagram) {
-    socialData['instagram'] = formData.contact.instagram;
-  }
-  if (!hasModernLinkSources && formData.contact?.twitter) {
-    socialData['twitter'] = formData.contact.twitter;
-  }
-  if (!hasModernLinkSources && formData.contact?.tiktok) {
-    socialData['tiktok'] = formData.contact.tiktok;
-  }
-  if (!hasModernLinkSources && formData.contact?.youtubeAccountLink) {
-    socialData['youtube'] = formData.contact.youtubeAccountLink;
-  }
-  // Hudl is a film/data platform, not social
-  if (!hasModernLinkSources && formData.contact?.hudlAccountLink) {
-    const url = formData.contact.hudlAccountLink;
     connectedSourcesList.push({
-      platform: 'hudl',
-      profileUrl: url.startsWith('http') ? url : `https://hudl.com/${url}`,
+      platform: link.platform,
+      profileUrl: value.startsWith('http') ? value : `https://${value}`,
       syncStatus: 'idle',
+      scopeType: link.scopeType,
+      scopeId: link.scopeId,
     });
   }
+
   if (Object.keys(socialData).length > 0) {
     payload['social'] = socialData;
   }
@@ -572,9 +523,6 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
   if (sportEntries.length > 0) {
     const sports = sportEntries.map((entry, index) => {
       const isAthlete = userType === USER_ROLES.ATHLETE;
-      const teamName =
-        entry.team || formData.school?.schoolName || formData.organization?.organizationName || '';
-      const teamType = formData.school?.schoolType === 'Club' ? 'club' : 'high-school';
 
       const sportData: Record<string, unknown> = {
         sport: entry.sport,
@@ -583,15 +531,15 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
         // Only athletes get legacy seasonStats here; metrics now live in sport-scoped records.
         ...(isAthlete ? { seasonStats: [] } : {}),
         team: {
-          name: teamName,
-          type: teamType,
+          name: entry.team?.name || '',
+          type: entry.team?.type || 'high-school',
         },
       };
 
       // Add team code data to primary sport if available
       if (index === 0 && teamCodeData) {
         sportData['team'] = {
-          name: teamCodeData.teamName || entry.team || formData.school?.schoolName || '',
+          name: teamCodeData.teamName || entry.team?.name || '',
           type: teamCodeData.teamType || 'high-school',
         };
       }
@@ -604,8 +552,7 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
   }
 
   // =========== ROLE-SPECIFIC DATA ===========
-  // Class year is now in profile (with backward compat for school.classYear)
-  const classYear = formData.profile?.classYear ?? formData.school?.classYear;
+  const classYear = formData.profile?.classYear;
   if (userType === USER_ROLES.ATHLETE && classYear) {
     payload['classOf'] = classYear;
   }
@@ -624,13 +571,6 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
     };
   }
 
-  if (userType === USER_ROLES.RECRUITER) {
-    payload['recruiter'] = {
-      recruiterType: 'college_coach', // Default; Agent X can refine later
-      ...(formData.organization?.title ? { title: formData.organization.title } : {}),
-    };
-  }
-
   // =========== SUBSCRIPTION (team code) ===========
   if (teamCodeData) {
     payload['subscription'] = {
@@ -642,8 +582,7 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
         teamCode: teamCodeData.teamCode,
         teamName: teamCodeData.teamName,
         teamType: teamCodeData.teamType,
-        logoUrl: teamCodeData.logoUrl || teamCodeData.teamLogoImg || '',
-        teamLogoImg: teamCodeData.logoUrl || teamCodeData.teamLogoImg || '',
+        logoUrl: teamCodeData.logoUrl || '',
         state: teamCodeData.state || '',
         role: teamCodeData.role || '',
         isActive: true,

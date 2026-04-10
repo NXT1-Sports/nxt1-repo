@@ -600,7 +600,7 @@ describe('createAuthStateManager', () => {
     });
 
     it('should work with different user roles', async () => {
-      const roles = ['athlete', 'coach', 'director', 'recruiter', 'parent'] as const;
+      const roles = ['athlete', 'coach', 'director'] as const;
 
       for (const role of roles) {
         const user = createMockAuthUser({ role });

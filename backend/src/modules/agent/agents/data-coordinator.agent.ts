@@ -234,8 +234,8 @@ export class DataCoordinatorAgent extends BaseAgent {
   }
 
   getModelRouting(): ModelRoutingConfig {
-    // Uses the "data_heavy" tier — Qwen 3.6 Plus (Free, 1M context) handles
-    // massive season stats, game logs, and bulk scraping at zero cost.
+    // Uses the "data_heavy" tier — Qwen 3.6 Plus (1M context) handles
+    // massive season stats, game logs, and bulk scraping with large contexts.
     // No modelOverride needed: the tier system resolves to Qwen directly
     // with Haiku/GPT-4o-mini as fallbacks.
     return MODEL_ROUTING_DEFAULTS['data_heavy'];

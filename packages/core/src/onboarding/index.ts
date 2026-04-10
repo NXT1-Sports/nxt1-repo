@@ -39,8 +39,8 @@ export {
   type SchoolFormData as PersistenceSchoolFormData,
   type OrganizationFormData as PersistenceOrganizationFormData,
   type SportFormData as PersistenceSportFormData,
-  type PositionsFormData as PersistencePositionsFormData,
-  type ContactFormData as PersistenceContactFormData,
+  type PositionsFormData as PersistencePositionsFormData, // @deprecated - kept for persistence backward compat
+  type ContactFormData as PersistenceContactFormData, // @deprecated - kept for persistence backward compat
   type OnboardingFormData as PersistenceFormData,
   type OnboardingUserType as PersistenceUserType,
 
@@ -119,9 +119,7 @@ export {
   // Legacy types (deprecated)
   type TeamFormData,
   type SchoolFormData, // @deprecated - use SportFormData
-  type PositionsFormData, // @deprecated - use SportFormData
   type OrganizationFormData,
-  type ContactFormData,
   type ReferralSourceData,
   type LinkSourcesFormData,
   type LinkSourceEntry,
@@ -156,8 +154,6 @@ export {
   validateOrganization,
   validateSport,
   validateSportEntry,
-  validatePositions, // @deprecated - use validateSport
-  validateContact,
 
   // Navigation functions
   canNavigateNext,

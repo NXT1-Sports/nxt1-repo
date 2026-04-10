@@ -10,13 +10,10 @@
  */
 
 import type { TeamType } from '../../constants/user.constants';
+import { USER_SCHEMA_VERSION } from '../../constants/schema.constants';
 
-// ============================================
-// SCHEMA VERSION
-// ============================================
-
-/** Current schema version for migration tracking */
-export const USER_SCHEMA_VERSION = 3;
+// Re-export for backward compatibility
+export { USER_SCHEMA_VERSION };
 
 // ============================================
 // LOCATION
@@ -130,7 +127,7 @@ export interface ConnectedSource {
 // ============================================
 
 // EmailProvider is defined in campaigns.model.ts ('gmail' | 'microsoft' | 'yahoo' | 'system')
-export type { EmailProvider } from '../campaigns.model';
+export type { EmailProvider } from '../content/campaigns.model';
 
 /**
  * Connected email account metadata (stored on User doc).
@@ -144,7 +141,7 @@ export interface ConnectedEmail {
   /** Email address */
   email: string;
   /** Provider identifier */
-  provider: import('../campaigns.model').EmailProvider;
+  provider: import('../content/campaigns.model').EmailProvider;
   /** Whether this connection is currently active */
   isActive: boolean;
   /** When the account was connected */
@@ -164,7 +161,7 @@ export interface ConnectedEmail {
  */
 export interface EmailTokenData {
   /** Provider identifier */
-  provider: import('../campaigns.model').EmailProvider;
+  provider: import('../content/campaigns.model').EmailProvider;
   /** OAuth access token (encrypted at rest) */
   accessToken: string;
   /** OAuth refresh token (encrypted at rest) */
@@ -350,6 +347,10 @@ export interface TeamInfo {
    * Written during onboarding; used by ProfileHydrationService for team-level lookups.
    */
   teamId?: string;
+  /** Team city (for display and location-based search) */
+  city?: string;
+  /** Team state (for display and location-based search) */
+  state?: string;
 }
 
 /** Coach contact for a sport */

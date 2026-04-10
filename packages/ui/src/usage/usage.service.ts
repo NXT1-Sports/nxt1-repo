@@ -16,7 +16,6 @@ import {
   USAGE_HISTORY_PAGE_SIZE,
   type UsageTimeframe,
   type UsageOverview,
-  type UsageSubscription,
   type UsageChartDataPoint,
   type UsageProductDetail,
   type UsageProductCategory,
@@ -79,7 +78,6 @@ export class UsageService implements OnDestroy {
   // ============================================
 
   private readonly _overview = signal<UsageOverview | null>(null);
-  private readonly _subscriptions = signal<readonly UsageSubscription[]>([]);
   private readonly _chartData = signal<readonly UsageChartDataPoint[]>([]);
   private readonly _productDetails = signal<readonly UsageProductDetail[]>([]);
   private readonly _topItems = signal<readonly UsageTopItem[]>([]);
@@ -134,7 +132,6 @@ export class UsageService implements OnDestroy {
   // ============================================
 
   readonly overview = computed(() => this._overview());
-  readonly subscriptions = computed(() => this._subscriptions());
   readonly chartData = computed(() => this._chartData());
   readonly productDetails = computed(() => this._productDetails());
   readonly topItems = computed(() => this._topItems());
@@ -353,7 +350,6 @@ export class UsageService implements OnDestroy {
       ]);
 
       this._overview.set(dashboard.overview);
-      this._subscriptions.set(dashboard.subscriptions);
       this._chartData.set(dashboard.chartData);
       this._productDetails.set(dashboard.productDetails);
       this._topItems.set(dashboard.topItems);
@@ -416,7 +412,7 @@ export class UsageService implements OnDestroy {
 
   /**
    * Open the Stripe Customer Portal for managing payment methods,
-   * billing address, invoices, and subscriptions.
+   * billing address, and invoices.
    * Backend creates a portal session and returns the URL.
    */
   async openBillingPortal(): Promise<void> {

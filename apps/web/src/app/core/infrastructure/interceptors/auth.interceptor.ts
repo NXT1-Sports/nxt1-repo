@@ -44,6 +44,7 @@ const PUBLIC_ENDPOINTS = [
   '/college/list',
   '/news',
   '/feed',
+  '/programs/search', // Onboarding program search — no auth on backend
 ];
 
 /**

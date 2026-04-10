@@ -154,7 +154,15 @@ async function searchAthletes(
         position: data['position'] || '',
         classYear: data['classYear'] || undefined,
         location: data['location'] || data['state'] || undefined,
-        team: data['team']?.name || data['highSchool'] || undefined,
+        team:
+          (
+            (data['sports'] as Record<string, unknown>[] | undefined)?.[0]?.['team'] as
+              | Record<string, unknown>
+              | undefined
+          )?.['name'] ??
+          data['team']?.name ??
+          data['highSchool'] ??
+          undefined,
         videoCount: data['videoCount'] || 0,
         commitment: data['commitment']
           ? {

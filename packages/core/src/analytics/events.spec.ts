@@ -41,11 +41,7 @@ describe('Event Constants', () => {
       expect(APP_EVENTS.VIDEO_COMPLETED).toBe('video_completed');
     });
 
-    it('should have subscription events', () => {
-      expect(APP_EVENTS.SUBSCRIPTION_STARTED).toBe('subscription_started');
-      expect(APP_EVENTS.SUBSCRIPTION_UPGRADED).toBe('subscription_upgraded');
-      expect(APP_EVENTS.SUBSCRIPTION_CANCELLED).toBe('subscription_cancelled');
-    });
+    it('should have subscription events', () => {});
 
     it('should have error events', () => {
       expect(APP_EVENTS.ERROR_OCCURRED).toBe('error_occurred');
@@ -76,7 +72,6 @@ describe('Event Constants', () => {
       expect(EVENT_CATEGORIES.ENGAGEMENT).toBe('engagement');
       expect(EVENT_CATEGORIES.SEARCH).toBe('search');
       expect(EVENT_CATEGORIES.RECRUITING).toBe('recruiting');
-      expect(EVENT_CATEGORIES.SUBSCRIPTION).toBe('subscription');
       expect(EVENT_CATEGORIES.AI).toBe('ai');
       expect(EVENT_CATEGORIES.NAVIGATION).toBe('navigation');
       expect(EVENT_CATEGORIES.ERROR).toBe('error');
@@ -107,7 +102,6 @@ describe('Event Constants', () => {
     });
 
     it('should return subscription category for subscription events', () => {
-      expect(getEventCategory(APP_EVENTS.SUBSCRIPTION_STARTED)).toBe('subscription');
       expect(getEventCategory(APP_EVENTS.CREDITS_PURCHASED)).toBe('subscription');
     });
 

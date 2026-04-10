@@ -419,10 +419,10 @@ router.post('/export', appGuard, async (req: Request, res: Response) => {
     ];
 
     const rows: (string | number)[][] = [
-      ['Total Profile Views', report.overview.profileViews.value ?? 0],
-      ['Video Views', report.overview.videoViews.value ?? 0],
-      ['College Coach Views', report.overview.collegeCoachViews.value ?? 0],
-      ['Followers', report.overview.followers.value ?? 0],
+      ['Total Profile Views', report.overview['profileViews']?.value ?? 0],
+      ['Video Views', report.overview['videoViews']?.value ?? 0],
+      ['College Coach Views', report.overview['collegeCoachViews']?.value ?? 0],
+      ['Followers', report.overview['followers']?.value ?? 0],
       ['Period', period],
     ];
 

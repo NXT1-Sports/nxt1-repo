@@ -44,7 +44,7 @@ import {
 import { CommonModule } from '@angular/common';
 import type { TeamSelectionEntry, TeamSelectionFormData, SportFormData } from '@nxt1/core/api';
 import type { ILogger } from '@nxt1/core/logging';
-import { titleCase, USER_ROLES } from '@nxt1/core';
+import { titleCase, USER_ROLES, US_STATES } from '@nxt1/core';
 import type { OnboardingUserType } from '@nxt1/core/onboarding';
 import { NxtSearchBarComponent } from '../../components/search-bar';
 import { NxtValidationSummaryComponent } from '../../components/validation-summary';
@@ -232,13 +232,49 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
                     <button
                       type="button"
                       class="nxt1-draft-chip"
+                      [class.nxt1-draft-chip--selected]="pendingDraftType() === option.value"
                       nxtHaptic="light"
-                      (click)="addDraftProgram(searchQuery().trim(), option.value)"
+                      (click)="selectDraftType(option.value)"
                     >
                       {{ option.label }}
                     </button>
                   }
                 </div>
+                @if (pendingDraftType()) {
+                  <div class="nxt1-draft-location">
+                    <p class="nxt1-draft-location-label">Program location</p>
+                    <div class="nxt1-draft-location-fields">
+                      <input
+                        type="text"
+                        class="nxt1-draft-location-input"
+                        placeholder="City"
+                        [value]="draftCity()"
+                        (input)="onDraftCityInput($event)"
+                        data-testid="draft-program-city"
+                      />
+                      <select
+                        class="nxt1-draft-location-select"
+                        [value]="draftState()"
+                        (change)="onDraftStateChange($event)"
+                        data-testid="draft-program-state"
+                      >
+                        <option value="">State</option>
+                        @for (s of usStates; track s.abbreviation) {
+                          <option [value]="s.abbreviation">{{ s.abbreviation }}</option>
+                        }
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      class="nxt1-draft-add-btn"
+                      nxtHaptic="medium"
+                      data-testid="draft-program-add"
+                      (click)="confirmDraftProgram()"
+                    >
+                      Add Program
+                    </button>
+                  </div>
+                }
               </div>
             }
           </div>
@@ -404,13 +440,49 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
                     <button
                       type="button"
                       class="nxt1-draft-chip"
+                      [class.nxt1-draft-chip--selected]="pendingDraftType() === option.value"
                       nxtHaptic="light"
-                      (click)="addDraftProgram(searchQuery().trim(), option.value)"
+                      (click)="selectDraftType(option.value)"
                     >
                       {{ option.label }}
                     </button>
                   }
                 </div>
+                @if (pendingDraftType()) {
+                  <div class="nxt1-draft-location">
+                    <p class="nxt1-draft-location-label">Program location</p>
+                    <div class="nxt1-draft-location-fields">
+                      <input
+                        type="text"
+                        class="nxt1-draft-location-input"
+                        placeholder="City"
+                        [value]="draftCity()"
+                        (input)="onDraftCityInput($event)"
+                        data-testid="draft-program-city"
+                      />
+                      <select
+                        class="nxt1-draft-location-select"
+                        [value]="draftState()"
+                        (change)="onDraftStateChange($event)"
+                        data-testid="draft-program-state"
+                      >
+                        <option value="">State</option>
+                        @for (s of usStates; track s.abbreviation) {
+                          <option [value]="s.abbreviation">{{ s.abbreviation }}</option>
+                        }
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      class="nxt1-draft-add-btn"
+                      nxtHaptic="medium"
+                      data-testid="draft-program-add"
+                      (click)="confirmDraftProgram()"
+                    >
+                      Add Program
+                    </button>
+                  </div>
+                }
               </div>
             }
           </div>
@@ -1016,6 +1088,90 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
         transform: scale(0.97);
       }
 
+      .nxt1-draft-chip--selected {
+        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+        border-color: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-primary, #ccff00);
+      }
+
+      .nxt1-draft-location {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-2, 8px);
+        margin-top: var(--nxt1-spacing-3, 12px);
+        width: 100%;
+      }
+
+      .nxt1-draft-location-label {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        font-weight: 500;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        margin: 0;
+      }
+
+      .nxt1-draft-location-fields {
+        display: flex;
+        gap: var(--nxt1-spacing-2, 8px);
+      }
+
+      .nxt1-draft-location-input,
+      .nxt1-draft-location-select {
+        padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-3, 12px);
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        border-radius: var(--nxt1-borderRadius-md, 8px);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--nxt1-color-text-primary, #ffffff);
+        outline: none;
+        transition: border-color var(--nxt1-duration-fast, 150ms);
+      }
+
+      .nxt1-draft-location-input {
+        flex: 1;
+      }
+
+      .nxt1-draft-location-input::placeholder {
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+      }
+
+      .nxt1-draft-location-input:focus,
+      .nxt1-draft-location-select:focus {
+        border-color: var(--nxt1-color-primary, #ccff00);
+      }
+
+      .nxt1-draft-location-select {
+        min-width: 80px;
+      }
+
+      .nxt1-draft-location-select option {
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-text-primary, #ffffff);
+      }
+
+      .nxt1-draft-add-btn {
+        padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-4, 16px);
+        background: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
+        border: none;
+        border-radius: var(--nxt1-borderRadius-md, 8px);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: 600;
+        cursor: pointer;
+        transition: all var(--nxt1-duration-fast, 150ms);
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .nxt1-draft-add-btn:hover {
+        opacity: 0.9;
+      }
+
+      .nxt1-draft-add-btn:active {
+        transform: scale(0.98);
+      }
+
       /* Draft badge for new programs */
       .nxt1-draft-badge {
         color: var(--nxt1-color-warning, #ffaa00) !important;
@@ -1096,6 +1252,15 @@ export class OnboardingTeamSelectionStepComponent {
   /** Whether the user has performed at least one search */
   readonly hasSearched = signal(false);
 
+  /** Pending draft program type (user selected type but hasn't confirmed yet) */
+  readonly pendingDraftType = signal<DraftProgramType | null>(null);
+
+  /** Draft program city input */
+  readonly draftCity = signal('');
+
+  /** Draft program state input */
+  readonly draftState = signal('');
+
   /** Debounce timer handle */
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1126,6 +1291,9 @@ export class OnboardingTeamSelectionStepComponent {
 
   /** Program types for draft creation */
   readonly draftProgramTypeOptions = DRAFT_PROGRAM_TYPE_OPTIONS;
+
+  /** US states for draft program location dropdown */
+  readonly usStates = US_STATES;
 
   // ============================================
   // CONSTRUCTOR
@@ -1175,6 +1343,7 @@ export class OnboardingTeamSelectionStepComponent {
     this.searchResults.set([]);
     this.isSearching.set(false);
     this.hasSearched.set(false);
+    this.resetDraftLocation();
     if (this.searchTimer !== null) {
       clearTimeout(this.searchTimer);
       this.searchTimer = null;
@@ -1290,7 +1459,7 @@ export class OnboardingTeamSelectionStepComponent {
   // ============================================
 
   /** Add a draft/ghost program entry from the search query */
-  addDraftProgram(name: string, programType?: string): void {
+  addDraftProgram(name: string, programType?: string, location?: string): void {
     const trimmed = name.trim();
     if (!trimmed) return;
 
@@ -1322,6 +1491,7 @@ export class OnboardingTeamSelectionStepComponent {
       name: normalizedName,
       sport: '', // Will be derived from sports step on backend
       teamType: normalizedType,
+      location: location || undefined,
       isSchool: false,
       isDraft: true,
     };
@@ -1351,6 +1521,46 @@ export class OnboardingTeamSelectionStepComponent {
   onJoinProgram(): void {
     this.logger.info('Join program requested');
     this.joinProgram.emit();
+  }
+
+  /** Select a draft program type — shows location fields before confirming */
+  selectDraftType(type: DraftProgramType): void {
+    if (this.pendingDraftType() === type) {
+      this.resetDraftLocation();
+      return;
+    }
+    this.pendingDraftType.set(type);
+  }
+
+  /** Handle draft program city input */
+  onDraftCityInput(event: Event): void {
+    this.draftCity.set((event.target as HTMLInputElement).value);
+  }
+
+  /** Handle draft program state dropdown change */
+  onDraftStateChange(event: Event): void {
+    this.draftState.set((event.target as HTMLSelectElement).value);
+  }
+
+  /** Confirm and add the pending draft program with location */
+  confirmDraftProgram(): void {
+    const type = this.pendingDraftType();
+    const name = this.searchQuery().trim();
+    if (!type || !name) return;
+
+    const city = this.draftCity().trim();
+    const state = this.draftState().trim();
+    const location = city && state ? `${city}, ${state}` : state || city || '';
+
+    this.addDraftProgram(name, type, location || undefined);
+    this.resetDraftLocation();
+  }
+
+  /** Reset pending draft program state */
+  private resetDraftLocation(): void {
+    this.pendingDraftType.set(null);
+    this.draftCity.set('');
+    this.draftState.set('');
   }
 
   // ============================================

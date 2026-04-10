@@ -106,16 +106,6 @@ export {
 } from './onboarding-team-selection-step';
 
 // ============================================
-// POSITION STEP (Legacy - deprecated in v3.0)
-// ============================================
-export { OnboardingPositionStepComponent } from './onboarding-position-step';
-
-// ============================================
-// CONTACT STEP (Step 6)
-// ============================================
-export { OnboardingContactStepComponent } from './onboarding-contact-step';
-
-// ============================================
 // LINK DROP STEP (Link Data Sources - Connected Accounts)
 // ============================================
 export { OnboardingLinkDropStepComponent } from './onboarding-link-drop-step';

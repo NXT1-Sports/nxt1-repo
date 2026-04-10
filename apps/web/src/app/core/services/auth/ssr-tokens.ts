@@ -50,7 +50,6 @@ export interface SerializedAuthUser {
   displayName: string;
   profileImg?: string;
   role: string;
-  isPremium: boolean;
   hasCompletedOnboarding: boolean;
   createdAt: string;
   updatedAt: string;

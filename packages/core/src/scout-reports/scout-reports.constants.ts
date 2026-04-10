@@ -73,12 +73,6 @@ export const SCOUT_REPORT_CATEGORIES: readonly ScoutReportCategory[] = [
     label: 'Saved',
     icon: 'bookmark-outline',
   },
-  {
-    id: 'premium',
-    label: 'Premium',
-    icon: 'diamond-outline',
-    isPremium: true,
-  },
 ] as const;
 
 /**

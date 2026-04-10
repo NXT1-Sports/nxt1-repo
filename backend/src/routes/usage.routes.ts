@@ -785,7 +785,6 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
 
     const dashboard: UsageDashboardData = {
       overview,
-      subscriptions: [],
       chartData,
       productDetails,
       topItems,

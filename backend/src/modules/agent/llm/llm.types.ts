@@ -19,7 +19,7 @@ export const MODEL_CATALOGUE: Record<ModelTier, string> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
   routing: 'anthropic/claude-3.5-sonnet',
   extraction: 'anthropic/claude-haiku-4-5',
-  data_heavy: 'qwen/qwen3.6-plus:free',
+  data_heavy: 'qwen/qwen3.6-plus',
   evaluator: 'minimax/minimax-m2.7',
   compliance: 'openai/gpt-4o',
   copywriting: 'anthropic/claude-3.5-sonnet',
@@ -52,17 +52,17 @@ export const MODEL_CATALOGUE: Record<ModelTier, string> = {
 export const MODEL_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
   routing: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
-  extraction: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus:free'],
-  data_heavy: ['qwen/qwen3.6-plus:free', 'anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini'],
+  extraction: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus'],
+  data_heavy: ['qwen/qwen3.6-plus', 'anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini'],
   evaluator: ['minimax/minimax-m2.7', 'anthropic/claude-3.5-sonnet', 'openai/gpt-4o'],
   compliance: ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet', 'anthropic/claude-haiku-4-5'],
-  copywriting: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'qwen/qwen3.6-plus:free'],
+  copywriting: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'qwen/qwen3.6-plus'],
   prompt_engineering: [
     'anthropic/claude-3.5-sonnet',
     'openai/gpt-4o',
     'anthropic/claude-haiku-4-5',
   ],
-  chat: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus:free'],
+  chat: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus'],
   task_automation: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
 
   // ── Media Tiers ─────────────────────────────────────────────────────────

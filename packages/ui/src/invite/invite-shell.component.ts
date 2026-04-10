@@ -536,10 +536,6 @@ export class InviteShellComponent implements OnInit {
       return 'Share this QR code or link with your players and staff. Once they sign up through your invite, they are connected to your program on NXT1.';
     }
 
-    if (role === USER_ROLES.RECRUITER) {
-      return 'Share this QR code or link with prospects. Each time someone joins through your invite, you earn $5 in Agent X credits.';
-    }
-
     return 'Share this QR code or link with friends and teammates. Each time someone joins through your invite, you earn $5 added to your Agent X budget.';
   });
 
@@ -551,7 +547,6 @@ export class InviteShellComponent implements OnInit {
     if (role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR) {
       return 'Invite Players & Staff';
     }
-    if (role === USER_ROLES.RECRUITER) return 'Invite Prospects';
     return 'Invite';
   });
 

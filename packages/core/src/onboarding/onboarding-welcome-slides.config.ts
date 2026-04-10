@@ -166,53 +166,6 @@ const COACH_SLIDES: WelcomeSlidesConfig = {
 };
 
 /**
- * Recruiter-specific welcome slides (college coaches, scouts, recruiting services)
- * Focus: Setting up Agent X with goals
- *
- * New Flow (2026):
- * 1. Let's set up your agent (intro)
- * 2. Set your agent goals (interactive goals step)
- * 3. Agent will work for you + connect more accounts
- */
-const RECRUITER_SLIDES: WelcomeSlidesConfig = {
-  role: 'recruiter',
-  greeting: 'Welcome to NXT1!',
-  ctaText: 'Launch Agent X',
-  slides: [
-    {
-      id: 'recruiter-setup-intro',
-      icon: 'agent-x',
-      headline: "Let's Set Up Your Agent",
-      description:
-        'Agent X is your AI-powered command center. It helps you evaluate prospects, automate communication, and keep recruiting pipelines moving.',
-      accentColor: 'var(--nxt1-color-primary)',
-      gradient: ['#0f172a', '#1e293b'],
-      type: 'info',
-    },
-    {
-      id: 'recruiter-goals',
-      icon: '🎯',
-      headline: 'Set Your Agent Goals',
-      description:
-        'Tell Agent X what matters most to your recruiting. Select up to three goals to focus your AI assistant.',
-      accentColor: '#6366F1',
-      gradient: ['#1e1b4b', '#312e81'],
-      type: 'goals',
-    },
-    {
-      id: 'recruiter-ready',
-      icon: '🚀',
-      headline: 'Your Agent Is Ready to Work',
-      description:
-        'Agent X will now work for you based on your goals. Adjust your goals anytime, and connect more accounts to help your agent work even better.',
-      accentColor: '#10B981',
-      gradient: ['#0d1f17', '#1a3c2e'],
-      type: 'info',
-    },
-  ],
-};
-
-/**
  * Director-specific welcome slides
  * Focus: Setting up Agent X with goals
  *
@@ -259,53 +212,6 @@ const DIRECTOR_SLIDES: WelcomeSlidesConfig = {
   ],
 };
 
-/**
- * Parent/Guardian-specific welcome slides
- * Focus: Setting up Agent X with goals
- *
- * New Flow (2026):
- * 1. Let's set up your agent (intro)
- * 2. Set your agent goals (interactive goals step)
- * 3. Agent will work for you + connect more accounts
- */
-const PARENT_SLIDES: WelcomeSlidesConfig = {
-  role: 'parent',
-  greeting: 'Welcome to NXT1!',
-  ctaText: 'Launch Agent X',
-  slides: [
-    {
-      id: 'parent-setup-intro',
-      icon: 'agent-x',
-      headline: "Let's Set Up Your Agent",
-      description:
-        'Agent X is your AI-powered command center. It helps your family stay organized with recruiting tasks, milestones, and communication support.',
-      accentColor: 'var(--nxt1-color-primary)',
-      gradient: ['#0f172a', '#1e293b'],
-      type: 'info',
-    },
-    {
-      id: 'parent-goals',
-      icon: '🎯',
-      headline: 'Set Your Agent Goals',
-      description:
-        'Tell Agent X what matters most to your family. Select up to three goals to focus your AI assistant.',
-      accentColor: '#E879F9',
-      gradient: ['#2d1f2d', '#3d2d3d'],
-      type: 'goals',
-    },
-    {
-      id: 'parent-ready',
-      icon: '🚀',
-      headline: 'Your Agent Is Ready to Work',
-      description:
-        'Agent X will now work for your family based on your goals. Adjust your goals anytime, and connect more accounts to help your agent work even better.',
-      accentColor: '#10B981',
-      gradient: ['#0d1f17', '#1a3c2e'],
-      type: 'info',
-    },
-  ],
-};
-
 // ============================================
 // SLIDE CONFIG MAP
 // ============================================
@@ -318,8 +224,6 @@ export const WELCOME_SLIDES_BY_ROLE: Record<OnboardingUserType, WelcomeSlidesCon
   athlete: ATHLETE_SLIDES,
   coach: COACH_SLIDES,
   director: DIRECTOR_SLIDES,
-  recruiter: RECRUITER_SLIDES,
-  parent: PARENT_SLIDES,
 } as const;
 
 // ============================================

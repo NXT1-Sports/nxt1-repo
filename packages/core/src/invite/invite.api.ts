@@ -286,8 +286,9 @@ export function createInviteApi(http: HttpAdapter, baseUrl: string) {
           athlete: 'Athlete',
           coach: 'Coach',
           director: 'Administrative',
+          // Legacy role aliases
           recruiter: 'Coach',
-          parent: 'Parent',
+          parent: 'Athlete',
         };
         const normalizedRole = role ? (roleMap[role.toLowerCase()] ?? 'Athlete') : undefined;
         const url = buildUrl(INVITE_API_ENDPOINTS.ACCEPT);

@@ -59,7 +59,7 @@ import { OnboardingService } from '../../../../../core/services/auth/onboarding.
             <nxt1-onboarding-role-selection
               [selectedRole]="onboarding.selectedRole()"
               [disabled]="onboarding.isLoading()"
-              [excludeRoles]="onboarding.isTeamInvite() ? ['director', 'parent'] : []"
+              [excludeRoles]="onboarding.isTeamInvite() ? ['director'] : []"
               variant="list-row"
               (roleSelected)="onboarding.onRoleSelect($event)"
             />

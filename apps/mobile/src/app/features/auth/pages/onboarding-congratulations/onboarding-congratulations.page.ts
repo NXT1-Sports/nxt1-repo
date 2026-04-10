@@ -54,8 +54,10 @@ import {
   NxtLoggingService,
   NxtThemeService,
   AgentXService,
+  ANALYTICS_ADAPTER,
 } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 
 // Core Constants
 import { AUTH_REDIRECTS } from '@nxt1/core/constants';
@@ -118,6 +120,7 @@ export class OnboardingCongratulationsPage implements OnInit {
   private readonly themeService = inject(NxtThemeService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('CongratulationsPage');
   private readonly agentX = inject(AgentXService);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
   @ViewChild('welcomeSlides') welcomeSlidesRef?: OnboardingWelcomeComponent;
 
@@ -218,7 +221,10 @@ export class OnboardingCongratulationsPage implements OnInit {
   onSlideViewed(event: { index: number; slideId: string }): void {
     this.logger.debug('Slide viewed', event);
     this.currentSlideIndex.set(event.index);
-    // TODO: Track with mobile analytics service
+    this.analytics?.trackEvent(APP_EVENTS.ONBOARDING_STEP_VIEWED, {
+      step: event.index,
+      slideId: event.slideId,
+    });
   }
 
   /** Footer Continue/Complete action */
@@ -275,6 +281,12 @@ export class OnboardingCongratulationsPage implements OnInit {
     }
 
     this.logger.info('Navigating to Agent X', { target: AUTH_REDIRECTS.AGENT });
+
+    // Track onboarding completion
+    this.analytics?.trackEvent(APP_EVENTS.ONBOARDING_COMPLETED, {
+      goalsCount: goals.length,
+      role: this.userRole(),
+    });
 
     // ⭐ THEME RESTORATION: Clear temporary override, restore user's preference
     // This ensures the app respects user's original theme choice going forward

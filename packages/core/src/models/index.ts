@@ -19,10 +19,14 @@ export type {
   CollegeListResponse,
   ConferenceInfo,
   DivisionWithColleges,
-} from './college.types';
+} from './platform/college.types';
 
 // Network model
-export { type ConnectionType, type NetworkStatus, type NetworkChangeEvent } from './network.model';
+export {
+  type ConnectionType,
+  type NetworkStatus,
+  type NetworkChangeEvent,
+} from './platform/network.model';
 
 // Team code model (legacy Firebase)
 export {
@@ -40,7 +44,7 @@ export {
   type UpdateMemberRoleInput,
   type BulkUpdateMemberInput,
   type BulkUpdateResult,
-} from './team-code.model';
+} from './team/team-code.model';
 
 // ============================================
 // NEW ARCHITECTURE (v3.0) - Relational Models
@@ -49,6 +53,7 @@ export {
 // Organization model
 export {
   OrganizationStatus,
+  type OrgAdminRole,
   type Organization,
   type OrganizationBilling,
   type OrganizationAdmin,
@@ -56,7 +61,7 @@ export {
   type CreateOrganizationInput,
   type UpdateOrganizationInput,
   type AddOrganizationAdminInput,
-} from './organization.model';
+} from './team/organization.model';
 
 // Team model (v3.0 - refactored from TeamCode)
 export {
@@ -65,7 +70,7 @@ export {
   type TeamSource,
   type CreateTeamInput,
   type UpdateTeamInput,
-} from './team.model';
+} from './team/team.model';
 
 // Roster Entry model (Junction table: User <-> Team)
 export {
@@ -80,7 +85,7 @@ export {
   type GetOrganizationMembersQuery,
   type RosterEntryWithTeam,
   type RosterEntryWithUser,
-} from './roster-entry.model';
+} from './team/roster-entry.model';
 
 // ============================================
 
@@ -92,7 +97,7 @@ export {
   type TeamEventResult,
   type TeamEventDoc,
   type TeamEvent,
-} from './team-event.model';
+} from './team/team-event.model';
 
 // User model - Core types (use these)
 export {
@@ -134,7 +139,6 @@ export {
   // @deprecated — use VerifiedMetric[] / VerifiedStat[] instead
   type AthleticMetrics,
   type SeasonStats,
-  type GameStats,
   // Agent X & Scouting (source-of-truth types)
   // Note: Display-DTO versions with same names exist in profile.types.ts
   // Import from @nxt1/core/models when you need domain types
@@ -204,14 +208,7 @@ export {
   type UserSportDoc,
   // Private sub-collections
   type XpEntryDoc,
-} from './user.model';
-
-// ====================================
-// LEGACY TYPES - REMOVED
-// All legacy types (StatData, SportInfo, PlayerTag, etc.) have been
-// removed from public exports. They still exist in
-// ./legacy/user-legacy.model.ts for reference/migration only.
-// ====================================
+} from './user';
 
 // Media model (videos, profile cards, posts)
 export {
@@ -243,7 +240,7 @@ export {
   type CreateProfileCardRequest,
   type FeedQuery,
   type FeedResponse,
-} from './media.model';
+} from './content/media.model';
 
 // Campaigns model (email campaigns, templates)
 export {
@@ -278,7 +275,7 @@ export {
   type CampaignAnalyticsResponse,
   type ConnectEmailRequest,
   type SaveTemplateRequest,
-} from './campaigns.model';
+} from './content/campaigns.model';
 
 // Payment model (subscriptions, transactions, entitlements)
 export {
@@ -316,10 +313,10 @@ export {
   type OpenCollegesRequest,
   type RefundRequest,
   type PaymentMethodRequest,
-} from './payment.model';
+} from './platform/payment.model';
 
 // User analytics model (profile views, engagement, etc.)
-export * from './user-analytics.model';
+export * from './platform/user-analytics.model';
 
 // Notification model (push, email, SMS, in-app)
 export {
@@ -340,7 +337,7 @@ export {
   type RegisterPushTokenRequest,
   type UpdateNotificationSettingsRequest,
   type DispatchNotificationInput,
-} from './notification.model';
+} from './content/notification.model';
 
 // NOTE: App analytics (event tracking) moved to @nxt1/core/analytics
 // Import from: import { APP_EVENTS, ... } from '@nxt1/core/analytics'
@@ -422,7 +419,7 @@ export {
   updateSidenavBadge,
   toggleSidenavSection,
   filterSidenavByRoles,
-} from './navigation.model';
+} from './platform/navigation.model';
 
 // User Display Context — Single source of truth for user menus/sidebars/headers
 export {
@@ -431,4 +428,4 @@ export {
   type UserDisplayContext,
   buildUserDisplayContext,
   deduplicateSportProfiles,
-} from './user-display-context';
+} from './user/user-display-context';

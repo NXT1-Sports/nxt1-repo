@@ -180,13 +180,6 @@ export class ProfileService implements OnDestroy, IProfileService {
   readonly profileImg = computed(() => this._user()?.profileImgs?.[0] ?? null);
 
   /**
-   * Is premium user
-   */
-  readonly isPremium = computed(() => {
-    return false; // Metered billing only — no plan tiers
-  });
-
-  /**
    * Has completed onboarding
    */
   readonly hasCompletedOnboarding = computed(() => this._user()?.onboardingCompleted ?? false);

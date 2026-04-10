@@ -173,7 +173,6 @@ describe('CRASH_KEYS', () => {
   it('should have user context keys', () => {
     expect(CRASH_KEYS.USER_ROLE).toBe('user_role');
     expect(CRASH_KEYS.USER_ID).toBe('user_id');
-    expect(CRASH_KEYS.SUBSCRIPTION_TIER).toBe('subscription_tier');
   });
 
   it('should have app context keys', () => {

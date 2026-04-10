@@ -96,9 +96,6 @@ export interface DesktopSidebarUserData {
   /** Whether user is verified */
   readonly verified?: boolean;
 
-  /** Whether user is premium */
-  readonly isPremium?: boolean;
-
   /** Whether this user is a team-management role (coach/director) */
   readonly isTeamRole?: boolean;
 }

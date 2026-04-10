@@ -145,8 +145,6 @@ type UserFirestoreDoc = DocumentData & {
 
   // Team code
   teamCode?: Record<string, unknown> | string | null;
-  teamCodeTrial?: Record<string, unknown>;
-  teamLinks?: Record<string, unknown>;
   profileCode?: string;
 };
 
@@ -265,8 +263,16 @@ function docToUserSummary(docId: string, data: UserFirestoreDoc): UserSummary {
     classOf:
       (data['classOf'] as number | undefined) ??
       (data['athlete']?.['classOf'] as number | undefined),
-    height: data['height'] as string | undefined,
-    weight: data['weight'] as string | undefined,
+    height:
+      (data['height'] as string | undefined) ??
+      (data['measurables'] as Array<{ field: string; value: string | number }> | undefined)
+        ?.find((m) => m.field === 'height')
+        ?.value?.toString(),
+    weight:
+      (data['weight'] as string | undefined) ??
+      (data['measurables'] as Array<{ field: string; value: string | number }> | undefined)
+        ?.find((m) => m.field === 'weight')
+        ?.value?.toString(),
   };
 }
 
@@ -1278,8 +1284,7 @@ router.put(
       'profileImgs',
       'gender',
       // Physical / class
-      'height',
-      'weight',
+      'measurables',
       'classOf',
       // Location & contact
       'location',
@@ -1352,6 +1357,17 @@ router.put(
     }
     if (updates['height']) rosterCacheFields.height = updates['height'] as string;
     if (updates['weight']) rosterCacheFields.weight = updates['weight'] as string;
+    // Also sync height/weight from measurables[] when those are updated
+    if (updates['measurables'] && Array.isArray(updates['measurables'])) {
+      const measurables = updates['measurables'] as Array<{
+        field: string;
+        value: string | number;
+      }>;
+      const h = measurables.find((m) => m.field === 'height');
+      const w = measurables.find((m) => m.field === 'weight');
+      if (h) rosterCacheFields.height = String(h.value);
+      if (w) rosterCacheFields.weight = String(w.value);
+    }
     if (updates['classOf']) rosterCacheFields.classOf = updates['classOf'] as number;
 
     if (Object.keys(rosterCacheFields).length > 0) {
@@ -1560,7 +1576,7 @@ router.post(
 
     if (isTeamRoleUser) {
       // ──────────────────────────────────────────────────────────────────
-      // COACH / DIRECTOR: Atomic batch — Team + RosterEntry + managedTeamCodes
+      // COACH / DIRECTOR: Atomic batch — Team + RosterEntry
       // Do NOT write to user.sports[] — the ProfileHydrationService synthesizes
       // sport entries at read-time from the RosterEntry associations.
       // ──────────────────────────────────────────────────────────────────
@@ -1605,11 +1621,19 @@ router.post(
 
       // Last resort for Directors: look up their own Organization and use its name
       if (!inheritedTeamName && userRole === 'director') {
-        const orgSnap = await db
+        // V2-first: query by createdBy, fall back to legacy ownerId
+        let orgSnap = await db
           .collection('Organizations')
-          .where('ownerId', '==', userId)
+          .where('createdBy', '==', userId)
           .limit(1)
           .get();
+        if (orgSnap.empty) {
+          orgSnap = await db
+            .collection('Organizations')
+            .where('ownerId', '==', userId)
+            .limit(1)
+            .get();
+        }
         if (!orgSnap.empty) {
           const orgData = orgSnap.docs[0].data();
           inheritedOrgId = orgSnap.docs[0].id;
@@ -1693,20 +1717,7 @@ router.post(
           batch
         );
 
-        // 4. Append team slug to coach.managedTeamCodes (lightweight routing cache)
-        const coachData = (currentData['coach'] as Record<string, unknown>) || {};
-        const currentManaged: string[] = Array.isArray(coachData['managedTeamCodes'])
-          ? (coachData['managedTeamCodes'] as string[])
-          : [];
-        const newSlug = team.slug ?? team.unicode ?? team.id;
-        if (newSlug && !currentManaged.includes(newSlug)) {
-          batch.update(userRef, {
-            'coach.managedTeamCodes': FieldValue.arrayUnion(newSlug),
-            updatedAt: new Date().toISOString(),
-          });
-        }
-
-        // 5. Commit everything atomically — all or nothing
+        // 4. Commit everything atomically — all or nothing
         await batch.commit();
         logger.info('[Profile] Atomic sport+team+roster created for coach/director', {
           userId,

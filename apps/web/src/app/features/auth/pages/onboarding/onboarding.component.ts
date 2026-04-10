@@ -59,8 +59,6 @@ import { Nxt1OnboardingCreateTeamStepComponent } from '@nxt1/ui/onboarding/onboa
 import { OnboardingSportStepComponent } from '@nxt1/ui/onboarding/onboarding-sport-step';
 import { OnboardingTeamSelectionStepComponent } from '@nxt1/ui/onboarding/onboarding-team-selection-step';
 import type { TeamSearchResult } from '@nxt1/ui/onboarding/onboarding-team-selection-step';
-import { OnboardingPositionStepComponent } from '@nxt1/ui/onboarding/onboarding-position-step';
-import { OnboardingContactStepComponent } from '@nxt1/ui/onboarding/onboarding-contact-step';
 import { OnboardingReferralStepComponent } from '@nxt1/ui/onboarding/onboarding-referral-step';
 import { OnboardingLinkDropStepComponent } from '@nxt1/ui/onboarding/onboarding-link-drop-step';
 import { OnboardingProgressBarComponent } from '@nxt1/ui/onboarding/onboarding-progress-bar';
@@ -86,8 +84,6 @@ import {
   type TeamFormData,
   type CreateTeamProfileFormData,
   type SportFormData,
-  type PositionsFormData,
-  type ContactFormData,
   type ReferralSourceData,
   type LinkSourcesFormData,
   type TeamSelectionFormData,
@@ -177,8 +173,6 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     Nxt1OnboardingCreateTeamStepComponent,
     OnboardingSportStepComponent,
     OnboardingTeamSelectionStepComponent,
-    OnboardingPositionStepComponent,
-    OnboardingContactStepComponent,
     OnboardingReferralStepComponent,
     OnboardingLinkDropStepComponent,
     OnboardingProgressBarComponent,
@@ -237,7 +231,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               <nxt1-onboarding-role-selection
                 [selectedRole]="selectedRole()"
                 [disabled]="isLoading()"
-                [excludeRoles]="isTeamInvite() ? ['director', 'parent'] : []"
+                [excludeRoles]="isTeamInvite() ? EXCLUDED_TEAM_ROLES : []"
                 [variant]="isMobile() ? 'list-row' : 'cards'"
                 (roleSelected)="onRoleSelect($event)"
               />
@@ -269,6 +263,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                 [selectedSports]="selectedSportNames()"
                 [role]="selectedRole()"
                 [disabled]="isLoading()"
+                [hideSigninMode]="true"
                 [scope]="
                   selectedRole() === USER_ROLES.COACH || selectedRole() === USER_ROLES.DIRECTOR
                     ? 'team'
@@ -321,26 +316,6 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               />
             }
 
-            <!-- Step 4: Position Selection -->
-            @if (currentStep().id === 'positions') {
-              <nxt1-onboarding-position-step
-                [positionData]="positionFormData()"
-                [selectedSport]="selectedSportName()"
-                [disabled]="isLoading()"
-                (positionChange)="onPositionChange($event)"
-              />
-            }
-
-            <!-- Step 6: Contact Info -->
-            @if (currentStep().id === 'contact') {
-              <nxt1-onboarding-contact-step
-                [contactData]="contactFormData()"
-                [authEmail]="authUserEmail()"
-                [disabled]="isLoading()"
-                (contactChange)="onContactChange($event)"
-              />
-            }
-
             <!-- Step 4: Referral Source -->
             @if (currentStep().id === 'referral-source') {
               <nxt1-onboarding-referral-step
@@ -360,8 +335,6 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               currentStep().id !== 'school' &&
               currentStep().id !== 'sport' &&
               currentStep().id !== 'select-teams' &&
-              currentStep().id !== 'positions' &&
-              currentStep().id !== 'contact' &&
               currentStep().id !== 'referral-source'
             ) {
               <div class="py-12 text-center">
@@ -493,6 +466,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
   host: { ngSkipHydration: 'true' },
 })
 export class OnboardingComponent implements OnInit, OnDestroy {
+  protected readonly EXCLUDED_TEAM_ROLES = ['director'] as const;
   protected readonly USER_ROLES = USER_ROLES;
 
   private readonly platformId = inject(PLATFORM_ID);
@@ -617,24 +591,11 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     return sport?.sports?.map((s) => s.sport) ?? [];
   });
 
-  /** Position form data computed from _formData */
-  readonly positionFormData = computed(() => this._formData().positions ?? null);
-
-  /** Contact form data computed from _formData */
-  readonly contactFormData = computed(() => this._formData().contact ?? {});
-
   /** Referral source form data computed from _formData */
   readonly referralFormData = computed(() => this._formData().referralSource ?? null);
 
   /** User's auth email for contact step default */
   readonly authUserEmail = computed(() => this.authFlow.user()?.email ?? '');
-
-  /** Selected sport name for position step (first sport in array) */
-  readonly selectedSportName = computed(() => {
-    const sport = this._formData().sport;
-    // v3.0: Use sports array (SportEntry[])
-    return sport?.sports?.[0]?.sport ?? '';
-  });
 
   /** Current steps array */
   readonly steps = computed(() => this._steps());
@@ -1307,20 +1268,6 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   };
 
   /**
-   * Handle position data change (Step 5)
-   */
-  onPositionChange(positionData: PositionsFormData): void {
-    this.machine.updatePositions(positionData);
-  }
-
-  /**
-   * Handle contact data change (Step 6)
-   */
-  onContactChange(contactData: ContactFormData): void {
-    this.machine.updateContact(contactData);
-  }
-
-  /**
    * Handle link sources data change (Link Data Sources step)
    */
   onLinkSourcesChange(linkSourcesData: LinkSourcesFormData): void {
@@ -1613,18 +1560,11 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         }
       }
 
-      // Map 'recruiter' to 'recruiting-service' for backend API compatibility
-      const userType: OnboardingProfileData['userType'] =
-        formData.userType === USER_ROLES.RECRUITER
-          ? 'recruiting-service'
-          : (formData.userType as OnboardingProfileData['userType']);
-
       const profileData: OnboardingProfileData = {
-        userType,
+        userType: formData.userType as OnboardingProfileData['userType'],
         firstName: normalizeName(formData.profile?.firstName || ''),
         lastName: normalizeName(formData.profile?.lastName || ''),
         profileImgs: formData.profile?.profileImgs || undefined,
-        bio: formData.profile?.bio,
         gender: formData.profile?.gender ?? undefined,
         // V2: Send sports array directly
         sports: sportEntries.map((entry) => ({
@@ -1642,22 +1582,13 @@ export class OnboardingComponent implements OnInit, OnDestroy {
               }
             : undefined,
         })),
-        // Legacy fallback data for potential API compatibility
-        highSchool: sportEntries[0]?.team?.name || formData.school?.schoolName,
-        highSchoolSuffix: sportEntries[0]?.team?.type || formData.school?.schoolType,
-        classOf: formData.profile?.classYear ?? formData.school?.classYear ?? undefined,
-        state:
-          sportEntries[0]?.team?.state ||
-          formData.school?.state ||
-          formData.profile?.location?.state,
-        city:
-          sportEntries[0]?.team?.city || formData.school?.city || formData.profile?.location?.city,
+        classOf: formData.profile?.classYear ?? undefined,
+        // Location from profile step geolocation
+        state: formData.profile?.location?.state,
+        city: formData.profile?.location?.city,
         zipCode: formData.profile?.location?.zipCode,
         address: formData.profile?.location?.address,
         country: formData.profile?.location?.country,
-        teamLogo: formData.school?.teamLogo || sportEntries[0]?.team?.logo,
-        teamColors: formData.school?.teamColors || sportEntries[0]?.team?.colors,
-        club: formData.school?.club,
         organization: formData.organization?.organizationName,
         coachTitle: formData.sport?.coachTitle ?? formData.organization?.title,
         linkSources: formData.linkSources,
@@ -1709,16 +1640,10 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       }
     }
 
-    // Mark onboarding complete
-    this.logger.info('Calling completeOnboarding API', { userId: user.uid });
+    // Accept any pending team invite
     await this.authFlow.acceptPendingInvite(formData.userType ?? undefined);
-    const result = await this.authApi.completeOnboarding(user.uid);
-    this.logger.info('completeOnboarding API responded', { result });
 
-    // CRITICAL: Wait a bit for backend to persist
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    // Force clear ALL cache to ensure fresh fetch
+    // Force clear ALL cache to ensure fresh fetch (bulk save already set onboardingCompleted: true)
     const { globalAuthUserCache } = await import('@nxt1/core/auth');
     await globalAuthUserCache.clear();
     this.logger.debug('Cleared all auth cache');

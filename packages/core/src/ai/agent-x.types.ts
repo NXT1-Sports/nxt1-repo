@@ -319,8 +319,6 @@ export interface AgentXUserContext {
   readonly gradYear?: number;
   /** User's state/region */
   readonly state?: string;
-  /** Whether user has premium subscription */
-  readonly isPremium?: boolean;
 }
 
 // ============================================

@@ -53,7 +53,6 @@ import { UsageBottomSheetService } from './usage-bottom-sheet.service';
 import { AgentXControlPanelComponent } from '../agent-x';
 import {
   UsageOverviewComponent,
-  UsageSubscriptionsComponent,
   UsageChartComponent,
   UsageBreakdownTableComponent,
   UsagePaymentHistoryComponent,
@@ -80,7 +79,6 @@ export interface UsageUser {
     UsageSkeletonComponent,
     UsageErrorStateComponent,
     UsageOverviewComponent,
-    UsageSubscriptionsComponent,
     UsageChartComponent,
     UsageBreakdownTableComponent,
     UsagePaymentHistoryComponent,
@@ -206,13 +204,6 @@ export interface UsageUser {
                       (viewPaymentHistory)="svc.setActiveSection('payment-history')"
                       (buyCredit)="onBuyCredits()"
                     />
-
-                    @if (svc.subscriptions().length > 0) {
-                      <nxt1-usage-subscriptions
-                        [subscriptions]="svc.subscriptions()"
-                        (manage)="onManageSubscriptions()"
-                      />
-                    }
 
                     @if (svc.isOrg()) {
                       <nxt1-usage-budgets

@@ -4,7 +4,6 @@
  */
 
 export { UsageOverviewComponent } from './usage-overview.component';
-export { UsageSubscriptionsComponent } from './usage-subscriptions.component';
 export { UsageChartComponent } from './usage-chart.component';
 export { UsageBreakdownTableComponent } from './usage-breakdown-table.component';
 export { UsagePaymentHistoryComponent } from './usage-payment-history.component';

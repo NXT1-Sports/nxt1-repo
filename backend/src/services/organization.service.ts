@@ -68,7 +68,6 @@ function docToOrganization(doc: FirebaseFirestore.DocumentSnapshot): Organizatio
     primaryColor: data['primaryColor'],
     secondaryColor: data['secondaryColor'],
     mascot: data['mascot'],
-    description: data['description'],
     admins: data['admins'] ?? [],
     ownerId: data['ownerId'] ?? '',
     billing: data['billing'],
@@ -101,19 +100,16 @@ export class OrganizationService {
   async createOrganization(input: CreateOrganizationInput): Promise<Organization> {
     logger.info('[OrganizationService] Creating organization', {
       name: input.name,
-      ownerId: input.ownerId,
+      createdBy: input.createdBy,
     });
 
-    // Create admin entry for owner (skip for athlete-created ghost orgs)
+    // Create admin entry for creator (skip for athlete-created ghost orgs)
     const admins: OrganizationAdmin[] = [];
-    if (!input.skipAdmins && input.ownerId) {
+    if (!input.skipAdmins && input.createdBy) {
       admins.push({
-        userId: input.ownerId,
-        role: 'owner',
+        userId: input.createdBy,
+        role: input.creatorRole ?? 'director',
         addedAt: new Date(),
-        firstName: '',
-        lastName: '',
-        email: '',
       });
     }
 
@@ -127,15 +123,13 @@ export class OrganizationService {
       primaryColor: input.primaryColor || null,
       secondaryColor: input.secondaryColor || null,
       mascot: input.mascot || null,
-      description: input.description || null,
       admins,
-      ownerId: input.ownerId || '',
       isClaimed: input.isClaimed ?? true,
       source: input.source ?? 'admin',
       teamCount: 0,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
-      createdBy: input.ownerId || '',
+      createdBy: input.createdBy || '',
     };
 
     const docRef = await this.db.collection(this.COLLECTION).add(orgData);
@@ -223,7 +217,6 @@ export class OrganizationService {
     if (input.primaryColor !== undefined) updateData['primaryColor'] = input.primaryColor;
     if (input.secondaryColor !== undefined) updateData['secondaryColor'] = input.secondaryColor;
     if (input.mascot !== undefined) updateData['mascot'] = input.mascot;
-    if (input.description !== undefined) updateData['description'] = input.description;
     if (input.settings !== undefined) updateData['settings'] = input.settings;
 
     await this.db.collection(this.COLLECTION).doc(orgId).update(updateData);
@@ -244,14 +237,10 @@ export class OrganizationService {
       userId: input.userId,
     });
 
-    // TODO: Fetch user details from Users collection
     const newAdmin: OrganizationAdmin = {
       userId: input.userId,
       role: input.role,
       addedAt: new Date(),
-      firstName: '', // Should fetch from User
-      lastName: '',
-      email: '',
     };
 
     await this.db
@@ -276,9 +265,10 @@ export class OrganizationService {
 
     const org = await this.getOrganizationById(orgId);
 
-    // Can't remove owner
-    if (org.ownerId === userId) {
-      throw new Error('Cannot remove organization owner');
+    // Can't remove the director/primary admin
+    const isDirector = org.admins.some((a) => a.userId === userId && a.role === 'director');
+    if (isDirector) {
+      throw new Error('Cannot remove organization director');
     }
 
     const adminToRemove = org.admins.find((a) => a.userId === userId);

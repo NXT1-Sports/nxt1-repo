@@ -1104,15 +1104,13 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   /** Fields whose values originate from a verified external source (e.g. MaxPreps, Rivals). */
   protected readonly verifiedFields = computed<ReadonlySet<string>>(() => {
     const raw = this.profile.rawUserData();
-    if (!raw?.sports) return new Set<string>();
-    const sportIdx = this.profile.activeSportIndex();
-    const sport = raw.sports[sportIdx];
-    if (!sport?.verifications?.length) return new Set<string>();
-    const scopes = new Set((sport.verifications as { scope: string }[]).map((v) => v.scope));
+    const measurables = raw?.measurables as
+      | Array<{ field: string; verified?: boolean }>
+      | undefined;
+    if (!measurables?.length) return new Set<string>();
     const fields = new Set<string>();
-    if (scopes.has('measurables')) {
-      fields.add('height');
-      fields.add('weight');
+    for (const m of measurables) {
+      if (m.verified) fields.add(m.field);
     }
     return fields;
   });

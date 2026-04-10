@@ -8,7 +8,6 @@ export type {
   UsagePeriod,
   UsageTimeframe,
   UsageOverview,
-  UsageSubscription,
   UsageProductCategory,
   UsageChartDataPoint,
   UsageIncludedQuota,

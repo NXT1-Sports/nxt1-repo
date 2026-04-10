@@ -601,8 +601,7 @@ export class PerformanceService implements PerformanceAdapter {
   async clearUserContext(): Promise<void> {
     await this.removeGlobalAttribute(ATTRIBUTE_NAMES.USER_ID);
     await this.removeGlobalAttribute(ATTRIBUTE_NAMES.USER_ROLE);
-    await this.removeGlobalAttribute(ATTRIBUTE_NAMES.USER_TIER);
-    this.logger.info('User context cleared from performance traces');
+    await this.logger.info('User context cleared from performance traces');
   }
 
   // ==========================================

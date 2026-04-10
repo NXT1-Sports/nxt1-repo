@@ -210,7 +210,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               <nxt1-onboarding-role-selection
                 [selectedRole]="selectedRole()"
                 [disabled]="isLoading()"
-                [excludeRoles]="isTeamInvite() ? ['director', 'parent'] : []"
+                [excludeRoles]="isTeamInvite() ? EXCLUDED_TEAM_ROLES : []"
                 variant="list-row"
                 (roleSelected)="onRoleSelect($event)"
               />
@@ -243,6 +243,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                 [selectedSports]="selectedSportNames()"
                 [role]="selectedRole()"
                 [disabled]="isLoading()"
+                [hideSigninMode]="true"
                 [scope]="
                   selectedRole() === USER_ROLES.COACH || selectedRole() === USER_ROLES.DIRECTOR
                     ? 'team'
@@ -472,6 +473,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OnboardingPage implements OnInit, OnDestroy {
+  protected readonly EXCLUDED_TEAM_ROLES = ['director'] as const;
   protected readonly USER_ROLES = USER_ROLES;
 
   private readonly router = inject(Router);
@@ -1559,19 +1561,13 @@ export class OnboardingPage implements OnInit, OnDestroy {
         this.logger.warn('Failed to enrich sport entries from invite data', { error: enrichErr });
       }
 
-      // Map 'recruiter' to 'recruiting-service' for backend API compatibility
-      const userType: OnboardingProfileData['userType'] =
-        formData.userType === USER_ROLES.RECRUITER
-          ? 'recruiting-service'
-          : (formData.userType as OnboardingProfileData['userType']);
-
       const profileData: OnboardingProfileData = {
-        userType,
+        userType: formData.userType as OnboardingProfileData['userType'],
         firstName: normalizeName(formData.profile?.firstName || ''),
         lastName: normalizeName(formData.profile?.lastName || ''),
         profileImg: formData.profile?.profileImgs?.[0] || undefined,
         profileImgs: formData.profile?.profileImgs || undefined,
-        bio: formData.profile?.bio,
+        gender: formData.profile?.gender ?? undefined,
         // V2: Send sports array directly
         sports: sportEntries.map((entry) => ({
           sport: entry.sport,
@@ -1593,20 +1589,12 @@ export class OnboardingPage implements OnInit, OnDestroy {
               }
             : undefined,
         })),
-        // Legacy fallback data for potential API compatibility
-        highSchool: sportEntries[0]?.team?.name || formData.school?.schoolName,
-        highSchoolSuffix: sportEntries[0]?.team?.type || formData.school?.schoolType,
-        classOf: formData.profile?.classYear ?? formData.school?.classYear ?? undefined,
-        state: sportEntries[0]?.team?.state || formData.school?.state,
-        city: sportEntries[0]?.team?.city || formData.school?.city,
-        club: formData.school?.club,
+        classOf: formData.profile?.classYear ?? undefined,
+        // Location from profile step geolocation
+        state: formData.profile?.location?.state,
+        city: formData.profile?.location?.city,
         organization: formData.organization?.organizationName,
         coachTitle: formData.sport?.coachTitle ?? formData.organization?.title,
-        teamLogo:
-          formData.school?.teamLogo ||
-          sportEntries[0]?.team?.logoUrl ||
-          sportEntries[0]?.team?.logo,
-        teamColors: formData.school?.teamColors || sportEntries[0]?.team?.colors,
         linkSources: formData.linkSources,
         teamSelection: formData.teamSelection,
         createTeamProfile: formData.createTeamProfile,
@@ -1648,16 +1636,10 @@ export class OnboardingPage implements OnInit, OnDestroy {
       }
     }
 
-    // Mark onboarding complete
-    this.logger.debug('Calling completeOnboarding API', { userId: user.uid });
+    // Accept any pending team invite
     await this.authFlow.acceptPendingInvite(formData.userType ?? undefined);
-    try {
-      await this.authApi.completeOnboarding(user.uid);
-    } catch (apiError) {
-      this.logger.error('completeOnboarding API failed', apiError);
-    }
 
-    // Refresh user profile
+    // Refresh user profile (bulk save already set onboardingCompleted: true)
     this.logger.debug('Refreshing user profile');
     try {
       await this.authFlow.refreshUserProfile();

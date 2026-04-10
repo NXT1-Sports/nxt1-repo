@@ -1099,18 +1099,11 @@ export {
   ScoutReportRatingDisplayComponent,
   ScoutReportQuickStatsComponent,
   ScoutReportBookmarkButtonComponent,
-  ScoutReportPremiumBadgeComponent,
   // Services
   ScoutReportsService,
   ScoutReportsApiService,
   // Types
   type QuickStatItem,
-  type PremiumBadgeVariant,
-  // Mock Data (Development Only)
-  MOCK_SCOUT_REPORTS,
-  MOCK_CATEGORY_BADGES,
-  getMockReportsByCategory,
-  getMockReportCount,
 } from './scout-reports';
 
 // ============================================
@@ -1140,11 +1133,6 @@ export {
   // Types
   type FeedSkeletonVariant,
   // Mock Data (Development Only)
-  MOCK_FEED_POSTS,
-  getMockFeedPosts,
-  getMockPost,
-  mockToggleLike,
-  mockToggleBookmark,
 } from './feed';
 
 // ============================================
@@ -1272,7 +1260,6 @@ export {
   USAGE_SECTION_NAVS,
   // Section Components (for custom layouts)
   UsageOverviewComponent,
-  UsageSubscriptionsComponent,
   UsageChartComponent,
   UsageBreakdownTableComponent,
   UsagePaymentHistoryComponent,
@@ -1304,15 +1291,6 @@ export {
   type InviteUser,
   type InviteBottomSheetConfig,
   // Mock Data (Development Only)
-  MOCK_INVITE_STATS,
-  MOCK_INVITE_ACHIEVEMENTS,
-  MOCK_INVITE_HISTORY,
-  MOCK_INVITE_TEAMS,
-  getMockInviteStats,
-  getMockAchievements,
-  getMockInviteHistory,
-  getMockInviteLink,
-  getMockTeams,
 } from './invite';
 
 // ============================================

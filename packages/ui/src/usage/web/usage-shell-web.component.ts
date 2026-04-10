@@ -65,7 +65,6 @@ import { AgentXControlPanelComponent, type AgentXControlPanelKind } from '../../
 import { BuyCreditsModalComponent } from './buy-credits-modal.component';
 import {
   UsageOverviewComponent,
-  UsageSubscriptionsComponent,
   UsageChartComponent,
   UsageBreakdownTableComponent,
   UsagePaymentHistoryComponent,
@@ -87,7 +86,6 @@ export type { UsageUser };
     UsageSkeletonComponent,
     UsageErrorStateComponent,
     UsageOverviewComponent,
-    UsageSubscriptionsComponent,
     UsageChartComponent,
     UsageBreakdownTableComponent,
     UsagePaymentHistoryComponent,
@@ -220,13 +218,6 @@ export type { UsageUser };
                     (viewPaymentHistory)="svc.setActiveSection('payment-history')"
                     (buyCredit)="onBuyCredits()"
                   />
-
-                  @if (svc.subscriptions().length > 0) {
-                    <nxt1-usage-subscriptions
-                      [subscriptions]="svc.subscriptions()"
-                      (manage)="onManageSubscriptions()"
-                    />
-                  }
 
                   @if (svc.isOrg()) {
                     <nxt1-usage-budgets

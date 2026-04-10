@@ -72,7 +72,6 @@ export interface MergedUserProfile {
 
   // Status (computed from backend)
   readonly role: string | null;
-  readonly isPremium: boolean;
   readonly hasCompletedOnboarding: boolean;
 
   // Extended profile (from backend)

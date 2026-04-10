@@ -50,12 +50,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import type { ScoutReportSortOption } from './scout-report-sort-selector.component';
 import { NxtLoggingService } from '../services/logging/logging.service';
-// ⚠️ TEMPORARY: Mock data for development (remove when backend is ready)
-import {
-  getMockReportsByCategory,
-  getMockReportCount,
-  MOCK_CATEGORY_BADGES,
-} from './scout-reports.mock-data';
 
 /**
  * Scout Reports state management service.
@@ -63,8 +57,7 @@ import {
  */
 @Injectable({ providedIn: 'root' })
 export class ScoutReportsService {
-  // ⚠️ TEMPORARY: API service commented out - using mock data
-  // private readonly api = inject(ScoutReportsApiService);
+  // TODO: inject ScoutReportsApiService when backend is ready
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ScoutReportsService');
@@ -76,7 +69,9 @@ export class ScoutReportsService {
   private readonly _reports = signal<ScoutReport[]>([]);
   private readonly _selectedReport = signal<ScoutReport | null>(null);
   private readonly _activeCategory = signal<ScoutReportCategoryId>(SCOUT_REPORT_DEFAULT_CATEGORY);
-  private readonly _badges = signal<Record<ScoutReportCategoryId, number>>(MOCK_CATEGORY_BADGES);
+  private readonly _badges = signal<Record<ScoutReportCategoryId, number>>(
+    {} as Record<ScoutReportCategoryId, number>
+  );
   private readonly _filters = signal<ScoutReportFilter>({});
   private readonly _isLoading = signal(false);
   private readonly _isLoadingMore = signal(false);
@@ -172,11 +167,6 @@ export class ScoutReportsService {
     return this._reports().filter((report) => report.isBookmarked);
   });
 
-  /** Premium reports */
-  readonly premiumReports = computed(() => {
-    return this._reports().filter((report) => report.isPremium);
-  });
-
   /** Verified reports */
   readonly verifiedReports = computed(() => {
     return this._reports().filter((report) => report.isVerified);
@@ -206,29 +196,16 @@ export class ScoutReportsService {
 
     this.logger.debug('Loading scout reports', { category: targetCategory });
 
-    // ⚠️ TEMPORARY: Using mock data instead of API call
     try {
-      // Simulate network delay
-      await new Promise((resolve) => setTimeout(resolve, 400));
-
-      const reports = getMockReportsByCategory(
-        targetCategory,
-        1,
-        SCOUT_REPORT_PAGINATION_DEFAULTS.pageSize
-      );
-      const total = getMockReportCount(targetCategory);
-      const totalPages = Math.ceil(total / SCOUT_REPORT_PAGINATION_DEFAULTS.pageSize);
-      const hasMore = reports.length < total;
-
-      this._reports.set(reports);
+      // TODO: replace with API call when backend is ready
+      this._reports.set([]);
       this._pagination.set({
         page: 1,
         limit: SCOUT_REPORT_PAGINATION_DEFAULTS.pageSize,
-        total,
-        totalPages,
-        hasMore,
+        total: 0,
+        totalPages: 0,
+        hasMore: false,
       });
-
       await this.haptics.impact('light');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load scout reports';
@@ -249,17 +226,9 @@ export class ScoutReportsService {
     this._error.set(null);
 
     try {
-      // ⚠️ TEMPORARY: Using mock data
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
-      // Find in current reports or mock data
-      const report =
-        this._reports().find((r) => r.id === reportId) ??
-        getMockReportsByCategory('all').find((r) => r.id === reportId) ??
-        null;
-
+      // TODO: replace with API call when backend is ready
+      const report = this._reports().find((r) => r.id === reportId) ?? null;
       this._selectedReport.set(report);
-
       if (!report) {
         this._error.set('Report not found');
       }
@@ -296,25 +265,7 @@ export class ScoutReportsService {
     this.logger.debug('Loading more scout reports', { category, page: nextPage });
 
     try {
-      // Simulate network delay
-      await new Promise((resolve) => setTimeout(resolve, 300));
-
-      const newReports = getMockReportsByCategory(
-        category,
-        nextPage,
-        SCOUT_REPORT_PAGINATION_DEFAULTS.pageSize
-      );
-      const total = getMockReportCount(category);
-      const totalPages = Math.ceil(total / SCOUT_REPORT_PAGINATION_DEFAULTS.pageSize);
-
-      this._reports.update((current) => [...current, ...newReports]);
-      this._pagination.set({
-        page: nextPage,
-        limit: SCOUT_REPORT_PAGINATION_DEFAULTS.pageSize,
-        total,
-        totalPages,
-        hasMore: nextPage < totalPages,
-      });
+      // TODO: replace with API call when backend is ready
     } catch (err) {
       this.logger.error('Failed to load more reports', err);
     } finally {

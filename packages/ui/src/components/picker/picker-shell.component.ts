@@ -336,8 +336,6 @@ export class NxtPickerShellComponent implements AfterViewInit {
   // DEPENDENCIES
   // ============================================
 
-  // private readonly modalCtrl = inject(ModalController); // TODO: Remove if not needed
-
   // ============================================
   // VIEW CHILDREN
   // ============================================

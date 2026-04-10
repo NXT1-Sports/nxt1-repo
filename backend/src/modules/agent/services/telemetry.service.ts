@@ -29,9 +29,9 @@
  *                          └───────────────────┘
  *
  * Why this exists:
- * Without cost tracking, a free-tier user could chain 50 scouting reports
+ * Without cost tracking, a user could chain 50 scouting reports
  * and burn $200 in Claude API calls. The TelemetryService enforces daily limits
- * per subscription tier and provides the data for the admin Usage Dashboard.
+ * and provides the data for the admin Usage Dashboard.
  */
 
 import type {
@@ -53,7 +53,7 @@ export class TelemetryService {
     userId: string,
     _userTier?: string
   ): Promise<{ allowed: boolean; reason?: string; remaining?: Partial<AgentUsageLimits> }> {
-    // No subscription tiers yet — use single default limits for all users
+    // No per-user tiers — use single default limits for all users
     const limits = AGENT_USAGE_LIMITS[0];
     if (!limits) {
       return { allowed: false, reason: 'No usage limits configured' };
@@ -94,7 +94,7 @@ export class TelemetryService {
 
   /**
    * Check if a specific model tier is allowed.
-   * No subscription tiers yet — all model tiers are allowed for all users.
+   * No per-user tiers — all model tiers are allowed for all users.
    */
   isModelAllowed(_userTier: string, modelTier: string): boolean {
     const limits = AGENT_USAGE_LIMITS[0];

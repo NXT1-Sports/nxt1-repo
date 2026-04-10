@@ -90,7 +90,6 @@ export class BrowserAuthService implements IAuthService {
 
   readonly isAuthenticated = computed(() => this._firebaseUser() !== null);
   readonly userRole = computed(() => this._user()?.role ?? null);
-  readonly isPremium = computed(() => this._user()?.isPremium ?? false);
   readonly hasCompletedOnboarding = computed(() => this._user()?.hasCompletedOnboarding ?? false);
 
   // ============================================
@@ -181,7 +180,7 @@ export class BrowserAuthService implements IAuthService {
       displayName: firebaseUser.displayName ?? 'User',
       profileImg: undefined,
       role: 'athlete' as UserRole,
-      isPremium: false,
+
       hasCompletedOnboarding: false,
       createdAt: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -189,7 +188,6 @@ export class BrowserAuthService implements IAuthService {
 
     try {
       // Fetch real profile — this is the only source of truth for
-      // onboardingCompleted, role, isPremium, unicode, etc.
       const profile = await this.authApi.getUserProfile(firebaseUser.uid);
 
       // Backend User model uses `onboardingCompleted` (+ legacy `completeSignUp`)
@@ -216,7 +214,7 @@ export class BrowserAuthService implements IAuthService {
           (firebaseUser.displayName ?? 'User'),
         profileImg: profile.profileImgs?.[0] ?? undefined,
         role: (profile.role as UserRole) ?? 'athlete',
-        isPremium: false, // extend when backend exposes isPremium
+
         hasCompletedOnboarding,
         unicode: profile.unicode ?? undefined,
         connectedEmails,

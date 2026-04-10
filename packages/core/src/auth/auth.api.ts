@@ -44,7 +44,7 @@
  */
 
 import type { HttpAdapter } from '../api/http-adapter';
-import type { TeamTypeApi } from '../models/team-code.model';
+import type { TeamTypeApi } from '../models/team/team-code.model';
 import type { UserRole } from '../constants/user.constants';
 import type {
   TeamSelectionFormData,
@@ -98,25 +98,18 @@ export type TeamCodeValidationState = 'idle' | 'validating' | 'success' | 'error
 
 /**
  * Onboarding profile data to save
- * userType values must match UserRole from @nxt1/core/constants
+ * Sent to POST /auth/profile/onboarding
+ *
+ * ⭐ V2 cleanup: removed legacy fields (bio, highSchool, highSchoolSuffix, club, teamLogo, teamColors)
+ * Location comes from profile step geolocation, not contact/school steps.
  */
 export interface OnboardingProfileData {
   firstName: string;
   lastName: string;
   profileImg?: string;
   profileImgs?: string[];
-  bio?: string;
-  /** User role - matches UserRole type from constants */
-  userType:
-    | 'athlete'
-    | 'coach'
-    | 'college-coach'
-    | 'director'
-    | 'recruiting-service'
-    | 'parent'
-    | 'scout'
-    | 'media'
-    | 'fan';
+  /** User role — only the 3 allowed V2 roles */
+  userType: 'athlete' | 'coach' | 'director';
   gender?: string;
   sports?: Array<{
     sport: string;
@@ -132,22 +125,18 @@ export interface OnboardingProfileData {
       teamId?: string;
     };
   }>;
-  highSchool?: string;
-  highSchoolSuffix?: string;
   classOf?: number;
+  /** Location from profile step geolocation */
   state?: string;
   city?: string;
   zipCode?: string;
   address?: string;
   country?: string;
-  club?: string;
   organization?: string;
   coachTitle?: string;
   teamCode?: string;
   referralSource?: string;
   referralDetails?: string;
-  teamLogo?: string | null;
-  teamColors?: string[];
   linkSources?: {
     links?: Array<{
       platform?: string;
@@ -177,6 +166,8 @@ export interface OnboardingCompleteResponse {
     id: string;
     firstName: string;
     lastName: string;
+    role: string;
+    onboardingCompleted: boolean;
     completeSignUp: boolean;
     /** Primary sport - matches User.primarySport */
     primarySport?: string;
@@ -240,8 +231,6 @@ export interface UserProfileResponse {
   isCollegeCoach?: boolean;
   /** @deprecated Use onboardingCompleted instead */
   completeSignUp?: boolean;
-  /** @deprecated Legacy field — no longer used */
-  lastActivatedPlan?: string;
 }
 
 /**
@@ -323,7 +312,6 @@ export interface CreateUserResponse {
       email: string;
       credits: number;
       featureCredits: number;
-      lastActivatedPlan: 'trial' | 'subscription' | 'free';
       completeSignUp: boolean;
       /** True if user already existed (idempotent request) */
       alreadyExists?: boolean;
@@ -848,17 +836,6 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
         userId,
         ...data,
       });
-    },
-
-    /**
-     * Mark onboarding as complete
-     * Updates user's completeSignUp flag
-     *
-     * @param userId - User's ID
-     * @returns Updated user data
-     */
-    async completeOnboarding(userId: string): Promise<OnboardingCompleteResponse> {
-      return http.post(`${base}/auth/profile/complete-onboarding`, { userId });
     },
 
     // ============================================

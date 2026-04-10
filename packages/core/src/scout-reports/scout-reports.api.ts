@@ -98,7 +98,6 @@ export function createScoutReportsApi(http: HttpAdapter, baseUrl: string) {
           gradYears: filter?.gradYears,
           minRating: filter?.minRating,
           verifiedOnly: filter?.verifiedOnly,
-          includePremium: filter?.includePremium,
           states: filter?.states,
           q: filter?.searchQuery,
           sortBy: filter?.sortBy,

@@ -716,7 +716,6 @@ export class AuthPage implements OnInit {
   async onGoogleAuth(): Promise<void> {
     try {
       await this.haptics.impact('medium');
-      // TODO: Pass team code to Google sign-in flow
       const success = await this.authFlow.signInWithGoogle();
       if (success) {
         await this.haptics.notification('success');
@@ -734,7 +733,6 @@ export class AuthPage implements OnInit {
   async onAppleAuth(): Promise<void> {
     try {
       await this.haptics.impact('medium');
-      // TODO: Pass team code to Apple sign-in flow
       const success = await this.authFlow.signInWithApple();
       if (success) {
         await this.haptics.notification('success');
@@ -752,7 +750,6 @@ export class AuthPage implements OnInit {
   async onMicrosoftAuth(): Promise<void> {
     try {
       await this.haptics.impact('medium');
-      // TODO: Pass team code to Microsoft sign-in flow
       const success = await this.authFlow.signInWithMicrosoft();
       if (success) {
         await this.haptics.notification('success');

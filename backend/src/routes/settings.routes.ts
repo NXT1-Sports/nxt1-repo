@@ -15,7 +15,6 @@ import { getCacheService } from '../services/cache.service.js';
 import { logger } from '../utils/logger.js';
 import type { UserPreferences, NotificationPreferences } from '@nxt1/core';
 import { auth as prodAuth } from '../utils/firebase.js';
-import { cancelActiveSubscriptionsForUser } from '../modules/billing/index.js';
 import { invalidateProfileCaches } from './profile.routes.js';
 
 const router: ExpressRouter = Router();
@@ -284,17 +283,6 @@ router.patch(
 );
 
 /**
- * Get subscription info
- * GET /api/v1/settings/subscription
- */
-router.get('/subscription', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
-
-/**
  * Get usage stats
  * GET /api/v1/settings/usage
  */
@@ -405,18 +393,6 @@ router.delete(
       const userData = userSnap.exists ? userSnap.data() : undefined;
       const username = userData?.['username'] as string | undefined;
       const unicode = userData?.['unicode'] as string | null | undefined;
-
-      for (const environment of ['staging', 'production'] as const) {
-        try {
-          await cancelActiveSubscriptionsForUser(db, userId, environment);
-        } catch (billingError) {
-          logger.warn('[Settings] Could not cancel Stripe subscriptions', {
-            userId,
-            environment,
-            error: billingError instanceof Error ? billingError.message : String(billingError),
-          });
-        }
-      }
 
       // Delete all user files from Firebase Storage (avatars, cover photos, thumbs, etc.)
       try {

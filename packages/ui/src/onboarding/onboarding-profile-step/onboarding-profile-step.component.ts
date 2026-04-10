@@ -969,13 +969,8 @@ export class OnboardingProfileStepComponent {
     () => this.showClassYear() && this.userType() === USER_ROLES.ATHLETE
   );
 
-  /** Whether to show profile photo gallery (hidden for coaches, directors, and recruiters) */
-  readonly showPhotos = computed(
-    () =>
-      this.userType() !== USER_ROLES.COACH &&
-      this.userType() !== USER_ROLES.DIRECTOR &&
-      this.userType() !== USER_ROLES.RECRUITER
-  );
+  /** Whether to show profile photo gallery (athletes only) */
+  readonly showPhotos = computed(() => this.userType() === USER_ROLES.ATHLETE);
 
   /** Display label for coach title in list-row variant */
   readonly coachTitleDisplayLabel = computed(() => {

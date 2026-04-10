@@ -445,9 +445,6 @@ import type {
                         [showSkeleton]="false"
                         cssClass="nav-user-avatar-lg"
                       />
-                      @if (user()?.isPremium) {
-                        <span class="premium-badge-sm">PRO</span>
-                      }
                     </div>
                     <div class="user-info-text">
                       <span class="user-info-name">{{ user()?.name }}</span>

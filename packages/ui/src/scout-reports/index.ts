@@ -41,10 +41,6 @@ export {
   type QuickStatItem,
 } from './scout-report-quick-stats.component';
 export { ScoutReportBookmarkButtonComponent } from './scout-report-bookmark-button.component';
-export {
-  ScoutReportPremiumBadgeComponent,
-  type PremiumBadgeVariant,
-} from './scout-report-premium-badge.component';
 
 // ============================================
 // SERVICES
@@ -54,31 +50,3 @@ export { ScoutReportsService } from './scout-reports.service';
 export { ScoutReportsApiService } from './scout-reports-api.service';
 
 // ============================================
-// MOCK DATA
-// ============================================
-
-export {
-  MOCK_SCOUT_REPORTS,
-  MOCK_CATEGORY_BADGES,
-  getMockReportsByCategory,
-  getMockReportCount,
-} from './scout-reports.mock-data';
-
-// ============================================
-// RE-EXPORT TYPES FROM CORE
-// ============================================
-
-export type {
-  ScoutReport,
-  ScoutReportAthlete,
-  ScoutRating,
-  RatingTier,
-  ScoutReportFilter,
-  ScoutReportPagination,
-  ScoutReportViewMode,
-  ScoutReportCategoryId,
-  ScoutReportCategory,
-  ScoutReportSortBy,
-  SortOrder,
-  ScoutReportsApi,
-} from '@nxt1/core';

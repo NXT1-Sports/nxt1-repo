@@ -14,6 +14,7 @@
 
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
 import type { TeamTypeApi } from '@nxt1/core';
+import { POSITION_ABBREVIATIONS, normalizeSportKey } from '@nxt1/core';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { ScraperMediaService } from '../integrations/scraper-media.service.js';
 import { getCacheService } from '../../../../services/cache.service.js';
@@ -282,7 +283,7 @@ export class WriteCoreIdentityTool extends BaseTool {
 
       // ── Identity fields ──────────────────────────────────────────────
       if (identity) {
-        this.mergeIdentity(identity, userData, payload, writtenSections);
+        this.mergeIdentity(identity, userData, payload, writtenSections, source);
       }
 
       // ── Academics ────────────────────────────────────────────────────
@@ -327,9 +328,9 @@ export class WriteCoreIdentityTool extends BaseTool {
 
         if (sportInfo) {
           let sportInfoUpdated = false;
-          const positions = this.arr(sportInfo, 'positions');
+          const positions = this.arr(sportInfo, 'positions') as string[] | null;
           if (positions?.length && !this.hasValue(sportObj['positions'])) {
-            sportObj['positions'] = positions;
+            sportObj['positions'] = this.normalizePositions(positions, targetSport);
             sportInfoUpdated = true;
           }
           const jersey = sportInfo['jerseyNumber'];
@@ -401,22 +402,14 @@ export class WriteCoreIdentityTool extends BaseTool {
 
       // ── Measurables verification ─────────────────────────────────────
       // When height or weight was written from an external source, tag the
-      // active sport with a DataVerification entry so the profile header
-      // can render a "Verified by [Source]" badge.
+      // ── Clean up legacy flat height/weight fields ────────────────────
+      // Measurables are now stored as root-level measurables[] VerifiedMetric
+      // objects (built in mergeIdentity). Delete the old flat string fields.
       const measurablesWritten =
         writtenSections.includes('height') || writtenSections.includes('weight');
       if (measurablesWritten) {
-        this.mergeMeasurablesVerification(
-          payload,
-          existingSports,
-          sportIndex,
-          isNewSport,
-          source,
-          profileUrl,
-          faviconUrl,
-          now
-        );
-        writtenSections.push('verification');
+        payload['height'] = FieldValue.delete();
+        payload['weight'] = FieldValue.delete();
       }
 
       // Clean up legacy flat fields if team data was written
@@ -505,14 +498,13 @@ export class WriteCoreIdentityTool extends BaseTool {
     id: Record<string, unknown>,
     userData: Record<string, unknown>,
     payload: Record<string, unknown>,
-    written: string[]
+    written: string[],
+    source: string
   ): void {
     const fields: Array<[string, string]> = [
       ['firstName', 'firstName'],
       ['lastName', 'lastName'],
       ['displayName', 'displayName'],
-      ['height', 'height'],
-      ['weight', 'weight'],
     ];
     for (const [src, dst] of fields) {
       const val = this.str(id, src);
@@ -520,6 +512,61 @@ export class WriteCoreIdentityTool extends BaseTool {
       if (val && val.length <= VALIDATION.MAX_NAME_LENGTH && !this.hasValue(userData[dst])) {
         payload[dst] = val;
         written.push(dst);
+      }
+    }
+
+    // ── Height / Weight → root-level measurables[] (VerifiedMetric) ──
+    const heightVal = this.str(id, 'height');
+    const weightVal = this.str(id, 'weight');
+    if (heightVal || weightVal) {
+      const existingMeasurables = Array.isArray(userData['measurables'])
+        ? ([...userData['measurables']] as Record<string, unknown>[])
+        : [];
+      const now = new Date().toISOString();
+      const displayName = platformDisplayName(source);
+
+      const upsertMetric = (
+        field: string,
+        label: string,
+        value: string,
+        unit: string,
+        category: string
+      ) => {
+        const idx = existingMeasurables.findIndex((m) => m['field'] === field);
+        const metric: Record<string, unknown> = {
+          id: `${field}_${now}`,
+          field,
+          label,
+          value,
+          unit,
+          category,
+          source: { platform: source, displayName },
+          verified: true,
+          verifiedBy: displayName,
+          dateRecorded: now,
+          updatedAt: now,
+        };
+        if (idx >= 0) {
+          // Only update if user hasn't manually set this metric
+          if (!existingMeasurables[idx]['manual']) {
+            existingMeasurables[idx] = { ...existingMeasurables[idx], ...metric };
+          }
+        } else {
+          existingMeasurables.push(metric);
+        }
+      };
+
+      if (heightVal && !existingMeasurables.some((m) => m['field'] === 'height')) {
+        upsertMetric('height', 'Height', heightVal, '', 'physical');
+        written.push('height');
+      }
+      if (weightVal && !existingMeasurables.some((m) => m['field'] === 'weight')) {
+        upsertMetric('weight', 'Weight', weightVal, 'lbs', 'physical');
+        written.push('weight');
+      }
+
+      if (written.includes('height') || written.includes('weight')) {
+        payload['measurables'] = existingMeasurables;
       }
     }
     // aboutMe has a longer limit
@@ -580,6 +627,20 @@ export class WriteCoreIdentityTool extends BaseTool {
     return true;
   }
 
+  /**
+   * Normalize position strings to shorthands using POSITION_ABBREVIATIONS.
+   * E.g. "Point Guard" → "PG", "Quarterback" → "QB".
+   * Falls back to original string if no mapping exists.
+   */
+  private normalizePositions(positions: string[], sport: string): string[] {
+    const sportKey = normalizeSportKey(sport);
+    const abbreviations = POSITION_ABBREVIATIONS[sportKey] ?? {};
+    return positions.map((p) => {
+      const key = p.toLowerCase().trim();
+      return abbreviations[key] ?? p;
+    });
+  }
+
   private sanitizeAcademics(a: Record<string, unknown>): Record<string, unknown> {
     const result: Record<string, unknown> = {};
     const numField = (key: string, min: number, max: number) => {
@@ -609,14 +670,13 @@ export class WriteCoreIdentityTool extends BaseTool {
     const profile: Record<string, unknown> = {
       sport: targetSport,
       order,
-      accountType: 'free',
       createdAt: now,
       updatedAt: now,
     };
 
     if (sportInfo) {
-      const positions = this.arr(sportInfo, 'positions');
-      if (positions?.length) profile['positions'] = positions;
+      const positions = this.arr(sportInfo, 'positions') as string[] | null;
+      if (positions?.length) profile['positions'] = this.normalizePositions(positions, targetSport);
       const jersey = sportInfo['jerseyNumber'];
       if (jersey !== undefined && jersey !== null) profile['jerseyNumber'] = jersey;
       const side = this.str(sportInfo, 'side');
@@ -768,58 +828,6 @@ export class WriteCoreIdentityTool extends BaseTool {
       }
     }
     return merged;
-  }
-
-  /**
-   * Merges a measurables DataVerification entry into the target sport's
-   * `verifications[]` array within the payload. If a verification with
-   * `scope: 'measurables'` already exists from the same source, it is
-   * updated; otherwise a new entry is appended.
-   */
-  private mergeMeasurablesVerification(
-    payload: Record<string, unknown>,
-    existingSports: Record<string, unknown>[],
-    sportIndex: number,
-    isNewSport: boolean,
-    source: string,
-    profileUrl: string,
-    faviconUrl: string | undefined,
-    now: string
-  ): void {
-    const displayName = platformDisplayName(source);
-
-    const entry: Record<string, unknown> = {
-      scope: 'measurables',
-      verifiedBy: displayName,
-      sourceUrl: profileUrl,
-      verifiedAt: now,
-    };
-    if (faviconUrl) entry['sourceLogoUrl'] = faviconUrl;
-
-    // Resolve the sports array that will be written
-    const sportsArr = Array.isArray(payload['sports'])
-      ? (payload['sports'] as Record<string, unknown>[]).map((s) => ({ ...s }))
-      : existingSports.map((s) => ({ ...s }));
-
-    const targetIdx = isNewSport ? sportsArr.length - 1 : sportIndex;
-    if (targetIdx < 0 || targetIdx >= sportsArr.length) return;
-
-    const sportObj = { ...sportsArr[targetIdx] };
-
-    // Merge into verifications[] array (new architecture)
-    const existing = Array.isArray(sportObj['verifications'])
-      ? ([...sportObj['verifications']] as Record<string, unknown>[])
-      : [];
-    const matchIdx = existing.findIndex((v) => v['scope'] === 'measurables');
-    if (matchIdx >= 0) {
-      existing[matchIdx] = { ...existing[matchIdx], ...entry };
-    } else {
-      existing.push(entry);
-    }
-    sportObj['verifications'] = existing;
-
-    sportsArr[targetIdx] = sportObj;
-    payload['sports'] = sportsArr;
   }
 
   private buildConnectedSourcesUpdate(

@@ -76,22 +76,6 @@ export interface UsageOverview {
 // SUBSCRIPTIONS
 // ============================================
 
-/** An active subscription */
-export interface UsageSubscription {
-  /** Unique ID */
-  readonly id: string;
-  /** Plan name (e.g. "NXT1 Free", "NXT1 Pro") */
-  readonly name: string;
-  /** Monthly cost in cents */
-  readonly monthlyCost: number;
-  /** Currency */
-  readonly currency: Currency;
-  /** Whether it's a free plan */
-  readonly isFree: boolean;
-  /** Plan features summary */
-  readonly description: string;
-}
-
 // ============================================
 // USAGE PRODUCT CATEGORIES
 // ============================================
@@ -395,8 +379,6 @@ export interface UsageBudget {
 export interface UsageDashboardData {
   /** Overview cards */
   readonly overview: UsageOverview;
-  /** Active subscriptions */
-  readonly subscriptions: readonly UsageSubscription[];
   /** Usage chart data points */
   readonly chartData: readonly UsageChartDataPoint[];
   /** Product detail tabs */

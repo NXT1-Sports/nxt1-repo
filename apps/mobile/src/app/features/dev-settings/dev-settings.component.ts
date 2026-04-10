@@ -499,7 +499,6 @@ export class DevSettingsComponent {
   async addTestCustomKeys(): Promise<void> {
     await this.crashlytics.setCustomKeys({
       [CRASH_KEYS.USER_ROLE]: 'athlete',
-      [CRASH_KEYS.SUBSCRIPTION_TIER]: 'pro',
       [CRASH_KEYS.ACTIVE_SPORT]: 'football',
       [CRASH_KEYS.SCREEN_NAME]: 'dev_settings',
       test_key: 'test_value_' + Date.now(),

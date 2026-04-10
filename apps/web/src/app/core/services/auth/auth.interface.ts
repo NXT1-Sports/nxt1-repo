@@ -32,7 +32,6 @@ export interface AppUser {
   displayName: string;
   profileImg?: string;
   role: UserRole;
-  isPremium: boolean;
   hasCompletedOnboarding: boolean;
   createdAt: string;
   updatedAt: string;
@@ -135,7 +134,6 @@ export interface IAuthService {
   readonly userRole: Signal<UserRole | null>;
 
   /** Whether user has premium subscription */
-  readonly isPremium: Signal<boolean>;
 
   /** Whether user has completed onboarding */
   readonly hasCompletedOnboarding: Signal<boolean>;

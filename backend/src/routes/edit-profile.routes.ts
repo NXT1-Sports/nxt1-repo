@@ -212,8 +212,8 @@ function userToEditProfileFormData(
       graduationDate: user.classOf ? String(user.classOf) : undefined,
     },
     physical: {
-      height: user.height,
-      weight: user.weight,
+      height: user.measurables?.find((m) => m.field === 'height')?.value?.toString(),
+      weight: user.measurables?.find((m) => m.field === 'weight')?.value?.toString(),
       // SportProfile doesn't have 'measurements' field - use 'metrics' (deprecated) instead
       wingspan: activeSport?.metrics?.['wingspan']
         ? String(activeSport.metrics['wingspan'])
@@ -455,31 +455,52 @@ function sectionToFirestoreUpdate(
     case 'physical': {
       const data = sectionData as EditProfilePhysical;
 
-      // User-level physical data (applies to all sports)
-      if (data.height !== undefined) updates['height'] = data.height || null;
-      if (data.weight !== undefined) updates['weight'] = data.weight || null;
-
-      // Invalidate measurables verification when height or weight is manually changed.
-      // The verification was set by Agent X after scraping an external source;
-      // a manual edit means the data no longer matches the verified value.
+      // Write height/weight to measurables[] (canonical location)
       if (data.height !== undefined || data.weight !== undefined) {
-        const physIdx = sportIndex ?? user.activeSportIndex ?? 0;
-        if (user.sports && user.sports[physIdx]) {
-          const cloned = JSON.parse(JSON.stringify(user.sports)) as SportProfile[];
-          const target = cloned[physIdx];
-          if (Array.isArray(target.verifications)) {
-            target.verifications = target.verifications.filter(
-              (v: { scope?: string }) => v.scope !== 'measurables'
-            );
-          }
-          // Only set sports once — may be overwritten below by metrics branch
-          if (!updates['sports']) {
-            updates['sports'] = cloned;
-          } else {
-            // Metrics branch already cloned; apply invalidation on that copy
-            (updates['sports'] as SportProfile[])[physIdx].verifications = target.verifications;
+        const existing: Array<{
+          id: string;
+          field: string;
+          label: string;
+          value: string | number;
+          unit?: string;
+          [k: string]: unknown;
+        }> = user.measurables ? JSON.parse(JSON.stringify(user.measurables)) : [];
+
+        if (data.height !== undefined) {
+          const idx = existing.findIndex((m) => m.field === 'height');
+          if (data.height) {
+            const entry = {
+              id: 'height',
+              field: 'height',
+              label: 'Height',
+              value: data.height,
+              unit: 'ft',
+            };
+            if (idx >= 0) existing[idx] = entry;
+            else existing.push(entry);
+          } else if (idx >= 0) {
+            existing.splice(idx, 1);
           }
         }
+
+        if (data.weight !== undefined) {
+          const idx = existing.findIndex((m) => m.field === 'weight');
+          if (data.weight) {
+            const entry = {
+              id: 'weight',
+              field: 'weight',
+              label: 'Weight',
+              value: data.weight,
+              unit: 'lbs',
+            };
+            if (idx >= 0) existing[idx] = entry;
+            else existing.push(entry);
+          } else if (idx >= 0) {
+            existing.splice(idx, 1);
+          }
+        }
+
+        updates['measurables'] = existing;
       }
 
       // Sport-specific physical metrics go to the sport being edited

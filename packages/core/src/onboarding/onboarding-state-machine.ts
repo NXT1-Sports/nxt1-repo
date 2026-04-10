@@ -69,8 +69,6 @@ import type {
   ProfileFormData,
   TeamFormData,
   SportFormData,
-  PositionsFormData,
-  ContactFormData,
   ReferralSourceData,
   LinkSourcesFormData,
   TeamSelectionFormData,
@@ -93,8 +91,6 @@ export type OnboardingMachineState =
   | 'organization'
   | 'sport'
   | 'select-teams'
-  | 'positions'
-  | 'contact'
   | 'referral'
   | 'role'
   | 'completing'
@@ -267,12 +263,6 @@ export interface OnboardingStateMachine {
 
   /** Update sport data */
   updateSport(data: SportFormData): void;
-
-  /** Update positions data */
-  updatePositions(data: PositionsFormData): void;
-
-  /** Update contact data */
-  updateContact(data: ContactFormData): void;
 
   /** Update link sources (connected accounts) data */
   updateLinkSources(data: LinkSourcesFormData): void;
@@ -619,19 +609,7 @@ export function createOnboardingStateMachine(
       formData = {
         ...formData,
         sport: data,
-        // Clear positions when sport changes
-        positions: undefined,
       };
-      notifyStateChange();
-    },
-
-    updatePositions(data: PositionsFormData): void {
-      formData = { ...formData, positions: data };
-      notifyStateChange();
-    },
-
-    updateContact(data: ContactFormData): void {
-      formData = { ...formData, contact: data };
       notifyStateChange();
     },
 

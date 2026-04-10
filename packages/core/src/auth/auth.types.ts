@@ -33,8 +33,6 @@ export interface AuthUser {
   profileImg?: string;
   /** User role in the application */
   role: UserRole;
-  /** Premium subscription status */
-  isPremium: boolean;
   /** Whether user has completed onboarding */
   hasCompletedOnboarding: boolean;
   /** Auth provider used */

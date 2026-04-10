@@ -18,33 +18,35 @@ export const USER_ROLES = {
   ATHLETE: 'athlete',
   COACH: 'coach',
   DIRECTOR: 'director',
-  RECRUITER: 'recruiter',
-  PARENT: 'parent',
 
   // ============================================
   // LEGACY ALIASES (backward compatibility)
-  // These map to the 5 core roles above.
   // Existing Firestore documents may still have these values.
-  // Use the core roles above for all new code.
+  // Use the 3 core roles above for all new code.
   // ============================================
-  /** @deprecated Use RECRUITER instead */
-  COLLEGE_COACH: 'recruiter',
-  /** @deprecated Use RECRUITER instead */
-  RECRUITING_SERVICE: 'recruiter',
-  /** @deprecated Use RECRUITER instead */
-  SCOUT: 'recruiter',
-  /** @deprecated Removed — assign ATHLETE, PARENT, or RECRUITER */
-  MEDIA: 'recruiter',
-  /** @deprecated Removed — assign ATHLETE or PARENT */
+  /** @deprecated Removed — maps to COACH */
+  RECRUITER: 'coach',
+  /** @deprecated Removed — maps to ATHLETE */
+  PARENT: 'athlete',
+  /** @deprecated Use COACH instead */
+  COLLEGE_COACH: 'coach',
+  /** @deprecated Use COACH instead */
+  RECRUITING_SERVICE: 'coach',
+  /** @deprecated Use COACH instead */
+  SCOUT: 'coach',
+  /** @deprecated Removed — maps to COACH */
+  MEDIA: 'coach',
+  /** @deprecated Removed — maps to ATHLETE */
   FAN: 'athlete',
 } as const;
 
-export type UserRole = 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent';
+export type UserRole = 'athlete' | 'coach' | 'director';
 
 /**
- * Sub-type for the 'recruiter' role.
+ * Sub-type for the legacy 'recruiter' role.
  * Stored on the user's recruiterData object to distinguish
  * college coaches from independent scouts and services.
+ * @deprecated Recruiter role removed — use 'coach' instead
  */
 export type RecruiterType = 'college_coach' | 'independent_scout' | 'media_service';
 
@@ -80,20 +82,6 @@ export const ROLE_CONFIGS: readonly RoleConfig[] = [
     icon: '📋',
     canManageAthletes: true,
   },
-  {
-    id: 'recruiter',
-    label: 'Recruiter',
-    description: 'College coach, scout, or recruiting service',
-    icon: '🔍',
-    canRecruit: true,
-  },
-  {
-    id: 'parent',
-    label: 'Parent / Guardian',
-    description: 'Supporting an athlete',
-    icon: '👨‍👩‍👧',
-    canManageAthletes: true,
-  },
 ] as const;
 
 // ============================================
@@ -110,7 +98,7 @@ export const TEAM_MANAGEMENT_ROLES: readonly UserRole[] = ['coach', 'director'] 
 /**
  * Roles that view the platform through an individual athlete lens.
  */
-export const INDIVIDUAL_PROFILE_ROLES: readonly UserRole[] = ['athlete', 'parent'] as const;
+export const INDIVIDUAL_PROFILE_ROLES: readonly UserRole[] = ['athlete'] as const;
 
 /** Check if a role manages a team (coach or director). */
 export function isTeamRole(role: string | null | undefined): boolean {
@@ -123,23 +111,23 @@ export function isAthleteRole(role: string | null | undefined): boolean {
 }
 
 /**
- * Normalize any legacy role string to a core 5-role UserRole.
- * Handles old Firestore documents that still have 'college-coach', 'scout', etc.
+ * Normalize any legacy role string to a core 3-role UserRole.
+ * Handles old Firestore documents that still have 'college-coach', 'scout', 'recruiter', 'parent', etc.
  */
 export function normalizeRole(role: string): UserRole {
   const legacyMap: Record<string, UserRole> = {
     athlete: 'athlete',
     coach: 'coach',
     director: 'director',
-    recruiter: 'recruiter',
-    parent: 'parent',
-    // Legacy mappings
-    'college-coach': 'recruiter',
-    scout: 'recruiter',
-    'recruiting-service': 'recruiter',
-    media: 'recruiter',
+    // Legacy mappings → 3 core roles
+    recruiter: 'coach',
+    parent: 'athlete',
+    'college-coach': 'coach',
+    scout: 'coach',
+    'recruiting-service': 'coach',
+    media: 'coach',
     fan: 'athlete',
-    service: 'recruiter',
+    service: 'coach',
   };
   return legacyMap[role] ?? 'athlete';
 }

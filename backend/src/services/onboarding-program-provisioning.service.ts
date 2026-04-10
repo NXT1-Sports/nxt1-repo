@@ -63,6 +63,8 @@ export interface ProvisionOnboardingProgramsResult {
   teamIds: string[];
   createdTeamIds: string[];
   organizationIds: string[];
+  /** Maps lowercase sport name → resolved team/org for backfilling User.sports[].team */
+  sportTeamMap: Map<string, { teamId: string; organizationId: string; orgName: string }>;
 }
 
 export function normalizeProgramType(value?: string): ProgramType {
@@ -162,13 +164,10 @@ async function resolvePrograms(
     }
 
     const parsedLocation = parseLocationLabel(program.location);
-    const state =
-      parsedLocation.state ||
-      input.createTeamProfile?.state ||
-      input.updateData.location?.state ||
-      '';
-    const city =
-      parsedLocation.city || input.createTeamProfile?.city || input.updateData.location?.city || '';
+    // Location comes from the draft program selection entry (user-provided in onboarding UI)
+    // or from the manual createTeamProfile form. Personal geolocation is NEVER used for org location.
+    const state = parsedLocation.state || input.createTeamProfile?.state || '';
+    const city = parsedLocation.city || input.createTeamProfile?.city || '';
     const teamType = normalizeTeamType(program.teamType || input.createTeamProfile?.teamType);
 
     if (isDraftProgram) {
@@ -178,7 +177,8 @@ async function resolvePrograms(
         const org = await organizationService.createOrganization({
           name: normalizedName,
           type: normalizeProgramType(program.teamType || input.createTeamProfile?.teamType),
-          ownerId: isPrivilegedRole ? input.userId : '',
+          createdBy: input.userId,
+          creatorRole: isPrivilegedRole ? (input.role as 'director' | 'coach') : undefined,
           location: {
             address: '',
             city,
@@ -187,7 +187,7 @@ async function resolvePrograms(
             country: 'USA',
           },
           mascot: input.createTeamProfile?.mascot,
-          isClaimed: false,
+          isClaimed: isPrivilegedRole,
           source: 'user_generated',
           skipAdmins: !isPrivilegedRole,
         });
@@ -230,17 +230,38 @@ async function resolvePrograms(
       state,
     });
 
-    if (input.role === 'coach') {
+    if (input.role === 'coach' || input.role === 'director') {
       try {
-        await organizationService.addAdmin({
-          organizationId,
-          userId: input.userId,
-          role: 'admin',
-          addedBy: input.userId,
-        });
+        // Skip adding coach as admin if a director already manages this org.
+        // Directors always get added; coaches only when no director exists.
+        let shouldAdd = true;
+        if (input.role === 'coach') {
+          const org = await organizationService.getOrganizationById(organizationId);
+          const hasDirector = org.admins?.some((a) => a.role === 'director');
+          if (hasDirector) {
+            shouldAdd = false;
+            logger.info(
+              '[OnboardingProgramProvisioning] Skipping coach as org admin — director already exists',
+              {
+                organizationId,
+                userId: input.userId,
+              }
+            );
+          }
+        }
+
+        if (shouldAdd) {
+          await organizationService.addAdmin({
+            organizationId,
+            userId: input.userId,
+            role: input.role,
+            addedBy: input.userId,
+          });
+        }
       } catch (err) {
-        logger.warn('[OnboardingProgramProvisioning] Failed to add coach as org admin', {
+        logger.warn('[OnboardingProgramProvisioning] Failed to add as org admin', {
           organizationId,
+          role: input.role,
           error: err,
         });
       }
@@ -293,7 +314,9 @@ async function ensureTeamForSport(
   }
 
   const teamCode = await generateUniqueTeamCode(input.db);
-  const teamName = program.name.trim();
+  // Team name is "OrgName SportName" (e.g. "Brownsburg Basketball")
+  const baseName = program.name.trim();
+  const teamName = sportName ? `${baseName} ${sportName}` : baseName;
 
   const team = await teamCodeService.createTeamCode(input.db, {
     teamCode,
@@ -301,7 +324,7 @@ async function ensureTeamForSport(
     teamType: program.teamType,
     sport: sportName,
     createdBy: input.userId,
-    creatorRole: input.role === 'recruiter' ? 'coach' : input.role,
+    creatorRole: input.role,
     creatorName:
       [input.updateData.firstName, input.updateData.lastName].filter(Boolean).join(' ') ||
       undefined,
@@ -316,7 +339,6 @@ async function ensureTeamForSport(
 
   await input.db.collection('Teams').doc(team.id).update({
     organizationId: program.organizationId,
-    isClaimed: false,
     source: 'user_generated',
     updatedAt: new Date().toISOString(),
   });
@@ -385,13 +407,22 @@ export async function provisionOnboardingPrograms(
   });
 
   if (selections.length === 0) {
-    return { teamIds: [], createdTeamIds: [], organizationIds: [] };
+    return {
+      teamIds: [],
+      createdTeamIds: [],
+      organizationIds: [],
+      sportTeamMap: new Map(),
+    };
   }
 
   const sportsToProvision = getProvisioningSports(input.sports);
   const programs = await resolvePrograms(input, selections);
   const linkedTeamIds = new Set<string>();
   const createdTeamIds = new Set<string>();
+  const sportTeamMap = new Map<
+    string,
+    { teamId: string; organizationId: string; orgName: string }
+  >();
 
   for (const program of programs) {
     for (const sportName of sportsToProvision) {
@@ -407,6 +438,16 @@ export async function provisionOnboardingPrograms(
         }
 
         await ensureRosterEntry(input, program, team.teamId);
+
+        // Track first resolved team per-sport for backfilling User.sports[].team
+        const sportKey = sportName.toLowerCase();
+        if (!sportTeamMap.has(sportKey)) {
+          sportTeamMap.set(sportKey, {
+            teamId: team.teamId,
+            organizationId: program.organizationId,
+            orgName: program.name,
+          });
+        }
       } catch (err) {
         logger.error('[OnboardingProgramProvisioning] Failed sport team pipeline step', {
           organizationId: program.organizationId,
@@ -421,5 +462,6 @@ export async function provisionOnboardingPrograms(
     teamIds: Array.from(linkedTeamIds),
     createdTeamIds: Array.from(createdTeamIds),
     organizationIds: Array.from(new Set(programs.map((program) => program.organizationId))),
+    sportTeamMap,
   };
 }

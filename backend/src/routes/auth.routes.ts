@@ -14,7 +14,7 @@
 
 import { Router } from 'express';
 import type { Request, Response, Router as RouterType } from 'express';
-import { FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { FieldValue } from 'firebase-admin/firestore';
 
 import type {
   ValidateTeamCodeResponse,
@@ -26,8 +26,13 @@ import type {
   ContactInfo,
   ConnectedEmail,
 } from '@nxt1/core';
-import { RosterEntryStatus, RosterRole } from '@nxt1/core/models';
-import { isValidTeamCode, USER_SCHEMA_VERSION, normalizeName } from '@nxt1/core';
+import {
+  isValidTeamCode,
+  USER_SCHEMA_VERSION,
+  normalizeName,
+  POSITION_ABBREVIATIONS,
+  normalizeSportKey,
+} from '@nxt1/core';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import {
   validationError,
@@ -40,8 +45,6 @@ import { logger } from '../utils/logger.js';
 import { generateUnicodeForUser, getUserUnicode } from '../utils/unicode-generator.js';
 
 import { enqueueLinkedAccountScrape } from '../services/agent-scrape.service.js';
-import * as teamCodeService from '../services/team-code.service.js';
-import { buildTeamSlug } from '../services/team-code.service.js';
 import { validateBody } from '../middleware/validation.middleware.js';
 import {
   CreateUserDto,
@@ -50,9 +53,12 @@ import {
   ConnectMicrosoftDto,
   ConnectYahooDto,
 } from '../dtos/auth.dto.js';
-import { createOrganizationService } from '../services/organization.service.js';
-import { createRosterEntryService } from '../services/roster-entry.service.js';
-import { normalizeProgramName } from '../services/name-normalizer.service.js';
+import { BulkOnboardingDto, OnboardingStepDto } from '../dtos/onboarding.dto.js';
+import {
+  provisionOnboardingPrograms,
+  type OnboardingProgramSelection,
+  type OnboardingCreateTeamProfile,
+} from '../services/onboarding-program-provisioning.service.js';
 
 // Import profile routes
 import profileRoutes, { invalidateProfileCaches } from './profile.routes.js';
@@ -69,11 +75,9 @@ const router: RouterType = Router();
  *
  * Design Principles:
  * - User document = Identity + Profile ONLY
- * - Payment/Subscription data → Subscriptions collection
  * - Credits/limits → Metered usage billing (no storage needed)
  *
  * @see @nxt1/core User model
- * @see Subscriptions collection for payment data
  */
 interface UserV2Document {
   // Core identity
@@ -174,15 +178,15 @@ function mapUserTypeToRole(userType: string): UserRole {
     athlete: 'athlete',
     coach: 'coach',
     director: 'director' as UserRole,
-    recruiter: 'recruiter' as UserRole,
-    parent: 'parent',
-    // Legacy aliases
-    'college-coach': 'recruiter' as UserRole,
-    'recruiting-service': 'recruiter' as UserRole,
-    scout: 'recruiter' as UserRole,
-    media: 'recruiter' as UserRole,
+    // Legacy aliases → V2 roles
+    recruiter: 'coach' as UserRole,
+    parent: 'athlete',
+    'college-coach': 'coach' as UserRole,
+    'recruiting-service': 'coach' as UserRole,
+    scout: 'coach' as UserRole,
+    media: 'coach' as UserRole,
     fan: 'athlete',
-    service: 'recruiter' as UserRole,
+    service: 'coach' as UserRole,
   };
   return roleMap[userType as keyof typeof roleMap] ?? 'athlete';
 }
@@ -202,6 +206,8 @@ function sanitizeStoredTeam(
     ...(team.name ? { name: team.name } : {}),
     ...(team.organizationId ? { organizationId: team.organizationId } : {}),
     ...(team.teamId ? { teamId: team.teamId } : {}),
+    ...(team.city ? { city: team.city } : {}),
+    ...(team.state ? { state: team.state } : {}),
   };
 }
 
@@ -283,64 +289,9 @@ function getPrimarySport(sports?: SportProfile[]): string | undefined {
   return primary?.sport;
 }
 
-type ProgramType = 'high-school' | 'middle-school' | 'club' | 'college' | 'juco' | 'organization';
-
-interface OnboardingProgramSelection {
-  id: string;
-  name?: string;
-  teamType?: string;
-  location?: string;
-  isDraft?: boolean;
-  organizationId?: string;
-}
-
-function normalizeProgramType(value?: string): ProgramType {
-  const normalized = (value ?? '').trim().toLowerCase();
-  switch (normalized) {
-    case 'high-school':
-    case 'middle-school':
-    case 'club':
-    case 'college':
-    case 'juco':
-    case 'organization':
-      return normalized;
-    case 'school':
-      return 'high-school';
-    default:
-      return 'organization';
-  }
-}
-
-function normalizeTeamType(value?: string): TeamTypeApi {
-  const programType = normalizeProgramType(value);
-  return programType;
-}
-
-function parseLocationLabel(location?: string): {
-  city?: string;
-  state?: string;
-} {
-  if (!location?.trim()) {
-    return {};
-  }
-
-  const [cityRaw, stateRaw] = location.split(',').map((part) => part.trim());
-  const city = cityRaw || undefined;
-  const state = stateRaw || undefined;
-  return { city, state };
-}
-
-async function generateUniqueTeamCode(db: Firestore): Promise<string> {
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const candidate = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const { team } = await teamCodeService.getTeamCodeByCode(db, candidate, false);
-    if (!team) {
-      return candidate;
-    }
-  }
-
-  return `${Date.now().toString(36).slice(-6)}`.toUpperCase();
-}
+// Local helper types are in onboarding-program-provisioning.service.ts
+// (OnboardingProgramSelection, normalizeProgramType, normalizeTeamType,
+//  parseLocationLabel, generateUniqueTeamCode)
 
 /**
  * GET /auth/team-code/validate/:code
@@ -435,7 +386,6 @@ router.post(
  * If a valid team code is provided, the user will be:
  * 1. Created with the team association
  * 2. Added to the team's member list
- * 3. Given appropriate subscription status based on team
  *
  * Uses Firestore transaction to ensure atomicity.
  */
@@ -501,7 +451,6 @@ router.post(
     const now = new Date().toISOString();
 
     // Create V2 user document (Identity + Profile only)
-    // Note: Payment/subscription data goes in Subscriptions collection
     // Metered usage billing - no plan storage needed
     const newUser: UserV2Document = {
       // Core identity
@@ -539,45 +488,8 @@ router.post(
         const userRef = db.collection('Users').doc(uid);
         transaction.set(userRef, newUser);
 
-        // Create Subscription document for team-based access
-        const subscriptionRef = db.collection('Subscriptions').doc(uid);
-        const subscriptionData = {
-          userId: uid,
-          plan: validatedTeam!.isFreeTrial ? 'starter' : 'pro', // Team provides paid tier
-          status: validatedTeam!.isFreeTrial ? 'trialing' : 'active',
-          billingInterval: 'month',
-          currentPeriodStart: now,
-          currentPeriodEnd:
-            validatedTeam!.isFreeTrial && validatedTeam!.trialDays
-              ? new Date(Date.now() + validatedTeam!.trialDays * 24 * 60 * 60 * 1000).toISOString()
-              : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-          cancelAtPeriodEnd: false,
-          teamCode: {
-            code: validatedTeam!.teamCode,
-            teamId: validatedTeam!.id,
-            teamName: validatedTeam!.teamName,
-            providedPlan: validatedTeam!.isFreeTrial ? 'starter' : 'pro',
-          },
-          credits: {
-            ai: { allocated: 5, used: 0, bonus: 0 },
-            college: { allocated: 0, used: 0, bonus: 0 },
-            email: { allocated: 5, used: 0, bonus: 0 },
-            periodStart: now,
-            periodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-          },
-          createdAt: now,
-          updatedAt: now,
-          _schemaVersion: 1,
-        };
-        transaction.set(subscriptionRef, subscriptionData);
-
-        // Add user to team's memberIds array
-        const teamRef = db.collection('Teams').doc(validatedTeam!.id);
-        const { FieldValue } = await import('firebase-admin/firestore');
-        transaction.update(teamRef, {
-          memberIds: FieldValue.arrayUnion(uid),
-          updatedAt: now,
-        });
+        // V2: Membership tracked via RosterEntry docs only.
+        // No more memberIds[] writes on the Team doc.
       });
     } else {
       // Simple create without team
@@ -661,13 +573,9 @@ router.post(
     const teamData = teamDoc.data();
 
     const now = new Date().toISOString();
-    const lastActivatedPlan = teamData['isFreeTrial'] ? 'trial' : 'subscription';
-
     // Use transaction to update both user and team atomically
     await db.runTransaction(async (transaction) => {
       const userRef = db.collection('Users').doc(userId);
-      const teamRef = db.collection('Teams').doc(teamDoc.id);
-      const { FieldValue } = await import('firebase-admin/firestore');
 
       // Update user with team info
       const userUpdate: Record<string, unknown> = {
@@ -676,7 +584,6 @@ router.post(
           teamName: teamData['teamName'],
           teamId: teamDoc.id,
         },
-        lastActivatedPlan,
         updatedAt: now,
       };
 
@@ -690,11 +597,8 @@ router.post(
 
       transaction.update(userRef, userUpdate);
 
-      // Add user to team's memberIds
-      transaction.update(teamRef, {
-        memberIds: FieldValue.arrayUnion(userId),
-        updatedAt: now,
-      });
+      // V2: Membership tracked via RosterEntry docs only.
+      // No more memberIds[] writes on the Team doc.
     });
 
     res.json({
@@ -752,19 +656,12 @@ router.get(
  */
 router.post(
   '/profile/onboarding',
+  validateBody(BulkOnboardingDto),
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { db } = req.firebase!;
     const { userId, ...profileData } = req.body;
 
     logger.debug('[POST /profile/onboarding] Request:', { userId, keys: Object.keys(profileData) });
-
-    if (!userId?.trim()) {
-      const error = validationError([
-        { field: 'userId', message: 'User ID is required', rule: 'required' },
-      ]);
-      sendError(res, error);
-      return;
-    }
 
     // Check if user exists
     const userDoc = await db.collection('Users').doc(userId).get();
@@ -821,9 +718,9 @@ router.post(
       };
     }
 
-    // Profile images and bio (only use profileImgs array)
+    // Profile images (only use profileImgs array)
     if (profileData['profileImgs']) updateData.profileImgs = profileData['profileImgs'] as string[];
-    if (profileData['bio']) updateData.aboutMe = (profileData['bio'] as string).trim();
+    // V2: bio/aboutMe is no longer written during onboarding.
     if (profileData['gender']) updateData.gender = profileData['gender'] as string;
 
     // V2: Set role (single field)
@@ -915,415 +812,59 @@ router.post(
       updateData.classOf = Number(profileData['classOf']);
     }
 
-    // V2: Coach-specific data (coach, director, recruiter)
-    const isCoachRole =
-      (updateData.role as UserRole) === ('coach' as UserRole) ||
-      (updateData.role as UserRole) === ('director' as UserRole) ||
-      (updateData.role as UserRole) === ('recruiter' as UserRole);
-    if (isCoachRole && (profileData['coachTitle'] || profileData['organization'])) {
-      updateData.coach = {
-        ...currentUser?.coach,
-        ...(profileData['coachTitle'] != null && { title: profileData['coachTitle'] as string }),
-        ...(profileData['organization'] != null && {
-          organization: profileData['organization'] as string,
-        }),
-      };
+    // V2: Coach-specific data (coach, director)
+    const isCoachRole = updateData.role === 'coach' || updateData.role === 'director';
+    if (isCoachRole && profileData['coachTitle']) {
+      (updateData as Record<string, unknown>)['coachTitle'] = profileData['coachTitle'] as string;
     }
 
-    // ============================================
-    // MINIMAL LEGACY FIELDS (backward compatibility)
-    // Note: primarySport NOT saved - derived from sports[0] in API response
-    // ============================================
-    if (profileData['highSchool']) updateData.highSchool = profileData['highSchool'] as string;
-    if (profileData['organization'])
-      updateData.organization = profileData['organization'] as string;
+    // V2: Legacy fields (highSchool, organization) are no longer written.
+    // Data is stored in sports[].team and Organization docs.
 
-    // ============================================
-    // PROGRAM + TEAM + ROSTER CREATION (Ghost flow)
-    // ============================================
-    const createdTeamIds: string[] = [];
-    // Unicodes of all teams resolved/created for this coach/director.
-    // Written to coach.managedTeamCodes so the profile page can load the team.
-    const coachTeamUnicodes: string[] = [];
-    const organizationService = createOrganizationService(db);
-    const rosterEntryService = createRosterEntryService(db);
-
-    const createTeamProfile =
-      (profileData['createTeamProfile'] as
-        | {
-            programName?: string;
-            teamType?: string;
-            mascot?: string;
-            state?: string;
-            city?: string;
-          }
-        | undefined) ?? undefined;
-
-    const teamSelection =
-      (profileData['teamSelection'] as
-        | {
-            teams?: OnboardingProgramSelection[];
-          }
-        | undefined) ?? undefined;
-
+    // Resolve role for provisioning and connected sources
     const role = mapUserTypeToRole(
       (profileData['userType'] as string) || (currentUser?.role as string) || 'athlete'
     );
 
-    const selectedPrograms: OnboardingProgramSelection[] = Array.isArray(teamSelection?.teams)
-      ? [...teamSelection.teams]
-      : [];
+    // ============================================
+    // PROGRAM + TEAM + ROSTER CREATION (Ghost flow)
+    // Delegated to onboarding-program-provisioning.service.ts
+    // ============================================
+    const provisionResult = await provisionOnboardingPrograms({
+      db,
+      userId,
+      role: role as UserRole,
+      sports,
+      currentUser: {
+        firstName: currentUser?.firstName,
+        lastName: currentUser?.lastName,
+        email:
+          updateData.contact?.email?.trim().toLowerCase() ||
+          currentUser?.contact?.email?.trim().toLowerCase() ||
+          currentUser?.email?.trim().toLowerCase(),
+        contact: {
+          phone: updateData.contact?.phone?.trim() || currentUser?.contact?.phone?.trim(),
+        },
+        profileImgs: updateData.profileImgs ?? currentUser?.profileImgs,
+      },
+      updateData: {
+        firstName: updateData.firstName,
+        lastName: updateData.lastName,
+        profileImgs: updateData.profileImgs,
+        athlete: updateData.classOf ? { classOf: updateData.classOf } : undefined,
+        location: updateData.location
+          ? { city: updateData.location.city, state: updateData.location.state }
+          : undefined,
+      },
+      teamSelection: profileData['teamSelection'] as
+        | { teams?: OnboardingProgramSelection[] }
+        | undefined,
+      createTeamProfile: profileData['createTeamProfile'] as
+        | OnboardingCreateTeamProfile
+        | undefined,
+    });
 
-    if (selectedPrograms.length === 0 && createTeamProfile?.programName?.trim()) {
-      selectedPrograms.push({
-        id: `draft_${Date.now().toString(36)}`,
-        name: createTeamProfile.programName,
-        teamType: createTeamProfile.teamType,
-        isDraft: true,
-      });
-    }
-
-    const selectedSports = sports.map((sport) => sport.sport).filter(Boolean);
-    const sportsToCreate = selectedSports.length > 0 ? selectedSports : ['basketball'];
-    const creatorFirstName = updateData.firstName ?? currentUser?.firstName ?? '';
-    const creatorLastName = updateData.lastName ?? currentUser?.lastName ?? '';
-    const creatorName = [creatorFirstName, creatorLastName].filter(Boolean).join(' ') || undefined;
-    const creatorEmail =
-      updateData.contact?.email?.trim().toLowerCase() ||
-      currentUser?.contact?.email?.trim().toLowerCase() ||
-      currentUser?.email?.trim().toLowerCase() ||
-      undefined;
-    const creatorPhoneNumber =
-      updateData.contact?.phone?.trim() || currentUser?.contact?.phone?.trim() || undefined;
-
-    const programsWithIds: Array<{
-      organizationId: string;
-      name: string;
-      teamType: TeamTypeApi;
-      city?: string;
-      state?: string;
-      isGhost: boolean;
-    }> = [];
-
-    for (const program of selectedPrograms) {
-      const isDraftProgram = Boolean(program.isDraft) || program.id.startsWith('draft_');
-      const rawName = program.name?.trim() ?? '';
-      if (!rawName && isDraftProgram) {
-        continue;
-      }
-
-      const parsedLocation = parseLocationLabel(program.location);
-      const state =
-        parsedLocation.state || createTeamProfile?.state || updateData.location?.state || '';
-      const city =
-        parsedLocation.city || createTeamProfile?.city || updateData.location?.city || '';
-      const teamType = normalizeTeamType(program.teamType || createTeamProfile?.teamType);
-
-      if (isDraftProgram) {
-        try {
-          const normalizedName = await normalizeProgramName(rawName);
-          const org = await organizationService.createOrganization({
-            name: normalizedName,
-            type: normalizeProgramType(program.teamType || createTeamProfile?.teamType),
-            // Athletes who trigger ghost-org creation during onboarding are NOT owners.
-            // Coaches and directors are owners; their ownerId is recorded.
-            ownerId: role !== 'athlete' ? userId : '',
-            skipAdmins: role === 'athlete',
-            location: {
-              address: '',
-              city,
-              state,
-              zipCode: '',
-              country: 'USA',
-            },
-            mascot: createTeamProfile?.mascot,
-            isClaimed: false,
-            source: 'user_generated',
-          });
-
-          if (role === 'coach') {
-            await organizationService.addAdmin({
-              organizationId: org.id!,
-              userId,
-              role: 'admin',
-              addedBy: userId,
-            });
-          }
-
-          programsWithIds.push({
-            organizationId: org.id!,
-            name: org.name,
-            teamType,
-            city,
-            state,
-            isGhost: true,
-          });
-
-          logger.info('[POST /profile/onboarding] Created ghost program', {
-            organizationId: org.id,
-            name: org.name,
-          });
-        } catch (err) {
-          logger.error('[POST /profile/onboarding] Failed to create ghost program', {
-            error: err,
-            name: rawName,
-          });
-        }
-      } else {
-        const organizationId = program.organizationId || program.id;
-        if (!organizationId) {
-          continue;
-        }
-
-        programsWithIds.push({
-          organizationId,
-          name: rawName || 'Program',
-          teamType,
-          city,
-          state,
-          isGhost: false,
-        });
-
-        if (role === 'coach') {
-          try {
-            await organizationService.addAdmin({
-              organizationId,
-              userId,
-              role: 'admin',
-              addedBy: userId,
-            });
-          } catch (err) {
-            logger.warn('[POST /profile/onboarding] Failed to add coach as org admin', {
-              organizationId,
-              error: err,
-            });
-          }
-        }
-      }
-    }
-
-    // Track resolved sport → { teamId, organizationId } for backfilling User.sports[].team
-    const sportTeamMap = new Map<
-      string,
-      { teamId: string; organizationId: string; orgName: string }
-    >();
-
-    for (const program of programsWithIds) {
-      for (const sportName of sportsToCreate) {
-        try {
-          let existingTeamSnapshot = await db
-            .collection('Teams')
-            .where('organizationId', '==', program.organizationId)
-            .where('sport', '==', sportName)
-            .where('isActive', '==', true)
-            .limit(1)
-            .get();
-
-          if (existingTeamSnapshot.empty) {
-            existingTeamSnapshot = await db
-              .collection('Teams')
-              .where('organizationId', '==', program.organizationId)
-              .where('sportName', '==', sportName)
-              .where('isActive', '==', true)
-              .limit(1)
-              .get();
-          }
-
-          let teamId: string;
-
-          if (!existingTeamSnapshot.empty) {
-            const existingDoc = existingTeamSnapshot.docs[0];
-            if (!existingDoc) {
-              continue;
-            }
-            teamId = existingDoc.id;
-
-            const existingData = existingDoc.data() as Record<string, unknown>;
-
-            // Track slug for coach.managedTeamCodes backfill.
-            // Prefer the stored slug field; fall back to computing from the team name
-            // (for older docs written before the slug field existed).
-            const existingSlugField = existingData['slug'] as string | undefined;
-            const existingSlugKey = existingSlugField ?? buildTeamSlug(program.name);
-            if (existingSlugKey && !coachTeamUnicodes.includes(existingSlugKey)) {
-              coachTeamUnicodes.push(existingSlugKey);
-            }
-
-            const needsSportMigration =
-              existingData['sport'] !== sportName ||
-              Object.prototype.hasOwnProperty.call(existingData, 'sportName');
-
-            if (needsSportMigration) {
-              await db.collection('Teams').doc(teamId).set(
-                {
-                  sport: sportName,
-                  sportName: FieldValue.delete(),
-                  updatedAt: new Date().toISOString(),
-                },
-                { merge: true }
-              );
-            }
-          } else {
-            const teamCode = await generateUniqueTeamCode(db);
-            const teamName = program.name.trim();
-
-            // Atomic batch: Team creation + org linking + RosterEntry in one commit
-            const teamBatch = db.batch();
-
-            const team = await teamCodeService.createTeamCode(
-              db,
-              {
-                teamCode,
-                teamName,
-                teamType: program.teamType,
-                sport: sportName,
-                createdBy: userId,
-                creatorRole: role as 'athlete' | 'coach' | 'director' | 'media',
-                creatorName,
-                creatorEmail,
-                creatorPhoneNumber,
-              },
-              teamBatch
-            );
-
-            if (!team.id) {
-              throw new Error('Created team is missing an id');
-            }
-
-            // Link back to org within the same batch
-            teamBatch.update(db.collection('Teams').doc(team.id), {
-              organizationId: program.organizationId,
-              isClaimed: false,
-              source: 'user_generated',
-              sport: sportName,
-              sportName: FieldValue.delete(),
-              updatedAt: new Date().toISOString(),
-              createdAt: new Date().toISOString(),
-            });
-
-            // Queue RosterEntry in the same batch (atomically increments athleteMember)
-            const rosterRole =
-              role === 'director'
-                ? RosterRole.OWNER
-                : role === 'coach'
-                  ? RosterRole.HEAD_COACH
-                  : RosterRole.ATHLETE;
-            const rosterStatus =
-              role === 'director' || role === 'coach'
-                ? RosterEntryStatus.ACTIVE
-                : RosterEntryStatus.PENDING;
-
-            await rosterEntryService.createRosterEntry(
-              {
-                userId,
-                teamId: team.id,
-                organizationId: program.organizationId,
-                role: rosterRole,
-                status: rosterStatus,
-                firstName: updateData.firstName ?? currentUser?.firstName ?? '',
-                lastName: updateData.lastName ?? currentUser?.lastName ?? '',
-                email: creatorEmail ?? '',
-                profileImg: updateData.profileImgs?.[0] ?? currentUser?.profileImgs?.[0] ?? '',
-                classOf: updateData.classOf ?? currentUser?.classOf,
-              },
-              teamBatch
-            );
-
-            // Commit Team + Org link + RosterEntry + counter atomically
-            await teamBatch.commit();
-
-            // Best-effort: increment org team count (separate, non-critical)
-            await organizationService.incrementTeamCount(program.organizationId).catch(() => {
-              logger.warn('[POST /profile/onboarding] Failed to increment org team count', {
-                organizationId: program.organizationId,
-              });
-            });
-
-            teamId = team.id;
-            createdTeamIds.push(team.id);
-            const teamSlug = team.slug ?? team.unicode ?? team.id ?? '';
-            if (teamSlug && !coachTeamUnicodes.includes(teamSlug)) {
-              coachTeamUnicodes.push(teamSlug);
-            }
-            logger.info('[POST /profile/onboarding] Atomic team+roster created', {
-              teamId,
-              slug: teamSlug,
-              organizationId: program.organizationId,
-              sportName,
-            });
-          }
-
-          // For existing teams (not newly created), still create a RosterEntry
-          if (!createdTeamIds.includes(teamId)) {
-            const rosterRole =
-              role === 'director'
-                ? RosterRole.OWNER
-                : role === 'coach'
-                  ? RosterRole.HEAD_COACH
-                  : RosterRole.ATHLETE;
-            const rosterStatus =
-              role === 'director' || role === 'coach'
-                ? RosterEntryStatus.ACTIVE
-                : RosterEntryStatus.PENDING;
-
-            try {
-              await rosterEntryService.createRosterEntry({
-                userId,
-                teamId,
-                organizationId: program.organizationId,
-                role: rosterRole,
-                status: rosterStatus,
-                firstName: updateData.firstName ?? currentUser?.firstName ?? '',
-                lastName: updateData.lastName ?? currentUser?.lastName ?? '',
-                email: creatorEmail ?? '',
-                profileImg: updateData.profileImgs?.[0] ?? currentUser?.profileImgs?.[0] ?? '',
-                classOf: updateData.classOf ?? currentUser?.classOf,
-              });
-            } catch (err) {
-              logger.warn(
-                '[POST /profile/onboarding] Failed to create roster entry for existing team',
-                {
-                  userId,
-                  teamId,
-                  error: err,
-                }
-              );
-            }
-          }
-
-          // Track the resolved sport→team→org mapping for backfilling User.sports[].team
-          if (!sportTeamMap.has(sportName.toLowerCase())) {
-            sportTeamMap.set(sportName.toLowerCase(), {
-              teamId,
-              organizationId: program.organizationId,
-              orgName: program.name,
-            });
-          }
-        } catch (err) {
-          logger.error('[POST /profile/onboarding] Failed sport team pipeline step', {
-            organizationId: program.organizationId,
-            sportName,
-            error: err,
-          });
-        }
-      }
-    }
-
-    // Backfill User.coach.managedTeamCodes for coaches/directors.
-    // The mobile profile page reads this field to resolve the team slug and load
-    // the team profile view. Without it, coaches see "No team associated" after
-    // completing onboarding.
-    if (coachTeamUnicodes.length > 0 && (role === 'coach' || role === 'director')) {
-      const existingCodes: string[] = updateData.coach?.managedTeamCodes ?? [];
-      const merged = [...new Set([...existingCodes, ...coachTeamUnicodes])];
-      updateData.coach = {
-        ...updateData.coach,
-        managedTeamCodes: merged,
-      };
-      logger.info('[POST /profile/onboarding] Backfilled coach.managedTeamCodes', {
-        unicodes: merged,
-      });
-    }
+    const { createdTeamIds, sportTeamMap } = provisionResult;
 
     // Backfill User.sports[].team with relational IDs from resolved teams.
     // The profile hydration service uses these IDs to overlay LIVE Organization
@@ -1606,22 +1147,10 @@ router.post(
  */
 router.post(
   '/profile/onboarding-step',
+  validateBody(OnboardingStepDto),
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { db } = req.firebase!;
     const { userId, stepId, stepData } = req.body;
-
-    // Validate required fields
-    if (!userId || !stepId || !stepData || typeof stepData !== 'object') {
-      const error = validationError([
-        ...(!userId ? [{ field: 'userId', message: 'User ID is required', rule: 'required' }] : []),
-        ...(!stepId ? [{ field: 'stepId', message: 'Step ID is required', rule: 'required' }] : []),
-        ...(!stepData
-          ? [{ field: 'stepData', message: 'Step data is required', rule: 'required' }]
-          : []),
-      ]);
-      sendError(res, error);
-      return;
-    }
 
     // Check if user exists and get current data
     const userDoc = await db.collection('Users').doc(userId).get();
@@ -1659,7 +1188,7 @@ router.post(
         if (stepData['lastName']) updateData.lastName = (stepData['lastName'] as string).trim();
         // Profile images (only use profileImgs array)
         if (stepData['profileImgs']) updateData.profileImgs = stepData['profileImgs'] as string[];
-        if (stepData['bio']) updateData.aboutMe = (stepData['bio'] as string).trim();
+        // V2: bio/aboutMe is no longer written during onboarding.
         if (stepData['gender']) updateData.gender = stepData['gender'] as string;
         break;
       }
@@ -1703,12 +1232,12 @@ router.post(
       }
 
       case 'organization': {
-        // V2: Update coach data
-        updateData.coach = {
-          ...currentUser?.coach,
-          organization: (stepData['organization'] as string)?.trim(),
-          title: (stepData['coachTitle'] as string)?.trim(),
-        };
+        // V2: Update coach title as top-level field. Organization is resolved via Organization docs + admins.
+        if (stepData['coachTitle']) {
+          (updateData as Record<string, unknown>)['coachTitle'] = (
+            stepData['coachTitle'] as string
+          )?.trim();
+        }
 
         // V2: Update location
         if (stepData['city'] || stepData['state']) {
@@ -1788,35 +1317,56 @@ router.post(
         }
 
         if (sports.length > 0) {
-          updateData.sports = sports;
-          updateData.activeSportIndex = 0;
+          // Only write physical sports[] for Athletes — coaches/directors get sport
+          // data synthesized at read-time from RosterEntries.
+          const userRole = currentUser?.role as string | undefined;
+          const isTeamRole =
+            userRole === 'coach' || userRole === 'director' || userRole === 'recruiter';
+          if (!isTeamRole) {
+            updateData.sports = sports;
+            updateData.activeSportIndex = 0;
 
-          const primarySport = sports.find((s) => s.order === 0);
-          if (primarySport) {
-            updateData.primarySport = primarySport.sport;
+            const primarySport = sports.find((s) => s.order === 0);
+            if (primarySport) {
+              updateData.primarySport = primarySport.sport;
+            }
           }
         }
         break;
       }
 
       case 'positions': {
-        const positions = Array.isArray(stepData['positions'])
+        const rawPositions = Array.isArray(stepData['positions'])
           ? (stepData['positions'] as string[]).slice(0, 10)
           : [];
 
-        // V2: Update positions in sports array
-        if (currentUser?.sports && currentUser.sports.length > 0) {
-          const updatedSports = [...currentUser.sports];
-          updatedSports[0] = {
-            ...updatedSports[0],
-            positions,
-          };
-          updateData.sports = updatedSports;
-        } else if (positions.length > 0) {
-          // Create sport entry if none exists (shouldn't happen in normal flow)
-          const sportName = currentUser?.primarySport ?? 'unknown';
-          updateData.sports = [createSportProfile(sportName, 0, { positions })];
-          updateData.activeSportIndex = 0;
+        // Normalize positions to shorthands (e.g. "Point Guard" → "PG")
+        const sportName = currentUser?.primarySport ?? '';
+        const sportKey = normalizeSportKey(sportName);
+        const abbreviations = POSITION_ABBREVIATIONS[sportKey] ?? {};
+        const positions = rawPositions.map((p) => {
+          const key = p.toLowerCase().trim();
+          return abbreviations[key] ?? p; // fallback to original if no mapping
+        });
+
+        // V2: Update positions in sports array (Athletes only — coaches don't own sports[])
+        const posUserRole = currentUser?.role as string | undefined;
+        const posIsTeamRole =
+          posUserRole === 'coach' || posUserRole === 'director' || posUserRole === 'recruiter';
+        if (!posIsTeamRole) {
+          if (currentUser?.sports && currentUser.sports.length > 0) {
+            const updatedSports = [...currentUser.sports];
+            updatedSports[0] = {
+              ...updatedSports[0],
+              positions,
+            };
+            updateData.sports = updatedSports;
+          } else if (positions.length > 0) {
+            // Create sport entry if none exists (shouldn't happen in normal flow)
+            const sportName = currentUser?.primarySport ?? 'unknown';
+            updateData.sports = [createSportProfile(sportName, 0, { positions })];
+            updateData.activeSportIndex = 0;
+          }
         }
         // Note: No legacy primarySportPositions - use sports[0].positions
         break;
@@ -1980,62 +1530,8 @@ router.post(
   })
 );
 
-/**
- * POST /auth/profile/complete-onboarding
- * Mark user's onboarding as complete
- *
- * V2 Implementation:
- * - Sets `onboardingCompleted: true` (V2 field)
- * - Also sets `completeSignUp: true` (legacy field)
- * - Returns V2 formatted response
- */
-router.post(
-  '/profile/complete-onboarding',
-  asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { db } = req.firebase!;
-    const { userId } = req.body as { userId: string };
-
-    if (!userId) {
-      const error = validationError([
-        { field: 'userId', message: 'User ID is required', rule: 'required' },
-      ]);
-      sendError(res, error);
-      return;
-    }
-
-    const now = new Date().toISOString();
-
-    // Update user document to mark onboarding complete (V2 only)
-    await db.collection('Users').doc(userId).update({
-      onboardingCompleted: true,
-      onboardingCompletedAt: now,
-      _schemaVersion: USER_SCHEMA_VERSION,
-      updatedAt: now,
-    });
-
-    // Invalidate Redis cache so GET /auth/profile/:userId returns fresh data
-    await invalidateProfileCaches(userId).catch((err) =>
-      logger.warn('[POST /profile/complete-onboarding] Cache invalidation failed', { userId, err })
-    );
-
-    // Fetch updated user data
-    const updatedUser = await db.collection('Users').doc(userId).get();
-    const userData = updatedUser.data() as UserV2Document | undefined;
-
-    res.json({
-      success: true,
-      user: {
-        id: userId,
-        firstName: userData?.firstName,
-        lastName: userData?.lastName,
-        role: userData?.role,
-        onboardingCompleted: true,
-        primarySport: getPrimarySport(userData?.sports) ?? userData?.primarySport,
-      },
-      redirectPath: '/explore',
-    });
-  })
-);
+// POST /auth/profile/complete-onboarding — REMOVED (redundant).
+// The bulk POST /auth/profile/onboarding already sets onboardingCompleted: true.
 
 /**
  * POST /auth/analytics/hear-about

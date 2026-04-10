@@ -1043,9 +1043,9 @@ export class OnboardingWelcomeComponent implements OnInit, OnDestroy {
   /** Predefined goals based on user role */
   readonly predefinedGoals = computed<AgentGoal[]>(() => {
     const role = this.userRole ?? 'athlete';
-    // Coach, director, and recruiter (college coach) roles get coach-oriented goals
-    // Athletes and parents get athlete-oriented goals
-    const useCoachGoals = isTeamRole(role) || role === 'recruiter';
+    // Coach and director roles get coach-oriented goals
+    // Athletes get athlete-oriented goals
+    const useCoachGoals = isTeamRole(role);
     return useCoachGoals ? [...COACH_PREDEFINED_GOALS] : [...ATHLETE_PREDEFINED_GOALS];
   });
 

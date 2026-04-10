@@ -237,7 +237,7 @@ export class AgentGenerationService {
       ``,
       `CATEGORY 1 — RECURRING HABITS (exactly 2 items):`,
       `  These are routine maintenance tasks from the habits menu above.`,
-      `  Set "goal" to: { "id": "recurring", "label": "Weekly Habits" }`,
+      `  Set "goal" to: { "id": "recurring", "label": "Weekly Tasks" }`,
       `  Set "weekLabel" to "Weekly".`,
       ``,
       `CATEGORY 2 — GOAL EXECUTION (exactly 3 items):`,

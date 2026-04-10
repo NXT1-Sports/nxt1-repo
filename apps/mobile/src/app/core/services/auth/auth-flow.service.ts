@@ -150,7 +150,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
   readonly isAuthenticated = computed(() => this._state().user !== null);
   readonly userRole = computed(() => this._state().user?.role ?? null);
-  readonly isPremium = computed(() => this._state().user?.isPremium ?? false);
   readonly hasCompletedOnboarding = computed(
     () => this._state().user?.hasCompletedOnboarding ?? false
   );
@@ -464,7 +463,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         displayName: firebaseUser.displayName ?? userDisplayName ?? 'User',
         profileImg: userProfile?.profileImgs?.[0] ?? undefined,
         role: this.profileService.role() ?? 'athlete',
-        isPremium: this.profileService.isPremium(),
         hasCompletedOnboarding,
         provider,
         emailVerified: firebaseUser.emailVerified,
@@ -486,7 +484,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       await this.crashlytics.setUser(crashUser);
       await this.crashlytics.setCustomKeys({
         user_role: authUser.role,
-        is_premium: authUser.isPremium,
         auth_provider: authUser.provider,
       });
 
@@ -565,7 +562,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       if (user) {
         this.analytics.setUserProperties({
           user_type: user.role,
-          is_premium: user.isPremium,
           auth_provider: AUTH_METHODS.EMAIL,
         });
       }
@@ -715,7 +711,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         if (user) {
           this.analytics.setUserProperties({
             user_type: user.role,
-            is_premium: user.isPremium,
             auth_provider: method,
           });
         }
