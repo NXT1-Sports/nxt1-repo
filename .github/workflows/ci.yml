@@ -209,7 +209,7 @@ jobs:
         run: npm run build:core
 
       - name: Upload core artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: core-dist
           path: packages/core/dist
@@ -258,7 +258,7 @@ jobs:
           NODE_OPTIONS: --max_old_space_size=4096
 
       - name: Upload web artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-dist
           path: apps/web/dist
@@ -299,7 +299,7 @@ jobs:
           NODE_OPTIONS: --max_old_space_size=4096
 
       - name: Upload mobile web artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mobile-www
           path: apps/mobile/www

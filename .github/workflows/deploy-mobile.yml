@@ -74,7 +74,7 @@ jobs:
           NODE_OPTIONS: --max_old_space_size=4096
 
       - name: Upload web assets
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mobile-www
           path: apps/mobile/www
@@ -168,7 +168,7 @@ jobs:
         run: fastlane ${{ steps.build-type.outputs.lane }}
 
       - name: Upload iOS artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ios-build-${{ inputs.profile || 'development' }}
           path: apps/mobile/ios/App/build/*.ipa
@@ -265,7 +265,7 @@ jobs:
         run: fastlane ${{ steps.build-type.outputs.lane }}
 
       - name: Upload Android artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-build-${{ inputs.profile || 'development' }}
           path: |
