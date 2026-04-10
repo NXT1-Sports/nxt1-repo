@@ -79,3 +79,10 @@ temp/
 .turbo
 .husky
 .github
+
+# Generated diagnostic/stats files
+array_error.json
+error_stats.json
+staging_errors.json
+**/error_stats_*.json
+nxt1_collections_check.cjs
