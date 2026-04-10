@@ -593,6 +593,12 @@ import { formatSportDisplayName } from '@nxt1/core';
         border-bottom: 1px solid var(--nxt1-sidenav-header-border);
       }
 
+      /* Prevent Ionic from double-applying safe-area on the toolbar
+         inside the menu — ion-menu already handles the inset */
+      .nxt1-sidenav-header ion-toolbar {
+        --ion-safe-area-top: 0px;
+      }
+
       .nxt1-sidenav-header--minimal {
         --background: transparent;
         border-bottom: none;
@@ -603,8 +609,8 @@ import { formatSportDisplayName } from '@nxt1/core';
         --border-width: 0;
         --padding-start: 16px;
         --padding-end: 12px;
-        --padding-top: 12px;
-        --padding-bottom: 8px;
+        --padding-top: 4px;
+        --padding-bottom: 4px;
         --min-height: auto;
       }
 
@@ -616,14 +622,14 @@ import { formatSportDisplayName } from '@nxt1/core';
 
       .nxt1-sidenav-switcher {
         width: 100%;
-        padding-top: env(safe-area-inset-top, 0px);
+        padding-top: 0;
       }
 
       .nxt1-sidenav-switcher__panel {
         border: 1px solid var(--nxt1-sidenav-header-border);
         border-radius: calc(var(--nxt1-sidenav-item-radius) + 2px);
         background: var(--nxt1-color-surface-elevated, rgba(255, 255, 255, 0.04));
-        padding: 8px;
+        padding: 6px;
       }
 
       .nxt1-sidenav-switcher__label {

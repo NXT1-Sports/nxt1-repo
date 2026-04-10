@@ -9,17 +9,18 @@
 -->
 
 <!-- Main Application Shell -->
+
 <router-outlet />
 
 <!-- Loading Overlay (non-blocking) -->
 @if (loading()) {
-  <div class="bg-bg-primary z-modal fixed inset-0 flex items-center justify-center">
-    <div class="gap-lg flex flex-col items-center">
+  <div class="fixed inset-0 z-modal flex items-center justify-center bg-bg-primary">
+    <div class="flex flex-col items-center gap-lg">
       <div class="flex items-center justify-center">
         <img src="assets/images/nxt1-logo.svg" alt="NXT1 Sports" class="h-auto w-[120px]" width="120" height="40" />
       </div>
-      <div class="border-border border-t-primary animate-spin-slow h-10 w-10 rounded-full border-[3px]"></div>
-      <p class="text-text-secondary text-sm tracking-[2px] uppercase">Loading...</p>
+      <div class="h-10 w-10 animate-spin-slow rounded-full border-[3px] border-border border-t-primary"></div>
+      <p class="text-sm uppercase tracking-[2px] text-text-secondary">Loading...</p>
     </div>
   </div>
 }
@@ -35,12 +36,12 @@
 
 <!-- Critical Error State -->
 @if (error()) {
-  <div class="bg-bg-primary p-lg fixed inset-0 flex items-center justify-center">
+  <div class="fixed inset-0 flex items-center justify-center bg-bg-primary p-lg">
     <div class="max-w-[400px] text-center">
-      <h1 class="text-text-primary mb-md text-2xl">Something went wrong</h1>
-      <p class="text-text-secondary mb-lg leading-relaxed">{{ error() }}</p>
+      <h1 class="mb-md text-2xl text-text-primary">Something went wrong</h1>
+      <p class="mb-lg leading-relaxed text-text-secondary">{{ error() }}</p>
       <button
-        class="gap-sm px-md py-sm font-brand bg-primary duration-fast hover:bg-primary-600 inline-flex cursor-pointer items-center justify-center rounded-md text-base font-semibold tracking-wide text-black uppercase transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+        class="inline-flex cursor-pointer items-center justify-center gap-sm rounded-md bg-primary px-md py-sm font-brand text-base font-semibold uppercase tracking-wide text-black transition-colors duration-fast hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
         (click)="ngOnInit()"
       >
         Try Again

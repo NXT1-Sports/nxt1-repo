@@ -30,7 +30,7 @@ import {
   isValidTeamCode,
   USER_SCHEMA_VERSION,
   normalizeName,
-  POSITION_ABBREVIATIONS,
+  SPORT_POSITIONS,
   normalizeSportKey,
 } from '@nxt1/core';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
@@ -228,6 +228,36 @@ function sanitizeSportsForStorage(sports?: SportProfile[]): SportProfile[] | und
  * @param options - Optional team and position data
  * @returns SportProfile - Complete sport profile object
  */
+/**
+ * Normalize positions to Title Case using SPORT_POSITIONS as the canonical source.
+ * Looks up each position (case-insensitive) in SPORT_POSITIONS for the given sport.
+ * Falls back to regex title-casing if no canonical match is found.
+ *
+ * @example normalizePositions(['quarterback', 'running back'], 'Football') => ['Quarterback', 'Running Back']
+ */
+function normalizePositions(positions: readonly string[], sport: string): string[] {
+  if (!positions || positions.length === 0) return [];
+
+  const sportKey = normalizeSportKey(sport);
+  const canonical = SPORT_POSITIONS[sportKey] ?? [];
+
+  // Build lowercase → Title Case lookup from SPORT_POSITIONS
+  const canonicalMap = new Map<string, string>();
+  for (const p of canonical) {
+    canonicalMap.set(p.toLowerCase(), p);
+  }
+
+  const normalized = new Set<string>();
+  for (const p of positions) {
+    const trimmed = p.trim();
+    if (!trimmed) continue;
+    // Try canonical lookup first, then fallback to regex title-case
+    const match = canonicalMap.get(trimmed.toLowerCase());
+    normalized.add(match ?? trimmed.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()));
+  }
+  return Array.from(normalized);
+}
+
 function createSportProfile(
   sport: string,
   order: number,
@@ -259,7 +289,7 @@ function createSportProfile(
   const profile: SportProfile = {
     sport,
     order,
-    positions: options?.positions ?? [],
+    positions: options?.positions ? normalizePositions(options.positions, sport) : [],
     team: {
       type: teamType,
       name: '',
@@ -692,6 +722,10 @@ router.post(
     const lastName = normalizeName((profileData['lastName'] as string) || '');
     if (firstName) updateData.firstName = firstName;
     if (lastName) updateData.lastName = lastName;
+
+    // Always set displayName from firstName + lastName (all roles)
+    const displayName = [firstName, lastName].filter(Boolean).join(' ');
+    if (displayName) (updateData as Record<string, unknown>)['displayName'] = displayName;
 
     const incomingContact = profileData['contact'] as ContactInfo | undefined;
     const contactEmail =
@@ -1340,14 +1374,9 @@ router.post(
           ? (stepData['positions'] as string[]).slice(0, 10)
           : [];
 
-        // Normalize positions to shorthands (e.g. "Point Guard" → "PG")
+        // Normalize positions to Title Case (e.g. "quarterback" → "Quarterback")
         const sportName = currentUser?.primarySport ?? '';
-        const sportKey = normalizeSportKey(sportName);
-        const abbreviations = POSITION_ABBREVIATIONS[sportKey] ?? {};
-        const positions = rawPositions.map((p) => {
-          const key = p.toLowerCase().trim();
-          return abbreviations[key] ?? p; // fallback to original if no mapping
-        });
+        const positions = normalizePositions(rawPositions, sportName);
 
         // V2: Update positions in sports array (Athletes only — coaches don't own sports[])
         const posUserRole = currentUser?.role as string | undefined;

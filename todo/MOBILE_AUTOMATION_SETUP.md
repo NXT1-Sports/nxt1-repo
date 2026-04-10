@@ -23,7 +23,7 @@ certificates._
 You need to set up App Store Connect API keys and Fastlane Match for cloud-based
 code signing.
 
-- [ ] **Create App Store Connect API Key**
+- [x] **Create App Store Connect API Key** _(COMPLETED)_
   - Go to App Store Connect → Users and Access → Keys.
   - Generate a new key with the "App Manager" role.
   - Download the `.p8` file. You will need the **Issuer ID**, **Key ID**, and
@@ -72,10 +72,12 @@ GitHub repository (Settings → Secrets and variables → Actions):
 
 - [ ] `MATCH_GIT_URL`: The URL to your private certificates repo.
 - [ ] `MATCH_PASSWORD`: The passphrase you created during `fastlane match`.
-- [ ] `APP_STORE_CONNECT_API_KEY_ID`: The Key ID from App Store Connect.
-- [ ] `APP_STORE_CONNECT_API_ISSUER_ID`: The Issuer ID from App Store Connect.
-- [ ] `APP_STORE_CONNECT_API_KEY_CONTENT`: The raw text content of the `.p8`
-      file.
+- [x] `APP_STORE_CONNECT_API_KEY_ID`: The Key ID from App Store Connect.
+      (COMPLETED)
+- [x] `APP_STORE_CONNECT_API_ISSUER_ID`: The Issuer ID from App Store Connect.
+      (COMPLETED)
+- [x] `APP_STORE_CONNECT_API_KEY_CONTENT`: The raw text content of the `.p8`
+      file. (COMPLETED)
 
 ### Android Secrets
 

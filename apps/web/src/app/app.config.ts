@@ -23,6 +23,7 @@ import {
   isDevMode,
   ErrorHandler,
   Injectable,
+  APP_INITIALIZER,
 } from '@angular/core';
 import {
   provideRouter,
@@ -32,6 +33,7 @@ import {
   withPreloading,
   PreloadingStrategy,
   Route,
+  Router,
 } from '@angular/router';
 import { Observable } from 'rxjs';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
@@ -134,6 +136,12 @@ import { WebEmailConnectionService } from './core/services/web/email-connection.
 // Settings persistence adapter (connects SettingsService → backend API)
 import { SETTINGS_PERSISTENCE_ADAPTER, APP_VERSION } from '@nxt1/ui/settings';
 import { SettingsApiService } from './core/services/api/settings-api.service';
+
+// Provider for Sentry
+import { SentryCrashlyticsAdapter } from './core/infrastructure/sentry-crashlytics.adapter';
+
+// Helps with tracking initial load / routing performance
+import * as Sentry from '@sentry/angular';
 
 import { environment } from '../environments/environment';
 
@@ -411,11 +419,22 @@ export const appConfig: ApplicationConfig = {
     // Provide shared logging service to GlobalErrorHandler
     { provide: GLOBAL_ERROR_LOGGER, useExisting: NxtLoggingService },
 
-    // Provide Crashlytics service for crash reporting (web uses GA4 fallback)
-    { provide: GLOBAL_CRASHLYTICS, useExisting: CrashlyticsService },
+    // Provide Sentry service for crash reporting (replaces GA4 fallback)
+    { provide: GLOBAL_CRASHLYTICS, useClass: SentryCrashlyticsAdapter },
 
     // Provide analytics adapter for shared services (@nxt1/ui)
     { provide: ANALYTICS_ADAPTER, useExisting: AnalyticsService },
+
+    {
+      provide: Sentry.TraceService,
+      deps: [Router],
+    },
+    {
+      provide: APP_INITIALIZER,
+      useFactory: () => () => {},
+      deps: [Sentry.TraceService],
+      multi: true,
+    },
 
     // Provide performance adapter for shared services (@nxt1/ui)
     { provide: PERFORMANCE_ADAPTER, useExisting: PerformanceService },

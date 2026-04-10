@@ -1,10 +1,30 @@
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: 'npm'
+    directory: '/'
     schedule:
-      interval: "weekly"
-  - package-ecosystem: "github-actions"
-    directory: "/"
+      interval: 'weekly'
+    open-pull-requests-limit: 5
+    groups:
+      angular:
+        patterns:
+          - '@angular/*'
+          - '@angular-devkit/*'
+          - 'zone.js'
+          - 'rxjs'
+          - 'tslib'
+      eslint:
+        patterns:
+          - 'eslint*'
+          - '@typescript-eslint/*'
+          - '@eslint/*'
+          - 'typescript-eslint'
+      testing:
+        patterns:
+          - 'vitest'
+          - '@playwright/*'
+          - 'playwright'
+  - package-ecosystem: 'github-actions'
+    directory: '/'
     schedule:
-      interval: "weekly"
+      interval: 'weekly'
