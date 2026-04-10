@@ -134,7 +134,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download web artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: web-dist
           path: apps/web/dist
@@ -166,7 +166,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download backend artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: backend-dist
           path: backend/dist
@@ -226,7 +226,7 @@ jobs:
           cache: 'npm'
 
       - name: Download functions artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: functions-dist
           path: apps/functions/lib

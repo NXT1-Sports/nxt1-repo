@@ -125,7 +125,7 @@ jobs:
         run: npm run build --workspace=@nxt1/design-tokens
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: web-build
           path: apps/web/dist
@@ -173,7 +173,7 @@ jobs:
     if: always()
     steps:
       - name: Download all reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: playwright-report-*
           merge-multiple: true
@@ -238,7 +238,7 @@ jobs:
         run: npm run build --workspace=@nxt1/design-tokens
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: web-build
           path: apps/web/dist
