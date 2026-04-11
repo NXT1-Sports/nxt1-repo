@@ -39,9 +39,12 @@ export const onUserProfileCreatedV3 = onDocumentCreated('users/{userId}', async 
       lastActive: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Initialize notification preferences on the Users document
-    // This is the canonical source of truth checked by onNotificationCreated,
-    // processEmailQueue, and all other dispatch logic.
+    // Initialize notification preferences on the Users document.
+    // This is a fallback — the primary path is POST /auth/profile/onboarding
+    // which writes preferences when onboarding completes. This trigger
+    // fires on the initial user document creation (registration) before
+    // onboarding, so we only write if preferences don't exist yet.
+    // Both paths use marketing: true as the canonical default.
     const userRef = db.collection('Users').doc(userId);
     const userDoc = await userRef.get();
     if (userDoc.exists) {
@@ -51,7 +54,6 @@ export const onUserProfileCreatedV3 = onDocumentCreated('users/{userId}', async 
           'preferences.notifications': {
             push: true,
             email: true,
-            sms: false,
             marketing: true,
           },
         });

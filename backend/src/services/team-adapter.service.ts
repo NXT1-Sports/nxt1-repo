@@ -8,7 +8,7 @@
  */
 
 import type { Firestore } from 'firebase-admin/firestore';
-import { Team, TeamCode, RosterEntry, RosterEntryStatus, RosterRole } from '@nxt1/core/models';
+import { Team, TeamCode, RosterEntry, RosterEntryStatus } from '@nxt1/core/models';
 import { createRosterEntryService } from './roster-entry.service.js';
 import { logger } from '../utils/logger.js';
 
@@ -140,7 +140,7 @@ export class TeamServiceAdapter {
       userId: params.userId,
       teamId: teamDoc.id,
       organizationId: team.organizationId,
-      role: RosterRole.ATHLETE,
+      role: 'athlete',
       status: RosterEntryStatus.PENDING,
       firstName: params.userProfile.firstName,
       lastName: params.userProfile.lastName,

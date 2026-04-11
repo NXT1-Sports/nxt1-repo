@@ -120,7 +120,7 @@ async function optimizeImage(
   const rules = FILE_UPLOAD_RULES[category];
   const maxDimensions = rules?.maxDimensions;
 
-  let sharpInstance = sharp(buffer);
+  let sharpInstance = sharp(buffer).rotate();
   const metadata = await sharpInstance.metadata();
 
   // Resize if needed

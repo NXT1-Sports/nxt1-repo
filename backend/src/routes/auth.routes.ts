@@ -136,6 +136,9 @@ interface UserV2Document {
   // Firestore rules restrict that subcollection to backend/Functions only.
   connectedEmails?: ConnectedEmail[];
 
+  // User preferences (notifications, tracking, theme, etc.)
+  preferences?: Record<string, unknown>;
+
   // Timestamps
   createdAt: string;
   updatedAt: string;
@@ -165,6 +168,10 @@ interface ConnectedSourceRecord {
   scopeType?: string;
   scopeId?: string;
   displayOrder?: number;
+  /** Display name of the person who added this link */
+  addedBy?: string;
+  /** User ID of the person who added this link */
+  addedById?: string;
 }
 
 /**
@@ -669,6 +676,40 @@ router.get(
   })
 );
 
+/**
+ * GET /auth/team-sources/:teamId
+ * Fetch existing connected sources for a team during onboarding.
+ * Used by the link-drop step to seed links previously added by another staff member.
+ */
+router.get(
+  '/team-sources/:teamId',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { db } = req.firebase!;
+    const teamId = req.params['teamId'] as string;
+
+    if (!teamId?.trim()) {
+      const error = validationError([
+        { field: 'teamId', message: 'Team ID is required', rule: 'required' },
+      ]);
+      sendError(res, error);
+      return;
+    }
+
+    const teamDoc = await db.collection('Teams').doc(teamId).get();
+    if (!teamDoc.exists) {
+      res.json({ success: true, data: [] });
+      return;
+    }
+
+    const teamData = teamDoc.data();
+    const sources: ConnectedSourceRecord[] = Array.isArray(teamData?.['connectedSources'])
+      ? teamData!['connectedSources']
+      : [];
+
+    res.json({ success: true, data: sources });
+  })
+);
+
 // GET /auth/profile/:uid and other /auth/profile/* routes are handled
 // entirely by profileRoutes (see bottom of file), which implements
 // proper caching (MEDIUM_TTL 15 min) via PROFILE_CACHE_KEYS.
@@ -715,6 +756,26 @@ router.post(
       onboardingCompleted: true,
       onboardingCompletedAt: now,
     };
+
+    // ============================================
+    // PREFERENCES (canonical defaults — backend is source of truth)
+    // Only written if the user has no existing preferences yet.
+    // The Cloud Function fallback also writes these, but the
+    // onboarding endpoint is the primary path.
+    // ============================================
+    if (!currentUser?.preferences?.['notifications']) {
+      updateData.preferences = {
+        notifications: {
+          push: true,
+          email: true,
+          marketing: true,
+        },
+        activityTracking: true,
+        analyticsTracking: true,
+        biometricLogin: false,
+        theme: 'system',
+      };
+    }
 
     // Optional: firstName/lastName (may already be set from earlier steps)
     // Always normalize to Title Case (e.g. "john doe" → "John Doe")
@@ -821,6 +882,10 @@ router.post(
       if (!isTeamRoleOnboard) {
         updateData.sports = sports;
         updateData.activeSportIndex = 0;
+      } else {
+        // Actively purge any previously-written sports[] from coach/director User docs
+        (updateData as Record<string, unknown>)['sports'] = FieldValue.delete();
+        (updateData as Record<string, unknown>)['activeSportIndex'] = FieldValue.delete();
       }
     }
 
@@ -898,7 +963,7 @@ router.post(
         | undefined,
     });
 
-    const { createdTeamIds, sportTeamMap } = provisionResult;
+    const { teamIds, createdTeamIds, sportTeamMap } = provisionResult;
 
     // Backfill User.sports[].team with relational IDs from resolved teams.
     // The profile hydration service uses these IDs to overlay LIVE Organization
@@ -1008,11 +1073,18 @@ router.post(
             ...(scopeId && { scopeId }),
           };
 
-          // Only store on team if a privileged role (coach/director) created the team.
+          // Only store on team if a privileged role (coach/director) claimed/joined the team.
           // Athletes' connected sources belong on the user doc, not the team.
           const isPrivilegedRole = role === 'coach' || role === 'director';
-          if (createdTeamIds.length > 0 && isPrivilegedRole) {
-            teamConnectedSources.push(sourceInfo);
+          if (teamIds.length > 0 && isPrivilegedRole) {
+            // Tag with who added this link so future onboarding users can see the attribution
+            const addedByName = [firstName, lastName].filter(Boolean).join(' ') || 'Staff';
+            teamConnectedSources.push({
+              ...sourceInfo,
+              addedBy: addedByName,
+              addedById: userId,
+            });
+            connectedMap.delete(key); // Remove from user doc if previously written there
           } else {
             connectedMap.set(key, sourceInfo);
           }
@@ -1025,14 +1097,37 @@ router.post(
       }
     }
 
-    if (createdTeamIds.length > 0 && teamConnectedSources.length > 0) {
+    if (teamIds.length > 0 && teamConnectedSources.length > 0) {
       try {
         await Promise.all(
-          createdTeamIds.map((teamId) =>
-            db.collection('Teams').doc(teamId).update({
+          teamIds.map(async (teamId) => {
+            // For existing teams, merge with any existing connectedSources
+            if (!createdTeamIds.includes(teamId)) {
+              const teamDoc = await db.collection('Teams').doc(teamId).get();
+              const existing: ConnectedSourceRecord[] =
+                (teamDoc.data()?.['connectedSources'] as ConnectedSourceRecord[] | undefined) ?? [];
+              const merged = new Map<string, ConnectedSourceRecord>();
+              for (const cs of existing) {
+                const key = cs.scopeId ? `${cs.platform}::${cs.scopeId}` : cs.platform;
+                merged.set(key, cs);
+              }
+              for (const cs of teamConnectedSources) {
+                const key = cs.scopeId ? `${cs.platform}::${cs.scopeId}` : cs.platform;
+                if (!merged.has(key)) {
+                  merged.set(key, cs);
+                }
+              }
+              return db
+                .collection('Teams')
+                .doc(teamId)
+                .update({
+                  connectedSources: Array.from(merged.values()),
+                });
+            }
+            return db.collection('Teams').doc(teamId).update({
               connectedSources: teamConnectedSources,
-            })
-          )
+            });
+          })
         );
       } catch (err) {
         logger.error(
@@ -1237,8 +1332,12 @@ router.post(
         updateData.location = location;
         clearLegacyLocationFields(updateData);
 
-        // V2: Update team info in sports array if exists
-        if (currentUser?.sports && currentUser.sports.length > 0) {
+        // V2: Update team info in sports array if exists (Athletes only — coaches/directors
+        // don't own sports[]; their sport data is synthesized from RosterEntries)
+        const schoolRole = currentUser?.role as string | undefined;
+        const schoolIsTeamRole =
+          schoolRole === 'coach' || schoolRole === 'director' || schoolRole === 'recruiter';
+        if (!schoolIsTeamRole && currentUser?.sports && currentUser.sports.length > 0) {
           const updatedSports = [...currentUser.sports];
           const currentTeam = updatedSports[0]?.team;
           updatedSports[0] = {
@@ -1364,6 +1463,10 @@ router.post(
             if (primarySport) {
               updateData.primarySport = primarySport.sport;
             }
+          } else {
+            // Actively purge any previously-written sports[] from coach/director User docs
+            (updateData as Record<string, unknown>)['sports'] = FieldValue.delete();
+            (updateData as Record<string, unknown>)['activeSportIndex'] = FieldValue.delete();
           }
         }
         break;
@@ -1492,6 +1595,17 @@ router.post(
             }>)
           : [];
 
+        // Determine if this is a team-level role (coach/director)
+        const linkRole = currentUser?.role as string | undefined;
+        const isTeamRole = linkRole === 'coach' || linkRole === 'director';
+
+        // Get team IDs from user's sports array for team-level writes
+        const userTeamIds: string[] = isTeamRole
+          ? ((currentUser?.sports as SportProfile[]) ?? [])
+              .map((s) => s.team?.teamId)
+              .filter((id): id is string => !!id)
+          : [];
+
         // Connected sources keyed by "platform" or "platform::scopeId"
         const connectedMap = new Map<string, ConnectedSourceRecord>();
         for (const cs of existingConnected) {
@@ -1499,6 +1613,7 @@ router.post(
           connectedMap.set(k, cs);
         }
 
+        const teamConnectedSources: ConnectedSourceRecord[] = [];
         let displayOrder = 0;
         for (const link of links) {
           if (link.connected && link.platform) {
@@ -1512,7 +1627,7 @@ router.post(
                 : '';
 
             const existing = connectedMap.get(key);
-            connectedMap.set(key, {
+            const sourceInfo: ConnectedSourceRecord = {
               platform,
               profileUrl: url,
               syncStatus: 'idle',
@@ -1520,13 +1635,72 @@ router.post(
               ...(link.scopeType && link.scopeType !== 'global'
                 ? { scopeType: link.scopeType, scopeId: link.scopeId }
                 : {}),
-            });
+            };
+
+            // Coach/director sources → Team doc; athlete/other → User doc
+            if (isTeamRole && userTeamIds.length > 0) {
+              const addedByName =
+                [currentUser?.firstName, currentUser?.lastName].filter(Boolean).join(' ') ||
+                'Staff';
+              teamConnectedSources.push({
+                ...sourceInfo,
+                addedBy: addedByName,
+                addedById: userId,
+              });
+              connectedMap.delete(key); // Remove from user doc if previously written there
+            } else {
+              connectedMap.set(key, sourceInfo);
+            }
           }
         }
+
+        // Write team connected sources to Team docs
+        if (userTeamIds.length > 0 && teamConnectedSources.length > 0) {
+          try {
+            await Promise.all(
+              userTeamIds.map(async (teamId) => {
+                const teamDoc = await db.collection('Teams').doc(teamId).get();
+                const existingTeamSources: ConnectedSourceRecord[] =
+                  (teamDoc.data()?.['connectedSources'] as ConnectedSourceRecord[] | undefined) ??
+                  [];
+                const merged = new Map<string, ConnectedSourceRecord>();
+                for (const cs of existingTeamSources) {
+                  const k = cs.scopeId ? `${cs.platform}::${cs.scopeId}` : cs.platform;
+                  merged.set(k, cs);
+                }
+                for (const cs of teamConnectedSources) {
+                  const k = cs.scopeId ? `${cs.platform}::${cs.scopeId}` : cs.platform;
+                  merged.set(k, cs);
+                }
+                return db
+                  .collection('Teams')
+                  .doc(teamId)
+                  .update({
+                    connectedSources: Array.from(merged.values()),
+                  });
+              })
+            );
+            logger.info('[POST /profile/onboarding-step] Wrote connected sources to Team docs', {
+              userId,
+              teamIds: userTeamIds,
+              sourceCount: teamConnectedSources.length,
+            });
+          } catch (err) {
+            logger.error(
+              '[POST /profile/onboarding-step] Failed to write Team connected sources',
+              err as Record<string, unknown>
+            );
+          }
+        }
+
+        // Only write remaining (non-team) sources to user doc
         if (connectedMap.size > 0) {
           (updateData as Record<string, unknown>)['connectedSources'] = Array.from(
             connectedMap.values()
           );
+        } else if (isTeamRole && userTeamIds.length > 0) {
+          // Purge any previously incorrectly written sources from user doc
+          (updateData as Record<string, unknown>)['connectedSources'] = FieldValue.delete();
         }
         break;
       }

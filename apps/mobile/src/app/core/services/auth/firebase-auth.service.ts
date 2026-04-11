@@ -397,45 +397,22 @@ export class FirebaseAuthService implements OnDestroy {
           throw new Error('Sign-in was cancelled');
         }
 
-        // @capacitor-firebase/authentication should have signed in to Firebase automatically
-        // But sometimes auth state hasn't synced yet. Wait a bit and check again.
-        let currentUser = this.auth.currentUser;
-
-        if (!currentUser) {
-          this.logger.debug('Waiting for Firebase auth state to sync...');
-          // Wait up to 2 seconds for auth state to update
-          for (let i = 0; i < 20; i++) {
-            await new Promise((resolve) => setTimeout(resolve, 100));
-            currentUser = this.auth.currentUser;
-            if (currentUser) {
-              this.logger.debug('Firebase auth state synced (Apple)', { delayMs: (i + 1) * 100 });
-              break;
-            }
-          }
+        // @capacitor-community/apple-sign-in does NOT auto-sign into Firebase
+        // (unlike @capacitor-firebase/authentication for Google).
+        // Go straight to signInWithCredential — no polling needed.
+        if (nativeResult.idToken && nativeResult.rawNonce) {
+          this.logger.debug('Signing into Firebase with Apple credential');
+          const appleProvider = new OAuthProvider('apple.com');
+          const credential = appleProvider.credential({
+            idToken: nativeResult.idToken,
+            rawNonce: nativeResult.rawNonce,
+          });
+          return await runInInjectionContext(this.injector, () =>
+            signInWithCredential(this.auth, credential)
+          );
         }
 
-        if (!currentUser) {
-          // Last resort: manually sign in with the credential if we have tokens
-          if (nativeResult.idToken && nativeResult.rawNonce) {
-            const appleProvider = new OAuthProvider('apple.com');
-            const credential = appleProvider.credential({
-              idToken: nativeResult.idToken,
-              rawNonce: nativeResult.rawNonce,
-            });
-            const result = await runInInjectionContext(this.injector, () =>
-              signInWithCredential(this.auth, credential)
-            );
-            return result;
-          }
-
-          throw new Error('Apple Sign-In succeeded but no Firebase user found. Please try again.');
-        }
-
-        return {
-          user: currentUser,
-          providerId: 'apple.com',
-          operationType: 'signIn',
-        } as UserCredential;
+        throw new Error('Apple Sign-In succeeded but no tokens returned. Please try again.');
       } catch (error) {
         this.logger.error('Apple Sign-In error:', error);
         throw error;

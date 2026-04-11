@@ -157,6 +157,9 @@ export class NativeAppService {
   private async initializeNativeFeatures(): Promise<void> {
     await Promise.all([this.configureStatusBar(), this.setupLifecycleListeners()]);
 
+    // Wire keyboard awareness (sets CSS vars + class on <html>)
+    this.setupKeyboardListeners();
+
     // Hide splash screen immediately after features are initialized
     // We control the timing rather than relying on Capacitor's auto-hide
     if (this._config.autoHideSplash) {
@@ -278,6 +281,46 @@ export class NativeAppService {
   // ============================================
   // KEYBOARD
   // ============================================
+
+  /**
+   * Set up keyboard visibility listeners.
+   *
+   * With `resize: "ionic"` in capacitor.config.json, the native webview does
+   * NOT resize when the keyboard appears — Ionic only adjusts scroll inside
+   * `<ion-content>`.  Elements like `<ion-footer>` stay at the full-viewport
+   * bottom and get hidden behind the keyboard.
+   *
+   * This method listens for the Ionic keyboard lifecycle events and:
+   *  1. Sets `--keyboard-height` CSS variable on `<html>` (px value).
+   *  2. Toggles a `.keyboard-open` class on `<html>`.
+   *
+   * Feature components (e.g. Agent X shell) can then use
+   * `:host-context(.keyboard-open)` to shift their footer above the keyboard.
+   */
+  private setupKeyboardListeners(): void {
+    // ionKeyboardDidShow is dispatched by Ionic on `window`
+    // event.detail.keyboardHeight contains the height in CSS pixels.
+    window.addEventListener('ionKeyboardDidShow', ((
+      ev: CustomEvent<{ keyboardHeight: number }>
+    ) => {
+      this.ngZone.run(() => {
+        const height = ev.detail.keyboardHeight;
+        document.documentElement.style.setProperty('--keyboard-height', `${height}px`);
+        document.documentElement.classList.add('keyboard-open');
+        this.logger.debug('Keyboard shown', { height });
+      });
+    }) as EventListener);
+
+    window.addEventListener('ionKeyboardDidHide', () => {
+      this.ngZone.run(() => {
+        document.documentElement.style.setProperty('--keyboard-height', '0px');
+        document.documentElement.classList.remove('keyboard-open');
+        this.logger.debug('Keyboard hidden');
+      });
+    });
+
+    this.logger.debug('Keyboard listeners configured');
+  }
 
   // ============================================
   // APP LIFECYCLE

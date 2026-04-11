@@ -127,7 +127,13 @@ import { EditProfileApiService } from '../../../../core/services/api/edit-profil
 import { ProfileGenerationStateService } from '@nxt1/ui';
 import type { OnboardingProfileData } from '@nxt1/core/auth';
 import { NxtThemeService } from '@nxt1/ui';
-import { HapticsService, NxtToastService, NxtLoggingService, NxtPlatformService } from '@nxt1/ui';
+import {
+  HapticsService,
+  NxtToastService,
+  NxtLoggingService,
+  NxtPlatformService,
+  normalizeImageFileForUpload,
+} from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 import { CapacitorHttpAdapter } from '../../../../core/infrastructure';
 import { environment } from '../../../../../environments/environment';
@@ -1427,7 +1433,11 @@ export class OnboardingPage implements OnInit, OnDestroy {
 
       const uploadedUrls: string[] = [];
 
-      for (const file of fileArray) {
+      const normalizedFiles = await Promise.all(
+        fileArray.map((file) => normalizeImageFileForUpload(file))
+      );
+
+      for (const file of normalizedFiles) {
         try {
           const result = await this.editProfileApi.uploadPhoto(user.uid, 'profile', file);
           if (result.success && result.data) {

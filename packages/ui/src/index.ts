@@ -959,6 +959,7 @@ export {
   type SaveImageResult,
   type ShareImageOptions,
   type ShareImageResult,
+  normalizeImageFileForUpload,
 } from './services/media';
 
 // ============================================

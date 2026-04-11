@@ -40,6 +40,7 @@ import {
   computed,
   OnInit,
   signal,
+  ViewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
@@ -53,7 +54,7 @@ import { AgentXService } from '@nxt1/ui/agent-x';
 
 // Core Constants
 import { AUTH_REDIRECTS } from '@nxt1/core/constants';
-import type { OnboardingUserType } from '@nxt1/core/api';
+import { getWelcomeSlidesForRole, type OnboardingUserType } from '@nxt1/core/api';
 import type { AgentGoal, AgentDashboardGoal } from '@nxt1/core';
 
 // App Services
@@ -73,6 +74,7 @@ import { SeoService } from '../../../../core/services';
     >
       <div authContent>
         <nxt1-onboarding-welcome
+          #welcomeSlides
           [userRole]="userRole()"
           [firstName]="firstName()"
           (complete)="onComplete()"
@@ -93,6 +95,11 @@ export class OnboardingCongratulationsComponent implements OnInit {
   private readonly logger = inject(NxtLoggingService).child('OnboardingCongratulations');
   private readonly agentX = inject(AgentXService);
 
+  @ViewChild('welcomeSlides') welcomeSlidesRef?: OnboardingWelcomeComponent;
+
+  /** Current slide index for tracking */
+  readonly currentSlideIndex = signal(0);
+
   /** Selected goals from the goals slide */
   private readonly selectedGoals = signal<AgentGoal[]>([]);
 
@@ -110,6 +117,17 @@ export class OnboardingCongratulationsComponent implements OnInit {
   readonly firstName = computed(() => {
     const user = this.authFlow.user();
     return user?.displayName?.split(' ')[0] || null;
+  });
+
+  /** Total slides for current role */
+  readonly totalSlides = computed(() => {
+    const role = this.userRole() ?? 'athlete';
+    return getWelcomeSlidesForRole(role).slides.length;
+  });
+
+  /** Whether current slide is the last */
+  readonly isLastSlide = computed(() => {
+    return this.currentSlideIndex() >= this.totalSlides() - 1;
   });
 
   // ============================================
@@ -147,14 +165,20 @@ export class OnboardingCongratulationsComponent implements OnInit {
     await this.saveGoalsAndNavigate();
   }
 
-  /** Handle skip */
+  /** Handle skip — advance to next slide, or finish if on last slide */
   async onSkip(): Promise<void> {
-    await this.saveGoalsAndNavigate();
+    if (this.isLastSlide()) {
+      this.logger.info('User skipped last slide — completing');
+      await this.saveGoalsAndNavigate();
+    } else {
+      this.logger.info('User skipped slide', { index: this.currentSlideIndex() });
+      this.welcomeSlidesRef?.nextSlide();
+    }
   }
 
   /** Handle slide viewed (for analytics) */
   onSlideViewed(event: { index: number; slideId: string }): void {
-    // TODO: Track with analytics service
+    this.currentSlideIndex.set(event.index);
     this.logger.debug('Slide viewed', event);
   }
 

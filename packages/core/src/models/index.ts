@@ -73,9 +73,10 @@ export {
 } from './team/team.model';
 
 // Roster Entry model (Junction table: User <-> Team)
+// UserRole is used directly on RosterEntry.role (no separate RosterRole enum)
+export type { UserRole } from '../constants/user.constants';
 export {
   RosterEntryStatus,
-  RosterRole,
   type RosterEntry,
   type CreateRosterEntryInput,
   type UpdateRosterEntryInput,

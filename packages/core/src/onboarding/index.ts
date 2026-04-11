@@ -117,6 +117,8 @@ export {
   validateTeamSelection,
 
   // Legacy types (deprecated)
+  type PositionsFormData,
+  type ContactFormData,
   type TeamFormData,
   type SchoolFormData, // @deprecated - use SportFormData
   type OrganizationFormData,

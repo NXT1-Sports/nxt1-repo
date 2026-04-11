@@ -489,6 +489,32 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
       return http.post(`${base}/auth/team-code/join`, { userId, code });
     },
 
+    /**
+     * Fetch existing connected sources for a team.
+     * Used during onboarding to seed the link-drop step with links
+     * previously added by another staff member (coach/director).
+     *
+     * @param teamId - Firestore team document ID
+     * @returns Array of connected source records with addedBy attribution
+     */
+    async getTeamSources(teamId: string): Promise<{
+      success: boolean;
+      data: {
+        platform: string;
+        profileUrl: string;
+        addedBy?: string;
+        addedById?: string;
+        scopeType?: string;
+        scopeId?: string;
+      }[];
+    }> {
+      try {
+        return await http.get(`${base}/auth/team-sources/${encodeURIComponent(teamId)}`);
+      } catch {
+        return { success: true, data: [] };
+      }
+    },
+
     // ============================================
     // ONBOARDING OPERATIONS
     // ============================================

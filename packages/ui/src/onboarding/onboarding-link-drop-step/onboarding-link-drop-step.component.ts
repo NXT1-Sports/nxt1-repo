@@ -87,6 +87,12 @@ interface ConnectedState {
   scopeId?: string;
   username?: string;
   url?: string;
+  /** Display name of the person who originally added this link */
+  addedBy?: string;
+  /** User ID of the person who originally added this link */
+  addedById?: string;
+  /** True when this source came from existing team data and cannot be modified in onboarding */
+  locked?: boolean;
 }
 
 const CUSTOM_LINK_PREFIX = 'custom::';
@@ -151,6 +157,14 @@ function customPlatformId(id: string): string {
 
 function extractCustomLinkId(platform: string): string {
   return platform.slice(CUSTOM_LINK_PREFIX.length);
+}
+
+function buildLockedSourceMessage(source: ConnectedSource): string {
+  if (source.addedBy?.trim()) {
+    return `${source.label} was already connected by ${source.addedBy}. You can add new links here, but you can't change this one during onboarding.`;
+  }
+
+  return `${source.label} is already connected for this team. You can add new links here, but you can't change this one during onboarding.`;
 }
 
 function normalizeCustomLinkUrl(value: string): string {
@@ -872,6 +886,9 @@ export class OnboardingLinkDropStepComponent {
             scopeId: link.scopeId,
             username: link.username,
             url: link.url,
+            addedBy: link.addedBy,
+            addedById: link.addedById,
+            locked: link.locked,
           };
         }
       }
@@ -914,6 +931,16 @@ export class OnboardingLinkDropStepComponent {
     if (this.disabled()) return;
 
     const { source } = event;
+
+    if (source.locked) {
+      this.toast.info(buildLockedSourceMessage(source));
+      this.logger.info('Locked onboarding source tap blocked', {
+        platform: source.platform,
+        scopeType: source.scopeType,
+        scopeId: source.scopeId,
+      });
+      return;
+    }
 
     // Handle custom link tap — prompt to edit or delete
     if (isCustomPlatform(source.platform)) {
@@ -1125,6 +1152,8 @@ export class OnboardingLinkDropStepComponent {
       username: conn?.username,
       url: conn?.url,
       faviconUrl: getPlatformFaviconUrl(platform.platform) ?? undefined,
+      addedBy: conn?.addedBy,
+      locked: conn?.locked,
     };
   }
 
@@ -1169,6 +1198,30 @@ export class OnboardingLinkDropStepComponent {
       const sportKey = this.activeSport() ? sportNameToKey(this.activeSport()!) : null;
       const scopeId = scopeType === 'sport' ? (sportKey ?? undefined) : undefined;
       const key = connKey(matchedPlatform.platform, scopeType, scopeId);
+      const existing = this._connectedMap()[key];
+      if (existing?.locked) {
+        this.toast.info(
+          buildLockedSourceMessage({
+            platform: matchedPlatform.platform,
+            label: matchedPlatform.label,
+            icon: matchedPlatform.icon as ConnectedSource['icon'],
+            connected: true,
+            connectionType: matchedPlatform.connectionType,
+            scopeType,
+            scopeId,
+            username: existing.username,
+            url: existing.url,
+            addedBy: existing.addedBy,
+            locked: true,
+          })
+        );
+        this.logger.info('Locked onboarding quick-add blocked', {
+          platform: matchedPlatform.platform,
+          scopeType,
+          scopeId,
+        });
+        return { added: false, reason: 'This account is already connected for the team.' };
+      }
       const normalized = normalizePlatformConnectionValue(matchedPlatform, url);
       if (normalized.reason || !normalized.value?.url) {
         return { added: false, reason: normalized.reason ?? 'Please enter a valid URL.' };
@@ -1378,6 +1431,9 @@ export class OnboardingLinkDropStepComponent {
       scopeId: data.scopeId,
       username: data.username,
       url: data.url,
+      addedBy: data.addedBy,
+      addedById: data.addedById,
+      locked: data.locked,
     }));
 
     const customLinks: LinkSourceEntry[] = this._customLinks().map((cl) => ({

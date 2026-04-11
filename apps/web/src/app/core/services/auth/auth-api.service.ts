@@ -126,6 +126,15 @@ export class AuthApiService {
     });
   }
 
+  /**
+   * Fetch existing connected sources for a team (used to seed onboarding link-drop)
+   */
+  getTeamSources(
+    ...args: Parameters<AuthApi['getTeamSources']>
+  ): ReturnType<AuthApi['getTeamSources']> {
+    return this.api.getTeamSources(...args);
+  }
+
   // ============================================
   // ONBOARDING
   // ============================================

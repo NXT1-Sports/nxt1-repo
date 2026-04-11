@@ -77,6 +77,7 @@ import { Geolocation } from '@capacitor/geolocation';
 
 // Mobile infrastructure
 import { createNativeStorageAdapter, CapacitorHttpAdapter } from '../../infrastructure';
+import { normalizeImageFileForUpload } from '@nxt1/ui';
 import { environment } from '../../../../environments/environment';
 
 // Auth services (import directly to avoid barrel circular deps)
@@ -453,7 +454,11 @@ export class OnboardingService {
 
       const uploadedUrls: string[] = [];
 
-      for (const file of fileArray) {
+      const normalizedFiles = await Promise.all(
+        fileArray.map((file) => normalizeImageFileForUpload(file))
+      );
+
+      for (const file of normalizedFiles) {
         try {
           const result = await this.editProfileApi.uploadPhoto(user.uid, 'profile', file);
           if (result.success && result.data) {
@@ -774,6 +779,15 @@ export class OnboardingService {
    * Direction determines animation: forward (push), backward (pop), none (no animation).
    */
   private async navigateToStep(snapshot: OnboardingStateSnapshot): Promise<void> {
+    // Don't navigate during or after completion — handleCompletion manages its own navigation.
+    // The finally block in machine.complete() fires notifyStateChange() AFTER onComplete resolves
+    // (which already navigated to congratulations). Without this guard, navigateToStep would see
+    // the user is no longer on the last step page and try to navigate back, triggering the
+    // onboardingInProgressGuard which redirects to /agent (since hasCompletedOnboarding is now true).
+    if (snapshot.machineState === 'completing' || snapshot.machineState === 'complete') {
+      return;
+    }
+
     const stepId = snapshot.steps[snapshot.currentStepIndex]?.id;
     if (!stepId) return;
 
@@ -926,7 +940,11 @@ export class OnboardingService {
 
     await this.haptics.notification('success');
     this.logger.debug('Navigating to congratulations page');
-    await this.navController.navigateForward('/auth/onboarding/congratulations', {
+    // Use navigateRoot to replace the entire navigation stack.
+    // navigateForward from inside the onboarding shell's IonRouterOutlet causes
+    // a conflict when activating a route OUTSIDE the shell — the shell's outlet
+    // destruction pops the page immediately after it renders ("flash then skip").
+    await this.navController.navigateRoot('/auth/onboarding/congratulations', {
       animated: true,
       animationDirection: 'forward',
     });

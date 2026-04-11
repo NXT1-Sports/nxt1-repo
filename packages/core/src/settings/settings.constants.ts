@@ -381,7 +381,7 @@ export function getSettingsSectionsForRole(
 export const DEFAULT_SETTINGS_PREFERENCES: SettingsPreferences = {
   emailNotifications: true,
   pushNotifications: true,
-  marketingEmails: false,
+  marketingEmails: true,
   activityTracking: true,
   analyticsTracking: true,
   biometricLogin: false,

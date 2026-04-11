@@ -1,6 +1,6 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import type { SportProfile, TeamTypeApi, UserRole } from '@nxt1/core';
-import { RosterEntryStatus, RosterRole } from '@nxt1/core/models';
+import { RosterEntryStatus } from '@nxt1/core/models';
 import * as teamCodeService from './team-code.service.js';
 import { createOrganizationService } from './organization.service.js';
 import { createRosterEntryService } from './roster-entry.service.js';
@@ -366,27 +366,22 @@ async function ensureRosterEntry(
   teamId: string
 ): Promise<void> {
   const rosterEntryService = createRosterEntryService(input.db);
-  const rosterRole =
-    input.role === 'director'
-      ? RosterRole.OWNER
-      : input.role === 'coach'
-        ? RosterRole.HEAD_COACH
-        : RosterRole.ATHLETE;
-
+  // Directors and coaches are active immediately (they own/manage the program).
+  // Only athletes start as pending (require coach approval).
   const rosterStatus =
-    input.role === 'director' ? RosterEntryStatus.ACTIVE : RosterEntryStatus.PENDING;
+    input.role === 'athlete' ? RosterEntryStatus.PENDING : RosterEntryStatus.ACTIVE;
 
   try {
     await rosterEntryService.createRosterEntry({
       userId: input.userId,
       teamId,
       organizationId: program.organizationId,
-      role: rosterRole,
+      role: input.role,
       status: rosterStatus,
       firstName: input.updateData.firstName ?? input.currentUser?.firstName ?? '',
       lastName: input.updateData.lastName ?? input.currentUser?.lastName ?? '',
       email: input.currentUser?.email ?? '',
-      profileImg: input.updateData.profileImgs?.[0] ?? input.currentUser?.profileImgs?.[0] ?? '',
+      profileImgs: input.updateData.profileImgs ?? input.currentUser?.profileImgs ?? [],
       classOf: input.updateData.athlete?.classOf,
     });
   } catch (err) {

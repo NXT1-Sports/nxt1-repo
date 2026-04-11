@@ -70,6 +70,7 @@ import {
 import { NxtSearchBarComponent } from '../components/search-bar';
 import { HapticButtonDirective } from '../services/haptics';
 import type { SearchTeamsFn, TeamSearchResult } from '../onboarding';
+import { normalizeImageFileForUpload } from '../services/media/image-normalization';
 
 const MAX_GALLERY_IMAGES = 8;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
@@ -1899,7 +1900,6 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
 
     const selectedFiles = files.slice(0, availableSlots);
     const uploadedUrls: string[] = [];
-    const previewUrls: string[] = [];
     const userId = this.userId;
 
     if (!userId) {
@@ -1907,13 +1907,11 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // Create instant preview URLs using Object URL
-    for (const file of selectedFiles) {
-      if (file.type.startsWith('image/')) {
-        const previewUrl = URL.createObjectURL(file);
-        previewUrls.push(previewUrl);
-      }
-    }
+    const imageFiles = selectedFiles.filter((file) => file.type.startsWith('image/'));
+    const normalizedFiles = await Promise.all(
+      imageFiles.map((file) => normalizeImageFileForUpload(file))
+    );
+    const previewUrls = normalizedFiles.map((file) => URL.createObjectURL(file));
 
     // Show preview images immediately
     if (previewUrls.length > 0) {
@@ -1921,10 +1919,10 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     }
 
     // Show loading toast
-    this.toast.info(`Uploading ${selectedFiles.length} image(s)...`);
+    this.toast.info(`Uploading ${normalizedFiles.length} image(s)...`);
 
-    for (let i = 0; i < selectedFiles.length; i++) {
-      const file = selectedFiles[i];
+    for (let i = 0; i < normalizedFiles.length; i++) {
+      const file = normalizedFiles[i];
 
       if (!file.type.startsWith('image/')) {
         this.toast.warning(`${file.name} is not a supported image file.`);

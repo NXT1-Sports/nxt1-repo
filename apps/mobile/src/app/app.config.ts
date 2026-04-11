@@ -164,6 +164,8 @@ export const appConfig: ApplicationConfig = {
       innerHTMLTemplatesEnabled: true,
       swipeBackEnabled: false, // Disable iOS back gesture - we use sidenav instead (Twitter/X pattern)
       useSetInputAPI: true, // Required for Angular signal-based inputs (input()) to work with componentProps in modals
+      scrollAssist: true, // Auto-scroll focused inputs into view when keyboard opens
+      scrollPadding: true, // Add padding to content when keyboard opens to prevent overlap
     }),
 
     { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },

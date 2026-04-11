@@ -21,7 +21,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import {
   RosterEntry,
   RosterEntryStatus,
-  RosterRole,
+  UserRole,
   type CreateRosterEntryInput,
   type UpdateRosterEntryInput,
   type ApproveRosterEntryInput,
@@ -71,11 +71,10 @@ function docToRosterEntry(doc: FirebaseFirestore.DocumentSnapshot): RosterEntry 
     userId: data['userId'] ?? '',
     teamId: data['teamId'] ?? '',
     organizationId: data['organizationId'] ?? '',
-    role: data['role'] ?? RosterRole.ATHLETE,
+    role: (data['role'] ?? 'athlete') as UserRole,
     status: data['status'] ?? RosterEntryStatus.PENDING,
     jerseyNumber: data['jerseyNumber'],
     positions: data['positions'] ?? [],
-    primaryPosition: data['primaryPosition'],
     season: data['season'],
     classOfWhenJoined: data['classOfWhenJoined'],
     stats: data['stats'],
@@ -90,7 +89,7 @@ function docToRosterEntry(doc: FirebaseFirestore.DocumentSnapshot): RosterEntry 
     // Cached user data
     firstName: data['firstName'],
     lastName: data['lastName'],
-    profileImg: data['profileImg'],
+    profileImgs: (data['profileImgs'] ?? data['profileImg']) ? [data['profileImg']] : [],
     email: data['email'],
     phoneNumber: data['phoneNumber'],
     classOf: data['classOf'],
@@ -148,16 +147,14 @@ export class RosterEntryService {
       throw conflictError('User already on this team');
     }
 
-    const entryData = {
+    const isAthleteRole = input.role === 'athlete';
+
+    const entryData: Record<string, unknown> = {
       userId: input.userId,
       teamId: input.teamId,
       organizationId: input.organizationId,
       role: input.role,
       status: input.status ?? RosterEntryStatus.PENDING,
-      jerseyNumber: input.jerseyNumber ?? null,
-      positions: input.positions ?? [],
-      primaryPosition: input.primaryPosition ?? null,
-      season: input.season ?? null,
       invitedBy: input.invitedBy ?? null,
       joinedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
@@ -166,15 +163,24 @@ export class RosterEntryService {
       lastName: input.lastName ?? '',
       email: input.email ?? '',
       phoneNumber: input.phoneNumber ?? '',
-      profileImg: input.profileImg ?? null,
-      classOf: input.classOf ?? null,
     };
+
+    // Only write profileImgs if it has values
+    if (input.profileImgs?.length) entryData['profileImgs'] = input.profileImgs;
+
+    // Athlete-specific fields — only written for athletes
+    if (isAthleteRole) {
+      if (input.jerseyNumber) entryData['jerseyNumber'] = input.jerseyNumber;
+      if (input.positions?.length) entryData['positions'] = input.positions;
+      if (input.classOf) entryData['classOf'] = input.classOf;
+      if (input.season) entryData['season'] = input.season;
+    }
 
     const docRef = this.db.collection(this.COLLECTION).doc();
     const teamRef = this.db.collection('Teams').doc(input.teamId);
 
     // Athletes increment athleteMember; everyone else increments panelMember
-    const isAthlete = input.role === RosterRole.ATHLETE;
+    const isAthlete = input.role === 'athlete';
     const counterField = isAthlete ? 'athleteMember' : 'panelMember';
 
     if (externalBatch) {
@@ -192,24 +198,23 @@ export class RosterEntryService {
       // Return synthetic entry (doc not yet committed)
       return {
         id: docRef.id,
-        userId: entryData.userId,
-        teamId: entryData.teamId,
-        organizationId: entryData.organizationId,
-        role: entryData.role,
-        status: entryData.status ?? RosterEntryStatus.PENDING,
-        jerseyNumber: entryData.jerseyNumber ?? undefined,
-        positions: entryData.positions ?? [],
-        primaryPosition: entryData.primaryPosition ?? undefined,
-        season: entryData.season ?? undefined,
-        invitedBy: entryData.invitedBy ?? undefined,
+        userId: entryData['userId'] as string,
+        teamId: entryData['teamId'] as string,
+        organizationId: entryData['organizationId'] as string,
+        role: entryData['role'] as UserRole,
+        status: (entryData['status'] as RosterEntryStatus) ?? RosterEntryStatus.PENDING,
+        jerseyNumber: entryData['jerseyNumber'] as string | number | undefined,
+        positions: (entryData['positions'] as string[] | undefined) ?? [],
+        season: entryData['season'] as string | undefined,
+        invitedBy: entryData['invitedBy'] as string | undefined,
         joinedAt: new Date(),
         updatedAt: new Date(),
-        firstName: entryData.firstName ?? '',
-        lastName: entryData.lastName ?? '',
-        email: entryData.email ?? '',
-        phoneNumber: entryData.phoneNumber ?? '',
-        profileImg: entryData.profileImg ?? undefined,
-        classOf: entryData.classOf ?? undefined,
+        firstName: (entryData['firstName'] as string) ?? '',
+        lastName: (entryData['lastName'] as string) ?? '',
+        email: (entryData['email'] as string) ?? '',
+        phoneNumber: (entryData['phoneNumber'] as string) ?? '',
+        profileImgs: (entryData['profileImgs'] as string[] | undefined) ?? [],
+        classOf: entryData['classOf'] as number | undefined,
       } as RosterEntry;
     }
 
@@ -365,7 +370,6 @@ export class RosterEntryService {
     if (input.status !== undefined) updateData['status'] = input.status;
     if (input.jerseyNumber !== undefined) updateData['jerseyNumber'] = input.jerseyNumber;
     if (input.positions !== undefined) updateData['positions'] = input.positions;
-    if (input.primaryPosition !== undefined) updateData['primaryPosition'] = input.primaryPosition;
     if (input.rating !== undefined) updateData['rating'] = input.rating;
     if (input.coachNotes !== undefined) updateData['coachNotes'] = input.coachNotes;
     if (input.stats !== undefined) updateData['stats'] = input.stats;
@@ -432,7 +436,7 @@ export class RosterEntryService {
     if (userData.lastName) updateData['lastName'] = userData.lastName;
     if (userData.email) updateData['email'] = userData.email;
     if (userData.phoneNumber) updateData['phoneNumber'] = userData.phoneNumber;
-    if (userData.profileImg !== undefined) updateData['profileImg'] = userData.profileImg ?? null;
+    if (userData.profileImgs !== undefined) updateData['profileImgs'] = userData.profileImgs ?? [];
     if (userData.classOf) updateData['classOf'] = userData.classOf;
     if (userData.height) updateData['height'] = userData.height;
     if (userData.weight) updateData['weight'] = userData.weight;

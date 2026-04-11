@@ -86,6 +86,7 @@ import {
   type SportFormData,
   type ReferralSourceData,
   type LinkSourcesFormData,
+  type LinkSourceEntry,
   type TeamSelectionFormData,
   type PlatformScope,
   ONBOARDING_STEPS,
@@ -1001,6 +1002,10 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         ) {
           void this.firePreloadScrape();
         }
+        // Seed link-sources with existing team data when select-teams completes
+        if (event.stepId === 'select-teams') {
+          void this.seedTeamLinkSources();
+        }
         break;
 
       case 'STEP_SKIPPED':
@@ -1045,6 +1050,53 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     this.error.set(state.error);
     this.animationDirection.set(state.animationDirection as AnimationDirection);
     this._isCurrentStepValid.set(state.isCurrentStepValid);
+  }
+
+  // ============================================
+  // TEAM SOURCE SEEDING
+  // ============================================
+
+  /**
+   * Fetch existing connected sources for selected teams and seed them
+   * into the link-sources form data so the next step shows pre-populated links.
+   * Runs silently — failures don't block onboarding.
+   */
+  private async seedTeamLinkSources(): Promise<void> {
+    const teams = this._formData().teamSelection?.teams;
+    if (!teams?.length) return;
+
+    try {
+      const allSeeded: LinkSourceEntry[] = [];
+
+      for (const team of teams) {
+        if (team.isDraft) continue;
+        const response = await this.authApi.getTeamSources(team.id);
+        if (!response?.success || !response.data?.length) continue;
+
+        for (const src of response.data) {
+          allSeeded.push({
+            platform: src.platform,
+            connected: true,
+            connectionType: 'link',
+            url: src.profileUrl,
+            scopeType: (src.scopeType as 'global' | 'sport' | 'team') ?? 'global',
+            scopeId: src.scopeId,
+            addedBy: src.addedBy,
+            addedById: src.addedById,
+            locked: true,
+          });
+        }
+      }
+
+      if (allSeeded.length) {
+        const existing = this._formData().linkSources?.links ?? [];
+        const merged = [...existing, ...allSeeded];
+        this.machine.updateLinkSources({ links: merged });
+        this.logger.info('Seeded team link sources', { count: allSeeded.length });
+      }
+    } catch (err) {
+      this.logger.warn('Failed to seed team link sources', { error: err });
+    }
   }
 
   // ============================================

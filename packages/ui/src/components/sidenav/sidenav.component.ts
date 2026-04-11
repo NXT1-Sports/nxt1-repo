@@ -574,6 +574,10 @@ import { formatSportDisplayName } from '@nxt1/core';
         --max-width: calc(100vw - 56px);
         --background: var(--nxt1-sidenav-bg);
         --ion-background-color: var(--nxt1-sidenav-bg);
+
+        /* Override Ionic's automatic safe-area-inset-top padding
+           inside the menu — we handle spacing manually via toolbar padding */
+        --ion-safe-area-top: 0px;
       }
 
       ion-menu.nxt1-sidenav-menu--blur {
@@ -591,12 +595,6 @@ import { formatSportDisplayName } from '@nxt1/core';
       .nxt1-sidenav-header {
         --background: var(--nxt1-sidenav-header-bg);
         border-bottom: 1px solid var(--nxt1-sidenav-header-border);
-      }
-
-      /* Prevent Ionic from double-applying safe-area on the toolbar
-         inside the menu — ion-menu already handles the inset */
-      .nxt1-sidenav-header ion-toolbar {
-        --ion-safe-area-top: 0px;
       }
 
       .nxt1-sidenav-header--minimal {

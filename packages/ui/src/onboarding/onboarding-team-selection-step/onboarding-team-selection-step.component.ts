@@ -45,15 +45,16 @@ import { CommonModule } from '@angular/common';
 import type { TeamSelectionEntry, TeamSelectionFormData, SportFormData } from '@nxt1/core/api';
 import type { ILogger } from '@nxt1/core/logging';
 import { titleCase, USER_ROLES, US_STATES, COUNTRIES } from '@nxt1/core';
-import { IonInput, IonSelect, IonSelectOption } from '@ionic/angular/standalone';
 import type { OnboardingUserType } from '@nxt1/core/onboarding';
 import { NxtSearchBarComponent } from '../../components/search-bar';
 import { NxtValidationSummaryComponent } from '../../components/validation-summary';
 import { NxtListSectionComponent } from '../../components/list-section';
+import { NxtListRowComponent } from '../../components/list-row';
 import { NxtIconComponent } from '../../components/icon';
 import { HapticButtonDirective } from '../../services/haptics';
 import { NxtLoggingService } from '../../services/logging';
 import { NxtToastService } from '../../services/toast';
+import { NxtModalService } from '../../services/modal';
 
 // ============================================
 // TYPES
@@ -138,11 +139,9 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
     NxtSearchBarComponent,
     NxtValidationSummaryComponent,
     NxtListSectionComponent,
+    NxtListRowComponent,
     NxtIconComponent,
     HapticButtonDirective,
-    IonInput,
-    IonSelect,
-    IonSelectOption,
   ],
   template: `
     @if (variant() === 'list-row') {
@@ -251,59 +250,56 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
                       class="nxt1-draft-type-back"
                       (click)="selectDraftType('')"
                     >
-                      <nxt1-icon name="arrow_back" [size]="14" />
                       {{ getDraftTypeLabel(pendingDraftType()!) }}
                     </button>
                     <p class="nxt1-draft-location-label">Program location</p>
-                    <div class="nxt1-draft-location-fields">
-                      <ion-select
-                        class="nxt1-draft-location-select"
-                        interface="action-sheet"
-                        placeholder="Country"
-                        [value]="draftCountry()"
-                        (ionChange)="onDraftCountryChange($event)"
+                    <nxt1-list-section>
+                      <nxt1-list-row
+                        label="Country"
+                        (tap)="openDraftCountryPicker()"
                         data-testid="draft-program-country"
                       >
-                        @for (c of countries; track c.code) {
-                          <ion-select-option [value]="c.code">{{ c.name }}</ion-select-option>
-                        }
-                      </ion-select>
-                      <ion-input
-                        type="text"
-                        class="nxt1-draft-location-input"
-                        fill="outline"
-                        placeholder="City"
-                        [value]="draftCity()"
-                        (ionInput)="onDraftCityInput($event)"
+                        <span class="nxt1-list-value">
+                          {{ draftCountryDisplayValue() }}
+                        </span>
+                      </nxt1-list-row>
+                      <nxt1-list-row
+                        label="City"
+                        (tap)="openDraftCityPrompt()"
                         data-testid="draft-program-city"
-                      />
+                      >
+                        <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!draftCity()">
+                          {{ draftCity() || 'Enter city' }}
+                        </span>
+                      </nxt1-list-row>
                       @if (draftCountry() === 'US') {
-                        <ion-select
-                          class="nxt1-draft-location-select"
-                          interface="action-sheet"
-                          placeholder="State"
-                          [value]="draftState()"
-                          (ionChange)="onDraftStateChange($event)"
+                        <nxt1-list-row
+                          label="State"
+                          (tap)="openDraftStatePicker()"
                           data-testid="draft-program-state"
                         >
-                          @for (s of usStates; track s.abbreviation) {
-                            <ion-select-option [value]="s.abbreviation">{{
-                              s.name
-                            }}</ion-select-option>
-                          }
-                        </ion-select>
+                          <span
+                            class="nxt1-list-value"
+                            [class.nxt1-list-placeholder]="!draftState()"
+                          >
+                            {{ draftStateDisplayValue() || 'Select state' }}
+                          </span>
+                        </nxt1-list-row>
                       } @else {
-                        <ion-input
-                          type="text"
-                          class="nxt1-draft-location-input"
-                          fill="outline"
-                          placeholder="State / Province"
-                          [value]="draftState()"
-                          (ionInput)="onDraftStateInput($event)"
+                        <nxt1-list-row
+                          label="State / Province"
+                          (tap)="openDraftStatePrompt()"
                           data-testid="draft-program-state"
-                        />
+                        >
+                          <span
+                            class="nxt1-list-value"
+                            [class.nxt1-list-placeholder]="!draftState()"
+                          >
+                            {{ draftState() || 'Enter state / province' }}
+                          </span>
+                        </nxt1-list-row>
                       }
-                    </div>
+                    </nxt1-list-section>
                     <button
                       type="button"
                       class="nxt1-draft-add-btn"
@@ -495,7 +491,6 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
                       class="nxt1-draft-type-back"
                       (click)="selectDraftType('')"
                     >
-                      <nxt1-icon name="arrow_back" [size]="14" />
                       {{ getDraftTypeLabel(pendingDraftType()!) }}
                     </button>
                     <p class="nxt1-draft-location-label">Program location</p>
@@ -1279,6 +1274,7 @@ export class OnboardingTeamSelectionStepComponent {
 
   private readonly loggingService = inject(NxtLoggingService);
   private readonly toast = inject(NxtToastService);
+  private readonly modal = inject(NxtModalService);
 
   /** Namespaced logger */
   private readonly logger: ILogger = this.loggingService.child('OnboardingTeamSelectionStep');
@@ -1388,6 +1384,18 @@ export class OnboardingTeamSelectionStepComponent {
 
   /** Countries for draft program location dropdown */
   readonly countries = COUNTRIES;
+
+  /** Display name for the currently selected draft country */
+  protected readonly draftCountryDisplayValue = computed(() => {
+    const code = this.draftCountry();
+    return this.countries.find((c) => c.code === code)?.name ?? code;
+  });
+
+  /** Display name for the currently selected draft state (US only) */
+  protected readonly draftStateDisplayValue = computed(() => {
+    const abbr = this.draftState();
+    return this.usStates.find((s) => s.abbreviation === abbr)?.name ?? abbr;
+  });
 
   // ============================================
   // CONSTRUCTOR
@@ -1631,19 +1639,82 @@ export class OnboardingTeamSelectionStepComponent {
     return DRAFT_PROGRAM_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type;
   }
 
-  /** Handle draft program city input (Ionic) */
-  onDraftCityInput(event: CustomEvent): void {
-    this.draftCity.set(event.detail.value ?? '');
+  // ── Mobile native pickers/prompts (NxtModalService) ──
+
+  /** Open native action sheet to select country */
+  async openDraftCountryPicker(): Promise<void> {
+    const result = await this.modal.actionSheet({
+      title: 'Select Country',
+      actions: this.countries.map((c) => ({
+        text: c.name,
+        data: c.code,
+      })),
+      preferNative: 'native',
+    });
+
+    if (result?.selected && result.data) {
+      this.draftCountry.set(result.data as string);
+      this.draftState.set('');
+    }
   }
+
+  /** Open native prompt to enter city */
+  async openDraftCityPrompt(): Promise<void> {
+    const result = await this.modal.prompt({
+      title: 'City',
+      placeholder: 'Enter city',
+      defaultValue: this.draftCity(),
+      submitText: 'Done',
+      cancelText: 'Cancel',
+      inputType: 'text',
+      required: false,
+      preferNative: 'native',
+    });
+
+    if (result.confirmed) {
+      this.draftCity.set(this.titleCase(result.value.trim()));
+    }
+  }
+
+  /** Open native action sheet to select US state */
+  async openDraftStatePicker(): Promise<void> {
+    const result = await this.modal.actionSheet({
+      title: 'Select State',
+      actions: this.usStates.map((s) => ({
+        text: s.name,
+        data: s.abbreviation,
+      })),
+      preferNative: 'native',
+    });
+
+    if (result?.selected && result.data) {
+      this.draftState.set(result.data as string);
+    }
+  }
+
+  /** Open native prompt to enter state/province (non-US) */
+  async openDraftStatePrompt(): Promise<void> {
+    const result = await this.modal.prompt({
+      title: 'State / Province',
+      placeholder: 'Enter state or province',
+      defaultValue: this.draftState(),
+      submitText: 'Done',
+      cancelText: 'Cancel',
+      inputType: 'text',
+      required: false,
+      preferNative: 'native',
+    });
+
+    if (result.confirmed) {
+      this.draftState.set(this.titleCase(result.value.trim()));
+    }
+  }
+
+  // ── Desktop native HTML handlers ──
 
   /** Handle draft program city input (native) */
   onDraftCityInputNative(event: Event): void {
-    this.draftCity.set((event.target as HTMLInputElement).value);
-  }
-
-  /** Handle draft program state dropdown change (Ionic) */
-  onDraftStateChange(event: CustomEvent): void {
-    this.draftState.set(event.detail.value ?? '');
+    this.draftCity.set(this.titleCase((event.target as HTMLInputElement).value));
   }
 
   /** Handle draft program state dropdown change (native) */
@@ -1651,20 +1722,9 @@ export class OnboardingTeamSelectionStepComponent {
     this.draftState.set((event.target as HTMLSelectElement).value);
   }
 
-  /** Handle draft program state free-text input (Ionic, non-US) */
-  onDraftStateInput(event: CustomEvent): void {
-    this.draftState.set(event.detail.value ?? '');
-  }
-
   /** Handle draft program state free-text input (native, non-US) */
   onDraftStateInputNative(event: Event): void {
-    this.draftState.set((event.target as HTMLInputElement).value);
-  }
-
-  /** Handle draft program country change (Ionic) */
-  onDraftCountryChange(event: CustomEvent): void {
-    this.draftCountry.set(event.detail.value ?? 'US');
-    this.draftState.set('');
+    this.draftState.set(this.titleCase((event.target as HTMLInputElement).value));
   }
 
   /** Handle draft program country change (native) */
@@ -1688,6 +1748,11 @@ export class OnboardingTeamSelectionStepComponent {
 
     this.addDraftProgram(name, type, location || undefined);
     this.resetDraftLocation();
+  }
+
+  /** Title-case a string (capitalize first letter of each word) */
+  private titleCase(value: string): string {
+    return value.replace(/\b\w/g, (char) => char.toUpperCase());
   }
 
   /** Reset pending draft program state */

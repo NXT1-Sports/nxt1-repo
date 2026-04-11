@@ -591,16 +591,18 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
   }
 
   // =========== PREFERENCES ===========
+  // NOTE: Preferences are written by the backend during onboarding
+  // completion (POST /auth/profile/onboarding). The frontend payload
+  // only includes non-preference fields. If the backend hasn't
+  // provisioned preferences yet, the GET /settings/preferences
+  // endpoint returns canonical defaults (marketing: true, etc.).
   payload['preferences'] = {
     notifications: {
       push: true,
       email: true,
-      sms: false,
-      marketing: false,
+      marketing: true,
     },
     activityTracking: true,
-    dismissedPrompts: formData.referralSource?.source ? ['hear-about'] : [],
-    defaultSportIndex: 0,
     theme: 'system',
   };
 

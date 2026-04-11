@@ -30,7 +30,7 @@ import { createProfileHydrationService } from '../services/profile-hydration.ser
 // Shared types and constants from @nxt1/core
 import type { User, UserSummary, SportProfile } from '@nxt1/core';
 import type { UpdateSportProfileRequest, ProfileSearchParams } from '@nxt1/core';
-import { RosterEntryStatus, RosterRole } from '@nxt1/core/models';
+import { RosterEntryStatus } from '@nxt1/core/models';
 import { PROFILE_CACHE_KEYS } from '@nxt1/core';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { validationError, notFoundError, forbiddenError } from '@nxt1/core/errors';
@@ -1352,8 +1352,7 @@ router.put(
     if (updates['firstName']) rosterCacheFields.firstName = updates['firstName'] as string;
     if (updates['lastName']) rosterCacheFields.lastName = updates['lastName'] as string;
     if (updates['profileImgs']) {
-      const imgs = updates['profileImgs'] as string[];
-      rosterCacheFields.profileImg = imgs[0] ?? null;
+      rosterCacheFields.profileImgs = updates['profileImgs'] as string[];
     }
     if (updates['height']) rosterCacheFields.height = updates['height'] as string;
     if (updates['weight']) rosterCacheFields.weight = updates['weight'] as string;
@@ -1706,13 +1705,13 @@ router.post(
             userId,
             teamId: team.id!,
             organizationId: inheritedOrgId,
-            role: userRole === 'director' ? RosterRole.OWNER : RosterRole.HEAD_COACH,
+            role: userRole,
             status: RosterEntryStatus.ACTIVE,
             firstName: (currentData['firstName'] as string) || '',
             lastName: (currentData['lastName'] as string) || '',
             email: (currentData['email'] as string) || '',
             phoneNumber: (currentData['phoneNumber'] as string) || '',
-            profileImg: (currentData['profileImg'] as string) || undefined,
+            profileImgs: (currentData['profileImgs'] as string[]) || [],
           },
           batch
         );

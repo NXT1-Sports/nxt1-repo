@@ -1465,8 +1465,10 @@ export class AgentXService {
         this.toast.success('Goals saved! Generating your playbook...');
         this.analytics?.trackEvent(APP_EVENTS.AGENT_X_GOALS_SET, { count: goals.length });
 
-        // Auto-generate playbook after setting goals
-        await this.generatePlaybook();
+        // Auto-generate playbook after setting goals (non-blocking)
+        this.generatePlaybook().catch((err) => {
+          this.logger.warn('Background playbook generation failed', err);
+        });
         return true;
       }
       this.toast.error(response.error ?? 'Failed to save goals');

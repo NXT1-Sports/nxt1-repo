@@ -74,6 +74,7 @@ import { NxtListRowComponent } from '../../components/list-row';
 import { NxtListSectionComponent } from '../../components/list-section';
 import { NxtModalService } from '../../services/modal';
 import { NxtMediaGalleryComponent } from '../../components/media-gallery';
+import { normalizeImageFileForUpload } from '../../services/media/image-normalization';
 
 // ============================================
 // CONSTANTS
@@ -1152,7 +1153,7 @@ export class OnboardingProfileStepComponent {
   /**
    * Handle file selection from web file picker - now supports multiple files
    */
-  onFileSelected(event: Event): void {
+  async onFileSelected(event: Event): Promise<void> {
     if (!this.isBrowser) return;
 
     const input = event.target as HTMLInputElement;
@@ -1160,7 +1161,7 @@ export class OnboardingProfileStepComponent {
 
     if (files.length === 0) return;
 
-    const validFiles: File[] = [];
+    const filesToNormalize: File[] = [];
 
     // Validate each file
     for (const file of files) {
@@ -1188,10 +1189,14 @@ export class OnboardingProfileStepComponent {
         continue;
       }
 
-      validFiles.push(file);
+      filesToNormalize.push(file);
     }
 
-    if (validFiles.length === 0) return;
+    if (filesToNormalize.length === 0) return;
+
+    const validFiles = await Promise.all(
+      filesToNormalize.map((file) => normalizeImageFileForUpload(file))
+    );
 
     // Log successful file selection
     this.logger.debug('Profile photos selected', {

@@ -18,7 +18,7 @@ import {
   AcceptInviteDto,
 } from '../dtos/teams.dto.js';
 import * as teamCodeService from '../services/team-code.service.js';
-import { ROLE, RosterRole, RosterEntryStatus } from '@nxt1/core/models';
+import { ROLE, RosterEntryStatus, UserRole } from '@nxt1/core/models';
 import { RosterEntryService } from '../services/roster-entry.service.js';
 import { TeamMemberRole } from '../dtos/teams.dto.js';
 import { logger } from '../utils/logger.js';
@@ -913,13 +913,13 @@ router.post(
 
           // Write RosterEntry (junction table) with inviterUid tracked
           if (team.id) {
-            const rosterRoleMap: Partial<Record<ROLE, RosterRole>> = {
-              [ROLE.athlete]: RosterRole.ATHLETE,
-              [ROLE.coach]: RosterRole.HEAD_COACH,
-              [ROLE.admin]: RosterRole.STAFF,
-              [ROLE.media]: RosterRole.MEDIA,
+            const rosterRoleMap: Partial<Record<ROLE, UserRole>> = {
+              [ROLE.athlete]: 'athlete',
+              [ROLE.coach]: 'coach',
+              [ROLE.admin]: 'director',
+              [ROLE.media]: 'coach',
             };
-            const rosterRole = rosterRoleMap[mappedRole] ?? RosterRole.ATHLETE;
+            const rosterRole: UserRole = rosterRoleMap[mappedRole] ?? 'athlete';
             const rosterStatus = isStaffRole ? RosterEntryStatus.PENDING : RosterEntryStatus.ACTIVE;
 
             // Read organizationId directly from the Teams document to ensure it's never empty

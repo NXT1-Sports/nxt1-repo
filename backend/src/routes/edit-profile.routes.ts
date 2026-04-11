@@ -1263,6 +1263,7 @@ router.post(
 
     // Optimize image (convert to JPEG)
     const jpegBuffer = await sharp(file.buffer)
+      .rotate()
       .resize(type === 'profile' ? 800 : 1200, type === 'profile' ? 800 : 400, {
         fit: 'cover',
         withoutEnlargement: true,

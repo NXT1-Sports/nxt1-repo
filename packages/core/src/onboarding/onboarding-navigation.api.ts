@@ -459,6 +459,12 @@ export interface LinkSourceEntry {
   scopeType?: 'global' | 'sport' | 'team';
   /** Sport key or team ID when scoped */
   scopeId?: string;
+  /** Display name of the person who originally added this link (seeded from existing team data) */
+  addedBy?: string;
+  /** User ID of the person who originally added this link */
+  addedById?: string;
+  /** True when this link was seeded from an existing team source and is immutable during onboarding */
+  locked?: boolean;
 }
 
 // ============================================

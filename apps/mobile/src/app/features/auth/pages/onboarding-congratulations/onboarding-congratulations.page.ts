@@ -211,10 +211,15 @@ export class OnboardingCongratulationsPage implements OnInit {
     await this.saveGoalsAndNavigate();
   }
 
-  /** Handle skip */
+  /** Handle skip — advance to next slide, or finish if on last slide */
   async onSkip(): Promise<void> {
-    this.logger.info('User skipped welcome slides');
-    await this.saveGoalsAndNavigate();
+    if (this.isLastSlide()) {
+      this.logger.info('User skipped last slide — completing');
+      await this.saveGoalsAndNavigate();
+    } else {
+      this.logger.info('User skipped slide', { index: this.currentSlideIndex() });
+      this.welcomeSlidesRef?.nextSlide();
+    }
   }
 
   /** Handle slide viewed (for analytics) */

@@ -40,7 +40,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { Location } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { IonContent } from '@ionic/angular/standalone';
+import { IonContent, IonFooter } from '@ionic/angular/standalone';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import { NxtIconComponent } from '../components/icon';
@@ -137,6 +137,7 @@ export interface WeeklyPlaybookItem {
     CommonModule,
     FormsModule,
     IonContent,
+    IonFooter,
     NxtPageHeaderComponent,
     NxtRefresherComponent,
     NxtIconComponent,
@@ -455,53 +456,56 @@ export interface WeeklyPlaybookItem {
       </div>
     </ion-content>
 
-    <!-- ═══ FLOATING COORDINATOR CHIPS — Fixed above input ═══ -->
-    <section
-      class="floating-coordinators"
-      [class.has-files]="agentX.hasPendingFiles()"
-      aria-label="Coordinators"
-    >
-      <div class="floating-coordinators-scroll" role="list">
-        @for (cat of commandCategories(); track cat.id) {
-          <button
-            type="button"
-            role="listitem"
-            class="floating-coordinator-pill"
-            [attr.data-coordinator]="cat.id"
-            (click)="onCategoryTap(cat)"
-          >
-            {{ cat.label }}
-          </button>
-        }
-      </div>
-    </section>
+    <!-- ═══ FOOTER — Coordinators + Input (sibling of ion-content for native keyboard push) ═══ -->
+    <ion-footer class="ion-no-border agent-x-footer">
+      <section
+        class="floating-coordinators"
+        [class.has-files]="agentX.hasPendingFiles()"
+        aria-label="Coordinators"
+      >
+        <div class="floating-coordinators-scroll" role="list">
+          @for (cat of commandCategories(); track cat.id) {
+            <button
+              type="button"
+              role="listitem"
+              class="floating-coordinator-pill"
+              [attr.data-coordinator]="cat.id"
+              (click)="onCategoryTap(cat)"
+            >
+              {{ cat.label }}
+            </button>
+          }
+        </div>
+      </section>
 
-    <!-- ═══ INPUT BAR — Fixed above footer ═══ -->
-    <nxt1-agent-x-prompt-input
-      [hasMessages]="false"
-      [selectedTask]="agentX.selectedTask()"
-      [isLoading]="agentX.isLoading()"
-      [canSend]="agentX.canSend()"
-      [userMessage]="agentX.getUserMessage()"
-      [placeholder]="'Message A Coordinator'"
-      [pendingFiles]="agentX.pendingFiles()"
-      [uploading]="agentX.uploading()"
-      (messageChange)="agentX.setUserMessage($event)"
-      (send)="onSendMessage()"
-      (stop)="agentX.cancelStream()"
-      (removeTask)="agentX.clearTask()"
-      (toggleTasks)="onToggleTasks()"
-      (filesAdded)="agentX.addFiles($event)"
-      (fileRemoved)="agentX.removeFile($event)"
-    />
-    <input
-      #fileInput
-      class="file-input-hidden"
-      type="file"
-      [accept]="acceptedFileTypes"
-      multiple
-      (change)="onFileSelected($event)"
-    />
+      <!-- ═══ INPUT BAR ═══ -->
+      <nxt1-agent-x-prompt-input
+        class="embedded"
+        [hasMessages]="false"
+        [selectedTask]="agentX.selectedTask()"
+        [isLoading]="agentX.isLoading()"
+        [canSend]="agentX.canSend()"
+        [userMessage]="agentX.getUserMessage()"
+        [placeholder]="'Message A Coordinator'"
+        [pendingFiles]="agentX.pendingFiles()"
+        [uploading]="agentX.uploading()"
+        (messageChange)="agentX.setUserMessage($event)"
+        (send)="onSendMessage()"
+        (stop)="agentX.cancelStream()"
+        (removeTask)="agentX.clearTask()"
+        (toggleTasks)="onToggleTasks()"
+        (filesAdded)="agentX.addFiles($event)"
+        (fileRemoved)="agentX.removeFile($event)"
+      />
+      <input
+        #fileInput
+        class="file-input-hidden"
+        type="file"
+        [accept]="acceptedFileTypes"
+        multiple
+        (change)="onFileSelected($event)"
+      />
+    </ion-footer>
   `,
   styles: [
     `
@@ -511,7 +515,8 @@ export interface WeeklyPlaybookItem {
          ============================================ */
 
       :host {
-        display: block;
+        display: flex;
+        flex-direction: column;
         height: 100%;
         width: 100%;
 
@@ -547,6 +552,26 @@ export interface WeeklyPlaybookItem {
         --agent-text-secondary: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.7));
         --agent-text-muted: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.5));
         --agent-glass-bg: var(--nxt1-glass-bg, rgba(255, 255, 255, 0.8));
+      }
+
+      /* ── Ion Footer (keyboard-aware container for coordinators + input) ── */
+      ion-footer.agent-x-footer {
+        --background: transparent;
+        --border-width: 0;
+        /* Clear the fixed mobile tab bar (pill height + bottom offset + gap) */
+        padding-bottom: calc(var(--nxt1-footer-bottom, 28px) + var(--nxt1-pill-height, 48px) + 8px);
+      }
+
+      /* ── Keyboard Open — push footer above on-screen keyboard ── */
+      :host-context(.keyboard-open) {
+        /* Shrink the flex container by the keyboard height so ion-footer
+           (which is a flex child after ion-content) naturally sits above it. */
+        padding-bottom: var(--keyboard-height, 0px);
+      }
+
+      :host-context(.keyboard-open) ion-footer.agent-x-footer {
+        /* Tab bar is hidden behind the keyboard — no clearance needed */
+        padding-bottom: 0;
       }
 
       /* ── Header Logo ── */
@@ -1049,43 +1074,22 @@ export interface WeeklyPlaybookItem {
 
       /* ──────────────────────────────────
          2. FLOATING COORDINATOR PILLS
+         (Inside ion-footer — Ionic natively pushes up with keyboard)
          ────────────────────────────────── */
       .floating-coordinators {
-        position: fixed;
-        left: var(--agent-input-left, 0);
-        right: var(--agent-input-right, 0);
-        bottom: calc(76px + var(--keyboard-offset, 0px));
-        z-index: calc(var(--nxt1-z-index-fixed, 999) - 1);
+        position: relative;
+        padding: 0 var(--nxt1-footer-left, 16px);
+        margin-bottom: 8px;
         pointer-events: none;
-        transition: bottom 0.28s cubic-bezier(0.32, 0.72, 0, 1);
       }
 
       .floating-coordinators.has-files {
-        bottom: calc(76px + 84px + var(--keyboard-offset, 0px));
+        /* no extra offset needed — ion-footer handles keyboard */
       }
 
       @media (min-width: 768px) {
         .floating-coordinators {
-          left: var(--agent-input-desktop-left, var(--nxt1-sidebar-width, 280px));
-          right: var(--agent-input-desktop-right, 0);
-        }
-      }
-
-      @media (max-width: 767px) {
-        .floating-coordinators {
-          left: var(--nxt1-footer-left, 16px);
-          right: var(--nxt1-footer-right, 16px);
-          bottom: calc(
-            var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 52px + 8px +
-              var(--keyboard-offset, 0px)
-          );
-        }
-
-        .floating-coordinators.has-files {
-          bottom: calc(
-            var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 52px + 8px +
-              84px + var(--keyboard-offset, 0px)
-          );
+          padding: 0 0.75rem;
         }
       }
 

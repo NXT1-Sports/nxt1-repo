@@ -1,3 +1,5 @@
+import type { UserRole } from '../../constants/user.constants.js';
+
 /**
  * @fileoverview Roster Entry Model
  * @module @nxt1/core/models
@@ -39,33 +41,6 @@ export enum RosterEntryStatus {
 }
 
 // ============================================
-// ROSTER ENTRY ROLE
-// ============================================
-
-export enum RosterRole {
-  /** Team owner/creator */
-  OWNER = 'owner',
-  /** Head coach */
-  HEAD_COACH = 'head-coach',
-  /** Assistant coach */
-  ASSISTANT_COACH = 'assistant-coach',
-  /** Team staff/manager */
-  STAFF = 'staff',
-  /** Varsity starter */
-  STARTER = 'starter',
-  /** Varsity athlete */
-  ATHLETE = 'athlete',
-  /** Junior Varsity */
-  JV = 'jv',
-  /** Bench player */
-  BENCH = 'bench',
-  /** Media/photographer */
-  MEDIA = 'media',
-  /** Parent/guardian */
-  PARENT = 'parent',
-}
-
-// ============================================
 // ROSTER ENTRY (Main Interface)
 // ============================================
 
@@ -91,7 +66,7 @@ export interface RosterEntry {
   // ============================================
 
   /** Role on this specific team */
-  role: RosterRole;
+  role: UserRole;
 
   /** Membership status */
   status: RosterEntryStatus;
@@ -107,9 +82,6 @@ export interface RosterEntry {
 
   /** Positions played for THIS team (e.g., ["QB", "Safety"]) */
   positions?: string[];
-
-  /** Primary position for THIS team */
-  primaryPosition?: string;
 
   // ============================================
   // SEASON INFO
@@ -180,8 +152,8 @@ export interface RosterEntry {
   /** Cached last name */
   lastName?: string;
 
-  /** Cached profile image */
-  profileImg?: string;
+  /** Cached profile images */
+  profileImgs?: string[];
 
   /** Cached email */
   email?: string;
@@ -210,11 +182,10 @@ export interface CreateRosterEntryInput {
   userId: string;
   teamId: string;
   organizationId: string;
-  role: RosterRole;
+  role: UserRole;
   status?: RosterEntryStatus;
   jerseyNumber?: string | number;
   positions?: string[];
-  primaryPosition?: string;
   season?: string;
   invitedBy?: string;
   // Cached user data
@@ -222,7 +193,7 @@ export interface CreateRosterEntryInput {
   lastName?: string;
   email?: string;
   phoneNumber?: string;
-  profileImg?: string;
+  profileImgs?: string[];
   classOf?: number;
   gpa?: string | number;
   height?: string;
@@ -230,11 +201,10 @@ export interface CreateRosterEntryInput {
 }
 
 export interface UpdateRosterEntryInput {
-  role?: RosterRole;
+  role?: UserRole;
   status?: RosterEntryStatus;
   jerseyNumber?: string | number;
   positions?: string[];
-  primaryPosition?: string;
   rating?: number;
   coachNotes?: string;
   stats?: RosterEntry['stats'];
@@ -257,14 +227,14 @@ export interface GetUserTeamsQuery {
 
 export interface GetTeamRosterQuery {
   teamId: string;
-  role?: RosterRole[];
+  role?: UserRole[];
   status?: RosterEntryStatus[];
   season?: string;
 }
 
 export interface GetOrganizationMembersQuery {
   organizationId: string;
-  role?: RosterRole[];
+  role?: UserRole[];
   status?: RosterEntryStatus[];
 }
 
@@ -290,7 +260,7 @@ export interface RosterEntryWithUser extends RosterEntry {
     id: string;
     firstName: string;
     lastName: string;
-    profileImg?: string;
+    profileImgs?: string[];
     email: string;
     role?: string;
   };

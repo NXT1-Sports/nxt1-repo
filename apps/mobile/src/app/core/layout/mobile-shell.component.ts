@@ -237,6 +237,18 @@ import { EditProfileApiService } from '../services/api/edit-profile-api.service'
             var(--nxt1-ease-out, cubic-bezier(0.33, 1, 0.68, 1));
         will-change: transform, opacity;
       }
+
+      /* Hide tab bar when keyboard is open — it sits behind the keyboard anyway */
+      :host-context(.keyboard-open) nxt1-mobile-footer {
+        transform: translateY(100%);
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      /* Remove bottom padding when keyboard is open (footer is hidden) */
+      :host-context(.keyboard-open) .shell-content {
+        padding-bottom: 0;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,

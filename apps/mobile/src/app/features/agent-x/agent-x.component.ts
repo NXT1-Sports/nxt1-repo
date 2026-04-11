@@ -17,11 +17,9 @@
 
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
-import { IonHeader, IonContent, IonToolbar } from '@ionic/angular/standalone';
+import { IonHeader, IonToolbar } from '@ionic/angular/standalone';
 import {
   AgentXShellComponent,
-  AgentOnboardingShellMobileComponent,
-  AgentOnboardingService,
   AgentXService,
   NxtSidenavService,
   NxtLoggingService,
@@ -32,31 +30,21 @@ import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
 @Component({
   selector: 'app-agent-x',
   standalone: true,
-  imports: [
-    IonHeader,
-    IonContent,
-    IonToolbar,
-    AgentXShellComponent,
-    AgentOnboardingShellMobileComponent,
-  ],
+  imports: [IonHeader, IonToolbar, AgentXShellComponent],
   template: `
-    @if (showOnboarding()) {
-      <!-- Onboarding flow — native Ionic shell -->
-      <nxt1-agent-onboarding-shell-mobile (onboardingComplete)="onOnboardingComplete()" />
-    } @else {
-      <!-- Agent X Command Center -->
-      <ion-header class="ion-no-border" [translucent]="true">
-        <ion-toolbar></ion-toolbar>
-      </ion-header>
-      <ion-content [fullscreen]="true">
-        <nxt1-agent-x-shell [user]="userInfo()" (avatarClick)="onAvatarClick()" />
-      </ion-content>
-    }
+    <!-- Agent X Command Center -->
+    <!-- Transparent header for safe-area inset -->
+    <ion-header class="ion-no-border" [translucent]="true">
+      <ion-toolbar></ion-toolbar>
+    </ion-header>
+    <!-- Shell owns its own ion-content + ion-footer (proper Ionic page structure) -->
+    <nxt1-agent-x-shell [user]="userInfo()" (avatarClick)="onAvatarClick()" />
   `,
   styles: [
     `
       :host {
-        display: block;
+        display: flex;
+        flex-direction: column;
         height: 100%;
       }
       ion-header {
@@ -73,11 +61,9 @@ import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
         --padding-top: 0;
         --padding-bottom: 0;
       }
-      ion-content {
-        --background: var(--nxt1-color-bg-primary, #0a0a0a);
-      }
-      ion-content::part(scroll) {
-        overflow: visible;
+      nxt1-agent-x-shell {
+        flex: 1;
+        min-height: 0;
       }
     `,
   ],
@@ -87,12 +73,8 @@ export class AgentXComponent implements OnInit {
   private readonly authFlow = inject(AuthFlowService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');
-  private readonly onboarding = inject(AgentOnboardingService);
   private readonly route = inject(ActivatedRoute);
   private readonly agentX = inject(AgentXService);
-
-  /** Whether to show onboarding flow */
-  protected readonly showOnboarding = computed(() => this.onboarding.needsOnboarding());
 
   /**
    * Transform auth user to AgentXUser interface.
@@ -111,10 +93,7 @@ export class AgentXComponent implements OnInit {
   ngOnInit(): void {
     const user = this.authFlow.user();
     const role = user?.role ?? 'athlete';
-    // TODO: Check backend for onboarding completion status
-    const needsOnboarding = false; // Skip onboarding by default until backend flag is wired
-    this.onboarding.initialize(role, needsOnboarding);
-    this.logger.info('Agent X initialized (mobile)', { role, needsOnboarding });
+    this.logger.info('Agent X initialized (mobile)', { role });
 
     // Load thread from deep link query param (?thread=<id>) — opens in bottom sheet
     const threadId = this.route.snapshot.queryParamMap.get('thread');
@@ -122,14 +101,6 @@ export class AgentXComponent implements OnInit {
       this.logger.info('Queuing thread from query param', { threadId });
       this.agentX.queuePendingThread({ threadId, title: 'Agent X' });
     }
-  }
-
-  /**
-   * Handle onboarding completion — transition to Agent X shell.
-   */
-  onOnboardingComplete(): void {
-    this.logger.info('Onboarding complete, transitioning to Agent X shell');
-    this.onboarding.markAsCompleted();
   }
 
   /**

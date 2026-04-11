@@ -34,8 +34,7 @@ const buildPrefsCacheKey = (uid: string) => `user:prefs:${uid}`;
 const DEFAULT_NOTIFICATION_PREFS: NotificationPreferences = {
   push: true,
   email: true,
-  sms: false,
-  marketing: false,
+  marketing: true,
 };
 
 const DEFAULT_PREFERENCES: UserPreferences = {

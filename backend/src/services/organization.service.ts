@@ -229,12 +229,18 @@ export class OrganizationService {
   }
 
   /**
-   * Add admin to organization
+   * Add admin to organization.
+   *
+   * Business rules:
+   * - When a **director** is added, any existing **coach** admins are removed
+   *   (director supersedes coach at the org level).
+   * - Adding a coach or director marks the organization as `isClaimed: true`.
    */
   async addAdmin(input: AddOrganizationAdminInput): Promise<Organization> {
     logger.info('[OrganizationService] Adding admin', {
       organizationId: input.organizationId,
       userId: input.userId,
+      role: input.role,
     });
 
     const newAdmin: OrganizationAdmin = {
@@ -243,13 +249,55 @@ export class OrganizationService {
       addedAt: new Date(),
     };
 
-    await this.db
-      .collection(this.COLLECTION)
-      .doc(input.organizationId)
-      .update({
-        admins: FieldValue.arrayUnion(newAdmin),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
+    const isPrivilegedRole = input.role === 'director' || input.role === 'coach';
+
+    // When a director joins, demote (remove) all existing coach admins.
+    // This ensures the director is the sole org-level authority.
+    if (input.role === 'director') {
+      const org = await this.getOrganizationById(input.organizationId);
+      const coachAdmins = org.admins.filter((a) => a.role === 'coach');
+
+      if (coachAdmins.length > 0) {
+        logger.info('[OrganizationService] Demoting coach admins — director taking over', {
+          organizationId: input.organizationId,
+          directorUserId: input.userId,
+          demotedCoaches: coachAdmins.map((a) => a.userId),
+        });
+
+        // Remove each coach admin individually (Firestore arrayRemove needs exact match)
+        // Firestore doesn't support multiple arrayRemove in one call on the same field,
+        // so we batch-remove by updating the full admins array.
+        const remainingAdmins = org.admins.filter((a) => a.role !== 'coach');
+        remainingAdmins.push(newAdmin);
+
+        await this.db
+          .collection(this.COLLECTION)
+          .doc(input.organizationId)
+          .update({
+            admins: remainingAdmins,
+            ...(isPrivilegedRole && { isClaimed: true }),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+      } else {
+        await this.db
+          .collection(this.COLLECTION)
+          .doc(input.organizationId)
+          .update({
+            admins: FieldValue.arrayUnion(newAdmin),
+            ...(isPrivilegedRole && { isClaimed: true }),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+      }
+    } else {
+      await this.db
+        .collection(this.COLLECTION)
+        .doc(input.organizationId)
+        .update({
+          admins: FieldValue.arrayUnion(newAdmin),
+          ...(isPrivilegedRole && { isClaimed: true }),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+    }
 
     // Invalidate cache
     await this.invalidateCache(input.organizationId);

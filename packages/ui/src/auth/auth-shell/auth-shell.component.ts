@@ -799,9 +799,8 @@ export type AuthShellVariant =
           padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--nxt1-spacing-6));
           background: var(--nxt1-color-bg-primary);
           height: auto;
-          min-height: 100vh;
-          min-height: 100dvh;
-          overflow-y: auto; /* Mobile scrolls the whole panel */
+          min-height: 100%;
+          overflow-y: visible; /* Let ion-content handle scrolling on native */
         }
 
         /* Mobile footer padding when applicable */
