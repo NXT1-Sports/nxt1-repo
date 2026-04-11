@@ -315,7 +315,7 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
         const teamData = teamDoc.data() as TeamDoc | undefined;
         teamCode = teamData?.teamCode ?? undefined;
         teamName = teamData?.teamName ?? teamData?.name ?? undefined;
-        const teamSport = teamData?.sport ?? undefined;
+        teamSport = teamData?.sport ?? undefined;
 
         logger.info('[POST /invite/link] Resolved team', {
           resolvedTeamId,

@@ -1,0 +1,262 @@
+/**
+ * @fileoverview Shared UI Component Keyframe Animations
+ * @module @nxt1/ui/styles/animations
+ *
+ * Extracted from component inline styles to reduce anyComponentStyle budget.
+ * Components reference these keyframes via `animation: <name> ...` in their
+ * scoped styles — Angular only scopes keyframe names when the @keyframes rule
+ * is inside the component, so global keyframes are resolved correctly.
+ */
+
+/* ═══════════════════════════════════════════════════
+   AGENT X — Shared (used in both web & mobile shells)
+   ═══════════════════════════════════════════════════ */
+
+@keyframes agent-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--agent-primary-glow);
+  }
+  50% {
+    box-shadow: 0 0 10px 4px var(--agent-primary-glow);
+  }
+}
+
+@keyframes gen-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes gen-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--agent-primary-rgb, 198, 255, 0), 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(var(--agent-primary-rgb, 198, 255, 0), 0);
+  }
+}
+
+@keyframes gen-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes typing-blink {
+  0% {
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes step-appear {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes dot-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes card-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   AGENT X — Web shell only
+   ═══════════════════════════════════════════════════ */
+
+@keyframes pill-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes status-hint-reveal {
+  0% {
+    opacity: 0;
+    transform: translateY(-50%) translateX(4px);
+  }
+  10% {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0);
+  }
+  72% {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-50%) translateX(4px);
+  }
+}
+
+@keyframes ap-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes ep-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   AGENT X — Mobile shell only
+   ═══════════════════════════════════════════════════ */
+
+@keyframes op-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes op-pulse-border {
+  0%,
+  100% {
+    border-color: var(--agent-primary-glow);
+  }
+  50% {
+    border-color: var(--agent-primary);
+  }
+}
+
+@keyframes op-bar-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 4px transparent;
+  }
+  50% {
+    box-shadow: 0 0 6px var(--agent-primary);
+  }
+}
+
+@keyframes op-pulse-awaiting {
+  0%,
+  100% {
+    border-color: var(--nxt1-color-warning-border, rgba(255, 152, 0, 0.35));
+  }
+  50% {
+    border-color: var(--nxt1-color-warning, rgba(255, 152, 0, 0.6));
+  }
+}
+
+@keyframes banner-entrance {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes banner-icon-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   PROFILE SHELL — Animated glow border
+   ═══════════════════════════════════════════════════ */
+
+/* Houdini custom property for native angle interpolation */
+@property --glow-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes glow-spin {
+  0% {
+    --glow-angle: 0deg;
+    opacity: 1;
+  }
+  80% {
+    --glow-angle: 288deg;
+    opacity: 1;
+  }
+  100% {
+    --glow-angle: 360deg;
+    opacity: 0;
+  }
+}
+
+@keyframes glow-swell {
+  0% {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  40% {
+    opacity: 0.65;
+    transform: scale(1.02);
+  }
+  100% {
+    opacity: 0.25;
+    transform: scale(1);
+  }
+}
+
+@keyframes vignette-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}

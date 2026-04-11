@@ -36,6 +36,7 @@
 @import '@nxt1/ui/styles/components/ionic-toast';
 @import '@nxt1/ui/styles/components/ionic-modal';
 @import '@nxt1/ui/styles/components/qr-code-modal';
+@import '@nxt1/ui/styles/animations';
 
 /* ============================================
    IONIC FRAMEWORK CSS (moved from critical)

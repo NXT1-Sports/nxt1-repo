@@ -509,11 +509,6 @@ export interface WeeklyPlaybookItem {
   `,
   styles: [
     `
-      /* ============================================
-         AGENT X COMMAND CENTER — 2026 AI-FIRST
-         100% Theme Aware (Light + Dark Mode)
-         ============================================ */
-
       :host {
         display: flex;
         flex-direction: column;
@@ -554,27 +549,21 @@ export interface WeeklyPlaybookItem {
         --agent-glass-bg: var(--nxt1-glass-bg, rgba(255, 255, 255, 0.8));
       }
 
-      /* ── Ion Footer (keyboard-aware container for coordinators + input) ── */
       ion-footer.agent-x-footer {
         --background: transparent;
         --border-width: 0;
-        /* Clear the fixed mobile tab bar (pill height + bottom offset + gap) */
+
         padding-bottom: calc(var(--nxt1-footer-bottom, 28px) + var(--nxt1-pill-height, 48px) + 8px);
       }
 
-      /* ── Keyboard Open — push footer above on-screen keyboard ── */
       :host-context(.keyboard-open) {
-        /* Shrink the flex container by the keyboard height so ion-footer
-           (which is a flex child after ion-content) naturally sits above it. */
         padding-bottom: var(--keyboard-height, 0px);
       }
 
       :host-context(.keyboard-open) ion-footer.agent-x-footer {
-        /* Tab bar is hidden behind the keyboard — no clearance needed */
         padding-bottom: 0;
       }
 
-      /* ── Header Logo ── */
       .header-logo {
         display: flex;
         align-items: center;
@@ -627,7 +616,6 @@ export interface WeeklyPlaybookItem {
         display: block;
       }
 
-      /* ── Content Area ── */
       .agent-x-content {
         --background: var(--agent-bg);
       }
@@ -654,42 +642,6 @@ export interface WeeklyPlaybookItem {
         }
       }
 
-      /* ──────────────────────────────────
-         1. DAILY OPERATIONS
-         ────────────────────────────────── */
-
-      /* Spin animation for processing spinner */
-      @keyframes op-spin {
-        from {
-          transform: rotate(0deg);
-        }
-        to {
-          transform: rotate(360deg);
-        }
-      }
-
-      /* Subtle border glow for active processing cards */
-      @keyframes op-pulse-border {
-        0%,
-        100% {
-          border-color: var(--agent-primary-glow);
-        }
-        50% {
-          border-color: var(--agent-primary);
-        }
-      }
-
-      /* Glow on the progress bar fill */
-      @keyframes op-bar-glow {
-        0%,
-        100% {
-          box-shadow: 0 0 4px transparent;
-        }
-        50% {
-          box-shadow: 0 0 6px var(--agent-primary);
-        }
-      }
-
       .operations-section {
         width: 100%;
         margin-bottom: var(--nxt1-spacing-5, 20px);
@@ -708,7 +660,6 @@ export interface WeeklyPlaybookItem {
         display: none;
       }
 
-      /* ── Card ── */
       .operation-card {
         display: flex;
         flex-direction: column;
@@ -732,25 +683,21 @@ export interface WeeklyPlaybookItem {
         background: var(--agent-surface-hover);
       }
 
-      /* Processing — breathing border glow */
       .operation-card--processing {
         border-color: var(--agent-primary-glow);
         animation: op-pulse-border 2.4s ease-in-out infinite;
       }
 
-      /* Complete — subtle green tint */
       .operation-card--complete {
         border-color: var(--nxt1-color-success-border, rgba(76, 175, 80, 0.25));
         background: var(--nxt1-color-success-surface, rgba(76, 175, 80, 0.05));
       }
 
-      /* Error — subtle red tint */
       .operation-card--error {
         border-color: var(--nxt1-color-error-border, rgba(244, 67, 54, 0.25));
         background: var(--nxt1-color-error-surface, rgba(244, 67, 54, 0.05));
       }
 
-      /* Awaiting Input — orange pulse */
       .operation-card--awaiting-input {
         border-color: var(--nxt1-color-warning-border, rgba(255, 152, 0, 0.35));
         background: var(--nxt1-color-warning-surface, rgba(255, 152, 0, 0.06));
@@ -762,17 +709,6 @@ export interface WeeklyPlaybookItem {
         color: var(--nxt1-color-warning, #ff9800);
       }
 
-      @keyframes op-pulse-awaiting {
-        0%,
-        100% {
-          border-color: var(--nxt1-color-warning-border, rgba(255, 152, 0, 0.35));
-        }
-        50% {
-          border-color: var(--nxt1-color-warning, rgba(255, 152, 0, 0.6));
-        }
-      }
-
-      /* ════ ACTION REQUIRED BANNER ════ */
       .action-required-banner {
         display: flex;
         align-items: center;
@@ -830,28 +766,6 @@ export interface WeeklyPlaybookItem {
         flex-shrink: 0;
       }
 
-      @keyframes banner-entrance {
-        from {
-          opacity: 0;
-          transform: translateY(-8px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-
-      @keyframes banner-icon-pulse {
-        0%,
-        100% {
-          transform: scale(1);
-        }
-        50% {
-          transform: scale(1.08);
-        }
-      }
-
-      /* ── Top row (icon + label) ── */
       .operation-top {
         display: flex;
         align-items: center;
@@ -890,7 +804,6 @@ export interface WeeklyPlaybookItem {
         line-height: 1.3;
       }
 
-      /* ── Progress bar ── */
       .operation-progress {
         width: 100%;
         height: 3px;
@@ -918,7 +831,6 @@ export interface WeeklyPlaybookItem {
         background: var(--nxt1-color-error, #f44336);
       }
 
-      /* ── Status row (badge + icon/spinner) ── */
       .operation-status-row {
         display: flex;
         align-items: center;
@@ -949,7 +861,6 @@ export interface WeeklyPlaybookItem {
         color: var(--nxt1-color-warning, #ff9800);
       }
 
-      /* Spinning refresh icon */
       .operation-spinner {
         display: inline-flex;
         align-items: center;
@@ -958,7 +869,6 @@ export interface WeeklyPlaybookItem {
         animation: op-spin 1.2s linear infinite;
       }
 
-      /* Static status icons */
       .operation-status-icon {
         display: inline-flex;
         align-items: center;
@@ -977,9 +887,6 @@ export interface WeeklyPlaybookItem {
         color: var(--nxt1-color-warning, #ff9800);
       }
 
-      /* ──────────────────────────────────
-         2. DAILY BRIEFING
-         ────────────────────────────────── */
       .briefing-section {
         display: flex;
         flex-direction: column;
@@ -1039,7 +946,6 @@ export interface WeeklyPlaybookItem {
         box-shadow: 0 0 6px rgba(239, 68, 68, 0.45);
       }
 
-      /* Greeting */
       .briefing-greeting {
         font-size: 22px;
         font-weight: 700;
@@ -1061,9 +967,6 @@ export interface WeeklyPlaybookItem {
         overflow: hidden;
       }
 
-      /* ──────────────────────────────────
-         SHARED SECTION TITLE
-         ────────────────────────────────── */
       .section-title {
         font-size: 13px;
         font-weight: 600;
@@ -1072,10 +975,6 @@ export interface WeeklyPlaybookItem {
         margin: 0 0 var(--nxt1-spacing-4, 16px);
       }
 
-      /* ──────────────────────────────────
-         2. FLOATING COORDINATOR PILLS
-         (Inside ion-footer — Ionic natively pushes up with keyboard)
-         ────────────────────────────────── */
       .floating-coordinators {
         position: relative;
         padding: 0 var(--nxt1-footer-left, 16px);
@@ -1084,7 +983,6 @@ export interface WeeklyPlaybookItem {
       }
 
       .floating-coordinators.has-files {
-        /* no extra offset needed — ion-footer handles keyboard */
       }
 
       @media (min-width: 768px) {
@@ -1203,9 +1101,6 @@ export interface WeeklyPlaybookItem {
         --coordinator-pill-accent: #44d6c2;
       }
 
-      /* ──────────────────────────────────
-         3. TODAY'S ACTION PLAN
-         ────────────────────────────────── */
       .action-cards-section {
         width: 100%;
         border-top: 1px solid var(--agent-border);
@@ -1323,7 +1218,6 @@ export interface WeeklyPlaybookItem {
         transition: width 0.28s ease;
       }
 
-      /* ── Category Pill Filter ──────────────────── */
       .category-pills {
         display: flex;
         gap: 8px;
@@ -1463,16 +1357,6 @@ export interface WeeklyPlaybookItem {
         flex-wrap: wrap;
       }
 
-      @keyframes agent-pulse {
-        0%,
-        100% {
-          box-shadow: 0 0 0 0 var(--agent-primary-glow);
-        }
-        50% {
-          box-shadow: 0 0 10px 4px var(--agent-primary-glow);
-        }
-      }
-
       .action-btn {
         display: inline-flex;
         align-items: center;
@@ -1582,7 +1466,6 @@ export interface WeeklyPlaybookItem {
         transform: scale(0.96);
       }
 
-      /* Generating State */
       .action-plan-generating {
         display: flex;
         flex-direction: column;
@@ -1593,17 +1476,6 @@ export interface WeeklyPlaybookItem {
         border: 1px solid var(--agent-border);
         border-radius: var(--nxt1-radius-lg, 12px);
         animation: gen-fade-in 0.4s ease forwards;
-      }
-
-      @keyframes gen-fade-in {
-        from {
-          opacity: 0;
-          transform: translateY(8px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
       }
 
       .generating-hero {
@@ -1625,30 +1497,11 @@ export interface WeeklyPlaybookItem {
         animation: gen-pulse 2s ease-in-out infinite;
       }
 
-      @keyframes gen-pulse {
-        0%,
-        100% {
-          box-shadow: 0 0 0 0 rgba(var(--agent-primary-rgb, 198, 255, 0), 0.3);
-        }
-        50% {
-          box-shadow: 0 0 0 12px rgba(var(--agent-primary-rgb, 198, 255, 0), 0);
-        }
-      }
-
       .generating-x-mark {
         width: 32px;
         height: 32px;
         fill: var(--agent-primary);
         animation: gen-spin 3s linear infinite;
-      }
-
-      @keyframes gen-spin {
-        from {
-          transform: rotate(0deg);
-        }
-        to {
-          transform: rotate(360deg);
-        }
       }
 
       .generating-status {
@@ -1670,18 +1523,6 @@ export interface WeeklyPlaybookItem {
       }
       .typing-dots span:nth-child(3) {
         animation-delay: 0.6s;
-      }
-
-      @keyframes typing-blink {
-        0% {
-          opacity: 0;
-        }
-        25% {
-          opacity: 1;
-        }
-        100% {
-          opacity: 1;
-        }
       }
 
       .generating-sub {
@@ -1707,17 +1548,6 @@ export interface WeeklyPlaybookItem {
         animation: step-appear 0.4s ease forwards;
       }
 
-      @keyframes step-appear {
-        from {
-          opacity: 0;
-          transform: translateX(-8px);
-        }
-        to {
-          opacity: 1;
-          transform: translateX(0);
-        }
-      }
-
       .step-indicator {
         display: flex;
         align-items: center;
@@ -1735,39 +1565,15 @@ export interface WeeklyPlaybookItem {
         animation: dot-pulse 1.6s ease-in-out infinite;
       }
 
-      @keyframes dot-pulse {
-        0%,
-        100% {
-          opacity: 0.4;
-          transform: scale(0.8);
-        }
-        50% {
-          opacity: 1;
-          transform: scale(1.2);
-        }
-      }
-
       .step-label {
         font-size: 13px;
         font-weight: 500;
         color: var(--agent-text-secondary);
       }
 
-      /* Card entry animation */
       .action-card--enter {
         opacity: 0;
         animation: card-slide-in 0.38s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-      }
-
-      @keyframes card-slide-in {
-        from {
-          opacity: 0;
-          transform: translateY(16px) scale(0.97);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0) scale(1);
-        }
       }
     `,
   ],

@@ -81,7 +81,13 @@ export async function enqueueLinkedAccountScrape(
   }
 
   const platformNames = input.linkedAccounts.map((a) => a.platform).join(', ');
-  const intent = `Scrape and analyze linked accounts for new athlete profile: ${platformNames}`;
+  const urlList = input.linkedAccounts.map((a) => a.profileUrl).join('\n');
+
+  // Build a role-aware intent — never assume "athlete"
+  const roleLabel = input.role === 'athlete' ? 'athlete' : input.role;
+  const intent =
+    `Scrape and analyze linked profiles for onboarding ${roleLabel}. ` +
+    `Platforms: ${platformNames}.\n\n${urlList}`;
 
   const operationId = crypto.randomUUID();
   const sessionId = crypto.randomUUID();
@@ -92,7 +98,7 @@ export async function enqueueLinkedAccountScrape(
     try {
       const thread = await chatService.createThread({
         userId: input.userId,
-        title: `Profile Scan: ${platformNames}`,
+        title: `Onboarding Scan · ${platformNames}`,
         category: 'analytics',
       });
       threadId = thread.id;

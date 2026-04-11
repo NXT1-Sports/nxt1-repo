@@ -11,3 +11,6 @@ export { BrandMediaCoordinatorAgent } from './brand-media-coordinator.agent.js';
 export { ComplianceCoordinatorAgent } from './compliance-coordinator.agent.js';
 export { GeneralAgent } from './general.agent.js';
 export { PlannerAgent } from './planner.agent.js';
+
+// Sub-agent extraction specialists (used by DispatchExtractionTool)
+export { AthleteSpecialist, OrgSpecialist, MediaSpecialist } from './sub-agents/index.js';

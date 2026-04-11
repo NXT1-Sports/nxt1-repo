@@ -1881,8 +1881,7 @@ export async function createWalletHold(
       const monthlyBudget = data.monthlyBudget ?? 0;
 
       let orgMasterRef: FirebaseFirestore.DocumentReference | null = null;
-      let orgMasterData: BillingContext | null = null;
-
+      let orgMasterData: BillingContext | null;
       if (data.billingEntity === 'organization') {
         // For org users, budget enforcement must be done against the org master
         // context (userId = 'org:<orgId>') to prevent concurrent job overdrafts.

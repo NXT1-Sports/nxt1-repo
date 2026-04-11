@@ -185,6 +185,6 @@ export const routes: Routes = [
   // 404 Not Found Page (catch-all route)
   {
     path: '**',
-    loadComponent: () => import('@nxt1/ui').then((m) => m.NotFoundComponent),
+    loadComponent: () => import('@nxt1/ui/components/not-found').then((m) => m.NotFoundComponent),
   },
 ];

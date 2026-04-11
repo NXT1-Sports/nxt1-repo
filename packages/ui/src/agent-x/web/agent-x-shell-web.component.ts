@@ -1188,11 +1188,6 @@ interface AgentXDesktopResizeState {
   `,
   styles: [
     `
-      /* ============================================
-         AGENT X WEB — AI Command Center
-         Zero Ionic, SSR-safe, design-token CSS
-         ============================================ */
-
       :host {
         display: flex;
         flex-direction: column;
@@ -1470,7 +1465,6 @@ interface AgentXDesktopResizeState {
         width: 100%;
       }
 
-      /* ── Unified chat area (no border, fills the column) ── */
       .agent-chat-unified {
         display: flex;
         flex-direction: column;
@@ -1479,7 +1473,6 @@ interface AgentXDesktopResizeState {
         overflow: hidden;
       }
 
-      /* ── Briefing block inside the chat stream ── */
       .chat-briefing {
         flex-shrink: 0;
         padding: var(--nxt1-spacing-6, 24px) var(--nxt1-spacing-5, 20px) var(--nxt1-spacing-4, 16px);
@@ -1566,7 +1559,6 @@ interface AgentXDesktopResizeState {
         min-height: 0;
       }
 
-      /* Remove the embedded border/radius so it blends seamlessly */
       :host ::ng-deep .agent-chat-unified .agent-x-operation-chat--embedded,
       :host
         ::ng-deep
@@ -1577,7 +1569,6 @@ interface AgentXDesktopResizeState {
         background: transparent;
       }
 
-      /* ── Header portal: center nav pills (centering from design-tokens .nxt1-header-portal__center) ── */
       .header-portal-center-nav {
         gap: 6px;
       }
@@ -1630,15 +1621,6 @@ interface AgentXDesktopResizeState {
         flex-shrink: 0;
       }
 
-      @keyframes pill-spin {
-        from {
-          transform: rotate(0deg);
-        }
-        to {
-          transform: rotate(360deg);
-        }
-      }
-
       .header-nav-pill-count {
         display: inline-flex;
         align-items: center;
@@ -1654,7 +1636,6 @@ interface AgentXDesktopResizeState {
         line-height: 1;
       }
 
-      /* ── Header portal: right-side icon buttons ── */
       .header-portal-actions {
         display: flex;
         align-items: center;
@@ -1692,7 +1673,6 @@ interface AgentXDesktopResizeState {
         transform: scale(0.95);
       }
 
-      /* Status dot button — fixed size, hint overlays to the left */
       .header-status-dot-btn {
         position: relative;
         display: flex;
@@ -1735,26 +1715,6 @@ interface AgentXDesktopResizeState {
       .status-dot--down {
         background: rgb(239, 68, 68);
         box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
-      }
-
-      /* ── Status hint label (overlays left of dot, no layout shift) ── */
-      @keyframes status-hint-reveal {
-        0% {
-          opacity: 0;
-          transform: translateY(-50%) translateX(4px);
-        }
-        10% {
-          opacity: 1;
-          transform: translateY(-50%) translateX(0);
-        }
-        72% {
-          opacity: 1;
-          transform: translateY(-50%) translateX(0);
-        }
-        100% {
-          opacity: 0;
-          transform: translateY(-50%) translateX(4px);
-        }
       }
 
       .status-hint {
@@ -1813,25 +1773,12 @@ interface AgentXDesktopResizeState {
         color: currentColor;
       }
 
-      /* ── Action Plan Panel (right column in desktop grid) ── */
-      @keyframes ap-slide-in {
-        from {
-          opacity: 0;
-          transform: translateX(12px);
-        }
-        to {
-          opacity: 1;
-          transform: translateX(0);
-        }
-      }
-
       .agent-action-plan-column {
         border-left: 1px solid var(--agent-border);
         background: var(--agent-bg);
         animation: ap-slide-in 0.22s ease;
       }
 
-      /* ── Expanded Side Panel (Firecrawl Live View / Media) ── */
       .agent-expanded-panel-column {
         border-left: 1px solid var(--agent-border);
         background: var(--agent-bg);
@@ -1885,12 +1832,6 @@ interface AgentXDesktopResizeState {
         border-top-color: var(--nxt1-primary, #6366f1);
         border-radius: 50%;
         animation: ep-spin 0.7s linear infinite;
-      }
-
-      @keyframes ep-spin {
-        to {
-          transform: rotate(360deg);
-        }
       }
 
       .expanded-panel__loader-text {
@@ -2005,7 +1946,6 @@ interface AgentXDesktopResizeState {
         gap: var(--nxt1-spacing-3, 12px);
       }
 
-      /* ── Manage Goals Section ── */
       .inline-goals {
         padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-5, 20px);
         border-bottom: 1px solid var(--agent-border);
@@ -2048,9 +1988,6 @@ interface AgentXDesktopResizeState {
         padding: 2px 8px;
       }
 
-      /* ──────────────────────────────────
-         1. ACTIVE OPERATIONS
-         ────────────────────────────────── */
       .operations-section {
         width: 100%;
         max-width: 480px;
@@ -2212,9 +2149,6 @@ interface AgentXDesktopResizeState {
         color: var(--agent-text-secondary);
       }
 
-      /* ──────────────────────────────────
-         2. DAILY BRIEFING
-         ────────────────────────────────── */
       .briefing-section {
         display: flex;
         flex-direction: column;
@@ -2311,7 +2245,6 @@ interface AgentXDesktopResizeState {
         line-height: 1.3;
       }
 
-      /* Expandable Briefing */
       .briefing-content {
         width: 100%;
         margin-bottom: var(--nxt1-spacing-6, 24px);
@@ -2342,7 +2275,6 @@ interface AgentXDesktopResizeState {
         gap: 4px;
       }
 
-      /* Briefing List */
       .briefing-list {
         list-style: none;
         padding: 0;
@@ -2375,9 +2307,6 @@ interface AgentXDesktopResizeState {
         background: var(--agent-text-muted);
       }
 
-      /* ──────────────────────────────────
-         SHARED SECTION TITLE
-         ────────────────────────────────── */
       .section-title {
         font-size: 13px;
         font-weight: 600;
@@ -2392,9 +2321,6 @@ interface AgentXDesktopResizeState {
         margin-bottom: 0;
       }
 
-      /* ──────────────────────────────────
-         3. ACTION CARDS
-         ────────────────────────────────── */
       .action-cards-section {
         width: 100%;
         max-width: 480px;
@@ -2463,7 +2389,6 @@ interface AgentXDesktopResizeState {
         transition: width 0.28s ease;
       }
 
-      /* ── Category Pill Filter (fixed bar above scroll) ── */
       .action-plan-pills-bar {
         flex-shrink: 0;
         padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-5, 20px) 0;
@@ -2619,16 +2544,6 @@ interface AgentXDesktopResizeState {
         margin-top: 1px;
       }
 
-      @keyframes agent-pulse {
-        0%,
-        100% {
-          box-shadow: 0 0 0 0 var(--agent-primary-glow);
-        }
-        50% {
-          box-shadow: 0 0 10px 4px var(--agent-primary-glow);
-        }
-      }
-
       .action-btn {
         display: inline-flex;
         align-items: center;
@@ -2723,7 +2638,6 @@ interface AgentXDesktopResizeState {
         max-width: 38ch;
       }
 
-      /* Generating State */
       .action-plan-generating {
         display: flex;
         flex-direction: column;
@@ -2734,17 +2648,6 @@ interface AgentXDesktopResizeState {
         border: 1px solid var(--agent-border);
         border-radius: var(--nxt1-radius-lg, 12px);
         animation: gen-fade-in 0.4s ease forwards;
-      }
-
-      @keyframes gen-fade-in {
-        from {
-          opacity: 0;
-          transform: translateY(8px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
       }
 
       .generating-hero {
@@ -2766,30 +2669,11 @@ interface AgentXDesktopResizeState {
         animation: gen-pulse 2s ease-in-out infinite;
       }
 
-      @keyframes gen-pulse {
-        0%,
-        100% {
-          box-shadow: 0 0 0 0 rgba(var(--agent-primary-rgb, 198, 255, 0), 0.3);
-        }
-        50% {
-          box-shadow: 0 0 0 12px rgba(var(--agent-primary-rgb, 198, 255, 0), 0);
-        }
-      }
-
       .generating-x-mark {
         width: 32px;
         height: 32px;
         fill: var(--agent-primary);
         animation: gen-spin 3s linear infinite;
-      }
-
-      @keyframes gen-spin {
-        from {
-          transform: rotate(0deg);
-        }
-        to {
-          transform: rotate(360deg);
-        }
       }
 
       .generating-status {
@@ -2811,18 +2695,6 @@ interface AgentXDesktopResizeState {
       }
       .typing-dots span:nth-child(3) {
         animation-delay: 0.6s;
-      }
-
-      @keyframes typing-blink {
-        0% {
-          opacity: 0;
-        }
-        25% {
-          opacity: 1;
-        }
-        100% {
-          opacity: 1;
-        }
       }
 
       .generating-sub {
@@ -2848,17 +2720,6 @@ interface AgentXDesktopResizeState {
         animation: step-appear 0.4s ease forwards;
       }
 
-      @keyframes step-appear {
-        from {
-          opacity: 0;
-          transform: translateX(-8px);
-        }
-        to {
-          opacity: 1;
-          transform: translateX(0);
-        }
-      }
-
       .step-indicator {
         display: flex;
         align-items: center;
@@ -2876,39 +2737,15 @@ interface AgentXDesktopResizeState {
         animation: dot-pulse 1.6s ease-in-out infinite;
       }
 
-      @keyframes dot-pulse {
-        0%,
-        100% {
-          opacity: 0.4;
-          transform: scale(0.8);
-        }
-        50% {
-          opacity: 1;
-          transform: scale(1.2);
-        }
-      }
-
       .step-label {
         font-size: 13px;
         font-weight: 500;
         color: var(--agent-text-secondary);
       }
 
-      /* Card entry animation */
       .action-card--enter {
         opacity: 0;
         animation: card-slide-in 0.38s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-      }
-
-      @keyframes card-slide-in {
-        from {
-          opacity: 0;
-          transform: translateY(16px) scale(0.97);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0) scale(1);
-        }
       }
 
       .action-empty-btn {
@@ -2939,11 +2776,6 @@ interface AgentXDesktopResizeState {
         transform: scale(0.96);
       }
 
-      /* ==============================
-         RESPONSIVE — Desktop / Mobile toggle
-         ============================== */
-
-      /* Mobile layout hidden on desktop */
       .agent-mobile {
         display: none;
       }
@@ -2955,7 +2787,6 @@ interface AgentXDesktopResizeState {
       }
 
       @media (max-width: 768px) {
-        /* Hide desktop, show mobile */
         .agent-desktop {
           display: none !important;
         }
@@ -2967,19 +2798,15 @@ interface AgentXDesktopResizeState {
         }
       }
 
-      /* ==============================
-         MOBILE LAYOUT STYLES
-         ============================== */
       .m-container {
         padding: 0 var(--nxt1-spacing-4, 16px);
-        /* Bottom space: input bar (~52px) + coordinator pills (~44px) + footer (~76px) + breathing room */
+
         padding-bottom: calc(
           var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 52px + 44px +
             32px
         );
       }
 
-      /* --- Briefing --- */
       .m-briefing {
         padding-top: var(--nxt1-spacing-5, 20px);
       }
@@ -3011,7 +2838,6 @@ interface AgentXDesktopResizeState {
         margin-bottom: var(--nxt1-spacing-4, 16px);
       }
 
-      /* --- Action Required Banner --- */
       .m-action-required-banner {
         display: flex;
         align-items: center;
@@ -3066,7 +2892,6 @@ interface AgentXDesktopResizeState {
         color: var(--agent-text-secondary);
       }
 
-      /* --- Section Titles --- */
       .m-section-title {
         font-size: 13px;
         font-weight: 600;
@@ -3084,7 +2909,6 @@ interface AgentXDesktopResizeState {
         margin-bottom: 0;
       }
 
-      /* --- Operations (Horizontal scroll) --- */
       .m-operations {
         margin-top: 20px;
       }
@@ -3203,7 +3027,6 @@ interface AgentXDesktopResizeState {
         gap: 6px;
       }
 
-      /* --- Action Plan (mobile) --- */
       .m-action-plan {
         margin-top: 24px;
       }
@@ -3257,12 +3080,11 @@ interface AgentXDesktopResizeState {
         margin-bottom: 16px;
       }
 
-      /* --- Floating Coordinator Chips --- */
       .m-floating-coordinators {
         position: fixed;
         left: var(--nxt1-footer-left, 16px);
         right: var(--nxt1-footer-right, 16px);
-        /* Positioned above the input bar: footer-bottom + pill-height + input-gap + input-height */
+
         bottom: calc(
           var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 52px + 8px +
             var(--keyboard-offset, 0px)
@@ -3386,11 +3208,6 @@ interface AgentXDesktopResizeState {
       .m-coordinator-pill[data-coordinator='coord-compliance'] {
         --coordinator-pill-accent: #44d6c2;
       }
-
-      /* --- Input Bar (mobile) ---
-         The AgentXPromptInputComponent already has its own position:fixed
-         with footer-aware bottom offset at <767px.
-         Do NOT override its positioning — just let it be. */
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,

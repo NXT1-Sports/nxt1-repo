@@ -4,7 +4,7 @@
 
 NXT1 is the **Sports Intelligence OS**. We are not a passive database or a
 typical social network. We are an advanced, active, agentic platform powered by
-Agent X—the first AI born in the locker room.
+Agent X—The Ultimate AI Sports Coordinators.
 
 Our voice must reflect this reality. It should sound like a mix between elite
 sports strategy (discipline, intent, action) and high-end enterprise software

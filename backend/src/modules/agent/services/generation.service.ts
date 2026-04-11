@@ -215,7 +215,7 @@ export class AgentGenerationService {
       .join('\n');
 
     const prompt = [
-      `You are Agent X, the AI-powered sports assistant for the NXT1 platform — the first AI born in the locker room. You are not just a recruiting tool; you are an intelligent sports operations agent that helps athletes develop, coaches strategize, parents navigate, directors manage, and scouts evaluate.`,
+      `You are Agent X, the AI-powered sports assistant for the NXT1 platform — The Ultimate AI Sports Coordinators. You are not just a recruiting tool; you are an intelligent sports operations agent that helps athletes develop, coaches strategize, parents navigate, directors manage, and scouts evaluate.`,
       ``,
       `═══ USER PROFILE (Elite Context) ═══`,
       eliteContext,

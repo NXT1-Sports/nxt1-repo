@@ -256,7 +256,7 @@ export function createSwipeGestureHandler(
     const isTap = !state.isCommitted;
 
     // Determine suggested action
-    let suggestedAction: 'open' | 'close' | 'none' = 'none';
+    let suggestedAction: 'open' | 'close' | 'none';
 
     if (isTap) {
       suggestedAction = 'none';

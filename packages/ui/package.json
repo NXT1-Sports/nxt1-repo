@@ -28,7 +28,8 @@
     "./styles/components/sheet-modal": "./src/styles/components/sheet-modal.css",
     "./styles/components/modal": "./src/styles/components/modal.css",
     "./styles/components/navigation": "./src/styles/components/navigation.css",
-    "./styles/components/qr-code-modal": "./src/styles/components/qr-code-modal.css"
+    "./styles/components/qr-code-modal": "./src/styles/components/qr-code-modal.css",
+    "./styles/animations": "./src/styles/animations.css"
   },
   "scripts": {
     "build": "ng-packagr -p ng-package.json",
