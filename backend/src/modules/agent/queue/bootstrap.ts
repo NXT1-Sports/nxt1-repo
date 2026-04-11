@@ -45,6 +45,7 @@ import {
   LiveViewSessionService,
   ScraperService,
   FirecrawlService,
+  DispatchExtractionTool,
 } from '../tools/scraping/index.js';
 import {
   WriteCoreIdentityTool,
@@ -219,6 +220,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new ScrapeWebpageTool(scraperService));
   toolRegistry.register(new ScrapeAndIndexProfileTool(undefined, llm));
   toolRegistry.register(new ReadDistilledSectionTool());
+  toolRegistry.register(new DispatchExtractionTool(llm));
   if (firecrawl) {
     toolRegistry.register(new ReadWebpageTool(firecrawl));
     toolRegistry.register(new InteractWithWebpageTool(firecrawl));

@@ -40,7 +40,8 @@ const USER_ID_QUERY_COLLECTIONS = [
   'PlayerStats',
   'GameStats',
   'RankingEntries',
-  'RosterEntries',
+  // NOTE: RosterEntries intentionally excluded — processed by cleanupTeams()
+  // so we can extract team/role data for counter decrements before deletion.
   'PostComments',
   'PostLikes',
   'notifications',
@@ -151,7 +152,32 @@ function filterMemberObjects(value: unknown, userId: string): unknown[] {
   });
 }
 
-async function cleanupTeams(userId: string): Promise<{ updated: number; deactivated: number }> {
+async function cleanupTeams(
+  userId: string
+): Promise<{ updated: number; deactivated: number; rosterEntriesDeleted: number }> {
+  // ── Step 1: Query all RosterEntries for this user to determine counter decrements ──
+  const rosterSnapshot = await db.collection('RosterEntries').where('userId', '==', userId).get();
+
+  // Aggregate counter decrements per team: { teamId -> { athlete: N, panel: N } }
+  const counterDecrements = new Map<string, { athlete: number; panel: number }>();
+  for (const rosterDoc of rosterSnapshot.docs) {
+    const rd = rosterDoc.data();
+    const teamId = rd['teamId'] as string | undefined;
+    if (!teamId) continue;
+
+    const role = rd['role'] as string | undefined;
+    const current = counterDecrements.get(teamId) ?? { athlete: 0, panel: 0 };
+
+    if (role === 'athlete') {
+      current.athlete++;
+    } else {
+      // coach, director, or any other role -> panelMember
+      current.panel++;
+    }
+    counterDecrements.set(teamId, current);
+  }
+
+  // ── Step 2: Collect all Team docs that reference this user ──
   const teamDocs = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
 
   const [createdBySnapshot, memberIdsSnapshot, adminIdsSnapshot] = await Promise.all([
@@ -167,6 +193,20 @@ async function cleanupTeams(userId: string): Promise<{ updated: number; deactiva
   createdBySnapshot.docs.forEach((doc) => teamDocs.set(doc.id, doc));
   memberIdsSnapshot.docs.forEach((doc) => teamDocs.set(doc.id, doc));
   adminIdsSnapshot?.docs.forEach((doc) => teamDocs.set(doc.id, doc));
+
+  // Also fetch any teams found in RosterEntries that weren't already captured
+  const missingTeamIds = [...counterDecrements.keys()].filter((id) => !teamDocs.has(id));
+  if (missingTeamIds.length > 0) {
+    // Firestore 'in' queries limited to 30 values per query
+    for (let i = 0; i < missingTeamIds.length; i += 30) {
+      const chunk = missingTeamIds.slice(i, i + 30);
+      const snap = await db
+        .collection('Teams')
+        .where(admin.firestore.FieldPath.documentId(), 'in', chunk)
+        .get();
+      snap.docs.forEach((doc) => teamDocs.set(doc.id, doc));
+    }
+  }
 
   let updated = 0;
   let deactivated = 0;
@@ -193,6 +233,7 @@ async function cleanupTeams(userId: string): Promise<{ updated: number; deactiva
       ? (data['adminIds'] as string[]).filter((id) => id !== userId)
       : [];
     const nextMembers = filterMemberObjects(data['members'], userId);
+    const nextAdmins = filterMemberObjects(data['admins'], userId);
 
     const updateData: Record<string, unknown> = {
       memberIds: nextMemberIds,
@@ -202,6 +243,21 @@ async function cleanupTeams(userId: string): Promise<{ updated: number; deactiva
 
     if (Array.isArray(data['adminIds'])) {
       updateData['adminIds'] = nextAdminIds;
+    }
+
+    if (Array.isArray(data['admins'])) {
+      updateData['admins'] = nextAdmins;
+    }
+
+    // Apply counter decrements from RosterEntries
+    const decrements = counterDecrements.get(doc.id);
+    if (decrements) {
+      if (decrements.athlete > 0) {
+        updateData['athleteMember'] = admin.firestore.FieldValue.increment(-decrements.athlete);
+      }
+      if (decrements.panel > 0) {
+        updateData['panelMember'] = admin.firestore.FieldValue.increment(-decrements.panel);
+      }
     }
 
     if (data['createdBy'] === userId) {
@@ -225,25 +281,43 @@ async function cleanupTeams(userId: string): Promise<{ updated: number; deactiva
 
   await flushBatch();
 
-  return { updated, deactivated };
+  // ── Step 4: Delete all RosterEntries for this user ──
+  let rosterEntriesDeleted = 0;
+  let rosterBatch = db.batch();
+  let rosterBatchOps = 0;
+
+  for (const rosterDoc of rosterSnapshot.docs) {
+    if (rosterBatchOps >= MAX_BATCH_OPS) {
+      await rosterBatch.commit();
+      rosterBatch = db.batch();
+      rosterBatchOps = 0;
+    }
+    rosterBatch.delete(rosterDoc.ref);
+    rosterBatchOps++;
+    rosterEntriesDeleted++;
+  }
+
+  if (rosterBatchOps > 0) {
+    await rosterBatch.commit();
+  }
+
+  logger.info('Team cleanup detail', {
+    userId,
+    teamsUpdated: updated,
+    teamsDeactivated: deactivated,
+    rosterEntriesDeleted,
+    counterDecrements: Object.fromEntries([...counterDecrements.entries()].map(([k, v]) => [k, v])),
+  });
+
+  return { updated, deactivated, rosterEntriesDeleted };
 }
 
 async function cleanupOrganizations(
   userId: string
 ): Promise<{ updated: number; deactivated: number }> {
-  // Query for orgs where we can match by scalar field. Firestore does not support
-  // array-contains queries on nested object fields (admins[].userId), so we must
-  // fetch those docs separately by scanning orgs we are already touching, then
-  // additionally check any org where the admins array may contain the user.
-  //
-  // To avoid a full-collection scan we maintain an `adminUserIds: string[]` parallel
-  // scalar array alongside `admins: AdminObject[]` on the Organizations schema —
-  // identical to how Teams uses `memberIds: string[]` + `members: MemberObject[]`.
-  // The `array-contains` query below relies on that scalar array.
   const [ownedSnapshot, createdSnapshot, adminSnapshot] = await Promise.all([
     db.collection('Organizations').where('ownerId', '==', userId).get(),
     db.collection('Organizations').where('createdBy', '==', userId).get(),
-    // adminUserIds is the scalar index array; fall back to empty if not yet populated
     db
       .collection('Organizations')
       .where('adminUserIds', 'array-contains', userId)
@@ -270,15 +344,28 @@ async function cleanupOrganizations(
       return (adminValue as Record<string, unknown>)['userId'] !== userId;
     });
 
-    const filteredAdminUserIds = Array.isArray(data['adminUserIds'])
-      ? (data['adminUserIds'] as string[]).filter((id) => id !== userId)
-      : undefined;
+    // Always rebuild adminUserIds from the filtered admins array (source of truth)
+    const rebuiltAdminUserIds = filteredAdmins
+      .map((a) => {
+        if (a && typeof a === 'object') {
+          return (a as Record<string, unknown>)['userId'];
+        }
+        return undefined;
+      })
+      .filter((id): id is string => typeof id === 'string');
 
     const shouldUpdateAdmins = filteredAdmins.length !== admins.length;
     const ownerMatches = data['ownerId'] === userId;
     const creatorMatches = data['createdBy'] === userId;
 
-    if (!shouldUpdateAdmins && !ownerMatches && !creatorMatches) {
+    // Also check if user is directly in the adminUserIds scalar array
+    // (handles drift where adminUserIds contains the user but admins doesn't)
+    const existingAdminUserIds = Array.isArray(data['adminUserIds'])
+      ? (data['adminUserIds'] as string[])
+      : [];
+    const userInAdminUserIds = existingAdminUserIds.includes(userId);
+
+    if (!shouldUpdateAdmins && !ownerMatches && !creatorMatches && !userInAdminUserIds) {
       continue;
     }
 
@@ -287,11 +374,10 @@ async function cleanupOrganizations(
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    if (shouldUpdateAdmins) {
+    if (shouldUpdateAdmins || userInAdminUserIds) {
       updateData['admins'] = filteredAdmins;
-      if (filteredAdminUserIds !== undefined) {
-        updateData['adminUserIds'] = filteredAdminUserIds;
-      }
+      // Always sync adminUserIds from the filtered admins to prevent drift
+      updateData['adminUserIds'] = rebuiltAdminUserIds;
     }
 
     if (ownerMatches) {
@@ -345,9 +431,12 @@ async function runUserDeletionCleanup(
   const deletedShadowSubcollections = await deleteAllSubcollections(shadowUserRef);
 
   await deleteSingletonDocuments(userId);
-  const deletedQueryCollections = await deleteQueryCollections(userId);
+
+  // cleanupTeams MUST run before deleteQueryCollections because it reads
+  // RosterEntries to derive counter decrements before deleting them.
   const teamCleanup = await cleanupTeams(userId);
   const organizationCleanup = await cleanupOrganizations(userId);
+  const deletedQueryCollections = await deleteQueryCollections(userId);
   await deleteUserStorage(userId);
 
   logger.info('User cleanup complete', {

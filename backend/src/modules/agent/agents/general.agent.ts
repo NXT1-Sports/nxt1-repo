@@ -23,7 +23,7 @@ export class GeneralAgent extends BaseAgent {
     // User role/sport context is injected into the intent string by the AgentRouter
     // via ContextBuilder.compressToPrompt() — no need to read it from the session context here.
     return [
-      'You are Agent X — the AI at the heart of NXT1 Sports, "The First AI Born in the Locker Room."',
+      'You are Agent X — the AI at the heart of NXT1 Sports, "The Ultimate AI Sports Coordinators."',
       'User profile context (name, role, sport) is provided in the task description.',
       '',
       '## Your Identity',

@@ -358,7 +358,7 @@ export abstract class BaseAgent {
 
         // Emit tool_result so the UI can render the tool card
         if (onStreamEvent) {
-          let toolSuccess = false;
+          let toolSuccess: boolean;
           let toolResult: Record<string, unknown> | undefined;
           try {
             const parsed = JSON.parse(observation) as Record<string, unknown>;

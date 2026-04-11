@@ -884,59 +884,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         transform: scale(0.97);
       }
 
-      /* ═══ ANIMATED GLOW BORDER — runs ONCE then settles ═══ */
-
-      /* Houdini custom property for native angle interpolation */
-      @property --glow-angle {
-        syntax: '<angle>';
-        initial-value: 0deg;
-        inherits: false;
-      }
-
-      /* ── Keyframes ── */
-
-      /* Border spins one full revolution then fades out */
-      @keyframes glow-spin {
-        0% {
-          --glow-angle: 0deg;
-          opacity: 1;
-        }
-        80% {
-          --glow-angle: 288deg;
-          opacity: 1;
-        }
-        100% {
-          --glow-angle: 360deg;
-          opacity: 0;
-        }
-      }
-
-      /* Ambient glow swells once then settles to a subtle idle */
-      @keyframes glow-swell {
-        0% {
-          opacity: 0;
-          transform: scale(0.96);
-        }
-        40% {
-          opacity: 0.65;
-          transform: scale(1.02);
-        }
-        100% {
-          opacity: 0.25;
-          transform: scale(1);
-        }
-      }
-
-      /* Vignette fades in after spin completes */
-      @keyframes vignette-in {
-        0% {
-          opacity: 0;
-        }
-        100% {
-          opacity: 1;
-        }
-      }
-
       /* ── Wrapper ── */
       .carousel-glow-wrap {
         position: relative;

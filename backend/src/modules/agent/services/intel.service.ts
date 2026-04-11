@@ -179,7 +179,7 @@ export class IntelGenerationService {
       parsed = JSON.parse(stripMarkdownFences(result.content));
     } catch (err) {
       logger.error('[IntelGenerationService] LLM call failed for athlete', { userId, err });
-      throw new Error('Intel generation failed — please try again');
+      throw new Error('Intel generation failed — please try again', { cause: err });
     }
 
     // ── Normalize and validate output ──
@@ -282,7 +282,7 @@ export class IntelGenerationService {
       parsed = JSON.parse(stripMarkdownFences(result.content));
     } catch (err) {
       logger.error('[IntelGenerationService] LLM call failed for team', { teamId, err });
-      throw new Error('Intel generation failed — please try again');
+      throw new Error('Intel generation failed — please try again', { cause: err });
     }
 
     // ── Normalize and persist ──

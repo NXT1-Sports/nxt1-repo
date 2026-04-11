@@ -1328,7 +1328,7 @@ router.post(
         agentGoals.length > 0 ? `\nGoals: ${agentGoals.map((g) => g.text).join('; ')}` : '';
 
       const systemPrompt = [
-        `You are Agent X — The First AI Born in the Locker Room. You are the AI assistant for NXT1, an AI-first sports platform.`,
+        `You are Agent X — The Ultimate AI Sports Coordinators. You are the AI assistant for NXT1, an AI-first sports platform.`,
         `\n[User Profile]\n${profileContext}${goalContext}`,
         threadHistoryStr ? `\n${threadHistoryStr}` : '',
         `\nBe concise, actionable, and sports-aware. Format responses with markdown and bullet points when listing items.`,

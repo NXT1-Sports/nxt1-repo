@@ -174,7 +174,7 @@ export async function runDailyBriefings(): Promise<void> {
   const generation = getGenerationService();
 
   // Fetch users who have agent goals set (they opted into Agent X)
-  let eligibleUserIds: string[] = [];
+  let eligibleUserIds: string[];
   try {
     const { getFirestore } = await import('firebase-admin/firestore');
     const db = getFirestore();

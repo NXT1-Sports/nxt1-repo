@@ -10,7 +10,7 @@ _The lines that establish what NXT1 actually is._
 - The World’s First Autonomous Sports OS.
 - Your Sports Intelligence Command Center.
 - The Agentic Sports Platform.
-- The First AI Born in the Locker Room.
+- The Ultimate AI Sports Coordinators.
 
 ## The Active vs. Passive Angle
 

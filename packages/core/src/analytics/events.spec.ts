@@ -101,8 +101,8 @@ describe('Event Constants', () => {
       expect(getEventCategory(APP_EVENTS.VIDEO_PLAYED)).toBe('video');
     });
 
-    it('should return subscription category for subscription events', () => {
-      expect(getEventCategory(APP_EVENTS.CREDITS_PURCHASED)).toBe('subscription');
+    it('should return ecommerce category for credits events', () => {
+      expect(getEventCategory(APP_EVENTS.CREDITS_PURCHASED)).toBe('ecommerce');
     });
 
     it('should return error category for error events', () => {

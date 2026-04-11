@@ -6,7 +6,7 @@
  * Shared section used on Agent X landing surfaces to communicate
  * product identity and domain specialization.
  *
- * "The First AI Born in the Locker Room" — differentiates Agent X
+ * "The Ultimate AI Sports Coordinators" — differentiates Agent X
  * from generic AI assistants by visualising domain-specific inputs
  * as a tree branching from a central "Agent X Brain" node.
  *
@@ -104,7 +104,7 @@ let identitySectionInstanceCounter = 0;
         <div class="identity-copy">
           <nxt1-section-header
             [titleId]="titleId()"
-            eyebrow="The First AI Born in the Locker Room"
+            eyebrow="The Ultimate AI Sports Coordinators"
             title="It doesn't just know code."
             accentText="It knows Ball."
             [headingLevel]="2"

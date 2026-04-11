@@ -9,14 +9,12 @@
 import { Component, afterNextRender, inject, effect } from '@angular/core';
 import { Router, NavigationEnd } from '@angular/router';
 import { IonApp, IonRouterOutlet, Platform, NavController } from '@ionic/angular/standalone';
-import {
-  NxtPlatformService,
-  NxtLoggingService,
-  NxtBreadcrumbService,
-  NxtThemeService,
-  UsageBottomSheetService,
-  ANALYTICS_ADAPTER,
-} from '@nxt1/ui';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
+import { NxtThemeService } from '@nxt1/ui/services/theme';
+import { UsageBottomSheetService } from '@nxt1/ui/usage';
+import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import type { ILogger } from '@nxt1/core/logging';
 import {
   NativeAppService,

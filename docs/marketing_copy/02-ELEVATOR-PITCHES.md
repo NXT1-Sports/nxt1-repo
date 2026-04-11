@@ -28,7 +28,7 @@ stats, and just sit around waiting to be discovered. That model is dead. NXT1 is
 the world's first Autonomous Sports Platform.
 
 Instead of a static profile, you operate from a unified command center powered
-by Agent X, the first AI born in the locker room. You just tell Agent X what you
+by Agent X, The Ultimate AI Sports Coordinators. You just tell Agent X what you
 need, and it executes. It autonomously targets the right college programs,
 drafts and sends personalized recruiting emails, scouts your opponents, and
 tracks your progression. They wait for you. We work for you."

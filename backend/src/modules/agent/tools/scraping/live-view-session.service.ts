@@ -341,7 +341,7 @@ export class LiveViewSessionService {
     // If this fails with a profile write-lock (stale session that
     // stopInteraction didn't fully release), retry the entire scrape+interact
     // flow with saveChanges: false so the user isn't blocked.
-    let interactiveUrl = '';
+    let interactiveUrl: string | undefined;
     try {
       const initResult: ScrapeExecuteResponse = await this.client.interact(sessionId, {
         prompt: 'Wait for the page to fully load.',
@@ -382,7 +382,9 @@ export class LiveViewSessionService {
 
         const fallbackId = fallbackScrape.metadata?.scrapeId;
         if (!fallbackId) {
-          throw new Error('Firecrawl fallback scrape did not return a scrapeId.');
+          throw new Error('Firecrawl fallback scrape did not return a scrapeId.', {
+            cause: initErr,
+          });
         }
 
         // Reassign sessionId for the rest of the flow
@@ -406,7 +408,8 @@ export class LiveViewSessionService {
           });
           await this.destroySession(sessionId);
           throw new Error(
-            `Failed to navigate to ${destination.domainLabel}: ${fallbackErr instanceof Error ? fallbackErr.message : 'Navigation timeout'}`
+            `Failed to navigate to ${destination.domainLabel}: ${fallbackErr instanceof Error ? fallbackErr.message : 'Navigation timeout'}`,
+            { cause: fallbackErr }
           );
         }
       } else {
@@ -417,7 +420,8 @@ export class LiveViewSessionService {
         });
         await this.destroySession(sessionId);
         throw new Error(
-          `Failed to navigate to ${destination.domainLabel}: ${initErr instanceof Error ? initErr.message : 'Navigation timeout'}`
+          `Failed to navigate to ${destination.domainLabel}: ${initErr instanceof Error ? initErr.message : 'Navigation timeout'}`,
+          { cause: initErr }
         );
       }
     }
