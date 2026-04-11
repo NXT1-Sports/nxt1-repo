@@ -2902,7 +2902,7 @@ export function getSkipStepIdsForInviteUser(
   role?: OnboardingUserType | null,
   includeSport = false
 ): OnboardingStepId[] {
-  let skipIds: OnboardingStepId[] = [];
+  let skipIds: OnboardingStepId[];
 
   if (!role) {
     // When role is unknown, skip both athlete and coach team steps.

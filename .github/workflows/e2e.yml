@@ -200,7 +200,7 @@ jobs:
           destination_dir: e2e-reports/${{ github.sha }}
 
       - name: Comment PR with Report Link
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         if: github.event_name == 'pull_request'
         with:
           script: |
