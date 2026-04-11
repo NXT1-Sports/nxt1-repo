@@ -39,7 +39,7 @@ import {
   inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import type { PositionsFormData } from '../../../../core/src/onboarding/onboarding-navigation.api';
+import type { PositionsFormData } from '@nxt1/core/onboarding';
 import {
   type PositionGroup,
   getPositionGroupsForSport,
