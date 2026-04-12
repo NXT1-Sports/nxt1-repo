@@ -114,7 +114,7 @@ export function initLegacyApp(): { app: App; db: Firestore } {
 
 /**
  * Initialize the target Firebase app (staging or production).
- * Returns the Firestore instance for the target project.
+ * Uses env variables (STAGING_FIREBASE_*) if SA file not found.
  */
 export function initTargetApp(): { app: App; db: Firestore } {
   try {
@@ -125,11 +125,41 @@ export function initTargetApp(): { app: App; db: Firestore } {
   }
 
   const target = getTarget();
-  const saPath = target === 'production' ? PRODUCTION_SA_DEFAULT : STAGING_SA_DEFAULT;
 
+  // Try env variables first (matches migrate-auth-master.ts pattern)
+  const envProjectId =
+    target === 'production'
+      ? process.env['PRODUCTION_FIREBASE_PROJECT_ID']
+      : process.env['STAGING_FIREBASE_PROJECT_ID'];
+  const envClientEmail =
+    target === 'production'
+      ? process.env['PRODUCTION_FIREBASE_CLIENT_EMAIL']
+      : process.env['STAGING_FIREBASE_CLIENT_EMAIL'];
+  const envPrivateKey =
+    target === 'production'
+      ? process.env['PRODUCTION_FIREBASE_PRIVATE_KEY']?.replace(/\\n/g, '\n')
+      : process.env['STAGING_FIREBASE_PRIVATE_KEY']?.replace(/\\n/g, '\n');
+
+  if (envProjectId && envClientEmail && envPrivateKey) {
+    console.log(`  Target (${target}): using env credentials → ${envProjectId}`);
+    const app = initializeApp(
+      {
+        credential: cert({
+          projectId: envProjectId,
+          clientEmail: envClientEmail,
+          privateKey: envPrivateKey,
+        }),
+      },
+      TARGET_APP_NAME
+    );
+    const db = getFirestore(app);
+    return { app, db };
+  }
+
+  // Fallback to SA file
+  const saPath = target === 'production' ? PRODUCTION_SA_DEFAULT : STAGING_SA_DEFAULT;
   console.log(`  Target (${target}): ${saPath}`);
   const sa = loadServiceAccount(saPath);
-
   const app = initializeApp({ credential: cert(sa) }, TARGET_APP_NAME);
   const db = getFirestore(app);
   return { app, db };
@@ -440,10 +470,10 @@ export const COLLECTIONS = {
   LEGACY_TEAMCODES: 'TeamCodes',
 
   // V2 Target
-  USERS: 'users',
-  ORGANIZATIONS: 'organizations',
-  TEAMS: 'teams',
-  ROSTER_ENTRIES: 'rosterEntries',
+  USERS: 'Users',
+  ORGANIZATIONS: 'Organizations',
+  TEAMS: 'Teams',
+  ROSTER_ENTRIES: 'RosterEntries',
   RECRUITING: 'recruiting',
   POSTS: 'posts',
   PLAYER_STATS: 'playerStats',

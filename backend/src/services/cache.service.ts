@@ -176,22 +176,32 @@ export function incrementCacheDelete(): void {
  * Always removes the id-keyed entries (`team:profile:id:<teamId>:*`).
  * When the team's slug is provided, also removes slug-keyed entries
  * (`team:profile:slug:<slug>:*`).
+ * When the team's teamCode is provided, also removes teamcode-keyed entries
+ * (`team:profile:code:<teamCode>:*`).
  *
  * Non-blocking: errors are logged as warnings and never propagate.
  */
-export async function invalidateTeamProfileCache(teamId: string, slug?: string): Promise<void> {
+export async function invalidateTeamProfileCache(
+  teamId: string,
+  slug?: string,
+  teamCode?: string
+): Promise<void> {
   try {
     const cache = getCacheService();
     const tasks: Promise<void>[] = [cache.delByPrefix(`team:profile:id:${teamId}:`)];
     if (slug) {
       tasks.push(cache.delByPrefix(`team:profile:slug:${slug}:`));
     }
+    if (teamCode) {
+      tasks.push(cache.delByPrefix(`team:profile:code:${teamCode}:`));
+    }
     await Promise.all(tasks);
-    logger.debug('[Cache] Team profile cache invalidated', { teamId, slug });
+    logger.debug('[Cache] Team profile cache invalidated', { teamId, slug, teamCode });
   } catch (error) {
     logger.warn('[Cache] Failed to invalidate team profile cache', {
       teamId,
       slug,
+      teamCode,
       error: error instanceof Error ? error.message : String(error),
     });
   }

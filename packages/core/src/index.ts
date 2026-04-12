@@ -877,6 +877,8 @@ export {
   type TeamFormData,
   type SchoolFormData,
   type OrganizationFormData,
+  type PositionsFormData,
+  type ContactFormData,
   // ReferralSourceData aliased to avoid conflict with auth export
   type ReferralSourceData as OnboardingReferralSourceData,
   type OnboardingFormData,

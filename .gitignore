@@ -80,6 +80,12 @@ temp/
 .husky
 .github
 
+# Migration scripts - SENSITIVE DATA
+# Do NOT commit hash-config.json - contains SCRYPT password hash keys
+backend/scripts/migration/hash-config.json
+backend/scripts/migration/auth-export.json
+backend/scripts/migration/auth-export-filtered.json
+
 # Generated diagnostic/stats files
 array_error.json
 error_stats.json

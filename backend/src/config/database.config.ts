@@ -20,10 +20,10 @@ export async function connectToMongoDB(): Promise<void> {
     return;
   }
 
-  const mongoUri = process.env['MONGO'] || process.env['MONGODB_URI'];
+  const mongoUri = process.env['MONGO'];
 
   if (!mongoUri) {
-    throw new Error('MONGO or MONGODB_URI environment variable is not set');
+    throw new Error('MONGO environment variable is not set');
   }
 
   try {

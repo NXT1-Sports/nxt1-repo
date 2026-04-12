@@ -10,6 +10,11 @@
         "web": [
           "nxt-1-staging-v2"
         ]
+      },
+      "storage": {
+        "staging": [
+          "nxt-1-staging-v2"
+        ]
       }
     },
     "nxt-1-v2": {

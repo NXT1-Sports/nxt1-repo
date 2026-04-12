@@ -236,6 +236,42 @@ export class TeamServiceAdapter {
   }
 
   /**
+   * Get team by teamCode string (e.g. "57L791")
+   * Queries the Teams collection by the `teamCode` field.
+   * Falls back to the legacy TeamCodes collection doc ID lookup.
+   */
+  async getTeamByCode(teamCode: string): Promise<TeamCode | null> {
+    const code = teamCode.trim();
+    logger.debug('[TeamAdapter] Getting team by teamCode', { teamCode: code });
+
+    // Primary: Teams collection (new architecture)
+    const teamsSnap = await this.db
+      .collection('Teams')
+      .where('teamCode', '==', code)
+      .limit(1)
+      .get();
+
+    if (!teamsSnap.empty) {
+      return await this.getTeamWithMembers(teamsSnap.docs[0].id);
+    }
+
+    // Fallback: legacy TeamCodes — try document ID = teamCode
+    const legacyRef = this.db.collection('TeamCodes').doc(code);
+    const legacySnap = await legacyRef.get();
+    if (legacySnap.exists) {
+      logger.debug('[TeamAdapter] Team found in legacy TeamCodes', { teamCode: code });
+      return {
+        ...(legacySnap.data() as TeamCode),
+        id: code,
+        teamCode: code,
+      } as TeamCode;
+    }
+
+    logger.debug('[TeamAdapter] Team not found by teamCode', { teamCode: code });
+    return null;
+  }
+
+  /**
    * Get team by slug (uses Teams structure)
    * Queries by slug field directly
    */
@@ -270,6 +306,29 @@ export class TeamServiceAdapter {
       logger.debug('[TeamAdapter] Team found via unicode fallback', { slug });
       const teamDoc = unicodeSnapshot.docs[0];
       return await this.getTeamWithMembers(teamDoc.id);
+    }
+
+    // teamCode fallback: e.g. "57L791" is stored as the teamCode field, not slug.
+    const teamCodeSnapshot = await this.db
+      .collection('Teams')
+      .where('teamCode', '==', slug.trim())
+      .limit(1)
+      .get();
+
+    if (!teamCodeSnapshot.empty) {
+      logger.debug('[TeamAdapter] Team found via teamCode fallback', { slug });
+      return await this.getTeamWithMembers(teamCodeSnapshot.docs[0].id);
+    }
+
+    // Final fallback: legacy TeamCodes collection — doc ID = teamCode
+    const legacySnap = await this.db.collection('TeamCodes').doc(slug.trim()).get();
+    if (legacySnap.exists) {
+      logger.debug('[TeamAdapter] Team found in legacy TeamCodes collection', { slug });
+      return {
+        ...(legacySnap.data() as TeamCode),
+        id: slug.trim(),
+        teamCode: slug.trim(),
+      } as TeamCode;
     }
 
     logger.debug('[TeamAdapter] Team not found', { slug });

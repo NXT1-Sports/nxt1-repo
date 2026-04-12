@@ -100,6 +100,35 @@ function isV2Format(d: LegacyUser): boolean {
   );
 }
 
+const LEGACY_BUCKET = process.env['LEGACY_FIREBASE_STORAGE_BUCKET'] || 'nxt-1-de054.appspot.com';
+const STAGING_BUCKET =
+  process.env['STAGING_FIREBASE_STORAGE_BUCKET'] || 'nxt-1-staging-v2.firebasestorage.app';
+
+/**
+ * Rewrite a Firebase Storage URL from legacy bucket → staging bucket.
+ * Handles both URL formats:
+ *   https://firebasestorage.googleapis.com/v0/b/nxt-1-de054.appspot.com/o/...
+ *   https://storage.googleapis.com/nxt-1-de054.appspot.com/...
+ * Returns the original URL unchanged if it's not a legacy storage URL.
+ */
+function rewriteStorageUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  return url
+    .replace(
+      `https://firebasestorage.googleapis.com/v0/b/${LEGACY_BUCKET}/`,
+      `https://firebasestorage.googleapis.com/v0/b/${STAGING_BUCKET}/`
+    )
+    .replace(
+      `https://storage.googleapis.com/${LEGACY_BUCKET}/`,
+      `https://storage.googleapis.com/${STAGING_BUCKET}/`
+    );
+}
+
+/** Apply rewriteStorageUrl to an array of URLs */
+function rewriteStorageUrls(urls: string[]): string[] {
+  return urls.map((u) => rewriteStorageUrl(u) ?? u);
+}
+
 /** Safely extract a nested value: get(data, 'social.hudl') */
 function deepGet(obj: LegacyUser, path: string): unknown {
   return path.split('.').reduce<unknown>((acc, key) => {
@@ -142,7 +171,7 @@ function transformLegacyUser(docId: string, d: LegacyUser): TransformResult {
   const unicode = cleanString(d['unicode']) || '';
   const username = unicode || generateUsername(firstName, lastName, d['classOf']);
 
-  const profileImg = cleanString(d['profileImg']);
+  const profileImg = rewriteStorageUrl(cleanString(d['profileImg']));
   const profileImgs: string[] = profileImg ? [profileImg] : [];
 
   // ─── B. Role Mapping ────────────────────────────────────────────────
@@ -176,7 +205,7 @@ function transformLegacyUser(docId: string, d: LegacyUser): TransformResult {
             athleticInfo: d['primarySportAthleticInfo'],
             stats: d['primarySportStats'],
             gameStats: d['primarySportGameStats'],
-            profileImg: cleanString(d['primarySportProfileImg']) || profileImg,
+            profileImg: rewriteStorageUrl(cleanString(d['primarySportProfileImg']) || profileImg),
             level: cleanString(d['level']),
             side: d['side'],
           },
@@ -280,8 +309,8 @@ function transformLegacyUser(docId: string, d: LegacyUser): TransformResult {
     username,
     unicode,
     aboutMe: cleanString(d['aboutMe']) || '',
-    bannerImg: cleanString(d['bannerImg']) || null,
-    profileImgs,
+    bannerImg: rewriteStorageUrl(cleanString(d['bannerImg'])) || null,
+    profileImgs: rewriteStorageUrls(profileImgs),
     gender: cleanString(d['gender']) || undefined,
 
     // B — Role & Status
@@ -385,7 +414,7 @@ function buildSportProfile(
     ? {
         name: teamName,
         type: teamType,
-        logoUrl: cleanString(d['teamLogoImg']) || undefined,
+        logoUrl: rewriteStorageUrl(cleanString(d['teamLogoImg'])) || undefined,
         mascot: cleanString(d['mascot']) || undefined,
         primaryColor: cleanString(d['teamColor1']) || undefined,
         secondaryColor: cleanString(d['teamColor2']) || undefined,
@@ -420,7 +449,7 @@ function buildSportProfile(
   const recruiting = buildRecruitingSummary(d, order, warnings);
 
   // ── Primary video
-  const pinnedVideo = cleanString(d['pinnedProfileVideo']);
+  const pinnedVideo = rewriteStorageUrl(cleanString(d['pinnedProfileVideo']));
   const primaryVideo = pinnedVideo ? { url: pinnedVideo } : undefined;
 
   const now = new Date().toISOString();
@@ -428,7 +457,7 @@ function buildSportProfile(
   const profile: Record<string, unknown> = {
     sport,
     order,
-    profileImg: params.profileImg || undefined,
+    profileImg: rewriteStorageUrl(params.profileImg) || undefined,
     positions,
     level: params.level || undefined,
     side: normalizeSide(params.side),
@@ -494,7 +523,7 @@ function mapV2Sport(
   const profile: Record<string, unknown> = {
     sport,
     order: typeof s['order'] === 'number' ? s['order'] : index,
-    profileImg: cleanString(s['profileImg']) || undefined,
+    profileImg: rewriteStorageUrl(cleanString(s['profileImg'])) || undefined,
     positions,
     level: cleanString(s['level']) || undefined,
     side: normalizeSide(s['side']),
@@ -662,7 +691,7 @@ function buildTeamHistory(d: LegacyUser): Record<string, unknown>[] {
     const state = cleanString(d['state']);
     const city = cleanString(d['city']);
     if (city || state) entry['location'] = { city: city || '', state: state || '' };
-    if (d['teamLogoImg']) entry['logoUrl'] = cleanString(d['teamLogoImg']);
+    if (d['teamLogoImg']) entry['logoUrl'] = rewriteStorageUrl(cleanString(d['teamLogoImg']));
     history.push(entry);
   }
 
@@ -1046,6 +1075,7 @@ async function main(): Promise<void> {
 
   const limit = getLimit();
   const resume = hasFlag('resume');
+  const targetUsersOnly = hasFlag('target-users');
 
   const stats: MigrationStats = {
     total: 0,
@@ -1062,7 +1092,7 @@ async function main(): Promise<void> {
   const warningLog: Array<{ uid: string; warnings: string[] }> = [];
 
   // Determine resume cursor
-  let resumeAfter: FirebaseFirestore.Timestamp | undefined;
+  let resumeAfter: FirestoreTimestamp | undefined;
   if (resume) {
     // Find the last migrated user in target by _migratedAt
     const lastMigrated = await targetDb
@@ -1078,7 +1108,7 @@ async function main(): Promise<void> {
       if (lastCreatedAt) {
         console.log(`  Resuming after last migrated user (createdAt: ${lastCreatedAt})`);
         // Convert ISO string back to Firestore Timestamp for query
-        resumeAfter = FirebaseFirestore.Timestamp.fromDate(new Date(lastCreatedAt as string));
+        resumeAfter = FirestoreTimestamp.fromDate(new Date(lastCreatedAt as string));
       }
     }
     if (!resumeAfter) {
@@ -1094,88 +1124,154 @@ async function main(): Promise<void> {
 
   console.log('  Starting user migration…\n');
 
-  while (true) {
-    // Build paginated query
-    let query: FirebaseFirestore.Query = legacyDb
-      .collection(COLLECTIONS.LEGACY_USERS)
-      .orderBy('createdAt', 'asc')
-      .limit(PAGE_SIZE);
+  // ─── Mode A: Migrate only target users (from target-users.json) ─────
+  if (targetUsersOnly) {
+    const mappingPath = resolve(__migrateDirname, 'user-uid-mapping.json');
+    const mapping: { results: Array<{ email: string; uid: string }> } = JSON.parse(
+      readFileSync(mappingPath, 'utf-8')
+    );
+    const targetUids = mapping.results.map((u) => u.uid);
+    console.log(`  Mode: target-users only (${targetUids.length} users)\n`);
 
-    if (resumeAfter && !cursor) {
-      query = query.startAfter(resumeAfter);
-    } else if (cursor) {
-      query = query.startAfter(cursor);
-    }
-
-    const snap = await query.get();
-    if (snap.empty) break;
-
-    for (const doc of snap.docs) {
-      if (limit > 0 && processed >= limit) break;
-
+    for (const uid of targetUids) {
       stats.total++;
       processed++;
-      const uid = doc.id;
-      const data = doc.data() as LegacyUser;
+      const email = mapping.results.find((u) => u.uid === uid)?.email || uid;
 
       try {
-        // Track format
-        if (isV2Format(data)) {
-          stats.formatBreakdown.v2++;
-        } else {
-          stats.formatBreakdown.v1++;
+        const legacyDoc = await legacyDb.collection(COLLECTIONS.LEGACY_USERS).doc(uid).get();
+        if (!legacyDoc.exists) {
+          console.log(`  ⚠ ${email} (${uid}) — legacy doc not found, skipping`);
+          stats.skipped++;
+          continue;
         }
+        const data = legacyDoc.data() as LegacyUser;
 
-        // Transform
+        // Track format
+        if (isV2Format(data)) stats.formatBreakdown.v2++;
+        else stats.formatBreakdown.v1++;
+
         const { user, warnings } = transformLegacyUser(uid, data);
 
-        // Track role
         const role = user['role'] as string;
         stats.roleBreakdown[role] = (stats.roleBreakdown[role] || 0) + 1;
 
-        // Track sports
         const sports = user['sports'] as Record<string, unknown>[];
         for (const s of sports) {
           const sn = (s['sport'] as string) || 'unknown';
           stats.sportBreakdown[sn] = (stats.sportBreakdown[sn] || 0) + 1;
         }
 
-        // Track warnings
         if (warnings.length > 0) {
           stats.warnings += warnings.length;
           warningLog.push({ uid, warnings });
-          if (isVerbose) {
-            console.log(`\n    ⚠ ${uid}: ${warnings.join('; ')}`);
-          }
         }
 
-        // Write to target (preserve UID)
+        console.log(`  → ${email}`);
+        if (isVerbose) {
+          console.log(`     role=${role}, sports=${sports.length}, firstName=${user['firstName']}`);
+        }
+
         const ref = targetDb.collection(COLLECTIONS.USERS).doc(uid);
         writer.set(ref, user);
         await writer.flushIfNeeded();
 
         stats.migrated++;
-
-        if (isVerbose && stats.migrated % 50 === 0) {
-          console.log(
-            `\n    ✓ ${uid} → role=${role}, sports=${sports.length}, measurables=${(user['measurables'] as unknown[]).length}`
-          );
-        }
+        console.log(`     ✅ Done`);
       } catch (err) {
         stats.errors++;
         const msg = err instanceof Error ? err.message : String(err);
         errorLog.push({ uid, error: msg });
-        console.error(`\n    ❌ ${uid}: ${msg}`);
+        console.error(`  ❌ ${email}: ${msg}`);
       }
-
-      progress.tick(processed);
     }
 
-    cursor = snap.docs[snap.docs.length - 1];
+    await writer.flush();
+  } else {
+    // ─── Mode B: Full migration (paginate all users) ──────────────────
+    while (true) {
+      // Build paginated query
+      let query: FirebaseFirestore.Query = legacyDb
+        .collection(COLLECTIONS.LEGACY_USERS)
+        .orderBy('createdAt', 'asc')
+        .limit(PAGE_SIZE);
 
-    // Respect limit
-    if (limit > 0 && processed >= limit) break;
-  }
+      if (resumeAfter && !cursor) {
+        query = query.startAfter(resumeAfter);
+      } else if (cursor) {
+        query = query.startAfter(cursor);
+      }
+
+      const snap = await query.get();
+      if (snap.empty) break;
+
+      for (const doc of snap.docs) {
+        if (limit > 0 && processed >= limit) break;
+
+        stats.total++;
+        processed++;
+        const uid = doc.id;
+        const data = doc.data() as LegacyUser;
+
+        try {
+          // Track format
+          if (isV2Format(data)) {
+            stats.formatBreakdown.v2++;
+          } else {
+            stats.formatBreakdown.v1++;
+          }
+
+          // Transform
+          const { user, warnings } = transformLegacyUser(uid, data);
+
+          // Track role
+          const role = user['role'] as string;
+          stats.roleBreakdown[role] = (stats.roleBreakdown[role] || 0) + 1;
+
+          // Track sports
+          const sports = user['sports'] as Record<string, unknown>[];
+          for (const s of sports) {
+            const sn = (s['sport'] as string) || 'unknown';
+            stats.sportBreakdown[sn] = (stats.sportBreakdown[sn] || 0) + 1;
+          }
+
+          // Track warnings
+          if (warnings.length > 0) {
+            stats.warnings += warnings.length;
+            warningLog.push({ uid, warnings });
+            if (isVerbose) {
+              console.log(`\n    ⚠ ${uid}: ${warnings.join('; ')}`);
+            }
+          }
+
+          // Write to target (preserve UID)
+          const ref = targetDb.collection(COLLECTIONS.USERS).doc(uid);
+          writer.set(ref, user);
+          await writer.flushIfNeeded();
+
+          stats.migrated++;
+
+          if (isVerbose && stats.migrated % 50 === 0) {
+            console.log(
+              `\n    ✓ ${uid} → role=${role}, sports=${sports.length}, measurables=${(user['measurables'] as unknown[]).length}`
+            );
+          }
+        } catch (err) {
+          stats.errors++;
+          const msg = err instanceof Error ? err.message : String(err);
+          errorLog.push({ uid, error: msg });
+          console.error(`\n    ❌ ${uid}: ${msg}`);
+        }
+
+        progress.tick(processed);
+      }
+
+      cursor = snap.docs[snap.docs.length - 1];
+
+      // Respect limit
+      if (limit > 0 && processed >= limit) break;
+    } // end while (Mode B)
+  } // end else (Mode B)
 
   // Flush remaining writes
   await writer.flush();
@@ -1231,7 +1327,12 @@ async function main(): Promise<void> {
 
 // ─── Firestore Timestamp import ───────────────────────────────────────────────
 import type { Firestore } from 'firebase-admin/firestore';
-import FirebaseFirestore from 'firebase-admin/firestore';
+import { Timestamp as FirestoreTimestamp } from 'firebase-admin/firestore';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __migrateDirname = dirname(fileURLToPath(import.meta.url));
 
 main().catch((err) => {
   console.error('\n  FATAL:', err);
