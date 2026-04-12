@@ -34,7 +34,7 @@ const MOCK_RESPONSE = {
 
 const MOCK_TOOL_RESPONSE = {
   id: 'gen-test-002',
-  model: 'anthropic/claude-3.5-sonnet',
+  model: 'anthropic/claude-sonnet-4',
   choices: [
     {
       index: 0,

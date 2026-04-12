@@ -14,7 +14,7 @@ export { monthlyBillingReset } from './monthlyBillingReset';
 export { monthlyOrgInvoice } from './monthlyOrgInvoice';
 
 export { expireStaleWalletHolds } from './expireStaleHolds';
-// Only active in production (nxt-1-v2) via environment check inside the function
-export { dailyPulseUpdates } from './dailyPulseUpdates';
+// Pulse news system: dispatcher (scheduler) + worker (task queue)
+export { pulseDispatcher, pulseWorker } from './dailyPulseUpdates';
 export { summarizeInactiveThreads } from './summarizeInactiveThreads';
 export { cleanupThreadMedia } from './cleanupThreadMedia';

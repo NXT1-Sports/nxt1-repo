@@ -68,6 +68,11 @@ import { ScrapeTwitterTool } from '../tools/integrations/scrape-twitter.tool.js'
 import { ScrapeInstagramTool } from '../tools/integrations/scrape-instagram.tool.js';
 import { ApifyService } from '../tools/integrations/apify.service.js';
 import { ScraperMediaService } from '../tools/integrations/scraper-media.service.js';
+import { ApifyMcpBridgeService } from '../tools/integrations/apify-mcp-bridge.service.js';
+import { SearchApifyActorsTool } from '../tools/integrations/search-apify-actors.tool.js';
+import { GetApifyActorDetailsTool } from '../tools/integrations/get-apify-actor-details.tool.js';
+import { CallApifyActorTool } from '../tools/integrations/call-apify-actor.tool.js';
+import { GetApifyActorOutputTool } from '../tools/integrations/get-apify-actor-output.tool.js';
 import { AskUserTool } from '../tools/comms/ask-user.tool.js';
 import { WriteTimelinePostTool } from '../tools/comms/write-timeline-post.tool.js';
 import { DelegateTaskTool } from '../tools/system/index.js';
@@ -273,6 +278,19 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     logger.warn(
       'APIFY_API_TOKEN not configured — scrape_twitter & scrape_instagram tools disabled'
     );
+  }
+
+  // ── 1c. MCP-bridged Apify tools (2026 architecture) ──────────────────
+  try {
+    const mcpBridge = new ApifyMcpBridgeService();
+    const scraperMedia = new ScraperMediaService();
+    toolRegistry.register(new SearchApifyActorsTool(mcpBridge));
+    toolRegistry.register(new GetApifyActorDetailsTool(mcpBridge));
+    toolRegistry.register(new CallApifyActorTool(mcpBridge, scraperMedia));
+    toolRegistry.register(new GetApifyActorOutputTool(mcpBridge, scraperMedia));
+    logger.info('MCP-bridged Apify tools registered (search, details, call, output)');
+  } catch {
+    logger.warn('APIFY_API_TOKEN not configured — MCP-bridged Apify tools disabled');
   }
 
   const contextBuilder = new ContextBuilder();

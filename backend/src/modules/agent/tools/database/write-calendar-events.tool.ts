@@ -52,6 +52,8 @@ export class WriteCalendarEventsTool extends BaseTool {
     '- userId (required): Firebase UID.\n' +
     '- targetSport (required): Sport key (e.g. "football").\n' +
     '- source (required): Platform slug (e.g. "maxpreps").\n' +
+    '- sourceUrl (optional): The URL that was scraped to extract this data.\n' +
+    '- profileUrl (optional): The athlete profile URL on the source platform.\n' +
     '- events (required): Array of event objects:\n' +
     '  • eventType (required): "game", "practice", "scrimmage", "camp", "tryout", "combine", "showcase", "tournament", or "other".\n' +
     '  • title (optional): Event title / summary.\n' +
@@ -69,6 +71,8 @@ export class WriteCalendarEventsTool extends BaseTool {
       userId: { type: 'string' },
       targetSport: { type: 'string' },
       source: { type: 'string' },
+      sourceUrl: { type: 'string' },
+      profileUrl: { type: 'string' },
       events: {
         type: 'array',
         items: {
@@ -125,6 +129,7 @@ export class WriteCalendarEventsTool extends BaseTool {
     if (!targetSport) return this.paramError('targetSport');
     const source = this.str(input, 'source');
     if (!source) return this.paramError('source');
+    const sourceUrl = this.str(input, 'sourceUrl') ?? this.str(input, 'profileUrl') ?? undefined;
 
     const events = input['events'];
     if (!Array.isArray(events) || events.length === 0) {
@@ -199,9 +204,13 @@ export class WriteCalendarEventsTool extends BaseTool {
           date,
           source,
           verified: false,
+          // Data lineage
+          provider: source,
+          extractedAt: now,
           createdAt: now,
           updatedAt: now,
         };
+        if (sourceUrl) record['sourceUrl'] = sourceUrl;
 
         // Optional fields
         const optionalFields = [

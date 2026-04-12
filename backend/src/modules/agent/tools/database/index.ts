@@ -23,5 +23,3 @@ export { SearchCollegesTool } from './search-colleges.tool.js';
 export { SearchCollegeCoachesTool } from './search-college-coaches.tool.js';
 export { SaveMemoryTool } from './save-memory.tool.js';
 export { DeleteMemoryTool } from './delete-memory.tool.js';
-export { WriteTeamIdentityTool } from './write-team-identity.tool.js';
-export { WriteTeamRosterTool } from './write-team-roster.tool.js';

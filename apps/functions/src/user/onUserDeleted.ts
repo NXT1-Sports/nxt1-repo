@@ -236,10 +236,16 @@ async function cleanupTeams(
     const nextAdmins = filterMemberObjects(data['admins'], userId);
 
     const updateData: Record<string, unknown> = {
-      memberIds: nextMemberIds,
-      members: nextMembers,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
+
+    if (Array.isArray(data['memberIds'])) {
+      updateData['memberIds'] = nextMemberIds;
+    }
+
+    if (Array.isArray(data['members'])) {
+      updateData['members'] = nextMembers;
+    }
 
     if (Array.isArray(data['adminIds'])) {
       updateData['adminIds'] = nextAdminIds;

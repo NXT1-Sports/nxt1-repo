@@ -3,9 +3,9 @@
  * @module @nxt1/backend/modules/agent/tools/database
  *
  * Writes distilled metrics (40-yard dash, bench press, vertical jump, etc.)
- * to the subcollection: Users/{uid}/sports/{sportId}/metrics/{fieldId}
+ * to the root-level collection: PlayerMetrics/{userId}_{sportId}_{field}
  *
- * Each metric is keyed by its `field` name (snake_case), so repeated writes
+ * Each metric uses a deterministic composite doc ID so repeated writes
  * for the same metric field are idempotent (set with merge).
  */
 
@@ -15,10 +15,13 @@ import { getCacheService } from '../../../../services/cache.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
+import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
+import { logger } from '../../../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const USERS_COLLECTION = 'Users';
+const PLAYER_METRICS_COLLECTION = 'PlayerMetrics';
 const MAX_METRICS = 50;
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
@@ -27,13 +30,15 @@ export class WriteCombineMetricsTool extends BaseTool {
   readonly name = 'write_combine_metrics';
 
   readonly description =
-    "Writes physical combine metrics (speed, strength, agility measurements) to the athlete's " +
-    'metrics subcollection: Users/{uid}/sports/{sportId}/metrics/{fieldId}.\n\n' +
+    'Writes physical combine metrics (speed, strength, agility measurements) to the root ' +
+    'PlayerMetrics collection: PlayerMetrics/{userId}_{sportId}_{field}.\n\n' +
     'Call this after reading the "metrics" section via read_distilled_section.\n\n' +
     'Parameters:\n' +
     '- userId (required): Firebase UID.\n' +
     '- targetSport (required): Sport key (e.g. "football").\n' +
     '- source (required): Platform slug (e.g. "maxpreps").\n' +
+    '- sourceUrl (optional): The URL that was scraped to extract this data.\n' +
+    '- profileUrl (optional): The athlete profile URL on the source platform.\n' +
     '- metrics (required): Array of { field, label, value, unit?, category? }.\n' +
     '  field: snake_case machine key (e.g. "forty_yard_dash", "bench_press").\n' +
     '  label: Human-readable name (e.g. "40-Yard Dash").\n' +
@@ -47,6 +52,8 @@ export class WriteCombineMetricsTool extends BaseTool {
       userId: { type: 'string' },
       targetSport: { type: 'string' },
       source: { type: 'string' },
+      sourceUrl: { type: 'string' },
+      profileUrl: { type: 'string' },
       metrics: {
         type: 'array',
         items: {
@@ -86,6 +93,7 @@ export class WriteCombineMetricsTool extends BaseTool {
     if (!targetSport) return this.paramError('targetSport');
     const source = this.str(input, 'source');
     if (!source) return this.paramError('source');
+    const sourceUrl = this.str(input, 'sourceUrl') ?? this.str(input, 'profileUrl') ?? undefined;
 
     const metrics = input['metrics'];
     if (!Array.isArray(metrics) || metrics.length === 0) {
@@ -106,7 +114,7 @@ export class WriteCombineMetricsTool extends BaseTool {
       const userData = userDoc.data() as Record<string, unknown>;
       const sportId = targetSport.trim().toLowerCase();
       const now = new Date().toISOString();
-      const metricsCol = userRef.collection('sports').doc(sportId).collection('metrics');
+      const metricsCol = this.db.collection(PLAYER_METRICS_COLLECTION);
 
       context?.onProgress?.(`Writing ${metrics.length} combine metric(s)…`);
 
@@ -129,18 +137,24 @@ export class WriteCombineMetricsTool extends BaseTool {
             return;
           }
 
-          const docId = field.trim().toLowerCase();
+          const fieldKey = field.trim().toLowerCase();
+          const docId = `${userId}_${sportId}_${fieldKey}`;
           const record: Record<string, unknown> = {
             id: docId,
+            userId,
             sportId,
-            field: docId,
+            field: fieldKey,
             label,
             value,
             source,
             verified: false,
             dateRecorded: now,
             updatedAt: now,
+            // Data lineage
+            provider: source,
+            extractedAt: now,
           };
+          if (sourceUrl) record['sourceUrl'] = sourceUrl;
 
           const unit = this.str(m, 'unit');
           if (unit) record['unit'] = unit;
@@ -158,7 +172,7 @@ export class WriteCombineMetricsTool extends BaseTool {
         const cache = getCacheService();
         await Promise.all([
           cache.del(USER_CACHE_KEYS.USER_BY_ID(userId)),
-          cache.del(`profile:sub:metrics:${userId}:${sportId}`),
+          cache.del(`profile:metrics:${userId}:${sportId}`),
           invalidateProfileCaches(
             userId,
             typeof userData['username'] === 'string' ? userData['username'] : undefined,
@@ -169,6 +183,51 @@ export class WriteCombineMetricsTool extends BaseTool {
         await contextBuilder.invalidateContext(userId);
       } catch {
         // Best-effort
+      }
+
+      // ── Delta Trigger (metrics — no structural diff yet, Phase 2) ─────
+      // SyncDiffService has no diffMetrics() yet. Fire a minimal delta so
+      // the trigger pipeline still runs for metric updates.
+      if (written > 0) {
+        try {
+          const delta = {
+            userId,
+            sport: sportId,
+            source,
+            syncedAt: now,
+            isEmpty: false,
+            identityChanges: [],
+            newCategories: [],
+            statChanges: [],
+            newRecruitingActivities: [],
+            newAwards: [],
+            newScheduleEvents: [],
+            newVideos: [],
+            summary: {
+              identityFieldsChanged: 0,
+              newCategoriesAdded: 0,
+              statsUpdated: 0,
+              newRecruitingActivities: 0,
+              newAwards: 0,
+              newScheduleEvents: 0,
+              newVideos: 0,
+              totalChanges: written,
+            },
+          } as const;
+          onDailySyncComplete(delta).catch((err) =>
+            logger.error('[WriteCombineMetrics] Trigger failed', {
+              userId,
+              sport: sportId,
+              error: err instanceof Error ? err.message : String(err),
+            })
+          );
+        } catch (err) {
+          logger.error('[WriteCombineMetrics] Delta trigger failed', {
+            userId,
+            sport: sportId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
 
       return {

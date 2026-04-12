@@ -17,15 +17,15 @@ import type { ModelTier, AgentIdentifier } from '@nxt1/core';
  */
 export const MODEL_CATALOGUE: Record<ModelTier, string> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: 'anthropic/claude-3.5-sonnet',
+  routing: 'anthropic/claude-sonnet-4',
   extraction: 'anthropic/claude-haiku-4-5',
   data_heavy: 'qwen/qwen3.6-plus',
   evaluator: 'minimax/minimax-m2.7',
   compliance: 'openai/gpt-4o',
-  copywriting: 'anthropic/claude-3.5-sonnet',
-  prompt_engineering: 'anthropic/claude-3.5-sonnet',
+  copywriting: 'anthropic/claude-sonnet-4',
+  prompt_engineering: 'anthropic/claude-sonnet-4',
   chat: 'anthropic/claude-haiku-4-5',
-  task_automation: 'anthropic/claude-3.5-sonnet',
+  task_automation: 'anthropic/claude-sonnet-4',
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: 'google/gemini-3-pro-image-preview',
@@ -51,26 +51,22 @@ export const MODEL_CATALOGUE: Record<ModelTier, string> = {
  */
 export const MODEL_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
+  routing: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
   extraction: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus'],
   data_heavy: ['qwen/qwen3.6-plus', 'anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini'],
-  evaluator: ['minimax/minimax-m2.7', 'anthropic/claude-3.5-sonnet', 'openai/gpt-4o'],
-  compliance: ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet', 'anthropic/claude-haiku-4-5'],
-  copywriting: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'qwen/qwen3.6-plus'],
-  prompt_engineering: [
-    'anthropic/claude-3.5-sonnet',
-    'openai/gpt-4o',
-    'anthropic/claude-haiku-4-5',
-  ],
+  evaluator: ['minimax/minimax-m2.7', 'anthropic/claude-sonnet-4', 'openai/gpt-4o'],
+  compliance: ['openai/gpt-4o', 'anthropic/claude-sonnet-4', 'anthropic/claude-haiku-4-5'],
+  copywriting: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'qwen/qwen3.6-plus'],
+  prompt_engineering: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
   chat: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus'],
-  task_automation: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
+  task_automation: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: ['google/gemini-3-pro-image-preview'],
   video_generation: ['google/gemini-3-pro-image-preview'],
-  vision_analysis: ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet'],
+  vision_analysis: ['openai/gpt-4o', 'anthropic/claude-sonnet-4'],
   video_analysis: ['google/gemini-2.5-flash', 'google/gemini-2.5-pro'],
-  audio_analysis: ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet'],
+  audio_analysis: ['openai/gpt-4o', 'anthropic/claude-sonnet-4'],
   voice_generation: ['openai/gpt-4o-mini'],
   music_generation: ['openai/gpt-4o-mini'],
 

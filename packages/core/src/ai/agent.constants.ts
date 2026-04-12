@@ -448,7 +448,7 @@ export const AGENT_USAGE_LIMITS: readonly AgentUsageLimits[] = [
  * Updated periodically as OpenRouter pricing changes.
  */
 export const AGENT_MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  'anthropic/claude-3.5-sonnet': { input: 3.0, output: 15.0 },
+  'anthropic/claude-sonnet-4': { input: 3.0, output: 15.0 },
   'anthropic/claude-haiku-4-5': { input: 0.8, output: 4.0 },
   'anthropic/claude-3-haiku': { input: 0.25, output: 1.25 },
   'openai/gpt-4o': { input: 2.5, output: 10.0 },

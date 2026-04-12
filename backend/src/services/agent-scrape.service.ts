@@ -81,13 +81,11 @@ export async function enqueueLinkedAccountScrape(
   }
 
   const platformNames = input.linkedAccounts.map((a) => a.platform).join(', ');
-  const urlList = input.linkedAccounts.map((a) => a.profileUrl).join('\n');
+  const urlList = input.linkedAccounts.map((a) => `- ${a.platform}: ${a.profileUrl}`).join('\n');
 
-  // Build a role-aware intent — never assume "athlete"
-  const roleLabel = input.role === 'athlete' ? 'athlete' : input.role;
-  const intent =
-    `Scrape and analyze linked profiles for onboarding ${roleLabel}. ` +
-    `Platforms: ${platformNames}.\n\n${urlList}`;
+  // Pass linked account URLs as a natural user prompt — let the LLM auto-generate
+  // the conversational thread title instead of hard-coding one.
+  const intent = urlList;
 
   const operationId = crypto.randomUUID();
   const sessionId = crypto.randomUUID();
@@ -98,7 +96,7 @@ export async function enqueueLinkedAccountScrape(
     try {
       const thread = await chatService.createThread({
         userId: input.userId,
-        title: `Onboarding Scan · ${platformNames}`,
+        title: `Linked Account Scan`,
         category: 'analytics',
       });
       threadId = thread.id;

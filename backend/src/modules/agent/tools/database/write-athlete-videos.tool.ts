@@ -3,14 +3,14 @@
  * @module @nxt1/backend/modules/agent/tools/database
  *
  * Writes distilled video links (Hudl highlights, YouTube, Vimeo, etc.) to the
- * top-level `Videos` collection.
+ * top-level `Posts` collection with `type: 'highlight'`.
  *
- * Each document follows the VideoDoc schema: ownerType, userId, sportId, type,
- * url, mediaUrl, thumbnailUrl, platform, isPublic, tags, stats, etc.
+ * Each document follows the Posts schema: userId, type, visibility, sportId,
+ * url, mediaUrl, thumbnailUrl, platform, stats, organizationId, teamId, etc.
  * Queried by the profile API: GET /api/v1/auth/profile/:userId/videos
  *
  * Deduplicates by normalized `src` URL so repeated scrapes of the same profile
- * don't create duplicate video entries.
+ * don't create duplicate post entries.
  */
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
@@ -22,10 +22,11 @@ import { SyncDiffService, type PreviousVideoEntry } from '../../sync/index.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 import { logger } from '../../../../utils/logger.js';
 import { normalizeVideoUrl } from './dedup-utils.js';
+import { PostVisibility } from '@nxt1/core';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const VIDEOS_COLLECTION = 'Videos';
+const POSTS_COLLECTION = 'Posts';
 const USERS_COLLECTION = 'Users';
 const MAX_VIDEOS = 100;
 
@@ -37,12 +38,15 @@ export class WriteAthleteVideosTool extends BaseTool {
   readonly name = 'write_athlete_videos';
 
   readonly description =
-    'Writes athlete highlight and profile videos (Hudl, YouTube, Vimeo, etc.) to the Videos collection.\n\n' +
+    'Writes athlete highlight and profile videos (Hudl, YouTube, Vimeo, etc.) to the Posts collection ' +
+    'as highlight posts.\n\n' +
     'Call this after reading the "videos" section via read_distilled_section.\n\n' +
     'Parameters:\n' +
     '- userId (required): Firebase UID.\n' +
     '- targetSport (required): Sport key (e.g. "football").\n' +
     '- source (required): Platform slug (e.g. "hudl").\n' +
+    '- sourceUrl (optional): The URL that was scraped to extract this data.\n' +
+    '- profileUrl (optional): The athlete profile URL on the source platform.\n' +
     '- videos (required): Array of video objects:\n' +
     '  • src (required): Full embed or direct URL of the video.\n' +
     '  • provider (required): "youtube", "hudl", "vimeo", "twitter", or "other".\n' +
@@ -56,6 +60,8 @@ export class WriteAthleteVideosTool extends BaseTool {
       userId: { type: 'string' },
       targetSport: { type: 'string' },
       source: { type: 'string' },
+      sourceUrl: { type: 'string' },
+      profileUrl: { type: 'string' },
       videos: {
         type: 'array',
         items: {
@@ -98,6 +104,7 @@ export class WriteAthleteVideosTool extends BaseTool {
     if (!targetSport) return this.paramError('targetSport');
     const source = this.str(input, 'source');
     if (!source) return this.paramError('source');
+    const sourceUrl = this.str(input, 'sourceUrl') ?? this.str(input, 'profileUrl') ?? undefined;
 
     const videos = input['videos'];
     if (!Array.isArray(videos) || videos.length === 0) {
@@ -120,11 +127,11 @@ export class WriteAthleteVideosTool extends BaseTool {
 
       context?.onProgress?.('Checking for duplicate videos…');
 
-      // Fetch existing videos for dedup
+      // Fetch existing highlight posts for dedup
       const existingSnap = await this.db
-        .collection(VIDEOS_COLLECTION)
+        .collection(POSTS_COLLECTION)
         .where('userId', '==', userId)
-        .where('ownerType', '==', 'user')
+        .where('type', '==', 'highlight')
         .where('sportId', '==', sportId)
         .get();
 
@@ -144,6 +151,18 @@ export class WriteAthleteVideosTool extends BaseTool {
       let skipped = 0;
 
       const batch = this.db.batch();
+
+      // ── Resolve organizationId / teamId from user's sports array (once) ──
+      const sports = userData['sports'] as Array<Record<string, unknown>> | undefined;
+      const sportEntry = sports?.find(
+        (s) => typeof s['id'] === 'string' && s['id'].toLowerCase() === sportId
+      );
+      const teamId =
+        (sportEntry?.['teamId'] as string) ?? (userData['teamId'] as string) ?? undefined;
+      const organizationId =
+        (sportEntry?.['organizationId'] as string) ??
+        (userData['organizationId'] as string) ??
+        undefined;
 
       for (const video of videos) {
         if (!video || typeof video !== 'object') {
@@ -179,22 +198,29 @@ export class WriteAthleteVideosTool extends BaseTool {
         const record: Record<string, unknown> = {
           // ── Identity & ownership ─────────────────────────────────
           userId,
-          ownerType: 'user', // Required: profile route filters on this
+          ownerType: 'user', // Backwards compat with existing queries
           sportId, // Must match profile route's sportId query
+          // ── Referential integrity (Phase 5) ──────────────────────
+          ...(teamId ? { teamId } : {}),
+          ...(organizationId ? { organizationId } : {}),
           // ── Video data (canonical) ───────────────────────────────
           url: trimmedSrc, // VideoDoc canonical field
           mediaUrl: trimmedSrc, // Frontend mapTimelineDoc reads this
           src: trimmedSrc, // Legacy/internal reference
-          type: 'highlight', // ProfilePostType — scraped videos are highlights
-          platform: provider, // VideoDoc field (hudl, youtube, etc.)
+          type: 'highlight', // PostType — scraped videos are highlights
+          visibility: PostVisibility.PUBLIC, // Scraped highlights are public
+          platform: provider, // hudl, youtube, etc.
           provider, // Legacy/internal reference
           source, // Scrape source slug
-          isPublic: true, // Scraped highlights are public
+          isPublic: true, // Backwards compat
           tags: [], // Empty by default
-          stats: { views: 0, likes: 0, shares: 0 },
+          stats: { views: 0, likes: 0, shares: 0, comments: 0 },
+          // Data lineage
+          extractedAt: now,
           createdAt: now,
           updatedAt: now,
         };
+        if (sourceUrl) record['sourceUrl'] = sourceUrl;
 
         if (videoId) record['videoId'] = videoId;
         if (poster) {
@@ -203,7 +229,7 @@ export class WriteAthleteVideosTool extends BaseTool {
         }
         if (title) record['title'] = title;
 
-        const docRef = this.db.collection(VIDEOS_COLLECTION).doc();
+        const docRef = this.db.collection(POSTS_COLLECTION).doc();
         record['id'] = docRef.id;
         batch.set(docRef, record);
         written++;
@@ -214,7 +240,7 @@ export class WriteAthleteVideosTool extends BaseTool {
         await batch.commit();
       }
 
-      // Cache invalidation — route key format: profile:sub:videos:{userId}[:{sportId}]:{limit}
+      // Cache invalidation — route key format: profile:videos:{userId}[:{sportId}]:{limit}
       context?.onProgress?.('Invalidating video caches…');
       try {
         const cache = getCacheService();
@@ -222,8 +248,8 @@ export class WriteAthleteVideosTool extends BaseTool {
         await Promise.all([
           cache.del(USER_CACHE_KEYS.USER_BY_ID(userId)),
           // Match route cache key with default limit (most common)
-          cache.del(`profile:sub:videos:${userId}:${sportId}:${defaultLimit}`),
-          cache.del(`profile:sub:videos:${userId}:${defaultLimit}`),
+          cache.del(`profile:videos:${userId}:${sportId}:${defaultLimit}`),
+          cache.del(`profile:videos:${userId}:${defaultLimit}`),
           invalidateProfileCaches(
             userId,
             typeof userData['username'] === 'string' ? userData['username'] : undefined,

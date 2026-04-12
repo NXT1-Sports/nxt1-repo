@@ -754,7 +754,7 @@ export interface AgentLLMCallRecord {
   readonly operationId: string;
   readonly userId: string;
   readonly agentId: AgentIdentifier;
-  /** The model that was actually used (e.g., 'anthropic/claude-3.5-sonnet'). */
+  /** The model that was actually used (e.g., 'anthropic/claude-sonnet-4'). */
   readonly model: string;
   readonly inputTokens: number;
   readonly outputTokens: number;

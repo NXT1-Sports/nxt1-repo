@@ -17,6 +17,16 @@ export { SendEmailTool } from './integrations/send-email.tool.js';
 export { ScrapeTwitterTool } from './integrations/scrape-twitter.tool.js';
 export { ApifyService } from './integrations/apify.service.js';
 
+// MCP-bridged Apify tools (2026 architecture)
+export {
+  BaseMcpClientService,
+  ApifyMcpBridgeService,
+  SearchApifyActorsTool,
+  GetApifyActorDetailsTool,
+  CallApifyActorTool,
+  GetApifyActorOutputTool,
+} from './integrations/index.js';
+
 // Data / Export tools
 export { DynamicExportTool } from './data/index.js';
 

@@ -42,7 +42,6 @@ import type {
 // ============================================
 
 const USERS_COLLECTION = 'Users';
-const VIDEOS_COLLECTION = 'Videos';
 const POSTS_COLLECTION = 'Posts';
 const ACTIVITY_COLLECTION = 'activity';
 
@@ -140,8 +139,9 @@ async function fetchUserVideos(
 ): Promise<Array<Record<string, unknown>>> {
   try {
     const snapshot = await db
-      .collection(VIDEOS_COLLECTION)
-      .where('creatorId', '==', uid)
+      .collection(POSTS_COLLECTION)
+      .where('userId', '==', uid)
+      .where('type', '==', 'highlight')
       .limit(100)
       .get();
     return snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<Record<string, unknown>>;

@@ -225,11 +225,12 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
   readonly name = 'scrape_and_index_profile';
 
   readonly description =
-    'Scrapes an athlete profile page (MaxPreps, Hudl, 247Sports, Perfect Game, etc.) and returns a ' +
+    'Scrapes a sports profile page (athlete, team, or organization — MaxPreps, Hudl, 247Sports, Perfect Game, etc.) and returns a ' +
     'lightweight INDEX of what data was found — NOT the raw data itself. ' +
     'Uses AI-powered extraction to parse any sports platform. ' +
-    'The index tells you which sections are available (identity, stats, schedule, recruiting, etc.) ' +
-    'and their counts. Use `read_distilled_section` to fetch each section individually. ' +
+    'The index includes a `profileType` field ("athlete", "team", or "organization") and tells you ' +
+    'which sections are available (identity, stats, schedule, recruiting, etc.) and their counts. ' +
+    'Use `read_distilled_section` to fetch each section individually. ' +
     'This prevents context overflow from massive JSON payloads.\n\n' +
     'If AI extraction fails or finds no usable data, falls back to returning raw markdown + ' +
     'structured data. In fallback mode, use the markdown content to extract fields manually.\n\n' +
@@ -241,7 +242,8 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
     properties: {
       url: {
         type: 'string',
-        description: 'The full URL of the athlete profile to scrape.',
+        description:
+          'The full URL of the sports profile page to scrape (athlete, team, or organization).',
       },
       force: {
         type: 'boolean',
@@ -298,6 +300,7 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
             success: true,
             data: {
               mode: 'distilled',
+              profileType: index.profileType ?? 'athlete',
               platform: index.platform,
               url: cleanUrl,
               faviconUrl: null,
@@ -405,6 +408,7 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
             success: true,
             data: {
               mode: 'distilled',
+              profileType: index.profileType ?? 'athlete',
               platform: index.platform,
               url: cleanUrl,
               faviconUrl: result.pageData?.faviconUrl ?? null,

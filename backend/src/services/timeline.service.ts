@@ -15,6 +15,9 @@
  *     → map each doc → FeedItem variant (via @nxt1/core mappers)
  *     → merge, sort by createdAt desc
  *     → slice to limit
+ *
+ * NOTE: Videos are consolidated into the Posts collection as type: 'highlight'.
+ * There is no separate Videos collection query — highlights come through fetchPosts.
  */
 
 import type { Firestore } from 'firebase-admin/firestore';
@@ -25,7 +28,6 @@ import {
   feedPostToFeedItem,
   eventDocToFeedItemEvent,
   statDocToFeedItemStat,
-  videoDocToFeedItemPost,
 } from '@nxt1/core/feed';
 import { logger } from '../utils/logger.js';
 
@@ -36,7 +38,6 @@ import { logger } from '../utils/logger.js';
 const POSTS_COLLECTION = 'Posts';
 const EVENTS_COLLECTION = 'Events';
 const PLAYER_STATS_COLLECTION = 'PlayerStats';
-const VIDEOS_COLLECTION = 'Videos';
 
 // ============================================
 // TYPES
@@ -82,11 +83,10 @@ export class TimelineService {
       hasCursor: !!cursor,
     });
 
-    const [posts, events, stats, videos] = await Promise.all([
+    const [posts, events, stats] = await Promise.all([
       this.fetchPosts(userId, fetchLimit, sportId, cursor),
       this.fetchEvents(userId, fetchLimit, sportId, cursor),
       this.fetchStats(userId, fetchLimit, sportId, cursor),
-      this.fetchVideos(userId, fetchLimit, sportId, cursor),
     ]);
 
     // Map to polymorphic FeedItem variants
@@ -103,10 +103,6 @@ export class TimelineService {
 
     for (const stat of stats) {
       items.push(statDocToFeedItemStat(stat.id, stat.data, author));
-    }
-
-    for (const video of videos) {
-      items.push(videoDocToFeedItemPost(video.id, video.data, author));
     }
 
     // Sort all items by date descending (newest first)
@@ -126,7 +122,6 @@ export class TimelineService {
       posts: posts.length,
       events: events.length,
       stats: stats.length,
-      videos: videos.length,
       hasMore,
     });
 
@@ -380,80 +375,6 @@ export class TimelineService {
       return results.slice(0, limit);
     } catch (err) {
       logger.error('[Timeline] Failed to fetch stats', {
-        userId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return [];
-    }
-  }
-
-  /**
-   * Fetch highlight videos from the top-level Videos collection.
-   * These are scraped external video links (Hudl, YouTube, Vimeo, etc.)
-   * written by the write_athlete_videos tool.
-   */
-  private async fetchVideos(
-    userId: string,
-    limit: number,
-    sportId?: string,
-    cursor?: string
-  ): Promise<
-    Array<{
-      id: string;
-      data: {
-        url: string;
-        thumbnailUrl?: string;
-        title?: string;
-        platform?: string;
-        source?: string;
-        createdAt: string;
-        stats?: { views?: number; likes?: number; shares?: number };
-      };
-    }>
-  > {
-    try {
-      let query = this.db
-        .collection(VIDEOS_COLLECTION)
-        .where('userId', '==', userId)
-        .where('ownerType', '==', 'user')
-        .orderBy('createdAt', 'desc') as FirebaseFirestore.Query;
-
-      if (sportId) {
-        query = query.where('sportId', '==', sportId.toLowerCase());
-      }
-
-      if (cursor) {
-        const cursorDate = Buffer.from(cursor, 'base64').toString();
-        query = query.where('createdAt', '<', cursorDate);
-      }
-
-      query = query.limit(limit);
-      const snap = await query.get();
-
-      return snap.docs.map((doc) => {
-        const d = doc.data();
-        const createdAt =
-          typeof d['createdAt'] === 'string'
-            ? d['createdAt']
-            : d['createdAt']
-              ? this.firestoreTimestampToISO(d['createdAt'])
-              : new Date().toISOString();
-
-        return {
-          id: doc.id,
-          data: {
-            url: (d['url'] as string) ?? (d['mediaUrl'] as string) ?? (d['src'] as string) ?? '',
-            thumbnailUrl: (d['thumbnailUrl'] as string) ?? (d['poster'] as string | undefined),
-            title: d['title'] as string | undefined,
-            platform: (d['platform'] as string) ?? (d['provider'] as string | undefined),
-            source: d['source'] as string | undefined,
-            createdAt,
-            stats: d['stats'] as { views?: number; likes?: number; shares?: number } | undefined,
-          },
-        };
-      });
-    } catch (err) {
-      logger.error('[Timeline] Failed to fetch videos', {
         userId,
         error: err instanceof Error ? err.message : String(err),
       });

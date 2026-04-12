@@ -49,6 +49,8 @@ export class WriteSeasonStatsTool extends BaseTool {
     '- userId (required): Firebase UID.\n' +
     '- targetSport (required): Sport key (e.g. "football").\n' +
     '- source (required): Platform slug (e.g. "maxpreps").\n' +
+    '- sourceUrl (optional): The URL that was scraped to extract this data.\n' +
+    '- profileUrl (optional): The athlete profile URL on the source platform.\n' +
     '- position (optional): Primary position (e.g. "QB") for PlayerStats docs.\n' +
     '- teamType (optional): "school" (default), "club", or "college".\n' +
     '- seasonStats (required): Array of season stat objects, each with:\n' +
@@ -65,6 +67,8 @@ export class WriteSeasonStatsTool extends BaseTool {
       userId: { type: 'string' },
       targetSport: { type: 'string' },
       source: { type: 'string' },
+      sourceUrl: { type: 'string' },
+      profileUrl: { type: 'string' },
       position: { type: 'string' },
       teamType: { type: 'string', enum: ['school', 'club', 'college'] },
       seasonStats: {
@@ -132,6 +136,7 @@ export class WriteSeasonStatsTool extends BaseTool {
     if (!source) return this.paramError('source');
     const position = this.str(input, 'position') ?? undefined;
     const teamType = (this.str(input, 'teamType') ?? 'school') as SupportedTeamType;
+    const sourceUrl = this.str(input, 'sourceUrl') ?? this.str(input, 'profileUrl') ?? undefined;
 
     const seasonStats = input['seasonStats'];
     if (!Array.isArray(seasonStats) || seasonStats.length === 0) {
@@ -229,6 +234,10 @@ export class WriteSeasonStatsTool extends BaseTool {
             gameLogs: mergedGameLogs,
             source,
             verified: false,
+            // Data lineage
+            provider: source,
+            extractedAt: now,
+            ...(sourceUrl ? { sourceUrl } : {}),
             createdAt: existingData?.['createdAt'] ?? now,
             updatedAt: now,
           },
@@ -331,7 +340,7 @@ export class WriteSeasonStatsTool extends BaseTool {
    * This snapshot is compared against the new extraction to compute the delta.
    */
   private snapshotPreviousState(
-    userData: Record<string, unknown>,
+    _userData: Record<string, unknown>,
     existingPSDocs: Map<string, Record<string, unknown>>
   ): PreviousProfileState {
     const seasonStats: PreviousSeasonEntry[] = [];
@@ -359,18 +368,7 @@ export class WriteSeasonStatsTool extends BaseTool {
     }
 
     return {
-      identity: {
-        firstName: userData['firstName'],
-        lastName: userData['lastName'],
-        displayName: userData['displayName'],
-        height: userData['height'],
-        weight: userData['weight'],
-        classOf: userData['classOf'],
-        city: userData['city'],
-        state: userData['state'],
-        school: userData['school'],
-        profileImage: userData['profileImage'],
-      },
+      // Identity diffing is owned by write_core_identity — omitted here.
       seasonStats,
     };
   }

@@ -17,7 +17,7 @@ import { notFoundError, forbiddenError, fieldError } from '@nxt1/core/errors';
 import type { User, SportProfile, TeamType, UserRole } from '@nxt1/core';
 import { formatFileSize, TEAM_TYPES } from '@nxt1/core';
 import { invalidateProfileCaches } from './profile.routes.js';
-import { enqueueWelcomeGraphic } from '../services/agent-welcome.service.js';
+import { enqueueWelcomeGraphicIfReady } from '../services/agent-welcome.service.js';
 import type {
   EditProfileData,
   EditProfileFormData,
@@ -296,11 +296,26 @@ function sectionToFirestoreUpdate(
 
     case 'sports-info': {
       const data = sectionData as EditProfileSportsInfo;
+      const isCoachOrDirector = user.role === 'coach' || user.role === 'director';
 
-      // Use provided sportIndex or fall back to activeSportIndex
+      // Coaches/directors NEVER have physical sports[] in Firestore — it's
+      // deleted during onboarding and synthesized at read-time by
+      // ProfileHydrationService. Their team data is written to the Organization
+      // doc in the route handler (same pattern as connected-sources).
+      if (isCoachOrDirector) {
+        logger.info(
+          '[EditProfile] Coach/director sports-info — skipping user sports[], org write handled by route handler',
+          {
+            userId: user.id,
+            incomingData: data,
+          }
+        );
+        break;
+      }
+
+      // ── Athletes only below this point ───────────────────────────────────
       const targetIndex = sportIndex ?? user.activeSportIndex ?? 0;
 
-      // Safety check: Ensure sports array exists and has target index
       if (!user.sports || !Array.isArray(user.sports) || !user.sports[targetIndex]) {
         logger.error('[EditProfile] Sports array invalid for update', {
           userId: user.id,
@@ -1019,6 +1034,76 @@ router.put(
       delete updates['connectedSources'];
     }
 
+    // For coach/director roles, sports-info data belongs on the Organization doc, not User doc.
+    // This mirrors onboarding which deletes sports[] for coaches and stores team data on Org/Team docs.
+    if (sectionId === 'sports-info' && isTeamRole) {
+      const coachTeamId = (user.teamCode as Record<string, string> | null | undefined)?.['teamId'];
+
+      if (coachTeamId) {
+        try {
+          const teamDoc = await db.collection('Teams').doc(coachTeamId).get();
+          const teamData = teamDoc.exists ? teamDoc.data() : null;
+          const orgId = teamData?.['organizationId'] as string | undefined;
+          const sportsData = sectionData as EditProfileSportsInfo;
+
+          // Update Team doc with sport name if provided
+          if (sportsData.sport !== undefined) {
+            await db
+              .collection('Teams')
+              .doc(coachTeamId)
+              .update({
+                sportName: sportsData.sport || '',
+                updatedAt: new Date(),
+              });
+            logger.info('[EditProfile] Coach sport saved to Team doc', {
+              userId: uid,
+              teamId: coachTeamId,
+              sport: sportsData.sport,
+            });
+          }
+
+          // Update Organization doc with team-level display data
+          if (orgId) {
+            const orgUpdates: Record<string, unknown> = { updatedAt: new Date() };
+            if (sportsData.teamName !== undefined) orgUpdates['name'] = sportsData.teamName || '';
+            if (sportsData.teamLogoUrl !== undefined)
+              orgUpdates['logoUrl'] = sportsData.teamLogoUrl || null;
+
+            if (Object.keys(orgUpdates).length > 1) {
+              await db.collection('organizations').doc(orgId).update(orgUpdates);
+              logger.info('[EditProfile] Coach sports-info saved to Organization doc', {
+                userId: uid,
+                organizationId: orgId,
+                updatedFields: Object.keys(orgUpdates).filter((k) => k !== 'updatedAt'),
+              });
+            }
+          } else {
+            logger.warn(
+              '[EditProfile] No organizationId on Team doc — cannot write coach sports-info to Org',
+              {
+                userId: uid,
+                teamId: coachTeamId,
+              }
+            );
+          }
+        } catch (err) {
+          logger.error('[EditProfile] Failed to save coach sports-info to Org/Team docs', {
+            userId: uid,
+            teamId: coachTeamId,
+            err,
+          });
+          throw err;
+        }
+      } else {
+        logger.warn(
+          '[EditProfile] Coach has no teamCode.teamId — cannot resolve Organization for sports-info',
+          {
+            userId: uid,
+          }
+        );
+      }
+    }
+
     // Log the exact raw updates object for debugging
     logger.debug('[EditProfile] RAW updates object being sent to Firestore:', {
       rawUpdates: JSON.stringify(updates, null, 2),
@@ -1036,65 +1121,112 @@ router.put(
     // ─── Deferred welcome graphic ──────────────────────────────────────────
     // Generate a welcome graphic the FIRST time the user adds a relevant image:
     //   • Athletes / parents → first profile image (profileImgs)
-    //   • Coaches / directors → first team logo (teamLogoUrl)
-    // The flag `welcomeGraphicQueued` on the user document prevents duplicates.
-    const hasWelcomeGraphicAlready = !!(updatedDoc.data() as Record<string, unknown> | undefined)?.[
-      'welcomeGraphicQueued'
-    ];
+    //   • Coaches / directors → org/team has a logo (resolved from Team → Organization docs)
+    const role = (updatedUser.role ?? 'athlete') as UserRole;
+    const isCoachDirector = role === 'coach' || role === 'director';
+    const primarySportIndex = updatedUser.activeSportIndex ?? 0;
+    const primarySport = updatedUser.sports?.[primarySportIndex];
+
+    // For coaches/directors, resolve org chain: teamCode.teamId → Team doc → Organization doc.
+    // Coaches don't have reliable sports[] on their raw Firestore doc (it's synthesized
+    // at read-time by ProfileHydrationService). All team/org data comes from the docs directly.
+    let organizationId: string | undefined;
+    let teamDocData: Record<string, unknown> | undefined;
+    let orgDocData: Record<string, unknown> | undefined;
+
+    if (isCoachDirector) {
+      const teamDocId =
+        (updatedUser.teamCode as Record<string, string> | null | undefined)?.['teamId'] ??
+        updatedUser.teamCode?.id;
+
+      if (teamDocId) {
+        try {
+          const teamDoc = await db.collection('Teams').doc(teamDocId).get();
+          if (teamDoc.exists) {
+            teamDocData = teamDoc.data() as Record<string, unknown>;
+            organizationId = teamDocData['organizationId'] as string | undefined;
+          }
+        } catch (err) {
+          logger.warn('[EditProfile] Failed to resolve team for welcome graphic', {
+            teamDocId,
+            err,
+          });
+        }
+      }
+
+      if (organizationId) {
+        try {
+          const orgDoc = await db.collection('organizations').doc(organizationId).get();
+          if (orgDoc.exists) {
+            orgDocData = orgDoc.data() as Record<string, unknown>;
+          }
+        } catch (err) {
+          logger.warn('[EditProfile] Failed to resolve org for welcome graphic', {
+            organizationId,
+            err,
+          });
+        }
+      }
+    } else {
+      organizationId = primarySport?.team?.organizationId;
+    }
+
+    let hasWelcomeGraphicAlready = false;
+
+    if (isCoachDirector && organizationId) {
+      // Coaches: dedup on Organization doc so multiple coaches on the same team don't re-trigger
+      hasWelcomeGraphicAlready = !!orgDocData?.['welcomeGraphicQueued'];
+    } else if (!isCoachDirector) {
+      // Athletes: dedup on User doc
+      hasWelcomeGraphicAlready = !!(updatedDoc.data() as Record<string, unknown> | undefined)?.[
+        'welcomeGraphicQueued'
+      ];
+    }
 
     if (!hasWelcomeGraphicAlready) {
-      const role = (updatedUser.role ?? 'athlete') as UserRole;
-      const isTeamRole = role === 'coach' || role === 'director';
-
-      // Determine if the relevant image was just added
+      // Athlete trigger: first profile image upload (compare pre → post)
       const hadProfileImg = !!(user.profileImgs && user.profileImgs.length > 0);
       const hasProfileImgNow = !!(updatedUser.profileImgs && updatedUser.profileImgs.length > 0);
-      const athleteImageAdded = !isTeamRole && !hadProfileImg && hasProfileImgNow;
+      const athleteImageAdded = !isCoachDirector && !hadProfileImg && hasProfileImgNow;
 
-      const hadTeamLogo = !!user.sports?.[user.activeSportIndex ?? 0]?.team?.logoUrl;
-      const hasTeamLogoNow =
-        !!updatedUser.sports?.[updatedUser.activeSportIndex ?? 0]?.team?.logoUrl;
-      const teamLogoAdded = isTeamRole && !hadTeamLogo && hasTeamLogoNow;
+      // Coach trigger: the Organization or Team doc already has a logo.
+      // We intentionally read from org/team docs — NOT from sports[] which is
+      // synthetic for coaches. The dedup flag on the org prevents re-triggering.
+      const orgLogoUrl =
+        (orgDocData?.['logoUrl'] as string | undefined) ??
+        (teamDocData?.['logoUrl'] as string | undefined) ??
+        (teamDocData?.['teamLogoImg'] as string | undefined);
+      const teamLogoAvailable = isCoachDirector && !!orgLogoUrl;
 
-      if (athleteImageAdded || teamLogoAdded) {
-        const primarySport = updatedUser.sports?.[updatedUser.activeSportIndex ?? 0];
+      if (athleteImageAdded || teamLogoAvailable) {
         const agentEnv = req.isStaging ? 'staging' : 'production';
 
-        // Mark the flag immediately so concurrent requests don't enqueue twice
-        void userRef.update({ welcomeGraphicQueued: true }).catch((err) =>
-          logger.warn('[EditProfile] Failed to set welcomeGraphicQueued flag', {
-            userId: uid,
-            err,
-          })
-        );
+        void enqueueWelcomeGraphicIfReady(db, { userId: uid }, agentEnv)
+          .then((result) => {
+            if (result.status === 'enqueued') {
+              logger.info('[EditProfile] Welcome graphic enqueued', {
+                userId: uid,
+                trigger: athleteImageAdded ? 'profileImage' : 'teamLogo',
+                role,
+                ...(organizationId ? { organizationId } : {}),
+              });
+              return;
+            }
 
-        void enqueueWelcomeGraphic(
-          db,
-          {
-            userId: uid,
-            displayName:
-              `${updatedUser.firstName ?? ''} ${updatedUser.lastName ?? ''}`.trim() || 'Athlete',
-            role,
-            sport: primarySport?.sport,
-            position: primarySport?.positions?.[0],
-            profileImageUrl: updatedUser.profileImgs?.[0],
-            teamName: primarySport?.team?.name,
-            teamLogoUrl: primarySport?.team?.logoUrl,
-            teamColors: primarySport?.team?.colors as string[] | undefined,
-          },
-          agentEnv
-        ).catch((err) =>
-          logger.error('[EditProfile] Failed to enqueue welcome graphic', {
-            userId: uid,
-            error: err,
+            logger.info('[EditProfile] Welcome graphic deferred', {
+              userId: uid,
+              trigger: athleteImageAdded ? 'profileImage' : 'teamLogo',
+              role,
+              reason: result.reason,
+              ...(organizationId ? { organizationId } : {}),
+            });
           })
-        );
-
-        logger.info('[EditProfile] Welcome graphic enqueued on first image upload', {
-          userId: uid,
-          trigger: athleteImageAdded ? 'profileImage' : 'teamLogo',
-          role,
-        });
+          .catch((err) =>
+            logger.error('[EditProfile] Failed to evaluate welcome graphic enqueue', {
+              userId: uid,
+              error: err,
+            })
+          );
       }
     }
     // ─── End deferred welcome graphic ──────────────────────────────────────

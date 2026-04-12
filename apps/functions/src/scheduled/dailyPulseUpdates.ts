@@ -1,18 +1,19 @@
 /**
- * @fileoverview Daily Pulse Updates — AI News Generator
+ * @fileoverview Pulse System — AI News Generator (Dispatcher + Worker)
  * @module @nxt1/functions/scheduled/dailyPulseUpdates
  *
- * Runs daily at 7 AM Eastern. Uses Perplexity Sonar (live web search) via
- * OpenRouter to find real sports recruiting articles, then scrapes og:image
- * from each source URL, generates AI summaries via DeepSeek Chat, and writes
- * them to Firestore `News/{id}`.
+ * Dispatcher/Worker fan-out pattern for scalable AI news generation.
  *
  * Architecture:
- *   1. Call Perplexity `sonar` (online model) via OpenRouter to search for
- *      today's top high school / college sports recruiting articles.
- *   2. Parse the structured JSON response containing article metadata.
- *   3. For each article, generate an AI summary via a fast model.
- *   4. Write articles to Firestore with real publisher attribution.
+ *   pulseDispatcher (scheduled, 7 AM ET daily)
+ *     1. Query Firestore Users for unique [sport, state] combos
+ *     2. Enqueue each combo as a Cloud Task to pulseWorker
+ *
+ *   pulseWorker (task-dispatched, per [sport, state] combo)
+ *     1. Discover ~15 real HS sports articles via Perplexity Sonar (live web search)
+ *     2. Scrape og:image from each source URL via cheerio
+ *     3. Generate AI summaries via DeepSeek Chat
+ *     4. Write to Firestore `News/{id}` with real publisher attribution
  *
  * Required secrets (Firebase Secret Manager):
  *   - OPENROUTER_API_KEY: API key for OpenRouter
@@ -23,8 +24,10 @@
 
 import * as admin from 'firebase-admin';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { defineSecret } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
+import { getFunctions } from 'firebase-admin/functions';
 import * as cheerio from 'cheerio';
 
 const OPENROUTER_API_KEY = defineSecret('OPENROUTER_API_KEY');
@@ -32,9 +35,10 @@ const OPENROUTER_API_KEY = defineSecret('OPENROUTER_API_KEY');
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const NEWS_COLLECTION = 'News';
+const USERS_COLLECTION = 'Users';
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
-/** NUMBER OF DAYS BEFORE FIRESTORE TTL AUTO-DELETES AN ARTICLE. */
+/** Number of days before Firestore TTL auto-deletes an article. */
 const ARTICLE_TTL_DAYS = 14;
 
 /** Model for searching/discovering news — Perplexity has LIVE web search built in. */
@@ -46,7 +50,86 @@ const SUMMARY_MODEL = 'deepseek/deepseek-chat';
 const TARGET_ARTICLE_COUNT = 15;
 const MAX_RETRIES = 2;
 
+/** Safety cap: max unique [sport, state] buckets to enqueue per run. */
+const MAX_PULSE_BUCKETS = 100;
+
+/**
+ * Default buckets when no user-derived combos exist (cold start).
+ * Ensures the platform always has fresh content, even with zero onboarded users.
+ */
+const DEFAULT_BUCKETS: PulseTaskPayload[] = [
+  { sport: 'Football', state: 'Texas' },
+  { sport: 'Football', state: 'California' },
+  { sport: 'Football', state: 'Florida' },
+  { sport: 'Basketball Mens', state: 'Texas' },
+  { sport: 'Basketball Mens', state: 'California' },
+];
+
+/**
+ * State abbreviation → full name map.
+ * Used to convert Firestore user location abbreviations (e.g. 'TX')
+ * to full names (e.g. 'Texas') for AI search prompts.
+ */
+const STATE_NAME_MAP: Record<string, string> = {
+  AL: 'Alabama',
+  AK: 'Alaska',
+  AZ: 'Arizona',
+  AR: 'Arkansas',
+  CA: 'California',
+  CO: 'Colorado',
+  CT: 'Connecticut',
+  DE: 'Delaware',
+  FL: 'Florida',
+  GA: 'Georgia',
+  HI: 'Hawaii',
+  ID: 'Idaho',
+  IL: 'Illinois',
+  IN: 'Indiana',
+  IA: 'Iowa',
+  KS: 'Kansas',
+  KY: 'Kentucky',
+  LA: 'Louisiana',
+  ME: 'Maine',
+  MD: 'Maryland',
+  MA: 'Massachusetts',
+  MI: 'Michigan',
+  MN: 'Minnesota',
+  MS: 'Mississippi',
+  MO: 'Missouri',
+  MT: 'Montana',
+  NE: 'Nebraska',
+  NV: 'Nevada',
+  NH: 'New Hampshire',
+  NJ: 'New Jersey',
+  NM: 'New Mexico',
+  NY: 'New York',
+  NC: 'North Carolina',
+  ND: 'North Dakota',
+  OH: 'Ohio',
+  OK: 'Oklahoma',
+  OR: 'Oregon',
+  PA: 'Pennsylvania',
+  RI: 'Rhode Island',
+  SC: 'South Carolina',
+  SD: 'South Dakota',
+  TN: 'Tennessee',
+  TX: 'Texas',
+  UT: 'Utah',
+  VT: 'Vermont',
+  VA: 'Virginia',
+  WA: 'Washington',
+  WV: 'West Virginia',
+  WI: 'Wisconsin',
+  WY: 'Wyoming',
+  DC: 'District of Columbia',
+};
+
 // ─── Types ──────────────────────────────────────────────────────────────────
+
+interface PulseTaskPayload {
+  sport: string;
+  state: string;
+}
 
 interface DiscoveredArticle {
   title: string;
@@ -64,6 +147,13 @@ interface DiscoveredArticle {
 interface ArticleWithContent extends DiscoveredArticle {
   content: string;
   slug: string;
+}
+
+/** Minimal Firestore user document shape for bucket discovery. */
+interface UserDocSnapshot {
+  onboardingCompleted?: boolean;
+  sports?: Array<{ sport?: string; [key: string]: unknown }>;
+  location?: { state?: string; [key: string]: unknown };
 }
 
 // ─── OpenRouter Helper ──────────────────────────────────────────────────────
@@ -461,35 +551,150 @@ async function writeArticlesToFirestore(articles: ArticleWithContent[]): Promise
   return written;
 }
 
-// ─── Scheduled Function ─────────────────────────────────────────────────────
+// ─── Bucket Discovery ───────────────────────────────────────────────────────
 
 /**
- * Daily Pulse Updates — 7:00 AM ET, every day.
- *
- * 1. Discovers 15-20 real HS sports articles via Perplexity Sonar (live web search)
- * 2. Scrapes og:image from each source URL via cheerio
- * 3. Generates AI summaries via DeepSeek Chat
- * 4. Writes to Firestore `News/{id}` with real publisher attribution
+ * Query Firestore Users to derive unique [sport, state] pairs.
+ * Converts state abbreviations (e.g. 'TX') to full names (e.g. 'Texas')
+ * because the AI discovery prompts need full state names for accurate results.
  */
-export const dailyPulseUpdates = onSchedule(
+async function discoverBucketsFromUsers(): Promise<PulseTaskPayload[]> {
+  const db = admin.firestore();
+  const snap = await db
+    .collection(USERS_COLLECTION)
+    .where('onboardingCompleted', '==', true)
+    .select('sports', 'location')
+    .get();
+
+  if (snap.empty) {
+    logger.warn('[Pulse] No onboarded users found — using default buckets');
+    return DEFAULT_BUCKETS;
+  }
+
+  const seen = new Set<string>();
+  const buckets: PulseTaskPayload[] = [];
+
+  for (const doc of snap.docs) {
+    const data = doc.data() as UserDocSnapshot;
+    const stateAbbr = data.location?.state;
+    const stateName = stateAbbr ? STATE_NAME_MAP[stateAbbr] : undefined;
+
+    if (!stateName || !data.sports?.length) continue;
+
+    for (const sportProfile of data.sports) {
+      const sport = sportProfile.sport;
+      if (!sport) continue;
+
+      const key = `${sport}|${stateName}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      buckets.push({ sport, state: stateName });
+
+      if (buckets.length >= MAX_PULSE_BUCKETS) {
+        logger.warn('[Pulse] Reached max bucket limit', { max: MAX_PULSE_BUCKETS });
+        return buckets;
+      }
+    }
+  }
+
+  if (buckets.length === 0) {
+    logger.warn('[Pulse] No valid sport/state combos found — using default buckets');
+    return DEFAULT_BUCKETS;
+  }
+
+  return buckets;
+}
+
+// ─── Scheduled Dispatcher ───────────────────────────────────────────────────
+
+/**
+ * Pulse Dispatcher — 7:00 AM ET, every day.
+ *
+ * 1. Queries Firestore Users for unique [sport, state] combos
+ * 2. Enqueues each combo as a Cloud Task to pulseWorker
+ *
+ * Lightweight function: no AI calls, no secrets needed. Just query + enqueue.
+ */
+export const pulseDispatcher = onSchedule(
   {
     schedule: '0 7 * * *',
     timeZone: 'America/New_York',
-    retryCount: 2,
+    retryCount: 1,
+    timeoutSeconds: 120,
+    memory: '256MiB',
+  },
+  async () => {
+    // Only run in production to avoid duplicate AI costs
+    if (process.env['GCLOUD_PROJECT'] !== 'nxt-1-v2') {
+      logger.info(`[Pulse] Skipping in ${process.env['GCLOUD_PROJECT']} (production only)`);
+      return;
+    }
+
+    logger.info('[Pulse] Starting pulse dispatcher');
+    const startMs = Date.now();
+
+    try {
+      const buckets = await discoverBucketsFromUsers();
+      logger.info('[Pulse] Discovered sport/state buckets', {
+        count: buckets.length,
+        buckets: buckets.map((b) => `${b.sport} — ${b.state}`),
+      });
+
+      const queue = getFunctions().taskQueue('pulseWorker');
+      let enqueued = 0;
+
+      for (const bucket of buckets) {
+        await queue.enqueue(bucket, {
+          dispatchDeadlineSeconds: 600, // 10 min deadline per task (includes retries)
+        });
+        enqueued++;
+      }
+
+      const durationMs = Date.now() - startMs;
+      logger.info('[Pulse] Dispatcher completed', { enqueued, durationMs });
+    } catch (error) {
+      const durationMs = Date.now() - startMs;
+      logger.error('[Pulse] Dispatcher failed', { error, durationMs });
+      throw error; // Re-throw so Cloud Scheduler retries
+    }
+  }
+);
+
+// ─── Task Worker ────────────────────────────────────────────────────────────
+
+/**
+ * Pulse Worker — processes ONE [sport, state] combo.
+ *
+ * 1. Discovers ~15 real HS sports articles via Perplexity Sonar (live web search)
+ * 2. Scrapes og:image/favicon from each source URL via cheerio
+ * 3. Generates AI summaries via DeepSeek Chat
+ * 4. Writes to Firestore `News/{id}` with real publisher attribution
+ *
+ * Invoked by pulseDispatcher via Cloud Tasks. Automatically retried on failure.
+ */
+export const pulseWorker = onTaskDispatched(
+  {
+    retryConfig: {
+      maxAttempts: 3,
+      minBackoffSeconds: 30,
+    },
+    rateLimits: {
+      maxConcurrentDispatches: 6,
+      maxDispatchesPerSecond: 2,
+    },
     timeoutSeconds: 300,
     memory: '512MiB',
     secrets: [OPENROUTER_API_KEY],
   },
-  async () => {
-    // SECURITY: Only run the pulse in production to avoid duplicate AI costs
-    if (process.env['GCLOUD_PROJECT'] !== 'nxt-1-v2') {
-      logger.info(
-        `[Pulse] Skipping run in ${process.env['GCLOUD_PROJECT']} (only runs in production)`
-      );
-      return;
+  async (req) => {
+    const { sport, state } = req.data as PulseTaskPayload;
+    if (!sport || !state) {
+      logger.error('[Pulse Worker] Invalid payload — missing sport or state', { data: req.data });
+      return; // Don't retry invalid payloads
     }
 
-    logger.info('[Pulse] Starting daily pulse updates');
+    logger.info('[Pulse Worker] Processing bucket', { sport, state });
     const startMs = Date.now();
 
     try {
@@ -498,16 +703,11 @@ export const dailyPulseUpdates = onSchedule(
         throw new Error('OPENROUTER_API_KEY secret is not configured');
       }
 
-      // TODO: In production, derive unique [sport]-[state] buckets from active users.
-      // For now, we run a single bucket.
-      const sport = 'Football';
-      const state = 'Texas';
-
-      // Step 1: Discover articles via DeepSeek R1 web search
+      // Step 1: Discover articles via Perplexity Sonar (live web search)
       const discovered = await discoverArticles(apiKey, sport, state);
 
       if (discovered.length === 0) {
-        logger.warn('[Pulse] No articles discovered — skipping');
+        logger.warn('[Pulse Worker] No articles discovered — skipping', { sport, state });
         return;
       }
 
@@ -525,14 +725,16 @@ export const dailyPulseUpdates = onSchedule(
           if (result.status === 'fulfilled') {
             withContent.push(result.value);
           } else {
-            logger.warn('[Pulse] Summary generation failed', {
+            logger.warn('[Pulse Worker] Summary generation failed', {
               error: result.reason?.message ?? String(result.reason),
             });
           }
         }
       }
 
-      logger.info('[Pulse] Generated summaries', {
+      logger.info('[Pulse Worker] Generated summaries', {
+        sport,
+        state,
         attempted: discovered.length,
         succeeded: withContent.length,
       });
@@ -541,7 +743,9 @@ export const dailyPulseUpdates = onSchedule(
       const written = await writeArticlesToFirestore(withContent);
 
       const durationMs = Date.now() - startMs;
-      logger.info('[Pulse] Daily pulse updates completed', {
+      logger.info('[Pulse Worker] Bucket completed', {
+        sport,
+        state,
         discovered: discovered.length,
         summarized: withContent.length,
         written,
@@ -549,8 +753,8 @@ export const dailyPulseUpdates = onSchedule(
       });
     } catch (error) {
       const durationMs = Date.now() - startMs;
-      logger.error('[Pulse] Daily pulse updates failed', { error, durationMs });
-      throw error; // Re-throw so Cloud Scheduler retries
+      logger.error('[Pulse Worker] Bucket failed', { sport, state, error, durationMs });
+      throw error; // Re-throw so Cloud Tasks retries
     }
   }
 );

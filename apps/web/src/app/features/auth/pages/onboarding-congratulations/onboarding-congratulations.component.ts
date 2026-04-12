@@ -72,7 +72,7 @@ import { SeoService } from '../../../../core/services';
       [showBackButton]="false"
       [maxWidth]="'760px'"
     >
-      <div authContent>
+      <div authContent class="onboarding-welcome-container">
         <nxt1-onboarding-welcome
           #welcomeSlides
           [userRole]="userRole()"
@@ -85,6 +85,37 @@ import { SeoService } from '../../../../core/services';
       </div>
     </nxt1-auth-shell>
   `,
+  styles: [
+    `
+      .onboarding-welcome-container {
+        min-height: 640px; /* Fixed height to prevent container resizing across steps */
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .onboarding-welcome-container nxt1-onboarding-welcome {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+      }
+
+      @media (min-width: 768px) {
+        .onboarding-welcome-container {
+          height: 640px;
+          min-width: 710px; /* Force width so the card doesn't shrink-wrap to the 400px column */
+        }
+      }
+
+      @media (max-width: 768px) {
+        .onboarding-welcome-container {
+          min-height: auto; /* Let mobile shrink-wrap or use safe areas */
+        }
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OnboardingCongratulationsComponent implements OnInit {

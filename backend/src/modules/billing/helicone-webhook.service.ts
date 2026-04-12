@@ -30,7 +30,7 @@ export interface HeliconeWebhookPayload {
   request_id: string;
   /** User-provided session ID (we set this to our jobId / idempotencyKey) */
   user_id?: string;
-  /** The model used (e.g. 'anthropic/claude-3.5-sonnet') */
+  /** The model used (e.g. 'anthropic/claude-sonnet-4') */
   model?: string;
   /** Total cost in USD as reported by Helicone */
   total_cost?: number;

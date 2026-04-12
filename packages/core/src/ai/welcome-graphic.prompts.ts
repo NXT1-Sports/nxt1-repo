@@ -19,7 +19,7 @@ export interface AthleteWelcomePromptContext {
   readonly firstName: string;
   readonly sport?: string;
   readonly position?: string;
-  readonly profileImageUrl?: string;
+  readonly subjectImageUrl?: string;
   readonly teamColors?: readonly string[];
 }
 
@@ -63,16 +63,25 @@ export function buildAthleteWelcomePrompt(ctx: AthleteWelcomePromptContext): str
     `- Name: "${ctx.firstName.toUpperCase()}"`,
     `- Sport badge: "${sportLabel.toUpperCase()}${positionLabel.toUpperCase()}"`,
     '- Small NXT1 branding text in the bottom corner: "NXT1 • The Future of Sports Intelligence"',
+    ...(ctx.subjectImageUrl
+      ? [`- MUST include this exact image URL as the subject photo: ${ctx.subjectImageUrl}`]
+      : []),
     '',
     '## Style',
     `- Genre: ${sportLabel} sports media card`,
     '- Mood: exciting, welcoming, professional, premium',
     '- Elements: geometric shapes, light rays, energy lines',
     '- Typography: bold sans-serif, all-caps for name',
-    '- No stock photos or clip art — abstract/geometric design only',
+    ...(ctx.subjectImageUrl
+      ? []
+      : ['- No stock photos or clip art — abstract/geometric design only']),
     '',
     '## Important',
-    '- This is a GENERATED GRAPHIC, not a photo composite',
+    ...(ctx.subjectImageUrl
+      ? [
+          '- Seamlessly composite the subject photo into the graphic with the design elements around them',
+        ]
+      : ['- This is a GENERATED GRAPHIC, not a photo composite']),
     '- Make it look like an official sports network welcome card',
     '- Ensure text is readable against the background',
   ].join('\n');
@@ -109,16 +118,21 @@ export function buildTeamWelcomePrompt(ctx: TeamWelcomePromptContext): string {
     `- Sport label: "${sportLabel.toUpperCase()}"`,
     '- Tagline: "YOUR TEAM IS NOW ON NXT1"',
     '- Small NXT1 branding in the bottom corner: "NXT1 • The Future of Sports Intelligence"',
+    ...(ctx.logoUrl
+      ? [`- MUST include this exact logo URL as the subjectImageUrl: ${ctx.logoUrl}`]
+      : []),
     '',
     '## Style',
     `- Genre: ${sportLabel} team announcement card`,
     '- Mood: official, powerful, prestigious, premium',
     '- Elements: shield/crest motifs, bold borders, geometric patterns',
     '- Typography: bold sans-serif, all-caps, strong hierarchy',
-    '- No stock photos — abstract/geometric design only',
+    ...(ctx.logoUrl ? [] : ['- No stock photos — abstract/geometric design only']),
     '',
     '## Important',
-    '- This is a GENERATED GRAPHIC, not a photo composite',
+    ...(ctx.logoUrl
+      ? ['- Seamlessly composite the team logo into the generated graphic']
+      : ['- This is a GENERATED GRAPHIC, not a photo composite']),
     '- Make it look like an official program announcement',
     '- Ensure all text is clearly readable',
   ].join('\n');

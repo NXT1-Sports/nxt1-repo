@@ -7,24 +7,27 @@
  * pre-processed the raw platform JSON.
  *
  * Handles: identity (name, bio, height, weight, classOf, location), academics,
- * sportInfo (positions, jersey, side), team, clubTeam, coach, awards, teamHistory.
+ * sportInfo (positions, jersey, side), team, coach, awards, teamHistory.
  *
  * All data is merged — never overwrites existing data that wasn't provided.
  */
 
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
-import type { TeamTypeApi } from '@nxt1/core';
-import { POSITION_ABBREVIATIONS, normalizeSportKey } from '@nxt1/core';
+import { isTeamRole } from '@nxt1/core';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { ScraperMediaService } from '../integrations/scraper-media.service.js';
 import { getCacheService } from '../../../../services/cache.service.js';
-import { normalizeProgramType } from '../../../../services/onboarding-program-provisioning.service.js';
+
 import { createOrganizationService } from '../../../../services/organization.service.js';
+import { enqueueWelcomeGraphicIfReady } from '../../../../services/agent-welcome.service.js';
 import { invalidateTeamCache } from '../../../../services/team-code.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
 import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
 import { platformDisplayName } from './platform-utils.js';
+import { SyncDiffService, type PreviousProfileState } from '../../sync/index.js';
+import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
+import { logger } from '../../../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -58,11 +61,11 @@ export class WriteCoreIdentityTool extends BaseTool {
     '- identity (optional): { firstName, lastName, displayName, aboutMe, height, weight, classOf, city, state, country, school }.\n' +
     '- academics (optional): { gpa, weightedGpa, satScore, actScore, classRank, classSize, intendedMajor }.\n' +
     '- sportInfo (optional): { positions, jerseyNumber, side }.\n' +
-    '- team (optional): { name, type, mascot, conference, division, logoUrl, primaryColor, secondaryColor, city, state, country }.\n' +
-    '- clubTeam (optional): Same shape as team.\n' +
+    '- team (optional): { name, type, mascot, conference, division, logoUrl, primaryColor, secondaryColor, city, state, country, galleryImages }.\n' +
     '- coach (optional): { firstName, lastName, email, phone, title }.\n' +
     '- awards (optional): Array of { title, category, sport, season, issuer, date }.\n' +
-    '- teamHistory (optional): Array of { name, type, sport, location, record, startDate, endDate, isCurrent }.';
+    '- teamHistory (optional): Array of { name, type, sport, location, record, startDate, endDate, isCurrent }.\n' +
+    '- profileImgs (optional): Array of image URLs found for the athlete. Promoted to permanent storage and appended via arrayUnion (never overwrites existing images).';
 
   readonly parameters = {
     type: 'object',
@@ -122,22 +125,7 @@ export class WriteCoreIdentityTool extends BaseTool {
           city: { type: 'string' },
           state: { type: 'string' },
           country: { type: 'string' },
-        },
-      },
-      clubTeam: {
-        type: 'object',
-        properties: {
-          name: { type: 'string' },
-          type: { type: 'string' },
-          mascot: { type: 'string' },
-          conference: { type: 'string' },
-          division: { type: 'string' },
-          logoUrl: { type: 'string' },
-          primaryColor: { type: 'string' },
-          secondaryColor: { type: 'string' },
-          city: { type: 'string' },
-          state: { type: 'string' },
-          country: { type: 'string' },
+          galleryImages: { type: 'array', items: { type: 'string' } },
         },
       },
       coach: {
@@ -183,6 +171,10 @@ export class WriteCoreIdentityTool extends BaseTool {
           required: ['name'],
         },
       },
+      profileImgs: {
+        type: 'array',
+        items: { type: 'string' },
+      },
     },
     required: ['userId', 'source', 'profileUrl', 'targetSport'],
   } as const;
@@ -218,10 +210,13 @@ export class WriteCoreIdentityTool extends BaseTool {
     const academics = this.obj(input, 'academics');
     const sportInfo = this.obj(input, 'sportInfo');
     const team = this.obj(input, 'team');
-    const clubTeam = this.obj(input, 'clubTeam');
     const coach = this.obj(input, 'coach');
     const awards = this.arr(input, 'awards');
     const teamHistory = this.arr(input, 'teamHistory');
+    const rawProfileImgs = input['profileImgs'];
+    const profileImgs: string[] = Array.isArray(rawProfileImgs)
+      ? rawProfileImgs.filter((u): u is string => typeof u === 'string' && u.trim() !== '')
+      : [];
 
     context?.onProgress?.('Validating identity fields…');
 
@@ -231,10 +226,10 @@ export class WriteCoreIdentityTool extends BaseTool {
       !academics &&
       !sportInfo &&
       !team &&
-      !clubTeam &&
       !coach &&
       !awards &&
-      !teamHistory
+      !teamHistory &&
+      profileImgs.length === 0
     ) {
       return {
         success: false,
@@ -245,19 +240,46 @@ export class WriteCoreIdentityTool extends BaseTool {
 
     const userRef = this.db.collection(USERS_COLLECTION).doc(userId);
 
-    // ── Promote thread-staged logoUrl in team/clubTeam to permanent path ──
+    // ── Promote thread-staged logoUrl in team to permanent path ──
     // Team logos may reference thread-scoped storage that expires with the thread.
-    if (context?.userId) {
+    if (context?.userId && team && typeof team['logoUrl'] === 'string' && team['logoUrl']) {
       const brandingDest = `users/${context.userId}/profile`;
-      for (const teamObj of [team, clubTeam]) {
-        if (teamObj && typeof teamObj['logoUrl'] === 'string' && teamObj['logoUrl']) {
-          const [promoted] = await ScraperMediaService.promoteMedia(
-            [teamObj['logoUrl'] as string],
-            context.userId,
-            brandingDest
-          );
-          if (promoted) (teamObj as Record<string, unknown>)['logoUrl'] = promoted;
-        }
+      const [promoted] = await ScraperMediaService.promoteMedia(
+        [team['logoUrl'] as string],
+        context.userId,
+        brandingDest
+      );
+      if (promoted) (team as Record<string, unknown>)['logoUrl'] = promoted;
+    }
+
+    // ── Promote profileImgs from thread staging → permanent path ──────
+    let promotedProfileImgs: string[] = profileImgs;
+    if (profileImgs.length > 0 && context?.userId) {
+      promotedProfileImgs = await ScraperMediaService.promoteMedia(
+        profileImgs,
+        context.userId,
+        `users/${context.userId}/profile`
+      );
+    }
+
+    // ── Promote team galleryImages from thread staging → permanent path ──
+    let promotedTeamGallery: string[] = [];
+    if (context?.userId) {
+      const galleryDest = `users/${context.userId}/profile`;
+      const extractGallery = (obj: Record<string, unknown> | null): string[] =>
+        obj && Array.isArray(obj['galleryImages'])
+          ? (obj['galleryImages'] as unknown[]).filter(
+              (u): u is string => typeof u === 'string' && u.trim() !== ''
+            )
+          : [];
+
+      const teamGallery = extractGallery(team);
+      if (teamGallery.length > 0) {
+        promotedTeamGallery = await ScraperMediaService.promoteMedia(
+          teamGallery,
+          context.userId,
+          galleryDest
+        );
       }
     }
 
@@ -268,6 +290,32 @@ export class WriteCoreIdentityTool extends BaseTool {
       }
 
       const userData = userDoc.data() as Record<string, unknown>;
+      const userRole = typeof userData['role'] === 'string' ? userData['role'] : 'athlete';
+      const isCoachOrDirector = isTeamRole(userRole);
+
+      // ── Snapshot previous state BEFORE write (for delta computation) ──
+      const previousState: PreviousProfileState = {
+        identity: {
+          firstName: userData['firstName'],
+          lastName: userData['lastName'],
+          displayName: userData['displayName'],
+          height: userData['height'],
+          weight: userData['weight'],
+          classOf: userData['classOf'],
+          city: (userData['location'] as Record<string, unknown> | undefined)?.['city'],
+          state: (userData['location'] as Record<string, unknown> | undefined)?.['state'],
+          country: (userData['location'] as Record<string, unknown> | undefined)?.['country'],
+          school: userData['school'],
+          schoolLogoUrl: userData['schoolLogoUrl'],
+          profileImage: userData['profileImage'],
+          bannerImage: userData['bannerImage'],
+          aboutMe: userData['aboutMe'],
+        },
+        awards: Array.isArray(userData['awards'])
+          ? (userData['awards'] as Record<string, unknown>[])
+          : [],
+      };
+
       const rawSports = userData['sports'];
       const existingSports: Record<string, unknown>[] = Array.isArray(rawSports)
         ? (rawSports as Record<string, unknown>[])
@@ -283,7 +331,7 @@ export class WriteCoreIdentityTool extends BaseTool {
 
       // ── Identity fields ──────────────────────────────────────────────
       if (identity) {
-        this.mergeIdentity(identity, userData, payload, writtenSections, source);
+        this.mergeIdentity(identity, userData, payload, writtenSections, source, isCoachOrDirector);
       }
 
       // ── Academics ────────────────────────────────────────────────────
@@ -307,32 +355,24 @@ export class WriteCoreIdentityTool extends BaseTool {
       }
 
       // ── Sport-scoped data ────────────────────────────────────────────
+      // Coaches/directors NEVER create new sports or write sportInfo/measurables.
+      // They may still write team/coach refs on an EXISTING sport.
       const sportIndex = this.resolveSportIndex(existingSports, targetSport);
       const isNewSport = sportIndex >= existingSports.length;
 
       if (isNewSport) {
-        const newSport = this.buildNewSportProfile(
-          targetSport,
-          sportInfo,
-          team,
-          clubTeam,
-          coach,
-          now,
-          existingSports.length
+        // No roles create new sport entries from scraped data.
+        context?.onProgress?.(
+          `Skipping sport update: User does not have ${targetSport} on their profile.`
         );
-        payload['sports'] = [...existingSports, newSport];
-        writtenSections.push(`sports[NEW:${targetSport}]`);
-      } else if (sportInfo || team || clubTeam || coach) {
+      } else if (sportInfo || team || coach) {
         const updatedSports = existingSports.map((s) => ({ ...s }));
         const sportObj = { ...(updatedSports[sportIndex] ?? {}) } as Record<string, unknown>;
 
-        if (sportInfo) {
+        if (sportInfo && !isCoachOrDirector) {
           let sportInfoUpdated = false;
-          const positions = this.arr(sportInfo, 'positions') as string[] | null;
-          if (positions?.length && !this.hasValue(sportObj['positions'])) {
-            sportObj['positions'] = this.normalizePositions(positions, targetSport);
-            sportInfoUpdated = true;
-          }
+          // Positions are NEVER updated by the scraper.
+          // Users set their positions manually in the app.
           const jersey = sportInfo['jerseyNumber'];
           if (jersey !== undefined && jersey !== null && !this.hasValue(sportObj['jerseyNumber'])) {
             sportObj['jerseyNumber'] = jersey;
@@ -350,12 +390,6 @@ export class WriteCoreIdentityTool extends BaseTool {
           const existingTeam = (sportObj['team'] ?? {}) as Record<string, unknown>;
           sportObj['team'] = this.mergeTeamRef(existingTeam, team);
           writtenSections.push('team');
-        }
-
-        if (clubTeam) {
-          const existingClub = (sportObj['clubTeam'] ?? {}) as Record<string, unknown>;
-          sportObj['clubTeam'] = this.mergeTeamRef(existingClub, clubTeam);
-          writtenSections.push('clubTeam');
         }
 
         if (coach) {
@@ -390,8 +424,16 @@ export class WriteCoreIdentityTool extends BaseTool {
         writtenSections.push('teamHistory');
       }
 
+      // ── Profile images ─────────────────────────────────────────────
+      if (promotedProfileImgs.length > 0) {
+        payload['profileImgs'] = FieldValue.arrayUnion(...promotedProfileImgs);
+        writtenSections.push('profileImgs');
+      }
+
       // ── Connected source sync record ─────────────────────────────────
-      payload['connectedSources'] = this.buildConnectedSourcesUpdate(
+      // For athletes: write connectedSources to the User doc.
+      // For coaches/directors: write to the Teams doc (linked accounts belong to the team).
+      const connectedSourcesUpdate = this.buildConnectedSourcesUpdate(
         (userData['connectedSources'] ?? []) as Record<string, unknown>[],
         source,
         profileUrl,
@@ -399,6 +441,33 @@ export class WriteCoreIdentityTool extends BaseTool {
         now,
         faviconUrl
       );
+
+      if (isCoachOrDirector) {
+        // Route connectedSources to the Teams doc instead of User doc
+        const existingSportEntry = existingSports[sportIndex] as
+          | Record<string, unknown>
+          | undefined;
+        const teamRef2 = existingSportEntry?.['team'] as Record<string, unknown> | undefined;
+        const teamId = (teamRef2?.['teamId'] as string) ?? (userData['teamId'] as string);
+        if (teamId) {
+          try {
+            const teamRef = this.db.collection('Teams').doc(teamId);
+            await teamRef.set(
+              { connectedSources: connectedSourcesUpdate, updatedAt: FieldValue.serverTimestamp() },
+              { merge: true }
+            );
+            writtenSections.push('connectedSources(team)');
+          } catch {
+            // Fall back to writing on User doc if team write fails
+            payload['connectedSources'] = connectedSourcesUpdate;
+          }
+        } else {
+          // No teamId available — still write to User doc as fallback
+          payload['connectedSources'] = connectedSourcesUpdate;
+        }
+      } else {
+        payload['connectedSources'] = connectedSourcesUpdate;
+      }
 
       // ── Measurables verification ─────────────────────────────────────
       // When height or weight was written from an external source, tag the
@@ -413,7 +482,7 @@ export class WriteCoreIdentityTool extends BaseTool {
       }
 
       // Clean up legacy flat fields if team data was written
-      if (team || clubTeam) {
+      if (team) {
         payload['conference'] = FieldValue.delete();
         payload['division'] = FieldValue.delete();
         payload['level'] = FieldValue.delete();
@@ -437,14 +506,8 @@ export class WriteCoreIdentityTool extends BaseTool {
         await this.syncTeamMetadata(
           resolvedSport?.['team'] as Record<string, unknown> | undefined,
           team,
-          'team'
-        );
-      }
-      if (clubTeam) {
-        await this.syncTeamMetadata(
-          resolvedSport?.['clubTeam'] as Record<string, unknown> | undefined,
-          clubTeam,
-          'clubTeam'
+          'team',
+          promotedTeamGallery
         );
       }
 
@@ -468,6 +531,96 @@ export class WriteCoreIdentityTool extends BaseTool {
         await contextBuilder.invalidateContext(userId);
       } catch {
         // Best-effort
+      }
+
+      // ── Deferred welcome graphic after first completed scrape ─────────
+      // If the user uploaded their photo/logo before the first linked-account
+      // sync completed, the edit-profile route intentionally deferred the
+      // welcome job. Re-check readiness here after this source has been marked
+      // as synced so the graphic enqueues automatically.
+      try {
+        const welcomeResult = await enqueueWelcomeGraphicIfReady(this.db, { userId }, 'staging');
+
+        if (welcomeResult.status === 'enqueued') {
+          logger.info('[WriteCoreIdentity] Welcome graphic enqueued after sync completion', {
+            userId,
+            source,
+            targetSport,
+          });
+        }
+      } catch (err) {
+        logger.warn('[WriteCoreIdentity] Welcome graphic readiness check failed', {
+          userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      // ── Compute delta & fire trigger for Agent X ───────────────────
+      try {
+        const diffService = new SyncDiffService();
+        const extractedProfile = {
+          platform: source,
+          profileUrl,
+          ...(identity
+            ? {
+                identity: {
+                  firstName: this.str(identity, 'firstName'),
+                  lastName: this.str(identity, 'lastName'),
+                  displayName: this.str(identity, 'displayName'),
+                  height: this.str(identity, 'height'),
+                  weight: this.str(identity, 'weight'),
+                  classOf: identity['classOf'] as number | undefined,
+                  city: this.str(identity, 'city'),
+                  state: this.str(identity, 'state'),
+                  country: this.str(identity, 'country'),
+                  school: this.str(identity, 'school'),
+                  schoolLogoUrl: this.str(identity, 'schoolLogoUrl'),
+                  profileImage: this.str(identity, 'profileImage'),
+                  bannerImage: this.str(identity, 'bannerImage'),
+                  aboutMe: this.str(identity, 'aboutMe'),
+                },
+              }
+            : {}),
+          ...(awards?.length
+            ? {
+                awards: (awards as Record<string, unknown>[]).map((a) => ({
+                  title: this.str(a, 'title') ?? '',
+                  category: this.str(a, 'category'),
+                  sport: this.str(a, 'sport') ?? targetSport,
+                  season: this.str(a, 'season'),
+                  issuer: this.str(a, 'issuer'),
+                })),
+              }
+            : {}),
+        };
+
+        const delta = diffService.diff(
+          userId,
+          targetSport,
+          source,
+          previousState,
+          extractedProfile as unknown as import('../scraping/distillers/distiller.types.js').DistilledProfile
+        );
+
+        if (!delta.isEmpty) {
+          logger.info('[WriteCoreIdentity] Delta detected, firing sync trigger', {
+            userId,
+            sport: targetSport,
+            totalChanges: delta.summary.totalChanges,
+          });
+          onDailySyncComplete(delta).catch((err) => {
+            logger.warn('[WriteCoreIdentity] Trigger dispatch failed', {
+              userId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        }
+      } catch (err) {
+        // Delta/trigger is non-critical — log and continue
+        logger.warn('[WriteCoreIdentity] Delta computation failed', {
+          userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
 
       return {
@@ -499,7 +652,8 @@ export class WriteCoreIdentityTool extends BaseTool {
     userData: Record<string, unknown>,
     payload: Record<string, unknown>,
     written: string[],
-    source: string
+    source: string,
+    isCoachOrDirector: boolean
   ): void {
     const fields: Array<[string, string]> = [
       ['firstName', 'firstName'],
@@ -516,8 +670,9 @@ export class WriteCoreIdentityTool extends BaseTool {
     }
 
     // ── Height / Weight → root-level measurables[] (VerifiedMetric) ──
-    const heightVal = this.str(id, 'height');
-    const weightVal = this.str(id, 'weight');
+    // Coaches/directors don't get athlete measurables written to their profile.
+    const heightVal = !isCoachOrDirector ? this.str(id, 'height') : null;
+    const weightVal = !isCoachOrDirector ? this.str(id, 'weight') : null;
     if (heightVal || weightVal) {
       const existingMeasurables = Array.isArray(userData['measurables'])
         ? ([...userData['measurables']] as Record<string, unknown>[])
@@ -569,15 +724,16 @@ export class WriteCoreIdentityTool extends BaseTool {
         payload['measurables'] = existingMeasurables;
       }
     }
-    // aboutMe has a longer limit
+    // aboutMe has a longer limit — write as draftAboutMe for human review
     const aboutMe = this.str(id, 'aboutMe');
     if (
       aboutMe &&
       aboutMe.length <= VALIDATION.MAX_ABOUT_ME_LENGTH &&
-      !this.hasValue(userData['aboutMe'])
+      !this.hasValue(userData['aboutMe']) &&
+      !this.hasValue(userData['draftAboutMe'])
     ) {
-      payload['aboutMe'] = aboutMe;
-      if (!written.includes('aboutMe')) written.push('aboutMe');
+      payload['draftAboutMe'] = aboutMe;
+      if (!written.includes('draftAboutMe')) written.push('draftAboutMe');
     }
 
     const classOf = id['classOf'];
@@ -632,15 +788,6 @@ export class WriteCoreIdentityTool extends BaseTool {
    * E.g. "Point Guard" → "PG", "Quarterback" → "QB".
    * Falls back to original string if no mapping exists.
    */
-  private normalizePositions(positions: string[], sport: string): string[] {
-    const sportKey = normalizeSportKey(sport);
-    const abbreviations = POSITION_ABBREVIATIONS[sportKey] ?? {};
-    return positions.map((p) => {
-      const key = p.toLowerCase().trim();
-      return abbreviations[key] ?? p;
-    });
-  }
-
   private sanitizeAcademics(a: Record<string, unknown>): Record<string, unknown> {
     const result: Record<string, unknown> = {};
     const numField = (key: string, min: number, max: number) => {
@@ -656,38 +803,6 @@ export class WriteCoreIdentityTool extends BaseTool {
     const major = this.str(a, 'intendedMajor');
     if (major) result['intendedMajor'] = major;
     return result;
-  }
-
-  private buildNewSportProfile(
-    targetSport: string,
-    sportInfo: Record<string, unknown> | null,
-    team: Record<string, unknown> | null,
-    clubTeam: Record<string, unknown> | null,
-    coach: Record<string, unknown> | null,
-    now: string,
-    order: number
-  ): Record<string, unknown> {
-    const profile: Record<string, unknown> = {
-      sport: targetSport,
-      order,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    if (sportInfo) {
-      const positions = this.arr(sportInfo, 'positions') as string[] | null;
-      if (positions?.length) profile['positions'] = this.normalizePositions(positions, targetSport);
-      const jersey = sportInfo['jerseyNumber'];
-      if (jersey !== undefined && jersey !== null) profile['jerseyNumber'] = jersey;
-      const side = this.str(sportInfo, 'side');
-      if (side) profile['side'] = side;
-    }
-
-    if (team) profile['team'] = this.mergeTeamRef(undefined, team);
-    if (clubTeam) profile['clubTeam'] = this.mergeTeamRef(undefined, clubTeam);
-    if (coach) profile['coach'] = this.sanitizeCoach(coach);
-
-    return profile;
   }
 
   private resolveSportIndex(
@@ -864,12 +979,12 @@ export class WriteCoreIdentityTool extends BaseTool {
   private async syncTeamMetadata(
     teamRef: Record<string, unknown> | undefined,
     teamInput: Record<string, unknown>,
-    relationKind: 'team' | 'clubTeam'
+    _relationKind: 'team',
+    galleryImages?: string[]
   ): Promise<void> {
     const teamId = this.str(teamRef ?? {}, 'teamId');
     const orgIdFromRef = this.str(teamRef ?? {}, 'organizationId');
     let organizationId = orgIdFromRef;
-    let existingTeamType: string | undefined;
 
     if (teamId) {
       const teamDoc = await this.db.collection('Teams').doc(teamId).get();
@@ -877,110 +992,67 @@ export class WriteCoreIdentityTool extends BaseTool {
         const data = teamDoc.data() ?? {};
         const teamCode = typeof data['teamCode'] === 'string' ? data['teamCode'] : undefined;
         const teamUnicode = typeof data['unicode'] === 'string' ? data['unicode'] : undefined;
-        existingTeamType = typeof data['teamType'] === 'string' ? data['teamType'] : undefined;
         organizationId ||=
           typeof data['organizationId'] === 'string' ? data['organizationId'] : null;
 
-        const programType = this.inferProgramType(teamInput, relationKind, existingTeamType);
+        // Write-once: only set conference/division if not already populated on the Team doc
         const updateData: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
-        if (programType !== existingTeamType) updateData['teamType'] = programType;
         const conf = this.str(teamInput, 'conference');
-        if (conf) updateData['conference'] = conf;
+        if (conf && !this.hasValue(data['conference'])) updateData['conference'] = conf;
         const div = this.str(teamInput, 'division');
-        if (div) updateData['division'] = div;
+        if (div && !this.hasValue(data['division'])) updateData['division'] = div;
+        if (galleryImages && galleryImages.length > 0) {
+          updateData['galleryImages'] = FieldValue.arrayUnion(...galleryImages);
+        }
 
         if (Object.keys(updateData).length > 1) {
           await this.db.collection('Teams').doc(teamId).update(updateData);
           await invalidateTeamCache(teamId, teamCode, teamUnicode);
         }
 
-        await this.syncOrganizationMetadata(organizationId, teamInput, programType);
+        await this.syncOrganizationMetadata(organizationId, teamInput);
         return;
       }
     }
 
-    await this.syncOrganizationMetadata(
-      organizationId,
-      teamInput,
-      this.inferProgramType(teamInput, relationKind, existingTeamType)
-    );
+    await this.syncOrganizationMetadata(organizationId, teamInput);
   }
 
   private async syncOrganizationMetadata(
     organizationId: string | null,
-    teamInput: Record<string, unknown>,
-    programType: TeamTypeApi
+    teamInput: Record<string, unknown>
   ): Promise<void> {
     if (!organizationId) return;
 
+    // Fetch existing org data so we can enforce write-once semantics
+    const organizationService = createOrganizationService(this.db);
+    const orgDoc = await this.db.collection('Organizations').doc(organizationId).get();
+    const existing = orgDoc.exists ? (orgDoc.data() ?? {}) : {};
+    const existingLocation =
+      typeof existing['location'] === 'object' && existing['location'] !== null
+        ? (existing['location'] as Record<string, unknown>)
+        : {};
+
+    // Write-once: only set branding fields if not already populated on the Organization doc
     const branding: Record<string, unknown> = {};
     for (const key of ['mascot', 'logoUrl', 'primaryColor', 'secondaryColor']) {
       const val = this.str(teamInput, key);
-      if (val) branding[key] = val;
+      if (val && !this.hasValue(existing[key])) branding[key] = val;
     }
 
-    // Build location object from team city/state/country
+    // Write-once: only set location fields if not already populated
     const city = this.str(teamInput, 'city');
     const state = this.str(teamInput, 'state');
     const country = this.str(teamInput, 'country');
     const location: Record<string, string> = {};
-    if (city) location['city'] = city;
-    if (state) location['state'] = state;
-    if (country) location['country'] = country;
+    if (city && !this.hasValue(existingLocation['city'])) location['city'] = city;
+    if (state && !this.hasValue(existingLocation['state'])) location['state'] = state;
+    if (country && !this.hasValue(existingLocation['country'])) location['country'] = country;
 
-    const updateData: Record<string, unknown> = { type: programType, ...branding };
+    const updateData: Record<string, unknown> = { ...branding };
     if (Object.keys(location).length > 0) updateData['location'] = location;
     if (Object.keys(updateData).length === 0) return;
 
-    const organizationService = createOrganizationService(this.db);
     await organizationService.updateOrganization(organizationId, updateData, 'agent-x-scraper');
-  }
-
-  private inferProgramType(
-    team: Record<string, unknown>,
-    relationKind: 'team' | 'clubTeam',
-    existingType?: string
-  ): TeamTypeApi {
-    const explicit = this.parseProgramType(this.str(team, 'programType') ?? this.str(team, 'type'));
-    if (explicit) return normalizeProgramType(explicit);
-
-    const name = `${team['name'] ?? ''} ${team['type'] ?? ''}`.toLowerCase();
-    if (relationKind === 'clubTeam' || /(travel|aau|academy|elite|club)/.test(name)) return 'club';
-    if (/(high school|\bhs\b|varsity|junior varsity|\bjv\b|freshman|prep)/.test(name))
-      return 'high-school';
-    if (/(middle school|\bms\b)/.test(name)) return 'middle-school';
-    if (/(juco|junior college|community college)/.test(name)) return 'juco';
-    if (/(college|university|ncaa|naia)/.test(name)) return 'college';
-
-    return this.parseProgramType(existingType) ?? 'organization';
-  }
-
-  private parseProgramType(value?: string | null): TeamTypeApi | null {
-    if (!value) return null;
-    const n = value.trim().toLowerCase();
-    const map: Record<string, TeamTypeApi> = {
-      'high-school': 'high-school',
-      'high school': 'high-school',
-      school: 'high-school',
-      hs: 'high-school',
-      'middle-school': 'middle-school',
-      'middle school': 'middle-school',
-      ms: 'middle-school',
-      club: 'club',
-      travel: 'club',
-      'travel-ball': 'club',
-      aau: 'club',
-      academy: 'club',
-      elite: 'club',
-      college: 'college',
-      university: 'college',
-      ncaa: 'college',
-      naia: 'college',
-      juco: 'juco',
-      'junior college': 'juco',
-      'community college': 'juco',
-      organization: 'organization',
-    };
-    return map[n] ?? null;
   }
 }

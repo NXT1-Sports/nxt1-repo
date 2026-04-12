@@ -825,7 +825,7 @@ router.get(
 );
 
 /**
- * Get VerifiedMetric entries from the sport metrics sub-collection.
+ * Get VerifiedMetric entries from the root PlayerMetrics collection.
  * GET /api/v1/auth/profile/:userId/sports/:sportId/metrics
  */
 router.get(
@@ -836,7 +836,7 @@ router.get(
     const limit = Math.min(100, parseInt(String(req.query['limit'] ?? '50'), 10));
 
     const cache = getCacheService();
-    const cacheKey = `profile:sub:metrics:${userId}:${sportId}`;
+    const cacheKey = `profile:metrics:${userId}:${sportId}`;
     const hit = await cache.get<unknown[]>(cacheKey);
     if (hit) {
       markCacheHit(req, 'redis', cacheKey);
@@ -846,11 +846,9 @@ router.get(
 
     const db = req.firebase!.db;
     const snap = await db
-      .collection(USERS_COLLECTION)
-      .doc(userId)
-      .collection('sports')
-      .doc(sportId)
-      .collection('metrics')
+      .collection('PlayerMetrics')
+      .where('userId', '==', userId)
+      .where('sportId', '==', sportId)
       .orderBy('dateRecorded', 'desc')
       .limit(limit)
       .get();
@@ -980,7 +978,7 @@ router.get(
 );
 
 /**
- * Get video highlights from the user's videos sub-collection.
+ * Get video highlights from the Posts collection (type: 'highlight').
  * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/videos?sportId=football
  * GET /api/v1/auth/profile/:userId/videos
  */
@@ -993,7 +991,7 @@ router.get(
     const sportId = req.query['sportId'] ? String(req.query['sportId']) : null;
 
     const cache = getCacheService();
-    const cacheKey = `profile:sub:videos:${userId}${sportId ? `:${sportId}` : ''}:${limit}`;
+    const cacheKey = `profile:videos:${userId}${sportId ? `:${sportId}` : ''}:${limit}`;
     const hit = await cache.get<unknown[]>(cacheKey);
     if (hit) {
       markCacheHit(req, 'redis', cacheKey);
@@ -1002,11 +1000,11 @@ router.get(
     }
 
     const db = req.firebase!.db;
-    // Query top-level Videos collection filtered by userId and ownerType
+    // Query Posts collection for highlight-type posts
     let query = db
-      .collection('Videos')
+      .collection('Posts')
       .where('userId', '==', userId)
-      .where('ownerType', '==', 'user') as FirebaseFirestore.Query;
+      .where('type', '==', 'highlight') as FirebaseFirestore.Query;
 
     // Filter by sport if provided (for multi-sport athletes)
     if (sportId) {

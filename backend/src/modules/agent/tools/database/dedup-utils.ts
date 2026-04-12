@@ -3,7 +3,7 @@
  * @module @nxt1/backend/modules/agent/tools/database
  *
  * Centralised normalization functions used by write tools to prevent
- * duplicate records in top-level collections (Recruiting, Events, Videos,
+ * duplicate records in top-level collections (Recruiting, Events, Posts,
  * RosterEntries). Each function is deterministic and side-effect-free.
  */
 

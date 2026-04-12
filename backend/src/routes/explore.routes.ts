@@ -101,7 +101,7 @@ const COLLECTIONS = {
   users: 'Users',
   colleges: 'Colleges',
   teams: 'Teams',
-  videos: 'Videos',
+  posts: 'Posts',
   camps: 'Camps',
   events: 'Events',
   scoutReports: 'ScoutReports',
@@ -272,7 +272,7 @@ async function searchTeams(
 }
 
 /**
- * Search in Videos
+ * Search in Videos (highlight posts in the Posts collection)
  */
 async function searchVideos(
   db: FirebaseFirestore.Firestore,
@@ -284,7 +284,8 @@ async function searchVideos(
 
   try {
     const snapshot = await db
-      .collection(COLLECTIONS.videos)
+      .collection(COLLECTIONS.posts)
+      .where('type', '==', 'highlight')
       .where('searchIndex', 'array-contains', normalized)
       .limit(limit)
       .get();
@@ -295,21 +296,21 @@ async function searchVideos(
         id: doc.id,
         type: 'videos',
         name: data['title'] || 'Untitled Video',
-        subtitle: data['description']?.substring(0, 100),
-        imageUrl: data['thumbnail'] || data['thumbnailUrl'],
-        isVerified: data['creator']?.isVerified || false,
+        subtitle: data['content']?.substring(0, 100),
+        imageUrl: data['thumbnailUrl'] || data['poster'],
+        isVerified: false,
         route: `/videos/${doc.id}`,
-        thumbnailUrl: data['thumbnail'] || data['thumbnailUrl'] || '',
+        thumbnailUrl: data['thumbnailUrl'] || data['poster'] || '',
         duration: data['duration'] || 0,
-        views: data['views'] || 0,
-        likes: data['likes'] || 0,
+        views: data['stats']?.views || 0,
+        likes: data['stats']?.likes || 0,
         creator: {
-          id: data['creatorId'] || data['creator']?.id || '',
-          name: data['creatorName'] || data['creator']?.name || 'Unknown',
-          avatarUrl: data['creator']?.avatar || data['creator']?.avatarUrl,
+          id: data['userId'] || '',
+          name: data['title'] || 'Unknown',
+          avatarUrl: undefined,
         },
-        sport: data['sport'],
-        uploadedAt: data['createdAt'] || data['uploadedAt'] || new Date().toISOString(),
+        sport: data['sportId'],
+        uploadedAt: data['createdAt'] || new Date().toISOString(),
       });
     });
   } catch (error) {
@@ -538,7 +539,8 @@ async function getTabCounts(
         .count()
         .get(),
       db
-        .collection(COLLECTIONS.videos)
+        .collection(COLLECTIONS.posts)
+        .where('type', '==', 'highlight')
         .where('searchIndex', 'array-contains', normalized)
         .count()
         .get(),
@@ -783,8 +785,9 @@ router.get('/trending', async (req: Request, res: Response) => {
     // Get trending items (most viewed/popular in last 24h)
     // This is a simplified implementation
     const videosSnap = await db
-      .collection(COLLECTIONS.videos)
-      .orderBy('views', 'desc')
+      .collection(COLLECTIONS.posts)
+      .where('type', '==', 'highlight')
+      .orderBy('stats.views', 'desc')
       .limit(limit)
       .get();
 
