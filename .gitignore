@@ -74,6 +74,7 @@ firebase-debug.log
 .cache/
 tmp/
 temp/
+packages/mcp-servers/google-drive-mcp/
 
 # Turborepo
 .turbo
