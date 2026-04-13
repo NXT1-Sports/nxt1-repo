@@ -76,7 +76,7 @@ export function isEnqueueFailure(
   return 'reason' in result;
 }
 
-/** Response from the /agent-x/status/:id endpoint. */
+/** Response shape used for background Agent X job status tracking. */
 interface JobStatusResponse {
   readonly success: boolean;
   readonly data?: {

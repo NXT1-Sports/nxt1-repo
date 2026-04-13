@@ -505,7 +505,5 @@ export const SETTINGS_API_ENDPOINTS = {
   GET_SUBSCRIPTION: '/api/v1/settings/subscription',
   GET_USAGE: '/api/v1/settings/usage',
   GET_BILLING_HISTORY: '/api/v1/settings/billing/history',
-  CONNECT_PROVIDER: '/api/v1/settings/providers/connect',
-  DISCONNECT_PROVIDER: '/api/v1/settings/providers/disconnect',
   CHECK_UPDATE: '/api/v1/settings/check-update',
 } as const;

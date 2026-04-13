@@ -282,52 +282,6 @@ router.patch(
 );
 
 /**
- * Get usage stats
- * GET /api/v1/settings/usage
- */
-router.get('/usage', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
-
-/**
- * Get connected providers
- * GET /api/v1/settings/providers
- */
-router.get('/providers', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
-
-/**
- * Connect provider
- * POST /api/v1/settings/connect-provider
- * Body: { providerId: string, authCode?: string }
- */
-router.post('/connect-provider', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
-
-/**
- * Disconnect provider
- * POST /api/v1/settings/disconnect-provider
- * Body: { providerId: string }
- */
-router.post('/disconnect-provider', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
-
-/**
  * Send password reset email
  * POST /api/v1/settings/password
  *

@@ -25,3 +25,7 @@ env:
     secret: CRON_SECRET
     availability:
       - RUNTIME
+  - variable: REDIS_URL
+    secret: REDIS_URL
+    availability:
+      - RUNTIME

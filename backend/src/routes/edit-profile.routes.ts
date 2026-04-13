@@ -833,7 +833,7 @@ router.get(
     const isTeamRole = user.role === 'coach' || user.role === 'director';
     const activeSportData =
       user.sports?.[sportIndex ?? user.activeSportIndex ?? 0] ?? user.sports?.[0];
-    const teamId = activeSportData?.team?.teamId;
+    const teamId = (user.teamCode as any)?.teamId ?? activeSportData?.team?.teamId;
     let teamConnectedSources:
       | Array<{
           platform: string;
@@ -1006,7 +1006,7 @@ router.put(
     const isTeamRole = user.role === 'coach' || user.role === 'director';
     const activeSportData =
       user.sports?.[sportIndex ?? user.activeSportIndex ?? 0] ?? user.sports?.[0];
-    const teamId = activeSportData?.team?.teamId;
+    const teamId = (user.teamCode as any)?.teamId ?? activeSportData?.team?.teamId;
 
     if (sectionId === 'social-links' && isTeamRole && teamId && updates['connectedSources']) {
       // Write connected sources to Team doc instead of User doc

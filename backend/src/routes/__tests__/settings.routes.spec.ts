@@ -22,11 +22,10 @@ describe('Settings Routes', () => {
         { path: '/preferences/:key', method: 'patch' },
         { path: '/preferences', method: 'patch' },
         { path: '/usage', method: 'get' },
-        { path: '/providers', method: 'get' },
         { path: '/password', method: 'post' },
         { path: '/account', method: 'delete' },
       ],
-      7
+      6
     );
   });
 });

@@ -325,6 +325,11 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     );
   });
 
+  /** Current user's canonical identity route (profile for athletes, team for team roles). */
+  readonly ownIdentityRoute = computed(() => {
+    return this.tabs().find((tab) => tab.id === 'profile')?.route ?? '/profile';
+  });
+
   /** Currently active tab ID, synced with router (null when on pages not in footer like /settings) */
   private readonly _activeTabId = signal<string | null>('explore');
   readonly activeTabId = this._activeTabId.asReadonly();
@@ -836,24 +841,6 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // Special case: Coach/Director profile tab → navigate to their team by slug
-    // Mirrors the web top nav behavior where /profile redirects to /team/:slug
-    if (tab.id === 'profile') {
-      const user = this.profileService.user();
-      if (user && isTeamRole(user.role)) {
-        const slug =
-          user.teamCode?.slug ?? user.teamCode?.unicode ?? user.coach?.managedTeamCodes?.[0];
-        if (slug) {
-          const direction = this.getAnimationDirection(
-            currentTabId ?? this.getFallbackTabId(),
-            tab.id
-          );
-          this.navigateToTab(`/team/${slug}`, direction);
-          return;
-        }
-      }
-    }
-
     // Navigate to tab route with directional animation
     if (tab.route) {
       const direction = this.getAnimationDirection(currentTabId ?? this.getFallbackTabId(), tab.id);
@@ -967,7 +954,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   onSidenavUserClick(): void {
     this.haptics.impact('light');
     this.sidenavService.close();
-    void this.navController.navigateForward('/profile');
+    void this.navController.navigateForward(this.ownIdentityRoute());
   }
 
   /**
@@ -1012,7 +999,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     }
 
     this.sidenavService.close();
-    void this.navController.navigateForward('/profile');
+    void this.navController.navigateForward(this.ownIdentityRoute());
   }
 
   /**

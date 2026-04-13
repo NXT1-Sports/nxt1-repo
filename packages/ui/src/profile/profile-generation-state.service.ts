@@ -9,7 +9,7 @@
  * Lifecycle:
  * 1. Onboarding `handleCompletion()` calls `startGeneration(jobId, platforms)`
  * 2. Profile page detects `isGenerating()` and shows overlay
- * 3. Overlay calls `pollUntilDone()` which polls `/agent-x/status/:id`
+ * 3. Overlay calls `pollUntilDone()` which polls the current background job state
  * 4. When job completes/fails/times out, overlay dismisses and calls `reset()`
  * 5. If user navigates away and returns, overlay re-mounts and resumes polling
  *    from current backend progress (no phase reset)

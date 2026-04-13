@@ -253,14 +253,6 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
- * POST /api/v1/news/:id/bookmark
- * Bookmark a news article — not yet implemented.
- */
-router.post('/:id/bookmark', (_req: Request, res: Response): void => {
-  res.status(501).json({ success: false, error: 'Not implemented' });
-});
-
-/**
  * POST /api/v1/news/generate
  * AI-powered news generation — implemented by dailyPulseUpdates function.
  */

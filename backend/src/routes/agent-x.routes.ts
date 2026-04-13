@@ -24,11 +24,6 @@
  *   POST /api/v1/agent-x/pause              → Pause the entire queue (admin)
  *   POST /api/v1/agent-x/resume             → Resume the entire queue (admin)
  *   POST /api/v1/agent-x/cron/*             → Cloud Scheduler triggers
- *
- * Deprecated (410 Gone):
- *   POST /api/v1/agent-x/ask               → Use /chat instead
- *   GET  /api/v1/agent-x/status/:id        → Use /chat with resumeOperationId
- *   GET  /api/v1/agent-x/events/:id        → Use /chat with resumeOperationId
  */
 
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
@@ -309,22 +304,6 @@ export function setAgentDependencies(deps: {
 }
 
 const router: ExpressRouter = Router();
-
-// ─── DEPRECATED ROUTES (unified into POST /chat) ─────────────────────────
-// These endpoints are replaced by the unified /chat SSE stream with
-// Redis PubSub bridging for heavy tasks. Old clients receive 410 Gone.
-
-const deprecatedHandler = (_req: Request, res: Response) => {
-  res.status(410).json({
-    success: false,
-    error: 'This endpoint has been unified into POST /chat. Use /chat with SSE streaming instead.',
-    code: 'ENDPOINT_DEPRECATED',
-  });
-};
-
-router.post('/ask', appGuard, deprecatedHandler);
-router.get('/status/:id', appGuard, deprecatedHandler);
-router.get('/events/:id', appGuard, deprecatedHandler);
 
 // ─── POST /cancel/:operationId — Explicit cancellation endpoint ───────────
 //

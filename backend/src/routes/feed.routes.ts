@@ -299,21 +299,6 @@ router.get('/users/:uid', optionalAuth, async (req: Request, res: Response): Pro
  * Resolves teamCode → team document, queries Posts where teamId == team.id,
  * maps to FeedItem[], sorts chronologically, and paginates.
  */
-/**
- * GET /trending — Trending feed
- * GET /api/v1/feed/trending
- */
-router.get('/trending', optionalAuth, async (_req: Request, res: Response): Promise<void> => {
-  res.status(501).json({ success: false, error: 'Not implemented' });
-});
-
-/**
- * GET /discover — Discover feed
- * GET /api/v1/feed/discover
- */
-router.get('/discover', optionalAuth, async (_req: Request, res: Response): Promise<void> => {
-  res.status(501).json({ success: false, error: 'Not implemented' });
-});
 
 router.get('/teams/:teamCode', optionalAuth, async (req: Request, res: Response): Promise<void> => {
   try {

@@ -334,7 +334,7 @@ router.get(
     // Merge them into the user profile so the frontend sees them.
     const isTeamRole = user.role === 'coach' || user.role === 'director';
     const activeSportData = user.sports?.[user.activeSportIndex ?? 0] ?? user.sports?.[0];
-    const teamId = activeSportData?.team?.teamId;
+    const teamId = (user as any).teamCode?.teamId ?? activeSportData?.team?.teamId;
     if (isTeamRole && teamId) {
       try {
         const teamDoc = await db.collection('Teams').doc(teamId).get();
@@ -1254,7 +1254,7 @@ router.get(
     // Merge them so callers (including auth sync) see the correct sources.
     const isTeamRole = user.role === 'coach' || user.role === 'director';
     const activeSportData = user.sports?.[user.activeSportIndex ?? 0] ?? user.sports?.[0];
-    const teamId = activeSportData?.team?.teamId;
+    const teamId = (user as any).teamCode?.teamId ?? activeSportData?.team?.teamId;
     if (isTeamRole && teamId) {
       try {
         const teamDoc = await db.collection('Teams').doc(teamId).get();

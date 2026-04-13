@@ -10,12 +10,7 @@ import { Router, type Request, type Response } from 'express';
 import type { Firestore, QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { appGuard } from '../middleware/auth.middleware.js';
 import { validateBody } from '../middleware/validation.middleware.js';
-import {
-  AddPaymentMethodTokenDto,
-  PaymentMethodIdDto,
-  RedeemCouponDto,
-  BuyCreditsDto,
-} from '../dtos/usage.dto.js';
+import { PaymentMethodIdDto, RedeemCouponDto, BuyCreditsDto } from '../dtos/usage.dto.js';
 import { logger } from '../utils/logger.js';
 import {
   COLLECTIONS,
@@ -1116,23 +1111,6 @@ router.get('/payment-methods', appGuard, async (req: Request, res: Response) => 
 });
 
 /**
- * @deprecated Use Stripe Customer Portal (POST /portal-session) instead.
- * POST /api/v1/usage/payment-methods/add — kept for backwards compatibility only.
- */
-router.post(
-  '/payment-methods/add',
-  appGuard,
-  validateBody(AddPaymentMethodTokenDto),
-  async (_req: Request, res: Response) => {
-    return res.status(410).json({
-      error:
-        'This endpoint has been deprecated. Use the Stripe Customer Portal to manage payment methods.',
-      code: 'DEPRECATED_USE_PORTAL',
-    });
-  }
-);
-
-/**
  * POST /api/v1/usage/payment-methods/setup-intent
  * Create a Stripe SetupIntent to save a card via Stripe Elements.
  * Only available for Org/Team users — Individual users use Apple IAP.
@@ -1293,18 +1271,6 @@ router.post(
     }
   }
 );
-
-/**
- * @deprecated Use Stripe Customer Portal (POST /portal-session) instead.
- * POST /api/v1/usage/billing-info — kept for backwards compatibility only.
- */
-router.post('/billing-info', appGuard, async (_req: Request, res: Response) => {
-  return res.status(410).json({
-    error:
-      'This endpoint has been deprecated. Use the Stripe Customer Portal to manage billing info.',
-    code: 'DEPRECATED_USE_PORTAL',
-  });
-});
 
 /**
  * POST /api/v1/usage/buy-credits

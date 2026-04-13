@@ -538,9 +538,6 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
       stepData: Record<string, unknown>
     ): Promise<OnboardingStepResponse> {
       try {
-        // V2 Resource-based routing - each step has its own endpoint
-        const v2Base = base.replace('/v1', '/v2');
-
         // Type for backend response format
         type BackendStepResponse = {
           success?: boolean;
@@ -548,118 +545,27 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
           error?: { message?: string };
         };
 
-        // Helper to unwrap V2 backend response format
-        // Backend returns: { success, data: { stepId, savedFields, ... }, meta }
-        // Frontend expects: { success, stepId, savedFields, ... }
-        const unwrapResponse = (response: BackendStepResponse): OnboardingStepResponse => {
-          if (response && response.success && response.data) {
-            return {
-              success: true,
-              stepId: response.data.stepId,
-              savedFields: response.data.savedFields,
-            };
+        // Monorepo backend uses the unified /auth/profile/onboarding-step for all steps
+        const response = await http.post<BackendStepResponse>(
+          `${base}/auth/profile/onboarding-step`,
+          {
+            userId,
+            stepId,
+            stepData,
           }
+        );
+
+        if (response && response.success && response.data) {
           return {
-            success: response?.success ?? false,
-            error: response?.error?.message || 'Unknown error',
+            success: true,
+            stepId: response.data.stepId,
+            savedFields: response.data.savedFields,
           };
-        };
-
-        let response: BackendStepResponse;
-        switch (stepId) {
-          case 'role':
-            response = await http.patch<BackendStepResponse>(`${v2Base}/auth/profile/role`, {
-              userId,
-              userType: stepData['userType'],
-            });
-            return unwrapResponse(response);
-
-          case 'profile':
-            response = await http.patch<BackendStepResponse>(`${v2Base}/auth/profile/personal`, {
-              userId,
-              firstName: stepData['firstName'],
-              lastName: stepData['lastName'],
-              profileImg: stepData['profileImg'],
-              bio: stepData['bio'],
-            });
-            return unwrapResponse(response);
-
-          case 'school':
-            response = await http.patch<BackendStepResponse>(`${v2Base}/auth/profile/school`, {
-              userId,
-              highSchool: stepData['highSchool'],
-              highSchoolSuffix: stepData['highSchoolSuffix'],
-              classOf: stepData['classOf'],
-              state: stepData['state'],
-              city: stepData['city'],
-              club: stepData['club'],
-            });
-            return unwrapResponse(response);
-
-          case 'organization':
-            response = await http.patch<BackendStepResponse>(
-              `${v2Base}/auth/profile/organization`,
-              {
-                userId,
-                organization: stepData['organization'],
-                secondOrganization: stepData['secondOrganization'],
-                coachTitle: stepData['coachTitle'],
-                state: stepData['state'],
-                city: stepData['city'],
-              }
-            );
-            return unwrapResponse(response);
-
-          case 'sport':
-            response = await http.patch<BackendStepResponse>(`${v2Base}/auth/profile/sport`, {
-              userId,
-              primarySport: stepData['primarySport'],
-              secondarySport: stepData['secondarySport'],
-            });
-            return unwrapResponse(response);
-
-          case 'positions':
-            response = await http.patch<BackendStepResponse>(`${v2Base}/auth/profile/positions`, {
-              userId,
-              positions: stepData['positions'],
-            });
-            return unwrapResponse(response);
-
-          case 'contact':
-            response = await http.patch<BackendStepResponse>(`${v2Base}/auth/profile/contact`, {
-              userId,
-              contactEmail: stepData['contactEmail'],
-              phoneNumber: stepData['phoneNumber'],
-              instagram: stepData['instagram'],
-              twitter: stepData['twitter'],
-              tiktok: stepData['tiktok'],
-              hudlAccountLink: stepData['hudlAccountLink'],
-              youtubeAccountLink: stepData['youtubeAccountLink'],
-            });
-            return unwrapResponse(response);
-
-          case 'referral-source':
-            response = await http.post<BackendStepResponse>(`${v2Base}/auth/profile/referral`, {
-              userId,
-              source: stepData['source'],
-              details: stepData['details'],
-              clubName: stepData['clubName'],
-              otherSpecify: stepData['otherSpecify'],
-            });
-            return unwrapResponse(response);
-
-          default:
-            // Fallback to legacy endpoint for unknown steps
-            response = await http.post<BackendStepResponse>(
-              `${base}/auth/profile/onboarding-step`,
-              {
-                userId,
-                stepId,
-                stepData,
-              }
-            );
-            return unwrapResponse(response);
         }
+        return {
+          success: response?.success ?? false,
+          error: response?.error?.message || 'Unknown error',
+        };
       } catch (error) {
         return {
           success: false,
@@ -675,19 +581,20 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
 
     /**
      * Update user role type
-     * PATCH /v2/auth/profile/role
      */
     async updateRole(
       userId: string,
       userType: 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent'
     ): Promise<OnboardingStepResponse> {
-      const v2Base = base.replace('/v1', '/v2');
-      return http.patch(`${v2Base}/auth/profile/role`, { userId, userType });
+      return http.post(`${base}/auth/profile/onboarding-step`, {
+        userId,
+        stepId: 'role',
+        stepData: { userType },
+      });
     },
 
     /**
      * Update personal information
-     * PATCH /v2/auth/profile/personal
      */
     async updatePersonalInfo(
       userId: string,
@@ -698,13 +605,15 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
         bio?: string;
       }
     ): Promise<OnboardingStepResponse> {
-      const v2Base = base.replace('/v1', '/v2');
-      return http.patch(`${v2Base}/auth/profile/personal`, { userId, ...data });
+      return http.post(`${base}/auth/profile/onboarding-step`, {
+        userId,
+        stepId: 'profile',
+        stepData: data,
+      });
     },
 
     /**
      * Update school information
-     * PATCH /v2/auth/profile/school
      */
     async updateSchool(
       userId: string,
@@ -717,13 +626,15 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
         club?: string;
       }
     ): Promise<OnboardingStepResponse> {
-      const v2Base = base.replace('/v1', '/v2');
-      return http.patch(`${v2Base}/auth/profile/school`, { userId, ...data });
+      return http.post(`${base}/auth/profile/onboarding-step`, {
+        userId,
+        stepId: 'school',
+        stepData: data,
+      });
     },
 
     /**
      * Update organization information
-     * PATCH /v2/auth/profile/organization
      */
     async updateOrganization(
       userId: string,
@@ -735,40 +646,40 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
         city?: string;
       }
     ): Promise<OnboardingStepResponse> {
-      const v2Base = base.replace('/v1', '/v2');
-      return http.patch(`${v2Base}/auth/profile/organization`, {
+      return http.post(`${base}/auth/profile/onboarding-step`, {
         userId,
-        ...data,
+        stepId: 'organization',
+        stepData: data,
       });
     },
 
     /**
      * Update sport selections
-     * PATCH /v2/auth/profile/sport
      */
     async updateSport(
       userId: string,
       data: { primarySport: string; secondarySport?: string }
     ): Promise<OnboardingStepResponse> {
-      const v2Base = base.replace('/v1', '/v2');
-      return http.patch(`${v2Base}/auth/profile/sport`, { userId, ...data });
+      return http.post(`${base}/auth/profile/onboarding-step`, {
+        userId,
+        stepId: 'sport',
+        stepData: data,
+      });
     },
 
     /**
      * Update playing positions
-     * PATCH /v2/auth/profile/positions
      */
     async updatePositions(userId: string, positions: string[]): Promise<OnboardingStepResponse> {
-      const v2Base = base.replace('/v1', '/v2');
-      return http.patch(`${v2Base}/auth/profile/positions`, {
+      return http.post(`${base}/auth/profile/onboarding-step`, {
         userId,
-        positions,
+        stepId: 'positions',
+        stepData: { positions },
       });
     },
 
     /**
      * Update contact information
-     * PATCH /v2/auth/profile/contact
      */
     async updateContact(
       userId: string,
@@ -782,8 +693,11 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
         youtubeAccountLink?: string;
       }
     ): Promise<OnboardingStepResponse> {
-      const v2Base = base.replace('/v1', '/v2');
-      return http.patch(`${v2Base}/auth/profile/contact`, { userId, ...data });
+      return http.post(`${base}/auth/profile/onboarding-step`, {
+        userId,
+        stepId: 'contact',
+        stepData: data,
+      });
     },
 
     /**
@@ -804,8 +718,21 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
       id?: string;
       error?: string;
     }> {
-      const v2Base = base.replace('/v1', '/v2');
-      return http.post(`${v2Base}/auth/profile/referral`, { userId, ...data });
+      // Maps to the same onboarding-step endpoint in the monorepo backend
+      const response = await http.post<{
+        success?: boolean;
+        data?: { stepId?: string; savedFields?: string[] };
+        error?: { message?: string };
+      }>(`${base}/auth/profile/onboarding-step`, {
+        userId,
+        stepId: 'referral-source',
+        stepData: data,
+      });
+      return {
+        success: response?.success ?? false,
+        stepId: response?.data?.stepId,
+        error: response?.error?.message,
+      };
     },
 
     /**
