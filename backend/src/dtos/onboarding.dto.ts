@@ -47,6 +47,14 @@ class OnboardingSportTeamDto {
 
   @IsString()
   @IsOptional()
+  organizationId?: string;
+
+  @IsString()
+  @IsOptional()
+  title?: string;
+
+  @IsString()
+  @IsOptional()
   logo?: string;
 
   @IsArray()

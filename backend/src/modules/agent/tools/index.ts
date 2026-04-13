@@ -7,7 +7,7 @@ export { BaseTool, type ToolResult } from './base.tool.js';
 export { ToolRegistry } from './tool-registry.js';
 
 // Scraping tools
-export { ScrapeWebpageTool, ScraperService } from './scraping/index.js';
+export { ScraperService } from './scraping/index.js';
 
 // Database tools
 export { SearchCollegesTool, SearchCollegeCoachesTool } from './database/index.js';

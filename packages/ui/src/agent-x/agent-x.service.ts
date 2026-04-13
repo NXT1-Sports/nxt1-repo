@@ -637,33 +637,67 @@ export class AgentXService {
   // ============================================
 
   /**
-   * Execute a user-approved email draft (HITL send).
-   *
-   * Called when the user reviews/edits a draft card and taps "Approve & Send".
-   * Calls `POST /agent-x/chat/send-draft` on the backend, which auto-detects
-   * the provider and sends via Gmail or Outlook.
+   * Resolve an approval-backed inline card and re-attach to the resumed stream
+   * when the backend continues execution in the queue.
    */
-  async sendDraft(toEmail: string, subject: string, body: string): Promise<boolean> {
-    this.logger.info('Sending approved draft email', { toEmail, subject: subject.slice(0, 50) });
-    this.breadcrumb.trackStateChange('agent-x:send-draft', { toEmail });
+  async resolveInlineApproval(params: {
+    approvalId: string;
+    decision: 'approved' | 'rejected';
+    toolInput?: Record<string, unknown>;
+    successMessage?: string;
+  }): Promise<boolean> {
+    this.logger.info('Resolving inline approval', {
+      approvalId: params.approvalId,
+      decision: params.decision,
+    });
+    this.breadcrumb.trackStateChange('agent-x:inline-approval', {
+      approvalId: params.approvalId,
+      decision: params.decision,
+    });
 
     try {
-      const result = await this.api.sendDraft(toEmail, subject, body);
-      if (result) {
-        this.logger.info('Draft email sent successfully', { toEmail, provider: result.provider });
-        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_DRAFT_EMAIL_SENT, {
-          provider: result.provider,
-          toEmail,
+      const result = await this.api.resolveApproval(
+        params.approvalId,
+        params.decision,
+        params.toolInput
+      );
+
+      if (!result) {
+        this.logger.warn('Inline approval returned null', {
+          approvalId: params.approvalId,
+          decision: params.decision,
         });
-        this.toast.success(`Email sent to ${toEmail}`);
+        this.toast.error('Failed to process approval');
+        return false;
+      }
+
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATION_APPROVED, {
+        approvalId: params.approvalId,
+        decision: params.decision,
+        resumed: result.resumed,
+      });
+
+      if (params.decision === 'rejected') {
+        this.toast.success(params.successMessage ?? 'Request rejected');
         return true;
       }
-      this.logger.warn('Draft email send returned null', { toEmail });
-      this.toast.error('Failed to send email');
-      return false;
+
+      this.toast.success(params.successMessage ?? 'Approved — Agent X is resuming');
+
+      if (result.resumed && result.operationId) {
+        await this._attachToResumedOperation({
+          operationId: result.operationId,
+          threadId: result.threadId ?? undefined,
+        });
+      }
+
+      return true;
     } catch (err) {
-      this.logger.error('Failed to send draft email', err, { toEmail });
-      this.toast.error('Failed to send email');
+      this.logger.error('Failed to resolve inline approval', err, {
+        approvalId: params.approvalId,
+        decision: params.decision,
+      });
+      this.toast.error('Failed to process approval');
       return false;
     }
   }
@@ -1011,6 +1045,49 @@ export class AgentXService {
         this.activeStream = null;
       });
     });
+  }
+
+  private async _attachToResumedOperation(params: {
+    operationId: string;
+    threadId?: string;
+  }): Promise<void> {
+    const authToken = await this.getAuthToken?.().catch(() => null);
+    if (!authToken || !isPlatformBrowser(this.platformId)) {
+      this.logger.info('Approval resumed without live stream attachment', {
+        operationId: params.operationId,
+      });
+      return;
+    }
+
+    this.activeStream?.abort();
+    this.activeStream = null;
+
+    if (params.threadId) {
+      this._currentThreadId.set(params.threadId);
+    }
+
+    const streamingId = this.generateId();
+    const typingMessage: AgentXMessage = {
+      id: streamingId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+      isTyping: true,
+    };
+
+    this._messages.update((msgs) => [...msgs, typingMessage]);
+    this._isLoading.set(true);
+    this._currentOperationId = params.operationId;
+
+    await this._sendViaStream(
+      {
+        message: 'Resume approved operation',
+        ...(params.threadId ? { threadId: params.threadId } : {}),
+        resumeOperationId: params.operationId,
+      },
+      streamingId,
+      authToken
+    );
   }
 
   /**

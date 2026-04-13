@@ -61,6 +61,7 @@ import sentryWebhookRoutes from './routes/sentry-webhook.routes.js';
 import heliconeRoutes from './routes/helicone.routes.js';
 import usageRoutes from './routes/usage.routes.js';
 import iapRoutes from './routes/iap.routes.js';
+import cloudflareWebhookRoutes from './routes/cloudflare-webhook.routes.js';
 // Staging-only dev utilities
 
 const app: ReturnType<typeof express> = express();
@@ -300,6 +301,8 @@ async function setupApplication() {
     { path: '/usage', rateLimitType: 'api', handler: usageRoutes },
     // Apple IAP wallet routes
     { path: '/iap', rateLimitType: 'billing', handler: iapRoutes },
+    // Cloudflare Stream video processing webhooks
+    { path: '/cloudflare-webhook', rateLimitType: 'api', handler: cloudflareWebhookRoutes },
     // SSR routes with lighter limits (for SEO crawlers)
   ];
 

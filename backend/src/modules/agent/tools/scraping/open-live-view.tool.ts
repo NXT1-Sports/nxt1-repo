@@ -50,7 +50,7 @@ export class OpenLiveViewTool extends BaseTool {
     'Use this when the user asks to browse a website, view their platform profile, visit a college athletics page, ' +
     'check a recruiting portal, or whenever an interactive web view would be useful. ' +
     'If the user has a connected account for the target platform (e.g. Hudl, Gmail), the session is pre-authenticated. ' +
-    'Prefer this over interact_with_webpage when the user wants to SEE the page rather than just extract data from it.';
+    'Prefer this when the user wants to SEE and interact with the page rather than only extracting data from it.';
 
   readonly parameters = {
     type: 'object' as const,
@@ -192,8 +192,8 @@ export class OpenLiveViewTool extends BaseTool {
           hint:
             'The live view is now open. You do NOT need to remember or pass the sessionId — all live-view tools ' +
             'auto-resolve it from the userId. You can safely call open_live_view again with a different URL and it will ' +
-            'reuse this session automatically. NEVER use read_webpage or interact_with_webpage on a URL that is already ' +
-            'open in a live view — those tools create separate browser sessions and will NOT affect what the user sees.',
+            'reuse this session automatically. Once a page is open in live view, keep using the live-view tools so every ' +
+            'navigation, read, and interaction stays in the same browser the user sees.',
         },
       };
     } catch (err) {

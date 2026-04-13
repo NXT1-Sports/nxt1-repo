@@ -3,8 +3,7 @@
  * @module @nxt1/backend/modules/agent/tools/scraping
  *
  * Agent X tool that navigates an active live-view browser session to a new URL.
- * This controls the SAME browser the user sees in their command center iframe —
- * unlike `read_webpage` or `interact_with_webpage` which create separate sessions.
+ * This controls the SAME browser the user sees in their command center iframe.
  */
 
 import { BaseTool, type ToolResult } from '../base.tool.js';
@@ -18,7 +17,7 @@ export class NavigateLiveViewTool extends BaseTool {
     'Navigates the active live-view browser (the one the user can see in the side panel) to a new URL. ' +
     'The iframe updates in real time so the user sees the page change. ' +
     'Use this INSTEAD of closing and re-opening a live view when the user wants to visit a different site. ' +
-    'Also use this INSTEAD of read_webpage or interact_with_webpage when a live view session is already open. ' +
+    'Use this whenever the target page is already being shown in live view so the visible browser stays in sync. ' +
     "The sessionId is optional — if omitted, the tool automatically finds the user's active session.";
 
   readonly parameters = {

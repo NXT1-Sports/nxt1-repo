@@ -50,6 +50,7 @@ export interface ProvisionOnboardingProgramsInput {
     firstName?: string;
     lastName?: string;
     profileImgs?: string[];
+    coachTitle?: string;
     athlete?: { classOf?: number };
     location?: { city?: string; state?: string };
   };
@@ -135,6 +136,23 @@ export function getProvisioningSports(sports: readonly SportProfile[]): string[]
     new Set(sports.map((sport) => sport.sport).filter((sport): sport is string => Boolean(sport)))
   );
   return uniqueSports.length > 0 ? uniqueSports : ['basketball'];
+}
+
+function getRosterTitleForSport(
+  sports: readonly SportProfile[],
+  sportName: string,
+  fallbackTitle?: string
+): string | undefined {
+  const matchingSport = sports.find(
+    (sport) => sport.sport?.toLowerCase() === sportName.toLowerCase()
+  );
+  const sportTitle = matchingSport?.team?.title?.trim();
+  if (sportTitle) {
+    return sportTitle;
+  }
+
+  const normalizedFallback = fallbackTitle?.trim();
+  return normalizedFallback ? normalizedFallback : undefined;
 }
 
 async function generateUniqueTeamCode(db: Firestore): Promise<string> {
@@ -363,20 +381,37 @@ async function ensureTeamForSport(
 async function ensureRosterEntry(
   input: ProvisionOnboardingProgramsInput,
   program: ProvisioningProgramRecord,
-  teamId: string
+  teamId: string,
+  sportName: string
 ): Promise<void> {
   const rosterEntryService = createRosterEntryService(input.db);
   // Directors and coaches are active immediately (they own/manage the program).
   // Only athletes start as pending (require coach approval).
   const rosterStatus =
     input.role === 'athlete' ? RosterEntryStatus.PENDING : RosterEntryStatus.ACTIVE;
+  const rosterTitle = getRosterTitleForSport(input.sports, sportName, input.updateData.coachTitle);
 
   try {
+    const existingEntry = await rosterEntryService.getActiveOrPendingRosterEntry(
+      input.userId,
+      teamId
+    );
+
+    if (existingEntry?.id) {
+      await rosterEntryService.updateRosterEntry(existingEntry.id, {
+        role: input.role,
+        status: rosterStatus,
+        ...(rosterTitle ? { title: rosterTitle } : {}),
+      });
+      return;
+    }
+
     await rosterEntryService.createRosterEntry({
       userId: input.userId,
       teamId,
       organizationId: program.organizationId,
       role: input.role,
+      ...(rosterTitle ? { title: rosterTitle } : {}),
       status: rosterStatus,
       firstName: input.updateData.firstName ?? input.currentUser?.firstName ?? '',
       lastName: input.updateData.lastName ?? input.currentUser?.lastName ?? '',
@@ -385,11 +420,12 @@ async function ensureRosterEntry(
       classOf: input.updateData.athlete?.classOf,
     });
   } catch (err) {
-    logger.warn('[OnboardingProgramProvisioning] Failed to create roster entry', {
+    logger.warn('[OnboardingProgramProvisioning] Failed to sync roster entry', {
       userId: input.userId,
       teamId,
       error: err,
     });
+    throw err;
   }
 }
 
@@ -432,7 +468,7 @@ export async function provisionOnboardingPrograms(
           createdTeamIds.add(team.teamId);
         }
 
-        await ensureRosterEntry(input, program, team.teamId);
+        await ensureRosterEntry(input, program, team.teamId, sportName);
 
         // Track first resolved team per-sport for backfilling User.sports[].team
         const sportKey = sportName.toLowerCase();
@@ -449,6 +485,7 @@ export async function provisionOnboardingPrograms(
           sportName,
           error: err,
         });
+        throw err;
       }
     }
   }

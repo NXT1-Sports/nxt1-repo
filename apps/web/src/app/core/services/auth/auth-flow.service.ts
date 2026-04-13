@@ -716,7 +716,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
         // If caller needs to know about missing profile (OAuth new user detection), throw
         if (throwOnNotFound && !backendProfile) {
-          throw new Error(`Backend user not found for uid: ${firebaseUser.uid}`);
+          throw new Error(`Backend user not found for uid: ${firebaseUser.uid}`, {
+            cause: err,
+          });
         }
         // Otherwise continue with null profile - use Firebase data with defaults
       }
@@ -727,17 +729,18 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       this.logger.debug('Onboarding status determined', { hasCompletedOnboarding });
 
       // Build AuthUser from Firebase + backend data
+      // Build display name: prefer backend-sourced firstName/lastName over
+      // Firebase displayName (which may be a third-party name from Google/Apple)
+      const backendDisplayName = [backendProfile?.firstName, backendProfile?.lastName]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+
       const authUser: AuthUser = {
         ...(backendProfile ?? {}),
         uid: firebaseUser.uid,
         email: firebaseUser.email ?? '',
-        // Backend displayName is source of truth; Firebase displayName is fallback
-        displayName:
-          (backendProfile?.firstName && backendProfile?.lastName
-            ? `${backendProfile.firstName} ${backendProfile.lastName}`.trim()
-            : undefined) ??
-          firebaseUser.displayName ??
-          'User',
+        displayName: backendDisplayName || firebaseUser.displayName || 'User',
         profileImg: backendProfile?.profileImg ?? undefined,
         role: this.getUserRole(
           backendProfile
@@ -1745,18 +1748,65 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   }
 
   /**
+   * Apply onboarding completion result directly to user state.
+   *
+   * Called immediately after POST /profile/onboarding succeeds so the user
+   * state reflects the new role, name, and onboardingCompleted flag WITHOUT
+   * needing a separate GET fetch (which can be lost to race conditions).
+   */
+  async applyOnboardingResult(result: {
+    role?: string;
+    firstName?: string;
+    lastName?: string;
+    onboardingCompleted?: boolean;
+    primarySport?: string;
+  }): Promise<void> {
+    const current = this.user();
+    if (!current) {
+      this.logger.warn('applyOnboardingResult: no current user');
+      return;
+    }
+
+    const displayName = [result.firstName, result.lastName].filter(Boolean).join(' ').trim();
+
+    const patched: AuthUser = {
+      ...current,
+      role: (result.role as UserRole) || current.role,
+      displayName: displayName || current.displayName,
+      hasCompletedOnboarding: result.onboardingCompleted ?? current.hasCompletedOnboarding,
+    };
+
+    await this.authManager.setUser(patched);
+    this.logger.info('Applied onboarding result to user state', {
+      uid: current.uid,
+      role: patched.role,
+      displayName: patched.displayName,
+      hasCompletedOnboarding: patched.hasCompletedOnboarding,
+    });
+  }
+
+  /**
    * Force refresh user profile from backend (bypasses cache)
    * Call after completing onboarding to update hasCompletedOnboarding flag
    *
    * ⚠️ IMPORTANT: This invalidates the cache first to ensure fresh data
    */
   async refreshUserProfile(): Promise<void> {
-    if (this.firebaseAuth?.currentUser) {
-      const uid = this.firebaseAuth.currentUser.uid;
+    const currentUser = this.firebaseAuth?.currentUser;
+    this.logger.debug('refreshUserProfile called', {
+      hasFirebaseAuth: !!this.firebaseAuth,
+      hasCurrentUser: !!currentUser,
+      uid: currentUser?.uid,
+    });
+
+    if (currentUser) {
+      const uid = currentUser.uid;
       // Invalidate cache to force fresh fetch from backend
       // This is critical after onboarding completion
       await globalAuthUserCache.invalidate(uid);
-      await this.syncUserProfile(this.firebaseAuth.currentUser);
+      await this.syncUserProfile(currentUser);
+    } else {
+      this.logger.warn('refreshUserProfile: no Firebase currentUser — skipping GET fetch');
     }
   }
 
@@ -1802,7 +1852,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     } catch (error) {
       this.logger.error('Photo upload failed', error);
       throw new Error(
-        error instanceof Error ? error.message : 'Failed to upload photo. Please try again.'
+        error instanceof Error ? error.message : 'Failed to upload photo. Please try again.',
+        {
+          cause: error,
+        }
       );
     }
   }

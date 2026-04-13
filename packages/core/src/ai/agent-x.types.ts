@@ -289,6 +289,11 @@ export interface AgentXChatRequest {
    * these contain the CDN URLs + metadata resolved after upload.
    */
   readonly attachments?: readonly AgentXAttachment[];
+  /**
+   * Re-attach to an already-running queued operation stream.
+   * Used after approval resolution and SSE drop recovery.
+   */
+  readonly resumeOperationId?: string;
 }
 
 /**
@@ -436,6 +441,10 @@ export interface AgentXConfirmationPayload {
   readonly message: string;
   /** Available action buttons (max 3). */
   readonly actions: readonly AgentXConfirmationAction[];
+  /** Pending approval request id for approval-backed confirmations. */
+  readonly approvalId?: string;
+  /** Operation id associated with the pending approval. */
+  readonly operationId?: string;
 }
 
 // ── Citations ──
@@ -494,8 +503,12 @@ export interface AgentXDraftPayload {
   readonly subject?: string;
   /** Number of recipients (display-only context). */
   readonly recipientsCount?: number;
-  /** Recipient email address (used for HITL send-draft flow). */
+  /** Recipient email address for approval-backed send-email actions. */
   readonly toEmail?: string;
+  /** Pending approval request id for approval-backed draft sending. */
+  readonly approvalId?: string;
+  /** Operation id associated with the pending approval. */
+  readonly operationId?: string;
 }
 
 // ── Profile ──
@@ -695,6 +708,10 @@ export interface AgentXStreamOperationEvent {
   readonly status: OperationLogStatus;
   /** ISO timestamp of the status transition. */
   readonly timestamp: string;
+  /** Operation ID associated with the lifecycle update. */
+  readonly operationId?: string;
+  /** Serialized yield payload when the operation is awaiting user input or approval. */
+  readonly yieldState?: AgentYieldState;
 }
 
 /**

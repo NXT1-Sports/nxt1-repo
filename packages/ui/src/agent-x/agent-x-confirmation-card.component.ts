@@ -23,6 +23,10 @@ export interface ConfirmationActionEvent {
   readonly cardTitle: string;
   /** The selected action ID. */
   readonly actionId: string;
+  /** Pending approval request id when the confirmation is approval-backed. */
+  readonly approvalId?: string;
+  /** Operation id associated with the confirmation. */
+  readonly operationId?: string;
 }
 
 @Component({
@@ -201,9 +205,15 @@ export class AgentXConfirmationCardComponent {
   protected onAction(action: AgentXConfirmationAction): void {
     if (this.answered()) return;
     this.selectedId.set(action.id);
+    const payload = this.card().payload as AgentXConfirmationPayload & {
+      approvalId?: string;
+      operationId?: string;
+    };
     this.actionSelected.emit({
       cardTitle: this.card().title,
       actionId: action.id,
+      approvalId: typeof payload.approvalId === 'string' ? payload.approvalId : undefined,
+      operationId: typeof payload.operationId === 'string' ? payload.operationId : undefined,
     });
   }
 }

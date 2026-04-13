@@ -47,6 +47,7 @@ import { DebouncedEventWriter } from './event-writer.js';
 import type { StreamEvent } from './event-writer.js';
 import { AgentPubSubService } from './pubsub.service.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
+import type { OpenRouterService } from '../llm/openrouter.service.js';
 import { isAgentYield } from '../errors/agent-yield.error.js';
 import { notifyYield } from '../services/yield-notifier.service.js';
 import { estimateChargeAmountSync } from '../../billing/pricing.service.js';
@@ -75,6 +76,7 @@ export class AgentWorker {
     private readonly chatService: AgentChatService,
     private readonly pubsub: AgentPubSubService,
     private readonly stagingFirestore?: FirebaseFirestore.Firestore,
+    private readonly llmService?: OpenRouterService,
     redisUrl?: string
   ) {
     const url = redisUrl ?? process.env['REDIS_URL'] ?? 'redis://localhost:6379';
@@ -525,6 +527,24 @@ export class AgentWorker {
           threadId,
           operationId: payload.operationId,
         });
+
+        if (this.llmService) {
+          const generatedTitle = await this.chatService.generateThreadTitle(
+            threadId,
+            payload.userId,
+            payload.intent,
+            summary,
+            this.llmService
+          );
+
+          if (generatedTitle) {
+            logger.info('Agent thread title auto-generated from worker response', {
+              threadId,
+              operationId: payload.operationId,
+              title: generatedTitle,
+            });
+          }
+        }
       } catch (chatErr) {
         // Chat persistence must never fail the job
         logger.warn('Failed to persist agent response to MongoDB', {

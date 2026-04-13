@@ -18,6 +18,10 @@
 import type { AgentTriggerEvent, SyncDeltaReport } from '@nxt1/core';
 import { AgentTriggerService } from './trigger.service.js';
 import { AgentGenerationService } from '../services/generation.service.js';
+import { OpenRouterService } from '../llm/openrouter.service.js';
+import { ContextBuilder } from '../memory/context-builder.js';
+import { SyncMemoryExtractorService } from '../memory/sync-memory-extractor.service.js';
+import { VectorMemoryService } from '../memory/vector.service.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Lazy singleton — avoids eager Firestore access at module load time. */
@@ -32,6 +36,19 @@ let _generationService: AgentGenerationService | null = null;
 function getGenerationService(): AgentGenerationService {
   if (!_generationService) _generationService = new AgentGenerationService();
   return _generationService;
+}
+
+let _syncMemoryExtractor: SyncMemoryExtractorService | null = null;
+function getSyncMemoryExtractor(): SyncMemoryExtractorService {
+  if (!_syncMemoryExtractor) {
+    const llm = new OpenRouterService();
+    const vectorMemory = new VectorMemoryService(llm);
+    _syncMemoryExtractor = new SyncMemoryExtractorService(
+      vectorMemory,
+      new ContextBuilder(vectorMemory)
+    );
+  }
+  return _syncMemoryExtractor;
 }
 
 // ─── Database Event Listeners ───────────────────────────────────────────────
@@ -122,6 +139,19 @@ export async function onDailySyncComplete(delta: SyncDeltaReport): Promise<void>
     source: delta.source,
     totalChanges: delta.summary.totalChanges,
   });
+
+  try {
+    const memoriesCreated = await getSyncMemoryExtractor().storeDeltaMemories(delta);
+    logger.info('[TriggerListener] Sync memories extracted', {
+      userId: delta.userId,
+      memoriesCreated,
+    });
+  } catch (memoryErr) {
+    logger.warn('[TriggerListener] Sync memory extraction failed', {
+      userId: delta.userId,
+      error: memoryErr instanceof Error ? memoryErr.message : String(memoryErr),
+    });
+  }
 
   const event: AgentTriggerEvent = {
     id: `sync_${Date.now()}_${delta.userId}`,

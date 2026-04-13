@@ -27,6 +27,7 @@
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { logger } from '../../../../utils/logger.js';
 
@@ -40,6 +41,7 @@ export interface McpToolCallResult {
     readonly data?: string;
     readonly mimeType?: string;
   }>;
+  readonly structuredContent?: Record<string, unknown>;
   readonly isError?: boolean;
 }
 
@@ -49,7 +51,20 @@ export interface McpExecuteOptions {
   readonly timeoutMs?: number;
   /** Optional AbortSignal to cancel the call from outside. */
   readonly signal?: AbortSignal;
+  /** Whether transport failures may be retried after reconnect. Defaults to true. */
+  readonly retryOnTransportError?: boolean;
 }
+
+type McpCircuitState = 'closed' | 'open' | 'half-open';
+
+type McpErrorKind =
+  | 'cancelled'
+  | 'timeout'
+  | 'rate_limit'
+  | 'client'
+  | 'transport'
+  | 'server'
+  | 'unknown';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -64,6 +79,15 @@ const DEFAULT_CALL_TIMEOUT_MS = 60_000;
 
 /** Client protocol version advertised during MCP handshake. */
 const CLIENT_VERSION = '1.0.0';
+
+/** Number of consecutive dependency failures before the circuit opens. */
+const CIRCUIT_BREAKER_FAILURE_THRESHOLD = 3;
+
+/** Default time to keep the circuit open after dependency failures. */
+const CIRCUIT_BREAKER_DEFAULT_OPEN_MS = 30_000;
+
+/** Default time to keep the circuit open after a 429 rate limit. */
+const CIRCUIT_BREAKER_RATE_LIMIT_OPEN_MS = 60_000;
 
 // ─── Abstract Base ──────────────────────────────────────────────────────────
 
@@ -89,6 +113,21 @@ export abstract class BaseMcpClientService {
   /** Number of consecutive reconnect failures (reset on success). */
   private reconnectAttempts = 0;
 
+  /** Current circuit breaker state for this MCP dependency. */
+  private circuitState: McpCircuitState = 'closed';
+
+  /** Number of consecutive dependency failures observed since the last success. */
+  private consecutiveFailures = 0;
+
+  /** Epoch time when the circuit entered OPEN state. */
+  private circuitOpenedAtMs: number | null = null;
+
+  /** Duration to keep the circuit open before allowing a half-open probe. */
+  private circuitOpenDurationMs = CIRCUIT_BREAKER_DEFAULT_OPEN_MS;
+
+  /** Only one half-open probe is allowed at a time. */
+  private halfOpenProbeInFlight = false;
+
   // ── Abstract ──────────────────────────────────────────────────────────
 
   /**
@@ -98,6 +137,14 @@ export abstract class BaseMcpClientService {
    * Example: `new StreamableHTTPClientTransport(url, { headers })`
    */
   protected abstract getTransport(): Transport;
+
+  /**
+   * Optional hook for transports that can capture server-provided Retry-After data.
+   * Subclasses may override this to feed precise rate-limit durations into the breaker.
+   */
+  protected consumeRateLimitDelayMs(): number | null {
+    return null;
+  }
 
   // ── Connection Lifecycle ──────────────────────────────────────────────
 
@@ -163,15 +210,17 @@ export abstract class BaseMcpClientService {
     const startMs = Date.now();
     const timeoutMs = options?.timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
 
-    // Ensure we're connected (lazy init or reconnect)
-    await this.ensureConnected();
-
-    logger.info(`[MCP:${this.serverName}] Calling tool "${toolName}"`, {
-      argsKeys: Object.keys(args),
-      timeoutMs,
-    });
-
     try {
+      this.assertCircuitAllowsExecution(toolName);
+
+      // Ensure we're connected (lazy init or reconnect)
+      await this.ensureConnected();
+
+      logger.info(`[MCP:${this.serverName}] Calling tool "${toolName}"`, {
+        argsKeys: Object.keys(args),
+        timeoutMs,
+      });
+
       const result = (await this.callWithTimeout(
         toolName,
         args,
@@ -180,35 +229,120 @@ export abstract class BaseMcpClientService {
       )) as McpToolCallResult;
       const durationMs = Date.now() - startMs;
 
+      this.recordExecutionSuccess();
+
       logger.info(`[MCP:${this.serverName}] Tool "${toolName}" completed`, {
         durationMs,
         contentItems: result.content?.length ?? 0,
         isError: result.isError ?? false,
       });
 
-      // Reset reconnect counter on success
-      this.reconnectAttempts = 0;
+      this.recordTrace(toolName, durationMs, {
+        success: true,
+        timeoutMs,
+        contentItems: result.content?.length ?? 0,
+        isError: result.isError ?? false,
+      });
 
       return result;
     } catch (err) {
       const durationMs = Date.now() - startMs;
+      const errorKind = this.classifyError(err, options?.signal);
+      const retryAfterMs =
+        errorKind === 'rate_limit'
+          ? (this.consumeRateLimitDelayMs() ?? this.extractRetryAfterMs(err))
+          : null;
+
+      if (errorKind === 'cancelled') {
+        this.clearHalfOpenProbe();
+      } else {
+        this.recordExecutionFailure(errorKind, retryAfterMs);
+      }
+
       logger.error(`[MCP:${this.serverName}] Tool "${toolName}" failed`, {
         error: err instanceof Error ? err.message : String(err),
         durationMs,
+        errorKind,
+        retryAfterMs,
+        circuitState: this.circuitState,
       });
 
-      // If it looks like a connection/transport error, try reconnecting once
-      if (this.isTransportError(err)) {
+      this.recordTrace(toolName, durationMs, {
+        success: false,
+        timeoutMs,
+        errorKind,
+        retryAfterMs,
+      });
+
+      // If it looks like a retryable dependency failure, try reconnecting once.
+      const shouldRetry =
+        this.circuitState === 'closed' &&
+        options?.retryOnTransportError !== false &&
+        this.shouldRetryAfterFailure(errorKind);
+
+      if (shouldRetry) {
         logger.warn(`[MCP:${this.serverName}] Transport error detected — attempting reconnect`);
-        this.connected = false;
+        await this.disconnect();
         await this.ensureConnected();
-        // Single retry after reconnect
-        return (await this.callWithTimeout(
-          toolName,
-          args,
-          timeoutMs,
-          options?.signal
-        )) as McpToolCallResult;
+
+        try {
+          const retryResult = (await this.callWithTimeout(
+            toolName,
+            args,
+            timeoutMs,
+            options?.signal
+          )) as McpToolCallResult;
+          const retryDurationMs = Date.now() - startMs;
+
+          this.recordExecutionSuccess();
+
+          logger.info(`[MCP:${this.serverName}] Tool "${toolName}" recovered after reconnect`, {
+            durationMs: retryDurationMs,
+            contentItems: retryResult.content?.length ?? 0,
+            isError: retryResult.isError ?? false,
+          });
+
+          this.recordTrace(toolName, retryDurationMs, {
+            success: true,
+            timeoutMs,
+            retryCount: 1,
+            contentItems: retryResult.content?.length ?? 0,
+            isError: retryResult.isError ?? false,
+          });
+
+          return retryResult;
+        } catch (retryErr) {
+          const retryDurationMs = Date.now() - startMs;
+          const retryErrorKind = this.classifyError(retryErr, options?.signal);
+          const retryAfterDelayMs =
+            retryErrorKind === 'rate_limit'
+              ? (this.consumeRateLimitDelayMs() ?? this.extractRetryAfterMs(retryErr))
+              : null;
+
+          if (retryErrorKind === 'cancelled') {
+            this.clearHalfOpenProbe();
+          } else {
+            this.recordExecutionFailure(retryErrorKind, retryAfterDelayMs);
+          }
+
+          logger.error(`[MCP:${this.serverName}] Tool "${toolName}" retry failed`, {
+            error: retryErr instanceof Error ? retryErr.message : String(retryErr),
+            durationMs: retryDurationMs,
+            errorKind: retryErrorKind,
+            retryAfterMs: retryAfterDelayMs,
+            circuitState: this.circuitState,
+          });
+
+          this.recordTrace(toolName, retryDurationMs, {
+            success: false,
+            timeoutMs,
+            retryCount: 1,
+            errorKind: retryErrorKind,
+            retryAfterMs: retryAfterDelayMs,
+          });
+
+          throw retryErr;
+        }
       }
 
       throw err;
@@ -299,6 +433,11 @@ export abstract class BaseMcpClientService {
     const timeoutController = new AbortController();
     const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
 
+    if (externalSignal?.aborted) {
+      timeoutController.abort();
+      throw new Error(`[MCP:${this.serverName}] Tool "${toolName}" was cancelled before execution`);
+    }
+
     // If the caller provided an external signal, propagate its abort
     const onExternalAbort = () => timeoutController.abort();
     externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
@@ -324,9 +463,268 @@ export abstract class BaseMcpClientService {
   }
 
   /**
+   * Gate execution through a lightweight process-local circuit breaker.
+   */
+  private assertCircuitAllowsExecution(toolName: string): void {
+    if (this.circuitState === 'open') {
+      const elapsedMs = Date.now() - (this.circuitOpenedAtMs ?? 0);
+      if (elapsedMs < this.circuitOpenDurationMs) {
+        const retryAfterMs = Math.max(this.circuitOpenDurationMs - elapsedMs, 0);
+        throw new Error(
+          `[MCP:${this.serverName}] Circuit breaker OPEN for "${toolName}". Retry after ${retryAfterMs}ms.`
+        );
+      }
+
+      this.circuitState = 'half-open';
+      this.halfOpenProbeInFlight = false;
+      logger.warn(`[MCP:${this.serverName}] Circuit breaker entering HALF_OPEN`, {
+        toolName,
+      });
+    }
+
+    if (this.circuitState === 'half-open') {
+      if (this.halfOpenProbeInFlight) {
+        throw new Error(
+          `[MCP:${this.serverName}] Circuit breaker HALF_OPEN for "${toolName}". Probe already in flight.`
+        );
+      }
+      this.halfOpenProbeInFlight = true;
+    }
+  }
+
+  /**
+   * Reset failure counters after a successful MCP exchange.
+   */
+  private recordExecutionSuccess(): void {
+    this.reconnectAttempts = 0;
+    this.consecutiveFailures = 0;
+    this.circuitState = 'closed';
+    this.circuitOpenedAtMs = null;
+    this.circuitOpenDurationMs = CIRCUIT_BREAKER_DEFAULT_OPEN_MS;
+    this.halfOpenProbeInFlight = false;
+  }
+
+  /**
+   * Feed a dependency failure into the circuit breaker.
+   */
+  private recordExecutionFailure(errorKind: McpErrorKind, retryAfterMs: number | null): void {
+    this.halfOpenProbeInFlight = false;
+
+    if (!this.countsTowardCircuit(errorKind)) {
+      return;
+    }
+
+    if (errorKind === 'rate_limit') {
+      this.openCircuit(retryAfterMs ?? CIRCUIT_BREAKER_RATE_LIMIT_OPEN_MS, errorKind);
+      return;
+    }
+
+    if (this.circuitState === 'half-open') {
+      this.openCircuit(retryAfterMs ?? CIRCUIT_BREAKER_DEFAULT_OPEN_MS, errorKind);
+      return;
+    }
+
+    this.consecutiveFailures++;
+    if (this.consecutiveFailures >= CIRCUIT_BREAKER_FAILURE_THRESHOLD) {
+      this.openCircuit(retryAfterMs ?? CIRCUIT_BREAKER_DEFAULT_OPEN_MS, errorKind);
+    }
+  }
+
+  /**
+   * Transition the dependency circuit into OPEN state.
+   */
+  private openCircuit(durationMs: number, errorKind: McpErrorKind): void {
+    this.circuitState = 'open';
+    this.circuitOpenedAtMs = Date.now();
+    this.circuitOpenDurationMs = durationMs;
+    this.halfOpenProbeInFlight = false;
+
+    logger.warn(`[MCP:${this.serverName}] Circuit breaker OPEN`, {
+      errorKind,
+      openForMs: durationMs,
+      consecutiveFailures: this.consecutiveFailures,
+    });
+  }
+
+  /**
+   * Ensure user cancellations do not leave half-open probes stuck.
+   */
+  private clearHalfOpenProbe(): void {
+    this.halfOpenProbeInFlight = false;
+  }
+
+  /**
+   * Structured trace logging for MCP latency and failure visibility.
+   */
+  private recordTrace(
+    toolName: string,
+    durationMs: number,
+    details: {
+      success: boolean;
+      timeoutMs: number;
+      retryCount?: number;
+      contentItems?: number;
+      isError?: boolean;
+      errorKind?: McpErrorKind;
+      retryAfterMs?: number | null;
+    }
+  ): void {
+    logger.info('[Performance]', {
+      trace: this.getTraceName(toolName),
+      duration: `${durationMs}ms`,
+      serverName: this.serverName,
+      toolName,
+      success: details.success,
+      timeoutMs: details.timeoutMs,
+      retryCount: details.retryCount ?? 0,
+      contentItems: details.contentItems ?? 0,
+      isError: details.isError ?? false,
+      errorKind: details.errorKind,
+      retryAfterMs: details.retryAfterMs ?? undefined,
+      circuitState: this.circuitState,
+    });
+  }
+
+  /**
+   * Build a stable backend trace name for this MCP tool call.
+   */
+  private getTraceName(toolName: string): string {
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    return `backend_mcp_${normalize(this.serverName)}_${normalize(toolName)}`;
+  }
+
+  /**
+   * Identify the failure class so retries and breaker behavior stay safe.
+   */
+  private classifyError(err: unknown, externalSignal?: AbortSignal): McpErrorKind {
+    if (externalSignal?.aborted || this.isAbortError(err)) {
+      return 'cancelled';
+    }
+
+    if (this.isRateLimitError(err)) {
+      return 'rate_limit';
+    }
+
+    if (this.isClientError(err)) {
+      return 'client';
+    }
+
+    if (this.isTimeoutError(err)) {
+      return 'timeout';
+    }
+
+    if (this.isServerError(err)) {
+      return 'server';
+    }
+
+    if (this.isTransportError(err)) {
+      return 'transport';
+    }
+
+    return 'unknown';
+  }
+
+  /**
+   * Only external dependency failures should affect the breaker.
+   */
+  private countsTowardCircuit(errorKind: McpErrorKind): boolean {
+    return ['timeout', 'rate_limit', 'transport', 'server'].includes(errorKind);
+  }
+
+  /**
+   * Retry only safe, retryable dependency failures.
+   */
+  private shouldRetryAfterFailure(errorKind: McpErrorKind): boolean {
+    return ['timeout', 'transport', 'server'].includes(errorKind);
+  }
+
+  /**
+   * Extract server-provided retry delay hints when available.
+   */
+  private extractRetryAfterMs(err: unknown): number | null {
+    if (!(err instanceof Error)) return null;
+
+    const record = err as Error & {
+      retryAfterMs?: unknown;
+      retryAfter?: unknown;
+      cause?: unknown;
+    };
+
+    if (typeof record.retryAfterMs === 'number' && record.retryAfterMs > 0) {
+      return record.retryAfterMs;
+    }
+
+    if (typeof record.retryAfter === 'number' && record.retryAfter > 0) {
+      return record.retryAfter * 1_000;
+    }
+
+    const match = err.message.match(/retry after (\d+)(ms|s)/i);
+    if (match) {
+      const value = Number(match[1]);
+      return match[2].toLowerCase() === 's' ? value * 1_000 : value;
+    }
+
+    return null;
+  }
+
+  /**
+   * Abort errors come from explicit cancellation, not dependency health.
+   */
+  private isAbortError(err: unknown): boolean {
+    return err instanceof Error && err.name === 'AbortError';
+  }
+
+  /**
+   * Distinguish timeout errors thrown by callWithTimeout.
+   */
+  private isTimeoutError(err: unknown): boolean {
+    return err instanceof Error && err.message.toLowerCase().includes('timed out');
+  }
+
+  /**
+   * Detect HTTP 429 responses or equivalent rate-limit messages.
+   */
+  private isRateLimitError(err: unknown): boolean {
+    if (err instanceof StreamableHTTPError) {
+      return err.code === 429;
+    }
+
+    if (!(err instanceof Error)) return false;
+    const msg = err.message.toLowerCase();
+    return msg.includes('429') || msg.includes('too many requests') || msg.includes('rate limit');
+  }
+
+  /**
+   * Detect non-rate-limit 4xx responses that should not trip retries or the breaker.
+   */
+  private isClientError(err: unknown): boolean {
+    return (
+      err instanceof StreamableHTTPError &&
+      typeof err.code === 'number' &&
+      err.code >= 400 &&
+      err.code < 500 &&
+      err.code !== 429
+    );
+  }
+
+  /**
+   * Detect server-side dependency failures returned over HTTP.
+   */
+  private isServerError(err: unknown): boolean {
+    return err instanceof StreamableHTTPError && typeof err.code === 'number' && err.code >= 500;
+  }
+
+  /**
    * Heuristic: is this error caused by a broken transport/network connection?
    */
   private isTransportError(err: unknown): boolean {
+    if (err instanceof StreamableHTTPError) {
+      if (typeof err.code === 'number') {
+        return err.code >= 500 || err.code < 0;
+      }
+      return true;
+    }
+
     if (!(err instanceof Error)) return false;
     const msg = err.message.toLowerCase();
     return (
@@ -337,8 +735,7 @@ export abstract class BaseMcpClientService {
       msg.includes('socket') ||
       msg.includes('network') ||
       msg.includes('fetch failed') ||
-      msg.includes('stream') ||
-      err.name === 'AbortError'
+      msg.includes('stream')
     );
   }
 }

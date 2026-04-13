@@ -1014,7 +1014,39 @@ router.get(
     query = query.orderBy('createdAt', 'desc').limit(limit);
 
     const snap = await query.get();
-    const videos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const videos = snap.docs.map((d) => {
+      const data = d.data();
+      const playback =
+        data['playback'] && typeof data['playback'] === 'object'
+          ? (data['playback'] as Record<string, unknown>)
+          : null;
+
+      return {
+        id: d.id,
+        ...data,
+        createdAt:
+          typeof data['createdAt']?.['toDate'] === 'function'
+            ? data['createdAt'].toDate().toISOString()
+            : (data['createdAt'] as string | undefined),
+        updatedAt:
+          typeof data['updatedAt']?.['toDate'] === 'function'
+            ? data['updatedAt'].toDate().toISOString()
+            : (data['updatedAt'] as string | undefined),
+        mediaUrl:
+          (data['mediaUrl'] as string | undefined) ??
+          (data['videoUrl'] as string | undefined) ??
+          (playback?.['iframeUrl'] as string | undefined) ??
+          (playback?.['hlsUrl'] as string | undefined),
+        thumbnailUrl:
+          (data['thumbnailUrl'] as string | undefined) ??
+          (data['poster'] as string | undefined) ??
+          (data['previewUrl'] as string | undefined),
+        duration:
+          (data['duration'] as number | undefined) ??
+          (data['durationSeconds'] as number | undefined) ??
+          undefined,
+      };
+    });
     await cache.set(cacheKey, videos, { ttl: CACHE_TTL.POSTS });
     res.json({ success: true, data: videos });
   })

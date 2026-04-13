@@ -233,6 +233,33 @@ export class DataCoordinatorAgent extends BaseAgent {
       '- PREFER the Distill → Read → Write pipeline for ALL URLs. When mode is "distilled", use read → write tools.',
       '- When mode is "raw", use scrape_webpage → extract manually → call the SAME atomic write tools.',
       '- DO NOT assume a platform cannot be scraped. The underlying scraper engine bypasses bot protections. ALWAYS try scraping.',
+      '',
+      '### Social Media Routing (CRITICAL)',
+      '- **Twitter/X**: NEVER use `scrape_webpage` or `scrape_and_index_profile` for twitter.com or x.com URLs — they are blocked by the SSRF validator.',
+      '  Instead, use `scrape_twitter` with mode `profile_tweets` and the username extracted from the URL.',
+      '  Example: for https://x.com/alcoafootball → scrape_twitter({ mode: "profile_tweets", usernames: ["alcoafootball"], limit: 30 })',
+      '- After getting Twitter data from `scrape_twitter`, use the results to call the appropriate write tools.',
+      '',
+      '### General Apify Actor Tools',
+      'When no dedicated scraper exists for a platform or data source, use the general Apify MCP tools to dynamically discover and run any Apify actor:',
+      '',
+      '**4-step workflow:**',
+      '1. `search_apify_actors` — Search the Apify Store by keyword (e.g., "instagram scraper", "tiktok profile"). Returns actor names, descriptions, and IDs.',
+      "2. `get_apify_actor_details` — Fetch the actor's input schema, pricing, and documentation BEFORE calling it. Always do this step.",
+      '3. `call_apify_actor` — Execute the actor with the required input. Budget caps are enforced: maxItems=200, memory=256MB, timeout=300s.',
+      '4. `get_apify_actor_output` — Retrieve paginated results from the completed run (max 200 items/page, default 100).',
+      '',
+      '**Rules:**',
+      '- ALWAYS call `get_apify_actor_details` before `call_apify_actor` to understand the required input schema.',
+      '- Prefer dedicated scrapers (`scrape_twitter`, `scrape_and_index_profile`) when they exist for the platform.',
+      '- Use general Apify tools for platforms without a dedicated scraper (e.g., TikTok, YouTube, LinkedIn, Facebook, Hudl).',
+      '- After getting Apify output, map the results to the appropriate write tools (`write_core_identity`, `write_combine_metrics`, etc.).',
+      '- If an actor run fails or times out, report the error to the user via `ask_user` rather than retrying blindly.',
+      '',
+      '### Team/Org ID Passthrough (CRITICAL for coaches/directors)',
+      '- When the user context includes `TeamID` and/or `OrgID`, ALWAYS pass them as `teamId` and `organizationId` params to `write_core_identity`.',
+      '  This ensures the team metadata cascade (mascot, colors, conference, division) writes to the correct Team and Organization documents.',
+      '  Without these IDs, the cascade may silently skip because the User doc sport entry may not contain the team reference yet.',
       '- ALWAYS validate extracted data: heights (48-96 inches), weights (80-400 lbs), graduation years (current year to +6).',
       '- ALWAYS set `targetSport` to the correct sport key.',
       '- Map metrics to snake_case field keys (e.g. "forty_yard_dash", "bench_press", "vertical_jump").',
@@ -290,6 +317,15 @@ export class DataCoordinatorAgent extends BaseAgent {
 
       // ── Raw fallback scraping ──
       'scrape_webpage',
+
+      // ── Social media scraping (Apify-hosted actors) ──
+      'scrape_twitter',
+
+      // ── General Apify MCP tools (dynamic actor discovery & execution) ──
+      'search_apify_actors',
+      'get_apify_actor_details',
+      'call_apify_actor',
+      'get_apify_actor_output',
 
       // ── Live browsing (auth-protected pages) ──
       'open_live_view',

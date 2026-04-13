@@ -75,13 +75,18 @@ export {
   type FileUploadMetadata,
   type FileUploadRequest,
   type FileUploadResult,
+  type DirectVideoUploadSession,
   type FileDeleteRequest,
+  type HighlightVideoUploadProvisionOptions,
+  type PersistHighlightVideoPostRequest,
+  type PersistedHighlightVideoPost,
   type UploadProgressCallback,
   type FileUploadHttpAdapter,
   type FileValidationError,
   FILE_UPLOAD_RULES,
   validateFileForUpload,
   formatFileSize,
+  type FinalizedHighlightVideoUpload,
 } from './file-upload.api';
 
 // Onboarding APIs (from onboarding/)

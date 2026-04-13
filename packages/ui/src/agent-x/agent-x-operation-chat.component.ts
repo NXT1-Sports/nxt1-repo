@@ -94,6 +94,7 @@ import {
   type ActionCardReplyEvent,
 } from './agent-x-action-card.component';
 import type { BillingActionResolvedEvent } from './agent-x-billing-action-card.component';
+import type { ConfirmationActionEvent } from './agent-x-confirmation-card.component';
 import type { DraftSubmittedEvent } from './agent-x-draft-card.component';
 import type { AgentYieldState } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './fab/agent-x-logo.constants';
@@ -300,6 +301,7 @@ interface OperationMessage {
               [cards]="msg.cards ?? []"
               [parts]="msg.parts ?? []"
               (billingActionResolved)="onBillingActionResolved($event)"
+              (confirmationAction)="onConfirmationAction($event)"
               (draftSubmitted)="onDraftSubmitted($event)"
             />
             @if (msg.attachments?.length) {
@@ -396,7 +398,7 @@ interface OperationMessage {
             <nxt1-agent-action-card
               #actionCard
               [yield]="activeYieldState()!"
-              [operationId]="contextId"
+              [operationId]="yieldOperationId()"
               (approve)="onApproveAction($event)"
               (reply)="onReplyAction($event)"
             />
@@ -2681,6 +2683,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           },
 
           onOperation: (evt) => {
+            if (evt.operationId) {
+              this._currentOperationId = evt.operationId;
+            }
+            if (evt.status === 'awaiting_input' && evt.yieldState) {
+              this.activeYieldState.set(evt.yieldState);
+              this.yieldResolved.set(false);
+            }
+
             // Forward to the shared event service so the operations log sidebar
             // updates in real-time (in-progress spinner, complete, error states).
             this.operationEventService.emitOperationStatusUpdated(
@@ -2876,17 +2886,65 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  /** Handle draft email approval (HITL) — bubble up to parent shell/service. */
+  /** Handle draft approval through the shared approval-resolution pipeline. */
   protected onDraftSubmitted(event: DraftSubmittedEvent): void {
     this.logger.info('Draft email approved', {
       toEmail: event.toEmail,
       subject: event.subject?.slice(0, 50),
+      approvalId: event.approvalId,
     });
     this.breadcrumb.trackUserAction('draft-email-approved', {
       toEmail: event.toEmail,
       source: 'operation-chat',
+      approvalId: event.approvalId,
     });
-    this.draftSubmitted.emit(event);
+
+    if (event.approvalId) {
+      void this.agentXService.resolveInlineApproval({
+        approvalId: event.approvalId,
+        decision: 'approved',
+        toolInput: {
+          ...(event.toEmail ? { toEmail: event.toEmail } : {}),
+          subject: event.subject,
+          bodyHtml: event.content,
+        },
+        successMessage: 'Draft approved — Agent X is resuming',
+      });
+      return;
+    }
+
+    this.logger.warn('Inline draft card missing approvalId', {
+      toEmail: event.toEmail,
+      subject: event.subject?.slice(0, 50),
+    });
+    this.toast.error('This draft can no longer be sent directly. Refresh and try again.');
+  }
+
+  protected onConfirmationAction(event: ConfirmationActionEvent): void {
+    if (!event.approvalId) {
+      this.logger.warn('Inline confirmation action missing approvalId', {
+        actionId: event.actionId,
+      });
+      return;
+    }
+
+    const decision =
+      event.actionId === 'approve' ? 'approved' : event.actionId === 'reject' ? 'rejected' : null;
+
+    if (!decision) {
+      this.logger.warn('Unsupported inline confirmation action', {
+        actionId: event.actionId,
+        approvalId: event.approvalId,
+      });
+      return;
+    }
+
+    void this.agentXService.resolveInlineApproval({
+      approvalId: event.approvalId,
+      decision,
+      successMessage:
+        decision === 'approved' ? 'Approved — Agent X is resuming' : 'Request rejected',
+    });
   }
 
   /** Handle approval/rejection from the action card. */
@@ -2945,7 +3003,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     });
 
     try {
-      const success = await this.jobService.replyOperation(event.operationId, event.response);
+      const activeYield = this.activeYieldState();
+      const success =
+        activeYield?.reason === 'needs_input'
+          ? await this.resumeYieldedOperation(event.operationId, event.response)
+          : await this.jobService.replyOperation(event.operationId, event.response);
       if (success) {
         await this.haptics.notification('success');
         this.actionCardRef()?.markResolved('Reply sent — resuming');
@@ -2978,6 +3040,72 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       this.logger.error('Action card reply failed', err, { operationId: event.operationId });
       await this.haptics.notification('error');
       this.actionCardRef()?.markIdle();
+    }
+  }
+
+  protected yieldOperationId(): string {
+    return this._currentOperationId ?? this.contextId;
+  }
+
+  private async resumeYieldedOperation(operationId: string, response: string): Promise<boolean> {
+    const authToken = await this.getAuthToken?.().catch(() => null);
+    if (!authToken || !isPlatformBrowser(this.platformId)) {
+      this.logger.warn('Cannot resume yielded operation without browser auth token', {
+        operationId,
+      });
+      this.toast.error('Sign in again to continue this operation');
+      return false;
+    }
+
+    const result = await this.api.resumeYieldedJob(operationId, response);
+    if (!result?.resumed || !result.operationId) {
+      this.logger.warn('Yielded operation resume failed', { operationId });
+      return false;
+    }
+
+    const threadId = result.threadId ?? this._resolvedThreadId() ?? undefined;
+    if (threadId) {
+      this._resolvedThreadId.set(threadId);
+    }
+
+    this._currentOperationId = result.operationId;
+    this.activeYieldState.set(null);
+
+    this.pushMessage({
+      id: 'typing',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+      isTyping: true,
+    });
+    this._loading.set(true);
+
+    try {
+      await this._sendViaStream(
+        {
+          message: 'Resume yielded operation',
+          ...(threadId ? { threadId } : {}),
+          resumeOperationId: result.operationId,
+        },
+        authToken
+      );
+      this.responseComplete.emit();
+      return true;
+    } catch (err) {
+      this.logger.error('Failed to attach to resumed yielded operation stream', err, {
+        operationId,
+        resumedOperationId: result.operationId,
+      });
+      this.replaceTyping({
+        id: this.uid(),
+        role: 'assistant',
+        content: 'Your reply was saved, but I could not reconnect to the resumed operation.',
+        timestamp: new Date(),
+        error: true,
+      });
+      return false;
+    } finally {
+      this._loading.set(false);
     }
   }
 

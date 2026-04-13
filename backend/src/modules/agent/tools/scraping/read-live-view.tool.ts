@@ -3,8 +3,7 @@
  * @module @nxt1/backend/modules/agent/tools/scraping
  *
  * Agent X tool that extracts the current page content (as text) from an active
- * live-view browser session. This reads from the SAME browser the user sees —
- * unlike `read_webpage` which creates a separate ephemeral session.
+ * live-view browser session. This reads from the SAME browser the user sees.
  */
 
 import { BaseTool, type ToolResult } from '../base.tool.js';
@@ -18,7 +17,7 @@ export class ReadLiveViewTool extends BaseTool {
     'Reads the current page content from the active live-view browser session ' +
     "(the one visible in the user's side panel). Returns the page URL, title, and " +
     'text content so you can understand what the user is looking at. ' +
-    'Use this INSTEAD of read_webpage when a live view session is already open. ' +
+    'Use this whenever you need content from the page that is already open in live view. ' +
     "The sessionId is optional — if omitted, the tool automatically finds the user's active session.";
 
   readonly parameters = {

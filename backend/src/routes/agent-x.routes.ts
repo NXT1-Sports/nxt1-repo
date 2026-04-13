@@ -16,7 +16,6 @@
  * Routes:
  *   POST /api/v1/agent-x/chat              → SSE streaming chat (unified entry point)
  *   POST /api/v1/agent-x/cancel/:id        → Explicit cancellation of in-flight chat
- *   POST /api/v1/agent-x/chat/send-draft   → Approve a HITL email draft
  *   POST /api/v1/agent-x/resume-job/:id    → Resume a yielded agent job
  *   POST /api/v1/agent-x/approvals/:id/resolve → Resolve an approval request
  *   POST /api/v1/agent-x/playbook/item/:id/status → Update playbook item status
@@ -57,18 +56,19 @@ import {
   getShellContentForRole,
   AGENT_X_ALLOWED_MIME_TYPES,
   AGENT_X_MAX_FILE_SIZE,
-  AGENT_APPROVAL_POLICIES,
 } from '@nxt1/core';
 import type { AgentChatService } from '../modules/agent/services/agent-chat.service.js';
+import { ApprovalGateService } from '../modules/agent/services/approval-gate.service.js';
+import { isAgentYield } from '../modules/agent/errors/agent-yield.error.js';
 import type { ContextBuilder } from '../modules/agent/memory/context-builder.js';
 import type { OpenRouterService } from '../modules/agent/llm/openrouter.service.js';
 import type { LLMMessage, LLMContentPart, LLMToolSchema } from '../modules/agent/llm/llm.types.js';
 import type { ToolRegistry } from '../modules/agent/tools/tool-registry.js';
 import { STREAM_TERMINAL_EVENTS } from '../modules/agent/queue/pubsub.service.js';
+import { notifyYield } from '../modules/agent/services/yield-notifier.service.js';
 import { logger } from '../utils/logger.js';
 import multer from 'multer';
 import { getStorage } from 'firebase-admin/storage';
-import { sendEmailViaProvider } from '../services/email-sync.service.js';
 import {
   validateJobOrigin,
   mapJobStatus,
@@ -240,6 +240,50 @@ function humanizeToolName(name: string): string {
   if (!words) return 'Processing…';
   // Capitalize first letter and add ellipsis
   return words.charAt(0).toUpperCase() + words.slice(1) + '…';
+}
+
+function buildInlineApprovalCard(params: {
+  toolName: string;
+  approvalId: string;
+  operationId: string;
+  promptToUser: string;
+  toolInput: Record<string, unknown>;
+}): {
+  type: 'draft' | 'confirmation';
+  title: string;
+  payload: Record<string, unknown>;
+} {
+  if (params.toolName === 'send_email') {
+    return {
+      type: 'draft',
+      title: 'Email Draft',
+      payload: {
+        content:
+          (typeof params.toolInput['bodyHtml'] === 'string' && params.toolInput['bodyHtml']) ||
+          (typeof params.toolInput['body'] === 'string' ? params.toolInput['body'] : '') ||
+          '',
+        subject: typeof params.toolInput['subject'] === 'string' ? params.toolInput['subject'] : '',
+        recipientsCount: 1,
+        toEmail: typeof params.toolInput['toEmail'] === 'string' ? params.toolInput['toEmail'] : '',
+        approvalId: params.approvalId,
+        operationId: params.operationId,
+      },
+    };
+  }
+
+  return {
+    type: 'confirmation',
+    title: 'Approval Required',
+    payload: {
+      message: params.promptToUser,
+      actions: [
+        { id: 'reject', label: 'Reject', variant: 'secondary' },
+        { id: 'approve', label: 'Approve', variant: 'primary' },
+      ],
+      approvalId: params.approvalId,
+      operationId: params.operationId,
+    },
+  };
 }
 
 /**
@@ -502,11 +546,24 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       return;
     }
 
-    const { decision } = req.body as { decision?: string };
+    const { decision, toolInput } = req.body as {
+      decision?: string;
+      toolInput?: Record<string, unknown>;
+    };
     if (decision !== 'approved' && decision !== 'rejected') {
       res.status(400).json({
         success: false,
         error: 'Decision must be "approved" or "rejected"',
+      });
+      return;
+    }
+    if (
+      toolInput !== undefined &&
+      (typeof toolInput !== 'object' || toolInput === null || Array.isArray(toolInput))
+    ) {
+      res.status(400).json({
+        success: false,
+        error: 'toolInput must be an object when provided',
       });
       return;
     }
@@ -540,11 +597,13 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
         status: decision,
         resolvedAt: new Date().toISOString(),
         resolvedBy: user.uid,
+        ...(toolInput ? { toolInput } : {}),
       });
 
       return {
         code: 200,
         operationId: approvalData['operationId'] as string | undefined,
+        toolInput: (toolInput ?? approvalData['toolInput']) as Record<string, unknown> | undefined,
       } as const;
     });
 
@@ -555,6 +614,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
     }
 
     const operationId = transactionResult.operationId;
+    const resolvedToolInput = transactionResult.toolInput;
     if (!operationId) {
       // Edge case: orphaned approval — resolve it but don't try to resume
       res.json({ success: true, data: { decision, resumed: false } });
@@ -599,22 +659,16 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
         threadId,
         resumedFrom: operationId,
         approvalId,
-        yieldState: {
-          ...yieldState,
-          // For approvals, the tool call was already serialized — the worker
-          // re-runs it now that the user has approved.
-          messages: [
-            ...yieldState.messages,
-            {
-              role: 'tool',
-              content: JSON.stringify({
-                success: true,
-                data: { approved: true, approvalId },
-              }),
-              tool_call_id: yieldState.pendingToolCall.toolCallId,
-            },
-          ],
-        } satisfies AgentYieldState,
+        yieldState: yieldState.pendingToolCall
+          ? {
+              ...yieldState,
+              approvalId,
+              pendingToolCall: {
+                ...yieldState.pendingToolCall,
+                toolInput: resolvedToolInput ?? yieldState.pendingToolCall.toolInput,
+              },
+            }
+          : yieldState,
       },
     };
 
@@ -1285,6 +1339,7 @@ router.post(
       // - Compresses everything into a token-efficient string
       //
       const { db } = req.firebase!;
+      const inlineApprovalGate = jobRepository ? new ApprovalGateService(db) : null;
       let profileContext = '';
       let threadHistoryStr = '';
 
@@ -1337,7 +1392,7 @@ router.post(
         `- When calling tools, extract userId, teamId, and organizationId from the [User Profile] above. NEVER ask the user for their UserID, TeamID, or OrgID — you already have them.`,
         `- If a required parameter is available in the user profile context, use it directly.`,
         `- When the user wants to BROWSE or SEE a website interactively, use the open_live_view tool. It opens a live browser in their command center. If they have a connected account for that platform, the session will be pre-authenticated.`,
-        `- After opening a live view, use navigate_live_view (change URL), read_live_view (extract page content), interact_with_live_view (click/type/scroll), and close_live_view (end session) to control the SAME browser the user sees. You do NOT need to pass a sessionId — the tools auto-resolve it from the userId. NEVER use read_webpage or interact_with_webpage on URLs already open in a live view — those create separate browsers.`,
+        `- After opening a live view, use navigate_live_view (change URL), read_live_view (extract page content), interact_with_live_view (click/type/scroll), and close_live_view (end session) to control the SAME browser the user sees. You do NOT need to pass a sessionId — the tools auto-resolve it from the userId. For content extraction from a separate URL, use scrape_webpage. For anything already open in live view, stay within the live-view tools so the user sees the same browser state.`,
         `- You can safely call open_live_view again with a new URL — it automatically reuses the existing session. Only use close_live_view when the user explicitly asks to close the browser or the task is fully done.`,
         mode ? `\nThe user is currently in "${mode}" mode.` : '',
       ]
@@ -1465,6 +1520,7 @@ router.post(
       let pendingAutoOpenPanel: Record<string, unknown> | null = null;
       // Track tool names the agent autonomously invokes (for billing metadata)
       const invokedTools: string[] = [];
+      let inlineYieldState: AgentYieldState | null = null;
 
       // Build LLM tool schemas from the registry (read-only tools only for chat safety)
       const chatTools: LLMToolSchema[] = [];
@@ -1569,83 +1625,136 @@ router.post(
               tool_calls: streamResult.toolCalls,
             });
 
-            // Execute tools in parallel (all I/O-bound — safe to parallelize)
-            // But first, check if any tool requires HITL approval (e.g., send_email).
-            // If so, emit a draft card and yield instead of executing.
-            let hitlYielded = false;
+            const parsedToolCalls = streamResult.toolCalls.map((tc, tcIndex) => {
+              let parsedArgs: Record<string, unknown> = {};
+              try {
+                parsedArgs = JSON.parse(tc.function.arguments);
+              } catch {
+                logger.warn('Malformed tool arguments from LLM', {
+                  tool: tc.function.name,
+                  args: tc.function.arguments.slice(0, 200),
+                });
+              }
+
+              return {
+                tc,
+                parsedArgs,
+                stepInfo: activeToolSteps.get(tcIndex),
+              };
+            });
+
+            const approvalCandidate = inlineApprovalGate
+              ? parsedToolCalls
+                  .map((entry) => {
+                    const requirement = inlineApprovalGate.getApprovalRequirement(
+                      entry.tc.function.name,
+                      entry.parsedArgs
+                    );
+                    return requirement ? { ...entry, requirement } : null;
+                  })
+                  .find((entry) => entry !== null)
+              : null;
+
+            if (approvalCandidate && jobRepository) {
+              const approvalRequest = await inlineApprovalGate!.requestApproval({
+                operationId: chatOperationId,
+                taskId: 'inline_chat',
+                userId: user.uid,
+                toolName: approvalCandidate.tc.function.name,
+                toolInput: approvalCandidate.parsedArgs,
+                actionSummary: approvalCandidate.requirement.actionSummary,
+                reasoning: streamResult.content || undefined,
+                threadId: resolvedThreadId,
+              });
+
+              const yieldState: AgentYieldState = {
+                reason: 'needs_approval',
+                promptToUser: approvalCandidate.requirement.promptToUser,
+                agentId: 'general',
+                messages: messages.map((msg) => ({ ...msg })) as readonly Record<string, unknown>[],
+                pendingToolCall: {
+                  toolName: approvalCandidate.tc.function.name,
+                  toolInput: approvalCandidate.parsedArgs,
+                  toolCallId: approvalCandidate.tc.id,
+                },
+                approvalId: approvalRequest.id,
+                yieldedAt: new Date().toISOString(),
+                expiresAt: new Date(
+                  Date.now() + (approvalRequest.expiresInMs ?? 86_400_000)
+                ).toISOString(),
+              };
+
+              await jobRepository.withDb(db).create({
+                operationId: chatOperationId,
+                userId: user.uid,
+                intent: message.trim(),
+                sessionId: chatOperationId,
+                origin: 'user' as AgentJobOrigin,
+                context: {
+                  ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+                },
+              });
+              await jobRepository.withDb(db).markYielded(chatOperationId, yieldState);
+
+              const approvalCard = buildInlineApprovalCard({
+                toolName: approvalCandidate.tc.function.name,
+                approvalId: approvalRequest.id,
+                operationId: chatOperationId,
+                promptToUser: approvalCandidate.requirement.promptToUser,
+                toolInput: approvalCandidate.parsedArgs,
+              });
+
+              if (approvalCandidate.stepInfo) {
+                res.write(
+                  `event: step\ndata: ${JSON.stringify({
+                    id: approvalCandidate.stepInfo.id,
+                    label: 'Waiting for your approval',
+                    status: 'success',
+                  })}\n\n`
+                );
+                forceProxyFlush(res);
+              }
+
+              res.write(`event: card\ndata: ${JSON.stringify(approvalCard)}\n\n`);
+              forceProxyFlush(res);
+
+              if (streamResult.content) {
+                responseContent += streamResult.content;
+              }
+
+              const hitlMessage =
+                approvalCandidate.tc.function.name === 'send_email'
+                  ? "I've prepared a draft for your review. Edit it if needed, then approve it to continue."
+                  : 'I need your approval before I take the next action. Review the confirmation card and continue when ready.';
+              responseContent += hitlMessage;
+              res.write(`event: delta\ndata: ${JSON.stringify({ content: hitlMessage })}\n\n`);
+
+              if (resolvedThreadId) {
+                res.write(
+                  `event: operation\ndata: ${JSON.stringify({
+                    threadId: resolvedThreadId,
+                    status: 'awaiting_input',
+                    timestamp: new Date().toISOString(),
+                  })}\n\n`
+                );
+                forceProxyFlush(res);
+              }
+
+              logger.info('Inline chat yielded for approval', {
+                approvalId: approvalRequest.id,
+                operationId: chatOperationId,
+                tool: approvalCandidate.tc.function.name,
+                userId: user.uid,
+              });
+
+              break;
+            }
+
             let heavyTaskOperationId: string | null = null;
 
             const toolResults = await Promise.all(
-              streamResult.toolCalls.map(async (tc, tcIndex) => {
-                // Use array index to look up step — .find() by name fails when
-                // the LLM calls the same tool multiple times in a single turn.
-                const stepInfo = activeToolSteps.get(tcIndex);
-
+              parsedToolCalls.map(async ({ tc, parsedArgs, stepInfo }) => {
                 try {
-                  let parsedArgs: Record<string, unknown> = {};
-                  try {
-                    parsedArgs = JSON.parse(tc.function.arguments);
-                  } catch {
-                    // LLM occasionally produces malformed JSON — treat as empty input
-                    logger.warn('Malformed tool arguments from LLM', {
-                      tool: tc.function.name,
-                      args: tc.function.arguments.slice(0, 200),
-                    });
-                  }
-
-                  // ── HITL intercept: yield draft card for approval-required tools ──
-                  const approvalPolicy = AGENT_APPROVAL_POLICIES.find(
-                    (p) => p.toolName === tc.function.name && p.requiresApproval
-                  );
-                  if (approvalPolicy) {
-                    hitlYielded = true;
-
-                    // Emit a draft card so the user can review/edit before sending
-                    const draftPayload = {
-                      type: 'draft',
-                      title: 'Email Draft',
-                      payload: {
-                        content: (parsedArgs['bodyHtml'] as string) ?? '',
-                        subject: (parsedArgs['subject'] as string) ?? '',
-                        recipientsCount: 1,
-                        // Pass through the tool args so the frontend can send them back
-                        toEmail: (parsedArgs['toEmail'] as string) ?? '',
-                        toolCallId: tc.id,
-                        toolName: tc.function.name,
-                      },
-                    };
-                    res.write(`event: card\ndata: ${JSON.stringify(draftPayload)}\n\n`);
-                    forceProxyFlush(res);
-
-                    if (stepInfo) {
-                      res.write(
-                        `event: step\ndata: ${JSON.stringify({
-                          id: stepInfo.id,
-                          label: 'Waiting for your approval',
-                          status: 'success',
-                        })}\n\n`
-                      );
-                      forceProxyFlush(res);
-                    }
-
-                    logger.info('HITL yield: draft card emitted for approval', {
-                      tool: tc.function.name,
-                      userId: user.uid,
-                      toEmail: parsedArgs['toEmail'],
-                    });
-
-                    // Return a synthetic tool result so the LLM knows the draft was shown
-                    return {
-                      role: 'tool' as const,
-                      tool_call_id: tc.id,
-                      content: JSON.stringify({
-                        status: 'pending_approval',
-                        message:
-                          'Email draft has been shown to the user for review. Waiting for approval before sending.',
-                      }),
-                    };
-                  }
-
                   // Inject the current request environment into enqueue_heavy_task so the
                   // background worker targets the correct Firestore project (staging vs production).
                   if (tc.function.name === 'enqueue_heavy_task') {
@@ -1777,6 +1886,94 @@ router.post(
                     content: JSON.stringify(result.success ? result.data : { error: result.error }),
                   };
                 } catch (toolErr) {
+                  if (isAgentYield(toolErr) && jobRepository) {
+                    const yieldPayload = toolErr.payload;
+                    const now = new Date();
+                    const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+                    inlineYieldState = {
+                      reason: yieldPayload.reason,
+                      promptToUser: yieldPayload.promptToUser,
+                      agentId: yieldPayload.agentId,
+                      messages: yieldPayload.messages as unknown as readonly Record<
+                        string,
+                        unknown
+                      >[],
+                      pendingToolCall: yieldPayload.pendingToolCall,
+                      approvalId: yieldPayload.approvalId,
+                      planContext: yieldPayload.planContext,
+                      yieldedAt: now.toISOString(),
+                      expiresAt: expiresAt.toISOString(),
+                    };
+
+                    await jobRepository.withDb(db).create({
+                      operationId: chatOperationId,
+                      userId: user.uid,
+                      intent: message.trim(),
+                      sessionId: chatOperationId,
+                      origin: 'user' as AgentJobOrigin,
+                      context: {
+                        ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+                      },
+                    });
+                    await jobRepository.withDb(db).markYielded(chatOperationId, inlineYieldState);
+
+                    try {
+                      await notifyYield(db, {
+                        userId: user.uid,
+                        reason: yieldPayload.reason,
+                        promptToUser: yieldPayload.promptToUser,
+                        operationId: chatOperationId,
+                        ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+                        ...(yieldPayload.approvalId ? { approvalId: yieldPayload.approvalId } : {}),
+                      });
+                    } catch (notifyErr) {
+                      logger.warn('Failed to dispatch inline yield notification', {
+                        operationId: chatOperationId,
+                        error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+                      });
+                    }
+
+                    if (stepInfo) {
+                      res.write(
+                        `event: step\ndata: ${JSON.stringify({
+                          id: stepInfo.id,
+                          label:
+                            yieldPayload.reason === 'needs_approval'
+                              ? 'Waiting for your approval'
+                              : 'Waiting for your response',
+                          status: 'success',
+                        })}\n\n`
+                      );
+                      forceProxyFlush(res);
+                    }
+
+                    const prompt = yieldPayload.promptToUser.trim();
+                    if (prompt) {
+                      responseContent += `${responseContent ? '\n\n' : ''}${prompt}`;
+                      res.write(`event: delta\ndata: ${JSON.stringify({ content: prompt })}\n\n`);
+                      forceProxyFlush(res);
+                    }
+
+                    logger.info('Inline chat yielded for user input', {
+                      operationId: chatOperationId,
+                      threadId: resolvedThreadId,
+                      reason: yieldPayload.reason,
+                      tool: tc.function.name,
+                      userId: user.uid,
+                    });
+
+                    return {
+                      role: 'tool' as const,
+                      tool_call_id: tc.id,
+                      content: JSON.stringify({
+                        success: true,
+                        yielded: true,
+                        reason: yieldPayload.reason,
+                      }),
+                    };
+                  }
+
                   logger.error('Tool execution failed', {
                     tool: tc.function.name,
                     error: toolErr instanceof Error ? toolErr.message : String(toolErr),
@@ -1808,34 +2005,6 @@ router.post(
             // Append all tool results to the conversation for the next turn
             for (const result of toolResults) {
               messages.push(result);
-            }
-
-            // ── HITL: if a draft card was yielded, break out of the agentic loop ──
-            // The user must approve/edit the draft before we continue.
-            // We send a final delta so the LLM's "I've drafted an email..." text renders.
-            if (hitlYielded) {
-              const hitlMessage =
-                "I've prepared an email draft for your review. You can edit the subject and body, then tap **Approve & Send** when you're ready.";
-              responseContent += hitlMessage;
-              res.write(`event: delta\ndata: ${JSON.stringify({ content: hitlMessage })}\n\n`);
-
-              // Emit operation lifecycle event — marks this thread as awaiting user input (yield gate)
-              if (resolvedThreadId) {
-                res.write(
-                  `event: operation\ndata: ${JSON.stringify({
-                    threadId: resolvedThreadId,
-                    status: 'awaiting_input',
-                    timestamp: new Date().toISOString(),
-                  })}\n\n`
-                );
-                forceProxyFlush(res);
-              }
-
-              logger.info('HITL: breaking agentic loop, awaiting user approval', {
-                userId: user.uid,
-                turn: turn + 1,
-              });
-              break;
             }
 
             // ── Heavy task SSE proxy: bridge BullMQ worker stream to open SSE ──
@@ -1979,6 +2148,10 @@ router.post(
               responseContent += streamResult.content;
             }
 
+            if (inlineYieldState) {
+              break;
+            }
+
             logger.info('Agentic turn completed', {
               turn: turn + 1,
               toolsCalled: streamResult.toolCalls.map((tc) => tc.function.name),
@@ -2082,6 +2255,7 @@ router.post(
           model,
           usage: tokenUsage,
           timestamp: new Date().toISOString(),
+          ...(inlineYieldState ? { operationId: chatOperationId } : {}),
         };
 
         // Attach autoOpenPanel instruction if any tool requested one
@@ -2095,13 +2269,15 @@ router.post(
 
         res.write(`event: done\ndata: ${JSON.stringify(donePayload)}\n\n`);
 
-        // Emit operation lifecycle event — marks this thread as complete
+        // Emit operation lifecycle event — complete by default, awaiting_input when yielded inline
         if (resolvedThreadId) {
           res.write(
             `event: operation\ndata: ${JSON.stringify({
               threadId: resolvedThreadId,
-              status: 'complete',
+              status: inlineYieldState ? 'awaiting_input' : 'complete',
               timestamp: new Date().toISOString(),
+              operationId: chatOperationId,
+              ...(inlineYieldState ? { yieldState: inlineYieldState } : {}),
             })}\n\n`
           );
           forceProxyFlush(res);
@@ -2210,94 +2386,6 @@ router.post(
     }
   }
 );
-
-// ─── POST /chat/send-draft — Execute a user-approved email draft (HITL) ───
-
-router.post('/chat/send-draft', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
-
-    const { toEmail, subject, body } = req.body as {
-      toEmail?: string;
-      subject?: string;
-      body?: string;
-    };
-
-    // ── Input validation ────────────────────────────────────────────────
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!toEmail || typeof toEmail !== 'string' || !emailRegex.test(toEmail)) {
-      res.status(400).json({ success: false, error: 'Invalid or missing "toEmail".' });
-      return;
-    }
-    if (!subject || typeof subject !== 'string' || subject.trim().length === 0) {
-      res.status(400).json({ success: false, error: 'Invalid or missing "subject".' });
-      return;
-    }
-    if (subject.length > 500) {
-      res.status(400).json({ success: false, error: '"subject" exceeds 500 characters.' });
-      return;
-    }
-    if (!body || typeof body !== 'string' || body.trim().length === 0) {
-      res.status(400).json({ success: false, error: 'Invalid or missing "body".' });
-      return;
-    }
-    if (body.length > 50_000) {
-      res.status(400).json({ success: false, error: '"body" exceeds 50,000 characters.' });
-      return;
-    }
-
-    // ── Auto-detect provider from user's connected emails ───────────────
-    const { db } = req.firebase!;
-    const userDoc = await db.collection('Users').doc(user.uid).get();
-    const userData = userDoc.data();
-    const connectedEmails: Array<{ provider: string; isActive: boolean }> =
-      userData?.['connectedEmails'] ?? [];
-
-    const active = connectedEmails.find(
-      (ce) => ce.isActive && (ce.provider === 'gmail' || ce.provider === 'microsoft')
-    );
-
-    if (!active) {
-      res.status(400).json({
-        success: false,
-        error: 'No connected email account found. Connect Gmail or Outlook in Settings → Email.',
-      });
-      return;
-    }
-
-    const provider = active.provider as 'gmail' | 'microsoft';
-
-    // ── Send via the unified email service ──────────────────────────────
-    const result = await sendEmailViaProvider(user.uid, provider, toEmail, subject, body, db);
-
-    logger.info('Draft email sent (HITL approved)', {
-      userId: user.uid,
-      provider,
-      toEmail,
-      messageId: result.externalMessageId,
-    });
-
-    res.json({
-      success: true,
-      data: {
-        messageId: result.externalMessageId ?? null,
-        provider,
-        message: `Email sent to ${toEmail} via ${provider}.`,
-      },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to send draft email', {
-      error: error.message,
-      stack: error.stack,
-    });
-    res.status(500).json({ success: false, error: 'Failed to send email.' });
-  }
-});
 
 // ─── POST /playbook/generate — Generate or regenerate weekly playbook ─────
 

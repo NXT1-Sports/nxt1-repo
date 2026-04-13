@@ -68,6 +68,9 @@ export interface RosterEntry {
   /** Role on this specific team */
   role: UserRole;
 
+  /** Staff title on this specific team (e.g. Head Coach) */
+  title?: string;
+
   /** Membership status */
   status: RosterEntryStatus;
 
@@ -183,6 +186,7 @@ export interface CreateRosterEntryInput {
   teamId: string;
   organizationId: string;
   role: UserRole;
+  title?: string;
   status?: RosterEntryStatus;
   jerseyNumber?: string | number;
   positions?: string[];
@@ -202,6 +206,7 @@ export interface CreateRosterEntryInput {
 
 export interface UpdateRosterEntryInput {
   role?: UserRole;
+  title?: string;
   status?: RosterEntryStatus;
   jerseyNumber?: string | number;
   positions?: string[];

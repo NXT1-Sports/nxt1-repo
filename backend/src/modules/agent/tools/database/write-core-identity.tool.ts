@@ -65,7 +65,9 @@ export class WriteCoreIdentityTool extends BaseTool {
     '- coach (optional): { firstName, lastName, email, phone, title }.\n' +
     '- awards (optional): Array of { title, category, sport, season, issuer, date }.\n' +
     '- teamHistory (optional): Array of { name, type, sport, location, record, startDate, endDate, isCurrent }.\n' +
-    '- profileImgs (optional): Array of image URLs found for the athlete. Promoted to permanent storage and appended via arrayUnion (never overwrites existing images).';
+    '- profileImgs (optional): Array of image URLs found for the athlete. Promoted to permanent storage and appended via arrayUnion (never overwrites existing images).\n' +
+    '- teamId (optional): Firestore Team document ID. Pass this when available from user context — it is used as fallback for the team/org metadata cascade (mascot, colors, conference, division).\n' +
+    '- organizationId (optional): Firestore Organization document ID. Same fallback purpose as teamId.';
 
   readonly parameters = {
     type: 'object',
@@ -175,6 +177,8 @@ export class WriteCoreIdentityTool extends BaseTool {
         type: 'array',
         items: { type: 'string' },
       },
+      teamId: { type: 'string' },
+      organizationId: { type: 'string' },
     },
     required: ['userId', 'source', 'profileUrl', 'targetSport'],
   } as const;
@@ -211,12 +215,17 @@ export class WriteCoreIdentityTool extends BaseTool {
     const sportInfo = this.obj(input, 'sportInfo');
     const team = this.obj(input, 'team');
     const coach = this.obj(input, 'coach');
+    const coachTitle = coach ? (this.str(coach, 'title') ?? undefined) : undefined;
     const awards = this.arr(input, 'awards');
     const teamHistory = this.arr(input, 'teamHistory');
     const rawProfileImgs = input['profileImgs'];
     const profileImgs: string[] = Array.isArray(rawProfileImgs)
       ? rawProfileImgs.filter((u): u is string => typeof u === 'string' && u.trim() !== '')
       : [];
+
+    // Optional team/org IDs for cascade fallback
+    const explicitTeamId = this.str(input, 'teamId') ?? undefined;
+    const explicitOrgId = this.str(input, 'organizationId') ?? undefined;
 
     context?.onProgress?.('Validating identity fields…');
 
@@ -254,13 +263,6 @@ export class WriteCoreIdentityTool extends BaseTool {
 
     // ── Promote profileImgs from thread staging → permanent path ──────
     let promotedProfileImgs: string[] = profileImgs;
-    if (profileImgs.length > 0 && context?.userId) {
-      promotedProfileImgs = await ScraperMediaService.promoteMedia(
-        profileImgs,
-        context.userId,
-        `users/${context.userId}/profile`
-      );
-    }
 
     // ── Promote team galleryImages from thread staging → permanent path ──
     let promotedTeamGallery: string[] = [];
@@ -292,6 +294,16 @@ export class WriteCoreIdentityTool extends BaseTool {
       const userData = userDoc.data() as Record<string, unknown>;
       const userRole = typeof userData['role'] === 'string' ? userData['role'] : 'athlete';
       const isCoachOrDirector = isTeamRole(userRole);
+
+      if (!isCoachOrDirector && profileImgs.length > 0 && context?.userId) {
+        promotedProfileImgs = await ScraperMediaService.promoteMedia(
+          profileImgs,
+          context.userId,
+          `users/${context.userId}/profile`
+        );
+      } else if (isCoachOrDirector) {
+        promotedProfileImgs = [];
+      }
 
       // ── Snapshot previous state BEFORE write (for delta computation) ──
       const previousState: PreviousProfileState = {
@@ -330,12 +342,12 @@ export class WriteCoreIdentityTool extends BaseTool {
       const writtenSections: string[] = [];
 
       // ── Identity fields ──────────────────────────────────────────────
-      if (identity) {
+      if (identity && !isCoachOrDirector) {
         this.mergeIdentity(identity, userData, payload, writtenSections, source, isCoachOrDirector);
       }
 
       // ── Academics ────────────────────────────────────────────────────
-      if (academics) {
+      if (academics && !isCoachOrDirector) {
         const existingAcademics = (userData['academics'] ?? {}) as Record<string, unknown>;
         const sanitized = this.sanitizeAcademics(academics);
         const mergedAcademics = { ...existingAcademics };
@@ -388,11 +400,27 @@ export class WriteCoreIdentityTool extends BaseTool {
 
         if (team) {
           const existingTeam = (sportObj['team'] ?? {}) as Record<string, unknown>;
-          sportObj['team'] = this.mergeTeamRef(existingTeam, team);
+          sportObj['team'] = this.mergeTeamRef(
+            existingTeam,
+            team,
+            explicitTeamId,
+            explicitOrgId,
+            isCoachOrDirector ? coachTitle : undefined
+          );
+          writtenSections.push('team');
+        } else if (isCoachOrDirector && (coachTitle || explicitTeamId || explicitOrgId)) {
+          const existingTeam = (sportObj['team'] ?? {}) as Record<string, unknown>;
+          sportObj['team'] = this.mergeTeamRef(
+            existingTeam,
+            {},
+            explicitTeamId,
+            explicitOrgId,
+            coachTitle
+          );
           writtenSections.push('team');
         }
 
-        if (coach) {
+        if (coach && !isCoachOrDirector) {
           sportObj['coach'] = this.sanitizeCoach(coach);
           writtenSections.push('coach');
         }
@@ -403,7 +431,7 @@ export class WriteCoreIdentityTool extends BaseTool {
       }
 
       // ── Awards ───────────────────────────────────────────────────────
-      if (awards?.length) {
+      if (awards?.length && !isCoachOrDirector) {
         const existingAwards = (userData['awards'] ?? []) as Record<string, unknown>[];
         payload['awards'] = this.mergeAwards(
           existingAwards,
@@ -414,7 +442,7 @@ export class WriteCoreIdentityTool extends BaseTool {
       }
 
       // ── Team History ─────────────────────────────────────────────────
-      if (teamHistory?.length) {
+      if (teamHistory?.length && !isCoachOrDirector) {
         const existingHistory = (userData['teamHistory'] ?? []) as Record<string, unknown>[];
         payload['teamHistory'] = this.mergeTeamHistory(
           existingHistory,
@@ -425,47 +453,70 @@ export class WriteCoreIdentityTool extends BaseTool {
       }
 
       // ── Profile images ─────────────────────────────────────────────
-      if (promotedProfileImgs.length > 0) {
+      if (promotedProfileImgs.length > 0 && !isCoachOrDirector) {
         payload['profileImgs'] = FieldValue.arrayUnion(...promotedProfileImgs);
         writtenSections.push('profileImgs');
       }
 
+      const resolvedSportIndex = isNewSport ? existingSports.length : sportIndex;
+      const nextSports = Array.isArray(payload['sports'])
+        ? (payload['sports'] as Record<string, unknown>[])
+        : existingSports;
+      const resolvedSport = nextSports[resolvedSportIndex] as Record<string, unknown> | undefined;
+      const resolvedTeamRef = this.resolveTeamRef(
+        resolvedSport,
+        userData,
+        explicitTeamId,
+        explicitOrgId
+      );
+
       // ── Connected source sync record ─────────────────────────────────
       // For athletes: write connectedSources to the User doc.
       // For coaches/directors: write to the Teams doc (linked accounts belong to the team).
-      const connectedSourcesUpdate = this.buildConnectedSourcesUpdate(
-        (userData['connectedSources'] ?? []) as Record<string, unknown>[],
-        source,
-        profileUrl,
-        targetSport,
-        now,
-        faviconUrl
-      );
-
       if (isCoachOrDirector) {
-        // Route connectedSources to the Teams doc instead of User doc
-        const existingSportEntry = existingSports[sportIndex] as
-          | Record<string, unknown>
-          | undefined;
-        const teamRef2 = existingSportEntry?.['team'] as Record<string, unknown> | undefined;
-        const teamId = (teamRef2?.['teamId'] as string) ?? (userData['teamId'] as string);
+        const teamId = this.str(resolvedTeamRef, 'teamId');
         if (teamId) {
           try {
             const teamRef = this.db.collection('Teams').doc(teamId);
+            const teamDoc = await teamRef.get();
+            const existingTeamConnectedSources = teamDoc.exists
+              ? (((teamDoc.data() ?? {})['connectedSources'] ?? []) as Record<string, unknown>[])
+              : [];
+            const connectedSourcesUpdate = this.buildConnectedSourcesUpdate(
+              existingTeamConnectedSources,
+              source,
+              profileUrl,
+              targetSport,
+              now,
+              faviconUrl
+            );
             await teamRef.set(
               { connectedSources: connectedSourcesUpdate, updatedAt: FieldValue.serverTimestamp() },
               { merge: true }
             );
             writtenSections.push('connectedSources(team)');
-          } catch {
-            // Fall back to writing on User doc if team write fails
-            payload['connectedSources'] = connectedSourcesUpdate;
+          } catch (err) {
+            logger.warn('[WriteCoreIdentity] Skipping team-role connectedSources update', {
+              userId,
+              teamId,
+              error: err instanceof Error ? err.message : String(err),
+            });
           }
         } else {
-          // No teamId available — still write to User doc as fallback
-          payload['connectedSources'] = connectedSourcesUpdate;
+          logger.warn('[WriteCoreIdentity] Missing teamId for team-role connectedSources update', {
+            userId,
+            source,
+          });
         }
       } else {
+        const connectedSourcesUpdate = this.buildConnectedSourcesUpdate(
+          (userData['connectedSources'] ?? []) as Record<string, unknown>[],
+          source,
+          profileUrl,
+          targetSport,
+          now,
+          faviconUrl
+        );
         payload['connectedSources'] = connectedSourcesUpdate;
       }
 
@@ -482,55 +533,55 @@ export class WriteCoreIdentityTool extends BaseTool {
       }
 
       // Clean up legacy flat fields if team data was written
-      if (team) {
+      if (team && !isCoachOrDirector) {
         payload['conference'] = FieldValue.delete();
         payload['division'] = FieldValue.delete();
         payload['level'] = FieldValue.delete();
       }
 
-      payload['updatedAt'] = FieldValue.serverTimestamp();
+      // ── Sync Team/Organization metadata ──────────────────────────────
+      if (team) {
+        context?.onProgress?.('Syncing team organization metadata…');
+        await this.syncTeamMetadata(resolvedTeamRef, team, 'team', promotedTeamGallery);
+        if (isCoachOrDirector) writtenSections.push('teamMetadata');
+      }
 
-      if (writtenSections.length === 0) {
+      const shouldUpdateUserDoc = Object.keys(payload).length > 0;
+      if (shouldUpdateUserDoc) {
+        if (isCoachOrDirector) {
+          payload['coachTitle'] = FieldValue.delete();
+        }
+        payload['updatedAt'] = FieldValue.serverTimestamp();
+      }
+
+      if (writtenSections.length === 0 && !shouldUpdateUserDoc) {
         return { success: false, error: 'No actionable fields were provided.' };
       }
 
-      // ── Sync Team/Organization metadata ──────────────────────────────
-      const resolvedSportIndex = isNewSport ? existingSports.length : sportIndex;
-      const nextSports = Array.isArray(payload['sports'])
-        ? (payload['sports'] as Record<string, unknown>[])
-        : existingSports;
-      const resolvedSport = nextSports[resolvedSportIndex] as Record<string, unknown> | undefined;
-
-      if (team) {
-        context?.onProgress?.('Syncing team organization metadata…');
-        await this.syncTeamMetadata(
-          resolvedSport?.['team'] as Record<string, unknown> | undefined,
-          team,
-          'team',
-          promotedTeamGallery
-        );
+      // ── Write ────────────────────────────────────────────────────────
+      if (shouldUpdateUserDoc) {
+        context?.onProgress?.('Writing profile to database…');
+        await userRef.update(payload);
       }
 
-      // ── Write ────────────────────────────────────────────────────────
-      context?.onProgress?.('Writing profile to database…');
-      await userRef.update(payload);
-
       // ── Cache invalidation ───────────────────────────────────────────
-      context?.onProgress?.('Invalidating caches…');
-      try {
-        const cache = getCacheService();
-        await Promise.all([
-          cache.del(USER_CACHE_KEYS.USER_BY_ID(userId)),
-          invalidateProfileCaches(
-            userId,
-            typeof userData['username'] === 'string' ? userData['username'] : undefined,
-            typeof userData['unicode'] === 'string' ? userData['unicode'] : null
-          ),
-        ]);
-        const contextBuilder = new ContextBuilder();
-        await contextBuilder.invalidateContext(userId);
-      } catch {
-        // Best-effort
+      if (shouldUpdateUserDoc) {
+        context?.onProgress?.('Invalidating caches…');
+        try {
+          const cache = getCacheService();
+          await Promise.all([
+            cache.del(USER_CACHE_KEYS.USER_BY_ID(userId)),
+            invalidateProfileCaches(
+              userId,
+              typeof userData['username'] === 'string' ? userData['username'] : undefined,
+              typeof userData['unicode'] === 'string' ? userData['unicode'] : null
+            ),
+          ]);
+          const contextBuilder = new ContextBuilder();
+          await contextBuilder.invalidateContext(userId);
+        } catch {
+          // Best-effort
+        }
       }
 
       // ── Deferred welcome graphic after first completed scrape ─────────
@@ -538,89 +589,93 @@ export class WriteCoreIdentityTool extends BaseTool {
       // sync completed, the edit-profile route intentionally deferred the
       // welcome job. Re-check readiness here after this source has been marked
       // as synced so the graphic enqueues automatically.
-      try {
-        const welcomeResult = await enqueueWelcomeGraphicIfReady(this.db, { userId }, 'staging');
+      if (shouldUpdateUserDoc) {
+        try {
+          const welcomeResult = await enqueueWelcomeGraphicIfReady(this.db, { userId }, 'staging');
 
-        if (welcomeResult.status === 'enqueued') {
-          logger.info('[WriteCoreIdentity] Welcome graphic enqueued after sync completion', {
+          if (welcomeResult.status === 'enqueued') {
+            logger.info('[WriteCoreIdentity] Welcome graphic enqueued after sync completion', {
+              userId,
+              source,
+              targetSport,
+            });
+          }
+        } catch (err) {
+          logger.warn('[WriteCoreIdentity] Welcome graphic readiness check failed', {
             userId,
-            source,
-            targetSport,
+            error: err instanceof Error ? err.message : String(err),
           });
         }
-      } catch (err) {
-        logger.warn('[WriteCoreIdentity] Welcome graphic readiness check failed', {
-          userId,
-          error: err instanceof Error ? err.message : String(err),
-        });
       }
 
       // ── Compute delta & fire trigger for Agent X ───────────────────
-      try {
-        const diffService = new SyncDiffService();
-        const extractedProfile = {
-          platform: source,
-          profileUrl,
-          ...(identity
-            ? {
-                identity: {
-                  firstName: this.str(identity, 'firstName'),
-                  lastName: this.str(identity, 'lastName'),
-                  displayName: this.str(identity, 'displayName'),
-                  height: this.str(identity, 'height'),
-                  weight: this.str(identity, 'weight'),
-                  classOf: identity['classOf'] as number | undefined,
-                  city: this.str(identity, 'city'),
-                  state: this.str(identity, 'state'),
-                  country: this.str(identity, 'country'),
-                  school: this.str(identity, 'school'),
-                  schoolLogoUrl: this.str(identity, 'schoolLogoUrl'),
-                  profileImage: this.str(identity, 'profileImage'),
-                  bannerImage: this.str(identity, 'bannerImage'),
-                  aboutMe: this.str(identity, 'aboutMe'),
-                },
-              }
-            : {}),
-          ...(awards?.length
-            ? {
-                awards: (awards as Record<string, unknown>[]).map((a) => ({
-                  title: this.str(a, 'title') ?? '',
-                  category: this.str(a, 'category'),
-                  sport: this.str(a, 'sport') ?? targetSport,
-                  season: this.str(a, 'season'),
-                  issuer: this.str(a, 'issuer'),
-                })),
-              }
-            : {}),
-        };
+      if (shouldUpdateUserDoc && !isCoachOrDirector) {
+        try {
+          const diffService = new SyncDiffService();
+          const extractedProfile = {
+            platform: source,
+            profileUrl,
+            ...(identity
+              ? {
+                  identity: {
+                    firstName: this.str(identity, 'firstName'),
+                    lastName: this.str(identity, 'lastName'),
+                    displayName: this.str(identity, 'displayName'),
+                    height: this.str(identity, 'height'),
+                    weight: this.str(identity, 'weight'),
+                    classOf: identity['classOf'] as number | undefined,
+                    city: this.str(identity, 'city'),
+                    state: this.str(identity, 'state'),
+                    country: this.str(identity, 'country'),
+                    school: this.str(identity, 'school'),
+                    schoolLogoUrl: this.str(identity, 'schoolLogoUrl'),
+                    profileImage: this.str(identity, 'profileImage'),
+                    bannerImage: this.str(identity, 'bannerImage'),
+                    aboutMe: this.str(identity, 'aboutMe'),
+                  },
+                }
+              : {}),
+            ...(awards?.length
+              ? {
+                  awards: (awards as Record<string, unknown>[]).map((a) => ({
+                    title: this.str(a, 'title') ?? '',
+                    category: this.str(a, 'category'),
+                    sport: this.str(a, 'sport') ?? targetSport,
+                    season: this.str(a, 'season'),
+                    issuer: this.str(a, 'issuer'),
+                  })),
+                }
+              : {}),
+          };
 
-        const delta = diffService.diff(
-          userId,
-          targetSport,
-          source,
-          previousState,
-          extractedProfile as unknown as import('../scraping/distillers/distiller.types.js').DistilledProfile
-        );
-
-        if (!delta.isEmpty) {
-          logger.info('[WriteCoreIdentity] Delta detected, firing sync trigger', {
+          const delta = diffService.diff(
             userId,
-            sport: targetSport,
-            totalChanges: delta.summary.totalChanges,
-          });
-          onDailySyncComplete(delta).catch((err) => {
-            logger.warn('[WriteCoreIdentity] Trigger dispatch failed', {
+            targetSport,
+            source,
+            previousState,
+            extractedProfile as unknown as import('../scraping/distillers/distiller.types.js').DistilledProfile
+          );
+
+          if (!delta.isEmpty) {
+            logger.info('[WriteCoreIdentity] Delta detected, firing sync trigger', {
               userId,
-              error: err instanceof Error ? err.message : String(err),
+              sport: targetSport,
+              totalChanges: delta.summary.totalChanges,
             });
+            onDailySyncComplete(delta).catch((err) => {
+              logger.warn('[WriteCoreIdentity] Trigger dispatch failed', {
+                userId,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            });
+          }
+        } catch (err) {
+          // Delta/trigger is non-critical — log and continue
+          logger.warn('[WriteCoreIdentity] Delta computation failed', {
+            userId,
+            error: err instanceof Error ? err.message : String(err),
           });
         }
-      } catch (err) {
-        // Delta/trigger is non-critical — log and continue
-        logger.warn('[WriteCoreIdentity] Delta computation failed', {
-          userId,
-          error: err instanceof Error ? err.message : String(err),
-        });
       }
 
       return {
@@ -823,19 +878,30 @@ export class WriteCoreIdentityTool extends BaseTool {
 
   private mergeTeamRef(
     existing: Record<string, unknown> | undefined,
-    team: Record<string, unknown>
+    team: Record<string, unknown>,
+    explicitTeamId?: string,
+    explicitOrgId?: string,
+    explicitTitle?: string
   ): Record<string, unknown> {
     const result: Record<string, unknown> = {};
     // Preserve existing IDs
-    for (const key of ['teamId', 'organizationId', 'teamCode', 'updatedAt']) {
+    for (const key of ['teamId', 'organizationId', 'title', 'updatedAt']) {
       const val = existing?.[key];
       if (val !== undefined && val !== null && val !== '') result[key] = val;
+    }
+    const teamId = this.str(team, 'teamId') ?? explicitTeamId;
+    if (!this.hasValue(result['teamId']) && teamId) result['teamId'] = teamId;
+    const organizationId = this.str(team, 'organizationId') ?? explicitOrgId;
+    if (!this.hasValue(result['organizationId']) && organizationId) {
+      result['organizationId'] = organizationId;
     }
     // Write only the lightweight fields to the User doc
     const name = this.str(team, 'name');
     if (name) result['name'] = name;
     const type = this.str(team, 'type');
     if (type) result['type'] = type;
+    const title = explicitTitle ?? this.str(team, 'title');
+    if (title) result['title'] = title;
     return result;
   }
 
@@ -972,6 +1038,31 @@ export class WriteCoreIdentityTool extends BaseTool {
       updated.push(record);
     }
     return updated;
+  }
+
+  private resolveTeamRef(
+    resolvedSport: Record<string, unknown> | undefined,
+    userData: Record<string, unknown>,
+    explicitTeamId?: string,
+    explicitOrgId?: string
+  ): Record<string, unknown> {
+    let teamRef = resolvedSport?.['team'] as Record<string, unknown> | undefined;
+
+    if (!teamRef) teamRef = {};
+    if (!this.str(teamRef, 'teamId') && typeof userData['teamId'] === 'string') {
+      teamRef = { ...teamRef, teamId: userData['teamId'] };
+    }
+    if (!this.str(teamRef, 'organizationId') && typeof userData['organizationId'] === 'string') {
+      teamRef = { ...teamRef, organizationId: userData['organizationId'] };
+    }
+    if (!this.str(teamRef, 'teamId') && explicitTeamId) {
+      teamRef = { ...teamRef, teamId: explicitTeamId };
+    }
+    if (!this.str(teamRef, 'organizationId') && explicitOrgId) {
+      teamRef = { ...teamRef, organizationId: explicitOrgId };
+    }
+
+    return teamRef;
   }
 
   // ─── Team/Org Metadata Sync ─────────────────────────────────────────────

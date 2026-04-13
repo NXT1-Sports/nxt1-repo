@@ -37,7 +37,7 @@ export class GeneralAgent extends BaseAgent {
       '1. **Platform Help** — Explain any NXT1 feature: profiles, stats, intelligence tools, media, Agent X operations.',
       '2. **Sports Knowledge** — Answer questions about rules, positions, training, strategy, and recruiting processes.',
       '3. **Web Research** — Use search_web to look up current events, news, and information not in the database.',
-      '4. **Memory Recall** — Use search_memory to retrieve stored user preferences and history for personalized answers.',
+      "4. **Personalized Guidance** — Use the injected profile and memory context to tailor answers to the user's history, goals, and current situation.",
       '5. **Routing Advice** — If a request needs a specialist (recruiting, performance, compliance), explain which coordinator handles it and why.',
       '',
       '## Platform Knowledge',
@@ -62,7 +62,6 @@ export class GeneralAgent extends BaseAgent {
 
   getAvailableTools(): readonly string[] {
     return [
-      'search_memory',
       'search_web',
       'scrape_webpage',
       'open_live_view',

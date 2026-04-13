@@ -1831,6 +1831,8 @@ export function resolveAttachmentType(mimeType: string): AgentXAttachmentType {
 export const AGENT_X_ENDPOINTS = {
   /** Chat completion endpoint */
   CHAT: '/agent-x/chat',
+  /** Resume a yielded job with user input */
+  RESUME_JOB: '/agent-x/resume-job',
   /** Upload file attachment for chat */
   UPLOAD: '/agent-x/upload',
   /** Get quick tasks endpoint */
@@ -1863,8 +1865,8 @@ export const AGENT_X_ENDPOINTS = {
   LIVE_VIEW_REFRESH: '/agent-x/live-view/refresh',
   /** Close and clean up a live-view session */
   LIVE_VIEW_CLOSE: '/agent-x/live-view/close',
-  /** Execute a user-approved email draft (HITL) */
-  SEND_DRAFT: '/agent-x/chat/send-draft',
+  /** Approval request resolution base path */
+  APPROVALS: '/agent-x/approvals',
 } as const;
 
 /**

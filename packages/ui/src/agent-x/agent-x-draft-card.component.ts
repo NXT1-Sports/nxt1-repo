@@ -32,6 +32,10 @@ export interface DraftSubmittedEvent {
   readonly content: string;
   /** Recipient email address (from the card payload). */
   readonly toEmail?: string;
+  /** Pending approval request id when the draft is approval-backed. */
+  readonly approvalId?: string;
+  /** Operation id associated with the approval-backed draft. */
+  readonly operationId?: string;
 }
 
 @Component({
@@ -330,6 +334,8 @@ export class AgentXDraftCardComponent implements OnInit {
       subject: this.subjectValue(),
       content: this.contentValue(),
       toEmail: typeof payload?.toEmail === 'string' ? payload.toEmail : undefined,
+      approvalId: typeof payload?.approvalId === 'string' ? payload.approvalId : undefined,
+      operationId: typeof payload?.operationId === 'string' ? payload.operationId : undefined,
     });
   }
 }

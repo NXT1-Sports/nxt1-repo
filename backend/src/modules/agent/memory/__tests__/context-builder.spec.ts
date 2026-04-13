@@ -39,6 +39,17 @@ vi.mock('../../../../services/users.service.js', () => ({
   getUserById: (...args: unknown[]) => mockGetUserById(...args),
 }));
 
+const mockGetUserTeams = vi.fn();
+vi.mock('../../../../services/team-adapter.service.js', () => ({
+  TeamServiceAdapter: class {
+    getUserTeams = mockGetUserTeams;
+  },
+}));
+
+vi.mock('firebase-admin/firestore', () => ({
+  getFirestore: vi.fn(() => ({ collection: vi.fn() })),
+}));
+
 const mockLogger = {
   debug: vi.fn(),
   info: vi.fn(),
@@ -123,6 +134,24 @@ function createCoachUserDoc() {
   };
 }
 
+function createBasketballUserDoc() {
+  return {
+    id: 'user-bball',
+    role: 'athlete',
+    firstName: 'Jordan',
+    lastName: 'Miles',
+    primarySport: 'basketball',
+    activeSportIndex: 0,
+    sports: [
+      {
+        sport: 'basketball',
+        positions: ['PG'],
+        team: { name: 'Central High' },
+      },
+    ],
+  };
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('ContextBuilder', () => {
@@ -130,6 +159,7 @@ describe('ContextBuilder', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetUserTeams.mockResolvedValue([]);
     builder = new ContextBuilder();
   });
 
@@ -330,6 +360,55 @@ describe('ContextBuilder', () => {
       // Only firstName is present → 1/6 fields → ~17%
       expect(ctx.profileCompletionPercent).toBe(17);
     });
+
+    it('should prefer the roster team that matches the active sport', async () => {
+      mockCacheGet.mockResolvedValueOnce(null);
+      mockGetUserById.mockResolvedValueOnce(createBasketballUserDoc());
+      mockGetUserTeams.mockResolvedValueOnce([
+        { id: 'team-football', sportName: 'football', organizationId: 'org-football' },
+        { id: 'team-basketball', sportName: 'basketball', organizationId: 'org-basketball' },
+      ]);
+
+      const ctx = await builder.buildContext('user-bball');
+
+      expect(ctx.teamId).toBe('team-basketball');
+      expect(ctx.organizationId).toBe('org-basketball');
+    });
+
+    it('should build prompt context with scoped memories when vector memory is available', async () => {
+      const recallByScope = vi.fn().mockResolvedValue({
+        user: [
+          {
+            id: 'mem-user',
+            userId: 'user-123',
+            target: 'user',
+            content: 'User prefers SEC schools.',
+            category: 'preference',
+            createdAt: '2026-03-01T00:00:00Z',
+          },
+        ],
+        team: [],
+        organization: [],
+      });
+
+      builder = new ContextBuilder({
+        recallByScope,
+      } as unknown as import('../vector.service.js').VectorMemoryService);
+      mockCacheGet.mockResolvedValueOnce(null);
+      mockGetUserById.mockResolvedValueOnce(createFullUserDoc());
+
+      const promptContext = await builder.buildPromptContext(
+        'user-123',
+        'Which schools should I focus on?'
+      );
+
+      expect(recallByScope).toHaveBeenCalledWith('user-123', 'Which schools should I focus on?', {
+        teamId: undefined,
+        organizationId: undefined,
+        perTargetLimit: 3,
+      });
+      expect(promptContext.memories.user).toHaveLength(1);
+    });
   });
 
   // ── invalidateContext ────────────────────────────────────────────────
@@ -400,6 +479,45 @@ describe('ContextBuilder', () => {
 
       expect(prompt).toContain('Role: coach');
       expect(prompt).toContain('Sport: basketball');
+    });
+
+    it('should append retrieved memory sections when provided', () => {
+      const prompt = builder.compressToPrompt(
+        {
+          userId: 'user-123',
+          role: 'athlete',
+          displayName: 'John Doe',
+        },
+        {
+          user: [
+            {
+              id: 'mem-1',
+              userId: 'user-123',
+              target: 'user',
+              content: 'User wants to stay in Texas.',
+              category: 'goal',
+              createdAt: '2026-03-01T00:00:00Z',
+            },
+          ],
+          team: [
+            {
+              id: 'mem-2',
+              userId: 'user-123',
+              target: 'team',
+              teamId: 'team-1',
+              content: 'The basketball team adds new practice blocks on Wednesdays.',
+              category: 'profile_update',
+              createdAt: '2026-03-01T00:00:00Z',
+            },
+          ],
+          organization: [],
+        }
+      );
+
+      expect(prompt).toContain('User Memory: User wants to stay in Texas.');
+      expect(prompt).toContain(
+        'Team Memory: The basketball team adds new practice blocks on Wednesdays.'
+      );
     });
   });
 });

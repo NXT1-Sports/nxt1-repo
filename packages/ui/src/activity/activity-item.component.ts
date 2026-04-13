@@ -29,7 +29,7 @@
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonRippleEffect } from '@ionic/angular/standalone';
-import { type ActivityItem, ACTIVITY_TYPE_ICONS, ACTIVITY_TYPE_COLORS } from '@nxt1/core';
+import { type ActivityItem } from '@nxt1/core';
 import { NxtIconComponent } from '../components/icon';
 import { NxtTrackClickDirective } from '../services/breadcrumb/breadcrumb.service';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-logo.constants';
@@ -70,24 +70,20 @@ import { ACTIVITY_TEST_IDS } from '@nxt1/core/testing';
             class="activity-item__icon-circle"
             [style.--activity-icon-accent]="iconAccentColor()"
           >
-            @if (isAgentItem()) {
-              <svg
-                class="activity-item__agent-logo"
-                viewBox="0 0 612 792"
-                width="32"
-                height="32"
-                fill="currentColor"
-                stroke="currentColor"
-                stroke-width="8"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path [attr.d]="agentXLogoPath" />
-                <polygon [attr.points]="agentXLogoPolygon" />
-              </svg>
-            } @else {
-              <nxt1-icon [name]="typeIcon()" [size]="21" />
-            }
+            <svg
+              class="activity-item__agent-logo"
+              viewBox="0 0 612 792"
+              width="32"
+              height="32"
+              fill="currentColor"
+              stroke="currentColor"
+              stroke-width="8"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path [attr.d]="agentXLogoPath" />
+              <polygon [attr.points]="agentXLogoPolygon" />
+            </svg>
           </div>
         }
       </div>
@@ -107,9 +103,9 @@ import { ACTIVITY_TEST_IDS } from '@nxt1/core/testing';
           }}</span>
         </div>
 
-        @if (item().body) {
+        @if (item().body || item().metadata?.['resultSummary']) {
           <p class="activity-item__body" [attr.data-testid]="testIds.ITEM_BODY">
-            {{ item().body }}
+            {{ getBodyContent() }}
           </p>
         }
 
@@ -544,31 +540,21 @@ export class ActivityItemComponent {
     return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
   });
 
-  /** Agent tab/system visual uses branded Agent X mark */
-  protected readonly isAgentItem = computed(() => this.item().type === 'agent_task');
-
   readonly agentXLogoPath = AGENT_X_LOGO_PATH;
   readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
 
   /** Test IDs from @nxt1/core/testing */
   protected readonly testIds = ACTIVITY_TEST_IDS;
 
-  /** Icon name for the activity type */
-  protected readonly typeIcon = computed(() => {
-    return ACTIVITY_TYPE_ICONS[this.item().type] ?? 'information-circle-outline';
-  });
-
-  /** Color for the activity type */
-  protected readonly typeColor = computed(() => {
-    return ACTIVITY_TYPE_COLORS[this.item().type] ?? 'var(--nxt1-color-primary)';
+  /** Content of the body to render (uses raw markdown if available from Agent X) */
+  protected readonly getBodyContent = computed(() => {
+    const item = this.item();
+    return (item.metadata?.['resultSummary'] as string) || item.body || '';
   });
 
   /** Accent color used by the premium icon container */
   protected readonly iconAccentColor = computed(() => {
-    if (this.isAgentItem()) {
-      return 'var(--nxt1-color-primary, #ccff00)';
-    }
-    return this.typeColor();
+    return 'var(--nxt1-color-primary, #ccff00)';
   });
 
   /** Formatted time string */

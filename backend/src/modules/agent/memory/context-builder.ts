@@ -37,13 +37,19 @@
  * - getUserById cache is separately invalidated by the profile update flow
  */
 
-import type { AgentUserContext, AgentConnectedAccount } from '@nxt1/core';
+import type {
+  AgentConnectedAccount,
+  AgentPromptContext,
+  AgentRetrievedMemories,
+  AgentUserContext,
+} from '@nxt1/core';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getUserById, type UserData } from '../../../services/users.service.js';
 import { getCacheService, CACHE_TTL } from '../../../services/cache.service.js';
 import { TeamServiceAdapter } from '../../../services/team-adapter.service.js';
 import { AgentMessageModel } from '../../../models/agent-message.model.js';
 import { AgentThreadModel } from '../../../models/agent-thread.model.js';
+import type { VectorMemoryService } from './vector.service.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Cache key prefix for assembled agent context. Exported so callers can build/invalidate the same key without hardcoding. */
@@ -51,6 +57,22 @@ export const AGENT_CONTEXT_PREFIX = 'agent:context:';
 
 /** TTL for the assembled context (same as profile: 15 min). */
 const AGENT_CONTEXT_TTL = CACHE_TTL.PROFILES;
+
+const MEMORY_RECALL_TIMEOUT_MS = 1200;
+const MEMORY_RESULTS_PER_TARGET = 3;
+
+const EMPTY_RETRIEVED_MEMORIES: AgentRetrievedMemories = {
+  user: [],
+  team: [],
+  organization: [],
+};
+
+type TeamLike = {
+  id?: string;
+  organizationId?: string;
+  sportName?: string;
+  sport?: string;
+};
 
 /**
  * Parse a height string (e.g., "6'2\"", "6-2", "74") into total inches.
@@ -82,6 +104,8 @@ function parseWeight(weight: string | undefined): number | undefined {
 }
 
 export class ContextBuilder {
+  constructor(private readonly vectorMemory?: VectorMemoryService) {}
+
   /**
    * Build the full hydrated context for a user.
    * Checks Redis cache first; on miss fetches from the users service
@@ -133,9 +157,9 @@ export class ContextBuilder {
         const db = firestore ?? getFirestore();
         const teamAdapter = new TeamServiceAdapter(db);
         const userTeams = await teamAdapter.getUserTeams(userId);
+        const activeTeam = this.selectFallbackTeam(userTeams, context.sport);
 
-        if (userTeams.length > 0) {
-          const activeTeam = userTeams[0];
+        if (activeTeam?.id) {
           context = {
             ...context,
             teamId: activeTeam.id,
@@ -145,6 +169,7 @@ export class ContextBuilder {
             userId,
             teamId: activeTeam.id,
             organizationId: activeTeam.organizationId,
+            sport: context.sport,
           });
         }
       } catch (teamErr) {
@@ -168,6 +193,17 @@ export class ContextBuilder {
     }
 
     return context;
+  }
+
+  async buildPromptContext(
+    userId: string,
+    query: string,
+    firestore?: FirebaseFirestore.Firestore
+  ): Promise<AgentPromptContext> {
+    const profile = await this.buildContext(userId, firestore);
+    const memories = await this.retrieveMemories(profile, query);
+
+    return { profile, memories };
   }
 
   /**
@@ -194,7 +230,10 @@ export class ContextBuilder {
    *  Targets: D1, D2 | Top Schools: Georgia, Texas, Ohio State
    *  Status: Uncommitted | Profile: 85% complete"
    */
-  compressToPrompt(context: AgentUserContext): string {
+  compressToPrompt(
+    context: AgentUserContext,
+    memories: AgentRetrievedMemories = EMPTY_RETRIEVED_MEMORIES
+  ): string {
     const lines: string[] = [];
 
     const teamPart = context.teamId ? ` | TeamID: ${context.teamId}` : '';
@@ -265,7 +304,80 @@ export class ContextBuilder {
       );
     }
 
+    if (memories.user.length) {
+      lines.push(`User Memory: ${memories.user.map((memory) => memory.content).join(' | ')}`);
+    }
+
+    if (memories.team.length) {
+      lines.push(`Team Memory: ${memories.team.map((memory) => memory.content).join(' | ')}`);
+    }
+
+    if (memories.organization.length) {
+      lines.push(
+        `Organization Memory: ${memories.organization.map((memory) => memory.content).join(' | ')}`
+      );
+    }
+
     return lines.join('\n');
+  }
+
+  private async retrieveMemories(
+    context: AgentUserContext,
+    query: string
+  ): Promise<AgentRetrievedMemories> {
+    if (!this.vectorMemory || !query.trim()) {
+      return EMPTY_RETRIEVED_MEMORIES;
+    }
+
+    try {
+      return await this.withTimeout(
+        this.vectorMemory.recallByScope(context.userId, query, {
+          teamId: context.teamId,
+          organizationId: context.organizationId,
+          perTargetLimit: MEMORY_RESULTS_PER_TARGET,
+        }),
+        MEMORY_RECALL_TIMEOUT_MS,
+        `memory retrieval timed out for ${context.userId}`
+      );
+    } catch (err) {
+      logger.warn('[ContextBuilder] Memory retrieval failed, continuing without memories', {
+        userId: context.userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return EMPTY_RETRIEVED_MEMORIES;
+    }
+  }
+
+  private async withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    errorMessage: string
+  ): Promise<T> {
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+          timeoutHandle = setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+    }
+  }
+
+  private selectFallbackTeam(userTeams: readonly TeamLike[], sport?: string): TeamLike | undefined {
+    if (!userTeams.length) return undefined;
+    if (!sport) return userTeams[0];
+
+    const normalizedSport = sport.trim().toLowerCase();
+    return (
+      userTeams.find((team) => {
+        const teamSport = (team.sportName ?? team.sport ?? '').toString().trim().toLowerCase();
+        return teamSport === normalizedSport;
+      }) ?? userTeams[0]
+    );
   }
 
   // ─── Internal Mapping ────────────────────────────────────────────────────

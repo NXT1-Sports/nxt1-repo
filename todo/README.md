@@ -1,19 +1,26 @@
 # NXT1 Monorepo — TODO Index
 
-> Last updated: March 15, 2026
+> Last updated: April 12, 2026
 
 ---
 
-## Remaining Work
+## Active TODO Docs
 
-| File                                                   | Area                                         | Priority  |
-| ------------------------------------------------------ | -------------------------------------------- | --------- |
-| [ANALYTICS-INTEGRATION.md](./ANALYTICS-INTEGRATION.md) | Page views, feature events, Firebase Console | 🟡 Medium |
-| [CI-CD-SETUP.md](./CI-CD-SETUP.md)                     | GitHub secrets & variables configuration     | 🟡 Medium |
+| File                                                                       | Area                                                                             | Priority  |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | --------- |
+| [FIREBASE-AUDIT-2026.md](./FIREBASE-AUDIT-2026.md)                         | Firestore staging audit, schema cleanup, rules, indexes, billing and usage fixes | 🔴 High   |
+| [AGENT-X-ENTERPRISE-ARCHITECTURE.md](./AGENT-X-ENTERPRISE-ARCHITECTURE.md) | Agent X architecture upgrade plan                                                | 🔴 High   |
+| [ROSTER-ENTRY-APPROVALS.md](./ROSTER-ENTRY-APPROVALS.md)                   | Team roster approval workflow                                                    | 🔴 High   |
+| [CI-CD-SETUP.md](./CI-CD-SETUP.md)                                         | GitHub secrets and deployment setup                                              | 🟡 Medium |
+| [DEPENDENCY-UPGRADES.md](./DEPENDENCY-UPGRADES.md)                         | Dependency maintenance and upgrade tracking                                      | 🟡 Medium |
+| [MOBILE_AUTOMATION_SETUP.md](./MOBILE_AUTOMATION_SETUP.md)                 | Mobile automation environment setup                                              | 🟡 Medium |
+| [POSTIZ-MCP-INTEGRATION.md](./POSTIZ-MCP-INTEGRATION.md)                   | Postiz MCP integration plan                                                      | 🟡 Medium |
+| [firecrawl-video-extraction-plan.md](./firecrawl-video-extraction-plan.md) | Firecrawl extraction workflow                                                    | 🟡 Medium |
+| [pulse-ai-cost-reduction.md](./pulse-ai-cost-reduction.md)                 | AI cost optimization work                                                        | 🟡 Medium |
+| [video-processing-worker-todo.md](./video-processing-worker-todo.md)       | Video worker backlog                                                             | 🟡 Medium |
 
-| [SEO-CHECKLIST.md](./SEO-CHECKLIST.md) | OG images (blocking), team/explore
-pages, sitemap | 🔴 High | | [SHARE-NEXT-STEPS.md](./SHARE-NEXT-STEPS.md) | Wire
-share button to 5 pages, SSR meta validation | 🟢 Low | |
-[SECURITY-HARDENING.md](./SECURITY-HARDENING.md) | Full pre-production security
-checklist (not started) | 🔴 High | | [TODO-AUDIT-2026.md](./TODO-AUDIT-2026.md)
-| Master audit with all remaining TODOs across repos | 🔴 High |
+## Notes
+
+- This index now points only to TODO docs that actually exist in this folder.
+- The Firebase audit doc is the current source of truth for Firestore staging
+  remediation work.

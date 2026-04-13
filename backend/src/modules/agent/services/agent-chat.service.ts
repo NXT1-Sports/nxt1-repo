@@ -91,6 +91,44 @@ export class AgentChatService {
   }
 
   /**
+   * Atomically create a thread seeded with the first user message.
+   *
+   * Used by both the interactive chat route and background jobs
+   * (linked-account scraping, etc.) so every thread starts with a
+   * human-readable title derived from the prompt.
+   */
+  async startConversation(params: {
+    userId: string;
+    prompt: string;
+    category?: AgentThreadCategory;
+    origin?: AgentJobOrigin;
+  }): Promise<{ thread: AgentThread; message: AgentMessage }> {
+    const title = params.prompt.trim().slice(0, 80) || 'New Conversation';
+
+    const thread = await this.createThread({
+      userId: params.userId,
+      title,
+      category: params.category,
+    });
+
+    const message = await this.addMessage({
+      threadId: thread.id,
+      userId: params.userId,
+      role: 'user' as AgentMessageRole,
+      content: params.prompt,
+      origin: params.origin ?? 'user',
+    });
+
+    logger.info('[AgentChatService] Conversation started', {
+      threadId: thread.id,
+      userId: params.userId,
+      titleLength: title.length,
+    });
+
+    return { thread, message };
+  }
+
+  /**
    * List threads for a user with cursor-based pagination.
    * Sorted by most recent activity (lastMessageAt descending).
    */

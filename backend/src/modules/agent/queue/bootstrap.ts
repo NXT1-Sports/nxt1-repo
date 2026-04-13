@@ -32,11 +32,8 @@ import { AgentRouter } from '../agent.router.js';
 import { OpenRouterService } from '../llm/openrouter.service.js';
 import { ToolRegistry } from '../tools/tool-registry.js';
 import {
-  ScrapeWebpageTool,
   ScrapeAndIndexProfileTool,
   ReadDistilledSectionTool,
-  ReadWebpageTool,
-  InteractWithWebpageTool,
   OpenLiveViewTool,
   NavigateLiveViewTool,
   InteractWithLiveViewTool,
@@ -44,7 +41,6 @@ import {
   CloseLiveViewTool,
   LiveViewSessionService,
   ScraperService,
-  FirecrawlService,
   DispatchExtractionTool,
 } from '../tools/scraping/index.js';
 import {
@@ -60,7 +56,14 @@ import {
   SaveMemoryTool,
   DeleteMemoryTool,
 } from '../tools/database/index.js';
-import { GenerateGraphicTool, AnalyzeVideoTool } from '../tools/media/index.js';
+import {
+  GenerateGraphicTool,
+  AnalyzeVideoTool,
+  RunwayGenerateVideoTool,
+  RunwayEditVideoTool,
+  RunwayUpscaleVideoTool,
+  RunwayCheckTaskTool,
+} from '../tools/media/index.js';
 import { DynamicExportTool } from '../tools/data/index.js';
 import { WebSearchTool } from '../tools/integrations/web-search.tool.js';
 import { SendEmailTool } from '../tools/integrations/send-email.tool.js';
@@ -73,6 +76,23 @@ import { SearchApifyActorsTool } from '../tools/integrations/search-apify-actors
 import { GetApifyActorDetailsTool } from '../tools/integrations/get-apify-actor-details.tool.js';
 import { CallApifyActorTool } from '../tools/integrations/call-apify-actor.tool.js';
 import { GetApifyActorOutputTool } from '../tools/integrations/get-apify-actor-output.tool.js';
+import {
+  FirecrawlMcpBridgeService,
+  RunwayMcpBridgeService,
+  FirecrawlScrapeTool,
+  FirecrawlSearchTool,
+  FirecrawlMapTool,
+  FirecrawlExtractTool,
+  CloudflareMcpBridgeService,
+  ImportVideoTool,
+  ClipVideoTool,
+  GenerateThumbnailTool,
+  GetVideoDetailsTool,
+  GenerateCaptionsTool,
+  CreateSignedUrlTool,
+  EnableDownloadTool,
+  ManageWatermarkTool,
+} from '../tools/integrations/index.js';
 import { AskUserTool } from '../tools/comms/ask-user.tool.js';
 import { WriteTimelinePostTool } from '../tools/comms/write-timeline-post.tool.js';
 import { DelegateTaskTool } from '../tools/system/index.js';
@@ -209,37 +229,41 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     },
   });
   const toolRegistry = new ToolRegistry();
-  // Firecrawl-powered tools (shared service instance for connection pooling)
-  let firecrawl: FirecrawlService | undefined;
+  // MCP bridge for Firecrawl — shared across ScraperService and standalone MCP tools.
+  let firecrawlMcpBridge: FirecrawlMcpBridgeService | null = null;
   try {
-    firecrawl = new FirecrawlService();
-    logger.info('Firecrawl service initialized');
+    firecrawlMcpBridge = new FirecrawlMcpBridgeService();
+    logger.info('Firecrawl MCP bridge initialized (shared by ScraperService + MCP tools)');
+  } catch {
+    logger.warn('FIRECRAWL_API_KEY not configured — Firecrawl MCP bridge disabled');
+  }
+
+  let runwayMcpBridge: RunwayMcpBridgeService | null = null;
+  try {
+    runwayMcpBridge = new RunwayMcpBridgeService();
+    logger.info('Runway MCP bridge initialized');
   } catch {
     logger.warn(
-      'FIRECRAWL_API_KEY not configured — read_webpage and interact_with_webpage tools disabled'
+      'RUNWAYML_API_SECRET or RUNWAY_API_KEY not configured — Runway MCP bridge disabled'
     );
   }
 
-  // All scraping tools share the same Firecrawl instance (single SDK client)
-  const scraperService = new ScraperService(firecrawl ?? null);
-  toolRegistry.register(new ScrapeWebpageTool(scraperService));
-  toolRegistry.register(new ScrapeAndIndexProfileTool(undefined, llm));
+  // The shared scraper preserves direct HTML extraction and uses the MCP bridge
+  // for rendered markdown when available.
+  const scraperService = new ScraperService(firecrawlMcpBridge);
+  toolRegistry.register(new ScrapeAndIndexProfileTool(scraperService, llm));
   toolRegistry.register(new ReadDistilledSectionTool());
   toolRegistry.register(new DispatchExtractionTool(llm));
-  if (firecrawl) {
-    toolRegistry.register(new ReadWebpageTool(firecrawl));
-    toolRegistry.register(new InteractWithWebpageTool(firecrawl));
-    try {
-      const liveViewService = new LiveViewSessionService();
-      toolRegistry.register(new OpenLiveViewTool(liveViewService, stagingDb));
-      toolRegistry.register(new NavigateLiveViewTool(liveViewService));
-      toolRegistry.register(new InteractWithLiveViewTool(liveViewService));
-      toolRegistry.register(new ReadLiveViewTool(liveViewService));
-      toolRegistry.register(new CloseLiveViewTool(liveViewService));
-      logger.info('Live view tools registered (open, navigate, interact, read, close)');
-    } catch {
-      logger.warn('LiveViewSessionService init failed — open_live_view tool disabled');
-    }
+  try {
+    const liveViewService = new LiveViewSessionService();
+    toolRegistry.register(new OpenLiveViewTool(liveViewService, stagingDb));
+    toolRegistry.register(new NavigateLiveViewTool(liveViewService));
+    toolRegistry.register(new InteractWithLiveViewTool(liveViewService));
+    toolRegistry.register(new ReadLiveViewTool(liveViewService));
+    toolRegistry.register(new CloseLiveViewTool(liveViewService));
+    logger.info('Live view tools registered (open, navigate, interact, read, close)');
+  } catch {
+    logger.warn('LiveViewSessionService init failed — open_live_view tool disabled');
   }
 
   toolRegistry.register(new WriteCoreIdentityTool(stagingDb));
@@ -293,7 +317,50 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     logger.warn('APIFY_API_TOKEN not configured — MCP-bridged Apify tools disabled');
   }
 
-  const contextBuilder = new ContextBuilder();
+  // ── 1d. MCP-bridged Firecrawl tools (2026 architecture) ──────────────
+  // Bridge instance was created earlier (shared with ScraperService).
+  if (firecrawlMcpBridge) {
+    toolRegistry.register(new FirecrawlScrapeTool(firecrawlMcpBridge));
+    toolRegistry.register(new FirecrawlSearchTool(firecrawlMcpBridge));
+    toolRegistry.register(new FirecrawlMapTool(firecrawlMcpBridge));
+    toolRegistry.register(new FirecrawlExtractTool(firecrawlMcpBridge));
+    logger.info(
+      'MCP-bridged Firecrawl tools registered (scrape_webpage, firecrawl_search_web, map_website, extract_web_data)'
+    );
+  }
+
+  // ── 1e. MCP-bridged Cloudflare Stream tools (ephemeral video processing) ──
+  try {
+    const cfBridge = new CloudflareMcpBridgeService();
+    toolRegistry.register(new ImportVideoTool(cfBridge));
+    toolRegistry.register(new ClipVideoTool(cfBridge));
+    toolRegistry.register(new GenerateThumbnailTool(cfBridge));
+    toolRegistry.register(new GetVideoDetailsTool(cfBridge));
+    toolRegistry.register(new GenerateCaptionsTool(cfBridge));
+    toolRegistry.register(new CreateSignedUrlTool(cfBridge));
+    toolRegistry.register(new EnableDownloadTool(cfBridge));
+    toolRegistry.register(new ManageWatermarkTool(cfBridge));
+    logger.info(
+      'MCP-bridged Cloudflare Stream tools registered (import, clip, thumbnail, details, captions, signed-url, download, watermark)'
+    );
+  } catch {
+    logger.warn(
+      'CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID not configured — Cloudflare Stream tools disabled'
+    );
+  }
+
+  // ── 1f. MCP-bridged Runway ML tools (AI video generation) ──────────────
+  if (runwayMcpBridge) {
+    toolRegistry.register(new RunwayGenerateVideoTool(runwayMcpBridge));
+    toolRegistry.register(new RunwayEditVideoTool(runwayMcpBridge));
+    toolRegistry.register(new RunwayUpscaleVideoTool(runwayMcpBridge));
+    toolRegistry.register(new RunwayCheckTaskTool(runwayMcpBridge));
+    logger.info(
+      'MCP-bridged Runway ML tools registered (generate_video, edit_video, upscale_video, check_task)'
+    );
+  }
+
+  const contextBuilder = new ContextBuilder(vectorMemory);
 
   // ── 1b. Skill Registry (dynamic domain knowledge injection) ─────────────────
   const skillRegistry = new SkillRegistry();
@@ -343,7 +410,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     stagingJobRepository,
     agentChatService,
     pubsub,
-    stagingDb
+    stagingDb,
+    llm
   );
 
   // ── 6. Inject dependencies into the REST routes ───────────────────────
