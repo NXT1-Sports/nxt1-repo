@@ -205,7 +205,7 @@ export class AgentPubSubService {
           this.handlers.delete(channel);
           await this.getSubscriber()
             .unsubscribe(channel)
-            .catch(() => {});
+            .catch(() => undefined);
         }
       }
     };
@@ -220,11 +220,11 @@ export class AgentPubSubService {
   async shutdown(): Promise<void> {
     this.handlers.clear();
     if (this.subscriber) {
-      await this.subscriber.quit().catch(() => {});
+      await this.subscriber.quit().catch(() => undefined);
       this.subscriber = null;
     }
     if (this.publisher) {
-      await this.publisher.quit().catch(() => {});
+      await this.publisher.quit().catch(() => undefined);
       this.publisher = null;
     }
     this.listenerAttached = false;

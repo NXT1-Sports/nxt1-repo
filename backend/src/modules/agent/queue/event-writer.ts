@@ -133,7 +133,7 @@ export class DebouncedEventWriter {
     }
     // Best-effort flush of any leftover buffered text
     if (this.pendingDeltaText.length > 0) {
-      await this.writeDeltaEvent().catch(() => {});
+      await this.writeDeltaEvent().catch(() => undefined);
     }
   }
 

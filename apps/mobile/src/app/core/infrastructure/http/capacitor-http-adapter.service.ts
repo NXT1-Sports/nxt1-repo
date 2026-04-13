@@ -165,7 +165,9 @@ export class CapacitorHttpAdapter implements HttpAdapter {
 
       // Capacitor native error format
       const nativeError = err as { errorMessage?: string; code?: string };
-      throw new Error(nativeError.errorMessage || nativeError.code || 'Network request failed');
+      throw new Error(nativeError.errorMessage || nativeError.code || 'Network request failed', {
+        cause: err,
+      });
     }
   }
 

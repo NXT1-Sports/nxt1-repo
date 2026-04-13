@@ -102,7 +102,7 @@ export class RunwayCheckTaskTool extends BaseTool {
           });
           await file.makePublic();
           persistentUrl = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
-        } catch (uploadErr) {
+        } catch {
           // Non-fatal — return the ephemeral URL with a warning
           persistentUrl = undefined;
         }

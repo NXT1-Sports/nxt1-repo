@@ -421,6 +421,10 @@ export class EditProfileService {
     const currentFormData = this._formData();
     if (!currentFormData) return;
 
+    const measurables = rawUser.measurables as
+      | Array<{ field: string; value?: string | number | null }>
+      | undefined;
+
     const updatedFormData: EditProfileFormData = {
       ...currentFormData,
       sportsInfo: {
@@ -440,8 +444,8 @@ export class EditProfileService {
         graduationDate: rawUser.classOf ? String(rawUser.classOf) : undefined,
       },
       physical: {
-        height: rawUser.measurables?.find((m: any) => m.field === 'height')?.value?.toString(),
-        weight: rawUser.measurables?.find((m: any) => m.field === 'weight')?.value?.toString(),
+        height: measurables?.find((m) => m.field === 'height')?.value?.toString(),
+        weight: measurables?.find((m) => m.field === 'weight')?.value?.toString(),
         wingspan: targetSport.metrics?.['wingspan']
           ? String(targetSport.metrics['wingspan'])
           : undefined,

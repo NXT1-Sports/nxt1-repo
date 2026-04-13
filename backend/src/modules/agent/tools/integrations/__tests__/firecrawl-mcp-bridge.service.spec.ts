@@ -143,7 +143,7 @@ describe('FirecrawlMcpBridgeService', () => {
       });
 
       // Request 50 results — should be clamped to 10
-      await service.search('test', { limit: 50 }).catch(() => {});
+      await service.search('test', { limit: 50 }).catch(() => undefined);
 
       const calledArgs = executeToolSpy.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
       expect(calledArgs?.['limit']).toBe(10);

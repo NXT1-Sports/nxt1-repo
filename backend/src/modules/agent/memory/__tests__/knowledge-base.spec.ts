@@ -221,7 +221,7 @@ describe('GlobalKnowledgeSkill matchIntent contract', () => {
 
     // matchIntent resets cache (concurrency fix)
     const cachedPromptBlock = '';
-    const lastResults: any[] = [];
+    const lastResults: Array<Record<string, unknown>> = [];
 
     return {
       result: { matched: true, similarity: 0.8 },

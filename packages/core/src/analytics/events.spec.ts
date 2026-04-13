@@ -41,7 +41,10 @@ describe('Event Constants', () => {
       expect(APP_EVENTS.VIDEO_COMPLETED).toBe('video_completed');
     });
 
-    it('should have subscription events', () => {});
+    it('should have subscription-related events', () => {
+      expect(APP_EVENTS.CREDITS_PURCHASED).toBe('credits_purchased');
+      expect(APP_EVENTS.CREDITS_USED).toBe('credits_used');
+    });
 
     it('should have error events', () => {
       expect(APP_EVENTS.ERROR_OCCURRED).toBe('error_occurred');

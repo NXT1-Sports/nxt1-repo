@@ -67,8 +67,6 @@ import {
 import { httpCacheInterceptor, authInterceptor } from './core/infrastructure';
 import { httpPerformanceInterceptor } from './core/infrastructure/performance-interceptor';
 
-// Crashlytics service (web uses GA4 fallback)
-import { CrashlyticsService } from './core/services';
 import { AnalyticsService } from './core/services';
 import { PerformanceService } from './core/services';
 
@@ -431,7 +429,7 @@ export const appConfig: ApplicationConfig = {
     },
     {
       provide: APP_INITIALIZER,
-      useFactory: () => () => {},
+      useFactory: () => () => undefined,
       deps: [Sentry.TraceService],
       multi: true,
     },

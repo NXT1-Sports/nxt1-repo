@@ -76,14 +76,14 @@ function validInput(overrides?: Record<string, unknown>): Record<string, unknown
 describe('WriteTimelinePostTool', () => {
   let tool: WriteTimelinePostTool;
   let mockDb: MockFirestore;
-  let mockCollection: MockCollection;
+  let _mockCollection: MockCollection;
   let mockDocRef: MockDocRef;
 
   beforeEach(() => {
     vi.clearAllMocks();
     const mocks = createMockFirestore();
     mockDb = mocks.db;
-    mockCollection = mocks.collection;
+    _mockCollection = mocks.collection;
     mockDocRef = mocks.docRef;
     tool = new WriteTimelinePostTool(mockDb as never);
   });

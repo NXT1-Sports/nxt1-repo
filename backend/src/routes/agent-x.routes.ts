@@ -98,9 +98,9 @@ import crypto from 'node:crypto';
  * This dummy payload rapidly fills the proxy buffer forcing it to flush downstream.
  * Frontend SSE parsers safely ignore any line starting with a colon (:).
  */
-function forceProxyFlush(res: Response) {
-  if (typeof (res as any).flush === 'function') {
-    (res as any).flush();
+function forceProxyFlush(res: Response & { flush?: () => void }) {
+  if (typeof res.flush === 'function') {
+    res.flush();
   }
   res.write(`: ${' '.repeat(4096)}\n\n`);
 }

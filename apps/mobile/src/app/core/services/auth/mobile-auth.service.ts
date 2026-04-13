@@ -201,7 +201,7 @@ export class MobileAuthService implements OnDestroy {
     } catch (error) {
       const message = getAuthErrorMessage(error);
       this.authManager.setError(message);
-      throw new Error(message);
+      throw new Error(message, { cause: error });
     } finally {
       this.authManager.setLoading(false);
     }
@@ -232,7 +232,7 @@ export class MobileAuthService implements OnDestroy {
     } catch (error) {
       const message = getAuthErrorMessage(error);
       this.authManager.setError(message);
-      throw new Error(message);
+      throw new Error(message, { cause: error });
     } finally {
       this.authManager.setLoading(false);
     }
@@ -251,7 +251,7 @@ export class MobileAuthService implements OnDestroy {
     } catch (error) {
       const message = getAuthErrorMessage(error);
       this.authManager.setError(message);
-      throw new Error(message);
+      throw new Error(message, { cause: error });
     } finally {
       this.authManager.setLoading(false);
     }
@@ -269,7 +269,7 @@ export class MobileAuthService implements OnDestroy {
     } catch (error) {
       const message = getAuthErrorMessage(error);
       this.authManager.setError(message);
-      throw new Error(message);
+      throw new Error(message, { cause: error });
     } finally {
       this.authManager.setLoading(false);
     }

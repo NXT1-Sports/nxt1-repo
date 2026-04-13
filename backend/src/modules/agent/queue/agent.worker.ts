@@ -227,7 +227,9 @@ export class AgentWorker {
       // 2. Redis PubSub (new — real-time SSE pipe to Express)
       const sseEvent = this.streamEventToSSE(event);
       if (sseEvent) {
-        this.pubsub.publish(payload.operationId, sseEvent.event, sseEvent.data).catch(() => {});
+        this.pubsub
+          .publish(payload.operationId, sseEvent.event, sseEvent.data)
+          .catch(() => undefined);
       }
     };
 
@@ -242,7 +244,7 @@ export class AgentWorker {
       result = await Promise.race([routerPromise, timeoutPromise]);
     } catch (err) {
       // Flush any buffered deltas before handling the error
-      await eventWriter.flush().catch(() => {});
+      await eventWriter.flush().catch(() => undefined);
 
       // ── Yield handling: agent needs user input or approval ─────────────
       if (isAgentYield(err)) {
@@ -392,7 +394,7 @@ export class AgentWorker {
     }
 
     // ── Flush remaining deltas and write terminal 'done' event ──────────
-    await eventWriter.flush().catch(() => {});
+    await eventWriter.flush().catch(() => undefined);
     eventWriter.emit({ type: 'done', success: true, message: result.summary });
     await eventWriter.dispose();
 

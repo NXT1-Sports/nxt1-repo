@@ -172,7 +172,7 @@ export class AgentXJobService {
       // We intentionally do NOT consume the stream body here; the server
       // processes the task asynchronously and the caller gets immediate feedback.
       // Close the response body to avoid a dangling connection.
-      response.body?.cancel().catch(() => {});
+      response.body?.cancel().catch(() => undefined);
 
       this.logger.info('Task dispatched via /chat', { operationId: syntheticId });
       void this.breadcrumb.trackStateChange('agent-x-job:enqueued', {

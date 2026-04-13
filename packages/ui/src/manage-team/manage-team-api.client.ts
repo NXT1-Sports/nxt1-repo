@@ -112,9 +112,13 @@ export class ManageTeamApiClient {
               ? 'You do not have permission to manage this team'
               : `Failed to fetch team: ${error.statusText}`;
         this.logger.error('HTTP error fetching team', error, { teamId, status: error.status });
-        const err = new Error(message);
-        (err as any).cause = error;
-        throw err;
+        const wrappedError = new Error(message);
+        Object.defineProperty(wrappedError, 'cause', {
+          value: error,
+          configurable: true,
+          enumerable: false,
+        });
+        throw wrappedError;
       }
       throw error;
     }

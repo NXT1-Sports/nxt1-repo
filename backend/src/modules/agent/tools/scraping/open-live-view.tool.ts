@@ -146,7 +146,9 @@ export class OpenLiveViewTool extends BaseTool {
             staleSessionId: existingSession.sessionId,
             error: navErr instanceof Error ? navErr.message : String(navErr),
           });
-          await this.sessionService.closeSession(existingSession.sessionId, userId).catch(() => {});
+          await this.sessionService
+            .closeSession(existingSession.sessionId, userId)
+            .catch(() => undefined);
         }
       }
 
