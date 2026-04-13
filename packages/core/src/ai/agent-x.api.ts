@@ -350,21 +350,69 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Execute a user-approved email draft (HITL send).
+     * Resolve a pending approval request and optionally attach edited tool input.
      *
-     * Called after the user reviews/edits an email draft card and taps "Approve & Send".
-     * The backend validates, auto-detects the email provider, and sends via Gmail or Outlook.
+     * When the backend resumes the operation, it returns the new queued
+     * operationId so the frontend can re-attach to the SSE stream.
      */
-    async sendDraft(
-      toEmail: string,
-      subject: string,
-      body: string
-    ): Promise<{ messageId: string | null; provider: string; message: string } | null> {
+    async resolveApproval(
+      approvalId: string,
+      decision: 'approved' | 'rejected',
+      toolInput?: Record<string, unknown>
+    ): Promise<{
+      decision: 'approved' | 'rejected';
+      resumed: boolean;
+      jobId?: string;
+      operationId?: string;
+      threadId?: string | null;
+    } | null> {
       try {
         const response = await http.post<
-          ApiResponse<{ messageId: string | null; provider: string; message: string }>
-        >(endpoint(AGENT_X_ENDPOINTS.SEND_DRAFT), { toEmail, subject, body });
+          ApiResponse<{
+            decision: 'approved' | 'rejected';
+            resumed: boolean;
+            jobId?: string;
+            operationId?: string;
+            threadId?: string | null;
+          }>
+        >(`${endpoint(AGENT_X_ENDPOINTS.APPROVALS)}/${encodeURIComponent(approvalId)}/resolve`, {
+          decision,
+          ...(toolInput ? { toolInput } : {}),
+        });
         return response.success && response.data ? response.data : null;
+      } catch {
+        return null;
+      }
+    },
+
+    /**
+     * Resume a yielded operation after the user answers an inline question.
+     *
+     * The backend returns the new queued operationId so the frontend can
+     * re-attach to the resumed SSE stream.
+     */
+    async resumeYieldedJob(
+      operationId: string,
+      response: string
+    ): Promise<{
+      resumed: boolean;
+      jobId?: string;
+      operationId?: string;
+      threadId?: string | null;
+    } | null> {
+      try {
+        const result = await http.post<
+          ApiResponse<{
+            resumed: boolean;
+            jobId?: string;
+            operationId?: string;
+            threadId?: string | null;
+          }>
+        >(`${endpoint(AGENT_X_ENDPOINTS.RESUME_JOB)}/${encodeURIComponent(operationId)}`, {
+          response,
+        });
+
+        return result.success && result.data ? result.data : null;
       } catch {
         return null;
       }

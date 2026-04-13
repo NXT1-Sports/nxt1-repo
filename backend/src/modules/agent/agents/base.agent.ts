@@ -30,8 +30,9 @@ import type { LLMMessage, LLMToolSchema, LLMToolCall } from '../llm/llm.types.js
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import type { OnStreamEvent } from '../queue/event-writer.js';
 import { GlobalKnowledgeSkill } from '../skills/knowledge/global-knowledge.skill.js';
-import { isAgentYield } from '../errors/agent-yield.error.js';
+import { AgentYieldException, isAgentYield } from '../errors/agent-yield.error.js';
 import { isAgentDelegation, AgentDelegationException } from '../errors/agent-delegation.error.js';
+import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/comms/ask-user.tool.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -43,6 +44,17 @@ const MAX_ITERATIONS = 20;
  * Prevents context overflow when scrape results are very large.
  */
 const MAX_OBSERVATION_LENGTH = 8_000;
+
+interface ToolSessionContext {
+  readonly sessionId?: string;
+  readonly threadId?: string;
+  readonly operationId?: string;
+  readonly approvalId?: string;
+  readonly bypassPermissionForTool?: {
+    readonly toolName: string;
+    readonly toolCallId: string;
+  };
+}
 
 export abstract class BaseAgent {
   abstract readonly id: AgentIdentifier;
@@ -84,7 +96,8 @@ export abstract class BaseAgent {
     llm?: OpenRouterService,
     toolRegistry?: ToolRegistry,
     skillRegistry?: SkillRegistry,
-    onStreamEvent?: OnStreamEvent
+    onStreamEvent?: OnStreamEvent,
+    approvalGate?: ApprovalGateService
   ): Promise<AgentOperationResult> {
     if (!llm || !toolRegistry) {
       throw new Error(
@@ -175,6 +188,157 @@ export abstract class BaseAgent {
       tools: allowedToolNames,
     });
 
+    return this.runLoop(
+      messages,
+      context,
+      llm,
+      toolRegistry,
+      toolSchemas,
+      routing,
+      onStreamEvent,
+      approvalGate
+    );
+  }
+
+  /**
+   * Continue execution from a previously yielded message array.
+   * Used when the user approves a pending tool or answers an ask_user question.
+   */
+  async resumeExecution(
+    yieldState: {
+      readonly reason: 'needs_input' | 'needs_approval';
+      readonly messages: readonly Record<string, unknown>[];
+      readonly pendingToolCall?: {
+        readonly toolName: string;
+        readonly toolInput: Record<string, unknown>;
+        readonly toolCallId: string;
+      };
+      readonly planContext?: {
+        readonly currentTaskId: string;
+        readonly completedTaskResults: Record<string, unknown>;
+        readonly enrichedIntent: string;
+      };
+    },
+    context: AgentSessionContext,
+    _toolDefinitions: readonly AgentToolDefinition[],
+    llm?: OpenRouterService,
+    toolRegistry?: ToolRegistry,
+    _skillRegistry?: SkillRegistry,
+    onStreamEvent?: OnStreamEvent,
+    approvalGate?: ApprovalGateService,
+    approvalId?: string
+  ): Promise<AgentOperationResult> {
+    if (!llm || !toolRegistry) {
+      throw new Error(
+        `${this.name}.resumeExecution() requires llm and toolRegistry. ` +
+          `Pass them from the AgentRouter.`
+      );
+    }
+
+    const routing = this.getModelRouting();
+    const allowedToolNames = this.getAvailableTools();
+    const toolSchemas: LLMToolSchema[] = toolRegistry
+      .getDefinitions(this.id)
+      .filter(
+        (def) =>
+          def.category === 'system' ||
+          allowedToolNames.length === 0 ||
+          allowedToolNames.includes(def.name)
+      )
+      .map((def) => ({
+        type: 'function' as const,
+        function: {
+          name: def.name,
+          description: def.description,
+          parameters: def.parameters,
+        },
+      }));
+
+    const messages = yieldState.messages.map((msg) => ({ ...msg })) as unknown as LLMMessage[];
+    const sessionContext: ToolSessionContext = {
+      sessionId: context.sessionId,
+      threadId: context.threadId,
+      operationId: context.operationId,
+      ...(approvalId ? { approvalId } : {}),
+      ...(yieldState.reason === 'needs_approval' && yieldState.pendingToolCall
+        ? {
+            bypassPermissionForTool: {
+              toolName: yieldState.pendingToolCall.toolName,
+              toolCallId: yieldState.pendingToolCall.toolCallId,
+            },
+          }
+        : {}),
+    };
+
+    if (yieldState.reason === 'needs_approval' && yieldState.pendingToolCall) {
+      const pendingToolCall: LLMToolCall = {
+        id: yieldState.pendingToolCall.toolCallId,
+        type: 'function',
+        function: {
+          name: yieldState.pendingToolCall.toolName,
+          arguments: JSON.stringify(yieldState.pendingToolCall.toolInput),
+        },
+      };
+
+      onStreamEvent?.({
+        type: 'step_active',
+        agentId: this.id,
+        toolName: pendingToolCall.function.name,
+        message: `Running ${pendingToolCall.function.name} after approval...`,
+      });
+
+      let observation = await this.executeTool(
+        pendingToolCall,
+        toolRegistry,
+        context.userId,
+        {
+          agentId: this.id,
+          messages,
+          planContext: yieldState.planContext,
+        },
+        sessionContext,
+        messages,
+        approvalGate
+      );
+      observation = this.truncateObservation(observation);
+
+      onStreamEvent?.({
+        type: 'tool_result',
+        agentId: this.id,
+        toolName: pendingToolCall.function.name,
+        toolSuccess: true,
+        message: `${pendingToolCall.function.name} completed`,
+      });
+
+      messages.push({
+        role: 'tool',
+        content: observation,
+        tool_call_id: pendingToolCall.id,
+      });
+    }
+
+    return this.runLoop(
+      messages,
+      context,
+      llm,
+      toolRegistry,
+      toolSchemas,
+      routing,
+      onStreamEvent,
+      approvalGate
+    );
+  }
+
+  private async runLoop(
+    messages: LLMMessage[],
+    context: AgentSessionContext,
+    llm: OpenRouterService,
+    toolRegistry: ToolRegistry,
+    toolSchemas: readonly LLMToolSchema[],
+    routing: ModelRoutingConfig,
+    onStreamEvent?: OnStreamEvent,
+    approvalGate?: ApprovalGateService
+  ): Promise<AgentOperationResult> {
     // ── ReAct Loop ────────────────────────────────────────────────────────
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
@@ -296,33 +460,15 @@ export abstract class BaseAgent {
           // conditions with WORKER_CONCURRENCY > 1.
           { agentId: this.id, messages },
           // Pass session context so tools can use thread-scoped storage paths
-          { sessionId: context.sessionId, threadId: context.threadId }
+          {
+            sessionId: context.sessionId,
+            threadId: context.threadId,
+            operationId: context.operationId,
+          },
+          messages,
+          approvalGate
         );
-        // Truncate large observations (e.g. scrape results) to prevent context overflow.
-        // ONLY truncate markdownContent — never truncate the raw observation string, as that
-        // would corrupt structured data like imageUrl in generate_graphic results.
-        if (observation.length > MAX_OBSERVATION_LENGTH) {
-          try {
-            const parsed = JSON.parse(observation) as Record<string, unknown>;
-            if (parsed['success'] && parsed['data'] && typeof parsed['data'] === 'object') {
-              const data = parsed['data'] as Record<string, unknown>;
-              if (
-                typeof data['markdownContent'] === 'string' &&
-                data['markdownContent'].length > MAX_OBSERVATION_LENGTH
-              ) {
-                data['markdownContent'] =
-                  data['markdownContent'].slice(0, MAX_OBSERVATION_LENGTH) + '\n...[truncated]';
-                data['truncated'] = true;
-                observation = JSON.stringify(parsed);
-              }
-              // If no markdownContent to truncate, leave observation intact —
-              // the data fields (imageUrl, etc.) must remain complete.
-            }
-          } catch {
-            // Not valid JSON and very large — truncate raw string as last resort
-            observation = observation.slice(0, MAX_OBSERVATION_LENGTH) + '\n...[truncated]';
-          }
-        }
+        observation = this.truncateObservation(observation);
         // Log tool result summary — parse JSON to show structured info instead of raw string
         // (avoids logging huge signed URLs or large content that confuses debugging)
         try {
@@ -423,6 +569,32 @@ export abstract class BaseAgent {
     };
   }
 
+  private truncateObservation(observation: string): string {
+    if (observation.length <= MAX_OBSERVATION_LENGTH) {
+      return observation;
+    }
+
+    try {
+      const parsed = JSON.parse(observation) as Record<string, unknown>;
+      if (parsed['success'] && parsed['data'] && typeof parsed['data'] === 'object') {
+        const data = parsed['data'] as Record<string, unknown>;
+        if (
+          typeof data['markdownContent'] === 'string' &&
+          data['markdownContent'].length > MAX_OBSERVATION_LENGTH
+        ) {
+          data['markdownContent'] =
+            data['markdownContent'].slice(0, MAX_OBSERVATION_LENGTH) + '\n...[truncated]';
+          data['truncated'] = true;
+          return JSON.stringify(parsed);
+        }
+      }
+    } catch {
+      return observation.slice(0, MAX_OBSERVATION_LENGTH) + '\n...[truncated]';
+    }
+
+    return observation;
+  }
+
   // ─── Tool Call Record Extraction ──────────────────────────────────────────
 
   /**
@@ -518,7 +690,9 @@ export abstract class BaseAgent {
     registry: ToolRegistry,
     userId: string,
     yieldContext?: AskUserToolContext,
-    sessionContext?: { sessionId?: string; threadId?: string }
+    sessionContext?: ToolSessionContext,
+    currentMessages?: readonly LLMMessage[],
+    approvalGate?: ApprovalGateService
   ): Promise<string> {
     const toolName = toolCall.function.name;
 
@@ -527,7 +701,15 @@ export abstract class BaseAgent {
     const allowedToolNames = this.getAvailableTools();
     const tool = registry.get(toolName);
     const isSystemTool = tool?.category === 'system';
-    if (!isSystemTool && allowedToolNames.length > 0 && !allowedToolNames.includes(toolName)) {
+    const bypassPermissions =
+      sessionContext?.bypassPermissionForTool?.toolName === toolName &&
+      sessionContext?.bypassPermissionForTool?.toolCallId === toolCall.id;
+    if (
+      !isSystemTool &&
+      !bypassPermissions &&
+      allowedToolNames.length > 0 &&
+      !allowedToolNames.includes(toolName)
+    ) {
       return JSON.stringify({
         error: `Tool "${toolName}" is not allowed for agent "${this.id}".`,
       });
@@ -540,6 +722,47 @@ export abstract class BaseAgent {
       return JSON.stringify({
         error: `Invalid JSON arguments for tool "${toolName}".`,
       });
+    }
+
+    if (approvalGate) {
+      const approvalRequirement = approvalGate.getApprovalRequirement(toolName, input);
+      if (approvalRequirement) {
+        const approvalAlreadyGranted =
+          typeof sessionContext?.approvalId === 'string'
+            ? await approvalGate.isApprovalGranted(
+                sessionContext.approvalId,
+                userId,
+                toolName,
+                input
+              )
+            : false;
+
+        if (!approvalAlreadyGranted) {
+          const approvalRequest = await approvalGate.requestApproval({
+            operationId: sessionContext?.operationId ?? toolCall.id,
+            taskId: sessionContext?.operationId ?? toolCall.id,
+            userId,
+            toolName,
+            toolInput: input,
+            actionSummary: approvalRequirement.actionSummary,
+            reasoning: approvalRequirement.promptToUser,
+            threadId: sessionContext?.threadId,
+          });
+
+          throw new AgentYieldException({
+            reason: 'needs_approval',
+            promptToUser: approvalRequirement.promptToUser,
+            agentId: this.id,
+            messages: currentMessages ?? yieldContext?.messages ?? [],
+            pendingToolCall: {
+              toolName,
+              toolInput: input,
+              toolCallId: toolCall.id,
+            },
+            approvalId: approvalRequest.id,
+          });
+        }
+      }
     }
 
     // Inject yield context into the input so AskUserTool can read it

@@ -6,7 +6,14 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { USER_ROLES, ROLE_CONFIGS, normalizeRole, type UserRole } from './user.constants';
+import {
+  USER_ROLES,
+  ROLE_CONFIGS,
+  normalizeRole,
+  isTeamRole,
+  isAthleteRole,
+  type UserRole,
+} from './user.constants';
 
 // ============================================
 // USER_ROLES INTEGRITY
@@ -106,5 +113,27 @@ describe('normalizeRole', () => {
     expect(normalizeRole('unknown')).toBe('athlete');
     expect(normalizeRole('')).toBe('athlete');
     expect(normalizeRole('admin')).toBe('athlete');
+  });
+});
+
+describe('role helpers', () => {
+  it('should treat normalized coach aliases as team roles', () => {
+    expect(isTeamRole('coach')).toBe(true);
+    expect(isTeamRole('director')).toBe(true);
+    expect(isTeamRole('college-coach')).toBe(true);
+    expect(isTeamRole('scout')).toBe(true);
+  });
+
+  it('should treat normalized athlete aliases as athlete roles', () => {
+    expect(isAthleteRole('athlete')).toBe(true);
+    expect(isAthleteRole('parent')).toBe(true);
+    expect(isAthleteRole('fan')).toBe(true);
+  });
+
+  it('should return false for nullish role helper checks', () => {
+    expect(isTeamRole(undefined)).toBe(false);
+    expect(isTeamRole(null)).toBe(false);
+    expect(isAthleteRole(undefined)).toBe(false);
+    expect(isAthleteRole(null)).toBe(false);
   });
 });

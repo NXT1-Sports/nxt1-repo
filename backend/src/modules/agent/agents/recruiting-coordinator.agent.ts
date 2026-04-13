@@ -40,7 +40,7 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
       '3. **Target List Building** — Identify best-fit programs by division (D1/D2/D3/NAIA/NJCAA), conference, state, and academic profile.',
       '4. **Outreach Planning** — Sequence campaigns: initial email → follow-up → visit invite → commit tracking.',
       "5. **Email Sending** — Use send_email to dispatch approved emails via the athlete's connected email account (Gmail or Outlook).",
-      '6. **Memory Recall** — Use search_memory to retrieve stored preferences, past outreach, and coach responses.',
+      "6. **Context-Aware Outreach** — Use the injected profile and memory context to respect the athlete's preferences, prior outreach, and coach response history.",
       '',
       '(If a "Loaded Skills" section appears below, follow its email writing rules, target list criteria, and outreach sequencing exactly. If no skills are loaded, use general recruiting email best practices and keep emails under 150 words.)',
     ].join('\n');
@@ -48,7 +48,6 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
 
   getAvailableTools(): readonly string[] {
     return [
-      'search_memory',
       'search_web',
       'scrape_webpage',
       'open_live_view',

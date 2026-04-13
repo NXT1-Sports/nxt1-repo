@@ -18,6 +18,7 @@
 
 import type { Firestore, WriteBatch } from 'firebase-admin/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
+import { normalizeRole } from '@nxt1/core';
 import {
   RosterEntry,
   RosterEntryStatus,
@@ -72,6 +73,7 @@ function docToRosterEntry(doc: FirebaseFirestore.DocumentSnapshot): RosterEntry 
     teamId: data['teamId'] ?? '',
     organizationId: data['organizationId'] ?? '',
     role: (data['role'] ?? 'athlete') as UserRole,
+    title: data['title'],
     status: data['status'] ?? RosterEntryStatus.PENDING,
     jerseyNumber: data['jerseyNumber'],
     positions: data['positions'] ?? [],
@@ -89,7 +91,11 @@ function docToRosterEntry(doc: FirebaseFirestore.DocumentSnapshot): RosterEntry 
     // Cached user data
     firstName: data['firstName'],
     lastName: data['lastName'],
-    profileImgs: (data['profileImgs'] ?? data['profileImg']) ? [data['profileImg']] : [],
+    profileImgs: Array.isArray(data['profileImgs'])
+      ? (data['profileImgs'] as string[])
+      : typeof data['profileImg'] === 'string' && data['profileImg'].trim().length > 0
+        ? [data['profileImg']]
+        : [],
     email: data['email'],
     phoneNumber: data['phoneNumber'],
     classOf: data['classOf'],
@@ -147,13 +153,15 @@ export class RosterEntryService {
       throw conflictError('User already on this team');
     }
 
-    const isAthleteRole = input.role === 'athlete';
+    const normalizedRole = normalizeRole(input.role);
+    const normalizedTitle = input.title?.trim();
+    const isAthleteRole = normalizedRole === 'athlete';
 
     const entryData: Record<string, unknown> = {
       userId: input.userId,
       teamId: input.teamId,
       organizationId: input.organizationId,
-      role: input.role,
+      role: normalizedRole,
       status: input.status ?? RosterEntryStatus.PENDING,
       invitedBy: input.invitedBy ?? null,
       joinedAt: FieldValue.serverTimestamp(),
@@ -167,6 +175,7 @@ export class RosterEntryService {
 
     // Only write profileImgs if it has values
     if (input.profileImgs?.length) entryData['profileImgs'] = input.profileImgs;
+    if (!isAthleteRole && normalizedTitle) entryData['title'] = normalizedTitle;
 
     // Athlete-specific fields — only written for athletes
     if (isAthleteRole) {
@@ -180,7 +189,7 @@ export class RosterEntryService {
     const teamRef = this.db.collection('Teams').doc(input.teamId);
 
     // Athletes increment athleteMember; everyone else increments panelMember
-    const isAthlete = input.role === 'athlete';
+    const isAthlete = normalizedRole === 'athlete';
     const counterField = isAthlete ? 'athleteMember' : 'panelMember';
 
     if (externalBatch) {
@@ -202,6 +211,7 @@ export class RosterEntryService {
         teamId: entryData['teamId'] as string,
         organizationId: entryData['organizationId'] as string,
         role: entryData['role'] as UserRole,
+        title: entryData['title'] as string | undefined,
         status: (entryData['status'] as RosterEntryStatus) ?? RosterEntryStatus.PENDING,
         jerseyNumber: entryData['jerseyNumber'] as string | number | undefined,
         positions: (entryData['positions'] as string[] | undefined) ?? [],
@@ -255,6 +265,25 @@ export class RosterEntryService {
     await getCache()?.set(cacheKey, entry, { ttl: ROSTER_CACHE_TTL });
 
     return entry;
+  }
+
+  /**
+   * Get an active or pending roster entry for a user on a specific team.
+   */
+  async getActiveOrPendingRosterEntry(userId: string, teamId: string): Promise<RosterEntry | null> {
+    const snapshot = await this.db
+      .collection(this.COLLECTION)
+      .where('userId', '==', userId)
+      .where('teamId', '==', teamId)
+      .where('status', 'in', [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING])
+      .limit(1)
+      .get();
+
+    if (snapshot.empty) {
+      return null;
+    }
+
+    return docToRosterEntry(snapshot.docs[0]);
   }
 
   /**
@@ -366,7 +395,11 @@ export class RosterEntryService {
       updatedAt: FieldValue.serverTimestamp(),
     };
 
-    if (input.role !== undefined) updateData['role'] = input.role;
+    if (input.role !== undefined) updateData['role'] = normalizeRole(input.role);
+    if (input.title !== undefined) {
+      const normalizedTitle = input.title.trim();
+      updateData['title'] = normalizedTitle ? normalizedTitle : FieldValue.delete();
+    }
     if (input.status !== undefined) updateData['status'] = input.status;
     if (input.jerseyNumber !== undefined) updateData['jerseyNumber'] = input.jerseyNumber;
     if (input.positions !== undefined) updateData['positions'] = input.positions;
@@ -378,7 +411,7 @@ export class RosterEntryService {
 
     // Invalidate cache
     const entry = await this.getRosterEntryById(entryId);
-    await this.invalidateCaches(entry.userId, entry.teamId, entry.organizationId);
+    await this.invalidateCaches(entry.userId, entry.teamId, entry.organizationId, entryId);
 
     return this.getRosterEntryById(entryId);
   }
@@ -400,7 +433,7 @@ export class RosterEntryService {
     });
 
     const entry = await this.getRosterEntryById(input.entryId);
-    await this.invalidateCaches(entry.userId, entry.teamId, entry.organizationId);
+    await this.invalidateCaches(entry.userId, entry.teamId, entry.organizationId, input.entryId);
 
     return entry;
   }
@@ -419,7 +452,7 @@ export class RosterEntryService {
       updatedAt: FieldValue.serverTimestamp(),
     });
 
-    await this.invalidateCaches(entry.userId, entry.teamId, entry.organizationId);
+    await this.invalidateCaches(entry.userId, entry.teamId, entry.organizationId, entryId);
   }
 
   /**
@@ -465,11 +498,17 @@ export class RosterEntryService {
   /**
    * Invalidate caches
    */
-  private async invalidateCaches(userId: string, teamId: string, orgId: string): Promise<void> {
+  private async invalidateCaches(
+    userId: string,
+    teamId: string,
+    orgId: string,
+    entryId?: string
+  ): Promise<void> {
     const cache = getCache();
     if (!cache) return;
 
     await Promise.all([
+      ...(entryId ? [cache.del(CACHE_KEYS.ENTRY_BY_ID(entryId))] : []),
       cache.del(CACHE_KEYS.USER_TEAMS(userId)),
       cache.del(CACHE_KEYS.TEAM_ROSTER(teamId)),
       cache.del(CACHE_KEYS.ORG_MEMBERS(orgId)),

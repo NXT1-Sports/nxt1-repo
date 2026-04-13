@@ -21,12 +21,14 @@
 import type {
   AgentJobPayload,
   AgentJobUpdate,
+  AgentPromptContext,
   AgentOperationResult,
   AgentIdentifier,
   AgentTaskStatus,
   AgentTask,
   AgentExecutionPlan,
   AgentSessionContext,
+  AgentRetrievedMemories,
   AgentUserContext,
 } from '@nxt1/core';
 import type { OpenRouterService } from './llm/openrouter.service.js';
@@ -39,6 +41,7 @@ import { PlannerAgent } from './agents/planner.agent.js';
 import { isAgentYield, AgentYieldException } from './errors/agent-yield.error.js';
 import { isAgentDelegation } from './errors/agent-delegation.error.js';
 import { SemanticCacheService } from './memory/semantic-cache.service.js';
+import { ApprovalGateService } from './services/approval-gate.service.js';
 import { logger } from '../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -85,9 +88,15 @@ export class AgentRouter {
    * that task's agent. If multi-task, returns 'router' (meaning: run the full plan).
    */
   async classify(intent: string, userId: string): Promise<AgentIdentifier> {
-    const userContext = await this.contextBuilder.buildContext(userId);
+    const promptContext = await this.contextBuilder.buildPromptContext(userId, intent);
     const context = this.buildSessionContext(userId);
-    const enrichedIntent = this.enrichIntentWithContext(intent, userContext);
+    const enrichedIntent = this.enrichIntentWithContext(
+      intent,
+      promptContext.profile,
+      undefined,
+      undefined,
+      promptContext.memories
+    );
 
     const result = await this.planner.execute(enrichedIntent, context, []);
     const plan = result.data?.['plan'] as AgentExecutionPlan | undefined;
@@ -111,6 +120,7 @@ export class AgentRouter {
     onStreamEvent?: OnStreamEvent
   ): Promise<AgentOperationResult> {
     const { operationId, userId, intent } = payload;
+    const approvalGate = firestore ? new ApprovalGateService(firestore) : undefined;
 
     // ── Resume detection: check if this is a resumed job ──────────────────
     const contextObj =
@@ -126,9 +136,9 @@ export class AgentRouter {
     // ── Step 1: Build context ─────────────────────────────────────────────
     this.emitUpdate(onUpdate, operationId, 'thinking', 'Building user context...');
 
-    let userContext: AgentUserContext;
+    let promptContext: AgentPromptContext;
     try {
-      userContext = await this.contextBuilder.buildContext(userId, firestore);
+      promptContext = await this.contextBuilder.buildPromptContext(userId, intent, firestore);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Context building failed';
       this.emitUpdate(onUpdate, operationId, 'failed', `Context error: ${message}`);
@@ -137,6 +147,8 @@ export class AgentRouter {
         suggestions: ['Try again later or contact support.'],
       };
     }
+
+    const userContext = promptContext.profile;
 
     // Extract threadId for conversation continuity + thread-scoped storage
     // (contextObj already extracted above for resume detection)
@@ -161,7 +173,8 @@ export class AgentRouter {
       intent,
       userContext,
       payload.context,
-      threadHistoryStr
+      threadHistoryStr,
+      promptContext.memories
     );
 
     // ── Direct routing: skip planner when a specific agent is requested ───
@@ -205,7 +218,8 @@ export class AgentRouter {
           this.llm,
           this.toolRegistry,
           this.skillRegistry,
-          onStreamEvent
+          onStreamEvent,
+          approvalGate
         );
 
         this.emitUpdate(onUpdate, operationId, 'completed', result.summary);
@@ -462,7 +476,8 @@ export class AgentRouter {
               this.llm,
               this.toolRegistry,
               this.skillRegistry,
-              onStreamEvent
+              onStreamEvent,
+              approvalGate
             );
 
             taskResults.set(task.id, result);
@@ -619,13 +634,18 @@ export class AgentRouter {
     }
 
     // Build user context for the resumed execution
-    let userContext: AgentUserContext;
+    let promptContext: AgentPromptContext | undefined;
     try {
-      userContext = await this.contextBuilder.buildContext(userId, firestore);
+      promptContext = await this.contextBuilder.buildPromptContext(userId, intent, firestore);
     } catch {
       // Non-critical — resume with whatever context we have
-      userContext = { userId } as AgentUserContext;
+      promptContext = {
+        profile: { userId } as AgentUserContext,
+        memories: { user: [], team: [], organization: [] },
+      };
     }
+
+    const userContext = promptContext.profile;
 
     const resumeContextObj =
       typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
@@ -640,7 +660,18 @@ export class AgentRouter {
       operationId,
       resumeThreadId
     );
-    const enrichedIntent = this.enrichIntentWithContext(intent, userContext, payload.context);
+    const approvalId =
+      typeof (resumeContextObj as Record<string, unknown>)['approvalId'] === 'string'
+        ? ((resumeContextObj as Record<string, unknown>)['approvalId'] as string)
+        : undefined;
+    const enrichedIntent = this.enrichIntentWithContext(
+      intent,
+      userContext,
+      payload.context,
+      undefined,
+      promptContext.memories
+    );
+    const approvalGate = firestore ? new ApprovalGateService(firestore) : undefined;
 
     try {
       let toolDefs = this.toolRegistry.getDefinitions(agent.id);
@@ -656,26 +687,16 @@ export class AgentRouter {
         // Ignore embedding failures during resume and pass all possible tools.
       }
 
-      // Design note (V1): We intentionally restart the agent's ReAct loop
-      // from scratch rather than injecting the saved message array directly.
-      // The user's answer is persisted to the MongoDB thread by the resume
-      // route, and the ContextBuilder injects recent thread messages into
-      // the system prompt — so the agent sees the full conversation history
-      // including its original question and the user's response.
-      //
-      // Tradeoff: this is less token-efficient than resuming mid-loop
-      // (prior tool results are re-discovered, not replayed), but it's
-      // simpler and avoids deserializing LLM message arrays across module
-      // boundaries. A future optimization could add a `resumeFromMessages`
-      // method to BaseAgent that pre-populates the message array.
-      const result = await agent.execute(
-        enrichedIntent,
+      const result = await agent.resumeExecution(
+        yieldState,
         context,
         toolDefs,
         this.llm,
         this.toolRegistry,
         this.skillRegistry,
-        onStreamEvent
+        onStreamEvent,
+        approvalGate,
+        approvalId
       );
 
       this.emitUpdate(onUpdate, operationId, 'completed', result.summary);
@@ -701,9 +722,10 @@ export class AgentRouter {
     intent: string,
     userContext: AgentUserContext,
     jobContext?: Record<string, unknown>,
-    threadHistory?: string
+    threadHistory?: string,
+    memories: AgentRetrievedMemories = { user: [], team: [], organization: [] }
   ): string {
-    const contextStr = this.contextBuilder.compressToPrompt(userContext);
+    const contextStr = this.contextBuilder.compressToPrompt(userContext, memories);
     let enriched = `[User Profile]\n${contextStr}`;
 
     // Inject structured job context so the LLM has URLs, platform names, etc.

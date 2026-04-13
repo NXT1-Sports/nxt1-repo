@@ -44,7 +44,9 @@ import type { AgentXQuickTask } from '@nxt1/core';
 import { ATHLETE_QUICK_TASKS, COACH_QUICK_TASKS } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon/icon.component';
 import { NxtChatBubbleComponent } from '../../components/chat-bubble';
+import { NxtToastService } from '../../services/toast/toast.service';
 import { AgentXService } from '../agent-x.service';
+import type { ConfirmationActionEvent } from '../agent-x-confirmation-card.component';
 import type { DraftSubmittedEvent } from '../agent-x-draft-card.component';
 import { AgentXFabService } from './agent-x-fab.service';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './agent-x-logo.constants';
@@ -207,6 +209,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './agent-x-logo.constant
                   [steps]="message.steps ?? []"
                   [cards]="message.cards ?? []"
                   [parts]="message.parts ?? []"
+                  (confirmationAction)="onConfirmationAction($event)"
                   (draftSubmitted)="onDraftSubmitted($event)"
                 />
               </div>
@@ -832,6 +835,8 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './agent-x-logo.constant
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentXFabChatPanelComponent {
+  private readonly toast = inject(NxtToastService);
+
   protected readonly agentX = inject(AgentXService);
   private readonly fabService = inject(AgentXFabService);
 
@@ -973,8 +978,37 @@ export class AgentXFabChatPanelComponent {
    * Handle draft email approval from chat bubble card.
    */
   protected async onDraftSubmitted(event: DraftSubmittedEvent): Promise<void> {
-    if (!event.toEmail) return;
-    await this.agentX.sendDraft(event.toEmail, event.subject, event.content);
+    if (event.approvalId) {
+      await this.agentX.resolveInlineApproval({
+        approvalId: event.approvalId,
+        decision: 'approved',
+        toolInput: {
+          ...(event.toEmail ? { toEmail: event.toEmail } : {}),
+          subject: event.subject,
+          bodyHtml: event.content,
+        },
+        successMessage: 'Draft approved — Agent X is resuming',
+      });
+      return;
+    }
+
+    this.toast.error('This draft can no longer be sent directly. Refresh and try again.');
+  }
+
+  protected async onConfirmationAction(event: ConfirmationActionEvent): Promise<void> {
+    if (!event.approvalId) return;
+
+    const decision =
+      event.actionId === 'approve' ? 'approved' : event.actionId === 'reject' ? 'rejected' : null;
+
+    if (!decision) return;
+
+    await this.agentX.resolveInlineApproval({
+      approvalId: event.approvalId,
+      decision,
+      successMessage:
+        decision === 'approved' ? 'Approved — Agent X is resuming' : 'Request rejected',
+    });
   }
 
   /**

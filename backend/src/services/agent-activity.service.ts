@@ -84,7 +84,7 @@ export async function logAgentTaskCompletion(
       ...(threadId ? { threadId } : {}),
       operationId: job.operationId,
       agentId: job.agent,
-      resultSummary: result.summary,
+      resultSummary: stripMarkdown(result.summary),
       mode: job.context?.['mode'],
       ...(imageUrl ? { imageUrl } : {}),
       ...(videoUrl ? { videoUrl } : {}),
@@ -171,33 +171,58 @@ export async function logAgentTaskFailure(
 // ============================================
 
 /**
+ * Removes markdown syntax to generate clean plain text.
+ * Essential for mobile OS push notifications to look proper on lock screens.
+ */
+function stripMarkdown(text: string): string {
+  if (!text) return text;
+  return text
+    .replace(/^#{1,6}\s+/gm, '') // Remove headers (e.g. "## Analysis")
+    .replace(/(\*\*|__)(.*?)\1/g, '$2') // Remove bold
+    .replace(/(\*|_)(.*?)\1/g, '$2') // Remove italic
+    .replace(/`([^`]+)`/g, '$1') // Remove inline code
+    .replace(/```[\s\S]*?```/g, '') // Remove entire code blocks
+    .replace(/^>\s+/gm, '') // Remove blockquotes
+    .replace(/^(?:-{3,}|\*{3,}|_{3,})$/gm, '') // Remove horizontal rules
+    .replace(/!?\[([^\]]+)\]\([^)]+\)/g, '$1') // Extract text from links/images
+    .replace(/<[^>]*>/g, '') // Remove HTML tags
+    .trim();
+}
+
+/**
  * Build a concise, dynamic push-notification title from the operation result.
  * The AI's own summary drives the copy — no hardcoded per-action strings.
  */
 function buildTitle(result: AgentOperationResult): string {
-  // If the agent provided a short-enough summary, use it directly
-  if (result.summary && result.summary.length <= 60) {
-    return `Agent X: ${result.summary}`;
+  if (!result.summary) {
+    return 'Agent X has an update for you';
   }
-  // If the summary is too long, take the first sentence
-  if (result.summary) {
-    const firstSentence = result.summary.split(/[.!]/).at(0)?.trim();
-    if (firstSentence && firstSentence.length <= 60) {
-      return `Agent X: ${firstSentence}`;
-    }
-  }
-  return 'Agent X has an update for you';
+
+  const cleanText = stripMarkdown(result.summary);
+
+  // Extract the first sentence or use the whole summary
+  const firstSentence = cleanText.split(/[.!]/).at(0)?.trim() || cleanText;
+
+  return `Agent X: ${firstSentence}`;
 }
 
 /**
- * Build the notification body from the result.
+ * Build the notification body from the result (used by push notifications).
  * Prefers the agent's own description, falls back gracefully.
  */
 function buildBody(result: AgentOperationResult): string {
-  if (result.summary && result.summary.length > 60) {
-    // Truncate to push-notification friendly length
-    return result.summary.length <= 200 ? result.summary : result.summary.slice(0, 197) + '...';
+  if (!result.summary) {
+    return 'Tap to see what Agent X has for you.';
   }
-  // If summary was used as title, use a generic CTA
-  return 'Tap to see what Agent X has for you.';
+
+  const cleanText = stripMarkdown(result.summary);
+  const firstSentence = cleanText.split(/[.!]/).at(0)?.trim() || cleanText;
+
+  // If the entire summary is just the title sentence, use a short CTA for the body
+  if (cleanText.trim().length <= firstSentence.length + 1) {
+    return 'Tap to see what Agent X has for you.';
+  }
+
+  // Otherwise, provide the full stripped summary
+  return cleanText;
 }

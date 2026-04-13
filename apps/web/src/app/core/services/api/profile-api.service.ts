@@ -379,18 +379,30 @@ export class ProfileService {
    */
   private mapTimelineDoc(raw: Record<string, unknown>): ProfilePost {
     const stats = (raw['stats'] as Record<string, number> | undefined) ?? {};
+    const playback =
+      raw['playback'] && typeof raw['playback'] === 'object'
+        ? (raw['playback'] as Record<string, unknown>)
+        : null;
     return {
       id: (raw['id'] as string | undefined) ?? String(raw['_id'] ?? ''),
       type: (raw['type'] as ProfilePost['type']) ?? 'text',
       title: raw['title'] as string | undefined,
       body: (raw['content'] as string | undefined) ?? '',
-      thumbnailUrl: raw['thumbnailUrl'] as string | undefined,
-      mediaUrl: raw['mediaUrl'] as string | undefined,
+      thumbnailUrl:
+        (raw['thumbnailUrl'] as string | undefined) ??
+        (raw['poster'] as string | undefined) ??
+        (raw['previewUrl'] as string | undefined),
+      mediaUrl:
+        (raw['mediaUrl'] as string | undefined) ??
+        (raw['videoUrl'] as string | undefined) ??
+        (playback?.['iframeUrl'] as string | undefined) ??
+        (playback?.['hlsUrl'] as string | undefined),
       likeCount: stats['likes'] ?? 0,
       commentCount: stats['comments'] ?? 0,
       shareCount: stats['shares'] ?? 0,
       viewCount: stats['views'],
-      duration: raw['duration'] as number | undefined,
+      duration:
+        (raw['duration'] as number | undefined) ?? (raw['durationSeconds'] as number | undefined),
       isPinned: (raw['isPinned'] as boolean | undefined) ?? false,
       createdAt: (raw['createdAt'] as string | undefined) ?? new Date().toISOString(),
     };

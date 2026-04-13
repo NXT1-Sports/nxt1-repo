@@ -102,12 +102,14 @@ export const INDIVIDUAL_PROFILE_ROLES: readonly UserRole[] = ['athlete'] as cons
 
 /** Check if a role manages a team (coach or director). */
 export function isTeamRole(role: string | null | undefined): boolean {
-  return TEAM_MANAGEMENT_ROLES.includes(role as UserRole);
+  if (!role) return false;
+  return TEAM_MANAGEMENT_ROLES.includes(normalizeRole(role));
 }
 
 /** Check if a role is an individual profile role (athlete or parent). */
 export function isAthleteRole(role: string | null | undefined): boolean {
-  return INDIVIDUAL_PROFILE_ROLES.includes(role as UserRole);
+  if (!role) return false;
+  return INDIVIDUAL_PROFILE_ROLES.includes(normalizeRole(role));
 }
 
 /**

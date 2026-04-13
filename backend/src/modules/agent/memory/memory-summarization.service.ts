@@ -22,10 +22,11 @@
 
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { VectorMemoryService } from './vector.service.js';
-import type { AgentMemoryCategory } from '@nxt1/core';
+import type { AgentMemoryCategory, AgentMemoryTarget, AgentUserContext } from '@nxt1/core';
 import { AgentThreadModel } from '../../../models/agent-thread.model.js';
 import { AgentMessageModel } from '../../../models/agent-message.model.js';
 import { AgentMemoryModel } from './vector.service.js';
+import { ContextBuilder } from './context-builder.js';
 import { logger } from '../../../utils/logger.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -50,6 +51,8 @@ const VALID_CATEGORIES: readonly AgentMemoryCategory[] = [
   'performance_data',
 ];
 
+const VALID_TARGETS: readonly AgentMemoryTarget[] = ['user', 'team', 'organization'];
+
 /** System prompt for the memory extraction LLM call. */
 const EXTRACTION_SYSTEM_PROMPT = `You are an AI memory extraction system for a sports recruiting platform called NXT1.
 
@@ -70,6 +73,11 @@ Do NOT extract:
 Return a JSON array of objects. Each object has:
 - "content": A concise third-person statement (e.g., "User prefers SEC conference schools for recruiting.")
 - "category": One of "preference", "goal", "recruiting_context", "performance_data"
+- "target": One of "user", "team", or "organization"
+
+Use "team" only when the fact should be remembered as team-level context.
+Use "organization" only when the fact applies to the school, club, or program above the team.
+Default to "user" when in doubt.
 
 If there are no durable facts to extract, return an empty array: []
 
@@ -87,10 +95,16 @@ export interface SummarizationResult {
 export class MemorySummarizationService {
   private readonly llm: OpenRouterService;
   private readonly vectorMemory: VectorMemoryService;
+  private readonly contextBuilder: ContextBuilder;
 
-  constructor(llm: OpenRouterService, vectorMemory: VectorMemoryService) {
+  constructor(
+    llm: OpenRouterService,
+    vectorMemory: VectorMemoryService,
+    contextBuilder: ContextBuilder = new ContextBuilder(vectorMemory)
+  ) {
     this.llm = llm;
     this.vectorMemory = vectorMemory;
+    this.contextBuilder = contextBuilder;
   }
 
   /**
@@ -157,6 +171,13 @@ export class MemorySummarizationService {
    * @returns Number of memories created for this thread.
    */
   private async processThread(threadId: string, userId: string): Promise<number> {
+    let context: AgentUserContext;
+    try {
+      context = await this.contextBuilder.buildContext(userId);
+    } catch {
+      context = { userId, role: 'athlete', displayName: 'Unknown User' };
+    }
+
     // Fetch messages in chronological order
     const messages = await AgentMessageModel.find({ threadId })
       .sort({ createdAt: 1 })
@@ -208,7 +229,7 @@ export class MemorySummarizationService {
     }
 
     // Parse the extracted facts
-    let facts: Array<{ content: string; category: string }>;
+    let facts: Array<{ content: string; category: string; target?: string }>;
     try {
       const parsed = JSON.parse(completion.content);
       facts = Array.isArray(parsed) ? parsed : [];
@@ -225,11 +246,13 @@ export class MemorySummarizationService {
     // Store each valid fact as a vector memory (with dedup guard)
     let stored = 0;
     for (const fact of facts) {
+      const target = this.resolveTarget(fact.target, context);
       if (
         !fact.content ||
         typeof fact.content !== 'string' ||
         !fact.category ||
-        !VALID_CATEGORIES.includes(fact.category as AgentMemoryCategory)
+        !VALID_CATEGORIES.includes(fact.category as AgentMemoryCategory) ||
+        !target
       ) {
         continue;
       }
@@ -237,16 +260,32 @@ export class MemorySummarizationService {
       // Dedup: skip if an identical memory already exists for this user
       const existing = await AgentMemoryModel.findOne({
         userId,
+        target,
+        ...(target === 'team' && context.teamId ? { teamId: context.teamId } : {}),
+        ...(target === 'organization' && context.organizationId
+          ? { organizationId: context.organizationId }
+          : {}),
         content: fact.content,
         category: fact.category,
       }).lean();
       if (existing) continue;
 
       try {
-        await this.vectorMemory.store(userId, fact.content, fact.category as AgentMemoryCategory, {
-          source: 'conversation_summary',
-          threadId,
-        });
+        await this.vectorMemory.store(
+          userId,
+          fact.content,
+          fact.category as AgentMemoryCategory,
+          {
+            source: 'conversation_summary',
+            threadId,
+            extractedTarget: target,
+          },
+          {
+            target,
+            teamId: context.teamId,
+            organizationId: context.organizationId,
+          }
+        );
         stored++;
       } catch (err) {
         logger.warn('[MemorySummarization] Failed to store extracted fact', {
@@ -268,5 +307,24 @@ export class MemorySummarizationService {
     });
 
     return stored;
+  }
+
+  private resolveTarget(
+    rawTarget: string | undefined,
+    context: AgentUserContext
+  ): AgentMemoryTarget | null {
+    const target: AgentMemoryTarget = VALID_TARGETS.includes(rawTarget as AgentMemoryTarget)
+      ? (rawTarget as AgentMemoryTarget)
+      : 'user';
+
+    if (target === 'team' && !context.teamId) {
+      return null;
+    }
+
+    if (target === 'organization' && !context.organizationId) {
+      return null;
+    }
+
+    return target;
   }
 }

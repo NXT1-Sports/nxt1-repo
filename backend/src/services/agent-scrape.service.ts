@@ -83,31 +83,24 @@ export async function enqueueLinkedAccountScrape(
   const platformNames = input.linkedAccounts.map((a) => a.platform).join(', ');
   const urlList = input.linkedAccounts.map((a) => `- ${a.platform}: ${a.profileUrl}`).join('\n');
 
-  // Pass linked account URLs as a natural user prompt — let the LLM auto-generate
-  // the conversational thread title instead of hard-coding one.
-  const intent = urlList;
+  // Build a human-readable prompt so the thread title and operations log
+  // display a meaningful description instead of raw URLs.
+  const prompt = `Analyze my linked ${platformNames} account${input.linkedAccounts.length > 1 ? 's' : ''}:\n${urlList}`;
 
   const operationId = crypto.randomUUID();
   const sessionId = crypto.randomUUID();
 
-  // Create a MongoDB thread so the worker persists the result and deep links work
+  // Create a MongoDB thread + first message atomically via startConversation
   let threadId: string | undefined;
   if (chatService) {
     try {
-      const thread = await chatService.createThread({
+      const { thread } = await chatService.startConversation({
         userId: input.userId,
-        title: `Linked Account Scan`,
+        prompt,
         category: 'analytics',
-      });
-      threadId = thread.id;
-      // Seed the thread with the system-initiated intent for context
-      await chatService.addMessage({
-        threadId,
-        userId: input.userId,
-        role: 'user',
-        content: intent,
         origin: 'database_event',
       });
+      threadId = thread.id;
       logger.info('[Scrape] Thread created for linked account scrape', {
         userId: input.userId,
         threadId,
@@ -123,7 +116,7 @@ export async function enqueueLinkedAccountScrape(
   const payload: AgentJobPayload = {
     operationId,
     userId: input.userId,
-    intent,
+    intent: prompt,
     sessionId,
     origin: 'user',
     agent: 'data_coordinator',

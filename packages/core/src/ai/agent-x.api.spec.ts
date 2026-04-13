@@ -415,6 +415,95 @@ describe('createAgentXApi', () => {
   });
 
   // ============================================
+  // resolveApproval
+  // ============================================
+
+  describe('resolveApproval', () => {
+    it('should resolve an approval with edited tool input', async () => {
+      vi.mocked(http.post).mockResolvedValue({
+        success: true,
+        data: {
+          decision: 'approved',
+          resumed: true,
+          operationId: 'op-123',
+          threadId: 'thread-123',
+        },
+      });
+
+      const result = await api.resolveApproval('approval-123', 'approved', {
+        toEmail: 'coach@example.com',
+        subject: 'Updated subject',
+      });
+
+      expect(http.post).toHaveBeenCalledWith(
+        `${baseUrl}${AGENT_X_ENDPOINTS.APPROVALS}/${encodeURIComponent('approval-123')}/resolve`,
+        {
+          decision: 'approved',
+          toolInput: {
+            toEmail: 'coach@example.com',
+            subject: 'Updated subject',
+          },
+        }
+      );
+      expect(result).toEqual({
+        decision: 'approved',
+        resumed: true,
+        operationId: 'op-123',
+        threadId: 'thread-123',
+      });
+    });
+
+    it('should return null when approval resolution fails', async () => {
+      vi.mocked(http.post).mockResolvedValue({ success: false, error: 'Conflict' });
+
+      const result = await api.resolveApproval('approval-123', 'rejected');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  // ============================================
+  // resumeYieldedJob
+  // ============================================
+
+  describe('resumeYieldedJob', () => {
+    it('should resume a yielded job with user input', async () => {
+      vi.mocked(http.post).mockResolvedValue({
+        success: true,
+        data: {
+          resumed: true,
+          jobId: 'job-123',
+          operationId: 'op-456',
+          threadId: 'thread-123',
+        },
+      });
+
+      const result = await api.resumeYieldedJob('op-original', 'My top choice is Stanford.');
+
+      expect(http.post).toHaveBeenCalledWith(
+        `${baseUrl}${AGENT_X_ENDPOINTS.RESUME_JOB}/${encodeURIComponent('op-original')}`,
+        {
+          response: 'My top choice is Stanford.',
+        }
+      );
+      expect(result).toEqual({
+        resumed: true,
+        jobId: 'job-123',
+        operationId: 'op-456',
+        threadId: 'thread-123',
+      });
+    });
+
+    it('should return null when yielded job resumption fails', async () => {
+      vi.mocked(http.post).mockResolvedValue({ success: false, error: 'Conflict' });
+
+      const result = await api.resumeYieldedJob('op-original', 'Answer');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  // ============================================
   // getQuickTasks
   // ============================================
 

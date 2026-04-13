@@ -1652,8 +1652,32 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         phoneNumber: formData.profile?.phoneNumber || undefined,
       };
 
+      this.logger.info('Sending onboarding profile to backend', {
+        userId: user.uid,
+        userType: profileData.userType,
+        hasSports: (profileData.sports?.length ?? 0) > 0,
+        hasTeamSelection: !!profileData.teamSelection,
+        hasCreateTeamProfile: !!profileData.createTeamProfile,
+      });
+
       const result = await this.authApi.saveOnboardingProfile(user.uid, profileData);
-      this.logger.info('Profile data saved successfully');
+      this.logger.info('Profile data saved successfully', {
+        role: result.user?.role,
+        onboardingCompleted: result.user?.onboardingCompleted,
+      });
+
+      // CRITICAL: Immediately apply the POST response to user state.
+      // This ensures the user has the correct role (coach/director → team shield)
+      // even if refreshUserProfile() fails or is skipped due to race conditions.
+      if (result.user) {
+        await this.authFlow.applyOnboardingResult({
+          role: result.user.role,
+          firstName: result.user.firstName,
+          lastName: result.user.lastName,
+          onboardingCompleted: result.user.onboardingCompleted,
+          primarySport: result.user.primarySport,
+        });
+      }
 
       // Start profile generation overlay if backend enqueued a scrape job
       if (result.scrapeJobId) {
@@ -1666,7 +1690,18 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         this.logger.info('Backend scrape job started', { scrapeJobId: result.scrapeJobId });
       }
     } catch (saveError) {
-      this.logger.warn('Failed to save profile data, continuing', { error: saveError });
+      // CRITICAL: Do NOT silently continue — the profile save is the core
+      // onboarding operation. If it fails, role/name/sport data won't be
+      // persisted and the user will land in a broken state (e.g. showing
+      // Google initials instead of team shield for coaches).
+      this.logger.error('Failed to save onboarding profile — BLOCKING', {
+        error: saveError,
+        userId: user.uid,
+        userType: formData.userType,
+      });
+      this.toast.error('Failed to save your profile. Please check your connection and try again.');
+      this.isLoading.set(false);
+      return; // Abort — do NOT navigate to congratulations with missing data
     }
 
     // Save referral source
@@ -1707,9 +1742,20 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     const updatedUser = this.authFlow.user();
     this.logger.info('Onboarding complete, user state verified', {
       userId: user.uid,
+      role: updatedUser?.role,
+      expectedRole: formData.userType,
       hasCompletedOnboarding: updatedUser?.hasCompletedOnboarding,
       displayName: updatedUser?.displayName,
     });
+
+    // Warn if role didn't persist — diagnostic for avatar/shield issues
+    if (updatedUser?.role !== formData.userType && formData.userType) {
+      this.logger.error('Role mismatch after onboarding save!', {
+        expected: formData.userType,
+        actual: updatedUser?.role,
+        userId: user.uid,
+      });
+    }
 
     // Clear session from localStorage
     this.clearSession();

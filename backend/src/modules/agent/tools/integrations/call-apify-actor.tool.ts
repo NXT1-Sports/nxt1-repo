@@ -101,6 +101,26 @@ function truncateOutput(data: unknown): string {
   );
 }
 
+function extractStringField(data: unknown, fieldNames: readonly string[]): string | undefined {
+  if (!data || typeof data !== 'object') return undefined;
+
+  const record = data as Record<string, unknown>;
+  for (const fieldName of fieldNames) {
+    if (typeof record[fieldName] === 'string' && record[fieldName].trim().length > 0) {
+      return record[fieldName] as string;
+    }
+  }
+
+  const nestedKeys = ['data', 'run', 'result', 'output'];
+  for (const key of nestedKeys) {
+    const nested = record[key];
+    const value = extractStringField(nested, fieldNames);
+    if (value) return value;
+  }
+
+  return undefined;
+}
+
 // ─── Tool ────────────────────────────────────────────────────────────────────
 
 export class CallApifyActorTool extends BaseTool {
@@ -186,17 +206,23 @@ export class CallApifyActorTool extends BaseTool {
 
       // ── Truncate output for LLM ───────────────────────────────────
       const output = truncateOutput(result);
+      const datasetId = extractStringField(result, ['datasetId', 'defaultDatasetId']);
+      const runId = extractStringField(result, ['runId', 'id']);
 
       logger.info('[CallApifyActor] Completed', {
         actorId,
         outputLength: output.length,
         persistedMedia: persistedMediaUrls.length,
+        datasetId,
+        runId,
       });
 
       return {
         success: true,
         data: {
           actorId,
+          datasetId,
+          runId,
           output,
           persistedMediaUrls,
           note:

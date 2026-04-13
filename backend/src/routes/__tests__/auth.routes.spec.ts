@@ -3,11 +3,21 @@
  * @module @nxt1/backend/routes/__tests__/auth
  */
 
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect } from 'vitest';
 import request from 'supertest';
+import {
+  __getMockFirestoreDocument,
+  __getMockFirestoreWrites,
+  __resetMockFirestore,
+  __seedMockFirestoreDocument,
+} from '../../test-app.js';
 import app from '../../test-app.js';
 
 describe('Auth Routes', () => {
+  beforeEach(() => {
+    __resetMockFirestore();
+  });
+
   describe('Production Routes', () => {
     describe('Team Code Validation', () => {
       it('GET /api/v1/auth/validate-team-code should return 400 when teamCode is missing', async () => {
@@ -49,6 +59,177 @@ describe('Auth Routes', () => {
           .send({ firstName: 'John', lastName: 'Doe' });
         expect(response.status).toBe(400);
       });
+
+      it('writes coach titles into sports.team and deletes the legacy root field', async () => {
+        __seedMockFirestoreDocument('Users/coach123', {
+          id: 'coach123',
+          role: 'coach',
+          coachTitle: 'Legacy Root Title',
+          onboardingCompleted: false,
+        });
+
+        const response = await request(app).post('/api/v1/auth/profile/onboarding').send({
+          userId: 'coach123',
+          userType: 'coach',
+          sport: 'Football',
+          organization: 'Alcoa Football',
+          coachTitle: 'Head Coach',
+          city: 'Alcoa',
+          state: 'TN',
+        });
+
+        expect(response.status).toBe(200);
+
+        const userUpdate = __getMockFirestoreWrites().find(
+          (write) => write.path === 'Users/coach123' && write.operation === 'update'
+        );
+
+        expect(userUpdate).toBeDefined();
+        expect(userUpdate?.payload).toMatchObject({
+          sports: [
+            {
+              sport: 'Football',
+              order: 0,
+              team: {
+                title: 'Head Coach',
+                type: 'high-school',
+              },
+            },
+          ],
+          activeSportIndex: 0,
+        });
+        expect(
+          (userUpdate?.payload?.['sports'] as Array<Record<string, unknown>>)[0]
+        ).not.toHaveProperty('positions');
+        expect(userUpdate?.payload).toHaveProperty('coachTitle');
+        expect(userUpdate?.payload?.['coachTitle']).not.toBe('Head Coach');
+
+        const storedUser = __getMockFirestoreDocument('Users/coach123');
+        expect(storedUser?.['coachTitle']).toBeUndefined();
+        expect(storedUser?.['sports']).toMatchObject([
+          {
+            sport: 'Football',
+            order: 0,
+            team: {
+              title: 'Head Coach',
+              type: 'high-school',
+            },
+          },
+        ]);
+        expect((storedUser?.['sports'] as Array<Record<string, unknown>>)[0]).not.toHaveProperty(
+          'positions'
+        );
+      });
+
+      it('preserves team-role title and omits positions on onboarding retries without userType', async () => {
+        __seedMockFirestoreDocument('Users/coach123', {
+          id: 'coach123',
+          role: 'coach',
+          onboardingCompleted: false,
+          sports: [
+            {
+              sport: 'Football',
+              order: 0,
+              team: {
+                title: 'Head Coach',
+                type: 'high-school',
+              },
+            },
+          ],
+        });
+
+        const response = await request(app)
+          .post('/api/v1/auth/profile/onboarding')
+          .send({
+            userId: 'coach123',
+            sport: 'Football',
+            positions: ['Quarterback'],
+            city: 'Alcoa',
+            state: 'TN',
+          });
+
+        expect(response.status).toBe(200);
+
+        const userUpdate = __getMockFirestoreWrites().find(
+          (write) => write.path === 'Users/coach123' && write.operation === 'update'
+        );
+
+        expect(userUpdate).toBeDefined();
+        const updatedSport = (userUpdate?.payload?.['sports'] as Array<Record<string, unknown>>)[0];
+        expect(updatedSport).not.toHaveProperty('positions');
+        expect(updatedSport).toMatchObject({
+          sport: 'Football',
+          team: {
+            title: 'Head Coach',
+            type: 'high-school',
+          },
+        });
+      });
+
+      it('preserves athlete classOf on onboarding retries without userType', async () => {
+        __seedMockFirestoreDocument('Users/athlete123', {
+          id: 'athlete123',
+          role: 'athlete',
+          onboardingCompleted: false,
+        });
+
+        const response = await request(app).post('/api/v1/auth/profile/onboarding').send({
+          userId: 'athlete123',
+          sport: 'Basketball',
+          classOf: 2027,
+        });
+
+        expect(response.status).toBe(200);
+
+        const userUpdate = __getMockFirestoreWrites().find(
+          (write) => write.path === 'Users/athlete123' && write.operation === 'update'
+        );
+
+        expect(userUpdate).toBeDefined();
+        expect(userUpdate?.payload).toMatchObject({
+          classOf: 2027,
+        });
+      });
+
+      it('reuses existing sports on bulk retries when no sport payload is sent', async () => {
+        __seedMockFirestoreDocument('Users/coach123', {
+          id: 'coach123',
+          role: 'coach',
+          onboardingCompleted: false,
+          sports: [
+            {
+              sport: 'Football',
+              order: 0,
+              positions: ['Quarterback'],
+              team: {
+                title: 'Head Coach',
+                type: 'high-school',
+              },
+            },
+          ],
+        });
+
+        const response = await request(app).post('/api/v1/auth/profile/onboarding').send({
+          userId: 'coach123',
+        });
+
+        expect(response.status).toBe(200);
+
+        const userUpdate = __getMockFirestoreWrites().find(
+          (write) => write.path === 'Users/coach123' && write.operation === 'update'
+        );
+
+        expect(userUpdate).toBeDefined();
+        const updatedSport = (userUpdate?.payload?.['sports'] as Array<Record<string, unknown>>)[0];
+        expect(updatedSport).not.toHaveProperty('positions');
+        expect(updatedSport).toMatchObject({
+          sport: 'Football',
+          team: {
+            title: 'Head Coach',
+            type: 'high-school',
+          },
+        });
+      });
     });
 
     describe('POST /api/v1/auth/profile/onboarding-step', () => {
@@ -69,6 +250,81 @@ describe('Auth Routes', () => {
           .post('/api/v1/auth/profile/onboarding-step')
           .send({ userId: 'user123', stepId: 'role' });
         expect(response.status).toBe(400);
+      });
+
+      it('strips stale positions for team-role users on organization step updates', async () => {
+        __seedMockFirestoreDocument('Users/coach123', {
+          id: 'coach123',
+          role: 'coach',
+          onboardingCompleted: false,
+          sports: [
+            {
+              sport: 'Football',
+              order: 0,
+              positions: ['Quarterback'],
+              team: {
+                name: 'Alcoa',
+                title: 'Head Coach',
+                type: 'high-school',
+              },
+            },
+          ],
+        });
+
+        const response = await request(app)
+          .post('/api/v1/auth/profile/onboarding-step')
+          .send({
+            userId: 'coach123',
+            stepId: 'organization',
+            stepData: {
+              organization: 'Alcoa Football',
+            },
+          });
+
+        expect(response.status).toBe(200);
+
+        const userUpdate = __getMockFirestoreWrites().find(
+          (write) => write.path === 'Users/coach123' && write.operation === 'update'
+        );
+
+        expect(userUpdate).toBeDefined();
+        const updatedSport = (userUpdate?.payload?.['sports'] as Array<Record<string, unknown>>)[0];
+        expect(updatedSport).not.toHaveProperty('positions');
+        expect(updatedSport).toMatchObject({
+          sport: 'Football',
+          team: {
+            name: 'Alcoa Football',
+            title: 'Head Coach',
+            type: 'high-school',
+          },
+        });
+      });
+    });
+
+    describe('POST /api/v1/auth/profile/preload-scrape', () => {
+      it('should skip preload for all roles and defer to final completion', async () => {
+        // Send a request masquerading as an athlete, it should still be skipped
+        const response = await request(app)
+          .post('/api/v1/auth/profile/preload-scrape')
+          .send({
+            userId: 'user123',
+            role: 'athlete',
+            sport: 'Basketball',
+            linkedAccounts: [
+              {
+                platform: 'instagram',
+                profileUrl: 'https://instagram.com/test-player',
+              },
+            ],
+          });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toMatchObject({
+          success: true,
+          skipped: true,
+          reason: 'Deferred until onboarding completion for all roles',
+        });
+        expect(response.body['scrapeJobId']).toBeUndefined();
       });
     });
   });

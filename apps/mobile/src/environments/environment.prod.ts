@@ -17,7 +17,7 @@
 //     storageBucket: 'nxt-1-v2.firebasestorage.app',
 //     messagingSenderId: '112256620070',
 //     appId: '1:112256620070:web:6a758d6428d2222f2c78e7',
-//     measurementId: 'G-GZGSTY65KQ',
+//     measurementId: 'G-SNZ2T18P5G',
 //   },
 
 //   // iOS CLIENT_ID from GoogleService-Info.plist (production/ios)
@@ -54,7 +54,7 @@ export const environment = {
     storageBucket: 'nxt-1-v2.firebasestorage.app',
     messagingSenderId: '112256620070',
     appId: '1:112256620070:web:6a758d6428d2222f2c78e7',
-    measurementId: 'G-GZGSTY65KQ',
+    measurementId: 'G-SNZ2T18P5G',
   },
 
   // iOS CLIENT_ID from GoogleService-Info.plist (production/ios)

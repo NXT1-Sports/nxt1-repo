@@ -108,9 +108,22 @@ function isWaitingForFirstSync(sources: readonly Record<string, unknown>[]): boo
 
 function resolveTeamDocId(userData: Record<string, unknown>): string | undefined {
   const teamCode = asRecord(userData['teamCode']);
-  return (
-    asString(teamCode?.['teamId']) ?? asString(teamCode?.['id']) ?? asString(userData['teamId'])
-  );
+  const legacyTeamId =
+    asString(teamCode?.['teamId']) ?? asString(teamCode?.['id']) ?? asString(userData['teamId']);
+
+  if (legacyTeamId) {
+    return legacyTeamId;
+  }
+
+  const sports = asRecordArray(userData['sports']);
+  const activeSportIndex =
+    typeof userData['activeSportIndex'] === 'number' && userData['activeSportIndex'] >= 0
+      ? userData['activeSportIndex']
+      : 0;
+  const primarySport = sports[activeSportIndex] ?? sports[0];
+  const team = asRecord(primarySport?.['team']);
+
+  return asString(team?.['teamId']);
 }
 
 async function resolveOrganizationDocument(
@@ -170,17 +183,21 @@ async function resolveWelcomeGraphicInput(
     const teamData = teamSnapshot.exists
       ? ((teamSnapshot.data() ?? {}) as Record<string, unknown>)
       : undefined;
-    const organizationId = asString(teamData?.['organizationId']);
-    if (!organizationId) {
-      return { status: 'skipped', reason: 'missing_organization' };
-    }
+
+    // Fall back to the ID itself if 'organizationId' isn't explicitly on the doc
+    const organizationId = asString(teamData?.['organizationId']) ?? teamDocId;
 
     const organization = await resolveOrganizationDocument(db, organizationId);
-    if (!organization.ref || !organization.data) {
+
+    // Safely extract primary data from either the organization OR the team doc
+    const primaryRef = organization.ref ?? (teamSnapshot.exists ? teamSnapshot.ref : null);
+    const primaryData = organization.data ?? teamData;
+
+    if (!primaryRef || !primaryData) {
       return { status: 'skipped', reason: 'missing_organization' };
     }
 
-    if (organization.data['welcomeGraphicQueued'] === true) {
+    if (primaryData['welcomeGraphicQueued'] === true) {
       return { status: 'skipped', reason: 'already_queued' };
     }
 
@@ -194,14 +211,16 @@ async function resolveWelcomeGraphicInput(
     }
 
     const teamLogoUrl =
-      asString(organization.data['logoUrl']) ??
+      asString(organization.data?.['logoUrl']) ??
       asString(teamData?.['logoUrl']) ??
       asString(teamData?.['teamLogoImg']);
     if (!teamLogoUrl) {
       return { status: 'skipped', reason: 'missing_image' };
     }
 
-    const teamColors = collectTeamColors(organization.data) ?? collectTeamColors(teamData);
+    const teamColors =
+      (organization.data ? collectTeamColors(organization.data) : undefined) ??
+      (teamData ? collectTeamColors(teamData) : undefined);
 
     return {
       input: {
@@ -209,11 +228,11 @@ async function resolveWelcomeGraphicInput(
         displayName,
         role,
         sport: asString(teamData?.['sport']) ?? asString(teamData?.['sportName']),
-        teamName: asString(organization.data['name']) ?? asString(teamData?.['teamName']),
+        teamName: asString(organization.data?.['name']) ?? asString(teamData?.['teamName']),
         teamLogoUrl,
         teamColors,
       },
-      dedupeRef: organization.ref,
+      dedupeRef: primaryRef,
     };
   }
 

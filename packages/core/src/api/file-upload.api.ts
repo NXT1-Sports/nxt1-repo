@@ -102,6 +102,100 @@ export interface FileUploadResult {
 }
 
 /**
+ * Provision options for a direct Cloudflare video upload.
+ */
+export interface HighlightVideoUploadProvisionOptions {
+  /** Logical upload context for downstream routing (feed, profile, agent-x, etc.) */
+  context?: string;
+  /** Optional requested max duration in seconds enforced by Cloudflare */
+  maxDurationSeconds?: number;
+}
+
+/**
+ * Cloudflare direct upload session returned by the backend.
+ */
+export interface DirectVideoUploadSession {
+  uploadUrl: string;
+  cloudflareVideoId: string;
+  uploadMethod: 'tus';
+  tusResumable: '1.0.0';
+  expiresAt: string;
+  maxSize: number;
+  maxDurationSeconds: number;
+  name: string;
+  metadata: {
+    userId: string;
+    context: string;
+    environment: string;
+    originalFileName: string;
+    mimeType: string;
+  };
+}
+
+/**
+ * Canonical video payload returned after the backend finalizes a direct upload.
+ */
+export interface FinalizedHighlightVideoUpload {
+  cloudflareVideoId: string;
+  status: string;
+  readyToStream: boolean;
+  durationSeconds: number | null;
+  thumbnailUrl: string | null;
+  previewUrl: string | null;
+  uploadedAt: string | null;
+  name: string | null;
+  metadata: {
+    userId: string;
+    context: string;
+    environment: string;
+    originalFileName: string;
+    mimeType: string;
+  };
+  playback: {
+    hlsUrl: string | null;
+    dashUrl: string | null;
+    iframeUrl: string | null;
+  };
+}
+
+/**
+ * Request payload for persisting a finalized Cloudflare highlight into the Posts collection.
+ */
+export interface PersistHighlightVideoPostRequest {
+  cloudflareVideoId: string;
+  title?: string;
+  content?: string;
+  sportId?: string;
+  teamId?: string;
+  organizationId?: string;
+  visibility?: 'public' | 'team' | 'private';
+  isPinned?: boolean;
+}
+
+/**
+ * Canonical persisted highlight post returned by the backend.
+ */
+export interface PersistedHighlightVideoPost {
+  postId: string;
+  cloudflareVideoId: string;
+  status: string;
+  readyToStream: boolean;
+  title: string | null;
+  content: string;
+  thumbnailUrl: string | null;
+  mediaUrl: string | null;
+  duration: number | null;
+  visibility: 'public' | 'team' | 'private';
+  createdAt: string;
+  updatedAt: string;
+  playback: {
+    hlsUrl: string | null;
+    dashUrl: string | null;
+    iframeUrl: string | null;
+  };
+}
+
+/**
  * File deletion request
  */
 export interface FileDeleteRequest {
@@ -116,6 +210,32 @@ export interface FileDeleteRequest {
  * Percentage from 0 to 100
  */
 export type UploadProgressCallback = (progress: number) => void;
+
+const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+function encodeTusMetadataValue(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let encoded = '';
+
+  for (let index = 0; index < bytes.length; index += 3) {
+    const chunk =
+      ((bytes[index] ?? 0) << 16) | ((bytes[index + 1] ?? 0) << 8) | (bytes[index + 2] ?? 0);
+
+    encoded += BASE64_ALPHABET[(chunk >> 18) & 0x3f];
+    encoded += BASE64_ALPHABET[(chunk >> 12) & 0x3f];
+    encoded += index + 1 < bytes.length ? BASE64_ALPHABET[(chunk >> 6) & 0x3f] : '=';
+    encoded += index + 2 < bytes.length ? BASE64_ALPHABET[chunk & 0x3f] : '=';
+  }
+
+  return encoded;
+}
+
+function buildTusUploadMetadataHeader(metadata: Record<string, string>): string {
+  return Object.entries(metadata)
+    .filter(([, value]) => value.length > 0)
+    .map(([key, value]) => `${key} ${encodeTusMetadataValue(value)}`)
+    .join(',');
+}
 
 // ============================================
 // FILE VALIDATION CONSTANTS
@@ -392,6 +512,102 @@ export function createFileUploadApi(http: FileUploadHttpAdapter, baseUrl: string
 
       if (!response.success || !response.data) {
         throw new Error(response.error ?? 'Failed to upload document');
+      }
+
+      return response.data;
+    },
+
+    /**
+     * Provision a Cloudflare Stream direct upload session for a highlight video.
+     * The caller is responsible for performing the actual TUS upload to the returned uploadUrl.
+     */
+    async provisionHighlightVideoUpload(
+      _userId: string,
+      fileName: string,
+      mimeType: string,
+      size: number,
+      options?: HighlightVideoUploadProvisionOptions
+    ): Promise<DirectVideoUploadSession> {
+      const metadata: FileUploadMetadata = {
+        fileName,
+        mimeType,
+        size,
+        category: 'highlight-video',
+      };
+
+      const validationError = validateFileForUpload(metadata);
+      if (validationError) {
+        throw new Error(validationError.message);
+      }
+
+      const tusMetadata = buildTusUploadMetadataHeader({
+        filename: fileName,
+        filetype: mimeType,
+        ...(options?.context ? { context: options.context } : {}),
+        ...(options?.maxDurationSeconds
+          ? { maxDurationSeconds: String(options.maxDurationSeconds) }
+          : {}),
+      });
+
+      const response = await http.post<ApiResponse<DirectVideoUploadSession>>(
+        `${endpoint}/cloudflare/direct-url`,
+        undefined,
+        {
+          headers: {
+            'Tus-Resumable': '1.0.0',
+            'Upload-Length': String(size),
+            'Upload-Metadata': tusMetadata,
+          },
+        }
+      );
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? 'Failed to provision highlight video upload');
+      }
+
+      return response.data;
+    },
+
+    /**
+     * Finalize a direct Cloudflare video upload after the browser completes the TUS transfer.
+     * Returns a backend-owned canonical video payload for the client.
+     */
+    async finalizeHighlightVideoUpload(
+      cloudflareVideoId: string
+    ): Promise<FinalizedHighlightVideoUpload> {
+      if (!cloudflareVideoId.trim()) {
+        throw new Error('cloudflareVideoId is required');
+      }
+
+      const response = await http.post<ApiResponse<FinalizedHighlightVideoUpload>>(
+        `${endpoint}/cloudflare/finalize`,
+        { cloudflareVideoId }
+      );
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? 'Failed to finalize highlight video upload');
+      }
+
+      return response.data;
+    },
+
+    /**
+     * Persist a finalized Cloudflare highlight video into the backend Posts collection.
+     */
+    async persistHighlightVideoPost(
+      request: PersistHighlightVideoPostRequest
+    ): Promise<PersistedHighlightVideoPost> {
+      if (!request.cloudflareVideoId.trim()) {
+        throw new Error('cloudflareVideoId is required');
+      }
+
+      const response = await http.post<ApiResponse<PersistedHighlightVideoPost>>(
+        `${endpoint}/cloudflare/highlight-post`,
+        request
+      );
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? 'Failed to persist highlight video post');
       }
 
       return response.data;

@@ -29,7 +29,13 @@
  */
 
 import { model, Schema } from 'mongoose';
-import type { AgentMemoryEntry, AgentMemoryCategory } from '@nxt1/core';
+import type {
+  AgentMemoryCategory,
+  AgentMemoryEntry,
+  AgentMemoryRecallOptions,
+  AgentMemoryTarget,
+  AgentRetrievedMemories,
+} from '@nxt1/core';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -55,6 +61,9 @@ const MEMORY_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 interface AgentMemoryDocument {
   _id: string;
   userId: string;
+  target: AgentMemoryTarget;
+  teamId?: string;
+  organizationId?: string;
   content: string;
   embedding: number[];
   category: AgentMemoryCategory;
@@ -63,9 +72,35 @@ interface AgentMemoryDocument {
   expiresAt: Date;
 }
 
+interface StoreMemoryOptions {
+  target?: AgentMemoryTarget;
+  teamId?: string;
+  organizationId?: string;
+  expiresAt?: Date;
+}
+
+interface ScoredMemoryDocument extends AgentMemoryDocument {
+  score: number;
+}
+
+const EMPTY_RETRIEVED_MEMORIES: AgentRetrievedMemories = {
+  user: [],
+  team: [],
+  organization: [],
+};
+
 const AgentMemorySchema = new Schema<AgentMemoryDocument>(
   {
     userId: { type: String, required: true, index: true },
+    target: {
+      type: String,
+      enum: ['user', 'team', 'organization'],
+      required: true,
+      default: 'user',
+      index: true,
+    },
+    teamId: { type: String, index: true },
+    organizationId: { type: String, index: true },
     content: { type: String, required: true },
     // select: false prevents loading large float arrays on every non-vector query
     embedding: { type: [Number], required: true, select: false },
@@ -84,6 +119,7 @@ const AgentMemorySchema = new Schema<AgentMemoryDocument>(
 AgentMemorySchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 // Compound index for per-user + per-category listing
 AgentMemorySchema.index({ userId: 1, category: 1 });
+AgentMemorySchema.index({ userId: 1, target: 1, teamId: 1, organizationId: 1, category: 1 });
 
 export const AgentMemoryModel = model<AgentMemoryDocument>('AgentMemory', AgentMemorySchema);
 
@@ -104,21 +140,42 @@ export class VectorMemoryService {
     userId: string,
     content: string,
     category: AgentMemoryCategory,
-    metadata?: Record<string, unknown>
+    metadata?: Record<string, unknown>,
+    options: StoreMemoryOptions = {}
   ): Promise<AgentMemoryEntry> {
+    const target = options.target ?? 'user';
+
+    if (target === 'team' && !options.teamId) {
+      throw new Error('teamId is required when storing a team-scoped memory');
+    }
+
+    if (target === 'organization' && !options.organizationId) {
+      throw new Error('organizationId is required when storing an organization-scoped memory');
+    }
+
     const embedding = await this.llm.embed(content);
 
     const doc = await AgentMemoryModel.create({
       userId,
+      target,
+      teamId: options.teamId,
+      organizationId: options.organizationId,
       content,
       embedding: Array.from(embedding),
       category,
       metadata,
       createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + MEMORY_TTL_MS),
+      expiresAt: options.expiresAt ?? new Date(Date.now() + MEMORY_TTL_MS),
     });
 
-    logger.debug('[VectorMemory] Stored memory', { userId, category, dims: embedding.length });
+    logger.debug('[VectorMemory] Stored memory', {
+      userId,
+      target,
+      teamId: options.teamId,
+      organizationId: options.organizationId,
+      category,
+      dims: embedding.length,
+    });
 
     return this.docToEntry(doc);
   }
@@ -133,8 +190,23 @@ export class VectorMemoryService {
   async recall(
     userId: string,
     query: string,
-    topK: number = DEFAULT_TOP_K
+    topK: number = DEFAULT_TOP_K,
+    options: AgentMemoryRecallOptions = {}
   ): Promise<readonly AgentMemoryEntry[]> {
+    const memories = await this.recallByScope(userId, query, {
+      ...options,
+      targets: ['user'],
+      perTargetLimit: topK,
+    });
+
+    return memories.user;
+  }
+
+  async recallByScope(
+    userId: string,
+    query: string,
+    options: AgentMemoryRecallOptions = {}
+  ): Promise<AgentRetrievedMemories> {
     let queryEmbedding: readonly number[];
 
     try {
@@ -144,12 +216,54 @@ export class VectorMemoryService {
         userId,
         error: String(err),
       });
-      return [];
+      return EMPTY_RETRIEVED_MEMORIES;
+    }
+
+    const perTargetLimit = Math.min(Math.max(options.perTargetLimit ?? DEFAULT_TOP_K, 1), 10);
+    const requestedTargets = new Set(options.targets ?? ['user', 'team', 'organization']);
+
+    const [userMemories, teamMemories, organizationMemories] = await Promise.all([
+      requestedTargets.has('user')
+        ? this.recallForTarget(userId, queryEmbedding, 'user', perTargetLimit, options)
+        : Promise.resolve([]),
+      requestedTargets.has('team') && options.teamId
+        ? this.recallForTarget(userId, queryEmbedding, 'team', perTargetLimit, options)
+        : Promise.resolve([]),
+      requestedTargets.has('organization') && options.organizationId
+        ? this.recallForTarget(userId, queryEmbedding, 'organization', perTargetLimit, options)
+        : Promise.resolve([]),
+    ]);
+
+    return {
+      user: userMemories,
+      team: teamMemories,
+      organization: organizationMemories,
+    };
+  }
+
+  private async recallForTarget(
+    userId: string,
+    queryEmbedding: readonly number[],
+    target: AgentMemoryTarget,
+    topK: number,
+    options: AgentMemoryRecallOptions
+  ): Promise<readonly AgentMemoryEntry[]> {
+    const filter: Record<string, unknown> = { userId, target };
+
+    if (options.category) {
+      filter['category'] = options.category;
+    }
+
+    if (target === 'team') {
+      filter['teamId'] = options.teamId;
+    }
+
+    if (target === 'organization') {
+      filter['organizationId'] = options.organizationId;
     }
 
     try {
-      // $vectorSearch requires MongoDB Atlas M10+ with a configured vector index
-      const results = await AgentMemoryModel.aggregate<AgentMemoryDocument & { score: number }>([
+      const results = await AgentMemoryModel.aggregate<ScoredMemoryDocument>([
         {
           $vectorSearch: {
             index: VECTOR_INDEX_NAME,
@@ -157,13 +271,16 @@ export class VectorMemoryService {
             queryVector: Array.from(queryEmbedding),
             numCandidates: Math.min(Math.max(DEFAULT_NUM_CANDIDATES, topK * 10), 500),
             limit: topK,
-            filter: { userId },
+            filter,
           },
         },
         {
           $project: {
             _id: 1,
             userId: 1,
+            target: 1,
+            teamId: 1,
+            organizationId: 1,
             content: 1,
             category: 1,
             metadata: 1,
@@ -176,16 +293,16 @@ export class VectorMemoryService {
 
       logger.debug('[VectorMemory] Recalled memories', {
         userId,
+        target,
         count: results.length,
         topScore: results[0]?.score,
       });
 
       return results.map((doc) => this.docToEntry(doc));
     } catch (err) {
-      // Gracefully degrade if Atlas Vector Search is not configured
       logger.warn(
         '[VectorMemory] $vectorSearch failed — Atlas index may not be configured. Returning empty.',
-        { userId, error: String(err) }
+        { userId, target, error: String(err) }
       );
       return [];
     }
@@ -215,12 +332,24 @@ export class VectorMemoryService {
   private docToEntry(
     doc: Pick<
       AgentMemoryDocument,
-      '_id' | 'userId' | 'content' | 'category' | 'metadata' | 'createdAt' | 'expiresAt'
+      | '_id'
+      | 'userId'
+      | 'target'
+      | 'teamId'
+      | 'organizationId'
+      | 'content'
+      | 'category'
+      | 'metadata'
+      | 'createdAt'
+      | 'expiresAt'
     >
   ): AgentMemoryEntry {
     return {
       id: String(doc._id),
       userId: doc.userId,
+      target: doc.target,
+      teamId: doc.teamId,
+      organizationId: doc.organizationId,
       content: doc.content,
       category: doc.category,
       metadata: doc.metadata,

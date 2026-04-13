@@ -125,10 +125,16 @@ export interface AgentToolCallRecord {
 
 // ─── Memory ─────────────────────────────────────────────────────────────────
 
+/** Which domain a stored memory belongs to. */
+export type AgentMemoryTarget = 'user' | 'team' | 'organization';
+
 /** A single entry stored in the agent's long-term vector memory. */
 export interface AgentMemoryEntry {
   readonly id: string;
   readonly userId: string;
+  readonly target: AgentMemoryTarget;
+  readonly teamId?: string;
+  readonly organizationId?: string;
   readonly content: string;
   /** The vector embedding (stored externally, referenced here). */
   readonly embeddingId?: string;
@@ -136,6 +142,22 @@ export interface AgentMemoryEntry {
   readonly metadata?: Record<string, unknown>;
   readonly createdAt: string;
   readonly expiresAt?: string;
+}
+
+/** Options for scoped long-term memory retrieval. */
+export interface AgentMemoryRecallOptions {
+  readonly teamId?: string;
+  readonly organizationId?: string;
+  readonly category?: AgentMemoryCategory;
+  readonly targets?: readonly AgentMemoryTarget[];
+  readonly perTargetLimit?: number;
+}
+
+/** Retrieved memories grouped by platform domain. */
+export interface AgentRetrievedMemories {
+  readonly user: readonly AgentMemoryEntry[];
+  readonly team: readonly AgentMemoryEntry[];
+  readonly organization: readonly AgentMemoryEntry[];
 }
 
 /** Categories for stored memories. */
@@ -732,6 +754,12 @@ export interface AgentUserContext {
   // ── Team Context (from active sport) ──────────────────────────
   readonly teamId?: string;
   readonly organizationId?: string;
+}
+
+/** Fully assembled prompt context used before planner/coordinator execution. */
+export interface AgentPromptContext {
+  readonly profile: AgentUserContext;
+  readonly memories: AgentRetrievedMemories;
 }
 
 /** A third-party account the user has connected (Gmail, Twitter, Hudl, etc.). */

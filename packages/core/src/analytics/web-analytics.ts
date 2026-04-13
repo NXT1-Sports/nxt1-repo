@@ -238,7 +238,7 @@ export const webAnalytics = createWebAnalyticsAdapter();
 /**
  * NXT1's GA4 Measurement ID
  */
-export const NXT1_MEASUREMENT_ID = 'G-13NF238EE7';
+export const NXT1_MEASUREMENT_ID = 'G-SNZ2T18P5G';
 
 /**
  * Create pre-configured NXT1 analytics adapter

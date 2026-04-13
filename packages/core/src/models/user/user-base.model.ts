@@ -323,6 +323,8 @@ export interface AcademicInfo {
 export interface TeamInfo {
   /** Team name (optional - user may not know it initially) */
   name?: string;
+  /** Role title for this user on this team (e.g. 'Head Coach') */
+  title?: string;
   type: TeamType;
   /** Team logo URL (V3 — matches Organization/Team docs) */
   logoUrl?: string;

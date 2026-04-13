@@ -34,17 +34,68 @@ import type { Request, Response, Router as RouterType } from 'express';
 import multer from 'multer';
 import sharp from 'sharp';
 import { getStorage } from 'firebase-admin/storage';
+import { Timestamp } from 'firebase-admin/firestore';
 import { asyncHandler } from '@nxt1/core/errors/express';
 import { fieldError, forbiddenError } from '@nxt1/core/errors';
 import { logger } from '../utils/logger.js';
 import { appGuard } from '../middleware/auth.middleware.js';
 import type { FileCategory, FileUploadResult } from '@nxt1/core';
-import { FILE_UPLOAD_RULES, formatFileSize } from '@nxt1/core';
+import { FILE_UPLOAD_RULES, formatFileSize, PostVisibility } from '@nxt1/core';
 
 // Import storage constants for extension-compatible paths
 import { THUMBNAIL_SIZES, IMAGE_FORMATS } from '@nxt1/core/constants';
+import { getCacheService } from '../services/cache.service.js';
+import { invalidateProfileCaches } from './profile.routes.js';
+import { buildVideoSearchIndex } from '../utils/search-index.js';
 
 const router: RouterType = Router();
+const CLOUDFLARE_API_BASE_URL = 'https://api.cloudflare.com/client/v4';
+const DEFAULT_CF_VIDEO_MAX_DURATION_SECONDS = 10_800;
+const DEFAULT_CF_UPLOAD_EXPIRY_HOURS = 12;
+const POSTS_COLLECTION = 'Posts';
+
+interface CloudflareVideoFinalizeResponse {
+  readonly cloudflareVideoId: string;
+  readonly status: string;
+  readonly readyToStream: boolean;
+  readonly durationSeconds: number | null;
+  readonly thumbnailUrl: string | null;
+  readonly previewUrl: string | null;
+  readonly uploadedAt: string | null;
+  readonly name: string | null;
+  readonly metadata: {
+    readonly userId: string;
+    readonly context: string;
+    readonly environment: string;
+    readonly originalFileName: string;
+    readonly mimeType: string;
+  };
+  readonly playback: {
+    readonly hlsUrl: string | null;
+    readonly dashUrl: string | null;
+    readonly iframeUrl: string | null;
+  };
+}
+
+interface PersistedHighlightVideoPostResponse {
+  readonly postId: string;
+  readonly cloudflareVideoId: string;
+  readonly status: string;
+  readonly readyToStream: boolean;
+  readonly title: string | null;
+  readonly content: string;
+  readonly thumbnailUrl: string | null;
+  readonly mediaUrl: string | null;
+  readonly duration: number | null;
+  readonly visibility: 'public' | 'team' | 'private';
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly playback: {
+    readonly hlsUrl: string | null;
+    readonly dashUrl: string | null;
+    readonly iframeUrl: string | null;
+  };
+}
 
 // All upload routes require authentication
 router.use(appGuard);
@@ -386,6 +437,298 @@ function buildStoragePath(userId: string, category: FileCategory, fileName: stri
   return `users/${userId}/${category}/${timestamp}_${sanitizedName.split('.')[0]}.${extension}`;
 }
 
+/**
+ * Parse a tus Upload-Metadata header into decoded key/value pairs.
+ * Boolean keys without a value are represented as the string "true".
+ */
+function parseTusMetadataHeader(header: string | string[] | undefined): Record<string, string> {
+  if (!header || Array.isArray(header)) return {};
+
+  return header
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .reduce<Record<string, string>>((acc, entry) => {
+      const [rawKey, ...rest] = entry.split(' ');
+      const key = rawKey?.trim().toLowerCase();
+      if (!key) return acc;
+
+      if (rest.length === 0) {
+        acc[key] = 'true';
+        return acc;
+      }
+
+      try {
+        acc[key] = Buffer.from(rest.join(' '), 'base64').toString('utf8');
+      } catch {
+        acc[key] = '';
+      }
+
+      return acc;
+    }, {});
+}
+
+/**
+ * Encode key/value metadata into a tus Upload-Metadata header.
+ */
+function buildTusMetadataHeader(metadata: Record<string, string>): string {
+  return Object.entries(metadata)
+    .filter(([, value]) => value.length > 0)
+    .map(([key, value]) => `${key} ${Buffer.from(value, 'utf8').toString('base64')}`)
+    .join(',');
+}
+
+/**
+ * Resolve a metadata value from multiple possible header keys.
+ */
+function getTusMetadataValue(
+  metadata: Record<string, string>,
+  keys: readonly string[]
+): string | undefined {
+  for (const key of keys) {
+    const value = metadata[key.toLowerCase()];
+    if (value) return value;
+  }
+
+  return undefined;
+}
+
+/**
+ * Build a searchable display name for Cloudflare's flat video library UI.
+ */
+function buildCloudflareVideoName(userId: string, context: string, fileName: string): string {
+  const timestamp = Date.now();
+  const baseName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_').split('.')[0] || 'video';
+  const safeContext = context.replace(/[^a-zA-Z0-9_-]/g, '_') || 'general';
+  return `nxt1-${safeContext}-${userId}-${timestamp}-${baseName}`;
+}
+
+/**
+ * Extract the Cloudflare video UID from a direct upload Location header.
+ */
+function extractCloudflareVideoId(uploadUrl: string): string | null {
+  try {
+    const url = new URL(uploadUrl);
+    return url.pathname.split('/').filter(Boolean).pop() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function getCloudflareStreamHost(customerCode: string | undefined): string | null {
+  if (!customerCode) return null;
+
+  const normalizedCustomerCode = customerCode.startsWith('customer-')
+    ? customerCode
+    : `customer-${customerCode}`;
+
+  return `https://${normalizedCustomerCode}.cloudflarestream.com`;
+}
+
+function buildCloudflarePlaybackUrls(
+  videoId: string,
+  customerCode: string | undefined,
+  playback?: { hls?: string; dash?: string }
+): { hlsUrl: string | null; dashUrl: string | null; iframeUrl: string | null } {
+  const streamHost = getCloudflareStreamHost(customerCode);
+
+  return {
+    hlsUrl: playback?.hls ?? (streamHost ? `${streamHost}/${videoId}/manifest/video.m3u8` : null),
+    dashUrl: playback?.dash ?? (streamHost ? `${streamHost}/${videoId}/manifest/video.mpd` : null),
+    iframeUrl: streamHost ? `${streamHost}/${videoId}/iframe` : null,
+  };
+}
+
+function normalizeCloudflareVideoForClient(
+  videoId: string,
+  payload: Record<string, unknown>,
+  customerCode: string | undefined
+): CloudflareVideoFinalizeResponse {
+  const meta = ((payload['meta'] as Record<string, unknown> | undefined) ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const status = ((payload['status'] as Record<string, unknown> | undefined) ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const playback = ((payload['playback'] as Record<string, unknown> | undefined) ?? {}) as Record<
+    string,
+    unknown
+  >;
+
+  return {
+    cloudflareVideoId: videoId,
+    status: typeof status['state'] === 'string' ? status['state'] : 'unknown',
+    readyToStream: payload['readyToStream'] === true,
+    durationSeconds:
+      typeof payload['duration'] === 'number'
+        ? payload['duration']
+        : Number(payload['duration']) || null,
+    thumbnailUrl: typeof payload['thumbnail'] === 'string' ? payload['thumbnail'] : null,
+    previewUrl: typeof payload['preview'] === 'string' ? payload['preview'] : null,
+    uploadedAt: typeof payload['uploaded'] === 'string' ? payload['uploaded'] : null,
+    name: typeof meta['name'] === 'string' ? meta['name'] : null,
+    metadata: {
+      userId: typeof meta['nxt1_user_id'] === 'string' ? meta['nxt1_user_id'] : '',
+      context: typeof meta['nxt1_context'] === 'string' ? meta['nxt1_context'] : 'general',
+      environment: typeof meta['nxt1_env'] === 'string' ? meta['nxt1_env'] : 'staging',
+      originalFileName:
+        typeof meta['nxt1_file_name'] === 'string' ? meta['nxt1_file_name'] : `${videoId}.mp4`,
+      mimeType: typeof meta['nxt1_mime_type'] === 'string' ? meta['nxt1_mime_type'] : 'video/mp4',
+    },
+    playback: buildCloudflarePlaybackUrls(videoId, customerCode, {
+      hls: typeof playback['hls'] === 'string' ? playback['hls'] : undefined,
+      dash: typeof playback['dash'] === 'string' ? playback['dash'] : undefined,
+    }),
+  };
+}
+
+function getCloudflareHighlightPostId(cloudflareVideoId: string): string {
+  return `cf-stream-${cloudflareVideoId}`;
+}
+
+function trimOptionalString(
+  value: unknown,
+  fieldName: string,
+  maxLength: number
+): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (typeof value !== 'string') {
+    throw fieldError(fieldName, `${fieldName} must be a string`, 'invalid');
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  if (trimmed.length > maxLength) {
+    throw fieldError(fieldName, `${fieldName} must be ${maxLength} characters or fewer`, 'invalid');
+  }
+
+  return trimmed;
+}
+
+function parsePinnedFlag(value: unknown): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'boolean') {
+    throw fieldError('isPinned', 'isPinned must be a boolean', 'invalid');
+  }
+
+  return value;
+}
+
+function parsePostVisibility(value: unknown): PostVisibility | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string') {
+    throw fieldError('visibility', 'visibility must be a string', 'invalid');
+  }
+
+  switch (value.trim().toLowerCase()) {
+    case 'public':
+      return PostVisibility.PUBLIC;
+    case 'team':
+      return PostVisibility.TEAM;
+    case 'private':
+      return PostVisibility.PRIVATE;
+    default:
+      throw fieldError('visibility', 'visibility must be public, team, or private', 'invalid');
+  }
+}
+
+function toVisibilityType(visibility: PostVisibility): 'public' | 'team' | 'private' {
+  switch (visibility) {
+    case PostVisibility.TEAM:
+      return 'team';
+    case PostVisibility.PRIVATE:
+      return 'private';
+    case PostVisibility.PUBLIC:
+    default:
+      return 'public';
+  }
+}
+
+function buildDefaultHighlightTitle(finalized: CloudflareVideoFinalizeResponse): string {
+  const rawName = finalized.name ?? finalized.metadata.originalFileName;
+  const baseName = rawName.split('/').pop() ?? rawName;
+  return (
+    baseName
+      .replace(/\.[^.]+$/, '')
+      .replace(/[_-]+/g, ' ')
+      .trim() || 'Highlight Video'
+  );
+}
+
+async function fetchCloudflareFinalizedVideo(
+  userId: string,
+  cloudflareVideoId: string,
+  accountId: string,
+  apiToken: string,
+  customerCode: string | undefined
+): Promise<CloudflareVideoFinalizeResponse> {
+  const response = await fetch(
+    `${CLOUDFLARE_API_BASE_URL}/accounts/${accountId}/stream/${cloudflareVideoId}`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+
+  let responseBody: Record<string, unknown> | null;
+  try {
+    responseBody = (await response.json()) as Record<string, unknown>;
+  } catch {
+    responseBody = null;
+  }
+
+  if (!response.ok || responseBody?.['success'] === false) {
+    const errors = Array.isArray(responseBody?.['errors'])
+      ? (responseBody?.['errors'] as Array<Record<string, unknown>>)
+      : [];
+    const errorMessage =
+      typeof errors[0]?.['message'] === 'string'
+        ? (errors[0]['message'] as string)
+        : `status ${response.status}`;
+
+    logger.error('Cloudflare finalize fetch failed', {
+      userId,
+      cloudflareVideoId,
+      error: errorMessage,
+    });
+
+    throw new Error(`Cloudflare finalize failed: ${errorMessage}`);
+  }
+
+  const payload =
+    responseBody && typeof responseBody['result'] === 'object' && responseBody['result'] !== null
+      ? (responseBody['result'] as Record<string, unknown>)
+      : null;
+
+  if (!payload) {
+    logger.error('Cloudflare finalize returned no video payload', {
+      userId,
+      cloudflareVideoId,
+    });
+
+    throw new Error('Cloudflare finalize returned no video payload');
+  }
+
+  const finalized = normalizeCloudflareVideoForClient(cloudflareVideoId, payload, customerCode);
+
+  if (finalized.metadata.userId && finalized.metadata.userId !== userId) {
+    throw forbiddenError('owner');
+  }
+
+  return finalized;
+}
+
 // ============================================
 // EXTENDED RESPONSE TYPE FOR EXTENSION SUPPORT
 // ============================================
@@ -410,6 +753,469 @@ interface ExtendedFileUploadResult extends FileUploadResult {
 // ============================================
 // ROUTES
 // ============================================
+
+/**
+ * POST /upload/cloudflare/direct-url
+ *
+ * Preferred video upload route for the 2026 platform architecture.
+ * This provisions a one-time resumable tus upload URL directly from
+ * Cloudflare Stream so the browser/mobile app can upload large videos
+ * straight to Cloudflare edge without touching the backend.
+ *
+ * Required request headers:
+ * - Tus-Resumable: 1.0.0
+ * - Upload-Length: file size in bytes
+ * - Upload-Metadata: base64 metadata including filename + filetype
+ */
+router.post(
+  '/cloudflare/direct-url',
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = req.user!.uid;
+    const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
+    const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
+
+    if (!accountId || !apiToken) {
+      logger.error('Cloudflare direct upload requested without env configuration');
+      return res.status(503).json({
+        success: false,
+        error: 'Cloudflare direct uploads are not configured',
+      });
+    }
+
+    const tusResumable = req.headers['tus-resumable'];
+    if (Array.isArray(tusResumable) || tusResumable !== '1.0.0') {
+      throw fieldError('Tus-Resumable', 'Tus-Resumable header must be 1.0.0', 'required');
+    }
+
+    const uploadLengthHeader = req.headers['upload-length'];
+    if (!uploadLengthHeader || Array.isArray(uploadLengthHeader)) {
+      throw fieldError('Upload-Length', 'Upload-Length header is required', 'required');
+    }
+
+    const fileSize = Number(uploadLengthHeader);
+    if (!Number.isFinite(fileSize) || fileSize <= 0) {
+      throw fieldError('Upload-Length', 'Upload-Length must be a positive number', 'invalid');
+    }
+
+    const clientMetadata = parseTusMetadataHeader(req.headers['upload-metadata']);
+    const fileName = getTusMetadataValue(clientMetadata, ['filename', 'fileName', 'name']);
+    const mimeType = getTusMetadataValue(clientMetadata, ['filetype', 'mimeType', 'mimetype']);
+    const uploadContext =
+      getTusMetadataValue(clientMetadata, ['context', 'uploadcontext', 'uploadContext']) ??
+      'general';
+    const requestedDuration = getTusMetadataValue(clientMetadata, [
+      'maxdurationseconds',
+      'maxDurationSeconds',
+    ]);
+
+    if (!fileName) {
+      throw fieldError(
+        'Upload-Metadata',
+        'Upload-Metadata must include filename metadata',
+        'required'
+      );
+    }
+
+    if (!mimeType) {
+      throw fieldError(
+        'Upload-Metadata',
+        'Upload-Metadata must include filetype metadata',
+        'required'
+      );
+    }
+
+    const category: FileCategory = 'highlight-video';
+    const rules = FILE_UPLOAD_RULES[category];
+    const allowedTypes = rules.allowedTypes as readonly string[];
+
+    if (!allowedTypes.includes(mimeType)) {
+      throw fieldError(
+        'filetype',
+        `File type ${mimeType} not allowed. Allowed: ${allowedTypes.join(', ')}`,
+        'invalid'
+      );
+    }
+
+    if (fileSize > rules.maxSize) {
+      throw fieldError(
+        'Upload-Length',
+        `File must be smaller than ${formatFileSize(rules.maxSize)}`,
+        'maxSize'
+      );
+    }
+
+    const parsedMaxDuration = requestedDuration ? Number(requestedDuration) : NaN;
+    const maxDurationSeconds = Number.isFinite(parsedMaxDuration)
+      ? Math.min(Math.max(parsedMaxDuration, 1), 36_000)
+      : DEFAULT_CF_VIDEO_MAX_DURATION_SECONDS;
+
+    const environment = process.env['NODE_ENV'] === 'production' ? 'production' : 'staging';
+    const backendUrl = process.env['BACKEND_URL']?.replace(/\/$/, '') ?? '';
+    const expiresAt = new Date(
+      Date.now() + DEFAULT_CF_UPLOAD_EXPIRY_HOURS * 60 * 60 * 1000
+    ).toISOString();
+    const videoName = buildCloudflareVideoName(userId, uploadContext, fileName);
+
+    const upstreamMetadata = buildTusMetadataHeader({
+      name: videoName,
+      maxDurationSeconds: String(maxDurationSeconds),
+      expiry: expiresAt,
+      nxt1_user_id: userId,
+      nxt1_context: uploadContext,
+      nxt1_env: environment,
+      nxt1_file_name: fileName,
+      nxt1_mime_type: mimeType,
+      ...(backendUrl ? { webhook_backend_url: backendUrl } : {}),
+    });
+
+    const response = await fetch(
+      `${CLOUDFLARE_API_BASE_URL}/accounts/${accountId}/stream?direct_user=true`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          'Tus-Resumable': '1.0.0',
+          'Upload-Length': String(fileSize),
+          'Upload-Metadata': upstreamMetadata,
+          'Upload-Creator': userId,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      let details = `status ${response.status}`;
+      try {
+        const body = (await response.json()) as {
+          errors?: Array<{ message?: string }>;
+          messages?: Array<{ message?: string }>;
+        };
+        const message = body.errors?.[0]?.message ?? body.messages?.[0]?.message;
+        if (message) details = message;
+      } catch {
+        // Keep fallback status string
+      }
+
+      logger.error('Cloudflare direct upload provisioning failed', {
+        userId,
+        fileName,
+        mimeType,
+        fileSize,
+        details,
+      });
+
+      return res.status(502).json({
+        success: false,
+        error: `Cloudflare direct upload provisioning failed: ${details}`,
+      });
+    }
+
+    const uploadUrl = response.headers.get('Location');
+    const cloudflareVideoId = uploadUrl ? extractCloudflareVideoId(uploadUrl) : null;
+
+    if (!uploadUrl || !cloudflareVideoId) {
+      logger.error('Cloudflare direct upload provisioning returned no Location header', {
+        userId,
+        fileName,
+      });
+      return res.status(502).json({
+        success: false,
+        error: 'Cloudflare direct upload provisioning returned no upload URL',
+      });
+    }
+
+    logger.info('Provisioned Cloudflare tus direct upload URL', {
+      userId,
+      fileName,
+      mimeType,
+      fileSize: formatFileSize(fileSize),
+      uploadContext,
+      cloudflareVideoId,
+    });
+
+    res.setHeader('Access-Control-Expose-Headers', 'Location, Stream-Media-Id');
+    res.setHeader('Location', uploadUrl);
+    res.setHeader('Stream-Media-Id', cloudflareVideoId);
+
+    return res.status(201).json({
+      success: true,
+      data: {
+        uploadUrl,
+        cloudflareVideoId,
+        uploadMethod: 'tus',
+        tusResumable: '1.0.0',
+        expiresAt,
+        maxSize: rules.maxSize,
+        maxDurationSeconds,
+        name: videoName,
+        metadata: {
+          userId,
+          context: uploadContext,
+          environment,
+          originalFileName: fileName,
+          mimeType,
+        },
+      },
+    });
+  })
+);
+
+/**
+ * POST /upload/cloudflare/finalize
+ *
+ * Finalize a Cloudflare Stream direct upload after the browser finishes its TUS transfer.
+ * This gives the frontend a backend-owned canonical video payload instead of leaving it with
+ * only a temporary upload session.
+ */
+router.post(
+  '/cloudflare/finalize',
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = req.user!.uid;
+    const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
+    const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
+    const customerCode = process.env['CLOUDFLARE_STREAM_CUSTOMER_CODE'];
+
+    if (!accountId || !apiToken) {
+      logger.error('Cloudflare finalize requested without env configuration');
+      return res.status(503).json({
+        success: false,
+        error: 'Cloudflare direct uploads are not configured',
+      });
+    }
+
+    const cloudflareVideoId =
+      typeof req.body?.['cloudflareVideoId'] === 'string'
+        ? (req.body['cloudflareVideoId'] as string).trim()
+        : '';
+
+    if (!cloudflareVideoId) {
+      throw fieldError('cloudflareVideoId', 'cloudflareVideoId is required', 'required');
+    }
+
+    let finalized: CloudflareVideoFinalizeResponse;
+    try {
+      finalized = await fetchCloudflareFinalizedVideo(
+        userId,
+        cloudflareVideoId,
+        accountId,
+        apiToken,
+        customerCode
+      );
+    } catch (error) {
+      if (error && typeof error === 'object' && 'statusCode' in error) {
+        throw error;
+      }
+
+      return res.status(502).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Cloudflare finalize failed',
+      });
+    }
+
+    logger.info('Finalized Cloudflare direct upload session', {
+      userId,
+      cloudflareVideoId,
+      status: finalized.status,
+      readyToStream: finalized.readyToStream,
+      context: finalized.metadata.context,
+    });
+
+    return res.json({
+      success: true,
+      data: finalized,
+    });
+  })
+);
+
+/**
+ * POST /upload/cloudflare/highlight-post
+ *
+ * Persist a finalized Cloudflare highlight video into the Posts collection using
+ * the existing highlight schema consumed by profile, feed, and explore readers.
+ */
+router.post(
+  '/cloudflare/highlight-post',
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = req.user!.uid;
+    const db = req.firebase!.db;
+    const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
+    const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
+    const customerCode = process.env['CLOUDFLARE_STREAM_CUSTOMER_CODE'];
+
+    if (!accountId || !apiToken) {
+      logger.error('Cloudflare highlight persistence requested without env configuration');
+      return res.status(503).json({
+        success: false,
+        error: 'Cloudflare direct uploads are not configured',
+      });
+    }
+
+    const cloudflareVideoId =
+      typeof req.body?.['cloudflareVideoId'] === 'string'
+        ? (req.body['cloudflareVideoId'] as string).trim()
+        : '';
+
+    if (!cloudflareVideoId) {
+      throw fieldError('cloudflareVideoId', 'cloudflareVideoId is required', 'required');
+    }
+
+    let finalized: CloudflareVideoFinalizeResponse;
+    try {
+      finalized = await fetchCloudflareFinalizedVideo(
+        userId,
+        cloudflareVideoId,
+        accountId,
+        apiToken,
+        customerCode
+      );
+    } catch (error) {
+      if (error && typeof error === 'object' && 'statusCode' in error) {
+        throw error;
+      }
+
+      return res.status(502).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Cloudflare highlight persistence failed',
+      });
+    }
+
+    const title = trimOptionalString(req.body?.['title'], 'title', 200);
+    const content = trimOptionalString(req.body?.['content'], 'content', 2000);
+    const sportId = trimOptionalString(req.body?.['sportId'], 'sportId', 100);
+    const teamId = trimOptionalString(req.body?.['teamId'], 'teamId', 100);
+    const organizationId = trimOptionalString(req.body?.['organizationId'], 'organizationId', 100);
+    const isPinned = parsePinnedFlag(req.body?.['isPinned']);
+    const requestedVisibility = parsePostVisibility(req.body?.['visibility']);
+
+    const postId = getCloudflareHighlightPostId(cloudflareVideoId);
+    const postRef = db.collection(POSTS_COLLECTION).doc(postId);
+    const existingSnapshot = await postRef.get();
+    const existingData = existingSnapshot.exists
+      ? ((existingSnapshot.data() as Record<string, unknown>) ?? {})
+      : {};
+
+    const thumbnailUrl =
+      finalized.thumbnailUrl ??
+      finalized.previewUrl ??
+      (existingData['thumbnailUrl'] as string | undefined) ??
+      null;
+    const mediaUrl =
+      finalized.playback.iframeUrl ??
+      (existingData['mediaUrl'] as string | undefined) ??
+      finalized.playback.hlsUrl ??
+      null;
+    const createdAt = existingSnapshot.exists
+      ? ((existingData['createdAt'] as Timestamp | undefined) ?? Timestamp.now())
+      : finalized.uploadedAt
+        ? Timestamp.fromDate(new Date(finalized.uploadedAt))
+        : Timestamp.now();
+    const updatedAt = Timestamp.now();
+    const resolvedTitle =
+      title ??
+      (typeof existingData['title'] === 'string' ? (existingData['title'] as string) : undefined) ??
+      buildDefaultHighlightTitle(finalized);
+    const resolvedContent =
+      content ??
+      (typeof existingData['content'] === 'string' ? (existingData['content'] as string) : '') ??
+      '';
+    const visibility =
+      requestedVisibility ??
+      (existingData['visibility'] as PostVisibility | undefined) ??
+      PostVisibility.PUBLIC;
+    const tags = Array.isArray(existingData['tags']) ? (existingData['tags'] as string[]) : [];
+    const searchIndex = buildVideoSearchIndex({
+      title: resolvedTitle,
+      description: resolvedContent,
+      sport: sportId ?? (existingData['sportId'] as string | undefined),
+      tags,
+    });
+
+    const payload: Record<string, unknown> = {
+      id: postId,
+      userId,
+      ownerType: 'user',
+      type: 'highlight',
+      visibility,
+      isPublic: visibility === PostVisibility.PUBLIC,
+      title: resolvedTitle,
+      content: resolvedContent,
+      url: mediaUrl,
+      mediaUrl,
+      videoUrl:
+        finalized.playback.hlsUrl ?? (existingData['videoUrl'] as string | undefined) ?? mediaUrl,
+      thumbnailUrl,
+      poster: thumbnailUrl,
+      previewUrl:
+        finalized.previewUrl ?? (existingData['previewUrl'] as string | undefined) ?? null,
+      duration:
+        finalized.durationSeconds ??
+        ((typeof existingData['duration'] === 'number' ? existingData['duration'] : undefined) as
+          | number
+          | undefined) ??
+        null,
+      cloudflareVideoId,
+      cloudflareStatus: finalized.status,
+      readyToStream: finalized.readyToStream,
+      playback: finalized.playback,
+      cloudflareMetadata: finalized.metadata,
+      uploadProvider: 'cloudflare-stream',
+      searchIndex,
+      tags,
+      stats:
+        (existingData['stats'] as Record<string, unknown> | undefined) ??
+        ({ likes: 0, comments: 0, shares: 0, views: 0 } satisfies Record<string, number>),
+      createdAt,
+      updatedAt,
+      ...((sportId ?? existingData['sportId'])
+        ? { sportId: sportId ?? existingData['sportId'] }
+        : {}),
+      ...((teamId ?? existingData['teamId']) ? { teamId: teamId ?? existingData['teamId'] } : {}),
+      ...((organizationId ?? existingData['organizationId'])
+        ? { organizationId: organizationId ?? existingData['organizationId'] }
+        : {}),
+      ...((isPinned ?? existingData['isPinned'] !== undefined)
+        ? { isPinned: isPinned ?? (existingData['isPinned'] as boolean) }
+        : {}),
+    };
+
+    await postRef.set(payload);
+
+    const cache = getCacheService();
+    await Promise.all([
+      cache.del(`profile:videos:${userId}*`),
+      cache.del('explore:*'),
+      invalidateProfileCaches(userId),
+    ]);
+
+    const responseBody: PersistedHighlightVideoPostResponse = {
+      postId,
+      cloudflareVideoId,
+      status: finalized.status,
+      readyToStream: finalized.readyToStream,
+      title: resolvedTitle,
+      content: resolvedContent,
+      thumbnailUrl,
+      mediaUrl,
+      duration: finalized.durationSeconds,
+      visibility: toVisibilityType(visibility),
+      createdAt: createdAt.toDate().toISOString(),
+      updatedAt: updatedAt.toDate().toISOString(),
+      playback: finalized.playback,
+    };
+
+    logger.info('Persisted Cloudflare highlight post', {
+      userId,
+      postId,
+      cloudflareVideoId,
+      readyToStream: finalized.readyToStream,
+      status: finalized.status,
+    });
+
+    return res.json({
+      success: true,
+      data: responseBody,
+    });
+  })
+);
 
 /**
  * POST /upload/profile-photo

@@ -8,8 +8,7 @@
  * and Firecrawl's AI will find elements and interact with them automatically.
  *
  * All actions execute in the SAME browser the user sees in their command
- * center iframe — unlike `interact_with_webpage` which spins up an
- * independent ephemeral browser.
+ * center iframe.
  */
 
 import { BaseTool, type ToolResult } from '../base.tool.js';
@@ -25,10 +24,10 @@ export class InteractWithLiveViewTool extends BaseTool {
     '"Type test@example.com into the email field and click Sign In", "Scroll down to the stats section"). ' +
     "Firecrawl's AI automatically finds elements and interacts with them — no CSS selectors needed. " +
     'The user watches the actions happen in real time in their side panel. ' +
-    'Use this INSTEAD of interact_with_webpage when a live view session is already open. ' +
+    'Use this whenever the user wants actions performed in the page that is already open in live view. ' +
     "The sessionId is optional — if omitted, the tool automatically finds the user's active session. " +
-    'IMPORTANT: For destructive actions (submit, send, purchase, delete, confirm, etc.), you MUST first ask the user for confirmation ' +
-    'and then call this tool again with confirmed: true. The tool will reject unconfirmed destructive actions.';
+    'Approval-sensitive actions are evaluated centrally by the agent approval gate before this tool executes. ' +
+    'For legacy callers outside the approval-aware runtime, destructive actions still require confirmed: true as a safety fallback.';
 
   readonly parameters = {
     type: 'object' as const,
@@ -54,9 +53,8 @@ export class InteractWithLiveViewTool extends BaseTool {
       confirmed: {
         type: 'boolean',
         description:
-          'Set to true ONLY after you have explicitly asked the user for confirmation and they agreed. ' +
-          'Required for destructive or irreversible actions (submit, send, purchase, delete, confirm, place order, etc.). ' +
-          'If the action is destructive and confirmed is not true, the tool will reject the call and ask you to confirm with the user first.',
+          'Compatibility fallback for callers outside the approval-aware runtime. ' +
+          'Set to true only after the user explicitly confirms a destructive browser action.',
       },
     },
     required: ['prompt', 'userId'],
@@ -75,14 +73,14 @@ export class InteractWithLiveViewTool extends BaseTool {
 
   private readonly sessionService: LiveViewSessionService;
 
+  /** Final safety net for non-agent-runtime callers that bypass ApprovalGateService. */
+  private static readonly DESTRUCTIVE_KEYWORDS =
+    /\b(submit|send|confirm|purchase|buy|place\s+order|delete|remove|pay|checkout|sign\s+up|register|apply|publish|post|transfer|authorize|approve)\b/i;
+
   constructor(sessionService: LiveViewSessionService) {
     super();
     this.sessionService = sessionService;
   }
-
-  /** Words in the prompt that indicate a destructive/irreversible action. */
-  private static readonly DESTRUCTIVE_KEYWORDS =
-    /\b(submit|send|confirm|purchase|buy|place\s+order|delete|remove|pay|checkout|sign\s+up|register|apply|publish|post|transfer|authorize|approve)\b/i;
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const userId = this.str(input, 'userId');
@@ -92,7 +90,6 @@ export class InteractWithLiveViewTool extends BaseTool {
     if (!userId) return this.paramError('userId');
     if (!prompt) return this.paramError('prompt');
 
-    // Guard: require explicit user confirmation for destructive actions
     if (!confirmed && InteractWithLiveViewTool.DESTRUCTIVE_KEYWORDS.test(prompt)) {
       const matchedWord =
         prompt.match(InteractWithLiveViewTool.DESTRUCTIVE_KEYWORDS)?.[0] ?? 'this action';
@@ -109,8 +106,7 @@ export class InteractWithLiveViewTool extends BaseTool {
           prompt,
           message:
             `This action involves "${matchedWord}" which could be irreversible. ` +
-            'You MUST ask the user if they want to proceed before calling this tool again with confirmed: true. ' +
-            'Describe exactly what will happen and wait for their explicit approval.',
+            'Ask the user to confirm before re-running with confirmed: true.',
         },
       };
     }

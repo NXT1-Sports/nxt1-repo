@@ -32,6 +32,7 @@ import {
   normalizeName,
   SPORT_POSITIONS,
   normalizeSportKey,
+  isTeamRole,
 } from '@nxt1/core';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import {
@@ -211,11 +212,31 @@ function sanitizeStoredTeam(
   return {
     type: team.type,
     ...(team.name ? { name: team.name } : {}),
+    ...(team.title ? { title: team.title } : {}),
     ...(team.organizationId ? { organizationId: team.organizationId } : {}),
     ...(team.teamId ? { teamId: team.teamId } : {}),
     ...(team.city ? { city: team.city } : {}),
     ...(team.state ? { state: team.state } : {}),
   };
+}
+
+function getLegacyCoachTitle(user?: UserV2Document): string | undefined {
+  const rootCoachTitle = (user as Record<string, unknown> | undefined)?.['coachTitle'];
+  if (typeof rootCoachTitle === 'string' && rootCoachTitle.trim().length > 0) {
+    return rootCoachTitle.trim();
+  }
+
+  const nestedCoachTitle = user?.coach?.title;
+  if (typeof nestedCoachTitle === 'string' && nestedCoachTitle.trim().length > 0) {
+    return nestedCoachTitle.trim();
+  }
+
+  const existingSportTitle = user?.sports?.find((sport) => sport.team?.title)?.team?.title;
+  if (typeof existingSportTitle === 'string' && existingSportTitle.trim().length > 0) {
+    return existingSportTitle.trim();
+  }
+
+  return undefined;
 }
 
 function sanitizeSportsForStorage(sports?: SportProfile[]): SportProfile[] | undefined {
@@ -271,10 +292,12 @@ function createSportProfile(
   options?: {
     readonly positions?: string[];
     readonly teamName?: string;
+    readonly title?: string;
     readonly teamType?: string;
     readonly city?: string;
     readonly state?: string;
     readonly teamId?: string;
+    readonly organizationId?: string;
   }
 ): SportProfile {
   const VALID_TEAM_TYPES = [
@@ -292,25 +315,39 @@ function createSportProfile(
       ? (options.teamType as ValidTeamType)
       : 'high-school';
 
+  const normalizedPositions = options?.positions
+    ? normalizePositions(options.positions, sport)
+    : [];
+
   // Build sport profile - only include non-empty fields (Firestore efficiency)
   const profile: SportProfile = {
     sport,
     order,
-    positions: options?.positions ? normalizePositions(options.positions, sport) : [],
     team: {
       type: teamType,
       name: '',
     },
   };
 
+  if (normalizedPositions.length > 0) {
+    profile.positions = normalizedPositions;
+  }
+
   if (options?.teamName || options?.teamType) {
     profile.team = {
       type: teamType,
       name: options?.teamName || '',
+      ...(options?.title ? { title: options.title } : {}),
       ...(options?.teamId ? { teamId: options.teamId } : {}),
+      ...(options?.organizationId ? { organizationId: options.organizationId } : {}),
     };
-  } else if (options?.teamId) {
-    profile.team = { ...profile.team!, teamId: options.teamId };
+  } else if (options?.teamId || options?.organizationId || options?.title) {
+    profile.team = {
+      ...profile.team!,
+      ...(options?.teamId ? { teamId: options.teamId } : {}),
+      ...(options?.organizationId ? { organizationId: options.organizationId } : {}),
+      ...(options?.title ? { title: options.title } : {}),
+    };
   }
   return profile;
 }
@@ -823,6 +860,14 @@ router.post(
       updateData.role = mapUserTypeToRole(profileData['userType'] as string);
     }
 
+    const resolvedOnboardingRole =
+      (updateData.role as string | undefined) ?? (currentUser?.role as string | undefined);
+    const isTeamRoleOnboard = isTeamRole(resolvedOnboardingRole);
+    const incomingCoachTitle =
+      (typeof profileData['coachTitle'] === 'string' && profileData['coachTitle'].trim().length > 0
+        ? profileData['coachTitle'].trim()
+        : undefined) ?? getLegacyCoachTitle(currentUser);
+
     // V2: Build sports array
     const sports: SportProfile[] = [];
 
@@ -837,24 +882,31 @@ router.post(
           city?: string;
           state?: string;
           teamId?: string;
+          organizationId?: string;
+          title?: string;
         };
       }>;
 
       sportsData.forEach((sportData, index) => {
         const sportProfile = createSportProfile(sportData.sport, index, {
-          positions: sportData.positions,
+          positions: isTeamRoleOnboard ? undefined : sportData.positions,
           teamName: sportData.team?.name,
+          title: sportData.team?.title ?? incomingCoachTitle,
           teamType: sportData.team?.type,
           city: sportData.team?.city,
           state: sportData.team?.state,
           teamId: sportData.team?.teamId,
+          organizationId: sportData.team?.organizationId,
         });
         sports.push(sportProfile);
       });
     } else if (profileData['sport']) {
       const primarySport = createSportProfile(profileData['sport'] as string, 0, {
-        positions: profileData['positions'] as string[] | undefined,
+        positions: isTeamRoleOnboard
+          ? undefined
+          : (profileData['positions'] as string[] | undefined),
         teamName: profileData['highSchool'] as string | undefined,
+        title: incomingCoachTitle,
         teamType: profileData['highSchoolSuffix'] as string | undefined,
         city: profileData['city'] as string | undefined,
         state: profileData['state'] as string | undefined,
@@ -870,23 +922,20 @@ router.post(
         const tertiarySport = createSportProfile(profileData['tertiarySport'] as string, 2);
         sports.push(tertiarySport);
       }
+    } else if (Array.isArray(currentUser?.sports) && currentUser.sports.length > 0) {
+      const existingSports = JSON.parse(JSON.stringify(currentUser.sports)) as SportProfile[];
+      if (isTeamRoleOnboard) {
+        existingSports.forEach((sport) => {
+          delete sport.positions;
+        });
+      }
+      sports.push(...existingSports);
     }
 
     if (sports.length > 0) {
-      // Only write physical sports[] to the database for Athletes (they own stats, positions, etc.)
-      // Coaches/Directors do NOT get physical sports[] — their sport dropdown is
-      // synthesized at read-time by ProfileHydrationService from RosterEntries.
-      const onboardRole = updateData.role as string;
-      const isTeamRoleOnboard =
-        onboardRole === 'coach' || onboardRole === 'director' || onboardRole === 'recruiter';
-      if (!isTeamRoleOnboard) {
-        updateData.sports = sports;
-        updateData.activeSportIndex = 0;
-      } else {
-        // Actively purge any previously-written sports[] from coach/director User docs
-        (updateData as Record<string, unknown>)['sports'] = FieldValue.delete();
-        (updateData as Record<string, unknown>)['activeSportIndex'] = FieldValue.delete();
-      }
+      updateData.sports = sports;
+      updateData.activeSportIndex = 0;
+      updateData.primarySport = sports[0]?.sport;
     }
 
     // V2: Build location object
@@ -907,14 +956,14 @@ router.post(
     }
 
     // V2: Class year (Athlete)
-    if (profileData['classOf'] && updateData.role === 'athlete') {
+    if (profileData['classOf'] && resolvedOnboardingRole === 'athlete') {
       updateData.classOf = Number(profileData['classOf']);
     }
 
     // V2: Coach-specific data (coach, director)
-    const isCoachRole = updateData.role === 'coach' || updateData.role === 'director';
-    if (isCoachRole && profileData['coachTitle']) {
-      (updateData as Record<string, unknown>)['coachTitle'] = profileData['coachTitle'] as string;
+    const isCoachRole = resolvedOnboardingRole === 'coach' || resolvedOnboardingRole === 'director';
+    if (isCoachRole) {
+      (updateData as Record<string, unknown>)['coachTitle'] = FieldValue.delete();
     }
 
     // V2: Legacy fields (highSchool, organization) are no longer written.
@@ -950,6 +999,7 @@ router.post(
         firstName: updateData.firstName,
         lastName: updateData.lastName,
         profileImgs: updateData.profileImgs,
+        coachTitle: incomingCoachTitle,
         athlete: updateData.classOf ? { classOf: updateData.classOf } : undefined,
         location: updateData.location
           ? { city: updateData.location.city, state: updateData.location.state }
@@ -1335,8 +1385,7 @@ router.post(
         // V2: Update team info in sports array if exists (Athletes only — coaches/directors
         // don't own sports[]; their sport data is synthesized from RosterEntries)
         const schoolRole = currentUser?.role as string | undefined;
-        const schoolIsTeamRole =
-          schoolRole === 'coach' || schoolRole === 'director' || schoolRole === 'recruiter';
+        const schoolIsTeamRole = isTeamRole(schoolRole);
         if (!schoolIsTeamRole && currentUser?.sports && currentUser.sports.length > 0) {
           const updatedSports = [...currentUser.sports];
           const currentTeam = updatedSports[0]?.team;
@@ -1365,11 +1414,58 @@ router.post(
       }
 
       case 'organization': {
-        // V2: Update coach title as top-level field. Organization is resolved via Organization docs + admins.
-        if (stepData['coachTitle']) {
-          (updateData as Record<string, unknown>)['coachTitle'] = (
-            stepData['coachTitle'] as string
-          )?.trim();
+        const currentRole = currentUser?.role as string | undefined;
+        const isTeamRoleUser = isTeamRole(currentRole);
+        const organizationName = (stepData['organization'] as string)?.trim();
+        const coachTitle = (stepData['coachTitle'] as string)?.trim() || undefined;
+
+        if (isTeamRoleUser) {
+          const existingSports = Array.isArray(currentUser?.sports)
+            ? (JSON.parse(JSON.stringify(currentUser.sports)) as SportProfile[])
+            : [];
+          const fallbackPrimarySport =
+            getPrimarySport(currentUser?.sports) ??
+            ((currentUser as Record<string, unknown> | undefined)?.['primarySport'] as
+              | string
+              | undefined);
+          const updatedSports =
+            existingSports.length > 0
+              ? existingSports
+              : fallbackPrimarySport
+                ? [
+                    createSportProfile(fallbackPrimarySport, 0, {
+                      teamName: organizationName,
+                      title: coachTitle,
+                      city: (stepData['city'] as string)?.trim() || currentUser?.location?.city,
+                      state: (stepData['state'] as string)?.trim() || currentUser?.location?.state,
+                    }),
+                  ]
+                : [];
+
+          if (updatedSports.length > 0) {
+            updatedSports.forEach((sport) => {
+              delete sport.positions;
+              if (!sport.team) {
+                sport.team = {
+                  type: 'organization',
+                  name: organizationName || '',
+                  ...(coachTitle ? { title: coachTitle } : {}),
+                };
+              }
+              if (organizationName !== undefined) {
+                sport.team.name = organizationName;
+              }
+              if (coachTitle !== undefined) {
+                sport.team.title = coachTitle;
+              }
+            });
+
+            updateData.sports = updatedSports;
+            updateData.activeSportIndex = 0;
+            updateData.primarySport = updatedSports[0]?.sport;
+          }
+
+          (updateData as Record<string, unknown>)['coachTitle'] = FieldValue.delete();
         }
 
         // V2: Update location
@@ -1390,6 +1486,12 @@ router.post(
         const currentSports: SportProfile[] = Array.isArray(currentUser?.sports)
           ? currentUser!.sports
           : [];
+        const userRole = currentUser?.role as string | undefined;
+        const isTeamRoleUser = isTeamRole(userRole);
+        const teamRoleTitle =
+          currentUser?.sports?.find((sport) => sport.team?.title)?.team?.title ??
+          getLegacyCoachTitle(currentUser);
+
         if (Array.isArray(stepData['sports']) && stepData['sports'].length > 0) {
           const sportsData = stepData['sports'] as Array<{
             sport: string;
@@ -1400,6 +1502,8 @@ router.post(
               type?: string;
               city?: string;
               state?: string;
+              teamId?: string;
+              organizationId?: string;
             };
           }>;
 
@@ -1407,12 +1511,18 @@ router.post(
             const existingSport = currentSports.find((s) => s.order === index);
             sports.push(
               createSportProfile(sportData.sport, index, {
-                positions: sportData.positions ?? existingSport?.positions,
+                positions: isTeamRoleUser
+                  ? undefined
+                  : (sportData.positions ?? existingSport?.positions),
                 teamName:
                   sportData.team?.name ?? existingSport?.team?.name ?? currentUser?.highSchool,
+                title: existingSport?.team?.title ?? teamRoleTitle,
                 teamType: sportData.team?.type ?? existingSport?.team?.type,
                 city: sportData.team?.city ?? currentUser?.location?.city ?? currentUser?.city,
                 state: sportData.team?.state ?? currentUser?.location?.state ?? currentUser?.state,
+                teamId: sportData.team?.teamId ?? existingSport?.team?.teamId,
+                organizationId:
+                  sportData.team?.organizationId ?? existingSport?.team?.organizationId,
               })
             );
           });
@@ -1430,11 +1540,14 @@ router.post(
             const existingPrimary = currentSports.find((s) => s.order === 0);
             sports.push(
               createSportProfile(primarySportName, 0, {
-                positions: existingPrimary?.positions,
+                positions: isTeamRoleUser ? undefined : existingPrimary?.positions,
                 teamName: existingPrimary?.team?.name ?? currentUser?.highSchool,
+                title: existingPrimary?.team?.title ?? teamRoleTitle,
                 teamType: existingPrimary?.team?.type,
                 city: currentUser?.location?.city ?? currentUser?.city,
                 state: currentUser?.location?.state ?? currentUser?.state,
+                teamId: existingPrimary?.team?.teamId,
+                organizationId: existingPrimary?.team?.organizationId,
               })
             );
           }
@@ -1443,30 +1556,34 @@ router.post(
             const existingSecondary = currentSports.find((s) => s.order === 1);
             sports.push(
               createSportProfile(secondarySportName, 1, {
-                positions: existingSecondary?.positions,
+                positions: isTeamRoleUser ? undefined : existingSecondary?.positions,
+                title: existingSecondary?.team?.title ?? teamRoleTitle,
+                teamId: existingSecondary?.team?.teamId,
+                organizationId: existingSecondary?.team?.organizationId,
               })
             );
           }
         }
 
         if (sports.length > 0) {
-          // Only write physical sports[] for Athletes — coaches/directors get sport
-          // data synthesized at read-time from RosterEntries.
-          const userRole = currentUser?.role as string | undefined;
-          const isTeamRole =
-            userRole === 'coach' || userRole === 'director' || userRole === 'recruiter';
-          if (!isTeamRole) {
-            updateData.sports = sports;
-            updateData.activeSportIndex = 0;
+          if (isTeamRoleUser) {
+            sports.forEach((sport) => {
+              if (!sport.team) {
+                sport.team = { type: 'organization', name: '' };
+              }
+              if (teamRoleTitle) {
+                sport.team.title = teamRoleTitle;
+              }
+            });
+            (updateData as Record<string, unknown>)['coachTitle'] = FieldValue.delete();
+          }
 
-            const primarySport = sports.find((s) => s.order === 0);
-            if (primarySport) {
-              updateData.primarySport = primarySport.sport;
-            }
-          } else {
-            // Actively purge any previously-written sports[] from coach/director User docs
-            (updateData as Record<string, unknown>)['sports'] = FieldValue.delete();
-            (updateData as Record<string, unknown>)['activeSportIndex'] = FieldValue.delete();
+          updateData.sports = sports;
+          updateData.activeSportIndex = 0;
+
+          const primarySport = sports.find((s) => s.order === 0);
+          if (primarySport) {
+            updateData.primarySport = primarySport.sport;
           }
         }
         break;
@@ -1483,8 +1600,7 @@ router.post(
 
         // V2: Update positions in sports array (Athletes only — coaches don't own sports[])
         const posUserRole = currentUser?.role as string | undefined;
-        const posIsTeamRole =
-          posUserRole === 'coach' || posUserRole === 'director' || posUserRole === 'recruiter';
+        const posIsTeamRole = isTeamRole(posUserRole);
         if (!posIsTeamRole) {
           if (currentUser?.sports && currentUser.sports.length > 0) {
             const updatedSports = [...currentUser.sports];
@@ -1597,10 +1713,10 @@ router.post(
 
         // Determine if this is a team-level role (coach/director)
         const linkRole = currentUser?.role as string | undefined;
-        const isTeamRole = linkRole === 'coach' || linkRole === 'director';
+        const isTeamRoleUser = isTeamRole(linkRole);
 
         // Get team IDs from user's sports array for team-level writes
-        const userTeamIds: string[] = isTeamRole
+        const userTeamIds: string[] = isTeamRoleUser
           ? ((currentUser?.sports as SportProfile[]) ?? [])
               .map((s) => s.team?.teamId)
               .filter((id): id is string => !!id)
@@ -1638,7 +1754,7 @@ router.post(
             };
 
             // Coach/director sources → Team doc; athlete/other → User doc
-            if (isTeamRole && userTeamIds.length > 0) {
+            if (isTeamRoleUser && userTeamIds.length > 0) {
               const addedByName =
                 [currentUser?.firstName, currentUser?.lastName].filter(Boolean).join(' ') ||
                 'Staff';
@@ -1698,7 +1814,7 @@ router.post(
           (updateData as Record<string, unknown>)['connectedSources'] = Array.from(
             connectedMap.values()
           );
-        } else if (isTeamRole && userTeamIds.length > 0) {
+        } else if (isTeamRoleUser && userTeamIds.length > 0) {
           // Purge any previously incorrectly written sources from user doc
           (updateData as Record<string, unknown>)['connectedSources'] = FieldValue.delete();
         }
@@ -3303,84 +3419,15 @@ router.post(
  */
 router.post(
   '/profile/preload-scrape',
-  asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { db } = req.firebase!;
-    const { userId, linkedAccounts, sport, role } = req.body;
-
-    if (!userId || !Array.isArray(linkedAccounts) || linkedAccounts.length === 0) {
-      const error = validationError([
-        ...(!userId
-          ? [{ field: 'userId', message: 'User ID is required', rule: 'required' as const }]
-          : []),
-        ...(!linkedAccounts || linkedAccounts.length === 0
-          ? [
-              {
-                field: 'linkedAccounts',
-                message: 'At least one linked account is required',
-                rule: 'required' as const,
-              },
-            ]
-          : []),
-      ]);
-      sendError(res, error);
-      return;
-    }
-
-    // Validate that the user exists
-    const userDoc = await db.collection('Users').doc(userId).get();
-    if (!userDoc.exists) {
-      const error = notFoundError('user', userId);
-      sendError(res, error);
-      return;
-    }
-
-    // Sanitize linked accounts — only accept platform + profileUrl strings
-    const sanitized = (linkedAccounts as Array<{ platform?: string; profileUrl?: string }>)
-      .filter(
-        (a): a is { platform: string; profileUrl: string } =>
-          typeof a.platform === 'string' &&
-          a.platform.length > 0 &&
-          typeof a.profileUrl === 'string' &&
-          a.profileUrl.startsWith('http')
-      )
-      .map((a) => ({ platform: a.platform.toLowerCase(), profileUrl: a.profileUrl }));
-
-    if (sanitized.length === 0) {
-      res.json({ success: true, skipped: true, reason: 'No valid linked accounts' });
-      return;
-    }
-
-    const agentEnv = req.isStaging ? 'staging' : 'production';
-    try {
-      const result = await enqueueLinkedAccountScrape(
-        db,
-        {
-          userId,
-          role: (role as UserRole) ?? 'athlete',
-          sport: typeof sport === 'string' ? sport : undefined,
-          linkedAccounts: sanitized,
-        },
-        agentEnv
-      );
-
-      logger.info('[Auth] Pre-fetch scrape enqueued from Step 5', {
-        userId,
-        operationId: result?.operationId,
-        platforms: sanitized.map((a) => a.platform).join(', '),
-      });
-
-      res.json({
-        success: true,
-        ...(result?.operationId && { scrapeJobId: result.operationId }),
-      });
-    } catch (err) {
-      logger.error('[Auth] Failed to enqueue pre-fetch scrape', {
-        userId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      // Non-fatal — return success so onboarding can continue
-      res.json({ success: true, skipped: true, reason: 'Scrape enqueue failed' });
-    }
+  asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+    // PRELOAD DISABLED: All scrapes are now deferred to the final onboarding completion
+    // endpoint (/profile/onboarding) to ensure all core database documents (teams,
+    // organizations, etc.) are fully created before the AI agent attempts to read them.
+    res.json({
+      success: true,
+      skipped: true,
+      reason: 'Deferred until onboarding completion for all roles',
+    });
   })
 );
 

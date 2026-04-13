@@ -1062,6 +1062,7 @@ export class WebShellComponent {
       name: ctx.name,
       profileImg: ctx.profileImg,
       initials: ctx.initials,
+      isTeamRole: ctx.isTeamRole,
     };
   });
 

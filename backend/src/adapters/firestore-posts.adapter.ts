@@ -10,6 +10,7 @@ import type { Timestamp } from 'firebase-admin/firestore';
 import type {
   FeedPost,
   FeedComment,
+  FeedMedia,
   FeedAuthor,
   FeedCommentAuthor,
   FeedPostType,
@@ -35,7 +36,16 @@ export interface FirestorePostDoc {
   visibility: PostVisibility;
   teamId?: string;
   images?: string[];
+  mediaUrl?: string;
   videoUrl?: string;
+  thumbnailUrl?: string;
+  poster?: string;
+  duration?: number;
+  playback?: {
+    hlsUrl?: string;
+    dashUrl?: string;
+    iframeUrl?: string;
+  };
   externalLinks?: string[];
   mentions?: string[];
   hashtags?: string[];
@@ -199,17 +209,33 @@ export function firestorePostToFeedPost(
     isReposted?: boolean;
   }
 ): FeedPost {
+  const media: FeedMedia[] = (doc.images || []).map((url, index) => ({
+    id: `${id}-image-${index}`,
+    type: 'image' as const,
+    url,
+  }));
+
+  const videoUrl = doc.mediaUrl ?? doc.videoUrl ?? doc.playback?.iframeUrl ?? doc.playback?.hlsUrl;
+  const thumbnailUrl = doc.thumbnailUrl ?? doc.poster;
+
+  if (videoUrl) {
+    media.push({
+      id: `${id}-video-0`,
+      type: 'video' as const,
+      url: videoUrl,
+      thumbnailUrl,
+      duration: doc.duration,
+      altText: doc.content || 'Highlight video',
+    });
+  }
+
   return {
     id,
     type: mapPostTypeToFeedType(doc.type),
     visibility: mapPostVisibilityToFeedVisibility(doc.visibility),
     author,
     content: doc.content,
-    media: (doc.images || []).map((url, index) => ({
-      id: `${id}-image-${index}`,
-      type: 'image' as const,
-      url,
-    })),
+    media,
     engagement: {
       reactionCount: doc.stats?.likes || 0,
       likeCount: doc.stats?.likes || 0,

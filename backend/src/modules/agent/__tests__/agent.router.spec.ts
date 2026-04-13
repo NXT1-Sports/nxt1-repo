@@ -18,6 +18,7 @@ import type {
   AgentJobUpdate,
   AgentJobOrigin,
   AgentOperationResult,
+  AgentPromptContext,
   AgentUserContext,
 } from '@nxt1/core';
 
@@ -38,12 +39,35 @@ function createMockUserContext(): AgentUserContext {
 
 function createMockContextBuilder(userContext?: AgentUserContext): ContextBuilder {
   const ctx = userContext ?? createMockUserContext();
+  const promptContext: AgentPromptContext = {
+    profile: ctx,
+    memories: {
+      user: [
+        {
+          id: 'mem-1',
+          userId: ctx.userId,
+          target: 'user',
+          content: 'User prefers improvement plans with weekly milestones.',
+          category: 'goal',
+          createdAt: '2026-03-01T00:00:00Z',
+        },
+      ],
+      team: [],
+      organization: [],
+    },
+  };
+
   return {
     buildContext: vi.fn().mockResolvedValue(ctx),
+    buildPromptContext: vi.fn().mockResolvedValue(promptContext),
     compressToPrompt: vi
       .fn()
-      .mockReturnValue(
-        `Athlete: ${ctx.displayName}, Sport: ${ctx.sport}, Position: ${ctx.position}`
+      .mockImplementation(
+        (
+          profile: AgentUserContext,
+          memories: AgentPromptContext['memories'] = { user: [], team: [], organization: [] }
+        ) =>
+          `Athlete: ${profile.displayName}, Sport: ${profile.sport}, Position: ${profile.position}, MemoryCount: ${memories.user.length}`
       ),
   } as unknown as ContextBuilder;
 }
@@ -71,6 +95,7 @@ function createMockLLM(planJson: object): OpenRouterService {
       finishReason: 'stop',
     }),
     complete: vi.fn(),
+    embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
   } as unknown as OpenRouterService;
 }
 
@@ -82,6 +107,13 @@ function createMockAgent(id: string, result?: AgentOperationResult): BaseAgent {
     getSystemPrompt: vi.fn().mockReturnValue(`System prompt for ${id}`),
     getModelRouting: vi.fn().mockReturnValue({ tier: 'chat' }),
     execute: vi.fn().mockResolvedValue(
+      result ?? {
+        summary: `${id} completed successfully.`,
+        data: { processed: true },
+        suggestions: [],
+      }
+    ),
+    resumeExecution: vi.fn().mockResolvedValue(
       result ?? {
         summary: `${id} completed successfully.`,
         data: { processed: true },
@@ -165,7 +197,7 @@ describe('AgentRouter', () => {
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
       await router.classify('hello', 'user-123');
 
-      expect(contextBuilder.buildContext).toHaveBeenCalledWith('user-123');
+      expect(contextBuilder.buildPromptContext).toHaveBeenCalledWith('user-123', 'hello');
       expect(contextBuilder.compressToPrompt).toHaveBeenCalled();
     });
   });
@@ -173,6 +205,64 @@ describe('AgentRouter', () => {
   // ─── run() ──────────────────────────────────────────────────────────────
 
   describe('run()', () => {
+    it('should resume yielded approval jobs via resumeExecution and forward approvalId', async () => {
+      llm = createMockLLM({ tasks: [] });
+
+      const recruitingAgent = createMockAgent('recruiting_coordinator', {
+        summary: 'Approved email sent successfully.',
+        data: { sent: true },
+        suggestions: [],
+      });
+
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      router.registerAgent(recruitingAgent);
+
+      const yieldState = {
+        reason: 'needs_approval' as const,
+        agentId: 'recruiting_coordinator' as const,
+        promptToUser: 'Approve sending this email?',
+        messages: [
+          { role: 'system', content: 'System prompt' },
+          { role: 'assistant', content: null, tool_calls: [] },
+        ],
+        pendingToolCall: {
+          toolName: 'send_email',
+          toolInput: { toEmail: 'coach@example.com', subject: 'Hello coach' },
+          toolCallId: 'tool-call-1',
+        },
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      };
+
+      const payload: AgentJobPayload = {
+        operationId: 'op-resume-approval',
+        userId: 'user-123',
+        intent: 'Send my coach outreach email',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+        context: {
+          approvalId: 'approval-123',
+          yieldState,
+        },
+      };
+
+      const result = await router.run(payload);
+
+      expect(recruitingAgent.resumeExecution).toHaveBeenCalledWith(
+        yieldState,
+        expect.objectContaining({ operationId: 'op-resume-approval', userId: 'user-123' }),
+        expect.any(Array),
+        llm,
+        toolRegistry,
+        undefined,
+        undefined,
+        undefined,
+        'approval-123'
+      );
+
+      expect(result.summary).toBe('Approved email sent successfully.');
+    });
+
     it('should execute a single-task plan successfully', async () => {
       llm = createMockLLM({
         summary: 'Analyze the tape.',
@@ -433,6 +523,7 @@ describe('AgentRouter', () => {
       expect(userMessage).toContain('[User Profile]');
       expect(userMessage).toContain('Test Athlete');
       expect(userMessage).toContain('football');
+      expect(userMessage).toContain('MemoryCount: 1');
       expect(userMessage).toContain('[Request]');
       expect(userMessage).toContain('Help me improve my stats');
     });

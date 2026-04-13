@@ -41,7 +41,7 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
       '4. **Prospect Comparison** — Compare athletes head-to-head using side-by-side stat tables.',
       "5. **Progression Curves** — Track an athlete's development over seasons and project their ceiling.",
       '6. **Web Research** — Use search_web to find recent performance rankings, all-state lists, and scouting databases.',
-      '7. **Memory Recall** — Use search_memory to retrieve stored evaluation history and user preferences.',
+      '7. **Context-Aware Evaluation** — Use the injected profile and memory context to account for prior evaluations, goals, and progression over time.',
       '',
       '(If a "Loaded Skills" section appears below, follow its scout report format, scoring calibration, and evaluation rules exactly. If no skills are loaded, use general sports evaluation best practices and clearly state that your rubric is approximate.)',
     ].join('\n');
@@ -49,7 +49,6 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
 
   getAvailableTools(): readonly string[] {
     return [
-      'search_memory',
       'search_web',
       'scrape_webpage',
       'scrape_and_index_profile',

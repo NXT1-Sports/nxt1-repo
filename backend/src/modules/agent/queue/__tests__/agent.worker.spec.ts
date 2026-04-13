@@ -136,6 +136,15 @@ describe('AgentWorker', () => {
     subscribe: vi.fn().mockResolvedValue(() => undefined),
   };
 
+  const mockChatService = {
+    addMessage: vi.fn().mockResolvedValue(undefined),
+    generateThreadTitle: vi.fn().mockResolvedValue('MaxPreps Sync Complete'),
+  };
+
+  const mockLlmService = {
+    complete: vi.fn(),
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     capturedProcessor = null;
@@ -144,9 +153,10 @@ describe('AgentWorker', () => {
       mockRouter as never,
       mockJobRepo as never,
       mockJobRepo as never,
-      null as never,
+      mockChatService as never,
       mockPubSub as never,
       mockFirestore,
+      mockLlmService as never,
       'redis://localhost:6379'
     );
   });
@@ -190,6 +200,31 @@ describe('AgentWorker', () => {
     expect(result).toHaveProperty('durationMs');
     expect(result).toHaveProperty('completedAt');
     expect(typeof result['durationMs']).toBe('number');
+  });
+
+  it('should auto-generate a thread title after persisting the worker response', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-123' },
+      intent: 'Analyze my linked maxpreps account for Belleville football',
+    });
+    const job = makeMockJob(payload);
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-123',
+        role: 'assistant',
+        content: 'Drafted 5 recruiting emails',
+      })
+    );
+    expect(mockChatService.generateThreadTitle).toHaveBeenCalledWith(
+      'thread-123',
+      payload.userId,
+      payload.intent,
+      'Drafted 5 recruiting emails',
+      mockLlmService
+    );
   });
 
   it('should call job.updateProgress at least once (final 100%)', async () => {
@@ -274,9 +309,10 @@ describe('AgentWorker', () => {
         mockRouter as never,
         mockJobRepo as never,
         mockJobRepo as never,
-        null as never,
+        mockChatService as never,
         mockPubSub as never,
         mockFirestore,
+        mockLlmService as never,
         'redis://localhost:6379'
       );
       await worker.shutdown();
@@ -290,9 +326,10 @@ describe('AgentWorker', () => {
         mockRouter as never,
         mockJobRepo as never,
         mockJobRepo as never,
-        null as never,
+        mockChatService as never,
         mockPubSub as never,
         mockFirestore,
+        mockLlmService as never,
         'redis://localhost:6379'
       );
       expect(worker.isRunning()).toBe(true);

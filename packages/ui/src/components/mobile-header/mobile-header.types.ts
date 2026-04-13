@@ -88,6 +88,9 @@ export interface MobileHeaderUserData {
 
   /** Initials (fallback for avatar) */
   readonly initials?: string;
+
+  /** Whether this user is a team-management role (coach/director) */
+  readonly isTeamRole?: boolean;
 }
 
 // ============================================

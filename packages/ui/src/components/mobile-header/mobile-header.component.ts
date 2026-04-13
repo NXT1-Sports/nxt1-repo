@@ -41,6 +41,7 @@ import { RouterModule } from '@angular/router';
 import { Subject } from 'rxjs';
 import { NxtLogoComponent } from '../logo';
 import { NxtIconComponent } from '../icon';
+import { NxtAvatarComponent } from '../avatar';
 import { HapticsService } from '../../services/haptics';
 import type { MobileHeaderConfig, MobileHeaderUserData } from './mobile-header.types';
 import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
@@ -48,7 +49,7 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
 @Component({
   selector: 'nxt1-mobile-header',
   standalone: true,
-  imports: [CommonModule, RouterModule, NxtLogoComponent, NxtIconComponent],
+  imports: [CommonModule, RouterModule, NxtLogoComponent, NxtIconComponent, NxtAvatarComponent],
   template: `
     <header
       class="mobile-header"
@@ -189,18 +190,14 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
                 [attr.aria-label]="'User menu for ' + user()!.name"
                 (click)="onUserClick($event)"
               >
-                @if (user()!.profileImg) {
-                  <img
-                    [src]="user()!.profileImg"
-                    [alt]="user()!.name"
-                    class="mobile-header__avatar-img"
-                    loading="lazy"
-                  />
-                } @else {
-                  <span class="mobile-header__avatar-initials">
-                    {{ user()!.initials || 'U' }}
-                  </span>
-                }
+                <nxt1-avatar
+                  [src]="user()!.profileImg"
+                  [name]="user()!.name"
+                  [initials]="user()!.initials"
+                  [isTeamRole]="user()!.isTeamRole ?? false"
+                  [customSize]="32"
+                  [showSkeleton]="false"
+                />
               </button>
             }
           } @else if (config().showSignIn) {
@@ -487,17 +484,9 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
         outline-offset: var(--mobile-header-focus-offset);
       }
 
-      .mobile-header__avatar-img {
+      .mobile-header__avatar-btn nxt1-avatar {
         width: 100%;
         height: 100%;
-        object-fit: cover;
-      }
-
-      .mobile-header__avatar-initials {
-        font-size: var(--nxt1-fontSize-xs, 0.75rem);
-        font-weight: var(--nxt1-fontWeight-semibold, 600);
-        color: var(--mobile-header-text);
-        text-transform: uppercase;
       }
 
       /* ============================================

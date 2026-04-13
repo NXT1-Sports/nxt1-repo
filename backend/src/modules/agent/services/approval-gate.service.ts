@@ -32,6 +32,7 @@
  * over all high-stakes actions.
  */
 
+import { isDeepStrictEqual } from 'node:util';
 import type { Firestore } from 'firebase-admin/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
 import type { AgentApprovalRequest, AgentApprovalStatus, AgentApprovalPolicy } from '@nxt1/core';
@@ -41,6 +42,25 @@ import { logger } from '../../../utils/logger.js';
 
 /** Firestore collection for approval request documents. */
 const APPROVALS_COLLECTION = 'agentApprovalRequests' as const;
+
+const LIVE_VIEW_DESTRUCTIVE_KEYWORDS =
+  /\b(submit|send|confirm|purchase|buy|place\s+order|delete|remove|pay|checkout|sign\s+up|register|apply|publish|post|transfer|authorize|approve)\b/i;
+
+const LIVE_VIEW_APPROVAL_POLICY: AgentApprovalPolicy = {
+  toolName: 'interact_with_live_view',
+  requiresApproval: true,
+  autoApproveOnExpiry: false,
+  expiryMs: 86_400_000,
+  userPrompt:
+    'Agent X wants to perform a potentially irreversible browser action. Review before continuing.',
+  riskLevel: 'high',
+};
+
+export interface ApprovalRequirement {
+  readonly policy: AgentApprovalPolicy;
+  readonly actionSummary: string;
+  readonly promptToUser: string;
+}
 
 export class ApprovalGateService {
   constructor(private readonly db: Firestore) {}
@@ -55,6 +75,62 @@ export class ApprovalGateService {
     const policy = AGENT_APPROVAL_POLICIES.find((p) => p.toolName === toolName);
     if (!policy || !policy.requiresApproval) return null;
     return policy;
+  }
+
+  /**
+   * Determine whether a specific tool invocation requires approval.
+   * Some tools always require approval (`send_email`), while others only
+   * require approval conditionally (for example destructive live-view actions).
+   */
+  getApprovalRequirement(
+    toolName: string,
+    toolInput: Record<string, unknown>
+  ): ApprovalRequirement | null {
+    const staticPolicy = this.getApprovalPolicy(toolName);
+    if (staticPolicy) {
+      const actionSummary = this.buildActionSummary(toolName, toolInput);
+      return {
+        policy: staticPolicy,
+        actionSummary,
+        promptToUser: this.buildPromptToUser(staticPolicy, actionSummary, toolInput),
+      };
+    }
+
+    if (toolName === 'interact_with_live_view') {
+      const prompt = typeof toolInput['prompt'] === 'string' ? toolInput['prompt'].trim() : '';
+      if (!prompt || !LIVE_VIEW_DESTRUCTIVE_KEYWORDS.test(prompt)) {
+        return null;
+      }
+
+      const actionSummary = `Agent X wants to perform this browser action: ${prompt}`;
+      return {
+        policy: LIVE_VIEW_APPROVAL_POLICY,
+        actionSummary,
+        promptToUser: `${LIVE_VIEW_APPROVAL_POLICY.userPrompt} ${actionSummary}`,
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Verify that an approval has already been granted for the exact pending tool call.
+   */
+  async isApprovalGranted(
+    approvalId: string,
+    userId: string,
+    toolName: string,
+    toolInput: Record<string, unknown>
+  ): Promise<boolean> {
+    const approval = await this.getApproval(approvalId);
+    if (!approval) return false;
+
+    return (
+      approval.userId === userId &&
+      approval.toolName === toolName &&
+      (approval.status === 'approved' || approval.status === 'auto_approved') &&
+      isDeepStrictEqual(approval.toolInput, toolInput)
+    );
   }
 
   /**
@@ -74,7 +150,8 @@ export class ApprovalGateService {
     reasoning?: string;
     threadId?: string;
   }): Promise<AgentApprovalRequest> {
-    const policy = this.getApprovalPolicy(params.toolName);
+    const requirement = this.getApprovalRequirement(params.toolName, params.toolInput);
+    const policy = requirement?.policy ?? this.getApprovalPolicy(params.toolName);
 
     const request: AgentApprovalRequest = {
       id: `approval_${crypto.randomUUID()}`,
@@ -220,6 +297,49 @@ export class ApprovalGateService {
       .get();
 
     return snapshot.docs.map((doc) => doc.data() as AgentApprovalRequest);
+  }
+
+  private buildActionSummary(toolName: string, toolInput: Record<string, unknown>): string {
+    switch (toolName) {
+      case 'send_email': {
+        const toEmail =
+          typeof toolInput['toEmail'] === 'string' ? toolInput['toEmail'] : 'the recipient';
+        const subject =
+          typeof toolInput['subject'] === 'string' ? toolInput['subject'] : 'No subject';
+        return `Send an email to ${toEmail} with subject "${subject}".`;
+      }
+      case 'update_profile':
+        return 'Update the user profile with new information.';
+      case 'delete_content':
+        return 'Delete content that cannot be recovered.';
+      case 'post_to_social':
+        return "Publish a social media post on the user's behalf.";
+      case 'send_sms':
+        return "Send a text message on the user's behalf.";
+      case 'interact_with_live_view': {
+        const prompt =
+          typeof toolInput['prompt'] === 'string'
+            ? toolInput['prompt'].trim()
+            : 'perform a browser action';
+        return `Perform this browser action in live view: ${prompt}`;
+      }
+      default:
+        return `Run the ${toolName} tool.`;
+    }
+  }
+
+  private buildPromptToUser(
+    policy: AgentApprovalPolicy,
+    actionSummary: string,
+    toolInput: Record<string, unknown>
+  ): string {
+    if (policy.toolName === 'send_email') {
+      const toEmail =
+        typeof toolInput['toEmail'] === 'string' ? toolInput['toEmail'] : 'the recipient';
+      return `${policy.userPrompt} ${actionSummary} Recipient: ${toEmail}.`;
+    }
+
+    return `${policy.userPrompt} ${actionSummary}`;
   }
 
   /**
