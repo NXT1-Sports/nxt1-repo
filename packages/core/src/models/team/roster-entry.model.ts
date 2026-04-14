@@ -86,6 +86,9 @@ export interface RosterEntry {
   /** Positions played for THIS team (e.g., ["QB", "Safety"]) */
   positions?: string[];
 
+  /** Sport for this team membership (denormalized from Team for fast reads) */
+  sport?: string;
+
   // ============================================
   // SEASON INFO
   // ============================================
@@ -155,6 +158,9 @@ export interface RosterEntry {
   /** Cached last name */
   lastName?: string;
 
+  /** Cached display name */
+  displayName?: string;
+
   /** Cached profile images */
   profileImgs?: string[];
 
@@ -186,6 +192,7 @@ export interface CreateRosterEntryInput {
   teamId: string;
   organizationId: string;
   role: UserRole;
+  sport: string;
   title?: string;
   status?: RosterEntryStatus;
   jerseyNumber?: string | number;
@@ -195,6 +202,7 @@ export interface CreateRosterEntryInput {
   // Cached user data
   firstName?: string;
   lastName?: string;
+  displayName?: string;
   email?: string;
   phoneNumber?: string;
   profileImgs?: string[];
@@ -206,6 +214,7 @@ export interface CreateRosterEntryInput {
 
 export interface UpdateRosterEntryInput {
   role?: UserRole;
+  sport?: string;
   title?: string;
   status?: RosterEntryStatus;
   jerseyNumber?: string | number;

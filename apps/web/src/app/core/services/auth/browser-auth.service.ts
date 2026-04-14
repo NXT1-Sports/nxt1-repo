@@ -541,11 +541,7 @@ export class BrowserAuthService implements IAuthService {
     // ---- Step 2: Clear profile cache (always) ----
     // Runs even if backend failed — stale data must never be served.
     try {
-      this.profileService.invalidateCache(
-        userId,
-        deletedUser?.username ?? undefined,
-        deletedUser?.unicode
-      );
+      this.profileService.invalidateCache(userId, deletedUser?.unicode);
       this.logger.debug('Profile cache invalidated', { userId });
     } catch (cacheErr) {
       this.logger.warn('Could not clear profile cache', {

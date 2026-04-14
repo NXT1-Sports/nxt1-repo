@@ -8,6 +8,7 @@
 import * as admin from 'firebase-admin';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
+import { getPrimarySportName } from '../user/helpers';
 
 const db = admin.firestore();
 
@@ -42,7 +43,7 @@ export const buildSearchIndex = onCall(async (request) => {
   }
 
   // Sport tokens
-  const primarySport = userData['primarySport'] as string | undefined;
+  const primarySport = getPrimarySportName(userData);
   if (primarySport) {
     searchTokens.push(primarySport.toLowerCase());
   }

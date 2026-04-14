@@ -12,6 +12,10 @@
  */
 
 import type { AgentJobRepository, JobEvent, JobEventType } from './job.repository.js';
+import {
+  sanitizeAgentOutputText,
+  sanitizeAgentPayload,
+} from '../utils/platform-identifier-sanitizer.js';
 import { logger } from '../../../utils/logger.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -140,7 +144,7 @@ export class DebouncedEventWriter {
   // ─── Internal ───────────────────────────────────────────────────────────
 
   private bufferDelta(event: StreamEvent): void {
-    this.pendingDeltaText += event.text ?? '';
+    this.pendingDeltaText += event.text ? sanitizeAgentOutputText(event.text) : '';
     this.pendingDeltaAgentId = event.agentId ?? this.pendingDeltaAgentId;
 
     // Schedule a flush if one isn't already pending
@@ -200,15 +204,15 @@ export class DebouncedEventWriter {
       seq: this.seq++,
       type: event.type,
       agentId: event.agentId,
-      message: event.message,
-      text: event.text,
+      message: event.message ? sanitizeAgentOutputText(event.message) : undefined,
+      text: event.text ? sanitizeAgentOutputText(event.text) : undefined,
       toolName: event.toolName,
-      toolArgs: event.toolArgs,
-      toolResult: event.toolResult,
+      toolArgs: event.toolArgs ? sanitizeAgentOutputText(event.toolArgs) : undefined,
+      toolResult: event.toolResult ? sanitizeAgentPayload(event.toolResult) : undefined,
       toolSuccess: event.toolSuccess,
       success: event.success,
-      error: event.error,
-      cardData: event.cardData,
+      error: event.error ? sanitizeAgentOutputText(event.error) : undefined,
+      cardData: event.cardData ? sanitizeAgentPayload(event.cardData) : undefined,
     });
 
     // Fire-and-forget — never block the agent pipeline on Firestore writes

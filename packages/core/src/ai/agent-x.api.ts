@@ -83,6 +83,7 @@ interface HistoryResponse {
 export interface ThreadMessagesResponse {
   readonly messages: AgentMessage[];
   readonly hasMore: boolean;
+  readonly nextCursor?: string;
 }
 
 // ============================================
@@ -318,13 +319,26 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
      * @param limit - Maximum messages to retrieve (default 50, max 200)
      * @returns Messages array and pagination info, or null on failure
      */
-    async getThreadMessages(threadId: string, limit = 50): Promise<ThreadMessagesResponse | null> {
+    async getThreadMessages(
+      threadId: string,
+      limit = 50,
+      before?: string
+    ): Promise<ThreadMessagesResponse | null> {
       try {
-        const url = `${endpoint(AGENT_X_ENDPOINTS.THREAD_MESSAGES)}/${encodeURIComponent(threadId)}/messages?limit=${limit}`;
+        let url = `${endpoint(AGENT_X_ENDPOINTS.THREAD_MESSAGES)}/${encodeURIComponent(threadId)}/messages?limit=${limit}`;
+        if (before) {
+          url += `&before=${encodeURIComponent(before)}`;
+        }
         const response =
-          await http.get<ApiResponse<{ items: AgentMessage[]; hasMore: boolean }>>(url);
+          await http.get<
+            ApiResponse<{ items: AgentMessage[]; hasMore: boolean; nextCursor?: string }>
+          >(url);
         if (!response.success || !response.data) return null;
-        return { messages: response.data.items, hasMore: response.data.hasMore };
+        return {
+          messages: response.data.items,
+          hasMore: response.data.hasMore,
+          nextCursor: response.data.nextCursor,
+        };
       } catch {
         return null;
       }

@@ -169,8 +169,6 @@ export interface OnboardingCompleteResponse {
     role: string;
     onboardingCompleted: boolean;
     completeSignUp: boolean;
-    /** Primary sport - matches User.primarySport */
-    primarySport?: string;
   };
   redirectPath: string;
   /** Job ID for linked account scrape (if any linked accounts were provided). */

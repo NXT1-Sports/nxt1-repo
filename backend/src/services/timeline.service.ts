@@ -3,15 +3,16 @@
  * @module @nxt1/backend/services/timeline
  *
  * Implements the 2026 polymorphic timeline architecture.
- * Fetches concurrently from Posts, Events, and PlayerStats collections,
- * maps each to the appropriate FeedItem variant, and returns a
+ * Fetches concurrently from Posts, Events, PlayerStats, Recruiting,
+ * PlayerMetrics, and Rankings collections, maps each to the appropriate
+ * FeedItem variant, and returns a
  * chronologically sorted FeedItem[] array.
  *
  * This replaces the legacy approach of querying only the Posts collection
  * and embedding domain-specific data as optional fields on a single god object.
  *
  * Data flow:
- *   Promise.all([Posts, Events, PlayerStats])
+ *   Promise.all([Posts, Events, PlayerStats, Recruiting, PlayerMetrics, Rankings])
  *     → map each doc → FeedItem variant (via @nxt1/core mappers)
  *     → merge, sort by createdAt desc
  *     → slice to limit
@@ -28,6 +29,9 @@ import {
   feedPostToFeedItem,
   eventDocToFeedItemEvent,
   statDocToFeedItemStat,
+  recruitingDocToFeedItemVariant,
+  metricGroupToFeedItemMetric,
+  rankingDocToFeedItemAward,
 } from '@nxt1/core/feed';
 import { logger } from '../utils/logger.js';
 
@@ -38,6 +42,9 @@ import { logger } from '../utils/logger.js';
 const POSTS_COLLECTION = 'Posts';
 const EVENTS_COLLECTION = 'Events';
 const PLAYER_STATS_COLLECTION = 'PlayerStats';
+const RECRUITING_COLLECTION = 'Recruiting';
+const PLAYER_METRICS_COLLECTION = 'PlayerMetrics';
+const RANKINGS_COLLECTION = 'Rankings';
 
 // ============================================
 // TYPES
@@ -64,7 +71,8 @@ export class TimelineService {
   /**
    * Build a polymorphic timeline for a user profile.
    *
-   * Concurrently fetches from Posts, Events, and PlayerStats,
+   * Concurrently fetches from Posts, Events, PlayerStats, Recruiting,
+   * PlayerMetrics, and Rankings,
    * maps each to the correct FeedItem variant, merges and sorts.
    */
   async getProfileTimeline(
@@ -83,10 +91,13 @@ export class TimelineService {
       hasCursor: !!cursor,
     });
 
-    const [posts, events, stats] = await Promise.all([
+    const [posts, events, stats, recruiting, metrics, rankings] = await Promise.all([
       this.fetchPosts(userId, fetchLimit, sportId, cursor),
       this.fetchEvents(userId, fetchLimit, sportId, cursor),
       this.fetchStats(userId, fetchLimit, sportId, cursor),
+      this.fetchRecruiting(userId, fetchLimit, sportId, cursor),
+      this.fetchMetrics(userId, fetchLimit, sportId, cursor),
+      this.fetchRankings(userId, fetchLimit, sportId, cursor),
     ]);
 
     // Map to polymorphic FeedItem variants
@@ -103,6 +114,18 @@ export class TimelineService {
 
     for (const stat of stats) {
       items.push(statDocToFeedItemStat(stat.id, stat.data, author));
+    }
+
+    for (const recruitingDoc of recruiting) {
+      items.push(recruitingDocToFeedItemVariant(recruitingDoc.id, recruitingDoc.data, author));
+    }
+
+    for (const metric of metrics) {
+      items.push(metricGroupToFeedItemMetric(metric.id, metric.data, author));
+    }
+
+    for (const ranking of rankings) {
+      items.push(rankingDocToFeedItemAward(ranking.id, ranking.data, author));
     }
 
     // Sort all items by date descending (newest first)
@@ -122,6 +145,9 @@ export class TimelineService {
       posts: posts.length,
       events: events.length,
       stats: stats.length,
+      recruiting: recruiting.length,
+      metrics: metrics.length,
+      rankings: rankings.length,
       hasMore,
     });
 
@@ -271,7 +297,7 @@ export class TimelineService {
     userId: string,
     limit: number,
     sportId?: string,
-    _cursor?: string
+    cursor?: string
   ): Promise<
     Array<{
       id: string;
@@ -367,6 +393,15 @@ export class TimelineService {
         }
       }
 
+      if (cursor) {
+        const cursorDate = new Date(Buffer.from(cursor, 'base64').toString()).getTime();
+        results.splice(
+          0,
+          results.length,
+          ...results.filter((entry) => new Date(entry.data.createdAt).getTime() < cursorDate)
+        );
+      }
+
       // Sort by createdAt descending and limit
       results.sort(
         (a, b) => new Date(b.data.createdAt).getTime() - new Date(a.data.createdAt).getTime()
@@ -383,6 +418,289 @@ export class TimelineService {
   }
 
   /**
+   * Fetch recruiting activity from the unified Recruiting collection for a user.
+   */
+  private async fetchRecruiting(
+    userId: string,
+    limit: number,
+    sportId?: string,
+    cursor?: string
+  ): Promise<
+    Array<{
+      id: string;
+      data: {
+        category: string;
+        collegeName: string;
+        collegeLogoUrl?: string;
+        division?: string;
+        conference?: string;
+        sport?: string;
+        date: string;
+        endDate?: string;
+        scholarshipType?: string;
+        visitType?: string;
+        commitmentStatus?: string;
+        announcedAt?: string;
+        coachName?: string;
+        notes?: string;
+        graphicUrl?: string;
+      };
+    }>
+  > {
+    try {
+      let query = this.db
+        .collection(RECRUITING_COLLECTION)
+        .where('userId', '==', userId)
+        .where('ownerType', '==', 'user')
+        .orderBy('date', 'desc') as FirebaseFirestore.Query;
+
+      if (sportId) {
+        query = query.where('sport', '==', sportId.toLowerCase());
+      }
+
+      if (cursor) {
+        const cursorDate = Buffer.from(cursor, 'base64').toString();
+        query = query.where('date', '<', cursorDate);
+      }
+
+      query = query.limit(limit);
+      const snap = await query.get();
+
+      return snap.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          data: {
+            category: String(data['category'] ?? 'offer'),
+            collegeName: String(data['collegeName'] ?? 'Unknown Program'),
+            collegeLogoUrl: data['collegeLogoUrl'] as string | undefined,
+            division: data['division'] as string | undefined,
+            conference: data['conference'] as string | undefined,
+            sport: data['sport'] as string | undefined,
+            date: this.firestoreTimestampToISO(data['date']),
+            endDate: data['endDate'] ? this.firestoreTimestampToISO(data['endDate']) : undefined,
+            scholarshipType: data['scholarshipType'] as string | undefined,
+            visitType: data['visitType'] as string | undefined,
+            commitmentStatus: data['commitmentStatus'] as string | undefined,
+            announcedAt: data['announcedAt']
+              ? this.firestoreTimestampToISO(data['announcedAt'])
+              : undefined,
+            coachName: data['coachName'] as string | undefined,
+            notes: data['notes'] as string | undefined,
+            graphicUrl: data['graphicUrl'] as string | undefined,
+          },
+        };
+      });
+    } catch (err) {
+      logger.error('[Timeline] Failed to fetch recruiting activity', {
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Fetch and group player metrics from the PlayerMetrics collection for a user.
+   */
+  private async fetchMetrics(
+    userId: string,
+    limit: number,
+    sportId?: string,
+    cursor?: string
+  ): Promise<
+    Array<{
+      id: string;
+      data: {
+        measuredAt: string;
+        source: string;
+        category?: string;
+        metrics: readonly {
+          label: string;
+          value: string | number;
+          unit?: string;
+          verified?: boolean;
+          previousValue?: string | number;
+        }[];
+      };
+    }>
+  > {
+    try {
+      const queryLimit = Math.max(limit * 5, limit);
+      let query = this.db
+        .collection(PLAYER_METRICS_COLLECTION)
+        .where('userId', '==', userId)
+        .orderBy('dateRecorded', 'desc') as FirebaseFirestore.Query;
+
+      if (sportId) {
+        query = query.where('sportId', '==', sportId.toLowerCase());
+      }
+
+      if (cursor) {
+        const cursorDate = Buffer.from(cursor, 'base64').toString();
+        query = query.where('dateRecorded', '<', cursorDate);
+      }
+
+      query = query.limit(queryLimit);
+      const snap = await query.get();
+
+      const grouped = new Map<
+        string,
+        {
+          measuredAt: string;
+          source: string;
+          category?: string;
+          metrics: Array<{
+            label: string;
+            value: string | number;
+            unit?: string;
+            verified?: boolean;
+            previousValue?: string | number;
+          }>;
+        }
+      >();
+
+      for (const doc of snap.docs) {
+        const data = doc.data();
+        const measuredAt = this.firestoreTimestampToISO(
+          data['dateRecorded'] ?? data['extractedAt']
+        );
+        const source = String(
+          data['verifiedBy'] ?? data['provider'] ?? data['source'] ?? 'Verified Metrics'
+        );
+        const category = (data['category'] as string | undefined) ?? 'Metrics';
+        const key = `${measuredAt}::${source}::${category}`;
+
+        const current = grouped.get(key) ?? {
+          measuredAt,
+          source,
+          category,
+          metrics: [],
+        };
+
+        current.metrics.push({
+          label: String(data['label'] ?? this.humanizeFieldName(String(data['field'] ?? 'metric'))),
+          value:
+            typeof data['value'] === 'number' || typeof data['value'] === 'string'
+              ? (data['value'] as string | number)
+              : '0',
+          unit: data['unit'] as string | undefined,
+          verified: data['verified'] as boolean | undefined,
+          previousValue:
+            typeof data['previousValue'] === 'number' || typeof data['previousValue'] === 'string'
+              ? (data['previousValue'] as string | number)
+              : undefined,
+        });
+
+        grouped.set(key, current);
+      }
+
+      const result = [...grouped.entries()]
+        .map(([key, value]) => ({
+          id: Buffer.from(key).toString('base64url'),
+          data: {
+            measuredAt: value.measuredAt,
+            source: value.source,
+            category: value.category,
+            metrics: value.metrics.sort((left, right) => left.label.localeCompare(right.label)),
+          },
+        }))
+        .sort(
+          (left, right) =>
+            new Date(right.data.measuredAt).getTime() - new Date(left.data.measuredAt).getTime()
+        );
+
+      return result.slice(0, limit);
+    } catch (err) {
+      logger.error('[Timeline] Failed to fetch metrics', {
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Fetch ranking records from the Rankings collection for a user.
+   */
+  private async fetchRankings(
+    userId: string,
+    limit: number,
+    sportId?: string,
+    cursor?: string
+  ): Promise<
+    Array<{
+      id: string;
+      data: {
+        createdAt: string;
+        name: string;
+        sport?: string;
+        classOf?: number;
+        nationalRank?: number | null;
+        stateRank?: number | null;
+        positionRank?: number | null;
+        stars?: number | null;
+      };
+    }>
+  > {
+    try {
+      let query = this.db
+        .collection(RANKINGS_COLLECTION)
+        .where('userId', '==', userId) as FirebaseFirestore.Query;
+
+      if (sportId) {
+        query = query.where('sportId', '==', sportId);
+      }
+
+      query = query.limit(limit);
+      const snap = await query.get();
+
+      const result = snap.docs
+        .map((doc) => {
+          const data = doc.data();
+          const createdAt = this.firestoreTimestampToISO(
+            data['rankedAt'] ?? data['date'] ?? data['createdAt'] ?? data['updatedAt']
+          );
+          return {
+            id: doc.id,
+            data: {
+              createdAt,
+              name: String(data['name'] ?? 'Ranking Service'),
+              sport:
+                (data['sport'] as string | undefined) ?? (data['sportId'] as string | undefined),
+              classOf:
+                typeof data['classOf'] === 'number' ? (data['classOf'] as number) : undefined,
+              nationalRank:
+                typeof data['nationalRank'] === 'number' ? (data['nationalRank'] as number) : null,
+              stateRank:
+                typeof data['stateRank'] === 'number' ? (data['stateRank'] as number) : null,
+              positionRank:
+                typeof data['positionRank'] === 'number' ? (data['positionRank'] as number) : null,
+              stars: typeof data['stars'] === 'number' ? (data['stars'] as number) : null,
+            },
+          };
+        })
+        .filter((entry) => {
+          if (!cursor) return true;
+          const cursorDate = new Date(Buffer.from(cursor, 'base64').toString()).getTime();
+          return new Date(entry.data.createdAt).getTime() < cursorDate;
+        })
+        .sort(
+          (left, right) =>
+            new Date(right.data.createdAt).getTime() - new Date(left.data.createdAt).getTime()
+        );
+
+      return result.slice(0, limit);
+    } catch (err) {
+      logger.error('[Timeline] Failed to fetch rankings', {
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
+    }
+  }
+
+  /**
    * Safely convert a Firestore Timestamp-like object to ISO string.
    */
   private firestoreTimestampToISO(ts: unknown): string {
@@ -391,6 +709,14 @@ export class TimelineService {
     }
     if (typeof ts === 'string') return ts;
     return new Date().toISOString();
+  }
+
+  private humanizeFieldName(field: string): string {
+    return field
+      .split(/[_-]+/)
+      .filter(Boolean)
+      .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+      .join(' ');
   }
 }
 

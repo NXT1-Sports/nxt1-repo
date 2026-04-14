@@ -39,6 +39,10 @@ export const serverRoutes: ServerRoute[] = [
   // Profile Pages - Individual athlete profiles
   // NOTE: path param must match profile.routes.ts where it's defined as ':param'
   {
+    path: 'profile/:sport/:name/:unicode',
+    renderMode: RenderMode.Server,
+  },
+  {
     path: 'profile/:param',
     renderMode: RenderMode.Server,
   },
@@ -172,6 +176,10 @@ export const serverRoutes: ServerRoute[] = [
    * Team profile routes — Server-rendered for SEO (Open Graph, rich snippets).
    * Hydration mismatch fixed via slug-aware guard in TeamProfileService.
    */
+  {
+    path: 'team/:slug/:teamCode',
+    renderMode: RenderMode.Server,
+  },
   {
     path: 'team/:slug',
     renderMode: RenderMode.Server,

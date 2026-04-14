@@ -25,23 +25,11 @@ describe('Auth Routes', () => {
         expect(response.status).toBe(400);
       });
     });
-
-    describe('User Creation', () => {
-      it('POST /api/v1/auth/users should return 400 when request body is invalid', async () => {
-        const response = await request(app).post('/api/v1/auth/users').send({});
-        expect(response.status).toBe(400);
-      });
-    });
   });
 
   describe('Staging Routes', () => {
     it('GET /api/v1/staging/auth/validate-team-code should return 400 when teamCode is missing', async () => {
       const response = await request(app).get('/api/v1/staging/auth/validate-team-code');
-      expect(response.status).toBe(400);
-    });
-
-    it('POST /api/v1/staging/auth/users should return 400 when request body is invalid', async () => {
-      const response = await request(app).post('/api/v1/staging/auth/users').send({});
       expect(response.status).toBe(400);
     });
   });
@@ -98,11 +86,13 @@ describe('Auth Routes', () => {
           ],
           activeSportIndex: 0,
         });
+        expect(userUpdate?.payload).not.toHaveProperty('primarySport');
         expect(
           (userUpdate?.payload?.['sports'] as Array<Record<string, unknown>>)[0]
         ).not.toHaveProperty('positions');
         expect(userUpdate?.payload).toHaveProperty('coachTitle');
         expect(userUpdate?.payload?.['coachTitle']).not.toBe('Head Coach');
+        expect(response.body?.user).not.toHaveProperty('primarySport');
 
         const storedUser = __getMockFirestoreDocument('Users/coach123');
         expect(storedUser?.['coachTitle']).toBeUndefined();
@@ -290,6 +280,7 @@ describe('Auth Routes', () => {
         expect(userUpdate).toBeDefined();
         const updatedSport = (userUpdate?.payload?.['sports'] as Array<Record<string, unknown>>)[0];
         expect(updatedSport).not.toHaveProperty('positions');
+        expect(userUpdate?.payload).not.toHaveProperty('primarySport');
         expect(updatedSport).toMatchObject({
           sport: 'Football',
           team: {
@@ -298,6 +289,42 @@ describe('Auth Routes', () => {
             type: 'high-school',
           },
         });
+      });
+
+      it('does not persist the legacy primarySport field on sport step updates', async () => {
+        __seedMockFirestoreDocument('Users/athlete123', {
+          id: 'athlete123',
+          role: 'athlete',
+          onboardingCompleted: false,
+        });
+
+        const response = await request(app)
+          .post('/api/v1/auth/profile/onboarding-step')
+          .send({
+            userId: 'athlete123',
+            stepId: 'sport',
+            stepData: {
+              primarySport: 'Basketball',
+            },
+          });
+
+        expect(response.status).toBe(200);
+
+        const userUpdate = __getMockFirestoreWrites().find(
+          (write) => write.path === 'Users/athlete123' && write.operation === 'update'
+        );
+
+        expect(userUpdate).toBeDefined();
+        expect(userUpdate?.payload).toMatchObject({
+          sports: [
+            {
+              sport: 'Basketball',
+              order: 0,
+            },
+          ],
+          activeSportIndex: 0,
+        });
+        expect(userUpdate?.payload).not.toHaveProperty('primarySport');
       });
     });
 

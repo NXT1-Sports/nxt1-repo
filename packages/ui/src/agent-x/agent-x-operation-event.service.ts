@@ -405,6 +405,9 @@ export class AgentXOperationEventService {
     if (Array.isArray(result['items'])) {
       return `Found ${result['items'].length} result(s)`;
     }
+    if (Array.isArray(result['views'])) {
+      return `Found ${result['views'].length} data view(s)`;
+    }
     if (typeof result['count'] === 'number') {
       return `${result['count']} result(s)`;
     }

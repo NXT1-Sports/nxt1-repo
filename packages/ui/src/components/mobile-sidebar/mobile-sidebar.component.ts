@@ -1493,6 +1493,19 @@ export class NxtMobileSidebarComponent implements OnDestroy {
     const firstSport = userData.sportProfiles?.[0];
     const profile = activeSport ?? firstSport;
 
+    if (userData.isTeamRole) {
+      if (profile?.position) {
+        return profile.position;
+      }
+
+      if (profile?.sport && profile.sport !== userData.name) {
+        return formatSportDisplayName(profile.sport);
+      }
+
+      if (userData.handle) return userData.handle;
+      return 'Coach';
+    }
+
     if (profile?.sport && profile.position) {
       return `${formatSportDisplayName(profile.sport)} • ${profile.position}`;
     }

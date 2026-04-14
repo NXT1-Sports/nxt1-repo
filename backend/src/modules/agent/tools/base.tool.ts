@@ -44,6 +44,8 @@ export interface ToolResult {
 export interface ToolExecutionContext {
   /** The authenticated Firestore UID of the user who owns this agent session. */
   readonly userId: string;
+  /** Which backend environment is serving this tool execution. */
+  readonly environment?: 'staging' | 'production';
   /** The MongoDB thread ID for the current conversation (if available). */
   readonly threadId?: string;
   /** The unique session ID for the current agent run. */

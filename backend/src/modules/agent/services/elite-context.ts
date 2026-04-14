@@ -467,10 +467,24 @@ function str(val: unknown): string {
   return '';
 }
 
+function getActiveSportProfile(
+  userData: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  const sports = userData['sports'];
+  if (!Array.isArray(sports) || sports.length === 0) return undefined;
+
+  const activeSportIndex =
+    typeof userData['activeSportIndex'] === 'number' ? (userData['activeSportIndex'] as number) : 0;
+
+  return (
+    (sports[activeSportIndex] as Record<string, unknown> | undefined) ??
+    (sports[0] as Record<string, unknown> | undefined)
+  );
+}
+
 /** V2-first: resolve team/org name from sports[].team.name, then legacy fields. */
 function resolveV2TeamName(userData: Record<string, unknown>): string {
-  const sports = userData['sports'] as Array<Record<string, unknown>> | undefined;
-  const v2Name = sports?.[0]?.['team'] as Record<string, unknown> | undefined;
+  const v2Name = getActiveSportProfile(userData)?.['team'] as Record<string, unknown> | undefined;
   return str(v2Name?.['name']) || str(userData['teamName']);
 }
 
@@ -489,15 +503,15 @@ function buildLocation(userData: Record<string, unknown>): string {
  * Checks: top-level `sport` → `sports[0].sport` → role-specific sport fields.
  */
 export function resolvePrimarySport(userData: Record<string, unknown>): string {
+  const activeSport = getActiveSportProfile(userData);
+  const activeSportName = activeSport && str(activeSport['sport']);
+  if (activeSportName) return activeSportName;
+
+  const explicitPrimarySport = str(userData['primarySport']);
+  if (explicitPrimarySport) return explicitPrimarySport;
+
   const topSport = str(userData['sport']);
   if (topSport) return topSport;
-
-  const sports = userData['sports'];
-  if (Array.isArray(sports) && sports.length > 0) {
-    const first = sports[0] as Record<string, unknown> | undefined;
-    const s = first && str(first['sport']);
-    if (s) return s;
-  }
 
   const coach = userData['coach'] as Record<string, unknown> | undefined;
   if (coach) {
@@ -657,13 +671,13 @@ function buildRecruiterIdentity(
 
 /** Resolve positions from the sports array or a top-level `position` field. */
 function resolvePositions(userData: Record<string, unknown>): string {
-  const sports = userData['sports'];
-  if (Array.isArray(sports) && sports.length > 0) {
-    const first = sports[0] as Record<string, unknown> | undefined;
-    if (first) {
-      const pos = first['positions'];
-      if (Array.isArray(pos) && pos.length > 0) return pos.join('/');
-    }
+  const activeSport = getActiveSportProfile(userData);
+  if (activeSport) {
+    const pos = activeSport['positions'];
+    if (Array.isArray(pos) && pos.length > 0) return pos.join('/');
+
+    const singlePos = str(activeSport['position']);
+    if (singlePos) return singlePos;
   }
   const topPos = userData['position'];
   if (typeof topPos === 'string' && topPos.trim()) return topPos.trim();
@@ -708,15 +722,23 @@ function buildAcademics(userData: Record<string, unknown>): string {
  */
 function resolveCoachingLevel(userData: Record<string, unknown>): string {
   // Try sports array first (primary sport team type)
-  const sports = userData['sports'];
-  if (Array.isArray(sports) && sports.length > 0) {
-    const first = sports[0] as Record<string, unknown> | undefined;
-    const team = first?.['team'] as Record<string, unknown> | undefined;
-    const type = team && str(team['type']);
-    if (type) return coachingLevelLabel(type);
-  }
+  const team = getActiveSportProfile(userData)?.['team'] as Record<string, unknown> | undefined;
+  const type = team && str(team['type']);
+  if (type) return coachingLevelLabel(type);
 
   return '';
+}
+
+export function getRolePromptScaffolding(userData: Record<string, unknown>): string {
+  const role = str(userData['role']) || 'athlete';
+  const lines: string[] = [];
+
+  const roleContext = buildRoleContext(role, userData);
+  if (roleContext) lines.push(roleContext);
+
+  lines.push(getRolePersona(role));
+
+  return lines.join('\n');
 }
 
 /** Map team type slugs to display-friendly coaching level labels. */

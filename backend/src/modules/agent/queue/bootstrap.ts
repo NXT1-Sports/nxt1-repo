@@ -46,10 +46,13 @@ import {
 import {
   WriteCoreIdentityTool,
   WriteCombineMetricsTool,
+  WriteRankingsTool,
   WriteSeasonStatsTool,
   WriteRecruitingActivityTool,
   WriteCalendarEventsTool,
   WriteAthleteVideosTool,
+  SearchNxt1PlatformTool,
+  QueryNxt1PlatformDataTool,
   SearchMemoryTool,
   SearchCollegesTool,
   SearchCollegeCoachesTool,
@@ -78,11 +81,14 @@ import { CallApifyActorTool } from '../tools/integrations/call-apify-actor.tool.
 import { GetApifyActorOutputTool } from '../tools/integrations/get-apify-actor-output.tool.js';
 import {
   FirecrawlMcpBridgeService,
+  FirebaseMcpBridgeService,
   RunwayMcpBridgeService,
   FirecrawlScrapeTool,
   FirecrawlSearchTool,
   FirecrawlMapTool,
   FirecrawlExtractTool,
+  ListNxt1DataViewsTool,
+  QueryNxt1DataTool,
   CloudflareMcpBridgeService,
   ImportVideoTool,
   ClipVideoTool,
@@ -238,6 +244,16 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     logger.warn('FIRECRAWL_API_KEY not configured — Firecrawl MCP bridge disabled');
   }
 
+  let firebaseMcpBridge: FirebaseMcpBridgeService | null = null;
+  try {
+    firebaseMcpBridge = new FirebaseMcpBridgeService();
+    logger.info('Firebase MCP bridge initialized (user-scoped read-only views)');
+  } catch (error) {
+    logger.warn('Firebase MCP bridge failed to initialize', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   let runwayMcpBridge: RunwayMcpBridgeService | null = null;
   try {
     runwayMcpBridge = new RunwayMcpBridgeService();
@@ -268,10 +284,13 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
 
   toolRegistry.register(new WriteCoreIdentityTool(stagingDb));
   toolRegistry.register(new WriteCombineMetricsTool(stagingDb));
+  toolRegistry.register(new WriteRankingsTool(stagingDb));
   toolRegistry.register(new WriteSeasonStatsTool(stagingDb));
   toolRegistry.register(new WriteRecruitingActivityTool(stagingDb));
   toolRegistry.register(new WriteCalendarEventsTool(stagingDb));
   toolRegistry.register(new WriteAthleteVideosTool(stagingDb));
+  toolRegistry.register(new SearchNxt1PlatformTool());
+  toolRegistry.register(new QueryNxt1PlatformDataTool());
   toolRegistry.register(new SearchCollegesTool());
   toolRegistry.register(new SearchCollegeCoachesTool());
   toolRegistry.register(new GenerateGraphicTool(llm));
@@ -327,6 +346,13 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     logger.info(
       'MCP-bridged Firecrawl tools registered (scrape_webpage, firecrawl_search_web, map_website, extract_web_data)'
     );
+  }
+
+  // ── 1d.1. MCP-bridged NXT1 data views (read-only) ────────────────────────
+  if (firebaseMcpBridge) {
+    toolRegistry.register(new ListNxt1DataViewsTool(firebaseMcpBridge));
+    toolRegistry.register(new QueryNxt1DataTool(firebaseMcpBridge));
+    logger.info('MCP-bridged NXT1 data tools registered (list_nxt1_data_views, query_nxt1_data)');
   }
 
   // ── 1e. MCP-bridged Cloudflare Stream tools (ephemeral video processing) ──

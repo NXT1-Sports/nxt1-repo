@@ -12,13 +12,30 @@ import {
   buildProfileSeoConfig,
   buildTeamSeoConfig,
   buildVideoSeoConfig,
+  buildInviteShareTitle,
+  buildInviteShareText,
+  buildInviteUiCopy,
+  buildProfileShareTitle,
+  buildProfileShareText,
+  buildProfileShareDescription,
+  buildTeamShareTitle,
+  buildTeamShareText,
+  buildTeamShareDescription,
+  buildPostShareTitle,
+  buildPostShareText,
+  buildPostShareDescription,
+  buildArticleShareTitle,
+  buildArticleShareText,
+  buildArticleShareDescription,
   truncateDescription,
   sanitizeMetaText,
+  type ShareableArticle,
   type ShareableProfile,
   type ShareableTeam,
   type ShareableVideo,
   type SeoConfig,
 } from './index';
+import { USER_ROLES } from '../constants/user.constants';
 
 // ============================================
 // TEST DATA
@@ -26,7 +43,8 @@ import {
 
 const mockProfile: ShareableProfile = {
   type: 'profile',
-  id: 'john-smith-123',
+  id: 'profile-doc-123',
+  unicode: '123456',
   slug: 'john-smith',
   title: 'John Smith',
   description: '',
@@ -41,7 +59,8 @@ const mockProfile: ShareableProfile = {
 
 const mockTeam: ShareableTeam = {
   type: 'team',
-  id: 'lincoln-high-123',
+  id: 'team-doc-123',
+  teamCode: 'FBN123',
   slug: 'lincoln-high-football',
   title: 'Lincoln High Football',
   description: '',
@@ -65,6 +84,38 @@ const mockVideo: ShareableVideo = {
   views: 12500,
 };
 
+const mockArticle: ShareableArticle = {
+  type: 'article',
+  id: 'pulse-article-123',
+  slug: 'texas-football-recruiting-rises',
+  title: 'Texas recruiting momentum rises heading into spring',
+  description: 'Part of NXT1 Pulse, the live sports intelligence feed on NXT1.',
+  source: 'ESPN',
+  excerpt: 'Recruiting activity continues to accelerate as spring evaluations open across Texas.',
+  sport: 'football',
+  state: 'Texas',
+  imageUrl: 'https://storage.googleapis.com/nxt1/pulse/texas-recruiting.jpg',
+};
+
+const mockPost = {
+  id: 'post-123',
+  slug: 'big-win-friday-night',
+  authorName: 'John Smith',
+  authorAvatar: 'https://storage.googleapis.com/nxt1/profiles/john-smith.jpg',
+  createdAt: '2026-04-10T12:00:00.000Z',
+  likes: 42,
+  imageUrl: 'https://storage.googleapis.com/nxt1/posts/post-123.jpg',
+  postText: 'Big win tonight. Proud of the work, proud of the team, and ready for what comes next.',
+};
+
+const mockInviteTeam = {
+  id: 'team-doc-123',
+  name: 'Lincoln High Football',
+  sport: 'Football',
+  memberCount: 48,
+  teamCode: 'FBN123',
+};
+
 // ============================================
 // BUILD SHARE URL TESTS
 // ============================================
@@ -72,18 +123,18 @@ const mockVideo: ShareableVideo = {
 describe('buildShareUrl', () => {
   it('should build profile URL with slug', () => {
     const url = buildShareUrl(mockProfile);
-    expect(url).toBe('https://nxt1sports.com/profile/john-smith');
+    expect(url).toBe('https://nxt1sports.com/profile/football/john-smith/123456');
   });
 
-  it('should build profile URL with id when no slug', () => {
+  it('should build profile URL from athlete metadata even when no slug exists', () => {
     const profileNoSlug = { ...mockProfile, slug: undefined };
     const url = buildShareUrl(profileNoSlug);
-    expect(url).toBe('https://nxt1sports.com/profile/john-smith-123');
+    expect(url).toBe('https://nxt1sports.com/profile/football/john-smith/123456');
   });
 
   it('should build team URL with slug', () => {
     const url = buildShareUrl(mockTeam);
-    expect(url).toBe('https://nxt1sports.com/team/lincoln-high-football');
+    expect(url).toBe('https://nxt1sports.com/team/lincoln-high-football/FBN123');
   });
 
   it('should build video URL with slug', () => {
@@ -95,6 +146,119 @@ describe('buildShareUrl', () => {
     const highlight = { ...mockVideo, type: 'highlight' as const };
     const url = buildShareUrl(highlight);
     expect(url).toBe('https://nxt1sports.com/video/td-run-john-smith');
+  });
+
+  it('should build pulse article URL', () => {
+    const url = buildShareUrl(mockArticle);
+    expect(url).toBe('https://nxt1sports.com/explore/pulse/pulse-article-123');
+  });
+});
+
+describe('share copy builders', () => {
+  it('should generate upgraded profile share copy', () => {
+    expect(buildProfileShareTitle(mockProfile)).toBe('John Smith Athlete Profile | NXT1');
+    expect(buildProfileShareText(mockProfile)).toBe(
+      'See John Smith, Quarterback · Football | Lincoln High School | Class of 2027 on NXT1. Film, stats, and real-time sports intelligence in one profile built for the next level.'
+    );
+    expect(buildProfileShareDescription(mockProfile)).toBe(
+      'Quarterback | Football | Lincoln High School | Class of 2027. Athlete profile on NXT1. Film, stats, and real-time sports intelligence.'
+    );
+  });
+
+  it('should generate upgraded team share copy', () => {
+    expect(buildTeamShareTitle(mockTeam)).toBe('Lincoln High Football Team Hub | NXT1');
+    expect(buildTeamShareText(mockTeam)).toBe(
+      'Step inside Lincoln High Football, Football | Austin, TX | Record 10-2 on NXT1. Track the roster, schedule, and highlights from one AI-powered team command center.'
+    );
+    expect(buildTeamShareDescription(mockTeam)).toBe(
+      'Football | Austin, TX | Record 10-2. NXT1 Team Hub with roster, schedule, highlights, and sports intelligence.'
+    );
+  });
+
+  it('should generate upgraded post share copy', () => {
+    expect(buildPostShareTitle(mockPost)).toBe('John Smith on NXT1');
+    expect(buildPostShareText(mockPost)).toBe(
+      'John Smith on NXT1: "Big win tonight. Proud of the work, proud of the team, and ready for what comes next." See the full update, profile context, and live conversation in one place.'
+    );
+    expect(buildPostShareDescription(mockPost)).toBe(
+      'Latest update from John Smith on NXT1: Big win tonight. Proud of the work, proud of the team, and ready for what comes next.'
+    );
+  });
+
+  it('should generate upgraded article share copy', () => {
+    expect(buildArticleShareTitle(mockArticle)).toBe(
+      'Texas recruiting momentum rises heading into spring | NXT1 Pulse'
+    );
+    expect(buildArticleShareText(mockArticle)).toBe(
+      'Read "Texas recruiting momentum rises heading into spring" on NXT1 Pulse. Recruiting activity continues to accelerate as spring evaluations open across Texas. Get the full sports intelligence briefing and source context on NXT1.'
+    );
+    expect(buildArticleShareDescription(mockArticle)).toBe(
+      'ESPN | Football | Texas. NXT1 Pulse briefing with sports intelligence and source context.'
+    );
+  });
+
+  it('should generate general athlete invite share copy', () => {
+    expect(
+      buildInviteShareTitle({
+        inviteType: 'general',
+        senderRole: USER_ROLES.ATHLETE,
+      })
+    ).toBe('Move Different With Me on NXT1');
+    expect(
+      buildInviteShareText({
+        inviteType: 'general',
+        senderRole: USER_ROLES.ATHLETE,
+      })
+    ).toBe(
+      'Join me on NXT1. Build your name, stay locked in with your people, and tap into the sports intelligence platform built for what is next:'
+    );
+    expect(
+      buildInviteUiCopy({
+        inviteType: 'general',
+        senderRole: USER_ROLES.ATHLETE,
+      })
+    ).toEqual({
+      title: 'Earn $5 in Agent X Credits',
+      subtitle: 'You earn $5 in Agent X credits every time someone joins through your invite.',
+      shareText:
+        'Join me on NXT1. Build your name, stay locked in with your people, and tap into the sports intelligence platform built for what is next:',
+      howItWorksText:
+        'Share this QR code or link with friends and teammates. When they join through your invite, they land inside NXT1 and you earn $5 in Agent X credits.',
+    });
+  });
+
+  it('should generate team invite share copy from the centralized builder', () => {
+    expect(
+      buildInviteShareTitle({
+        inviteType: 'team',
+        senderRole: USER_ROLES.COACH,
+        team: mockInviteTeam,
+      })
+    ).toBe('Step Into Lincoln High Football on NXT1');
+    expect(
+      buildInviteShareText({
+        inviteType: 'team',
+        senderRole: USER_ROLES.COACH,
+        team: mockInviteTeam,
+      })
+    ).toBe(
+      'Step into Lincoln High Football · Football on NXT1. The roster, communication, schedule, and team intelligence all run from one command center:'
+    );
+    expect(
+      buildInviteUiCopy({
+        inviteType: 'team',
+        senderRole: USER_ROLES.COACH,
+        team: mockInviteTeam,
+      })
+    ).toEqual({
+      title: 'Bring Your Team Into The System',
+      subtitle:
+        'Share the team invite so players and staff step into one command center for communication, schedule, and sports intelligence.',
+      shareText:
+        'Step into Lincoln High Football · Football on NXT1. The roster, communication, schedule, and team intelligence all run from one command center:',
+      howItWorksText:
+        'Share this team invite with players and staff. Once they join, they connect directly to Lincoln High Football on NXT1.',
+    });
   });
 });
 
@@ -125,7 +289,9 @@ describe('buildProfileSeoConfig', () => {
     });
 
     it('should set canonical URL correctly', () => {
-      expect(config.page.canonicalUrl).toBe('https://nxt1sports.com/profile/john-smith');
+      expect(config.page.canonicalUrl).toBe(
+        'https://nxt1sports.com/profile/football/john-smith/123456'
+      );
     });
 
     it('should set image URL from profile', () => {
@@ -246,7 +412,9 @@ describe('buildTeamSeoConfig', () => {
   });
 
   it('should set canonical URL correctly', () => {
-    expect(config.page.canonicalUrl).toBe('https://nxt1sports.com/team/lincoln-high-football');
+    expect(config.page.canonicalUrl).toBe(
+      'https://nxt1sports.com/team/lincoln-high-football/FBN123'
+    );
   });
 
   it('should prefer logo URL for image', () => {

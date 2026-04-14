@@ -187,6 +187,13 @@ export const PROFILE_TIMELINE_FILTERS: readonly ProfileTimelineFilter[] = [
     emptyMessage: 'Visits, camps, and showcases will appear here',
   },
   {
+    id: 'awards',
+    label: 'Awards',
+    icon: 'ribbon',
+    emptyTitle: 'No awards yet',
+    emptyMessage: 'Rankings, honors, and recognition will appear here',
+  },
+  {
     id: 'stats',
     label: 'Stats',
     icon: 'stats-chart',
@@ -497,8 +504,6 @@ export const PROFILE_UI_CONFIG = {
 export const PROFILE_CACHE_KEYS = {
   /** Profile data keyed by userId — MEDIUM_TTL (15 min) */
   BY_ID: 'user:profile:',
-  /** Profile data keyed by username — MEDIUM_TTL (15 min) */
-  BY_USERNAME: 'user:profile:username:',
   /** Profile data keyed by unicode — MEDIUM_TTL (15 min) */
   BY_UNICODE: 'user:profile:unicode:',
   /** Full-text / filtered profile search results — SEARCH TTL (15 min) */

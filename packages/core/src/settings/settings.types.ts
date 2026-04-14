@@ -264,19 +264,6 @@ export interface SettingsUsage {
   readonly aiRequestsLimit: number;
 }
 
-/**
- * Connected provider info for tools section.
- */
-export interface SettingsConnectedProvider {
-  readonly id: string;
-  readonly name: string;
-  readonly icon: SettingsIconName;
-  readonly connected: boolean;
-  readonly connectedAt: string | null;
-  readonly email?: string;
-  readonly username?: string;
-}
-
 // ============================================
 // PREFERENCES TYPES
 // ============================================
@@ -311,7 +298,6 @@ export interface SettingsState {
   readonly subscription: SettingsSubscription | null;
   readonly usage: SettingsUsage | null;
   readonly preferences: SettingsPreferences | null;
-  readonly connectedProviders: readonly SettingsConnectedProvider[];
   readonly sections: readonly SettingsSection[];
   readonly isLoading: boolean;
   readonly isSaving: boolean;
@@ -334,7 +320,6 @@ export interface SettingsResponse {
   readonly subscription: SettingsSubscription;
   readonly usage: SettingsUsage;
   readonly preferences: SettingsPreferences;
-  readonly connectedProviders: readonly SettingsConnectedProvider[];
 }
 
 /**
@@ -345,9 +330,7 @@ export type SettingsEventType =
   | 'settings_section_expanded'
   | 'settings_toggle_changed'
   | 'settings_action_triggered'
-  | 'settings_navigation'
-  | 'settings_provider_connected'
-  | 'settings_provider_disconnected';
+  | 'settings_navigation';
 
 /**
  * Settings event payload.

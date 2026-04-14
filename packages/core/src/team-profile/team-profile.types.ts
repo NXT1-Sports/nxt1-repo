@@ -126,6 +126,8 @@ export interface TeamProfileTeam {
   readonly id: string;
   /** URL-friendly slug (also the teamCode) */
   readonly slug: string;
+  /** Public team code used in canonical routes */
+  readonly teamCode?: string;
   /** Unicode identifier for deep linking */
   readonly unicode?: string;
   /** Team display name */

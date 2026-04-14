@@ -122,6 +122,13 @@ import { FeedNewsCardComponent } from '../feed/feed-news-card.component';
                     >{{ filterBadgeCounts().events }}</span
                   >
                 }
+                @if (filter.id === 'awards' && filterBadgeCounts().awards > 0) {
+                  <span
+                    class="timeline-filter__badge"
+                    [attr.data-testid]="timelineTestIds.FILTER_BADGE"
+                    >{{ filterBadgeCounts().awards }}</span
+                  >
+                }
               </button>
             }
           </div>
@@ -490,6 +497,7 @@ export class ProfileTimelineComponent {
       events: feed.filter(
         (item) => item.feedType === 'EVENT' || item.feedType === 'VISIT' || item.feedType === 'CAMP'
       ).length,
+      awards: feed.filter((item) => item.feedType === 'AWARD').length,
     };
   });
 
@@ -557,6 +565,8 @@ export class ProfileTimelineComponent {
           (item) =>
             item.feedType === 'EVENT' || item.feedType === 'VISIT' || item.feedType === 'CAMP'
         );
+      case 'awards':
+        return feed.filter((item) => item.feedType === 'AWARD');
       case 'stats':
         return feed.filter((item) => item.feedType === 'STAT' || item.feedType === 'METRIC');
       case 'news':

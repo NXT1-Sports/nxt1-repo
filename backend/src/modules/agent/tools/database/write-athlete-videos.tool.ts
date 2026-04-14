@@ -16,6 +16,10 @@
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { getCacheService } from '../../../../services/cache.service.js';
+import {
+  createProfileWriteAccessService,
+  resolveAuthorizedTargetSportSelection,
+} from '../../../../services/profile-write-access.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
 import { SyncDiffService, type PreviousVideoEntry } from '../../sync/index.js';
@@ -27,7 +31,6 @@ import { PostVisibility } from '@nxt1/core';
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const POSTS_COLLECTION = 'Posts';
-const USERS_COLLECTION = 'Users';
 const MAX_VIDEOS = 100;
 
 const VALID_PROVIDERS = new Set(['youtube', 'hudl', 'vimeo', 'twitter', 'other']);
@@ -114,15 +117,28 @@ export class WriteAthleteVideosTool extends BaseTool {
       return { success: false, error: `videos exceeds maximum of ${MAX_VIDEOS}.` };
     }
 
-    // Validate user exists
-    const userDoc = await this.db.collection(USERS_COLLECTION).doc(userId).get();
-    if (!userDoc.exists) {
-      return { success: false, error: `User "${userId}" not found.` };
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
     }
-    const userData = userDoc.data() as Record<string, unknown>;
 
     try {
+      const accessGrant = await createProfileWriteAccessService(
+        this.db
+      ).assertCanManageAthleteProfileTarget({
+        actorUserId: context.userId,
+        targetUserId: userId,
+        action: 'tool:write_athlete_videos',
+      });
+      const userData = accessGrant.targetUserData;
       const sportId = targetSport.trim().toLowerCase();
+      const authorizedSportSelection = resolveAuthorizedTargetSportSelection(
+        userData,
+        sportId,
+        accessGrant
+      );
+      if (!accessGrant.isSelfWrite && !authorizedSportSelection) {
+        return { success: false, error: 'Not authorized to write athlete videos for this sport.' };
+      }
       const now = new Date().toISOString();
 
       context?.onProgress?.('Checking for duplicate videos…');
@@ -154,13 +170,31 @@ export class WriteAthleteVideosTool extends BaseTool {
 
       // ── Resolve organizationId / teamId from user's sports array (once) ──
       const sports = userData['sports'] as Array<Record<string, unknown>> | undefined;
-      const sportEntry = sports?.find(
-        (s) => typeof s['id'] === 'string' && s['id'].toLowerCase() === sportId
-      );
+      const sportEntry =
+        authorizedSportSelection?.sportRecord ??
+        sports?.find((s) => {
+          const sportKey =
+            typeof s['sport'] === 'string'
+              ? s['sport'].toLowerCase()
+              : typeof s['id'] === 'string'
+                ? s['id'].toLowerCase()
+                : null;
+          return sportKey === sportId;
+        });
+      const sportTeam =
+        sportEntry && typeof sportEntry['team'] === 'object' && sportEntry['team'] !== null
+          ? (sportEntry['team'] as Record<string, unknown>)
+          : undefined;
       const teamId =
-        (sportEntry?.['teamId'] as string) ?? (userData['teamId'] as string) ?? undefined;
+        authorizedSportSelection?.teamId ??
+        (sportEntry?.['teamId'] as string) ??
+        (sportTeam?.['teamId'] as string) ??
+        (userData['teamId'] as string) ??
+        undefined;
       const organizationId =
+        authorizedSportSelection?.organizationId ??
         (sportEntry?.['organizationId'] as string) ??
+        (sportTeam?.['organizationId'] as string) ??
         (userData['organizationId'] as string) ??
         undefined;
 
@@ -252,7 +286,6 @@ export class WriteAthleteVideosTool extends BaseTool {
           cache.del(`profile:videos:${userId}:${defaultLimit}`),
           invalidateProfileCaches(
             userId,
-            typeof userData['username'] === 'string' ? userData['username'] : undefined,
             typeof userData['unicode'] === 'string' ? userData['unicode'] : null
           ),
         ]);

@@ -61,7 +61,14 @@ import {
   type RefreshEvent,
   type TeamSearchResult,
 } from '@nxt1/ui';
-import { parseApiError, requiresAuth, isTeamRole } from '@nxt1/core';
+import {
+  buildCanonicalProfilePath,
+  buildCanonicalTeamPath,
+  buildTeamSlug,
+  parseApiError,
+  requiresAuth,
+  isTeamRole,
+} from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { User, UserSummary, ProfileTabId, ProfileTeamAffiliation } from '@nxt1/core';
 import type { ProfileEvent } from '@nxt1/core/profile';
@@ -271,7 +278,8 @@ export class ProfileComponent {
 
   /**
    * Raw route param — empty string means own profile (/profile),
-   * numeric string means profile by unicode/ID, other string means username.
+   * numeric string means profile by unicode, UID-shaped string means profile by userId,
+   * everything else is an invalid profile link.
    */
   protected readonly routeParam = toSignal(
     this.route.paramMap.pipe(map((params) => params.get('unicode') ?? '')),
@@ -372,13 +380,12 @@ export class ProfileComponent {
             );
           }
 
-          // Case 4: username — lookup by username
-          return from(this.profileApiService.getProfileByUsername(param)).pipe(
-            map((res) => ({
-              ...res,
-              _isOwnProfile: !!(res.success && res.data && res.data.id === authUser?.uid),
-            }))
-          );
+          // Case 4: invalid slug — do not hit the backend
+          return of({
+            success: false as const,
+            error: 'Invalid profile link.',
+            _isOwnProfile: false,
+          });
         }),
         takeUntilDestroyed(this.destroyRef)
       )
@@ -393,6 +400,16 @@ export class ProfileComponent {
 
             // Role-aware branching: coach/director own profile → load team data
             if (isOwn && isTeamRole(profile.role)) {
+              const teamPath = this.buildTeamPathFromUser(profile);
+              if (teamPath) {
+                this.breadcrumb.trackStateChange('profile:team_profile_redirect', {
+                  role: profile.role,
+                  teamPath,
+                });
+                void this.navController.navigateRoot(teamPath);
+                return;
+              }
+
               this.breadcrumb.trackStateChange('profile:team_profile_loading', {
                 role: profile.role,
               });
@@ -615,7 +632,13 @@ export class ProfileComponent {
    * Handle related athlete card click — navigate to their profile.
    */
   protected onRelatedAthleteClick(athlete: RelatedAthlete): void {
-    void this.navController.navigateForward(`/profile/${athlete.unicode}`);
+    void this.navController.navigateForward(
+      buildCanonicalProfilePath({
+        athleteName: `${athlete.firstName} ${athlete.lastName}`.trim(),
+        sport: athlete.sport,
+        unicode: athlete.unicode,
+      })
+    );
   }
 
   /**
@@ -658,6 +681,7 @@ export class ProfileComponent {
     const result = await this.shareService.shareTeam({
       id: team.id,
       slug: team.slug,
+      teamCode: team.teamCode,
       teamName: team.teamName,
       sport: team.sport,
       location: team.location,
@@ -675,13 +699,20 @@ export class ProfileComponent {
     const team = this.teamProfile.team();
     if (!team) return;
 
+    const teamPath = buildCanonicalTeamPath({
+      slug: team.slug,
+      teamName: team.teamName,
+      teamCode: team.teamCode,
+      id: team.id,
+    });
+
     try {
       await this.qrCode.open({
-        url: `https://nxt1sports.com/team/${team.slug}`,
+        url: `https://nxt1sports.com${teamPath}`,
         displayName: team.teamName,
         profileImg: team.logoUrl || undefined,
         sport: team.sport || 'Sports',
-        unicode: team.slug,
+        unicode: team.teamCode || team.slug,
         isOwnProfile: true,
         entityType: 'team',
       });
@@ -693,7 +724,15 @@ export class ProfileComponent {
 
   protected onRosterMemberClick(member: TeamProfileRosterMember): void {
     if (member.profileCode) {
-      void this.navController.navigateForward(`/profile/${member.profileCode}`);
+      const teamSport = this.teamProfile.team()?.sport;
+      const athleteName = member.displayName || `${member.firstName} ${member.lastName}`.trim();
+      void this.navController.navigateForward(
+        buildCanonicalProfilePath({
+          athleteName,
+          sport: teamSport,
+          unicode: member.profileCode,
+        })
+      );
     }
   }
 
@@ -830,11 +869,16 @@ export class ProfileComponent {
    */
   protected onTeamClick(team: ProfileTeamAffiliation): void {
     if (team.teamCode) {
+      const teamPath = buildCanonicalTeamPath({
+        slug: team.name,
+        teamName: team.name,
+        teamCode: team.teamCode,
+      });
       this.logger.info('Navigating to team profile', {
         teamCode: team.teamCode,
         teamName: team.name,
       });
-      void this.navController.navigateForward(`/team/${team.teamCode}`);
+      void this.navController.navigateForward(teamPath);
     } else {
       this.logger.warn('Team has no teamCode, cannot navigate', { teamName: team.name });
     }
@@ -872,7 +916,12 @@ export class ProfileComponent {
     const profileId = this.profileUnicode() || user.profileCode || user.uid;
     if (!profileId) return;
 
-    const profileUrl = `${environment.webUrl}/profile/${profileId}`;
+    const profilePath = buildCanonicalProfilePath({
+      athleteName: user.displayName || `${user.firstName} ${user.lastName}`.trim(),
+      sport: user.primarySport?.name,
+      unicode: profileId,
+    });
+    const profileUrl = `${environment.webUrl}${profilePath}`;
 
     await this.qrCode.open({
       url: profileUrl,
@@ -932,7 +981,12 @@ export class ProfileComponent {
     const profileId = this.profileUnicode() || user.profileCode || user.uid;
     if (!profileId) return;
 
-    const profileUrl = `${environment.webUrl}/profile/${profileId}`;
+    const profilePath = buildCanonicalProfilePath({
+      athleteName: user.displayName || `${user.firstName} ${user.lastName}`.trim(),
+      sport: user.primarySport?.name,
+      unicode: profileId,
+    });
+    const profileUrl = `${environment.webUrl}${profilePath}`;
     await this.shareService.copy(profileUrl, true);
   }
 
@@ -977,6 +1031,12 @@ export class ProfileComponent {
 
         // Role-aware refresh: coach/director → re-fetch team data
         if (isOwn && isTeamRole(freshProfile.role)) {
+          const teamPath = this.buildTeamPathFromUser(freshProfile);
+          if (teamPath) {
+            void this.navController.navigateRoot(teamPath);
+            return;
+          }
+
           void this.loadTeamProfile(freshProfile);
         } else {
           const profilePageData = userToProfilePageData(freshProfile, isOwn);
@@ -997,6 +1057,20 @@ export class ProfileComponent {
     }
   }
 
+  private buildTeamPathFromUser(profile: User): string | null {
+    const slug =
+      profile.teamCode?.slug?.trim() || profile.teamCode?.teamName?.trim() || this.teamSlug();
+    const teamCode = profile.teamCode?.teamCode?.trim() || profile.teamCode?.unicode?.trim();
+
+    if (!slug) return null;
+    if (!teamCode) return `/team/${buildTeamSlug(slug)}`;
+
+    return buildCanonicalTeamPath({
+      slug,
+      teamName: profile.teamCode?.teamName,
+      teamCode,
+    });
+  }
   /**
    * Handle profile generation overlay dismiss.
    * Refreshes auth state so the profile page re-fetches fresh data

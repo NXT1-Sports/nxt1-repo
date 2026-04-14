@@ -89,6 +89,7 @@ interface N8nWebhookPayload {
 /** Slack webhook URL from environment or config */
 const SLACK_WEBHOOK_URL = process.env['SLACK_WEBHOOK_URL'] || '';
 const SLACK_BOT_TOKEN = process.env['SLACK_BOT_TOKEN'] || '';
+const SLACK_ALERTS_CHANNEL = process.env['SLACK_ALERTS_CHANNEL'] || 'alerts-channels';
 const N8N_WEBHOOK_URL = process.env['N8N_WEBHOOK_URL'] || '';
 
 /** Severity thresholds */
@@ -187,6 +188,10 @@ function detectEnvironment(bundleId: string): 'production' | 'staging' {
   return bundleId.includes('staging') || bundleId.includes('dev') ? 'staging' : 'production';
 }
 
+function resolveSlackChannel(channel: string): string {
+  return channel.trim().replace(/^#/, '') || 'alerts-channels';
+}
+
 /**
  * Send alert to Slack
  */
@@ -200,9 +205,10 @@ async function sendSlackAlert(alert: CrashlyticsAlert, severity: string): Promis
   const color = getSeverityColor(severity);
   const environment = detectEnvironment(alert.app.bundleId);
   const isProduction = environment === 'production';
+  const channel = resolveSlackChannel(SLACK_ALERTS_CHANNEL);
 
   const message: SlackMessage = {
-    channel: isProduction ? 'urgent-alerts' : 'staging-alerts',
+    channel,
     text: `${emoji} ${severity.toUpperCase()}: ${alert.issue.title}`,
     attachments: [
       {
@@ -318,12 +324,15 @@ async function sendSlackAlert(alert: CrashlyticsAlert, severity: string): Promis
     logger.info('Slack alert sent', {
       issueId: alert.issue.id,
       severity,
-      channel: message.channel,
+      channel,
+      environment,
+      usedBotToken: Boolean(SLACK_BOT_TOKEN),
     });
   } catch (error) {
     logger.error('Failed to send Slack alert', {
       error: error instanceof Error ? error.message : 'Unknown error',
       issueId: alert.issue.id,
+      channel,
     });
   }
 }

@@ -76,6 +76,7 @@ import type { NewsArticle } from '@nxt1/core';
       <nxt1-news-article-detail
         [article]="article()"
         (back)="goBack()"
+        (share)="onShare()"
         (readFullStory)="onReadFullStory($event)"
       />
     }
@@ -236,6 +237,13 @@ export class PulseDetailComponent implements OnInit, AfterViewInit, OnDestroy {
 
   protected onReadFullStory(sourceUrl: string): void {
     this.logger.info('Read full story clicked', { sourceUrl });
+  }
+
+  protected async onShare(): Promise<void> {
+    const article = this.article();
+    if (!article) return;
+
+    await this.newsService.shareArticle(article);
   }
 
   private updateSeo(article: NewsArticle): void {

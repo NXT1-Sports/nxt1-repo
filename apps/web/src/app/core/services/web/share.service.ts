@@ -14,21 +14,24 @@ import {
   type AnalyticsAdapter,
 } from '@nxt1/core/analytics';
 import {
+  type ShareableArticle,
   type ShareableProfile,
   type ShareableTeam,
-  type ShareableVideo,
   type ShareablePost,
   type ShareableContent,
   buildShareUrl,
+  buildArticleShareTitle,
+  buildArticleShareText,
+  buildArticleShareDescription,
   buildProfileShareTitle,
   buildProfileShareText,
   buildProfileShareDescription,
   buildTeamShareTitle,
   buildTeamShareText,
-  buildVideoShareTitle,
-  buildVideoShareText,
+  buildTeamShareDescription,
   buildPostShareTitle,
   buildPostShareText,
+  buildPostShareDescription,
 } from '@nxt1/core/seo';
 import { NxtToastService, NxtLoggingService, ANALYTICS_ADAPTER } from '@nxt1/ui/services';
 
@@ -71,6 +74,7 @@ export class ShareService {
     const shareableProfile: ShareableProfile = {
       type: 'profile',
       id: profile.id,
+      unicode: profile.unicode ?? profile.id,
       slug: profile.slug,
       title: profile.athleteName,
       description: buildProfileShareDescription(profile),
@@ -101,8 +105,9 @@ export class ShareService {
       type: 'team',
       id: team.id,
       slug: team.slug,
+      teamCode: team.teamCode,
       title: team.teamName,
-      description: '',
+      description: buildTeamShareDescription(team),
       teamName: team.teamName,
       sport: team.sport,
       location: team.location,
@@ -121,28 +126,27 @@ export class ShareService {
     });
   }
 
-  async shareVideo(
-    video: Omit<ShareableVideo, 'type' | 'title' | 'description'> & { id: string },
+  async shareArticle(
+    article: Omit<ShareableArticle, 'type' | 'description'> & { id: string },
     options?: ShareContentOptions
   ): Promise<ShareResultData> {
-    const shareableVideo: ShareableVideo = {
-      type: 'video',
-      id: video.id,
-      slug: video.slug,
-      title: video.videoTitle,
-      description: '',
-      videoTitle: video.videoTitle,
-      athleteName: video.athleteName,
-      thumbnailUrl: video.thumbnailUrl,
-      imageUrl: video.imageUrl,
-      duration: video.duration,
-      views: video.views,
+    const shareableArticle: ShareableArticle = {
+      type: 'article',
+      id: article.id,
+      slug: article.slug,
+      title: article.title,
+      description: buildArticleShareDescription(article),
+      source: article.source,
+      excerpt: article.excerpt,
+      sport: article.sport,
+      state: article.state,
+      imageUrl: article.imageUrl,
     };
 
-    const shareText = options?.text || buildVideoShareText(video);
-    const shareTitle = options?.title || buildVideoShareTitle(video);
+    const shareText = options?.text || buildArticleShareText(article);
+    const shareTitle = options?.title || buildArticleShareTitle(article);
 
-    return this.shareContent(shareableVideo, {
+    return this.shareContent(shareableArticle, {
       ...options,
       title: shareTitle,
       text: shareText,
@@ -157,8 +161,8 @@ export class ShareService {
       type: 'post',
       id: post.id,
       slug: post.slug,
-      title: `Post by ${post.authorName}`,
-      description: post.postText,
+      title: buildPostShareTitle(post),
+      description: buildPostShareDescription(post),
       authorName: post.authorName,
       authorAvatar: post.authorAvatar,
       createdAt: post.createdAt,
@@ -234,11 +238,11 @@ export class ShareService {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
       }
-      this.toast.success('Link copied to clipboard');
+      this.toast.success('Share link copied.');
       this.logger.info('Share fallback: copy link');
       return { completed: true, method: 'copy_link' };
     } catch (error) {
-      this.toast.error('Failed to copy link');
+      this.toast.error("Couldn't copy the share link.");
       this.logger.warn('Share fallback copy failed', { error });
       return {
         completed: false,

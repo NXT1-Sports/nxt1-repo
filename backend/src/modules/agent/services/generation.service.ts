@@ -15,11 +15,14 @@ import type { AgentDashboardGoal, ShellWeeklyPlaybookItem, ShellBriefingInsight 
 import { getShellContentForRole } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
 import {
-  buildEliteContext,
   getRecurringHabitsPrompt,
+  getRolePromptScaffolding,
+  getSeasonInfo,
   resolvePrimarySport,
 } from './elite-context.js';
-import type { OpenRouterService } from '../llm/openrouter.service.js';
+import { ContextBuilder } from '../memory/context-builder.js';
+import { VectorMemoryService } from '../memory/vector.service.js';
+import { OpenRouterService } from '../llm/openrouter.service.js';
 
 // ─── Shared Helpers ─────────────────────────────────────────────────────────
 
@@ -100,9 +103,12 @@ export class AgentGenerationService {
    * When absent, falls back to creating a blind instance (legacy behavior).
    */
   private readonly llmService?: OpenRouterService;
+  private ownedLlmService?: OpenRouterService;
+  private contextBuilder?: ContextBuilder;
 
-  constructor(llmService?: OpenRouterService) {
+  constructor(llmService?: OpenRouterService, contextBuilder?: ContextBuilder) {
     this.llmService = llmService;
+    this.contextBuilder = contextBuilder;
   }
 
   private get db(): Firestore {
@@ -112,6 +118,85 @@ export class AgentGenerationService {
   /** Return a Firestore reference, preferring an explicit override. */
   private resolveDb(dbOverride?: Firestore): Firestore {
     return dbOverride ?? this.db;
+  }
+
+  private getOrCreateLlmService(): OpenRouterService {
+    if (this.llmService) return this.llmService;
+    if (!this.ownedLlmService) {
+      this.ownedLlmService = new OpenRouterService();
+    }
+    return this.ownedLlmService;
+  }
+
+  private getOrCreateContextBuilder(): ContextBuilder {
+    if (this.contextBuilder) return this.contextBuilder;
+    this.contextBuilder = new ContextBuilder(new VectorMemoryService(this.getOrCreateLlmService()));
+    return this.contextBuilder;
+  }
+
+  private async buildPromptContextText(uid: string, query: string, db: Firestore): Promise<string> {
+    try {
+      const builder = this.getOrCreateContextBuilder();
+      const promptContext = await builder.buildPromptContext(uid, query, db);
+      return builder.compressToPrompt(promptContext.profile, promptContext.memories);
+    } catch (err) {
+      logger.warn('[AgentGenerationService] Failed to build vector-backed prompt context', {
+        userId: uid,
+        error: err instanceof Error ? err.message : String(err),
+      });
+
+      const fallbackBuilder = new ContextBuilder();
+      const profile = await fallbackBuilder.buildContext(uid, db);
+      return fallbackBuilder.compressToPrompt(profile);
+    }
+  }
+
+  private buildPlanningMemoryQuery(
+    mode: 'playbook' | 'briefing',
+    role: string,
+    primarySport: string | null,
+    goals: readonly AgentDashboardGoal[]
+  ): string {
+    const goalText = goals
+      .map((goal) => goal.text.trim())
+      .filter(Boolean)
+      .join(' | ');
+
+    return [
+      mode === 'playbook' ? 'weekly playbook planning' : 'daily briefing planning',
+      `role: ${role}`,
+      primarySport ? `sport: ${primarySport}` : '',
+      goalText ? `goals: ${goalText}` : 'goals: none set',
+      'retrieve recruiting priorities, performance context, preferences, recent sync changes, and durable memory',
+    ]
+      .filter(Boolean)
+      .join(' | ');
+  }
+
+  private buildPlanningScaffolding(
+    primarySport: string | null,
+    userData: Record<string, unknown>,
+    now: Date = new Date()
+  ): string {
+    const lines: string[] = [];
+    const monthYear = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    const season = primarySport ? getSeasonInfo(primarySport, now) : null;
+
+    if (season && primarySport) {
+      lines.push(
+        `Calendar Context: It is currently ${monthYear}. For ${primarySport}, this is the ${season.phase} period. Focus areas: ${season.focus}.`
+      );
+    } else {
+      lines.push(`Calendar Context: It is currently ${monthYear}.`);
+    }
+
+    const roleScaffolding = getRolePromptScaffolding(userData);
+    if (roleScaffolding) lines.push(roleScaffolding);
+    lines.push(
+      `Goal Mandate: The user's stated goals are the top priority. Use season timing and profile context as the environment for execution, but never override their goals with generic seasonal advice.`
+    );
+
+    return lines.join('\n');
   }
 
   /**
@@ -130,9 +215,6 @@ export class AgentGenerationService {
     const role = (userData['role'] ?? 'athlete') as string;
     const agentGoals: AgentDashboardGoal[] = (userData['agentGoals'] ?? []) as AgentDashboardGoal[];
 
-    // ── Build elite context from full user profile ────────────────────────
-    const eliteContext = buildEliteContext(userData);
-
     // ── Resolve primary sport for habit menu ──────────────────────────────
     const primarySport = resolvePrimarySport(userData);
     const recurringHabitsBlock = getRecurringHabitsPrompt(
@@ -145,6 +227,13 @@ export class AgentGenerationService {
     if (agentGoals.length === 0) {
       throw new Error('Set at least one goal before generating a playbook');
     }
+
+    const promptContextText = await this.buildPromptContextText(
+      uid,
+      this.buildPlanningMemoryQuery('playbook', role, primarySport, agentGoals),
+      db
+    );
+    const planningScaffolding = this.buildPlanningScaffolding(primarySport, userData);
 
     const goalsText = agentGoals
       .map((g, i) => `${i + 1}. [id: "${g.id}"] ${g.text} (category: ${g.category})`)
@@ -217,8 +306,9 @@ export class AgentGenerationService {
     const prompt = [
       `You are Agent X, the AI-powered sports assistant for the NXT1 platform — The Ultimate AI Sports Coordinators. You are not just a recruiting tool; you are an intelligent sports operations agent that helps athletes develop, coaches strategize, parents navigate, directors manage, and scouts evaluate.`,
       ``,
-      `═══ USER PROFILE (Elite Context) ═══`,
-      eliteContext,
+      `═══ USER CONTEXT (RAG PROFILE + MEMORY) ═══`,
+      promptContextText,
+      planningScaffolding,
       ``,
       `═══ USER'S GOALS (Your #1 Priority) ═══`,
       goalsText,
@@ -267,13 +357,7 @@ export class AgentGenerationService {
     let playbookItems: ShellWeeklyPlaybookItem[] = [];
 
     try {
-      let llm: OpenRouterService;
-      if (this.llmService) {
-        llm = this.llmService;
-      } else {
-        const mod = await import('../llm/openrouter.service.js');
-        llm = new mod.OpenRouterService();
-      }
+      const llm = this.getOrCreateLlmService();
       const llmResult = await llm.complete(
         [
           {
@@ -373,6 +457,35 @@ export class AgentGenerationService {
       goalCount: agentGoals.length,
     });
 
+    // Notify user that their Action Plan / Playbook is ready
+    try {
+      const { dispatch } = await import('../../../services/notification.service.js');
+      const { NOTIFICATION_TYPES } = await import('@nxt1/core');
+      await dispatch(db, {
+        userId: uid,
+        type: NOTIFICATION_TYPES.AGENT_ACTION,
+        title: 'Built Your Weekly Playbook',
+        body: `Agent X updated your weekly playbook with ${playbookItems.length} new action items.`,
+        deepLink: '/agent-x',
+        data: {
+          operationId: operationId || 'playbook-gen',
+        },
+        source: { userName: 'Agent X' },
+        metadata: {
+          agentId: 'playbook_planner',
+          resultTitle: 'Built Your Weekly Playbook',
+          resultSummary: `Agent X updated your weekly playbook with ${playbookItems.length} new action items.`,
+          operationId: operationId || 'playbook-gen',
+          mode: 'playbook',
+        },
+      });
+    } catch (notifErr) {
+      logger.warn('Failed to dispatch playbook generation notification', {
+        userId: uid,
+        error: notifErr instanceof Error ? notifErr.message : String(notifErr),
+      });
+    }
+
     return {
       items: playbookItems,
       goals: agentGoals,
@@ -424,9 +537,13 @@ export class AgentGenerationService {
     const userData = userDoc.data() ?? {};
     const role = (userData['role'] ?? 'athlete') as string;
     const agentGoals: AgentDashboardGoal[] = (userData['agentGoals'] ?? []) as AgentDashboardGoal[];
-
-    // ── Build elite context from full user profile ────────────────────────
-    const eliteContext = buildEliteContext(userData);
+    const primarySport = resolvePrimarySport(userData);
+    const promptContextText = await this.buildPromptContextText(
+      uid,
+      this.buildPlanningMemoryQuery('briefing', role, primarySport, agentGoals),
+      db
+    );
+    const planningScaffolding = this.buildPlanningScaffolding(primarySport, userData);
 
     const goalsText =
       agentGoals.length > 0 ? agentGoals.map((g) => `• ${g.text}`).join('\n') : 'No goals set yet.';
@@ -484,8 +601,9 @@ export class AgentGenerationService {
     const promptLines = [
       `You are Agent X, the AI-powered sports assistant for NXT1. Generate a concise, hyper-personalized daily briefing.`,
       ``,
-      `═══ USER PROFILE (Elite Context) ═══`,
-      eliteContext,
+      `═══ USER CONTEXT (RAG PROFILE + MEMORY) ═══`,
+      promptContextText,
+      planningScaffolding,
       ``,
       `═══ USER'S GOALS ═══`,
       goalsText,
@@ -512,13 +630,7 @@ export class AgentGenerationService {
     let briefingPreviewText = `Good morning, ${displayName || 'athlete'}. Here's your daily focus.`;
 
     try {
-      let llm: OpenRouterService;
-      if (this.llmService) {
-        llm = this.llmService;
-      } else {
-        const mod = await import('../llm/openrouter.service.js');
-        llm = new mod.OpenRouterService();
-      }
+      const llm = this.getOrCreateLlmService();
       const llmResult = await llm.complete(
         [
           {
@@ -609,6 +721,39 @@ export class AgentGenerationService {
       userId: uid,
       insightCount: briefingInsights.length,
     });
+
+    // Notify user that their Daily Briefing is ready
+    try {
+      const { dispatch } = await import('../../../services/notification.service.js');
+      const { NOTIFICATION_TYPES } = await import('@nxt1/core');
+      await dispatch(db, {
+        userId: uid,
+        type: NOTIFICATION_TYPES.AGENT_ACTION,
+        title: 'Your Daily Briefing is Ready',
+        body:
+          briefingPreviewText ||
+          `Agent X prepared ${briefingInsights.length} insights for your day.`,
+        deepLink: '/agent-x',
+        data: {
+          operationId: 'briefing-gen',
+        },
+        source: { userName: 'Agent X' },
+        metadata: {
+          agentId: 'daily_briefing',
+          resultTitle: 'Your Daily Briefing is Ready',
+          resultSummary:
+            briefingPreviewText ||
+            `Agent X prepared ${briefingInsights.length} insights for your day.`,
+          operationId: 'briefing-gen',
+          mode: 'briefing',
+        },
+      });
+    } catch (notifErr) {
+      logger.warn('Failed to dispatch briefing generation notification', {
+        userId: uid,
+        error: notifErr instanceof Error ? notifErr.message : String(notifErr),
+      });
+    }
 
     return {
       previewText: briefingPreviewText,

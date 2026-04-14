@@ -18,8 +18,8 @@
  *
  * Routes:
  * - /profile              — View own profile (me)
- * - /profile/:username    — View profile by username  (e.g. /profile/devmonster)
  * - /profile/:unicode     — View profile by unicode   (e.g. /profile/180798)
+ * - /profile/:userId      — View profile by Firebase UID
  */
 
 import {
@@ -76,7 +76,14 @@ import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { AuthModalService } from '@nxt1/ui/auth';
 import { QrCodeService } from '@nxt1/ui/qr-code';
-import { parseApiError, requiresAuth, isTeamRole } from '@nxt1/core';
+import {
+  buildCanonicalProfilePath,
+  buildCanonicalTeamPath,
+  buildTeamSlug,
+  parseApiError,
+  requiresAuth,
+  isTeamRole,
+} from '@nxt1/core';
 import type {
   ProfileTabId,
   ProfileShareSource,
@@ -280,6 +287,17 @@ export class ProfileComponent implements OnInit, OnDestroy {
     };
   });
 
+  private readonly canonicalProfilePath = computed<string | null>(() => {
+    const meta = this.profileMeta();
+    if (!meta) return null;
+
+    return buildCanonicalProfilePath({
+      athleteName: meta.athleteName,
+      sport: meta.sport,
+      unicode: meta.id,
+    });
+  });
+
   /** Sport context for the Related Athletes section */
   protected readonly relatedSport = computed<string>(() => this.profileMeta()?.sport || 'Football');
 
@@ -299,18 +317,20 @@ export class ProfileComponent implements OnInit, OnDestroy {
   });
 
   /**
-   * Raw route parameter (:param wildcard — catches both username and unicode).
+   * Raw route parameter (:param wildcard — catches unicode or Firebase UID).
    */
-  private readonly routeParam = computed<string>(() => this.routeParams().get('param') ?? '');
+  private readonly routeParam = computed<string>(() => {
+    return this.routeParams().get('unicode') ?? this.routeParams().get('param') ?? '';
+  });
 
   /**
    * Route mode derived from the presence and shape of :param.
    * - 'me'       — no param  → load authenticated user's own profile
    * - 'unicode'  — param is purely numeric (e.g. '180798')  → lookup by unicode
    * - 'userid'   — param looks like a Firebase UID (20-32 alphanum)  → lookup by userId
-   * - 'username' — param contains non-digit chars (e.g. 'devmonster')  → lookup by username
+   * - 'invalid'  — any other slug shape → fail fast without hitting the backend
    */
-  private readonly routeMode = computed<'me' | 'unicode' | 'userid' | 'username'>(() => {
+  private readonly routeMode = computed<'me' | 'unicode' | 'userid' | 'invalid'>(() => {
     const param = this.routeParam();
     if (!param) return 'me';
     if (/^\d+$/.test(param)) return 'unicode';
@@ -318,7 +338,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
     if (/^[a-zA-Z0-9]{20,32}$/.test(param) && /[a-zA-Z]/.test(param) && /[0-9]/.test(param)) {
       return 'userid';
     }
-    return 'username';
+    return 'invalid';
   });
 
   /**
@@ -329,7 +349,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
    * uid is included so that logging in via auth modal triggers a re-fetch.
    */
   private readonly fetchSource = computed<{
-    mode: 'me' | 'unicode' | 'userid' | 'username';
+    mode: 'me' | 'unicode' | 'userid' | 'invalid';
     param: string;
     uid: string | undefined;
   } | null>(() => {
@@ -372,8 +392,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
     const param = this.routeParam();
     if (mode === 'unicode') return user.unicode === param;
     if (mode === 'userid') return user.uid === param;
-    // username mode — compare against the username field on AppUser
-    return user.username === param;
+    return false;
   });
 
   /**
@@ -415,11 +434,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
           // User returned to tab viewing their own profile - invalidate cache
           const user = this.authService.user();
           if (user) {
-            this.apiProfileService.invalidateCache(
-              user.uid,
-              user.username ?? undefined,
-              user.unicode ?? undefined
-            );
+            this.apiProfileService.invalidateCache(user.uid, user.unicode ?? undefined);
             this.logger.debug('Profile cache invalidated on tab focus');
           }
         }
@@ -462,6 +477,18 @@ export class ProfileComponent implements OnInit, OnDestroy {
       }
     });
 
+    effect(() => {
+      const profile = this.fetchedProfile();
+      const canonicalPath = this.canonicalProfilePath();
+      if (!profile || !canonicalPath || this.routeMode() === 'me' || isTeamRole(profile.role)) {
+        return;
+      }
+
+      if (this.router.url.split('?')[0] !== canonicalPath) {
+        void this.router.navigateByUrl(canonicalPath, { replaceUrl: true });
+      }
+    });
+
     // Handle mobile top-nav edit (pencil) button — delegated via ProfilePageActionsService
     // Capture current counter so we only react to NEW taps, not stale values
     // from a previous page (e.g. team → profile navigation).
@@ -494,7 +521,8 @@ export class ProfileComponent implements OnInit, OnDestroy {
      * Route modes:
      *   'me'       → GET /auth/profile/me       (authenticated user)
      *   'unicode'  → GET /auth/profile/unicode/:unicode
-     *   'username' → GET /auth/profile/username/:username
+     *   'userid'   → GET /auth/profile/:userId
+     *   'invalid'  → client-side validation error
      */
     toObservable(this.fetchSource)
       .pipe(
@@ -503,7 +531,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
           (
             source
           ): source is {
-            mode: 'me' | 'unicode' | 'userid' | 'username';
+            mode: 'me' | 'unicode' | 'userid' | 'invalid';
             param: string;
             uid: string | undefined;
           } => source !== null
@@ -517,7 +545,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
           }
           if (mode === 'unicode') return this.apiProfileService.getProfileByUnicode(param);
           if (mode === 'userid') return this.apiProfileService.getProfile(param);
-          return this.apiProfileService.getProfileByUsername(param);
+          return of({ success: false as const, error: 'Invalid profile link.' });
         }),
         takeUntilDestroyed(this.destroyRef)
       )
@@ -615,10 +643,13 @@ export class ProfileComponent implements OnInit, OnDestroy {
     // This ensures the URL bar shows the shareable team link and analytics
     // correctly attribute team page views. replaceUrl avoids back-button loops.
     if (isOwn && isTeamRole(profile.role)) {
-      const slug = this.teamSlug();
-      if (slug) {
-        this.logger.info('Redirecting coach/director to team route', { slug, role: profile.role });
-        void this.router.navigate(['/team', slug], { replaceUrl: true });
+      const teamPath = this.buildTeamPathFromUser(profile);
+      if (teamPath) {
+        this.logger.info('Redirecting coach/director to team route', {
+          teamPath,
+          role: profile.role,
+        });
+        void this.router.navigateByUrl(teamPath, { replaceUrl: true });
         return; // Skip sub-collection fetches — /team/:slug loads its own data
       }
     }
@@ -864,16 +895,10 @@ export class ProfileComponent implements OnInit, OnDestroy {
     // Clear error state and start loading
     this.profileService.startLoading();
 
-    // Trigger reload by updating route params (forces subscription to re-execute)
-    const currentRoute = this.route.snapshot;
-    if (currentRoute.params['username']) {
-      this.router.navigate(['/profile', currentRoute.params['username']], { replaceUrl: true });
-    } else if (currentRoute.params['unicode']) {
-      this.router.navigate(['/profile', currentRoute.params['unicode']], { replaceUrl: true });
-    } else {
-      // Own profile - reload current route
-      this.router.navigate(['/profile'], { replaceUrl: true });
-    }
+    const profilePath = this.routeMode() === 'me' ? '/profile' : this.canonicalProfilePath();
+    void this.router.navigateByUrl(profilePath ?? this.router.url.split('?')[0], {
+      replaceUrl: true,
+    });
   }
 
   /**
@@ -973,7 +998,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
     this.profileService.startLoading();
     const mode = this.routeMode();
     const param = this.routeParam();
-    let fetch$;
+    let fetch$: ReturnType<ApiProfileService['getMe']>;
     if (mode === 'me') {
       fetch$ = this.apiProfileService.getMe();
     } else if (mode === 'unicode') {
@@ -981,7 +1006,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
     } else if (mode === 'userid') {
       fetch$ = this.apiProfileService.getProfile(param);
     } else {
-      fetch$ = this.apiProfileService.getProfileByUsername(param);
+      fetch$ = of<ApiResponse<User>>({ success: false, error: 'Invalid profile link.' });
     }
     fetch$.pipe(first()).subscribe({
       next: (response) => this.handleProfileResponse(response),
@@ -1042,11 +1067,16 @@ export class ProfileComponent implements OnInit, OnDestroy {
    */
   protected onTeamClick(team: ProfileTeamAffiliation): void {
     if (team.teamCode) {
+      const teamPath = buildCanonicalTeamPath({
+        slug: team.name,
+        teamName: team.name,
+        teamCode: team.teamCode,
+      });
       this.logger.info('Navigating to team profile', {
         teamCode: team.teamCode,
         teamName: team.name,
       });
-      this.router.navigate(['/team', team.teamCode]);
+      this.router.navigateByUrl(teamPath);
     } else {
       this.logger.warn('Team has no teamCode, cannot navigate', { teamName: team.name });
     }
@@ -1073,6 +1103,13 @@ export class ProfileComponent implements OnInit, OnDestroy {
   protected async onQrCode(): Promise<void> {
     const meta = this.profileMeta();
     const unicode = meta?.id || this.profileUnicode() || 'demo';
+    const profilePath =
+      this.canonicalProfilePath() ||
+      buildCanonicalProfilePath({
+        athleteName: meta?.athleteName,
+        sport: meta?.sport,
+        unicode,
+      });
 
     const user = this.authService.user();
     const profileImg = meta?.imageUrl || user?.profileImg || undefined;
@@ -1080,7 +1117,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
     try {
       await this.qrCode.open({
-        url: `https://nxt1sports.com/profile/${unicode}`,
+        url: `https://nxt1sports.com${profilePath}`,
         displayName,
         profileImg,
         sport: meta?.sport || 'Football',
@@ -1140,10 +1177,9 @@ export class ProfileComponent implements OnInit, OnDestroy {
         await this.onQrCode();
         break;
       case 'Copy Link': {
-        const meta = this.profileMeta();
-        const unicode = meta?.id || this.profileUnicode();
-        if (unicode) {
-          const url = `https://nxt1sports.com/profile/${unicode}`;
+        const profilePath = this.canonicalProfilePath();
+        if (profilePath) {
+          const url = `https://nxt1sports.com${profilePath}`;
           await navigator.clipboard.writeText(url);
           this.toast.success('Link copied!');
         }
@@ -1159,7 +1195,13 @@ export class ProfileComponent implements OnInit, OnDestroy {
    */
   protected onRelatedAthleteClick(athlete: RelatedAthlete): void {
     this.logger.info('Related athlete clicked', { unicode: athlete.unicode });
-    this.router.navigate(['/profile', athlete.unicode]);
+    this.router.navigateByUrl(
+      buildCanonicalProfilePath({
+        athleteName: `${athlete.firstName} ${athlete.lastName}`.trim(),
+        sport: athlete.sport,
+        unicode: athlete.unicode,
+      })
+    );
   }
 
   /**
@@ -1209,11 +1251,24 @@ export class ProfileComponent implements OnInit, OnDestroy {
    */
   private reloadProfile(): void {
     this.profileService.startLoading();
-    const param = this.routeParam();
-    if (param) {
-      this.router.navigate(['/profile', param], { replaceUrl: true });
-    } else {
-      this.router.navigate(['/profile'], { replaceUrl: true });
-    }
+    const profilePath = this.routeMode() === 'me' ? '/profile' : this.canonicalProfilePath();
+    void this.router.navigateByUrl(profilePath ?? this.router.url.split('?')[0], {
+      replaceUrl: true,
+    });
+  }
+
+  private buildTeamPathFromUser(profile: User): string | null {
+    const slug =
+      profile.teamCode?.slug?.trim() || profile.teamCode?.teamName?.trim() || this.teamSlug();
+    const teamCode = profile.teamCode?.teamCode?.trim() || profile.teamCode?.unicode?.trim();
+
+    if (!slug) return null;
+    if (!teamCode) return `/team/${buildTeamSlug(slug)}`;
+
+    return buildCanonicalTeamPath({
+      slug,
+      teamName: profile.teamCode?.teamName,
+      teamCode,
+    });
   }
 }

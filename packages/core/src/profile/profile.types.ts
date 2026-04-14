@@ -502,6 +502,7 @@ export type ProfileTimelineFilterId =
   | 'media'
   | 'offers'
   | 'events'
+  | 'awards'
   | 'stats'
   | 'news';
 

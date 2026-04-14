@@ -141,6 +141,10 @@ export class TeamServiceAdapter {
       teamId: teamDoc.id,
       organizationId: team.organizationId,
       role: 'athlete',
+      sport:
+        ((team as unknown as Record<string, unknown>)['sport'] as string | undefined) ??
+        team.sportName ??
+        '',
       status: RosterEntryStatus.PENDING,
       firstName: params.userProfile.firstName,
       lastName: params.userProfile.lastName,

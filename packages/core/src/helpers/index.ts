@@ -61,6 +61,10 @@ export {
   normalizeName,
   slugify,
   buildTeamSlug,
+  type CanonicalProfilePathInput,
+  type CanonicalTeamPathInput,
+  buildCanonicalProfilePath,
+  buildCanonicalTeamPath,
   camelToTitle,
   kebabToTitle,
   // Name formatting

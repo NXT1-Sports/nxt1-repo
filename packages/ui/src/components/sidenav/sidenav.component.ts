@@ -1755,8 +1755,14 @@ export class NxtSidenavComponent {
     await this.triggerHaptic('light');
     this.profileClick.emit();
 
-    // Navigate to profile if user ID is available
+    // Navigate to the canonical identity route when provided.
     const currentUser = this.user();
+    if (currentUser?.profileRoute) {
+      this.router.navigate([currentUser.profileRoute]);
+      await this.close();
+      return;
+    }
+
     if (currentUser?.userId) {
       this.router.navigate(['/profile', currentUser.userId]);
       await this.close();
@@ -1820,6 +1826,22 @@ export class NxtSidenavComponent {
     const activeSport = userData.sportProfiles?.find((profile) => profile.isActive);
     const firstSport = userData.sportProfiles?.[0];
     const profile = activeSport ?? firstSport;
+
+    if (userData.isTeamRole) {
+      if (profile?.position) {
+        return profile.position;
+      }
+
+      if (profile?.sport && profile.sport !== userData.name) {
+        return formatSportDisplayName(profile.sport);
+      }
+
+      if (userData.subtitle && !userData.subtitle.includes('@')) {
+        return userData.subtitle;
+      }
+
+      return 'Coach';
+    }
 
     if (profile?.sport && profile.position) {
       return `${formatSportDisplayName(profile.sport)} • ${profile.position}`;

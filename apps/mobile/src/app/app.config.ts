@@ -57,6 +57,7 @@ import {
   USAGE_API_BASE_URL,
   NEWS_API_BASE_URL,
   NEWS_API_ADAPTER,
+  NEWS_SHARE_ADAPTER,
   PERFORMANCE_ADAPTER,
   INTEL_API_BASE_URL,
 } from '@nxt1/ui';
@@ -77,6 +78,7 @@ import {
   AnalyticsService,
   PerformanceService,
   FeedApiService,
+  ShareService,
 } from './core/services';
 
 import { mobileAuthInterceptor } from './core/infrastructure/interceptors/auth.interceptor';
@@ -256,6 +258,9 @@ export const appConfig: ApplicationConfig = {
 
     // News API adapter — root-level so shared NewsService (providedIn: 'root') resolves it
     { provide: NEWS_API_ADAPTER, useExisting: PulseApiAdapterService },
+
+    // News share adapter — routes Pulse article sharing through the mobile ShareService
+    { provide: NEWS_SHARE_ADAPTER, useExisting: ShareService },
 
     // Feed API adapter — root-level so shared FeedService (providedIn: 'root') resolves it
     { provide: FEED_API, useExisting: FeedApiService },

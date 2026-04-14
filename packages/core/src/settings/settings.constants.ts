@@ -16,7 +16,6 @@ import type {
   SettingsSection,
   SettingsItem,
   SettingsPreferences,
-  SettingsConnectedProvider,
 } from './settings.types';
 import { isTeamRole } from '../constants/user.constants';
 
@@ -386,51 +385,6 @@ export const DEFAULT_SETTINGS_PREFERENCES: SettingsPreferences = {
   analyticsTracking: true,
   biometricLogin: false,
 } as const;
-
-// ============================================
-// CONNECTED PROVIDERS
-// ============================================
-
-/**
- * Default connected providers list.
- */
-export const DEFAULT_CONNECTED_PROVIDERS: readonly SettingsConnectedProvider[] = [
-  {
-    id: 'google',
-    name: 'Google',
-    icon: 'link-outline',
-    connected: false,
-    connectedAt: null,
-  },
-  {
-    id: 'apple',
-    name: 'Apple',
-    icon: 'link-outline',
-    connected: false,
-    connectedAt: null,
-  },
-  {
-    id: 'twitter',
-    name: 'X (Twitter)',
-    icon: 'link-outline',
-    connected: false,
-    connectedAt: null,
-  },
-  {
-    id: 'instagram',
-    name: 'Instagram',
-    icon: 'link-outline',
-    connected: false,
-    connectedAt: null,
-  },
-  {
-    id: 'hudl',
-    name: 'Hudl',
-    icon: 'link-outline',
-    connected: false,
-    connectedAt: null,
-  },
-] as const;
 
 // ============================================
 // UI CONFIGURATION

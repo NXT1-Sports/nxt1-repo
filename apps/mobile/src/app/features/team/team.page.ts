@@ -52,7 +52,13 @@ import {
   type BottomSheetAction,
 } from '@nxt1/ui';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from '@nxt1/core';
+import {
+  buildCanonicalProfilePath,
+  buildCanonicalTeamPath,
+  type TeamProfileTabId,
+  type TeamProfileRosterMember,
+  type TeamProfilePost,
+} from '@nxt1/core';
 
 import { MobileAuthService } from '../../core/services/auth/mobile-auth.service';
 import { AnalyticsService } from '../../core/services/infrastructure/analytics.service';
@@ -428,6 +434,7 @@ export class TeamPage {
     const result = await this.share.shareTeam({
       id: team.id,
       slug: team.slug,
+      teamCode: team.teamCode,
       teamName: team.teamName,
       sport: team.sport,
       location: team.location,
@@ -445,13 +452,20 @@ export class TeamPage {
     const team = this.teamProfile.team();
     if (!team) return;
 
+    const teamPath = buildCanonicalTeamPath({
+      slug: team.slug,
+      teamName: team.teamName,
+      teamCode: team.teamCode,
+      id: team.id,
+    });
+
     try {
       await this.qrCode.open({
-        url: `https://nxt1sports.com/team/${team.slug}`,
+        url: `https://nxt1sports.com${teamPath}`,
         displayName: team.teamName,
         profileImg: team.logoUrl || undefined,
         sport: team.sport || 'Sports',
-        unicode: team.slug,
+        unicode: team.teamCode || team.slug,
         isOwnProfile: this.isTeamAdmin(),
         entityType: 'team',
       });
@@ -481,7 +495,15 @@ export class TeamPage {
 
   protected onRosterMemberClick(member: TeamProfileRosterMember): void {
     if (member.profileCode) {
-      void this.navController.navigateForward(`/profile/${member.profileCode}`);
+      const teamSport = this.teamProfile.team()?.sport;
+      const athleteName = member.displayName || `${member.firstName} ${member.lastName}`.trim();
+      void this.navController.navigateForward(
+        buildCanonicalProfilePath({
+          athleteName,
+          sport: teamSport,
+          unicode: member.profileCode,
+        })
+      );
     }
   }
 

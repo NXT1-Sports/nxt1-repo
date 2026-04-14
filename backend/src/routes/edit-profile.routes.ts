@@ -18,6 +18,12 @@ import type { User, SportProfile, TeamType, UserRole } from '@nxt1/core';
 import { formatFileSize, TEAM_TYPES } from '@nxt1/core';
 import { invalidateProfileCaches } from './profile.routes.js';
 import { enqueueWelcomeGraphicIfReady } from '../services/agent-welcome.service.js';
+import { createRosterEntryService } from '../services/roster-entry.service.js';
+import {
+  createProfileWriteAccessService,
+  type ProfileWriteAccessGrant,
+  getAuthorizedTargetSportSelections,
+} from '../services/profile-write-access.service.js';
 import type {
   EditProfileData,
   EditProfileFormData,
@@ -38,6 +44,11 @@ import type {
 const router: ExpressRouter = Router();
 
 const USERS_COLLECTION = 'Users';
+const DELEGATED_EDITABLE_SECTIONS = new Set<EditProfileSectionId>([
+  'sports-info',
+  'academics',
+  'physical',
+]);
 
 // ============================================
 // MULTER CONFIGURATION FOR FILE UPLOADS
@@ -116,6 +127,94 @@ function buildPhotoStoragePath(userId: string, type: 'profile' | 'banner'): stri
   } else {
     return `${USERS_COLLECTION}/${userId}/cover/cover_${timestamp}.${extension}`;
   }
+}
+
+function getRequiredRouteParam(value: string | string[] | undefined, name: string): string {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value;
+  }
+
+  throw fieldError(name, `Invalid ${name}`, 'invalid');
+}
+
+function getAccessibleSportIndices(user: User, accessGrant: ProfileWriteAccessGrant): number[] {
+  return getAuthorizedTargetSportSelections(
+    user as unknown as Record<string, unknown>,
+    accessGrant
+  ).map((selection) => selection.index);
+}
+
+function resolveEditableSportIndex(
+  user: User,
+  requestedSportIndex: number | undefined,
+  accessGrant: ProfileWriteAccessGrant
+): number | undefined {
+  if (!Array.isArray(user.sports) || user.sports.length === 0) {
+    return requestedSportIndex;
+  }
+
+  if (accessGrant.isSelfWrite) {
+    return requestedSportIndex ?? user.activeSportIndex ?? 0;
+  }
+
+  const accessibleIndices = getAccessibleSportIndices(user, accessGrant);
+  if (accessibleIndices.length === 0) {
+    throw forbiddenError('owner');
+  }
+
+  if (requestedSportIndex !== undefined) {
+    if (!accessibleIndices.includes(requestedSportIndex)) {
+      throw forbiddenError('owner');
+    }
+    return requestedSportIndex;
+  }
+
+  const activeSportIndex = user.activeSportIndex ?? 0;
+  return accessibleIndices.includes(activeSportIndex) ? activeSportIndex : accessibleIndices[0];
+}
+
+function buildEditProfileRawUser(
+  user: User,
+  accessGrant: ProfileWriteAccessGrant
+): Record<string, unknown> | undefined {
+  if (accessGrant.isSelfWrite) {
+    return user as unknown as Record<string, unknown>;
+  }
+
+  return {
+    role: user.role,
+    userType: user.role,
+    gender: (user as unknown as Record<string, unknown>)['gender'] ?? null,
+  };
+}
+
+function buildDelegatedFormData(formData: EditProfileFormData): EditProfileFormData {
+  return {
+    ...formData,
+    basicInfo: {
+      firstName: '',
+      lastName: '',
+      displayName: undefined,
+      bio: undefined,
+      location: undefined,
+      classYear: undefined,
+    },
+    photos: {
+      bannerImg: undefined,
+      profileImgs: undefined,
+    },
+    socialLinks: {
+      links: [],
+    },
+    contact: {
+      email: undefined,
+      phone: undefined,
+      parentEmail: undefined,
+      parentPhone: undefined,
+      coachEmail: undefined,
+      preferredContactMethod: undefined,
+    },
+  };
 }
 
 /**
@@ -808,26 +907,22 @@ router.get(
   '/:uid/edit',
   appGuard,
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { uid } = req.params;
+    const uid = getRequiredRouteParam(req.params['uid'], 'uid');
     const currentUserId = req.user!.uid;
     const sportIndexParam = req.query['sportIndex'] as string | undefined;
 
-    // Only allow users to edit their own profile
-    if (uid !== currentUserId) {
-      throw forbiddenError('owner');
-    }
-
     const db = req.firebase!.db;
-    const doc = await db.collection(USERS_COLLECTION).doc(uid).get();
-
-    if (!doc.exists) {
-      throw notFoundError('profile');
-    }
-
-    const user = { id: doc.id, ...doc.data() } as User;
+    const accessGrant = await createProfileWriteAccessService(db).assertCanManageProfileTarget({
+      actorUserId: currentUserId,
+      targetUserId: uid,
+      action: 'edit-profile:get',
+    });
+    const user = { id: uid, ...accessGrant.targetUserData } as User;
 
     // Parse sportIndex from query param
-    const sportIndex = sportIndexParam !== undefined ? parseInt(sportIndexParam, 10) : undefined;
+    const requestedSportIndex =
+      sportIndexParam !== undefined ? parseInt(sportIndexParam, 10) : undefined;
+    const sportIndex = resolveEditableSportIndex(user, requestedSportIndex, accessGrant);
 
     // For coach/director roles, connected sources live on the Team doc (not User doc)
     const isTeamRole = user.role === 'coach' || user.role === 'director';
@@ -858,7 +953,9 @@ router.get(
       }
     }
 
-    const formData = userToEditProfileFormData(user, sportIndex, teamConnectedSources);
+    const formData = accessGrant.isSelfWrite
+      ? userToEditProfileFormData(user, sportIndex, teamConnectedSources)
+      : buildDelegatedFormData(userToEditProfileFormData(user, sportIndex, teamConnectedSources));
     const completion = calculateProfileCompletion(formData);
 
     // Determine which sport index is being edited
@@ -874,14 +971,13 @@ router.get(
           : user.updatedAt && typeof user.updatedAt === 'object' && 'toDate' in user.updatedAt
             ? (user.updatedAt as { toDate(): Date }).toDate().toISOString()
             : new Date().toISOString(),
-      // Include raw user data for sport switching
-      rawUser: user as unknown as Record<string, unknown>,
+      rawUser: buildEditProfileRawUser(user, accessGrant),
       activeSportIndex: editingSportIndex,
     };
 
     logger.info('[EditProfile] Profile data loaded for editing', {
       uid,
-      requestedSportIndex: sportIndex,
+      requestedSportIndex,
       activeSportIndex: user.activeSportIndex,
       totalSports: user.sports?.length,
       loadedSport: formData.sportsInfo.sport,
@@ -914,7 +1010,8 @@ router.put(
   '/:uid/section/:sectionId',
   appGuard,
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { uid, sectionId } = req.params;
+    const uid = getRequiredRouteParam(req.params['uid'], 'uid');
+    const sectionId = getRequiredRouteParam(req.params['sectionId'], 'sectionId');
     const currentUserId = req.user!.uid;
     const sectionData = req.body;
     const sportIndexParam = req.query['sportIndex'] as string | undefined;
@@ -934,12 +1031,12 @@ router.put(
       throw fieldError('sectionId', `Invalid section ID: ${sectionId}`, 'invalid_section');
     }
 
-    // Only allow users to update their own profile
-    if (uid !== currentUserId) {
-      throw forbiddenError('owner');
-    }
-
     const db = req.firebase!.db;
+    const accessGrant = await createProfileWriteAccessService(db).assertCanManageProfileTarget({
+      actorUserId: currentUserId,
+      targetUserId: uid,
+      action: `edit-profile:update-section:${sectionId}`,
+    });
     const userRef = db.collection(USERS_COLLECTION).doc(uid);
     const doc = await userRef.get();
 
@@ -984,15 +1081,42 @@ router.put(
     const previousSectionData = previousCompletion.sections.find((s) => s.sectionId === sectionId);
 
     // Parse sportIndex from query param (used for sports-related sections)
-    const sportIndex = sportIndexParam !== undefined ? parseInt(sportIndexParam, 10) : undefined;
+    const requestedSportIndex =
+      sportIndexParam !== undefined ? parseInt(sportIndexParam, 10) : undefined;
+    const typedSectionId = sectionId as EditProfileSectionId;
+    if (!accessGrant.isSelfWrite && !DELEGATED_EDITABLE_SECTIONS.has(typedSectionId)) {
+      throw forbiddenError('owner');
+    }
+    const sportIndex = DELEGATED_EDITABLE_SECTIONS.has(typedSectionId)
+      ? resolveEditableSportIndex(user, requestedSportIndex, accessGrant)
+      : requestedSportIndex;
+    if (
+      !accessGrant.isSelfWrite &&
+      typedSectionId === 'sports-info' &&
+      sectionData &&
+      Object.prototype.hasOwnProperty.call(sectionData, 'teamOrganizationId')
+    ) {
+      const selectedSportScope = getAuthorizedTargetSportSelections(
+        user as unknown as Record<string, unknown>,
+        accessGrant
+      ).find((selection) => selection.index === sportIndex);
+      const requestedOrganizationId =
+        typeof sectionData['teamOrganizationId'] === 'string'
+          ? sectionData['teamOrganizationId'].trim()
+          : null;
+
+      if (
+        !selectedSportScope ||
+        !selectedSportScope.organizationId ||
+        !requestedOrganizationId ||
+        requestedOrganizationId !== selectedSportScope.organizationId
+      ) {
+        throw forbiddenError('owner');
+      }
+    }
 
     // Map section data to Firestore updates
-    const updates = sectionToFirestoreUpdate(
-      sectionId as EditProfileSectionId,
-      sectionData,
-      user,
-      sportIndex
-    );
+    const updates = sectionToFirestoreUpdate(typedSectionId, sectionData, user, sportIndex);
 
     logger.debug('[EditProfile] Firestore updates prepared', {
       sectionId,
@@ -1055,6 +1179,8 @@ router.put(
                 sportName: sportsData.sport || '',
                 updatedAt: new Date(),
               });
+            const rosterEntryService = createRosterEntryService(db);
+            await rosterEntryService.syncTeamSport(coachTeamId, sportsData.sport || '');
             logger.info('[EditProfile] Coach sport saved to Team doc', {
               userId: uid,
               teamId: coachTeamId,
@@ -1070,7 +1196,7 @@ router.put(
               orgUpdates['logoUrl'] = sportsData.teamLogoUrl || null;
 
             if (Object.keys(orgUpdates).length > 1) {
-              await db.collection('organizations').doc(orgId).update(orgUpdates);
+              await db.collection('Organizations').doc(orgId).update(orgUpdates);
               logger.info('[EditProfile] Coach sports-info saved to Organization doc', {
                 userId: uid,
                 organizationId: orgId,
@@ -1118,6 +1244,12 @@ router.put(
     const updatedDoc = await userRef.get();
     const updatedUser = { id: updatedDoc.id, ...updatedDoc.data() } as User;
 
+    const rosterEntryService = createRosterEntryService(db);
+    await rosterEntryService.syncUserProfileToRosterEntries(
+      uid,
+      updatedDoc.data() as Record<string, unknown>
+    );
+
     // ─── Deferred welcome graphic ──────────────────────────────────────────
     // Generate a welcome graphic the FIRST time the user adds a relevant image:
     //   • Athletes / parents → first profile image (profileImgs)
@@ -1156,7 +1288,7 @@ router.put(
 
       if (organizationId) {
         try {
-          const orgDoc = await db.collection('organizations').doc(organizationId).get();
+          const orgDoc = await db.collection('Organizations').doc(organizationId).get();
           if (orgDoc.exists) {
             orgDocData = orgDoc.data() as Record<string, unknown>;
           }
@@ -1214,7 +1346,6 @@ router.put(
             }
 
             logger.info('[EditProfile] Welcome graphic deferred', {
-              userId: uid,
               trigger: athleteImageAdded ? 'profileImage' : 'teamLogo',
               role,
               reason: result.reason,
@@ -1232,7 +1363,7 @@ router.put(
     // ─── End deferred welcome graphic ──────────────────────────────────────
 
     // Invalidate all profile caches to ensure fresh data
-    await invalidateProfileCaches(uid, updatedUser.username, updatedUser.unicode).catch((err) =>
+    await invalidateProfileCaches(uid, updatedUser.unicode).catch((err) =>
       logger.warn('[EditProfile] Cache invalidation failed', { userId: uid, err })
     );
 
@@ -1256,7 +1387,7 @@ router.put(
     });
 
     // Calculate new completion
-    const updatedFormData = userToEditProfileFormData(updatedUser);
+    const updatedFormData = userToEditProfileFormData(updatedUser, sportIndex);
     const newCompletion = calculateProfileCompletion(updatedFormData);
     const newSectionData = newCompletion.sections.find((s) => s.sectionId === sectionId);
 
@@ -1323,23 +1454,18 @@ router.get(
   '/:uid/completion',
   appGuard,
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { uid } = req.params;
+    const uid = getRequiredRouteParam(req.params['uid'], 'uid');
     const currentUserId = req.user!.uid;
 
-    // Only allow users to view their own completion
-    if (uid !== currentUserId) {
-      throw forbiddenError('owner');
-    }
-
     const db = req.firebase!.db;
-    const doc = await db.collection(USERS_COLLECTION).doc(uid).get();
-
-    if (!doc.exists) {
-      throw notFoundError('profile');
-    }
-
-    const user = { id: doc.id, ...doc.data() } as User;
-    const formData = userToEditProfileFormData(user);
+    const accessGrant = await createProfileWriteAccessService(db).assertCanManageProfileTarget({
+      actorUserId: currentUserId,
+      targetUserId: uid,
+      action: 'edit-profile:get-completion',
+    });
+    const user = { id: uid, ...accessGrant.targetUserData } as User;
+    const sportIndex = resolveEditableSportIndex(user, undefined, accessGrant);
+    const formData = userToEditProfileFormData(user, sportIndex);
     const completion = calculateProfileCompletion(formData);
 
     logger.debug('[EditProfile] Completion calculated', {
@@ -1367,7 +1493,7 @@ router.post(
   appGuard,
   upload.single('file'),
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { uid } = req.params;
+    const uid = getRequiredRouteParam(req.params['uid'], 'uid');
     const currentUserId = req.user!.uid;
     const { type } = req.body;
     const file = req.file;
@@ -1435,7 +1561,8 @@ router.delete(
   '/:uid/photo/:type',
   appGuard,
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { uid, type } = req.params;
+    const uid = getRequiredRouteParam(req.params['uid'], 'uid');
+    const type = getRequiredRouteParam(req.params['type'], 'type');
     const currentUserId = req.user!.uid;
 
     if (type !== 'profile' && type !== 'banner') {
@@ -1479,7 +1606,15 @@ router.delete(
 
     await userRef.update(updates);
 
-    await invalidateProfileCaches(uid, user.username, user.unicode).catch((err) =>
+    const nextUserData = {
+      ...userData,
+      ...updates,
+    } as Record<string, unknown>;
+
+    const rosterEntryService = createRosterEntryService(db);
+    await rosterEntryService.syncUserProfileToRosterEntries(uid, nextUserData);
+
+    await invalidateProfileCaches(uid, user.unicode).catch((err) =>
       logger.warn('[EditProfile] Cache invalidation failed after photo delete', {
         userId: uid,
         err,
@@ -1501,7 +1636,7 @@ router.put(
   '/:uid/active-sport-index',
   appGuard,
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { uid } = req.params;
+    const uid = getRequiredRouteParam(req.params['uid'], 'uid');
     const currentUserId = req.user!.uid;
     const { activeSportIndex } = req.body;
 
@@ -1545,7 +1680,7 @@ router.put(
     });
 
     // Invalidate profile caches
-    await invalidateProfileCaches(uid, user.username, user.unicode).catch((err) =>
+    await invalidateProfileCaches(uid, user.unicode).catch((err) =>
       logger.warn('[EditProfile] Cache invalidation failed', { userId: uid, err })
     );
 

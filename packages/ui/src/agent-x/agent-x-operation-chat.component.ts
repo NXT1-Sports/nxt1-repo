@@ -1864,32 +1864,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.logger.info('Loading operation thread', { threadId, contextId: this.contextId });
 
     try {
-      const response = await firstValueFrom(
-        this.http.get<{
-          success: boolean;
-          data?: {
-            items: Array<{
-              id?: string;
-              role: string;
-              content: string;
-              createdAt?: string;
-              resultData?: Record<string, unknown>;
-              toolCalls?: Array<{
-                toolName: string;
-                input?: Record<string, unknown>;
-                output?: Record<string, unknown>;
-                status: string;
-                durationMs?: number;
-                timestamp?: string;
-              }>;
-            }>;
-            hasMore?: boolean;
-          };
-          error?: string;
-        }>(`${this.baseUrl}/agent-x/threads/${encodeURIComponent(threadId)}/messages?limit=50`)
-      );
+      const items = await this.agentXService.getPersistedThreadMessages(threadId);
 
-      if (!response.success || !response.data?.items?.length) {
+      if (!items.length) {
         this.logger.warn('Operation thread returned no messages', {
           threadId,
           contextId: this.contextId,
@@ -1901,7 +1878,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         return;
       }
 
-      const mapped: OperationMessage[] = response.data.items.map((msg) => {
+      const mapped: OperationMessage[] = items.map((msg) => {
         // Convert persisted toolCalls into AgentXToolStep[] for the chat bubble
         const steps: AgentXToolStep[] = (msg.toolCalls ?? []).map((tc, idx) => ({
           id: `tc-${idx}-${tc.toolName}`,

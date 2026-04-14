@@ -12,6 +12,10 @@
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { getCacheService } from '../../../../services/cache.service.js';
+import {
+  createProfileWriteAccessService,
+  resolveAuthorizedTargetSportSelection,
+} from '../../../../services/profile-write-access.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
@@ -20,7 +24,6 @@ import { logger } from '../../../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const USERS_COLLECTION = 'Users';
 const PLAYER_METRICS_COLLECTION = 'PlayerMetrics';
 const MAX_METRICS = 50;
 
@@ -103,16 +106,26 @@ export class WriteCombineMetricsTool extends BaseTool {
       return { success: false, error: `metrics array exceeds maximum of ${MAX_METRICS}.` };
     }
 
-    // Validate user exists
-    const userRef = this.db.collection(USERS_COLLECTION).doc(userId);
-    try {
-      const userDoc = await userRef.get();
-      if (!userDoc.exists) {
-        return { success: false, error: `User "${userId}" not found.` };
-      }
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
+    }
 
-      const userData = userDoc.data() as Record<string, unknown>;
+    try {
+      const accessGrant = await createProfileWriteAccessService(
+        this.db
+      ).assertCanManageAthleteProfileTarget({
+        actorUserId: context.userId,
+        targetUserId: userId,
+        action: 'tool:write_combine_metrics',
+      });
+      const userData = accessGrant.targetUserData;
       const sportId = targetSport.trim().toLowerCase();
+      if (
+        !accessGrant.isSelfWrite &&
+        !resolveAuthorizedTargetSportSelection(userData, sportId, accessGrant)
+      ) {
+        return { success: false, error: 'Not authorized to write combine metrics for this sport.' };
+      }
       const now = new Date().toISOString();
       const metricsCol = this.db.collection(PLAYER_METRICS_COLLECTION);
 
@@ -175,7 +188,6 @@ export class WriteCombineMetricsTool extends BaseTool {
           cache.del(`profile:metrics:${userId}:${sportId}`),
           invalidateProfileCaches(
             userId,
-            typeof userData['username'] === 'string' ? userData['username'] : undefined,
             typeof userData['unicode'] === 'string' ? userData['unicode'] : null
           ),
         ]);

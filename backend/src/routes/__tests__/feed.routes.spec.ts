@@ -19,12 +19,10 @@ describe('Feed Routes', () => {
       router,
       [
         { path: '/', method: 'get' },
-        { path: '/trending', method: 'get' },
-        { path: '/discover', method: 'get' },
         { path: '/users/:uid', method: 'get' },
         { path: '/teams/:teamCode', method: 'get' },
       ],
-      5
+      3
     );
   });
 });

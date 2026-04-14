@@ -198,14 +198,6 @@ router.get('/search', async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
- * GET /api/v1/news/stats
- * News statistics — not yet implemented.
- */
-router.get('/stats', (_req: Request, res: Response): void => {
-  res.status(501).json({ success: false, error: 'Not implemented' });
-});
-
-/**
  * GET /api/v1/news/:id
  * Single article by Firestore document ID. Increments viewCount.
  */
@@ -250,15 +242,6 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     const error = internalError(err);
     res.status(error.statusCode).json(error.toResponse());
   }
-});
-
-/**
- * POST /api/v1/news/generate
- * AI-powered news generation — implemented by dailyPulseUpdates function.
- */
-router.post('/generate', (_req: Request, res: Response): void => {
-  const error = internalError('Use the scheduled dailyPulseUpdates function instead.');
-  res.status(501).json(error.toResponse());
 });
 
 export default router;

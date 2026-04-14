@@ -18,7 +18,6 @@ import { FieldValue } from 'firebase-admin/firestore';
 
 import type {
   ValidateTeamCodeResponse,
-  CreateUserRequest,
   TeamTypeApi,
   UserRole,
   SportProfile,
@@ -60,6 +59,7 @@ import {
   type OnboardingProgramSelection,
   type OnboardingCreateTeamProfile,
 } from '../services/onboarding-program-provisioning.service.js';
+import { createRosterEntryService } from '../services/roster-entry.service.js';
 
 // Import profile routes
 import profileRoutes, { invalidateProfileCaches } from './profile.routes.js';
@@ -150,7 +150,6 @@ interface UserV2Document {
   // ============================================
   // MINIMAL LEGACY FIELDS (being phased out)
   // ============================================
-  primarySport?: string; // For backward compat only
   highSchool?: string; // For backward compat only
   state?: string; // For backward compat only
   city?: string; // For backward compat only
@@ -353,7 +352,7 @@ function createSportProfile(
 }
 
 /**
- * Get primary sport from sports array (for legacy field compatibility)
+ * Get primary sport from sports array.
  * @param sports - Array of sport profiles
  * @returns Sport name of primary sport, or undefined if none
  */
@@ -422,34 +421,6 @@ router.get(
     };
 
     res.json(response);
-  })
-);
-
-/**
- * POST /auth/users
- * Create user endpoint - alias for /create-user to match core API expectations
- */
-router.post(
-  '/users',
-  asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    // const { db } = req.firebase;
-    const { uid, email } = req.body as CreateUserRequest;
-
-    // Validation
-    if (!uid?.trim() || !email?.trim()) {
-      const error = validationError([
-        ...(!uid?.trim()
-          ? [{ field: 'uid', message: 'User ID is required', rule: 'required' }]
-          : []),
-        ...(!email?.trim()
-          ? [{ field: 'email', message: 'Email is required', rule: 'required' }]
-          : []),
-      ]);
-      sendError(res, error);
-      return;
-    }
-
-    res.status(501).json({ success: false, error: 'Not implemented' });
   })
 );
 
@@ -935,7 +906,6 @@ router.post(
     if (sports.length > 0) {
       updateData.sports = sports;
       updateData.activeSportIndex = 0;
-      updateData.primarySport = sports[0]?.sport;
     }
 
     // V2: Build location object
@@ -1214,6 +1184,13 @@ router.post(
     try {
       const updatedUser = await db.collection('Users').doc(userId).get();
       userData = updatedUser.data() as UserV2Document | undefined;
+      if (userData) {
+        const rosterEntryService = createRosterEntryService(db);
+        await rosterEntryService.syncUserProfileToRosterEntries(
+          userId,
+          userData as unknown as Record<string, unknown>
+        );
+      }
       logger.debug('[POST /profile/onboarding] Fetched user:', {
         firstName: userData?.firstName,
         role: userData?.role,
@@ -1235,7 +1212,7 @@ router.post(
     // See edit-profile.routes.ts — "Deferred welcome graphic" section.
 
     // Shared variables used by scrape enqueue below
-    const primarySportName = getPrimarySport(userData?.sports) ?? userData?.primarySport;
+    const primarySportName = getPrimarySport(userData?.sports);
     const agentEnv = req.isStaging ? 'staging' : 'production';
 
     // Enqueue linked account scrape (skip if pre-fetched from Step 5)
@@ -1306,7 +1283,6 @@ router.post(
         role: userData?.role,
         onboardingCompleted: true,
         completeSignUp: true, // Legacy field for backward compat
-        primarySport: getPrimarySport(userData?.sports) ?? userData?.primarySport,
       },
       redirectPath: '/home',
       ...(scrapeJobId && { scrapeJobId }),
@@ -1423,11 +1399,7 @@ router.post(
           const existingSports = Array.isArray(currentUser?.sports)
             ? (JSON.parse(JSON.stringify(currentUser.sports)) as SportProfile[])
             : [];
-          const fallbackPrimarySport =
-            getPrimarySport(currentUser?.sports) ??
-            ((currentUser as Record<string, unknown> | undefined)?.['primarySport'] as
-              | string
-              | undefined);
+          const fallbackPrimarySport = getPrimarySport(currentUser?.sports);
           const updatedSports =
             existingSports.length > 0
               ? existingSports
@@ -1462,7 +1434,6 @@ router.post(
 
             updateData.sports = updatedSports;
             updateData.activeSportIndex = 0;
-            updateData.primarySport = updatedSports[0]?.sport;
           }
 
           (updateData as Record<string, unknown>)['coachTitle'] = FieldValue.delete();
@@ -1580,11 +1551,6 @@ router.post(
 
           updateData.sports = sports;
           updateData.activeSportIndex = 0;
-
-          const primarySport = sports.find((s) => s.order === 0);
-          if (primarySport) {
-            updateData.primarySport = primarySport.sport;
-          }
         }
         break;
       }
@@ -1595,7 +1561,7 @@ router.post(
           : [];
 
         // Normalize positions to Title Case (e.g. "quarterback" → "Quarterback")
-        const sportName = currentUser?.primarySport ?? '';
+        const sportName = getPrimarySport(currentUser?.sports) ?? '';
         const positions = normalizePositions(rawPositions, sportName);
 
         // V2: Update positions in sports array (Athletes only — coaches don't own sports[])
@@ -1611,7 +1577,7 @@ router.post(
             updateData.sports = updatedSports;
           } else if (positions.length > 0) {
             // Create sport entry if none exists (shouldn't happen in normal flow)
-            const sportName = currentUser?.primarySport ?? 'unknown';
+            const sportName = getPrimarySport(currentUser?.sports) ?? 'unknown';
             updateData.sports = [createSportProfile(sportName, 0, { positions })];
             updateData.activeSportIndex = 0;
           }
@@ -3435,7 +3401,7 @@ router.post(
 // PROFILE ROUTES
 // ============================================
 // Mounted early so profileRoutes handles all /auth/profile/* requests
-// (GET /:userId, GET /username/:username, GET /search, PUT, POST, DELETE)
+// (GET /:userId, GET /unicode/:unicode, GET /search, PUT, POST, DELETE)
 // with Redis caching (MEDIUM_TTL = 15 min via PROFILE_CACHE_KEYS).
 router.use('/profile', profileRoutes);
 

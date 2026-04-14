@@ -49,6 +49,10 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
 
   getAvailableTools(): readonly string[] {
     return [
+      'search_nxt1_platform',
+      'query_nxt1_platform_data',
+      'list_nxt1_data_views',
+      'query_nxt1_data',
       'search_web',
       'scrape_webpage',
       'scrape_and_index_profile',

@@ -29,7 +29,6 @@ export type {
   SettingsUserInfo,
   SettingsSubscription,
   SettingsUsage,
-  SettingsConnectedProvider,
   // Preferences
   SettingsPreferences,
   // State & API
@@ -55,7 +54,6 @@ export {
   // Defaults
   DEFAULT_SETTINGS_SECTIONS,
   DEFAULT_SETTINGS_PREFERENCES,
-  DEFAULT_CONNECTED_PROVIDERS,
   // Role-aware factory
   getSettingsSectionsForRole,
   // UI config

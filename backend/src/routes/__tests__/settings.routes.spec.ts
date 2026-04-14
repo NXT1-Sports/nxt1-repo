@@ -3,6 +3,7 @@
  * @module @nxt1/backend/routes/__tests__/settings
  */
 
+import 'reflect-metadata';
 import { beforeAll, describe, it } from 'vitest';
 import { expectExpressRouter } from './route-test.utils.js';
 
@@ -21,11 +22,10 @@ describe('Settings Routes', () => {
         { path: '/preferences', method: 'get' },
         { path: '/preferences/:key', method: 'patch' },
         { path: '/preferences', method: 'patch' },
-        { path: '/usage', method: 'get' },
         { path: '/password', method: 'post' },
         { path: '/account', method: 'delete' },
       ],
-      6
+      5
     );
   });
 });

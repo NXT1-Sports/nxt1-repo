@@ -53,6 +53,7 @@ interface UserDoc {
   referralCode?: string;
   firstName?: string;
   lastName?: string;
+  displayName?: string;
   email?: string;
   profileImgs?: string[];
   role?: string;
@@ -926,6 +927,13 @@ router.post(
             const teamDocSnap = await db.collection('Teams').doc(team.id).get();
             const organizationId: string =
               teamDocSnap.data()?.['organizationId'] ?? team.organizationId ?? '';
+            const teamSport: string = teamDocSnap.data()?.['sport'] ?? team.sport ?? '';
+            const athletePositions =
+              rosterRole === 'athlete'
+                ? userData?.sports?.find(
+                    (sport) => sport.sport?.trim().toLowerCase() === teamSport.trim().toLowerCase()
+                  )?.positions
+                : undefined;
 
             const rosterService = new RosterEntryService(db);
             try {
@@ -934,10 +942,18 @@ router.post(
                 teamId: team.id,
                 organizationId,
                 role: rosterRole,
+                sport: teamSport,
                 status: rosterStatus,
                 invitedBy: inviterId ?? undefined,
+                ...(rosterRole === 'athlete' ? { positions: athletePositions } : {}),
                 firstName: userData?.firstName ?? '',
                 lastName: userData?.lastName ?? '',
+                displayName:
+                  userData?.displayName ??
+                  [userData?.firstName ?? '', userData?.lastName ?? '']
+                    .map((value) => value.trim())
+                    .filter(Boolean)
+                    .join(' '),
                 email: userData?.email ?? '',
               });
             } catch (rosterErr: unknown) {

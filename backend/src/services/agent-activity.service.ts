@@ -45,8 +45,9 @@ export interface AgentActivityInput {
  * Log a completed Agent X action to the user's activity feed and dispatch
  * a push notification.
  *
- * Title and body are built dynamically from the operation result — the AI
- * controls what the user sees. No special-case branching for welcome,
+ * Title and body are built dynamically from the operation result. The title
+ * comes from a dedicated AI-generated short title, while the summary powers
+ * the body copy. No special-case branching for welcome,
  * briefing, or any other action type.
  */
 export async function logAgentTaskCompletion(
@@ -84,6 +85,7 @@ export async function logAgentTaskCompletion(
       ...(threadId ? { threadId } : {}),
       operationId: job.operationId,
       agentId: job.agent,
+      resultTitle: stripMarkdown(result.title ?? ''),
       resultSummary: stripMarkdown(result.summary),
       mode: job.context?.['mode'],
       ...(imageUrl ? { imageUrl } : {}),
@@ -190,20 +192,11 @@ function stripMarkdown(text: string): string {
 }
 
 /**
- * Build a concise, dynamic push-notification title from the operation result.
- * The AI's own summary drives the copy — no hardcoded per-action strings.
+ * Build a concise push-notification title from the AI-generated operation title.
  */
 function buildTitle(result: AgentOperationResult): string {
-  if (!result.summary) {
-    return 'Agent X has an update for you';
-  }
-
-  const cleanText = stripMarkdown(result.summary);
-
-  // Extract the first sentence or use the whole summary
-  const firstSentence = cleanText.split(/[.!]/).at(0)?.trim() || cleanText;
-
-  return `Agent X: ${firstSentence}`;
+  const cleanTitle = stripMarkdown(result.title ?? '');
+  return cleanTitle || 'Agent X Update';
 }
 
 /**
@@ -211,18 +204,15 @@ function buildTitle(result: AgentOperationResult): string {
  * Prefers the agent's own description, falls back gracefully.
  */
 function buildBody(result: AgentOperationResult): string {
-  if (!result.summary) {
-    return 'Tap to see what Agent X has for you.';
+  const cleanSummary = stripMarkdown(result.summary);
+  if (!cleanSummary) {
+    return 'Open Agent X to review it.';
   }
 
-  const cleanText = stripMarkdown(result.summary);
-  const firstSentence = cleanText.split(/[.!]/).at(0)?.trim() || cleanText;
-
-  // If the entire summary is just the title sentence, use a short CTA for the body
-  if (cleanText.trim().length <= firstSentence.length + 1) {
-    return 'Tap to see what Agent X has for you.';
+  const cleanTitle = stripMarkdown(result.title ?? '');
+  if (cleanTitle && cleanSummary.toLowerCase() === cleanTitle.toLowerCase()) {
+    return 'Open Agent X to review it.';
   }
 
-  // Otherwise, provide the full stripped summary
-  return cleanText;
+  return cleanSummary;
 }

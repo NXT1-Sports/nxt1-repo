@@ -118,72 +118,60 @@ export class AgentXJobService {
     intent: string,
     context?: Record<string, unknown>
   ): Promise<{ jobId: string; operationId: string; threadId?: string } | EnqueueFailure> {
-    this.logger.info('Routing task through unified /chat', { intent: intent.slice(0, 80) });
+    this.logger.info('Enqueuing background Agent X task', { intent: intent.slice(0, 80) });
     void this.breadcrumb.trackStateChange('agent-x-job:enqueuing', {
       intent: intent.slice(0, 80),
     });
 
-    // /chat returns text/event-stream (SSE), so we use fetch() fire-and-forget.
-    // The server processes the task via the streaming loop; we don't need to
-    // parse the SSE response here — just confirm the request was accepted.
-    const syntheticId = crypto.randomUUID();
-
     try {
-      const token = await this.tokenFactory?.();
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const response = await firstValueFrom(
+        this.http.post<{
+          success: boolean;
+          data?: { jobId: string; operationId: string; threadId?: string };
+          error?: string;
+          code?: string;
+        }>(`${this.baseUrl}/enqueue`, {
+          intent,
+          userContext: context,
+        })
+      );
 
-      const response = await fetch(`${this.baseUrl}/chat`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ message: intent, mode: 'auto', userContext: context }),
-      });
-
-      // Check for HTTP-level errors before the SSE stream starts
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({ error: response.statusText }));
-
-        if (response.status === 402) {
-          const billingCode = (errorBody as Record<string, unknown>)?.['code'] as
-            | string
-            | undefined;
+      if (!response.success || !response.data) {
+        if (response.code && response.code.toLowerCase().includes('billing')) {
           this.logger.warn('Agent X billing gate blocked job', {
-            code: billingCode,
-            message: (errorBody as Record<string, unknown>)?.['error'],
+            code: response.code,
+            message: response.error,
           });
           void this.breadcrumb.trackStateChange('agent-x-job:billing-blocked', {
-            code: billingCode,
+            code: response.code,
           });
           return {
             reason: 'billing',
-            message:
-              ((errorBody as Record<string, unknown>)?.['error'] as string) ||
-              'Payment required to use Agent X',
-            code: billingCode,
+            message: response.error || 'Payment required to use Agent X',
+            code: response.code,
           };
         }
 
-        throw new Error(
-          ((errorBody as Record<string, unknown>)?.['error'] as string) || `HTTP ${response.status}`
-        );
+        return {
+          reason: 'server',
+          message: response.error || 'Failed to start action',
+          code: response.code,
+        };
       }
 
-      // Request accepted — SSE stream is now open server-side.
-      // We intentionally do NOT consume the stream body here; the server
-      // processes the task asynchronously and the caller gets immediate feedback.
-      // Close the response body to avoid a dangling connection.
-      response.body?.cancel().catch(() => undefined);
-
-      this.logger.info('Task dispatched via /chat', { operationId: syntheticId });
+      this.logger.info('Background Agent X task enqueued', {
+        operationId: response.data.operationId,
+        jobId: response.data.jobId,
+      });
       void this.breadcrumb.trackStateChange('agent-x-job:enqueued', {
-        operationId: syntheticId,
+        operationId: response.data.operationId,
       });
       this.analytics?.trackEvent(APP_EVENTS.AGENT_X_JOB_ENQUEUED, {
-        source: 'unified-chat',
+        source: 'background-enqueue',
         intent: intent.slice(0, 80),
       });
 
-      return { jobId: syntheticId, operationId: syntheticId };
+      return response.data;
     } catch (err) {
       this.logger.error('Failed to dispatch Agent X task', err);
       void this.breadcrumb.trackStateChange('agent-x-job:enqueue-error');

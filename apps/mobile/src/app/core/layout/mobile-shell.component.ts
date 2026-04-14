@@ -104,10 +104,9 @@ import {
 } from '@nxt1/ui';
 import {
   AUTH_ROUTES,
-  formatSportDisplayName,
-  isTeamRole,
-  deduplicateSportProfiles,
-  getPositionAbbreviation,
+  buildUserDisplayContext,
+  type UserDisplayInput,
+  type UserDisplayFallback,
 } from '@nxt1/core';
 import type { InviteTeam } from '@nxt1/core';
 import { AuthFlowService } from '../services/auth/auth-flow.service';
@@ -145,7 +144,6 @@ import { EditProfileApiService } from '../services/api/edit-profile-api.service'
       (toggle)="onSidenavToggle($event)"
       (itemSelect)="onSidenavItemSelect($event)"
       (socialClick)="onSocialLinkClick($event)"
-      (profileClick)="onSidenavUserClick()"
       (addSportClick)="onAddSportClick()"
       (sportProfileSelect)="onSportProfileSelect($event)"
     />
@@ -308,14 +306,16 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    * during the window between auth resolution and full profile load.
    */
   readonly tabs = computed<FooterTabItem[]>(() => {
-    const profile = this.profileService.user();
-    const authUser = this.authFlow.user();
-    const role = profile?.role ?? authUser?.role ?? null;
-    const isTeam = role ? isTeamRole(role) : false;
-    const teamSlug = profile?.teamCode?.slug ?? profile?.coach?.managedTeamCodes?.[0] ?? undefined;
-    const ctx = isTeam
-      ? { isTeamRole: true, profileRoute: teamSlug ? `/team/${teamSlug}` : '/profile' }
-      : { isTeamRole: false, profileRoute: '/profile' };
+    const profile = this.profileService.user() as UserDisplayInput | null;
+    const authUser = this.authFlow.user() as UserDisplayInput | null;
+    const firebaseUser = this.authFlow.firebaseUser();
+    const fallback: UserDisplayFallback | null = firebaseUser
+      ? {
+          displayName: firebaseUser.displayName,
+          email: firebaseUser.email,
+        }
+      : null;
+    const ctx = buildUserDisplayContext(profile ?? authUser, fallback);
     const baseTabs = buildDynamicFooterTabs(ctx);
     const activityUnreadCount = this.activityService.totalUnread();
     return updateTabBadge(
@@ -391,137 +391,34 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    * This ensures sidenav always has data even before ProfileService loads.
    */
   readonly sidenavUser = computed<SidenavUserData | null>(() => {
-    // Get both data sources for intelligent avatar fallback
-    const profile = this.profileService.user();
-    const authUser = this.authFlow.user();
+    const rawProfile = this.profileService.user();
+    const profile = rawProfile as UserDisplayInput | null;
+    const rawAuthUser = this.authFlow.user();
+    const authUser = rawAuthUser as UserDisplayInput | null;
+    const firebaseUser = this.authFlow.firebaseUser();
+    const fallback: UserDisplayFallback | null = firebaseUser
+      ? {
+          displayName: firebaseUser.displayName,
+          email: firebaseUser.email,
+        }
+      : null;
 
-    if (profile) {
-      // Normalise: Firestore dot-notation writes can convert sports array to a map.
-      const sports = this.normalizeSports(profile.sports);
-
-      // Get primary sport using order === 0 (User model uses 'order', not 'isPrimary').
-      const primarySport = sports.find((s) => s.order === 0) ?? sports[0];
-      const primarySportName = this.resolveSportName(primarySport);
-      const position = primarySport?.positions?.[0] ?? '';
-      const personalName = `${profile.firstName} ${profile.lastName}`.trim();
-
-      // Coach/Director roles: resolve team name and logo from available sources
-      let displayName = personalName;
-      let profileImg: string | undefined;
-
-      if (isTeamRole(profile.role)) {
-        // Sport team data may include team info not in the normalized type
-        const sportTeam = (primarySport as unknown as Record<string, unknown> | undefined)?.[
-          'team'
-        ] as Record<string, unknown> | undefined;
-        // Raw Firestore top-level team field (not on User interface)
-        const rawTeam = (profile as unknown as Record<string, unknown>)['team'] as
-          | Record<string, unknown>
-          | undefined;
-
-        // Team name: teamCode → sports[].team → raw Firestore team field → personal name
-        const teamName =
-          (profile.teamCode?.teamName as string | undefined) ??
-          (sportTeam?.['name'] as string | undefined) ??
-          (rawTeam?.['name'] as string | undefined);
-        displayName = teamName || personalName;
-
-        // Team logo: teamCode → sports[].team → raw Firestore team field → undefined (shield fallback)
-        profileImg =
-          profile.teamCode?.logoUrl ??
-          (sportTeam?.['logoUrl'] as string | undefined) ??
-          (rawTeam?.['logoUrl'] as string | undefined) ??
-          undefined;
-      } else {
-        profileImg = profile.profileImgs?.[0] || undefined;
-      }
-
-      const subtitle = primarySportName
-        ? position
-          ? `${primarySportName} • ${getPositionAbbreviation(position, primarySportName) || position}`
-          : primarySportName
-        : position
-          ? getPositionAbbreviation(position, primarySport?.sport) || position
-          : isTeamRole(profile.role)
-            ? 'Coach'
-            : 'Athlete';
-
-      return {
-        name: displayName || 'User',
-        subtitle,
-        profileImg,
-        initials: this.getInitials(displayName || profile.email || 'U'),
-        verified: false,
-        isTeamRole: isTeamRole(profile.role),
-        switcherTitle: isTeamRole(profile.role) ? 'Teams' : 'Sports',
-        actionLabel: isTeamRole(profile.role) ? 'Add Team' : 'Add Sport',
-        userId: profile.id,
-        // Team roles: show each sport as a team card (team name + sport label)
-        // Athletes: show sport profiles for switching between sports.
-        sportProfiles: isTeamRole(profile.role)
-          ? (() => {
-              const teamProfiles: SidenavSportProfile[] = [];
-              // Primary sport from teamCode
-              if (primarySportName) {
-                teamProfiles.push({
-                  id: 'team-primary',
-                  sport: displayName,
-                  position: primarySportName,
-                  isActive: true,
-                  profileImg,
-                });
-              }
-              // Additional sports added via Add Team wizard
-              sports.forEach((s, index: number) => {
-                const sName = this.resolveSportName(s);
-                if (sName && sName !== primarySportName) {
-                  teamProfiles.push({
-                    id: `team-sport-${index}`,
-                    sport: displayName,
-                    position: sName,
-                    isActive: false,
-                    profileImg,
-                  });
-                }
-              });
-              return teamProfiles;
-            })()
-          : deduplicateSportProfiles(
-              sports.map((s, index: number) => {
-                const sportName =
-                  this.resolveSportName(s) || s.positions?.[0] || `Sport ${index + 1}`;
-                return {
-                  id: `${profile.id}-${sportName.toLowerCase().replace(/\s+/g, '-')}`,
-                  sport: sportName,
-                  sportIcon: this.getSportIcon(s.sport),
-                  position: s.positions?.[0]
-                    ? getPositionAbbreviation(s.positions[0], s.sport)
-                    : undefined,
-                  isActive: s.order === 0,
-                  classYear: undefined,
-                };
-              })
-            ),
-        activeSportProfileId: primarySportName
-          ? `${profile.id}-${primarySportName.toLowerCase().replace(/\s+/g, '-')}`
-          : undefined,
-      };
-    }
-
-    // Fallback to AuthUser (persisted, available immediately on app resume)
-    if (!authUser) return null;
+    const ctx = buildUserDisplayContext(profile ?? authUser, fallback);
+    if (!ctx) return null;
 
     return {
-      name: authUser.displayName || 'User',
-      subtitle: authUser.email,
-      profileImg: authUser.profileImg,
-      initials: this.getInitials(authUser.displayName || authUser.email || 'U'),
-      verified: authUser.emailVerified,
-      isTeamRole: isTeamRole(authUser.role),
-      actionLabel: isTeamRole(authUser.role) ? 'Add Team' : 'Add Sport',
-      userId: authUser.uid,
-      sportProfiles: [], // AuthUser doesn't have sports data
-      activeSportProfileId: undefined,
+      name: ctx.name,
+      subtitle: ctx.sportLabel ?? (profile ? (ctx.isTeamRole ? 'Coach' : 'Athlete') : ctx.email),
+      profileImg: ctx.profileImg,
+      initials: ctx.initials,
+      verified: profile ? ctx.verified : (rawAuthUser?.emailVerified ?? ctx.verified),
+      profileRoute: ctx.profileRoute,
+      isTeamRole: ctx.isTeamRole,
+      switcherTitle: ctx.switcherTitle,
+      actionLabel: ctx.actionLabel,
+      userId: rawProfile?.id ?? rawAuthUser?.uid,
+      sportProfiles: ctx.sportProfiles as SidenavSportProfile[],
+      activeSportProfileId: ctx.sportProfiles.find((sportProfile) => sportProfile.isActive)?.id,
     };
   });
 
@@ -729,87 +626,6 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     // sidenavUser is now a computed signal that automatically reacts to auth state changes
   }
 
-  /**
-   * Get user initials from display name or email
-   */
-  private getInitials(nameOrEmail: string): string {
-    if (!nameOrEmail) return 'U';
-
-    // If it looks like an email, use first letter
-    if (nameOrEmail.includes('@')) {
-      return nameOrEmail.charAt(0).toUpperCase();
-    }
-
-    // Split by spaces and get first letter of each word (max 2)
-    const parts = nameOrEmail.trim().split(/\s+/);
-    if (parts.length >= 2) {
-      return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
-    }
-    return nameOrEmail.charAt(0).toUpperCase();
-  }
-
-  /**
-   * Firestore writes can produce either an array or object map for sports.
-   * Normalize to an array and preserve sport names when possible.
-   */
-  private normalizeSports(
-    sports: unknown
-  ): Array<{ sport?: string; positions?: string[]; order?: number }> {
-    if (Array.isArray(sports)) {
-      return sports as Array<{ sport?: string; positions?: string[]; order?: number }>;
-    }
-
-    if (!sports || typeof sports !== 'object') {
-      return [];
-    }
-
-    return Object.entries(sports as Record<string, unknown>).map(([key, value]) => {
-      const sportFromKey = key ? formatSportDisplayName(key.replace(/[_-]+/g, ' ')) : undefined;
-
-      if (value && typeof value === 'object') {
-        const entry = value as { sport?: string; positions?: string[]; order?: number };
-        const sport = entry.sport?.trim() ? entry.sport : sportFromKey;
-        return { ...entry, sport };
-      }
-
-      return { sport: sportFromKey };
-    });
-  }
-
-  /**
-   * Resolve a safe display sport name for sidebar labels.
-   */
-  private resolveSportName(sport: { sport?: string } | undefined): string | null {
-    const name = sport?.sport?.trim();
-    return name ? formatSportDisplayName(name) : null;
-  }
-
-  /**
-   * Get icon name for a sport
-   */
-  private getSportIcon(sport: string | undefined): string | undefined {
-    if (!sport) return undefined;
-
-    const sportLower = sport.toLowerCase();
-    const sportIcons: Record<string, string> = {
-      football: 'football',
-      basketball: 'basketball',
-      baseball: 'baseball',
-      softball: 'softball',
-      soccer: 'soccer',
-      volleyball: 'volleyball',
-      lacrosse: 'lacrosse',
-      tennis: 'tennis',
-      golf: 'golf',
-      swimming: 'swimming',
-      track: 'track',
-      wrestling: 'wrestling',
-      hockey: 'hockey',
-    };
-
-    return sportIcons[sportLower] ?? 'trophy';
-  }
-
   // ============================================
   // FOOTER HANDLERS
   // ============================================
@@ -946,15 +762,6 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     if (event.item.action) {
       this.handleSidenavAction(event.item.action);
     }
-  }
-
-  /**
-   * Handle sidenav user profile click
-   */
-  onSidenavUserClick(): void {
-    this.haptics.impact('light');
-    this.sidenavService.close();
-    void this.navController.navigateForward(this.ownIdentityRoute());
   }
 
   /**

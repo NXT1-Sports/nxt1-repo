@@ -8,6 +8,8 @@ const {
   mockInvalidateProfileCaches,
   mockContextInvalidate,
   mockOnDailySyncComplete,
+  mockAssertCanManageProfileTarget,
+  mockResolveAuthorizedTargetSportSelection,
 } = vi.hoisted(() => ({
   mockPromoteMedia: vi.fn(async (urls: string[]) => urls),
   mockUpdateOrganization: vi.fn().mockResolvedValue(undefined),
@@ -16,6 +18,8 @@ const {
   mockInvalidateProfileCaches: vi.fn().mockResolvedValue(undefined),
   mockContextInvalidate: vi.fn().mockResolvedValue(undefined),
   mockOnDailySyncComplete: vi.fn().mockResolvedValue(undefined),
+  mockAssertCanManageProfileTarget: vi.fn(),
+  mockResolveAuthorizedTargetSportSelection: vi.fn(),
 }));
 
 vi.mock('../../../../../services/cache.service.js', () => ({
@@ -46,6 +50,13 @@ vi.mock('../../../../../services/users.service.js', () => ({
 
 vi.mock('../../../../../routes/profile.routes.js', () => ({
   invalidateProfileCaches: mockInvalidateProfileCaches,
+}));
+
+vi.mock('../../../../../services/profile-write-access.service.js', () => ({
+  createProfileWriteAccessService: () => ({
+    assertCanManageProfileTarget: mockAssertCanManageProfileTarget,
+  }),
+  resolveAuthorizedTargetSportSelection: mockResolveAuthorizedTargetSportSelection,
 }));
 
 vi.mock('../../../memory/context-builder.js', () => ({
@@ -210,7 +221,46 @@ describe('WriteCoreIdentityTool', () => {
     mockInvalidateTeamCache.mockResolvedValue(undefined);
     mockInvalidateProfileCaches.mockResolvedValue(undefined);
     mockContextInvalidate.mockResolvedValue(undefined);
+    mockResolveAuthorizedTargetSportSelection.mockImplementation(
+      (userData: Record<string, unknown>, targetSport: string) => {
+        const sports = Array.isArray(userData['sports'])
+          ? (userData['sports'] as Array<Record<string, unknown>>)
+          : [];
+        const normalizedTargetSport = targetSport.trim().toLowerCase();
+        const index = sports.findIndex(
+          (sport) =>
+            typeof sport['sport'] === 'string' &&
+            sport['sport'].toLowerCase() === normalizedTargetSport
+        );
+
+        return index >= 0
+          ? {
+              index,
+              sportRecord: sports[index],
+              sportKey: normalizedTargetSport,
+              teamId:
+                ((sports[index]?.['team'] as Record<string, unknown> | undefined)?.['teamId'] as
+                  | string
+                  | undefined) ?? undefined,
+              organizationId:
+                ((sports[index]?.['team'] as Record<string, unknown> | undefined)?.[
+                  'organizationId'
+                ] as string | undefined) ?? undefined,
+            }
+          : null;
+      }
+    );
     mockOnDailySyncComplete.mockResolvedValue(undefined);
+    mockAssertCanManageProfileTarget.mockImplementation(async ({ actorUserId, targetUserId }) => ({
+      actorUserId,
+      targetUserId,
+      targetRole: actorUserId === targetUserId ? 'coach' : 'athlete',
+      targetUserData: {},
+      isSelfWrite: actorUserId === targetUserId,
+      sharedTeamIds: ['team_123'],
+      sharedOrganizationIds: ['org_123'],
+      sharedSports: ['football'],
+    }));
   });
 
   it('restricts coach scrapes to team and organization writes', async () => {
@@ -235,6 +285,22 @@ describe('WriteCoreIdentityTool', () => {
         unicode: 'team-unicode',
       },
       organizationData: {},
+    });
+
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'user_123',
+      targetUserId: 'user_123',
+      targetRole: 'coach',
+      targetUserData: {
+        role: 'coach',
+        teamId: 'team_123',
+        organizationId: 'org_123',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      isSelfWrite: true,
+      sharedTeamIds: [],
+      sharedOrganizationIds: [],
+      sharedSports: [],
     });
 
     const tool = new WriteCoreIdentityTool(db as never);
@@ -299,6 +365,20 @@ describe('WriteCoreIdentityTool', () => {
       organizationData: {},
     });
 
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'user_123',
+      targetUserId: 'user_123',
+      targetRole: 'coach',
+      targetUserData: {
+        role: 'coach',
+        sports: [{ sport: 'football', team: { name: 'Austin Tigers', type: 'school' } }],
+      },
+      isSelfWrite: true,
+      sharedTeamIds: [],
+      sharedOrganizationIds: [],
+      sharedSports: [],
+    });
+
     const tool = new WriteCoreIdentityTool(db as never);
     const result = await tool.execute(
       buildInput({
@@ -344,6 +424,20 @@ describe('WriteCoreIdentityTool', () => {
       organizationData: {},
     });
 
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'user_123',
+      targetUserId: 'user_123',
+      targetRole: 'athlete',
+      targetUserData: {
+        role: 'athlete',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      isSelfWrite: true,
+      sharedTeamIds: [],
+      sharedOrganizationIds: [],
+      sharedSports: [],
+    });
+
     const tool = new WriteCoreIdentityTool(db as never);
     const result = await tool.execute(buildInput(), { userId: 'user_123' });
     const payload = userRef.update.mock.calls[0][0] as Record<string, unknown>;
@@ -360,5 +454,76 @@ describe('WriteCoreIdentityTool', () => {
     expect(payload).toHaveProperty('connectedSources');
     expect(payload).toHaveProperty('sports');
     expect(mockEnqueueWelcomeGraphicIfReady).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores delegated explicit team and organization ids outside shared scope', async () => {
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'coach_123',
+      targetUserId: 'athlete_456',
+      targetRole: 'athlete',
+      targetUserData: {
+        role: 'athlete',
+        sports: [
+          {
+            sport: 'football',
+            team: {
+              teamId: 'team_123',
+              organizationId: 'org_123',
+              name: 'Austin Tigers',
+              type: 'school',
+            },
+          },
+        ],
+      },
+      isSelfWrite: false,
+      sharedTeamIds: ['team_123'],
+      sharedOrganizationIds: ['org_123'],
+      sharedSports: ['football'],
+    });
+
+    const { db, userRef, teamRef, organizationRef } = createMockFirestore({
+      userData: {
+        role: 'athlete',
+        sports: [
+          {
+            sport: 'football',
+            team: {
+              teamId: 'team_123',
+              organizationId: 'org_123',
+              name: 'Austin Tigers',
+              type: 'school',
+            },
+          },
+        ],
+      },
+      teamData: {},
+      organizationData: {},
+    });
+
+    const tool = new WriteCoreIdentityTool(db as never);
+    const result = await tool.execute(
+      buildInput({
+        userId: 'athlete_456',
+        teamId: 'team_999',
+        organizationId: 'org_999',
+        team: {
+          name: 'Austin Tigers',
+          type: 'school',
+          teamId: 'team_999',
+          organizationId: 'org_999',
+        },
+      }),
+      { userId: 'coach_123' }
+    );
+
+    expect(result.success).toBe(true);
+
+    const payload = userRef.update.mock.calls[0][0] as Record<string, unknown>;
+    const sports = payload['sports'] as Array<Record<string, unknown>>;
+    const team = sports[0]?.['team'] as Record<string, unknown>;
+
+    expect(team['teamId']).toBe('team_123');
+    expect(team['organizationId']).toBe('org_123');
+    expect(teamRef.set).not.toHaveBeenCalled();
   });
 });

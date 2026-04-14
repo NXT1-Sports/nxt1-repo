@@ -73,13 +73,21 @@ export class AuthApiService {
   /**
    * Get user profile by UID
    */
-  async getUserProfile(uid: string): Promise<User> {
+  async getUserProfile(uid: string, options?: { noCache?: boolean }): Promise<User> {
     return this.performance.trace(
       TRACE_NAMES.PROFILE_LOAD,
       async () => {
         try {
+          const headers = options?.noCache
+            ? {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                Pragma: 'no-cache',
+                'X-No-Cache': 'true',
+              }
+            : undefined;
           const response = await this.http.get(`${environment.apiURL}/auth/profile/${uid}`, {
             timeout: 3000, // 3 second timeout for faster failure when backend is down
+            headers,
           });
           const wrapped = response as { success?: boolean; data?: User };
           const profile = wrapped?.data ?? (response as unknown as User);

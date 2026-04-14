@@ -42,6 +42,7 @@ import {
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import {
+  type AgentMessage,
   type AgentXMessage,
   type AgentXQuickTask,
   type AgentXMode,
@@ -599,23 +600,13 @@ export class AgentXService {
     this._isLoading.set(true);
 
     try {
-      const result = await this.api.getThreadMessages(threadId);
-      if (!result || result.messages.length === 0) {
+      const persistedMessages = await this.getPersistedThreadMessages(threadId);
+      if (persistedMessages.length === 0) {
         this.logger.warn('Thread not found or empty', { threadId });
         return;
       }
 
-      // Map backend AgentMessage → UI AgentXMessage
-      const messages: AgentXMessage[] = result.messages.map((msg) => {
-        const imageUrl = msg.resultData?.['imageUrl'] as string | undefined;
-        return {
-          id: msg.id || this.generateId(),
-          role: msg.role === 'user' ? ('user' as const) : ('assistant' as const),
-          content: msg.content,
-          timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
-          ...(imageUrl ? { imageUrl } : {}),
-        };
-      });
+      const messages = persistedMessages.map((message) => this.mapPersistedMessageToUi(message));
 
       this._messages.set(messages);
       this._currentThreadId.set(threadId);
@@ -630,6 +621,56 @@ export class AgentXService {
     } finally {
       this._isLoading.set(false);
     }
+  }
+
+  /**
+   * Load the full persisted history for a thread by draining every cursor page.
+   * This powers history display and is intentionally separate from the smaller
+   * context window sent back to the LLM on new messages.
+   */
+  async getPersistedThreadMessages(threadId: string): Promise<AgentMessage[]> {
+    const pageLimit = 200;
+    const allMessages: AgentMessage[] = [];
+    const seenMessageIds = new Set<string>();
+    let before: string | undefined;
+    let pageCount = 0;
+
+    while (pageCount < 100) {
+      const result = await this.api.getThreadMessages(threadId, pageLimit, before);
+      if (!result || result.messages.length === 0) {
+        break;
+      }
+
+      const pageMessages = result.messages.filter((message) => {
+        if (!message.id) {
+          return true;
+        }
+
+        if (seenMessageIds.has(message.id)) {
+          return false;
+        }
+
+        seenMessageIds.add(message.id);
+        return true;
+      });
+
+      allMessages.unshift(...pageMessages);
+      pageCount += 1;
+
+      if (!result.hasMore || !result.nextCursor) {
+        break;
+      }
+
+      before = result.nextCursor;
+    }
+
+    this.logger.info('Persisted thread history fetched', {
+      threadId,
+      messageCount: allMessages.length,
+      pageCount,
+    });
+
+    return allMessages;
   }
 
   // ============================================
@@ -1438,6 +1479,18 @@ export class AgentXService {
     return typeof crypto !== 'undefined' && crypto.randomUUID
       ? crypto.randomUUID()
       : `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  private mapPersistedMessageToUi(message: AgentMessage): AgentXMessage {
+    const imageUrl = message.resultData?.['imageUrl'] as string | undefined;
+
+    return {
+      id: message.id || this.generateId(),
+      role: message.role === 'user' ? ('user' as const) : ('assistant' as const),
+      content: message.content,
+      timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
+      ...(imageUrl ? { imageUrl } : {}),
+    };
   }
 
   // ============================================

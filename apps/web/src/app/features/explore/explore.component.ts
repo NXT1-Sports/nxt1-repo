@@ -30,6 +30,7 @@ import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import type { ExploreItem, ExploreTabId, ScoutReport, FeedPost, FeedAuthor } from '@nxt1/core';
+import { buildCanonicalProfilePath } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
 import { SeoService } from '../../core/services';
@@ -197,7 +198,13 @@ export class ExploreComponent implements OnInit {
    */
   protected onAuthorSelect(author: FeedAuthor): void {
     this.logger.debug('Author selected', { uid: author.uid, profileCode: author.profileCode });
-    void this.router.navigate(['/profile', author.profileCode]);
+    void this.router.navigateByUrl(
+      buildCanonicalProfilePath({
+        athleteName: author.displayName || `${author.firstName} ${author.lastName}`.trim(),
+        sport: author.sport,
+        unicode: author.profileCode,
+      })
+    );
   }
 
   /**

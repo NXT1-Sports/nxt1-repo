@@ -32,6 +32,7 @@ export class BrandMediaCoordinatorAgent extends BaseAgent {
   getAvailableTools(): readonly string[] {
     return [
       'generate_graphic',
+      'write_timeline_post',
       'scrape_webpage',
       'open_live_view',
       'navigate_live_view',
@@ -67,6 +68,7 @@ const BRAND_MEDIA_SYSTEM_PROMPT = `You are the Brand & Media Coordinator for NXT
 
 ## Your Capabilities
 You have access to the generate_graphic tool for creating professional, branded sports graphics. When asked to create any visual content, you MUST call generate_graphic with structured parameters — never a raw text prompt. You can also scrape webpages to gather reference material (logos, photos, color schemes).
+When the user explicitly asks you to publish the finished asset to their feed or timeline, call write_timeline_post after the asset is generated so the content is actually posted.
 
 ## generate_graphic — Required Parameters
 When calling generate_graphic, always provide:
@@ -87,6 +89,8 @@ The NXT1 logo is AUTOMATICALLY placed in the bottom-right corner — you do not 
 ## Rules
 - NEVER fabricate or hallucinate image URLs — only use URLs from tool results
 - ALWAYS call generate_graphic to create visuals — never describe what you "would" create
+- If the user wants the finished graphic published, call write_timeline_post with a short caption and the generated image URL
+- Do NOT publish automatically unless the user clearly asked for a timeline/feed post
 - Keep text on graphics short and impactful — no paragraphs
 - If image generation fails, report the error clearly with suggestions
 - Include the generated image URL in your final summary so the notification can use it

@@ -34,6 +34,10 @@ import { AgentYieldException, isAgentYield } from '../errors/agent-yield.error.j
 import { isAgentDelegation, AgentDelegationException } from '../errors/agent-delegation.error.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/comms/ask-user.tool.js';
+import {
+  sanitizeAgentOutputText,
+  sanitizeAgentPayload,
+} from '../utils/platform-identifier-sanitizer.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
@@ -49,6 +53,7 @@ interface ToolSessionContext {
   readonly sessionId?: string;
   readonly threadId?: string;
   readonly operationId?: string;
+  readonly environment?: 'staging' | 'production';
   readonly approvalId?: string;
   readonly bypassPermissionForTool?: {
     readonly toolName: string;
@@ -175,6 +180,8 @@ export abstract class BaseAgent {
     let systemContent = this.getSystemPrompt(context);
     if (skillBlock) systemContent += `\n${skillBlock}`;
     systemContent += delegationRule;
+    systemContent +=
+      '\n- NEVER reveal raw NXT1 platform identifiers such as user IDs, team IDs, organization IDs, post IDs, unicode values, team codes, routes, cursors, or internal document IDs. Refer to people and entities by name only.';
 
     const messages: LLMMessage[] = [
       { role: 'system', content: systemContent },
@@ -259,6 +266,7 @@ export abstract class BaseAgent {
       sessionId: context.sessionId,
       threadId: context.threadId,
       operationId: context.operationId,
+      ...(context.environment && { environment: context.environment }),
       ...(approvalId ? { approvalId } : {}),
       ...(yieldState.reason === 'needs_approval' && yieldState.pendingToolCall
         ? {
@@ -365,15 +373,12 @@ export abstract class BaseAgent {
       // Otherwise fall back to non-streaming for backward compatibility (e.g. /chat SSE).
       const result = onStreamEvent
         ? await llm.completeStream(messages, llmOptions, (delta) => {
-            if (delta.content) {
-              onStreamEvent({ type: 'delta', text: delta.content, agentId: this.id });
-            }
             if (delta.toolName) {
               onStreamEvent({
                 type: 'tool_call',
                 agentId: this.id,
                 toolName: delta.toolName,
-                toolArgs: delta.toolArgs,
+                ...(delta.toolArgs ? { toolArgs: sanitizeAgentOutputText(delta.toolArgs) } : {}),
               });
             }
           })
@@ -398,7 +403,10 @@ export abstract class BaseAgent {
                 parsed['data'] &&
                 typeof parsed['data'] === 'object'
               ) {
-                Object.assign(extractedToolData, parsed['data'] as Record<string, unknown>);
+                Object.assign(
+                  extractedToolData,
+                  sanitizeAgentPayload(parsed['data'] as Record<string, unknown>)
+                );
               }
             } catch {
               // Not JSON — skip
@@ -410,14 +418,25 @@ export abstract class BaseAgent {
         const toolCallRecords = this.extractToolCallRecords(messages);
 
         // Synthesize a summary from tool observations when the LLM returns empty content
-        let summary = result.content ?? '';
+        let summary = sanitizeAgentOutputText(result.content ?? '');
         if (!summary.trim()) {
           summary = this.synthesizeSummary(toolCallRecords);
         }
 
+        summary = sanitizeAgentOutputText(summary);
+
+        if (onStreamEvent && summary.trim()) {
+          onStreamEvent({ type: 'delta', text: summary, agentId: this.id });
+        }
+
         return {
           summary,
-          data: { model: result.model, usage: result.usage, toolCallRecords, ...extractedToolData },
+          data: sanitizeAgentPayload({
+            model: result.model,
+            usage: result.usage,
+            toolCallRecords,
+            ...extractedToolData,
+          }),
           suggestions: [],
         };
       }
@@ -425,7 +444,10 @@ export abstract class BaseAgent {
       // Append the assistant message with its tool calls to the conversation
       messages.push({
         role: 'assistant',
-        content: result.content,
+        content:
+          typeof result.content === 'string'
+            ? sanitizeAgentOutputText(result.content)
+            : result.content,
         tool_calls: result.toolCalls,
       });
 
@@ -511,7 +533,7 @@ export abstract class BaseAgent {
             toolSuccess = parsed['success'] === true;
             toolResult =
               typeof parsed['data'] === 'object' && parsed['data'] !== null
-                ? (parsed['data'] as Record<string, unknown>)
+                ? sanitizeAgentPayload(parsed['data'] as Record<string, unknown>)
                 : undefined;
           } catch {
             // Not JSON — mark as success if non-empty
@@ -552,7 +574,10 @@ export abstract class BaseAgent {
         try {
           const parsed = JSON.parse(msg.content) as Record<string, unknown>;
           if (parsed['success'] === true && parsed['data'] && typeof parsed['data'] === 'object') {
-            Object.assign(extractedToolData, parsed['data'] as Record<string, unknown>);
+            Object.assign(
+              extractedToolData,
+              sanitizeAgentPayload(parsed['data'] as Record<string, unknown>)
+            );
           }
         } catch {
           // Not JSON — skip
@@ -561,10 +586,15 @@ export abstract class BaseAgent {
     }
     const toolCallRecords = this.extractToolCallRecords(messages);
     return {
-      summary:
+      summary: sanitizeAgentOutputText(
         'The agent reached its maximum iteration limit. ' +
-        'The task may be too complex for a single pass.',
-      data: { maxIterationsReached: true, toolCallRecords, ...extractedToolData },
+          'The task may be too complex for a single pass.'
+      ),
+      data: sanitizeAgentPayload({
+        maxIterationsReached: true,
+        toolCallRecords,
+        ...extractedToolData,
+      }),
       suggestions: ['Try breaking the request into smaller tasks.'],
     };
   }
@@ -638,16 +668,18 @@ export abstract class BaseAgent {
           }
           output =
             typeof parsed['data'] === 'object' && parsed['data'] !== null
-              ? (parsed['data'] as Record<string, unknown>)
-              : parsed;
+              ? sanitizeAgentPayload(parsed['data'] as Record<string, unknown>)
+              : sanitizeAgentPayload(parsed);
         } catch {
           // Non-JSON observation — store as raw text
-          output = observation ? { raw: observation.slice(0, 500) } : undefined;
+          output = observation
+            ? sanitizeAgentPayload({ raw: sanitizeAgentOutputText(observation.slice(0, 500)) })
+            : undefined;
         }
 
         records.push({
           toolName: tc.function.name,
-          input,
+          input: sanitizeAgentPayload(input),
           output,
           status,
           timestamp: new Date().toISOString(),
@@ -775,6 +807,7 @@ export abstract class BaseAgent {
     // so tools can use thread-scoped storage paths, audit logging, etc.
     const toolExecContext: ToolExecutionContext = {
       userId,
+      ...(sessionContext?.environment && { environment: sessionContext.environment }),
       ...(sessionContext?.threadId && { threadId: sessionContext.threadId }),
       ...(sessionContext?.sessionId && { sessionId: sessionContext.sessionId }),
     };
@@ -785,10 +818,15 @@ export abstract class BaseAgent {
     // AgentRouter can re-dispatch through the PlannerAgent.
     try {
       const result = await registry.execute(toolName, input, toolExecContext);
+      const sanitizedData =
+        result.data !== undefined ? sanitizeAgentPayload(result.data) : undefined;
       return JSON.stringify(
         result.success
-          ? { success: true, data: result.data }
-          : { success: false, error: result.error }
+          ? { success: true, ...(sanitizedData !== undefined ? { data: sanitizedData } : {}) }
+          : {
+              success: false,
+              error: sanitizeAgentOutputText(result.error ?? 'Tool execution failed'),
+            }
       );
     } catch (err) {
       if (isAgentYield(err)) throw err; // Let yields propagate
@@ -801,7 +839,9 @@ export abstract class BaseAgent {
       }
       return JSON.stringify({
         success: false,
-        error: err instanceof Error ? err.message : 'Tool execution failed',
+        error: sanitizeAgentOutputText(
+          err instanceof Error ? err.message : 'Tool execution failed'
+        ),
       });
     }
   }

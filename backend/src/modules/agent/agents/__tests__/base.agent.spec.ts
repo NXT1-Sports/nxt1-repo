@@ -1,0 +1,167 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
+import { BaseAgent } from '../base.agent.js';
+import { ToolRegistry } from '../../tools/tool-registry.js';
+import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../tools/base.tool.js';
+
+class FakeReadTool extends BaseTool {
+  readonly name = 'fake_read_tool';
+  readonly description = 'Returns structured profile data.';
+  readonly parameters = { type: 'object', properties: {} } as const;
+  readonly isMutation = false;
+  readonly category = 'database' as const;
+  override readonly allowedAgents = ['general'] as const;
+
+  async execute(
+    _input: Record<string, unknown>,
+    _context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        userId: 'user-123',
+        teamId: 'team-789',
+        route: '/profile/123456',
+        name: 'Jordan Miles',
+      },
+    };
+  }
+}
+
+class FakeAgent extends BaseAgent {
+  readonly id: AgentIdentifier = 'general';
+  readonly name = 'Fake Agent';
+
+  getSystemPrompt(): string {
+    return 'You are a test agent.';
+  }
+
+  getAvailableTools(): readonly string[] {
+    return ['fake_read_tool'];
+  }
+
+  getModelRouting(): ModelRoutingConfig {
+    return {
+      tier: 'chat',
+      maxTokens: 200,
+      temperature: 0.2,
+    };
+  }
+}
+
+function createMockContext(): AgentSessionContext {
+  const now = new Date().toISOString();
+  return {
+    sessionId: 'test-session',
+    userId: 'viewer-1',
+    conversationHistory: [],
+    createdAt: now,
+    lastActiveAt: now,
+  };
+}
+
+describe('BaseAgent identifier scrubbing', () => {
+  it('sanitizes final summaries in non-streaming mode', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: 'Found user id user-123 at /profile/123456 for team team-789.',
+        toolCalls: [],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'stop',
+      }),
+    };
+
+    const result = await agent.execute(
+      'Find Jordan',
+      createMockContext(),
+      [],
+      llm as never,
+      registry
+    );
+
+    expect(result.summary).not.toContain('user-123');
+    expect(result.summary).not.toContain('team-789');
+    expect(result.summary).not.toContain('/profile/123456');
+  });
+
+  it('sanitizes streamed tool args, tool results, and final output', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeReadTool());
+
+    const events: Array<Record<string, unknown>> = [];
+    let callCount = 0;
+    const llm = {
+      completeStream: vi.fn().mockImplementation(async (_messages, _options, onDelta) => {
+        callCount += 1;
+
+        if (callCount === 1) {
+          onDelta({ content: 'User id user-123', done: false });
+          onDelta({
+            toolName: 'fake_read_tool',
+            toolArgs: '{"userId":"user-123","teamId":"team-789"}',
+            done: false,
+          });
+          return {
+            content: 'Checking user-123',
+            toolCalls: [
+              {
+                id: 'call_1',
+                type: 'function',
+                function: { name: 'fake_read_tool', arguments: '{}' },
+              },
+            ],
+            model: 'test-model',
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            latencyMs: 1,
+            costUsd: 0,
+            finishReason: 'tool_calls',
+          };
+        }
+
+        return {
+          content: 'Jordan Miles is the athlete. Team id team-789.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        };
+      }),
+    };
+
+    const result = await agent.execute(
+      'Find Jordan',
+      createMockContext(),
+      [],
+      llm as never,
+      registry,
+      undefined,
+      (event) => events.push(event as unknown as Record<string, unknown>)
+    );
+
+    const toolCallEvent = events.find((event) => event['type'] === 'tool_call');
+    const toolResultEvent = events.find((event) => event['type'] === 'tool_result');
+    const deltaEvents = events.filter((event) => event['type'] === 'delta');
+
+    expect(String(toolCallEvent?.['toolArgs'] ?? '')).not.toContain('user-123');
+    expect(String(toolCallEvent?.['toolArgs'] ?? '')).not.toContain('team-789');
+    expect(toolResultEvent?.['toolResult']).toEqual({ name: 'Jordan Miles' });
+    expect(deltaEvents.some((event) => String(event['text'] ?? '').includes('user-123'))).toBe(
+      false
+    );
+    expect(result.summary).not.toContain('team-789');
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        toolCallRecords: expect.any(Array),
+        name: 'Jordan Miles',
+      })
+    );
+  });
+});

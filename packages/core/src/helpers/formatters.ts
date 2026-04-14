@@ -8,6 +8,8 @@
  * @version 2.0.0
  */
 
+import { formatSportDisplayName } from '../constants/sport.constants';
+
 // ============================================
 // DATE FORMATTING
 // ============================================
@@ -243,6 +245,41 @@ export function buildTeamSlug(teamName: string): string {
     .replace(/\s+/g, '-') // spaces → hyphens
     .replace(/-+/g, '-') // collapse consecutive hyphens
     .replace(/^-|-$/g, ''); // trim leading/trailing hyphens
+}
+
+export interface CanonicalProfilePathInput {
+  athleteName?: string | null;
+  title?: string | null;
+  sport?: string | null;
+  unicode?: string | number | null;
+  id?: string | number | null;
+}
+
+export interface CanonicalTeamPathInput {
+  slug?: string | null;
+  teamName?: string | null;
+  title?: string | null;
+  teamCode?: string | null;
+  id?: string | number | null;
+}
+
+export function buildCanonicalProfilePath(input: CanonicalProfilePathInput): string {
+  const sportSegment = slugify(formatSportDisplayName(input.sport ?? '').trim()) || 'athlete';
+  const nameSource = input.athleteName ?? input.title ?? input.id ?? 'athlete';
+  const nameSegment = slugify(String(nameSource).trim()) || 'athlete';
+  const profileIdentifier = input.unicode ?? input.id ?? 'unknown';
+
+  return `/profile/${sportSegment}/${nameSegment}/${encodeURIComponent(String(profileIdentifier))}`;
+}
+
+export function buildCanonicalTeamPath(input: CanonicalTeamPathInput): string {
+  const slugSegment =
+    (input.slug ? slugify(input.slug) : '') ||
+    buildTeamSlug(input.teamName ?? input.title ?? String(input.id ?? 'team')) ||
+    'team';
+  const teamCode = input.teamCode ?? input.id ?? 'unknown';
+
+  return `/team/${slugSegment}/${encodeURIComponent(String(teamCode))}`;
 }
 
 /**

@@ -1684,7 +1684,19 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   });
 
   /** Profile page header title */
-  protected readonly desktopTitle = computed(() => 'Profile');
+  protected readonly desktopTitle = computed(() => {
+    const shellUser = this.currentUser();
+    const profileUser = this.profile.user();
+
+    const preferredDisplayName =
+      profileUser?.displayName?.trim() ||
+      `${profileUser?.firstName ?? ''} ${profileUser?.lastName ?? ''}`.trim() ||
+      (this.isOwnProfile() ? shellUser?.displayName : null)?.trim() ||
+      shellUser?.displayName?.trim() ||
+      '';
+
+    return preferredDisplayName || 'Profile';
+  });
 
   /** Profile page header subtitle — position + school */
   protected readonly desktopSubtitle = computed(() => {

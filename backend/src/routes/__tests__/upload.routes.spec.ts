@@ -435,23 +435,6 @@ describe('Upload Routes', () => {
           'https://customer-123.cloudflarestream.com/video-123/thumbnails/thumbnail.jpg',
       });
     });
-
-    it('POST /api/v1/upload/graphic should handle graphic upload', async () => {
-      const response = await request(app)
-        .post('/api/v1/upload/graphic')
-        .set('Authorization', AUTH_HEADER)
-        .field('category', 'graphic');
-
-      expect([400, 500]).toContain(response.status);
-    });
-
-    it('DELETE /api/v1/upload/:filePath should return 501', async () => {
-      const response = await request(app)
-        .delete('/api/v1/upload/test-file-path')
-        .set('Authorization', AUTH_HEADER);
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
-    });
   });
 
   describe('Staging Routes', () => {
@@ -470,14 +453,6 @@ describe('Upload Routes', () => {
         .set('Authorization', AUTH_HEADER);
 
       expect(response.status).toBe(400);
-    });
-
-    it('DELETE /api/v1/staging/upload/:filePath should return 501', async () => {
-      const response = await request(app)
-        .delete('/api/v1/staging/upload/test-file-path')
-        .set('Authorization', AUTH_HEADER);
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual({ success: false, error: 'Not implemented' });
     });
   });
 });
