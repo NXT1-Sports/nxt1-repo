@@ -44,11 +44,11 @@ const USER_ID_QUERY_COLLECTIONS = [
   // so we can extract team/role data for counter decrements before deletion.
   'PostComments',
   'PostLikes',
-  'notifications',
-  'usageEvents',
-  'paymentLogs',
-  'billingContexts',
-  'stripeCustomers',
+  'Notifications',
+  'UsageEvents',
+  'PaymentLogs',
+  'BillingContexts',
+  'StripeCustomers',
 ] as const;
 
 async function deleteQueryInBatches(query: FirebaseFirestore.Query): Promise<number> {

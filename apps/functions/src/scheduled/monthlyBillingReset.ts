@@ -13,8 +13,8 @@ import { FieldValue } from 'firebase-admin/firestore';
 
 const db = admin.firestore();
 
-const BILLING_CONTEXTS_COLLECTION = 'billingContexts';
-const TEAM_BUDGET_ALLOCATIONS_COLLECTION = 'teamBudgetAllocations';
+const BILLING_CONTEXTS_COLLECTION = 'BillingContexts';
+const TEAM_BUDGET_ALLOCATIONS_COLLECTION = 'TeamBudgetAllocations';
 const BATCH_SIZE = 450;
 
 /**

@@ -18,7 +18,7 @@ const db = admin.firestore();
 /**
  * On user profile updated - handle side effects
  */
-export const onUserProfileUpdatedV3 = onDocumentUpdated('users/{userId}', async (event) => {
+export const onUserProfileUpdatedV3 = onDocumentUpdated('Users/{userId}', async (event) => {
   const beforeData = event.data?.before.data();
   const afterData = event.data?.after.data();
   const userId = event.params.userId;

@@ -22,9 +22,9 @@ import Stripe from 'stripe';
 
 // ─── Firestore collections ────────────────────────────────────────────────────
 
-const BILLING_CONTEXTS_COLLECTION = 'billingContexts';
-const STRIPE_CUSTOMERS_COLLECTION = 'stripeCustomers';
-const PAYMENT_LOGS_COLLECTION = 'paymentLogs';
+const BILLING_CONTEXTS_COLLECTION = 'BillingContexts';
+const STRIPE_CUSTOMERS_COLLECTION = 'StripeCustomers';
+const PAYMENT_LOGS_COLLECTION = 'PaymentLogs';
 
 // ─── Firebase project IDs ─────────────────────────────────────────────────────
 

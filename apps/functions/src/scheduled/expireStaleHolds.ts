@@ -22,8 +22,8 @@ import { FieldValue } from 'firebase-admin/firestore';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const WALLET_HOLDS_COLLECTION = 'walletHolds';
-const BILLING_CONTEXTS_COLLECTION = 'billingContexts';
+const WALLET_HOLDS_COLLECTION = 'WalletHolds';
+const BILLING_CONTEXTS_COLLECTION = 'BillingContexts';
 const PLATFORM_CONFIG_DOC = 'platformConfig/billing';
 
 /** Fallback: 10 minutes if Firestore config document doesn't exist */
