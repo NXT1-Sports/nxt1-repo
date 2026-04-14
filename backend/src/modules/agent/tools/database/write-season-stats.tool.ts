@@ -18,6 +18,10 @@
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { getCacheService } from '../../../../services/cache.service.js';
+import {
+  createProfileWriteAccessService,
+  resolveAuthorizedTargetSportSelection,
+} from '../../../../services/profile-write-access.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
@@ -33,7 +37,6 @@ type SupportedTeamType = 'school' | 'club' | 'college';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const USERS_COLLECTION = 'Users';
 const PLAYER_STATS_COLLECTION = 'PlayerStats';
 const MAX_SEASONS = 20;
 
@@ -146,16 +149,26 @@ export class WriteSeasonStatsTool extends BaseTool {
       return { success: false, error: `seasonStats exceeds maximum of ${MAX_SEASONS}.` };
     }
 
-    const userRef = this.db.collection(USERS_COLLECTION).doc(userId);
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
+    }
 
     try {
-      const userDoc = await userRef.get();
-      if (!userDoc.exists) {
-        return { success: false, error: `User "${userId}" not found.` };
-      }
-
-      const userData = userDoc.data() as Record<string, unknown>;
+      const accessGrant = await createProfileWriteAccessService(
+        this.db
+      ).assertCanManageAthleteProfileTarget({
+        actorUserId: context.userId,
+        targetUserId: userId,
+        action: 'tool:write_season_stats',
+      });
+      const userData = accessGrant.targetUserData;
       const sportId = targetSport.trim().toLowerCase();
+      if (
+        !accessGrant.isSelfWrite &&
+        !resolveAuthorizedTargetSportSelection(userData, sportId, accessGrant)
+      ) {
+        return { success: false, error: 'Not authorized to write season stats for this sport.' };
+      }
       const now = new Date().toISOString();
 
       // ── 0. Read existing PlayerStats docs (used for snapshot + merge) ─
@@ -256,7 +269,6 @@ export class WriteSeasonStatsTool extends BaseTool {
           cache.del(`profile:sub:gamelogs:${userId}:${sportId}`),
           invalidateProfileCaches(
             userId,
-            typeof userData['username'] === 'string' ? userData['username'] : undefined,
             typeof userData['unicode'] === 'string' ? userData['unicode'] : null
           ),
         ]);

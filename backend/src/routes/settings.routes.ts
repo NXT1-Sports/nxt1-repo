@@ -282,52 +282,6 @@ router.patch(
 );
 
 /**
- * Get usage stats
- * GET /api/v1/settings/usage
- */
-router.get('/usage', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
-
-/**
- * Get connected providers
- * GET /api/v1/settings/providers
- */
-router.get('/providers', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
-
-/**
- * Connect provider
- * POST /api/v1/settings/connect-provider
- * Body: { providerId: string, authCode?: string }
- */
-router.post('/connect-provider', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
-
-/**
- * Disconnect provider
- * POST /api/v1/settings/disconnect-provider
- * Body: { providerId: string }
- */
-router.post('/disconnect-provider', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
-
-/**
  * Send password reset email
  * POST /api/v1/settings/password
  *
@@ -390,7 +344,6 @@ router.delete(
       // Fetch user data before deletion so we have identifiers for cache invalidation
       const userSnap = await userRef.get();
       const userData = userSnap.exists ? userSnap.data() : undefined;
-      const username = userData?.['username'] as string | undefined;
       const unicode = userData?.['unicode'] as string | null | undefined;
 
       // Invalidate all user-related caches
@@ -398,7 +351,7 @@ router.delete(
         const cache = getCacheService();
         await Promise.all([
           cache.del(buildPrefsCacheKey(userId)),
-          invalidateProfileCaches(userId, username, unicode),
+          invalidateProfileCaches(userId, unicode),
           cache.del(`profile:sub:followers:${userId}`),
           cache.del(`profile:sub:following:${userId}`),
           cache.delByPrefix(`profile:sub:timeline:v2:${userId}:`),

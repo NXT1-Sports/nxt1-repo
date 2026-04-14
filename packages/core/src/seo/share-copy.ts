@@ -6,7 +6,10 @@
  * Pure TypeScript with zero platform dependencies.
  */
 
-import type { ShareableProfile, ShareableTeam, ShareableVideo, ShareablePost } from './index';
+import type { ShareableArticle, ShareableProfile, ShareableTeam, ShareablePost } from './index';
+import type { InviteType, InviteTeam } from '../invite/invite.types';
+import type { UserRole } from '../constants/user.constants';
+import { USER_ROLES } from '../constants/user.constants';
 import { formatSportDisplayName } from '../constants/sport.constants';
 
 export type ProfileShareSource = Omit<ShareableProfile, 'type' | 'title' | 'description'> & {
@@ -17,68 +20,219 @@ export type TeamShareSource = Omit<ShareableTeam, 'type' | 'title' | 'descriptio
   id: string;
 };
 
-export type VideoShareSource = Omit<ShareableVideo, 'type' | 'title' | 'description'> & {
-  id: string;
-};
-
 export type PostShareSource = Omit<ShareablePost, 'type' | 'title' | 'description'> & {
   id: string;
   postText: string;
 };
 
+export type ArticleShareSource = Omit<ShareableArticle, 'type' | 'description'> & {
+  id: string;
+  title: string;
+};
+
+export interface InviteShareSource {
+  readonly inviteType?: InviteType | null;
+  readonly senderRole?: UserRole | null;
+  readonly team?: Pick<InviteTeam, 'name' | 'sport'> | null;
+}
+
+export interface InviteUiCopy {
+  readonly title: string;
+  readonly subtitle: string;
+  readonly shareText: string;
+  readonly howItWorksText: string;
+}
+
+function normalizeText(value: string | undefined | null): string {
+  return value?.replace(/\s+/g, ' ').trim() ?? '';
+}
+
+function truncateText(value: string | undefined | null, maxLength: number): string {
+  const normalized = normalizeText(value);
+  if (!normalized) return '';
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength - 3).trimEnd()}...`;
+}
+
+function formatShareSport(sport: string | undefined): string {
+  return sport ? formatSportDisplayName(sport) : '';
+}
+
+function isTeamManagementRole(role: UserRole | null | undefined): boolean {
+  return role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR;
+}
+
+function buildInviteTeamContext(
+  team: Pick<InviteTeam, 'name' | 'sport'> | null | undefined
+): string {
+  const teamName = normalizeText(team?.name);
+  const sport = formatShareSport(team?.sport);
+
+  if (teamName && sport) return `${teamName} · ${sport}`;
+  if (teamName) return teamName;
+  if (sport) return sport;
+  return 'this team';
+}
+
+export function buildInviteShareTitle(source: InviteShareSource): string {
+  if (source.inviteType === 'team') {
+    const teamName = normalizeText(source.team?.name);
+    return teamName ? `Step Into ${teamName} on NXT1` : 'Step Into This Team on NXT1';
+  }
+
+  if (isTeamManagementRole(source.senderRole)) {
+    return 'Run With My Program on NXT1';
+  }
+
+  return 'Move Different With Me on NXT1';
+}
+
+export function buildInviteShareText(source: InviteShareSource): string {
+  if (source.inviteType === 'team') {
+    return `Step into ${buildInviteTeamContext(source.team)} on NXT1. The roster, communication, schedule, and team intelligence all run from one command center:`;
+  }
+
+  if (isTeamManagementRole(source.senderRole)) {
+    return 'Join my program on NXT1. Bring your roster, communication, and sports intelligence into one command center:';
+  }
+
+  return 'Join me on NXT1. Build your name, stay locked in with your people, and tap into the sports intelligence platform built for what is next:';
+}
+
+export function buildInviteUiCopy(source: InviteShareSource): InviteUiCopy {
+  if (source.inviteType === 'team') {
+    const teamName = normalizeText(source.team?.name);
+    return {
+      title: 'Bring Your Team Into The System',
+      subtitle:
+        'Share the team invite so players and staff step into one command center for communication, schedule, and sports intelligence.',
+      shareText: buildInviteShareText(source),
+      howItWorksText: teamName
+        ? `Share this team invite with players and staff. Once they join, they connect directly to ${teamName} on NXT1.`
+        : 'Share this team invite with players and staff. Once they join, they connect directly to your team on NXT1.',
+    };
+  }
+
+  if (isTeamManagementRole(source.senderRole)) {
+    return {
+      title: 'Run Your Program From One Place',
+      subtitle:
+        'Invite players and staff into one connected environment where communication, visibility, and sports intelligence stay aligned.',
+      shareText: buildInviteShareText(source),
+      howItWorksText:
+        'Share this QR code or link with your players and staff. Once they join, they are connected to your program on NXT1.',
+    };
+  }
+
+  return {
+    title: 'Earn $5 in Agent X Credits',
+    subtitle: 'You earn $5 in Agent X credits every time someone joins through your invite.',
+    shareText: buildInviteShareText(source),
+    howItWorksText:
+      'Share this QR code or link with friends and teammates. When they join through your invite, they land inside NXT1 and you earn $5 in Agent X credits.',
+  };
+}
+
 export function buildProfileShareTitle(profile: ProfileShareSource): string {
-  return `Check out ${profile.athleteName} on NXT1`;
+  return `${profile.athleteName} Athlete Profile | NXT1`;
 }
 
 export function buildProfileShareText(profile: ProfileShareSource): string {
-  const parts: string[] = [`Check out ${profile.athleteName}`];
+  const identity = [profile.position, formatShareSport(profile.sport)].filter(Boolean).join(' · ');
+  const profileContext = [
+    identity,
+    profile.school ? profile.school : '',
+    profile.classYear ? `Class of ${profile.classYear}` : '',
+  ]
+    .filter(Boolean)
+    .join(' | ');
 
-  if (profile.position && profile.sport) {
-    parts.push(`- ${profile.position} in ${formatSportDisplayName(profile.sport)}`);
-  } else if (profile.position) {
-    parts.push(`- ${profile.position}`);
-  }
-
-  if (profile.school) {
-    parts.push(`at ${profile.school}`);
-  }
-
-  parts.push('on NXT1 Sports');
-
-  return parts.join(' ');
+  return `See ${profile.athleteName}${profileContext ? `, ${profileContext}` : ''} on NXT1. Film, stats, and real-time sports intelligence in one profile built for the next level.`;
 }
 
 export function buildProfileShareDescription(profile: ProfileShareSource): string {
   const parts: string[] = [];
 
   if (profile.position) parts.push(profile.position);
-  if (profile.sport) parts.push(formatSportDisplayName(profile.sport));
-  if (profile.school) parts.push(`at ${profile.school}`);
+  if (profile.sport) parts.push(formatShareSport(profile.sport));
+  if (profile.school) parts.push(profile.school);
   if (profile.classYear) parts.push(`Class of ${profile.classYear}`);
 
-  return parts.join(' | ');
+  const lead = parts.join(' | ');
+  return lead
+    ? `${lead}. Athlete profile on NXT1. Film, stats, and real-time sports intelligence.`
+    : 'Athlete profile on NXT1. Film, stats, and real-time sports intelligence.';
 }
 
 export function buildTeamShareTitle(team: TeamShareSource): string {
-  return team.teamName;
+  return `${team.teamName} Team Hub | NXT1`;
 }
 
 export function buildTeamShareText(team: TeamShareSource): string {
-  return `Check out ${team.teamName} on NXT1 Sports`;
+  const teamContext = [
+    formatShareSport(team.sport),
+    normalizeText(team.location),
+    team.record ? `Record ${team.record}` : '',
+  ]
+    .filter(Boolean)
+    .join(' | ');
+
+  return `Step inside ${team.teamName}${teamContext ? `, ${teamContext}` : ''} on NXT1. Track the roster, schedule, and highlights from one AI-powered team command center.`;
 }
 
-export function buildVideoShareTitle(video: VideoShareSource): string {
-  return video.videoTitle;
-}
+export function buildTeamShareDescription(team: TeamShareSource): string {
+  const teamContext = [
+    formatShareSport(team.sport),
+    normalizeText(team.location),
+    team.record ? `Record ${team.record}` : '',
+  ]
+    .filter(Boolean)
+    .join(' | ');
 
-export function buildVideoShareText(video: VideoShareSource): string {
-  return `Watch ${video.videoTitle}${video.athleteName ? ` by ${video.athleteName}` : ''} on NXT1`;
+  return teamContext
+    ? `${teamContext}. NXT1 Team Hub with roster, schedule, highlights, and sports intelligence.`
+    : 'NXT1 Team Hub with roster, schedule, highlights, and sports intelligence.';
 }
 
 export function buildPostShareTitle(post: PostShareSource): string {
-  return `Post by ${post.authorName}`;
+  return `${post.authorName} on NXT1`;
 }
 
 export function buildPostShareText(post: PostShareSource): string {
-  return `${post.postText.slice(0, 100)}... - See more on NXT1`;
+  const excerpt = truncateText(post.postText, 120);
+  if (!excerpt) {
+    return `See the latest from ${post.authorName} on NXT1. Open the full update, profile context, and live conversation in one place.`;
+  }
+
+  return `${post.authorName} on NXT1: "${excerpt}" See the full update, profile context, and live conversation in one place.`;
+}
+
+export function buildPostShareDescription(post: PostShareSource): string {
+  const excerpt = truncateText(post.postText, 100);
+  return excerpt
+    ? `Latest update from ${post.authorName} on NXT1: ${excerpt}`
+    : `Latest update from ${post.authorName} on NXT1.`;
+}
+
+export function buildArticleShareTitle(article: ArticleShareSource): string {
+  return `${article.title} | NXT1 Pulse`;
+}
+
+export function buildArticleShareText(article: ArticleShareSource): string {
+  const excerpt = truncateText(article.excerpt, 160);
+  return `Read "${article.title}" on NXT1 Pulse.${excerpt ? ` ${excerpt}` : ''} Get the full sports intelligence briefing and source context on NXT1.`;
+}
+
+export function buildArticleShareDescription(article: ArticleShareSource): string {
+  const articleContext = [
+    normalizeText(article.source),
+    formatShareSport(article.sport),
+    normalizeText(article.state),
+  ]
+    .filter(Boolean)
+    .join(' | ');
+
+  return articleContext
+    ? `${articleContext}. NXT1 Pulse briefing with sports intelligence and source context.`
+    : 'NXT1 Pulse briefing with sports intelligence and source context.';
 }

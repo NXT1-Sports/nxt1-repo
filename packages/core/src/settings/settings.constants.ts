@@ -16,7 +16,6 @@ import type {
   SettingsSection,
   SettingsItem,
   SettingsPreferences,
-  SettingsConnectedProvider,
 } from './settings.types';
 import { isTeamRole } from '../constants/user.constants';
 
@@ -388,51 +387,6 @@ export const DEFAULT_SETTINGS_PREFERENCES: SettingsPreferences = {
 } as const;
 
 // ============================================
-// CONNECTED PROVIDERS
-// ============================================
-
-/**
- * Default connected providers list.
- */
-export const DEFAULT_CONNECTED_PROVIDERS: readonly SettingsConnectedProvider[] = [
-  {
-    id: 'google',
-    name: 'Google',
-    icon: 'link-outline',
-    connected: false,
-    connectedAt: null,
-  },
-  {
-    id: 'apple',
-    name: 'Apple',
-    icon: 'link-outline',
-    connected: false,
-    connectedAt: null,
-  },
-  {
-    id: 'twitter',
-    name: 'X (Twitter)',
-    icon: 'link-outline',
-    connected: false,
-    connectedAt: null,
-  },
-  {
-    id: 'instagram',
-    name: 'Instagram',
-    icon: 'link-outline',
-    connected: false,
-    connectedAt: null,
-  },
-  {
-    id: 'hudl',
-    name: 'Hudl',
-    icon: 'link-outline',
-    connected: false,
-    connectedAt: null,
-  },
-] as const;
-
-// ============================================
 // UI CONFIGURATION
 // ============================================
 
@@ -505,7 +459,5 @@ export const SETTINGS_API_ENDPOINTS = {
   GET_SUBSCRIPTION: '/api/v1/settings/subscription',
   GET_USAGE: '/api/v1/settings/usage',
   GET_BILLING_HISTORY: '/api/v1/settings/billing/history',
-  CONNECT_PROVIDER: '/api/v1/settings/providers/connect',
-  DISCONNECT_PROVIDER: '/api/v1/settings/providers/disconnect',
   CHECK_UPDATE: '/api/v1/settings/check-update',
 } as const;

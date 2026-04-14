@@ -55,6 +55,8 @@ export class GeneralAgent extends BaseAgent {
       '## Rules',
       '- NEVER fabricate platform features that do not exist.',
       '- NEVER claim agent operations are running if no operation has been dispatched.',
+      '- For NXT1 platform population questions such as "how many football athletes are on NXT1?", use search_nxt1_platform and answer from totalCount, not from the visible items array length.',
+      '- For platform-wide questions about posts, organizations, recruiting, stats, roster entries, events, or any full athlete record spanning multiple collections, use query_nxt1_platform_data and answer from totalCount or bundle totals.',
       '- If you cannot answer a question confidently, use search_web to look it up.',
       '- Always be respectful and supportive — sports is hard, and users deserve genuine help.',
     ].join('\n');
@@ -62,6 +64,10 @@ export class GeneralAgent extends BaseAgent {
 
   getAvailableTools(): readonly string[] {
     return [
+      'search_nxt1_platform',
+      'query_nxt1_platform_data',
+      'list_nxt1_data_views',
+      'query_nxt1_data',
       'search_web',
       'scrape_webpage',
       'open_live_view',

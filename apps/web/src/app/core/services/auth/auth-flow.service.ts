@@ -94,6 +94,7 @@ import {
 import type { CrashlyticsAdapter, CrashUser } from '@nxt1/core/crashlytics';
 import { GLOBAL_CRASHLYTICS } from '@nxt1/ui/infrastructure/error-handling';
 import { environment } from '../../../../environments/environment';
+import { clearHttpCache } from '../../infrastructure';
 
 /**
  * SSR-Safe Firebase Auth Access
@@ -597,7 +598,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    */
   private async syncUserProfile(
     firebaseUser: FirebaseUser,
-    throwOnNotFound = false
+    throwOnNotFound = false,
+    forceFresh = false
   ): Promise<void> {
     try {
       // Fetch profile from backend (with caching)
@@ -607,7 +609,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         // Use globalAuthUserCache for efficient caching
         // Map User type to CachedUserProfile (id -> uid)
         backendProfile = await globalAuthUserCache.getOrFetch(firebaseUser.uid, async () => {
-          const user = await this.authApi.getUserProfile(firebaseUser.uid);
+          const user = await this.authApi.getUserProfile(firebaseUser.uid, {
+            noCache: forceFresh,
+          });
           return {
             uid: user.id,
             email: user.email,
@@ -1804,7 +1808,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       // Invalidate cache to force fresh fetch from backend
       // This is critical after onboarding completion
       await globalAuthUserCache.invalidate(uid);
-      await this.syncUserProfile(currentUser);
+      await clearHttpCache('*auth/profile*');
+      await this.syncUserProfile(currentUser, false, true);
     } else {
       this.logger.warn('refreshUserProfile: no Firebase currentUser — skipping GET fetch');
     }

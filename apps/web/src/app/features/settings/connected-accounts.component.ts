@@ -167,7 +167,7 @@ export class ConnectedAccountsComponent implements OnInit {
     scopeType: PlatformScope;
     scopeId?: string;
   }): Promise<void> {
-    const { platform, scopeType, scopeId } = event;
+    const { platform, scopeType } = event;
     const userId = this.auth.user?.()?.uid;
     if (!userId) {
       this.toast.error('Not signed in. Please refresh and try again.');

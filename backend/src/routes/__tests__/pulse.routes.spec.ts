@@ -21,12 +21,9 @@ describe('Pulse Routes', () => {
         { path: '/', method: 'get' },
         { path: '/trending', method: 'get' },
         { path: '/search', method: 'get' },
-        { path: '/stats', method: 'get' },
         { path: '/:id', method: 'get' },
-        { path: '/:id/bookmark', method: 'post' },
-        { path: '/generate', method: 'post' },
       ],
-      7
+      4
     );
   });
 });

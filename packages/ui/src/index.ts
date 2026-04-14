@@ -1154,8 +1154,9 @@ export {
   NewsApiService,
   NEWS_API_BASE_URL,
   NEWS_API_ADAPTER,
+  NEWS_SHARE_ADAPTER,
 } from './news';
-export type { INewsApiAdapter } from './news';
+export type { INewsApiAdapter, INewsShareAdapter, NewsShareResult } from './news';
 
 // ============================================
 // HELP CENTER (Adaptive Design Architecture)

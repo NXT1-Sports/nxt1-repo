@@ -102,7 +102,6 @@ export class ProfileApiService {
    */
   invalidateCache(userId: string): void {
     this.profileCache.delete(this.cacheKey(PROFILE_CACHE_KEYS.BY_ID, userId));
-    this.profileCache.delete(this.cacheKey(PROFILE_CACHE_KEYS.BY_USERNAME, userId));
   }
 
   // ============================================
@@ -119,20 +118,6 @@ export class ProfileApiService {
     if (cached) return cached;
 
     const response = await this.api.getProfile(userId);
-    if (response.success) this.setCache(key, response);
-    return response;
-  }
-
-  /**
-   * Get user profile by username.
-   * Checks service-level cache (MEDIUM_TTL) before making a network request.
-   */
-  async getProfileByUsername(username: string): Promise<ApiResponse<User>> {
-    const key = this.cacheKey(PROFILE_CACHE_KEYS.BY_USERNAME, username);
-    const cached = this.getFromCache(key);
-    if (cached) return cached;
-
-    const response = await this.api.getProfileByUsername(username);
     if (response.success) this.setCache(key, response);
     return response;
   }

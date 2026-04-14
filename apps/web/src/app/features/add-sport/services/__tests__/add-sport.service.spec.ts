@@ -24,9 +24,9 @@ import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
 
-import { AddSportService } from '../add-sport.service';
-import { AuthFlowService } from '../../../core/services/auth/auth-flow.service';
-import { ProfileService } from '../../../core/services/api/profile-api.service';
+import { AddSportService } from '../../add-sport.service';
+import { AuthFlowService } from '../../../../core/services/auth/auth-flow.service';
+import { ProfileService } from '../../../../core/services/api/profile-api.service';
 
 // ============================================
 // MOCK FACTORIES

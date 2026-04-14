@@ -143,6 +143,10 @@ export const routes: Routes = [
 
       // Team - Team pages
       {
+        path: 'team/:slug/:teamCode',
+        loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
+      },
+      {
         path: 'team/:slug',
         loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
       },

@@ -19,6 +19,7 @@
 import type { Firestore, WriteBatch } from 'firebase-admin/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
 import { normalizeRole } from '@nxt1/core';
+import type { SportProfile } from '@nxt1/core';
 import {
   RosterEntry,
   RosterEntryStatus,
@@ -50,6 +51,189 @@ const CACHE_KEYS = {
 
 const ROSTER_CACHE_TTL = 60; // 60s (frequently changing)
 
+type CachedRosterUserDataUpdate = {
+  firstName?: string | null;
+  lastName?: string | null;
+  displayName?: string | null;
+  email?: string | null;
+  phoneNumber?: string | null;
+  profileImgs?: string[] | null;
+  classOf?: number | null;
+  gpa?: string | number | null;
+  height?: string | null;
+  weight?: string | null;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function normalizeSportName(sport: string): string {
+  return sport.trim();
+}
+
+function normalizeCachedNamePart(value?: string): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
+}
+
+function buildRosterDisplayName(input: {
+  displayName?: string;
+  firstName?: string;
+  lastName?: string;
+}): string | undefined {
+  const explicitDisplayName = normalizeCachedNamePart(input.displayName);
+  if (explicitDisplayName) {
+    return explicitDisplayName;
+  }
+
+  const derivedDisplayName = [
+    normalizeCachedNamePart(input.firstName),
+    normalizeCachedNamePart(input.lastName),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(' ');
+
+  return derivedDisplayName || undefined;
+}
+
+function normalizeRosterJerseyNumber(value: unknown): string | number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim();
+    return normalized ? normalized : undefined;
+  }
+
+  return undefined;
+}
+
+function readMeasurableValue(userData: Record<string, unknown>, field: string): string | undefined {
+  const measurables = userData['measurables'];
+  if (!Array.isArray(measurables)) {
+    return undefined;
+  }
+
+  const entry = measurables.find(
+    (candidate): candidate is Record<string, unknown> =>
+      isRecord(candidate) && candidate['field'] === field && candidate['value'] !== undefined
+  );
+
+  if (!entry) {
+    return undefined;
+  }
+
+  if (typeof entry['value'] === 'number') {
+    return String(entry['value']);
+  }
+
+  return normalizeCachedNamePart(typeof entry['value'] === 'string' ? entry['value'] : undefined);
+}
+
+function readGpa(userData: Record<string, unknown>): string | number | null {
+  const topLevelGpa = userData['gpa'];
+  if (typeof topLevelGpa === 'number' || typeof topLevelGpa === 'string') {
+    return topLevelGpa;
+  }
+
+  const academics = isRecord(userData['academics']) ? userData['academics'] : undefined;
+  const athlete = isRecord(userData['athlete']) ? userData['athlete'] : undefined;
+  const athleteAcademics = isRecord(athlete?.['academics']) ? athlete['academics'] : undefined;
+  const nestedGpa = athleteAcademics?.['gpa'] ?? academics?.['gpa'];
+
+  if (typeof nestedGpa === 'number' || typeof nestedGpa === 'string') {
+    return nestedGpa;
+  }
+
+  return null;
+}
+
+function readSportProfiles(userData: Record<string, unknown>): SportProfile[] {
+  const sports = userData['sports'];
+  if (!Array.isArray(sports)) {
+    return [];
+  }
+
+  return sports.filter((sport): sport is SportProfile => isRecord(sport));
+}
+
+function buildCachedRosterUserDataFromUserProfile(
+  userData: Record<string, unknown>
+): CachedRosterUserDataUpdate {
+  const contact = isRecord(userData['contact']) ? userData['contact'] : undefined;
+  const firstName = normalizeCachedNamePart(
+    typeof userData['firstName'] === 'string' ? userData['firstName'] : undefined
+  );
+  const lastName = normalizeCachedNamePart(
+    typeof userData['lastName'] === 'string' ? userData['lastName'] : undefined
+  );
+  const displayName = buildRosterDisplayName({
+    displayName: typeof userData['displayName'] === 'string' ? userData['displayName'] : undefined,
+    firstName,
+    lastName,
+  });
+  const email = normalizeCachedNamePart(
+    typeof userData['email'] === 'string'
+      ? userData['email']
+      : typeof contact?.['email'] === 'string'
+        ? contact['email']
+        : undefined
+  );
+  const phoneNumber = normalizeCachedNamePart(
+    typeof userData['phoneNumber'] === 'string'
+      ? userData['phoneNumber']
+      : typeof contact?.['phone'] === 'string'
+        ? contact['phone']
+        : undefined
+  );
+
+  return {
+    firstName: firstName ?? '',
+    lastName: lastName ?? '',
+    displayName: displayName ?? '',
+    email: email ?? '',
+    phoneNumber: phoneNumber ?? '',
+    profileImgs: Array.isArray(userData['profileImgs'])
+      ? userData['profileImgs'].filter((img): img is string => typeof img === 'string')
+      : [],
+    classOf: typeof userData['classOf'] === 'number' ? userData['classOf'] : null,
+    gpa: readGpa(userData),
+    height:
+      normalizeCachedNamePart(
+        typeof userData['height'] === 'string' ? userData['height'] : undefined
+      ) ??
+      readMeasurableValue(userData, 'height') ??
+      null,
+    weight:
+      normalizeCachedNamePart(
+        typeof userData['weight'] === 'string' ? userData['weight'] : undefined
+      ) ??
+      readMeasurableValue(userData, 'weight') ??
+      null,
+  };
+}
+
+function normalizeRosterPositions(
+  role: UserRole,
+  positions?: readonly string[]
+): string[] | undefined {
+  if (normalizeRole(role) !== 'athlete' || !Array.isArray(positions)) {
+    return undefined;
+  }
+
+  const normalized = Array.from(
+    new Set(
+      positions
+        .map((position) => position?.trim())
+        .filter((position): position is string => Boolean(position))
+    )
+  );
+
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
@@ -73,6 +257,7 @@ function docToRosterEntry(doc: FirebaseFirestore.DocumentSnapshot): RosterEntry 
     teamId: data['teamId'] ?? '',
     organizationId: data['organizationId'] ?? '',
     role: (data['role'] ?? 'athlete') as UserRole,
+    sport: typeof data['sport'] === 'string' ? data['sport'] : undefined,
     title: data['title'],
     status: data['status'] ?? RosterEntryStatus.PENDING,
     jerseyNumber: data['jerseyNumber'],
@@ -91,6 +276,11 @@ function docToRosterEntry(doc: FirebaseFirestore.DocumentSnapshot): RosterEntry 
     // Cached user data
     firstName: data['firstName'],
     lastName: data['lastName'],
+    displayName: buildRosterDisplayName({
+      displayName: typeof data['displayName'] === 'string' ? data['displayName'] : undefined,
+      firstName: typeof data['firstName'] === 'string' ? data['firstName'] : undefined,
+      lastName: typeof data['lastName'] === 'string' ? data['lastName'] : undefined,
+    }),
     profileImgs: Array.isArray(data['profileImgs'])
       ? (data['profileImgs'] as string[])
       : typeof data['profileImg'] === 'string' && data['profileImg'].trim().length > 0
@@ -156,12 +346,16 @@ export class RosterEntryService {
     const normalizedRole = normalizeRole(input.role);
     const normalizedTitle = input.title?.trim();
     const isAthleteRole = normalizedRole === 'athlete';
+    const normalizedSport = normalizeSportName(input.sport);
+    const normalizedPositions = normalizeRosterPositions(normalizedRole, input.positions);
+    const normalizedDisplayName = buildRosterDisplayName(input);
 
     const entryData: Record<string, unknown> = {
       userId: input.userId,
       teamId: input.teamId,
       organizationId: input.organizationId,
       role: normalizedRole,
+      sport: normalizedSport,
       status: input.status ?? RosterEntryStatus.PENDING,
       invitedBy: input.invitedBy ?? null,
       joinedAt: FieldValue.serverTimestamp(),
@@ -169,6 +363,7 @@ export class RosterEntryService {
       // Cached user data for display
       firstName: input.firstName ?? '',
       lastName: input.lastName ?? '',
+      displayName: normalizedDisplayName ?? '',
       email: input.email ?? '',
       phoneNumber: input.phoneNumber ?? '',
     };
@@ -180,7 +375,7 @@ export class RosterEntryService {
     // Athlete-specific fields — only written for athletes
     if (isAthleteRole) {
       if (input.jerseyNumber) entryData['jerseyNumber'] = input.jerseyNumber;
-      if (input.positions?.length) entryData['positions'] = input.positions;
+      if (normalizedPositions) entryData['positions'] = normalizedPositions;
       if (input.classOf) entryData['classOf'] = input.classOf;
       if (input.season) entryData['season'] = input.season;
     }
@@ -211,6 +406,7 @@ export class RosterEntryService {
         teamId: entryData['teamId'] as string,
         organizationId: entryData['organizationId'] as string,
         role: entryData['role'] as UserRole,
+        sport: entryData['sport'] as string,
         title: entryData['title'] as string | undefined,
         status: (entryData['status'] as RosterEntryStatus) ?? RosterEntryStatus.PENDING,
         jerseyNumber: entryData['jerseyNumber'] as string | number | undefined,
@@ -221,6 +417,7 @@ export class RosterEntryService {
         updatedAt: new Date(),
         firstName: (entryData['firstName'] as string) ?? '',
         lastName: (entryData['lastName'] as string) ?? '',
+        displayName: (entryData['displayName'] as string) ?? '',
         email: (entryData['email'] as string) ?? '',
         phoneNumber: (entryData['phoneNumber'] as string) ?? '',
         profileImgs: (entryData['profileImgs'] as string[] | undefined) ?? [],
@@ -391,18 +588,27 @@ export class RosterEntryService {
   async updateRosterEntry(entryId: string, input: UpdateRosterEntryInput): Promise<RosterEntry> {
     logger.info('[RosterEntryService] Updating roster entry', { entryId });
 
+    const currentEntry = await this.getRosterEntryById(entryId);
+    const nextRole = input.role !== undefined ? normalizeRole(input.role) : currentEntry.role;
+    const normalizedPositions = normalizeRosterPositions(nextRole, input.positions);
+
     const updateData: Record<string, unknown> = {
       updatedAt: FieldValue.serverTimestamp(),
     };
 
-    if (input.role !== undefined) updateData['role'] = normalizeRole(input.role);
+    if (input.role !== undefined) updateData['role'] = nextRole;
+    if (input.sport !== undefined) updateData['sport'] = normalizeSportName(input.sport);
     if (input.title !== undefined) {
       const normalizedTitle = input.title.trim();
       updateData['title'] = normalizedTitle ? normalizedTitle : FieldValue.delete();
     }
     if (input.status !== undefined) updateData['status'] = input.status;
     if (input.jerseyNumber !== undefined) updateData['jerseyNumber'] = input.jerseyNumber;
-    if (input.positions !== undefined) updateData['positions'] = input.positions;
+    if (nextRole !== 'athlete') {
+      updateData['positions'] = FieldValue.delete();
+    } else if (input.positions !== undefined) {
+      updateData['positions'] = normalizedPositions ?? FieldValue.delete();
+    }
     if (input.rating !== undefined) updateData['rating'] = input.rating;
     if (input.coachNotes !== undefined) updateData['coachNotes'] = input.coachNotes;
     if (input.stats !== undefined) updateData['stats'] = input.stats;
@@ -459,20 +665,50 @@ export class RosterEntryService {
    * Update cached user data across all roster entries for a user
    * Call this when User profile changes
    */
-  async updateCachedUserData(userId: string, userData: Partial<RosterEntry>): Promise<void> {
+  async updateCachedUserData(userId: string, userData: CachedRosterUserDataUpdate): Promise<void> {
     logger.info('[RosterEntryService] Updating cached user data', { userId });
 
     const entries = await this.getUserTeams({ userId, includeInactive: true });
 
     const updateData: Record<string, unknown> = {};
-    if (userData.firstName) updateData['firstName'] = userData.firstName;
-    if (userData.lastName) updateData['lastName'] = userData.lastName;
-    if (userData.email) updateData['email'] = userData.email;
-    if (userData.phoneNumber) updateData['phoneNumber'] = userData.phoneNumber;
-    if (userData.profileImgs !== undefined) updateData['profileImgs'] = userData.profileImgs ?? [];
-    if (userData.classOf) updateData['classOf'] = userData.classOf;
-    if (userData.height) updateData['height'] = userData.height;
-    if (userData.weight) updateData['weight'] = userData.weight;
+    const cachedUserData = userData as CachedRosterUserDataUpdate;
+
+    if ('firstName' in cachedUserData) updateData['firstName'] = cachedUserData.firstName ?? '';
+    if ('lastName' in cachedUserData) updateData['lastName'] = cachedUserData.lastName ?? '';
+    if (
+      'displayName' in cachedUserData ||
+      'firstName' in cachedUserData ||
+      'lastName' in cachedUserData
+    ) {
+      updateData['displayName'] =
+        buildRosterDisplayName({
+          displayName:
+            typeof cachedUserData.displayName === 'string' ? cachedUserData.displayName : undefined,
+          firstName:
+            typeof cachedUserData.firstName === 'string' ? cachedUserData.firstName : undefined,
+          lastName:
+            typeof cachedUserData.lastName === 'string' ? cachedUserData.lastName : undefined,
+        }) ?? '';
+    }
+    if ('email' in cachedUserData) updateData['email'] = cachedUserData.email ?? '';
+    if ('phoneNumber' in cachedUserData) {
+      updateData['phoneNumber'] = cachedUserData.phoneNumber ?? '';
+    }
+    if ('profileImgs' in cachedUserData) {
+      updateData['profileImgs'] = cachedUserData.profileImgs ?? [];
+    }
+    if ('classOf' in cachedUserData) {
+      updateData['classOf'] = cachedUserData.classOf ?? FieldValue.delete();
+    }
+    if ('gpa' in cachedUserData) {
+      updateData['gpa'] = cachedUserData.gpa ?? FieldValue.delete();
+    }
+    if ('height' in cachedUserData) {
+      updateData['height'] = cachedUserData.height ?? FieldValue.delete();
+    }
+    if ('weight' in cachedUserData) {
+      updateData['weight'] = cachedUserData.weight ?? FieldValue.delete();
+    }
 
     if (Object.keys(updateData).length === 0) return;
 
@@ -492,6 +728,164 @@ export class RosterEntryService {
     // Invalidate all affected caches
     for (const entry of entries) {
       await this.invalidateCaches(userId, entry.teamId, entry.organizationId);
+    }
+  }
+
+  /**
+   * Sync athlete positions from User.sports[] into matching roster entries.
+   */
+  async syncAthleteSportProfiles(
+    userId: string,
+    sports: readonly SportProfile[],
+    options?: { clearMissing?: boolean }
+  ): Promise<void> {
+    const normalizedSports = sports
+      .map((sport) => ({
+        sport: sport.sport?.trim(),
+        positions: normalizeRosterPositions('athlete', sport.positions),
+        jerseyNumber: normalizeRosterJerseyNumber(sport.jerseyNumber),
+      }))
+      .filter(
+        (
+          sport
+        ): sport is {
+          sport: string;
+          positions: string[] | undefined;
+          jerseyNumber: string | number | undefined;
+        } => Boolean(sport.sport)
+      );
+
+    logger.info('[RosterEntryService] Syncing athlete roster positions', {
+      userId,
+      sportCount: normalizedSports.length,
+      clearMissing: options?.clearMissing === true,
+    });
+
+    const rosterSnapshot = await this.db
+      .collection(this.COLLECTION)
+      .where('userId', '==', userId)
+      .where('role', '==', 'athlete')
+      .get();
+
+    if (rosterSnapshot.empty) {
+      return;
+    }
+
+    const sportMap = new Map(
+      normalizedSports.map((sport) => [sport.sport.toLowerCase(), sport] as const)
+    );
+    const batch = this.db.batch();
+    const affectedEntries: Array<{ entryId: string; teamId: string; organizationId: string }> = [];
+
+    for (const doc of rosterSnapshot.docs) {
+      const entry = docToRosterEntry(doc);
+      const sportKey = entry.sport?.trim().toLowerCase();
+      if (!entry.id || !sportKey) {
+        continue;
+      }
+
+      if (!sportMap.has(sportKey)) {
+        if (!options?.clearMissing) {
+          continue;
+        }
+
+        batch.update(doc.ref, {
+          positions: FieldValue.delete(),
+          jerseyNumber: FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        affectedEntries.push({
+          entryId: entry.id,
+          teamId: entry.teamId,
+          organizationId: entry.organizationId,
+        });
+        continue;
+      }
+
+      const sportProfile = sportMap.get(sportKey);
+      batch.update(doc.ref, {
+        positions: sportProfile?.positions ?? FieldValue.delete(),
+        jerseyNumber: sportProfile?.jerseyNumber ?? FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      affectedEntries.push({
+        entryId: entry.id,
+        teamId: entry.teamId,
+        organizationId: entry.organizationId,
+      });
+    }
+
+    if (affectedEntries.length === 0) {
+      return;
+    }
+
+    await batch.commit();
+
+    for (const entry of affectedEntries) {
+      await this.invalidateCaches(userId, entry.teamId, entry.organizationId, entry.entryId);
+    }
+  }
+
+  async syncTeamSport(teamId: string, sport: string): Promise<void> {
+    const normalizedSport = normalizeSportName(sport);
+    if (!normalizedSport) {
+      return;
+    }
+
+    const snapshot = await this.db.collection(this.COLLECTION).where('teamId', '==', teamId).get();
+
+    if (snapshot.empty) {
+      return;
+    }
+
+    const batch = this.db.batch();
+    const affectedEntries: Array<{
+      entryId: string;
+      teamId: string;
+      organizationId: string;
+      userId: string;
+    }> = [];
+
+    for (const doc of snapshot.docs) {
+      const entry = docToRosterEntry(doc);
+      if (!entry.id) {
+        continue;
+      }
+
+      batch.update(doc.ref, {
+        sport: normalizedSport,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      affectedEntries.push({
+        entryId: entry.id,
+        teamId: entry.teamId,
+        organizationId: entry.organizationId,
+        userId: entry.userId,
+      });
+    }
+
+    if (affectedEntries.length === 0) {
+      return;
+    }
+
+    await batch.commit();
+
+    for (const entry of affectedEntries) {
+      await this.invalidateCaches(entry.userId, entry.teamId, entry.organizationId, entry.entryId);
+    }
+  }
+
+  async syncUserProfileToRosterEntries(
+    userId: string,
+    userData: Record<string, unknown>
+  ): Promise<void> {
+    await this.updateCachedUserData(userId, buildCachedRosterUserDataFromUserProfile(userData));
+
+    const role = typeof userData['role'] === 'string' ? normalizeRole(userData['role']) : undefined;
+    if (role === 'athlete') {
+      await this.syncAthleteSportProfiles(userId, readSportProfiles(userData), {
+        clearMissing: true,
+      });
     }
   }
 

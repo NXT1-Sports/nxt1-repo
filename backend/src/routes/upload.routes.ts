@@ -1336,25 +1336,7 @@ router.post(
   '/banner-photo',
   upload.single('file'),
   asyncHandler(async (req: Request, res: Response) => {
-    req.body.category = 'cover-photo'; // Map to existing category
-    const file = req.file;
-
-    if (!file) {
-      throw fieldError('file', 'File is required', 'required');
-    }
-
-    const category: FileCategory = 'cover-photo';
-    const rules = FILE_UPLOAD_RULES[category];
-
-    if (file.size > rules.maxSize) {
-      throw fieldError(
-        'file',
-        `File must be smaller than ${formatFileSize(rules.maxSize)}`,
-        'maxSize'
-      );
-    }
-
-    res.status(501).json({ success: false, error: 'Not implemented' });
+    await handleCoverPhotoUpload(req, res);
   })
 );
 
@@ -1526,66 +1508,66 @@ router.post(
  * Upload cover photo with optimization.
  * Note: Cover photos don't use the resize extension (not in monitored path).
  */
+async function handleCoverPhotoUpload(req: Request, res: Response): Promise<void> {
+  const userId = req.user!.uid;
+  const { fileName } = req.body;
+  const file = req.file;
+
+  if (!file) {
+    throw fieldError('file', 'File is required', 'required');
+  }
+
+  const category: FileCategory = 'cover-photo';
+  const rules = FILE_UPLOAD_RULES[category];
+
+  if (file.size > rules.maxSize) {
+    throw fieldError(
+      'file',
+      `File must be smaller than ${formatFileSize(rules.maxSize)}`,
+      'maxSize'
+    );
+  }
+
+  logger.info('Processing cover photo upload', {
+    userId,
+    originalSize: formatFileSize(file.size),
+  });
+
+  const bucket = req.firebase?.storage?.bucket() || getStorage().bucket();
+  const optimized = await optimizeImage(file.buffer, category, file.mimetype);
+
+  const originalFileName = fileName || file.originalname;
+  const timestamp = Date.now();
+  const sanitizedName = originalFileName.replace(/[^a-zA-Z0-9.-]/g, '_').split('.')[0];
+  const mainPath = `users/${userId}/cover-photo/cover_${timestamp}_${sanitizedName}.webp`;
+
+  const mainUrl = await uploadToStorage(optimized.buffer, mainPath, optimized.mimeType, bucket);
+
+  const result: FileUploadResult = {
+    url: mainUrl,
+    storagePath: mainPath,
+    size: optimized.buffer.length,
+    mimeType: optimized.mimeType,
+    dimensions: optimized.dimensions,
+  };
+
+  logger.info('Cover photo upload complete', {
+    userId,
+    url: mainUrl,
+    optimizedSize: formatFileSize(optimized.buffer.length),
+  });
+
+  res.json({
+    success: true,
+    data: result,
+  });
+}
+
 router.post(
   '/cover-photo',
   upload.single('file'),
   asyncHandler(async (req: Request, res: Response) => {
-    const userId = req.user!.uid;
-    const { fileName } = req.body;
-    const file = req.file;
-
-    if (!file) {
-      throw fieldError('file', 'File is required', 'required');
-    }
-
-    const category: FileCategory = 'cover-photo';
-    const rules = FILE_UPLOAD_RULES[category];
-
-    if (file.size > rules.maxSize) {
-      throw fieldError(
-        'file',
-        `File must be smaller than ${formatFileSize(rules.maxSize)}`,
-        'maxSize'
-      );
-    }
-
-    logger.info('Processing cover photo upload', {
-      userId,
-      originalSize: formatFileSize(file.size),
-    });
-
-    // Get the appropriate storage bucket from request context
-    const bucket = req.firebase?.storage?.bucket() || getStorage().bucket();
-
-    // Optimize image
-    const optimized = await optimizeImage(file.buffer, category, file.mimetype);
-
-    // Build storage path and upload (cover photos are in users/{userId}/cover-photo/)
-    const originalFileName = fileName || file.originalname;
-    const timestamp = Date.now();
-    const sanitizedName = originalFileName.replace(/[^a-zA-Z0-9.-]/g, '_').split('.')[0];
-    const mainPath = `users/${userId}/cover-photo/cover_${timestamp}_${sanitizedName}.webp`;
-
-    const mainUrl = await uploadToStorage(optimized.buffer, mainPath, optimized.mimeType, bucket);
-
-    const result: FileUploadResult = {
-      url: mainUrl,
-      storagePath: mainPath,
-      size: optimized.buffer.length,
-      mimeType: optimized.mimeType,
-      dimensions: optimized.dimensions,
-    };
-
-    logger.info('Cover photo upload complete', {
-      userId,
-      url: mainUrl,
-      optimizedSize: formatFileSize(optimized.buffer.length),
-    });
-
-    res.json({
-      success: true,
-      data: result,
-    });
+    await handleCoverPhotoUpload(req, res);
   })
 );
 
@@ -1641,35 +1623,6 @@ router.post(
       success: true,
       data: result,
     });
-  })
-);
-
-/**
- * POST /upload/graphic
- *
- * Upload graphic/image asset.
- */
-router.post(
-  '/graphic',
-  upload.single('file'),
-  asyncHandler(async (req: Request, res: Response) => {
-    if (!req.file) {
-      throw fieldError('file', 'File is required', 'required');
-    }
-
-    res.status(501).json({ success: false, error: 'Not implemented' });
-  })
-);
-
-/**
- * DELETE /upload/:filePath
- *
- * Delete uploaded file from storage (path param version for core API compatibility).
- */
-router.delete(
-  '/:filePath',
-  asyncHandler(async (_: Request, res: Response) => {
-    res.status(501).json({ success: false, error: 'Not implemented' });
   })
 );
 

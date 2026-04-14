@@ -67,10 +67,9 @@ import {
 import { httpCacheInterceptor, authInterceptor } from './core/infrastructure';
 import { httpPerformanceInterceptor } from './core/infrastructure/performance-interceptor';
 
-// Crashlytics service (web uses GA4 fallback)
-import { CrashlyticsService } from './core/services';
 import { AnalyticsService } from './core/services';
 import { PerformanceService } from './core/services';
+import { ShareService } from './core/services';
 
 // Badge bridge: connects ActivityService (from @nxt1/ui) → BadgeCountService
 import { provideBadgeBridge } from './core/services';
@@ -80,7 +79,7 @@ import { provideWebPush } from './core/services';
 
 // News API adapter — wired at root so the shared NewsService
 // (providedIn: 'root') can resolve the token when it's first injected.
-import { NEWS_API_BASE_URL, NEWS_API_ADAPTER } from '@nxt1/ui/news';
+import { NEWS_API_BASE_URL, NEWS_API_ADAPTER, NEWS_SHARE_ADAPTER } from '@nxt1/ui/news';
 import { PulseApiAdapterService } from './core/services/api/pulse-api-adapter.service';
 import { TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui/team-profile';
 import { INTEL_API_BASE_URL } from '@nxt1/ui/intel';
@@ -333,6 +332,9 @@ export const appConfig: ApplicationConfig = {
     // News API adapter — root-level so shared NewsService resolves it
     { provide: NEWS_API_ADAPTER, useExisting: PulseApiAdapterService },
 
+    // News share adapter — routes Pulse article sharing through the app ShareService
+    { provide: NEWS_SHARE_ADAPTER, useExisting: ShareService },
+
     // Team Profile API base URL
     { provide: TEAM_PROFILE_API_BASE_URL, useFactory: () => environment.apiURL },
 
@@ -431,7 +433,7 @@ export const appConfig: ApplicationConfig = {
     },
     {
       provide: APP_INITIALIZER,
-      useFactory: () => () => {},
+      useFactory: () => () => undefined,
       deps: [Sentry.TraceService],
       multi: true,
     },

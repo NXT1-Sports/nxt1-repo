@@ -29,7 +29,7 @@
  */
 
 import { Worker, Job } from 'bullmq';
-import type { AgentJobUpdate, AgentYieldState } from '@nxt1/core';
+import type { AgentJobUpdate, AgentOperationResult, AgentYieldState } from '@nxt1/core';
 import type { AgentRouter } from '../agent.router.js';
 import type { AgentQueueJobData, AgentQueueJobResult, AgentJobProgress } from './queue.types.js';
 import {
@@ -227,22 +227,30 @@ export class AgentWorker {
       // 2. Redis PubSub (new — real-time SSE pipe to Express)
       const sseEvent = this.streamEventToSSE(event);
       if (sseEvent) {
-        this.pubsub.publish(payload.operationId, sseEvent.event, sseEvent.data).catch(() => {});
+        this.pubsub
+          .publish(payload.operationId, sseEvent.event, sseEvent.data)
+          .catch(() => undefined);
       }
     };
 
     // Execute the full agent pipeline (with overall timeout)
-    let result;
+    let result: AgentOperationResult;
     try {
       const userFirestore = this.getUserFirestore(job);
-      const routerPromise = this.router.run(payload, onUpdate, userFirestore, onStreamEvent);
+      const routerPromise = this.router.run(
+        payload,
+        onUpdate,
+        userFirestore,
+        onStreamEvent,
+        job.data.environment
+      );
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error('Agent job timed out after 5 minutes')), JOB_TIMEOUT_MS);
       });
       result = await Promise.race([routerPromise, timeoutPromise]);
     } catch (err) {
       // Flush any buffered deltas before handling the error
-      await eventWriter.flush().catch(() => {});
+      await eventWriter.flush().catch(() => undefined);
 
       // ── Yield handling: agent needs user input or approval ─────────────
       if (isAgentYield(err)) {
@@ -391,49 +399,100 @@ export class AgentWorker {
       throw err;
     }
 
+    const resultData =
+      typeof result.data === 'object' && result.data !== null
+        ? (result.data as Record<string, unknown>)
+        : undefined;
+    const maxIterationsReached = resultData?.['maxIterationsReached'] === true;
+    const planFailed = resultData?.['operationStatus'] === 'failed';
+    const terminalMessage =
+      typeof result.summary === 'string' && result.summary.length > 0
+        ? result.summary
+        : maxIterationsReached
+          ? 'The agent reached its maximum iteration limit without completing the task.'
+          : planFailed
+            ? 'Execution plan failed.'
+            : 'All tasks finished.';
+
     // ── Flush remaining deltas and write terminal 'done' event ──────────
-    await eventWriter.flush().catch(() => {});
-    eventWriter.emit({ type: 'done', success: true, message: result.summary });
+    await eventWriter.flush().catch(() => undefined);
+    eventWriter.emit({
+      type: 'done',
+      success: !maxIterationsReached && !planFailed,
+      message: terminalMessage,
+    });
     await eventWriter.dispose();
 
-    // Mark 100% in BullMQ
-    const completedProgress: AgentJobProgress = {
-      status: 'completed',
-      message: 'All tasks finished.',
+    const terminalProgress: AgentJobProgress = {
+      status: maxIterationsReached || planFailed ? 'failed' : 'completed',
+      message: maxIterationsReached || planFailed ? terminalMessage : 'All tasks finished.',
       percent: 100,
       currentStep: totalSteps,
       totalSteps,
       updatedAt: new Date().toISOString(),
     };
-    await job.updateProgress(completedProgress);
+    await job.updateProgress(terminalProgress);
 
     logger.info('[DEBUGLOG] Final job result before persistence:', {
       operationId: payload.operationId,
       resultSummary: result.summary,
+      operationStatus: resultData?.['operationStatus'],
     });
 
     // Treat max-iterations as a failure — the agent made no real progress
-    if (result.data && (result.data as Record<string, unknown>)['maxIterationsReached'] === true) {
+    if (maxIterationsReached) {
       logger.warn('Agent hit max iterations limit — marking as failed', {
         operationId: payload.operationId,
         userId: payload.userId,
       });
-      await repo
-        .markFailed(
-          payload.operationId,
-          'The agent reached its maximum iteration limit without completing the task.'
-        )
-        .catch((err: unknown) => {
-          logger.warn('Failed to write max-iterations failure to Firestore', {
-            operationId: payload.operationId,
-            error: err instanceof Error ? err.message : String(err),
-          });
+      await repo.markFailed(payload.operationId, terminalMessage).catch((err: unknown) => {
+        logger.warn('Failed to write max-iterations failure to Firestore', {
+          operationId: payload.operationId,
+          error: err instanceof Error ? err.message : String(err),
         });
+      });
       return {
         result,
         durationMs: Date.now() - startMs,
         completedAt: new Date().toISOString(),
       };
+    }
+
+    if (planFailed) {
+      logger.warn('Agent execution plan failed — marking as failed', {
+        operationId: payload.operationId,
+        userId: payload.userId,
+        firstFailedTask: resultData?.['firstFailedTask'],
+      });
+      await repo.markFailed(payload.operationId, terminalMessage).catch((err: unknown) => {
+        logger.warn('Failed to write plan failure to Firestore', {
+          operationId: payload.operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+      return {
+        result,
+        durationMs: Date.now() - startMs,
+        completedAt: new Date().toISOString(),
+      };
+    }
+
+    const summary = this.resolveResultSummary(result);
+    let generatedOperationTitle: string | null = null;
+
+    if (this.llmService) {
+      generatedOperationTitle = await this.chatService.generateOperationTitle(
+        payload.intent,
+        summary,
+        this.llmService
+      );
+
+      if (generatedOperationTitle) {
+        result = {
+          ...result,
+          title: generatedOperationTitle,
+        };
+      }
     }
 
     // Persist final result to Firestore
@@ -479,17 +538,6 @@ export class AgentWorker {
         : undefined;
     if (threadId && this.chatService) {
       try {
-        // Extract summary with type-safe fallback chain
-        let summary = 'Task completed.';
-        if (typeof result.summary === 'string' && result.summary.length > 0) {
-          summary = result.summary;
-        } else if (typeof result.data === 'object' && result.data !== null) {
-          const response = (result.data as Record<string, unknown>)['response'];
-          if (typeof response === 'string' && response.length > 0) {
-            summary = response;
-          }
-        }
-
         // Extract agentId with runtime type check
         const rawAgent =
           typeof result.data === 'object' && result.data !== null
@@ -528,22 +576,29 @@ export class AgentWorker {
           operationId: payload.operationId,
         });
 
-        if (this.llmService) {
-          const generatedTitle = await this.chatService.generateThreadTitle(
-            threadId,
-            payload.userId,
-            payload.intent,
-            summary,
-            this.llmService
-          );
-
-          if (generatedTitle) {
-            logger.info('Agent thread title auto-generated from worker response', {
+        const generatedTitle = generatedOperationTitle
+          ? await this.chatService.applyGeneratedThreadTitle(
               threadId,
-              operationId: payload.operationId,
-              title: generatedTitle,
-            });
-          }
+              payload.userId,
+              payload.intent,
+              generatedOperationTitle
+            )
+          : this.llmService
+            ? await this.chatService.generateThreadTitle(
+                threadId,
+                payload.userId,
+                payload.intent,
+                summary,
+                this.llmService
+              )
+            : null;
+
+        if (generatedTitle) {
+          logger.info('Agent thread title auto-generated from worker response', {
+            threadId,
+            operationId: payload.operationId,
+            title: generatedTitle,
+          });
         }
       } catch (chatErr) {
         // Chat persistence must never fail the job
@@ -561,6 +616,21 @@ export class AgentWorker {
       durationMs: Date.now() - startMs,
       completedAt: new Date().toISOString(),
     };
+  }
+
+  private resolveResultSummary(result: AgentOperationResult): string {
+    if (typeof result.summary === 'string' && result.summary.length > 0) {
+      return result.summary;
+    }
+
+    if (typeof result.data === 'object' && result.data !== null) {
+      const response = (result.data as Record<string, unknown>)['response'];
+      if (typeof response === 'string' && response.length > 0) {
+        return response;
+      }
+    }
+
+    return 'Task completed.';
   }
 
   // ─── SSE Translation ─────────────────────────────────────────────────

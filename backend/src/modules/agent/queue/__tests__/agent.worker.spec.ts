@@ -138,6 +138,8 @@ describe('AgentWorker', () => {
 
   const mockChatService = {
     addMessage: vi.fn().mockResolvedValue(undefined),
+    generateOperationTitle: vi.fn().mockResolvedValue('Built Your Coach Outreach Plan'),
+    applyGeneratedThreadTitle: vi.fn().mockResolvedValue('Built Your Coach Outreach Plan'),
     generateThreadTitle: vi.fn().mockResolvedValue('MaxPreps Sync Complete'),
   };
 
@@ -186,7 +188,8 @@ describe('AgentWorker', () => {
       payload,
       expect.any(Function),
       mockFirestore,
-      expect.any(Function)
+      expect.any(Function),
+      'staging'
     );
   });
 
@@ -196,13 +199,19 @@ describe('AgentWorker', () => {
 
     const result = (await capturedProcessor!(job)) as Record<string, unknown>;
 
-    expect(result).toHaveProperty('result', mockRouterResult);
+    expect(result).toHaveProperty(
+      'result',
+      expect.objectContaining({
+        ...mockRouterResult,
+        title: 'Built Your Coach Outreach Plan',
+      })
+    );
     expect(result).toHaveProperty('durationMs');
     expect(result).toHaveProperty('completedAt');
     expect(typeof result['durationMs']).toBe('number');
   });
 
-  it('should auto-generate a thread title after persisting the worker response', async () => {
+  it('should generate and persist a dedicated operation title', async () => {
     const payload = makePayload({
       context: { threadId: 'thread-123' },
       intent: 'Analyze my linked maxpreps account for Belleville football',
@@ -218,13 +227,24 @@ describe('AgentWorker', () => {
         content: 'Drafted 5 recruiting emails',
       })
     );
-    expect(mockChatService.generateThreadTitle).toHaveBeenCalledWith(
-      'thread-123',
-      payload.userId,
+    expect(mockChatService.generateOperationTitle).toHaveBeenCalledWith(
       payload.intent,
       'Drafted 5 recruiting emails',
       mockLlmService
     );
+    expect(mockJobRepo.markCompleted).toHaveBeenCalledWith(
+      'op-worker-test',
+      expect.objectContaining({
+        title: 'Built Your Coach Outreach Plan',
+      })
+    );
+    expect(mockChatService.applyGeneratedThreadTitle).toHaveBeenCalledWith(
+      'thread-123',
+      payload.userId,
+      payload.intent,
+      'Built Your Coach Outreach Plan'
+    );
+    expect(mockChatService.generateThreadTitle).not.toHaveBeenCalled();
   });
 
   it('should call job.updateProgress at least once (final 100%)', async () => {
@@ -299,6 +319,35 @@ describe('AgentWorker', () => {
     mockRouter.run.mockRejectedValue(new Error('LLM timeout'));
 
     await expect(capturedProcessor!(job)).rejects.toThrow('LLM timeout');
+  });
+
+  it('should mark the job as failed when the router returns a failed plan result', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockResolvedValue({
+      summary: 'Execution plan failed. Task 1 (performance_coordinator) failed: LLM timeout',
+      data: {
+        operationStatus: 'failed',
+        firstFailedTask: {
+          id: '1',
+          assignedAgent: 'performance_coordinator',
+          error: 'LLM timeout',
+        },
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.markFailed).toHaveBeenCalledWith(
+      'op-worker-test',
+      'Execution plan failed. Task 1 (performance_coordinator) failed: LLM timeout'
+    );
+    expect(mockJobRepo.markCompleted).not.toHaveBeenCalled();
+
+    const finalProgress = job.updateProgress.mock.calls.at(-1)?.[0];
+    expect(finalProgress.status).toBe('failed');
+    expect(finalProgress.message).toContain('Execution plan failed.');
   });
 
   // ── Lifecycle ─────────────────────────────────────────────────────────

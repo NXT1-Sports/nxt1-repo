@@ -15,6 +15,10 @@
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { getCacheService } from '../../../../services/cache.service.js';
+import {
+  createProfileWriteAccessService,
+  resolveAuthorizedTargetSportSelection,
+} from '../../../../services/profile-write-access.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
 import { normalizeCollegeName } from './dedup-utils.js';
@@ -25,7 +29,6 @@ import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const RECRUITING_COLLECTION = 'Recruiting';
-const USERS_COLLECTION = 'Users';
 const MAX_ACTIVITIES = 100;
 
 const VALID_CATEGORIES = new Set(['offer', 'interest', 'visit', 'camp', 'commitment', 'contact']);
@@ -125,15 +128,29 @@ export class WriteRecruitingActivityTool extends BaseTool {
       return { success: false, error: `activities exceeds maximum of ${MAX_ACTIVITIES}.` };
     }
 
-    // Validate user exists
-    const userDoc = await this.db.collection(USERS_COLLECTION).doc(userId).get();
-    if (!userDoc.exists) {
-      return { success: false, error: `User "${userId}" not found.` };
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
     }
-    const userData = userDoc.data() as Record<string, unknown>;
 
     try {
+      const accessGrant = await createProfileWriteAccessService(
+        this.db
+      ).assertCanManageAthleteProfileTarget({
+        actorUserId: context.userId,
+        targetUserId: userId,
+        action: 'tool:write_recruiting_activity',
+      });
+      const userData = accessGrant.targetUserData;
       const sportId = targetSport.trim().toLowerCase();
+      if (
+        !accessGrant.isSelfWrite &&
+        !resolveAuthorizedTargetSportSelection(userData, sportId, accessGrant)
+      ) {
+        return {
+          success: false,
+          error: 'Not authorized to write recruiting activity for this sport.',
+        };
+      }
       const now = new Date().toISOString();
 
       context?.onProgress?.('Checking for duplicate recruiting entries…');
@@ -255,7 +272,6 @@ export class WriteRecruitingActivityTool extends BaseTool {
           cache.del(`profile:${userId}:recruiting:all`),
           invalidateProfileCaches(
             userId,
-            typeof userData['username'] === 'string' ? userData['username'] : undefined,
             typeof userData['unicode'] === 'string' ? userData['unicode'] : null
           ),
         ]);

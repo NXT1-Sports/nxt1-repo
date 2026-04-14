@@ -11,7 +11,6 @@
  * - Section management
  * - Preference updates
  * - Subscription/usage data
- * - Connected providers management
  *
  * @example
  * ```typescript
@@ -33,14 +32,12 @@ import {
   type SettingsSubscription,
   type SettingsUsage,
   type SettingsPreferences,
-  type SettingsConnectedProvider,
   type SettingsSection,
   type SettingsItem,
   type SettingsSectionId,
   type SettingsToggleItem,
   DEFAULT_SETTINGS_SECTIONS,
   DEFAULT_SETTINGS_PREFERENCES,
-  DEFAULT_CONNECTED_PROVIDERS,
   getSettingsSectionsForRole,
 } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
@@ -113,9 +110,6 @@ export class SettingsService {
   private readonly _subscription = signal<SettingsSubscription | null>(null);
   private readonly _usage = signal<SettingsUsage | null>(null);
   private readonly _preferences = signal<SettingsPreferences>(DEFAULT_SETTINGS_PREFERENCES);
-  private readonly _connectedProviders = signal<readonly SettingsConnectedProvider[]>(
-    DEFAULT_CONNECTED_PROVIDERS
-  );
   private readonly _sections = signal<readonly SettingsSection[]>(DEFAULT_SETTINGS_SECTIONS);
   private readonly _isLoading = signal(false);
   private readonly _isSaving = signal(false);
@@ -136,9 +130,6 @@ export class SettingsService {
 
   /** Current preferences */
   readonly preferences = computed(() => this._preferences());
-
-  /** Connected providers */
-  readonly connectedProviders = computed(() => this._connectedProviders());
 
   /** Settings sections with current values */
   readonly sections = computed(() => this._sections());
@@ -259,8 +250,6 @@ export class SettingsService {
         this._preferences.set(DEFAULT_SETTINGS_PREFERENCES);
       }
 
-      this._connectedProviders.set(DEFAULT_CONNECTED_PROVIDERS);
-
       // Update sections with current preference values
       this.updateSectionsWithPreferences();
 
@@ -327,45 +316,6 @@ export class SettingsService {
       this.logger.error('Failed to update preference', err, { key, value });
     } finally {
       this._isSaving.set(false);
-    }
-  }
-
-  /**
-   * Connect a provider.
-   */
-  async connectProvider(providerId: string): Promise<void> {
-    this.logger.debug('Connecting provider', { providerId });
-
-    try {
-      // TODO: Implement OAuth flow
-      await this.haptics.impact('medium');
-      this.toast.info('Provider connection coming soon');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to connect provider';
-      this.toast.error(message);
-      this.logger.error('Failed to connect provider', err, { providerId });
-    }
-  }
-
-  /**
-   * Disconnect a provider.
-   */
-  async disconnectProvider(providerId: string): Promise<void> {
-    this.logger.debug('Disconnecting provider', { providerId });
-
-    try {
-      this._connectedProviders.update((providers) =>
-        providers.map((p) =>
-          p.id === providerId ? { ...p, connected: false, connectedAt: null } : p
-        )
-      );
-
-      await this.haptics.notification('success');
-      this.toast.success('Provider disconnected');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to disconnect provider';
-      this.toast.error(message);
-      this.logger.error('Failed to disconnect provider', err, { providerId });
     }
   }
 

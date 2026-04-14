@@ -442,11 +442,20 @@ describe('AgentRouter', () => {
       const updates: AgentJobUpdate[] = [];
       const result = await router.run(payload, (u) => updates.push(u));
 
-      // Should not throw — should handle gracefully
-      expect(result).toBeDefined();
+      expect(result.summary).toContain('Execution plan failed.');
+      expect(result.summary).toContain('Task 1');
+      expect(result.summary).toContain('LLM timeout');
+      expect(result.data).toMatchObject({
+        operationStatus: 'failed',
+        firstFailedTask: {
+          id: '1',
+          assignedAgent: 'performance_coordinator',
+          error: 'LLM timeout',
+        },
+      });
 
-      // Should have emitted a failure update
       expect(updates.some((u) => u.step?.message?.includes('failed'))).toBe(true);
+      expect(updates.some((u) => u.status === 'failed')).toBe(true);
     });
 
     it('should return empty result when planner returns no tasks', async () => {
@@ -682,7 +691,7 @@ describe('AgentRouter', () => {
         operationId: 'op-delegation-1',
         userId: 'user-123',
         intent: 'Send emails to coaches',
-        agent: 'brand_media_coordinator' as any,
+        agent: 'brand_media_coordinator' as AgentJobPayload['agent'],
         origin: TEST_ORIGIN,
         priority: 'normal',
         createdAt: new Date().toISOString(),
@@ -728,7 +737,7 @@ describe('AgentRouter', () => {
         operationId: 'op-delegation-loop',
         userId: 'user-123',
         intent: 'Do something ambiguous',
-        agent: 'brand_media_coordinator' as any,
+        agent: 'brand_media_coordinator' as AgentJobPayload['agent'],
         origin: TEST_ORIGIN,
         priority: 'normal',
         createdAt: new Date().toISOString(),
@@ -737,8 +746,15 @@ describe('AgentRouter', () => {
       const updates: AgentJobUpdate[] = [];
       const result = await router.run(payload, (u) => updates.push(u));
 
-      // Result comes back (no infinite loop) — DAG path treats delegation as task failure
-      expect(result).toBeDefined();
+      expect(result.summary).toContain('Execution plan failed.');
+      expect(result.summary).toContain('brand_media_coordinator');
+      expect(result.data).toMatchObject({
+        operationStatus: 'failed',
+        firstFailedTask: {
+          id: '1',
+          assignedAgent: 'brand_media_coordinator',
+        },
+      });
       // The brand_media agent should have been called at least twice (direct + DAG)
       expect(brandMediaAgent.execute).toHaveBeenCalled();
       // Should have emitted a "misrouted" update from the DAG handler
@@ -780,7 +796,7 @@ describe('AgentRouter', () => {
         operationId: 'op-delegation-hint',
         userId: 'user-123',
         intent: 'Send emails to coaches',
-        agent: 'brand_media_coordinator' as any,
+        agent: 'brand_media_coordinator' as AgentJobPayload['agent'],
         origin: TEST_ORIGIN,
         priority: 'normal',
         createdAt: new Date().toISOString(),

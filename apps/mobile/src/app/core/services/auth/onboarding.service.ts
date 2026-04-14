@@ -60,7 +60,7 @@ import {
   INVITE_TEAM_JOINED_KEY,
   createEmptySportEntry,
 } from '@nxt1/core/api';
-import { AUTH_ROUTES, USER_ROLES } from '@nxt1/core/constants';
+import { AUTH_ROUTES } from '@nxt1/core/constants';
 import { STORAGE_KEYS } from '@nxt1/core/storage';
 import { TEST_IDS } from '@nxt1/core/testing';
 import type { OnboardingProfileData } from '@nxt1/core/auth';

@@ -15,6 +15,7 @@
  */
 
 import { formatSportDisplayName } from '../constants/sport.constants';
+import { buildCanonicalProfilePath, buildCanonicalTeamPath } from '../helpers/formatters';
 
 // ============================================
 // BASE TYPES
@@ -170,7 +171,7 @@ export interface SeoConfig {
  */
 export interface ShareableContent {
   /** Content type for routing */
-  type: 'profile' | 'team' | 'video' | 'post' | 'highlight';
+  type: 'profile' | 'team' | 'video' | 'post' | 'highlight' | 'article';
 
   /** Unique identifier */
   id: string;
@@ -193,6 +194,9 @@ export interface ShareableContent {
  */
 export interface ShareableProfile extends ShareableContent {
   type: 'profile';
+
+  /** Legacy/public-facing profile code used in canonical URLs */
+  unicode?: string;
 
   /** Athlete's full name */
   athleteName: string;
@@ -218,6 +222,9 @@ export interface ShareableProfile extends ShareableContent {
  */
 export interface ShareableTeam extends ShareableContent {
   type: 'team';
+
+  /** Public team code used in canonical URLs */
+  teamCode?: string;
 
   /** Team name */
   teamName: string;
@@ -276,6 +283,25 @@ export interface ShareablePost extends ShareableContent {
   likes?: number;
 }
 
+/**
+ * Pulse news article shareable content
+ */
+export interface ShareableArticle extends ShareableContent {
+  type: 'article';
+
+  /** Feed/source label (for example ESPN, Rivals, MaxPreps) */
+  source?: string;
+
+  /** Short article excerpt */
+  excerpt?: string;
+
+  /** Sport bucket */
+  sport?: string;
+
+  /** State bucket */
+  state?: string;
+}
+
 // ============================================
 // SHARE COPY
 // ============================================
@@ -311,15 +337,33 @@ export function buildShareUrl(content: ShareableContent): string {
   const identifier = content.slug || content.id;
 
   switch (content.type) {
-    case 'profile':
-      return `${BASE_URL}/profile/${identifier}`;
-    case 'team':
-      return `${BASE_URL}/team/${identifier}`;
+    case 'profile': {
+      const profile = content as ShareableProfile;
+      return `${BASE_URL}${buildCanonicalProfilePath({
+        athleteName: profile.athleteName,
+        title: profile.title,
+        sport: profile.sport,
+        unicode: profile.unicode,
+        id: profile.id,
+      })}`;
+    }
+    case 'team': {
+      const team = content as ShareableTeam;
+      return `${BASE_URL}${buildCanonicalTeamPath({
+        slug: team.slug,
+        teamName: team.teamName,
+        title: team.title,
+        teamCode: team.teamCode,
+        id: team.id,
+      })}`;
+    }
     case 'video':
     case 'highlight':
       return `${BASE_URL}/video/${identifier}`;
     case 'post':
       return `${BASE_URL}/post/${identifier}`;
+    case 'article':
+      return `${BASE_URL}/explore/pulse/${content.id}`;
     default:
       return `${BASE_URL}/${content.type}/${identifier}`;
   }

@@ -55,6 +55,14 @@ const TITLE_GENERATION_PROMPT = `You are a concise title generator. Given a user
 - If sports-related, include the sport/context when relevant
 - Maximum 50 characters`;
 
+const OPERATION_TITLE_GENERATION_PROMPT = `You are a concise activity title generator. Given a user message and an assistant reply from a sports AI platform, generate a short descriptive action title (6-8 words) for an activity feed item or push notification. Rules:
+- Output ONLY the title text, nothing else
+- No quotes, no punctuation at the end
+- Use title case
+- Be specific to the completed action, not generic
+- Focus on the finished outcome, not the request itself
+- Maximum 60 characters`;
+
 // ─── Service ────────────────────────────────────────────────────────────────
 
 export class AgentChatService {
@@ -183,6 +191,52 @@ export class AgentChatService {
     return result.modifiedCount > 0;
   }
 
+  async generateOperationTitle(
+    userMessage: string,
+    assistantReply: string,
+    llmService: OpenRouterService
+  ): Promise<string | null> {
+    try {
+      return this.requestGeneratedTitle(
+        userMessage,
+        assistantReply,
+        llmService,
+        OPERATION_TITLE_GENERATION_PROMPT,
+        60
+      );
+    } catch (err) {
+      logger.warn('[AgentChatService] Failed to auto-generate operation title', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  }
+
+  async applyGeneratedThreadTitle(
+    threadId: string,
+    userId: string,
+    userMessage: string,
+    generatedTitle: string
+  ): Promise<string | null> {
+    const thread = await this.getThread(threadId, userId);
+    if (!thread) return null;
+
+    const promptPrefix = userMessage.trim().slice(0, 80);
+    if (thread.title !== promptPrefix && thread.title !== 'New Conversation') {
+      return null;
+    }
+
+    const updated = await this.updateThreadTitle(threadId, userId, generatedTitle);
+    if (updated) {
+      logger.info('[AgentChatService] Thread title auto-generated', {
+        threadId,
+        title: generatedTitle,
+      });
+    }
+
+    return generatedTitle;
+  }
+
   /**
    * Auto-generate a concise thread title using a cheap/fast LLM model.
    *
@@ -200,45 +254,17 @@ export class AgentChatService {
     llmService: OpenRouterService
   ): Promise<string | null> {
     try {
-      // Only generate for threads that still have the raw-prompt placeholder title
-      const thread = await this.getThread(threadId, userId);
-      if (!thread) return null;
-
-      // Skip if the title has already been manually renamed by the user
-      // (i.e. it no longer matches the truncated first prompt)
-      const promptPrefix = userMessage.trim().slice(0, 80);
-      if (thread.title !== promptPrefix && thread.title !== 'New Conversation') {
-        return null;
-      }
-
-      const result = await llmService.complete(
-        [
-          { role: 'system', content: TITLE_GENERATION_PROMPT },
-          {
-            role: 'user',
-            content: `User message: "${userMessage.trim().slice(0, 200)}"\n\nAssistant reply (first 200 chars): "${assistantReply.trim().slice(0, 200)}"`,
-          },
-        ],
-        { tier: 'extraction', maxTokens: 60, temperature: 0.3 }
+      const generatedTitle = await this.requestGeneratedTitle(
+        userMessage,
+        assistantReply,
+        llmService,
+        TITLE_GENERATION_PROMPT,
+        50
       );
-
-      const generatedTitle = (result.content ?? '')
-        .replace(/^["']|["']$/g, '') // strip wrapping quotes
-        .replace(/[.!?]+$/, '') // strip trailing punctuation
-        .trim()
-        .slice(0, 50);
 
       if (!generatedTitle) return null;
 
-      const updated = await this.updateThreadTitle(threadId, userId, generatedTitle);
-      if (updated) {
-        logger.info('[AgentChatService] Thread title auto-generated', {
-          threadId,
-          title: generatedTitle,
-        });
-      }
-
-      return generatedTitle;
+      return this.applyGeneratedThreadTitle(threadId, userId, userMessage, generatedTitle);
     } catch (err) {
       logger.warn('[AgentChatService] Failed to auto-generate thread title', {
         threadId,
@@ -246,6 +272,33 @@ export class AgentChatService {
       });
       return null;
     }
+  }
+
+  private async requestGeneratedTitle(
+    userMessage: string,
+    assistantReply: string,
+    llmService: OpenRouterService,
+    prompt: string,
+    maxLength: number
+  ): Promise<string | null> {
+    const result = await llmService.complete(
+      [
+        { role: 'system', content: prompt },
+        {
+          role: 'user',
+          content: `User message: "${userMessage.trim().slice(0, 200)}"\n\nAssistant reply (first 200 chars): "${assistantReply.trim().slice(0, 200)}"`,
+        },
+      ],
+      { tier: 'extraction', maxTokens: 60, temperature: 0.3 }
+    );
+
+    const generatedTitle = (result.content ?? '')
+      .replace(/^["']|["']$/g, '')
+      .replace(/[.!?]+$/, '')
+      .trim()
+      .slice(0, maxLength);
+
+    return generatedTitle || null;
   }
 
   // ─── Message Operations ─────────────────────────────────────────────────
@@ -319,14 +372,15 @@ export class AgentChatService {
     if (query.before) filter['createdAt'] = { $lt: query.before };
 
     const docs = await AgentMessageModel.find(filter)
-      .sort({ createdAt: 1 })
+      .sort({ createdAt: -1 })
       .limit(limit + 1)
       .lean()
       .exec();
 
     const hasMore = docs.length > limit;
-    const items = docs.slice(0, limit).map((d) => this.toMessage(d));
-    const nextCursor = hasMore ? items[items.length - 1]?.createdAt : undefined;
+    const page = docs.slice(0, limit);
+    const nextCursor = hasMore ? page[page.length - 1]?.createdAt : undefined;
+    const items = page.reverse().map((d) => this.toMessage(d));
 
     return { items, hasMore, nextCursor };
   }

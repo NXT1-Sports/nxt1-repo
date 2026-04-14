@@ -7,7 +7,8 @@ import { type Routes, type CanMatchFn, type UrlSegment } from '@angular/router';
  */
 const rejectFileExtensionSlugs: CanMatchFn = (_route, segments: UrlSegment[]) => {
   const slug = segments[1]?.path ?? '';
-  return !slug.includes('.');
+  const teamCode = segments[2]?.path ?? '';
+  return !slug.includes('.') && !teamCode.includes('.');
 };
 
 /**
@@ -60,6 +61,11 @@ export const routes: Routes = [
    * Example: nxt1sports.com/profile/john-doe-2026
    * NOTE: param name must be ':param' to match routeParam() in profile.component.ts
    */
+  {
+    path: 'profile/:sport/:name/:unicode',
+    loadComponent: () =>
+      import('./features/profile/profile.component').then((m) => m.ProfileComponent),
+  },
   {
     path: 'profile/:param',
     loadComponent: () =>
@@ -184,6 +190,11 @@ export const routes: Routes = [
       },
 
       // Team Profile - Public Team Pages (with shell)
+      {
+        path: 'team/:slug/:teamCode',
+        canMatch: [rejectFileExtensionSlugs],
+        loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
+      },
       {
         path: 'team/:slug',
         canMatch: [rejectFileExtensionSlugs],

@@ -176,13 +176,6 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Get user profile by username
-     */
-    async getProfileByUsername(username: string): Promise<ApiResponse<User>> {
-      return http.get<ApiResponse<User>>(`${baseUrl}/auth/profile/username/${username}`);
-    },
-
-    /**
      * Update user profile
      */
     async updateProfile(userId: string, data: UpdateProfileRequest): Promise<ApiResponse<User>> {

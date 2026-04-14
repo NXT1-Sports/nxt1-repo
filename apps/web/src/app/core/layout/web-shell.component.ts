@@ -914,6 +914,11 @@ export class WebShellComponent {
     return updateTabBadge(baseTabs, 'activity', unreadCount > 0 ? unreadCount : undefined);
   });
 
+  /** Current user's canonical identity route (profile for athletes, team for team roles). */
+  private readonly _ownIdentityRoute = computed(() => {
+    return this._userDisplayContext()?.profileRoute ?? '/profile';
+  });
+
   /** Mobile footer configuration */
   readonly footerConfig = computed<FooterConfig>(() =>
     createFooterConfig({
@@ -1385,7 +1390,7 @@ export class WebShellComponent {
    * Handle mobile sidebar user section click
    */
   onMobileSidebarUserClick(_event: Event): void {
-    this.router.navigate(['/profile']);
+    this.router.navigateByUrl(this._ownIdentityRoute());
   }
 
   /**
@@ -1396,7 +1401,7 @@ export class WebShellComponent {
     event: import('@nxt1/ui/components/mobile-sidebar').MobileSidebarSportSelectEvent
   ): void {
     this.logger.debug('Sport profile selected', { sport: event.profile.sport });
-    this.router.navigate(['/profile']);
+    this.router.navigateByUrl(this._ownIdentityRoute());
   }
 
   /**

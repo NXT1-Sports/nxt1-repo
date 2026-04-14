@@ -157,6 +157,22 @@ export class AgentChatRequestDto {
   resumeOperationId?: string;
 }
 
+export class AgentEnqueueRequestDto {
+  @IsString()
+  @IsNotEmpty()
+  @Length(1, 5000, { message: 'Intent must be between 1 and 5000 characters' })
+  intent!: string;
+
+  @IsObject()
+  @IsOptional()
+  userContext?: Record<string, unknown>;
+
+  @IsString()
+  @IsOptional()
+  @Matches(/^[a-f0-9]{24}$/i, { message: 'threadId must be a valid 24-character hex string' })
+  threadId?: string;
+}
+
 export class AgentChatDto {
   @IsArray()
   @IsNotEmpty()

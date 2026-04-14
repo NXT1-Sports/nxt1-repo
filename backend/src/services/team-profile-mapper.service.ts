@@ -251,6 +251,7 @@ function mapTeamCodeToTeam(
   return {
     id: teamId,
     slug: buildTeamSlug(teamCode),
+    teamCode: teamCode.teamCode ?? undefined,
     unicode: teamCode.unicode,
     teamName,
     teamType: (teamCode.teamType as TeamProfileTeam['teamType']) ?? 'high-school',

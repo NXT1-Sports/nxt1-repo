@@ -24,11 +24,6 @@
  *   POST /api/v1/agent-x/pause              → Pause the entire queue (admin)
  *   POST /api/v1/agent-x/resume             → Resume the entire queue (admin)
  *   POST /api/v1/agent-x/cron/*             → Cloud Scheduler triggers
- *
- * Deprecated (410 Gone):
- *   POST /api/v1/agent-x/ask               → Use /chat instead
- *   GET  /api/v1/agent-x/status/:id        → Use /chat with resumeOperationId
- *   GET  /api/v1/agent-x/events/:id        → Use /chat with resumeOperationId
  */
 
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
@@ -38,6 +33,7 @@ import { validateBody } from '../middleware/validation.middleware.js';
 import {
   SetGoalsDto,
   AgentChatRequestDto,
+  AgentEnqueueRequestDto,
   UpdatePlaybookItemStatusDto,
   GenerateBriefingDto,
 } from '../dtos/agent-x.dto.js';
@@ -98,9 +94,9 @@ import crypto from 'node:crypto';
  * This dummy payload rapidly fills the proxy buffer forcing it to flush downstream.
  * Frontend SSE parsers safely ignore any line starting with a colon (:).
  */
-function forceProxyFlush(res: Response) {
-  if (typeof (res as any).flush === 'function') {
-    (res as any).flush();
+function forceProxyFlush(res: Response & { flush?: () => void }) {
+  if (typeof res.flush === 'function') {
+    res.flush();
   }
   res.write(`: ${' '.repeat(4096)}\n\n`);
 }
@@ -309,22 +305,6 @@ export function setAgentDependencies(deps: {
 }
 
 const router: ExpressRouter = Router();
-
-// ─── DEPRECATED ROUTES (unified into POST /chat) ─────────────────────────
-// These endpoints are replaced by the unified /chat SSE stream with
-// Redis PubSub bridging for heavy tasks. Old clients receive 410 Gone.
-
-const deprecatedHandler = (_req: Request, res: Response) => {
-  res.status(410).json({
-    success: false,
-    error: 'This endpoint has been unified into POST /chat. Use /chat with SSE streaming instead.',
-    code: 'ENDPOINT_DEPRECATED',
-  });
-};
-
-router.post('/ask', appGuard, deprecatedHandler);
-router.get('/status/:id', appGuard, deprecatedHandler);
-router.get('/events/:id', appGuard, deprecatedHandler);
 
 // ─── POST /cancel/:operationId — Explicit cancellation endpoint ───────────
 //
@@ -1149,6 +1129,95 @@ function replayJobEventsAsSSE(
 }
 
 // ─── POST /chat — Real conversational Agent X chat (SSE Streaming) ────────
+
+router.post(
+  '/enqueue',
+  appGuard,
+  validateBody(AgentEnqueueRequestDto),
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      if (!queueService || !jobRepository) {
+        res.status(503).json({ success: false, error: 'Agent queue is unavailable' });
+        return;
+      }
+
+      const { intent, userContext, threadId } = req.body as AgentEnqueueRequestDto;
+      const db = req.firebase?.db;
+      if (!db) {
+        res.status(500).json({ success: false, error: 'Firestore unavailable' });
+        return;
+      }
+
+      let resolvedThreadId: string | undefined;
+      if (chatService) {
+        try {
+          resolvedThreadId = await resolveThread(chatService, user.uid, threadId, intent);
+          if (resolvedThreadId) {
+            await chatService.addMessage({
+              threadId: resolvedThreadId,
+              userId: user.uid,
+              role: 'user',
+              content: intent.trim(),
+              origin: 'user',
+              agentId: 'general',
+            });
+          }
+        } catch (threadErr) {
+          logger.warn('Failed to prepare thread for background enqueue', {
+            userId: user.uid,
+            error: threadErr instanceof Error ? threadErr.message : String(threadErr),
+          });
+        }
+      }
+
+      const operationId = crypto.randomUUID();
+      const sessionId = crypto.randomUUID();
+      const payload: AgentJobPayload = {
+        operationId,
+        userId: user.uid,
+        intent: intent.trim(),
+        sessionId,
+        origin: 'user' as AgentJobOrigin,
+        context: {
+          ...(userContext ?? {}),
+          ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+        },
+      };
+
+      await jobRepository.withDb(db).create(payload);
+      const jobId = await queueService.enqueue(payload, req.isStaging ? 'staging' : 'production');
+
+      logger.info('Agent X background job enqueued', {
+        operationId,
+        jobId,
+        userId: user.uid,
+        hasThread: !!resolvedThreadId,
+      });
+
+      res.status(202).json({
+        success: true,
+        data: {
+          jobId,
+          operationId,
+          ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+        },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to enqueue Agent X background job', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to enqueue job' });
+    }
+  }
+);
 
 router.post(
   '/chat',

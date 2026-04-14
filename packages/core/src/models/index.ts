@@ -319,6 +319,9 @@ export {
 // User analytics model (profile views, engagement, etc.)
 export * from './platform/user-analytics.model';
 
+// Custom analytics model (flexible analytics event records)
+export type { CustomAnalyticsEvent } from './platform/custom-analytics.model';
+
 // Notification model (push, email, SMS, in-app)
 export {
   NOTIFICATION_SCHEMA_VERSION,

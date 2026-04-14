@@ -914,6 +914,9 @@ export interface SidenavUserData {
   /** User ID for navigation */
   userId?: string;
 
+  /** Canonical route for the user's own identity page */
+  profileRoute?: string;
+
   /** Whether this user is a team-management role (coach/director) */
   isTeamRole?: boolean;
 

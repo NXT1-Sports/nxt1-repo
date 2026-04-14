@@ -11,6 +11,13 @@
 import { Component, ChangeDetectionStrategy, input, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonIcon, IonRippleEffect, IonSpinner } from '@ionic/angular/standalone';
+import {
+  buildInviteShareText,
+  buildInviteShareTitle,
+  type InviteType,
+  type InviteTeam,
+  type UserRole,
+} from '@nxt1/core';
 import { addIcons } from 'ionicons';
 import { download, downloadOutline, share, shareOutline, checkmark } from 'ionicons/icons';
 import { HapticsService } from '../services/haptics/haptics.service';
@@ -255,6 +262,9 @@ export class InviteQrCodeComponent {
 
   readonly qrDataUrl = input<string | undefined>();
   readonly referralCode = input<string | undefined>();
+  readonly inviteType = input<InviteType>('general');
+  readonly senderRole = input<UserRole | null>(null);
+  readonly team = input<Pick<InviteTeam, 'name' | 'sport'> | null>(null);
 
   protected saved = signal(false);
 
@@ -287,10 +297,16 @@ export class InviteQrCodeComponent {
 
     await this.haptics.impact('medium');
 
+    const shareSource = {
+      inviteType: this.inviteType(),
+      senderRole: this.senderRole(),
+      team: this.team(),
+    } as const;
+
     const result = await this.media.shareImage({
       data,
-      title: 'Join me on NXT1',
-      text: 'Scan this QR code to join NXT1!',
+      title: buildInviteShareTitle(shareSource),
+      text: buildInviteShareText(shareSource),
       fileName: `nxt1-invite-qr-${this.referralCode() ?? 'code'}`,
       format: 'png',
     });

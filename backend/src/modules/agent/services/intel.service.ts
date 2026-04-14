@@ -11,7 +11,10 @@
 
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { logger } from '../../../utils/logger.js';
-import { buildEliteContext, resolvePrimarySport } from './elite-context.js';
+import { getSeasonInfo, resolvePrimarySport } from './elite-context.js';
+import { ContextBuilder } from '../memory/context-builder.js';
+import { VectorMemoryService } from '../memory/vector.service.js';
+import { OpenRouterService } from '../llm/openrouter.service.js';
 
 // ─── Shared Helpers ─────────────────────────────────────────────────────────
 
@@ -69,12 +72,111 @@ interface RawTeamData {
 // ─── Intel Generation Service ───────────────────────────────────────────────
 
 export class IntelGenerationService {
+  private readonly llmService?: OpenRouterService;
+  private ownedLlmService?: OpenRouterService;
+  private contextBuilder?: ContextBuilder;
+
+  constructor(llmService?: OpenRouterService, contextBuilder?: ContextBuilder) {
+    this.llmService = llmService;
+    this.contextBuilder = contextBuilder;
+  }
+
   private get db(): Firestore {
     return getFirestore();
   }
 
   private resolveDb(dbOverride?: Firestore): Firestore {
     return dbOverride ?? this.db;
+  }
+
+  private getOrCreateLlmService(): OpenRouterService {
+    if (this.llmService) return this.llmService;
+    if (!this.ownedLlmService) {
+      this.ownedLlmService = new OpenRouterService();
+    }
+    return this.ownedLlmService;
+  }
+
+  private getOrCreateContextBuilder(): ContextBuilder {
+    if (this.contextBuilder) return this.contextBuilder;
+    this.contextBuilder = new ContextBuilder(new VectorMemoryService(this.getOrCreateLlmService()));
+    return this.contextBuilder;
+  }
+
+  private buildAthleteScaffolding(sport: string, now: Date = new Date()): string {
+    const lines: string[] = [];
+    const monthYear = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    const season = sport ? getSeasonInfo(sport, now) : null;
+
+    if (season && sport) {
+      lines.push(
+        `Calendar Context: It is currently ${monthYear}. For ${sport}, this is the ${season.phase} period. Focus areas: ${season.focus}.`
+      );
+    } else {
+      lines.push(`Calendar Context: It is currently ${monthYear}.`);
+    }
+
+    lines.push(
+      'Scouting Lens: Use season timing to judge urgency, readiness, and development trajectory, but never invent data that is not present in the profile or retrieved memories.'
+    );
+
+    return lines.join('\n');
+  }
+
+  private async buildAthletePromptContext(
+    userId: string,
+    userData: Record<string, unknown>,
+    db: Firestore
+  ): Promise<{ promptContextText: string; sport: string; primaryPosition: string }> {
+    const fallbackSport = resolvePrimarySport(userData) || 'General';
+    const sports = (userData['sports'] as Record<string, unknown>[] | undefined) ?? [];
+    const activeSportIndex =
+      typeof userData['activeSportIndex'] === 'number' ? userData['activeSportIndex'] : 0;
+    const activeSport = sports[activeSportIndex] ?? sports[0];
+    const fallbackPosition =
+      (Array.isArray(activeSport?.['positions']) && activeSport['positions'].length > 0
+        ? String(activeSport['positions'][0])
+        : undefined) ||
+      (activeSport?.['position'] as string | undefined) ||
+      (userData['position'] as string | undefined) ||
+      'Unknown';
+    const query = [
+      'athlete intel scouting report',
+      `sport: ${fallbackSport}`,
+      `position: ${fallbackPosition}`,
+      'retrieve performance data, recruiting context, awards, profile updates, measurables, and durable memory',
+    ].join(' | ');
+
+    try {
+      const builder = this.getOrCreateContextBuilder();
+      const promptContext = await builder.buildPromptContext(userId, query, db);
+      const sport = promptContext.profile.sport || fallbackSport;
+      return {
+        promptContextText: [
+          builder.compressToPrompt(promptContext.profile, promptContext.memories),
+          this.buildAthleteScaffolding(sport),
+        ].join('\n'),
+        sport,
+        primaryPosition: promptContext.profile.position || fallbackPosition,
+      };
+    } catch (err) {
+      logger.warn('[IntelGenerationService] Failed to build vector-backed prompt context', {
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+
+      const fallbackBuilder = new ContextBuilder();
+      const profile = await fallbackBuilder.buildContext(userId, db);
+      const sport = profile.sport || fallbackSport;
+      return {
+        promptContextText: [
+          fallbackBuilder.compressToPrompt(profile),
+          this.buildAthleteScaffolding(sport),
+        ].join('\n'),
+        sport,
+        primaryPosition: profile.position || fallbackPosition,
+      };
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -135,14 +237,15 @@ export class IntelGenerationService {
     // ── Build missing data prompts ──
     const missingDataPrompts = this.buildMissingDataPrompts(dataAvailability);
 
-    // ── Build LLM prompt ──
-    const eliteContext = buildEliteContext(userData);
-    const sport = resolvePrimarySport(userData) || 'General';
-    const sports = (userData['sports'] as Record<string, unknown>[] | undefined) ?? [];
-    const primaryPosition = (sports[0]?.['position'] as string) || 'Unknown';
+    // ── Build LLM prompt from vector-backed prompt context ──
+    const { promptContextText, sport, primaryPosition } = await this.buildAthletePromptContext(
+      userId,
+      userData,
+      db
+    );
 
     const prompt = this.buildAthleteIntelPrompt(
-      eliteContext,
+      promptContextText,
       sport,
       primaryPosition,
       raw,
@@ -153,8 +256,7 @@ export class IntelGenerationService {
     // ── Call OpenRouter ──
     let parsed: Record<string, unknown>;
     try {
-      const { OpenRouterService } = await import('../llm/openrouter.service.js');
-      const llm = new OpenRouterService();
+      const llm = this.getOrCreateLlmService();
       const result = await llm.complete(
         [
           {
@@ -382,7 +484,7 @@ export class IntelGenerationService {
   // ═══════════════════════════════════════════════════════════════════════════
 
   private buildAthleteIntelPrompt(
-    eliteContext: string,
+    promptContextText: string,
     sport: string,
     position: string,
     raw: RawProfileData,
@@ -415,8 +517,8 @@ export class IntelGenerationService {
         : 'Self-reported only';
 
     return `
-═══ ATHLETE PROFILE (Elite Context) ═══
-${eliteContext}
+  ═══ ATHLETE CONTEXT (RAG PROFILE + MEMORY) ═══
+  ${promptContextText}
 
 ═══ RAW DATA FOR INTEL GENERATION ═══
 

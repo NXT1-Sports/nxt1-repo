@@ -1666,6 +1666,10 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         onboardingCompleted: result.user?.onboardingCompleted,
       });
 
+      const primarySport =
+        profileData.sports?.find((sportEntry) => sportEntry.isPrimary)?.sport ??
+        profileData.sports?.[0]?.sport;
+
       // CRITICAL: Immediately apply the POST response to user state.
       // This ensures the user has the correct role (coach/director → team shield)
       // even if refreshUserProfile() fails or is skipped due to race conditions.
@@ -1675,7 +1679,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
           firstName: result.user.firstName,
           lastName: result.user.lastName,
           onboardingCompleted: result.user.onboardingCompleted,
-          primarySport: result.user.primarySport,
+          primarySport,
         });
       }
 

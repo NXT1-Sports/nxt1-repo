@@ -193,7 +193,7 @@ export class AgentXOperationEventService {
     if (!this.firestoreAdapter) {
       this.logger.warn('No FIRESTORE_ADAPTER provided — live events unavailable');
       callbacks.onError('Live event streaming is not available');
-      return { operationId, unsubscribe: () => {} };
+      return { operationId, unsubscribe: () => undefined };
     }
 
     // Don't double-subscribe to the same operation
@@ -404,6 +404,9 @@ export class AgentXOperationEventService {
     // Common patterns: { items: [...] }, { count: N }, { url: '...' }
     if (Array.isArray(result['items'])) {
       return `Found ${result['items'].length} result(s)`;
+    }
+    if (Array.isArray(result['views'])) {
+      return `Found ${result['views'].length} data view(s)`;
     }
     if (typeof result['count'] === 'number') {
       return `${result['count']} result(s)`;

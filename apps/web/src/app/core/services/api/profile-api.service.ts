@@ -93,11 +93,8 @@ export class ProfileService {
    * Invalidate cached data for a specific user.
    * Call after profile updates so the next fetch reflects changes.
    */
-  invalidateCache(userId: string, username?: string, unicode?: string | null): void {
+  invalidateCache(userId: string, unicode?: string | null): void {
     this.profileCache.delete(this.cacheKey(PROFILE_CACHE_KEYS.BY_ID, userId));
-    if (username) {
-      this.profileCache.delete(this.cacheKey(PROFILE_CACHE_KEYS.BY_USERNAME, username));
-    }
     if (unicode) {
       this.profileCache.delete(this.cacheKey(PROFILE_CACHE_KEYS.BY_UNICODE, unicode));
     }
@@ -196,33 +193,6 @@ export class ProfileService {
   // ============================================
   // Expose additional profile API methods
   // ============================================
-
-  /**
-   * Get user profile by username.
-   * Checks service-level cache before hitting the network.
-   */
-  getProfileByUsername(username: string): Observable<ApiResponse<User>> {
-    const key = this.cacheKey(PROFILE_CACHE_KEYS.BY_USERNAME, username);
-    const cached = this.getFromCache(key);
-    if (cached) return of(cached);
-
-    return from(
-      this.performance.trace(
-        TRACE_NAMES.PROFILE_LOAD,
-        () => this.api.getProfileByUsername(username),
-        {
-          attributes: {
-            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_view',
-            username: username,
-          },
-        }
-      )
-    ).pipe(
-      tap((response) => {
-        if (response.success) this.setCache(key, response);
-      })
-    );
-  }
 
   /**
    * Update user profile

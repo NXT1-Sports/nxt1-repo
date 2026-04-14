@@ -14,10 +14,13 @@
 
 export { WriteCoreIdentityTool } from './write-core-identity.tool.js';
 export { WriteCombineMetricsTool } from './write-combine-metrics.tool.js';
+export { WriteRankingsTool } from './write-rankings.tool.js';
 export { WriteSeasonStatsTool } from './write-season-stats.tool.js';
 export { WriteRecruitingActivityTool } from './write-recruiting-activity.tool.js';
 export { WriteCalendarEventsTool } from './write-calendar-events.tool.js';
 export { WriteAthleteVideosTool } from './write-athlete-videos.tool.js';
+export { SearchNxt1PlatformTool } from './search-nxt1-platform.tool.js';
+export { QueryNxt1PlatformDataTool } from './query-nxt1-platform-data.tool.js';
 export { SearchMemoryTool } from './search-memory.tool.js';
 export { SearchCollegesTool } from './search-colleges.tool.js';
 export { SearchCollegeCoachesTool } from './search-college-coaches.tool.js';

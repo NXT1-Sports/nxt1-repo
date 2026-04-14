@@ -79,7 +79,7 @@ export class SentryCrashlyticsAdapter implements CrashlyticsAdapter {
 
   async setCustomKeys(keys: CrashCustomKeys): Promise<void> {
     if (this.isServer || !this._enabled) return this.noOpAdapter.setCustomKeys(keys);
-    Sentry.setTags(keys as any);
+    Sentry.setTags(keys as Record<string, string | number | boolean>);
   }
 
   async addBreadcrumb(breadcrumb: CrashBreadcrumb): Promise<void> {

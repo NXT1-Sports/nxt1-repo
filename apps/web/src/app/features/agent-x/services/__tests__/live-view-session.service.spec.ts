@@ -23,7 +23,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@ionic/angular/standalone', () => ({
   ToastController: class {
     async create() {
-      return { present: async () => {}, dismiss: async () => {}, onDidDismiss: async () => ({}) };
+      return {
+        present: async () => undefined,
+        dismiss: async () => undefined,
+        onDidDismiss: async () => ({}),
+      };
     }
   },
   Platform: class {
@@ -47,13 +51,13 @@ import { HttpClient } from '@angular/common/http';
 import { of, throwError } from 'rxjs';
 import type { LiveViewSession } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import { LiveViewSessionService } from '../../../../../../../packages/ui/src/agent-x/live-view-session.service';
-import { AGENT_X_API_BASE_URL } from '../../../../../../../packages/ui/src/agent-x/agent-x-job.service';
-import { NxtToastService } from '../../../../../../../packages/ui/src/services/toast';
-import { NxtLoggingService } from '../../../../../../../packages/ui/src/services/logging';
-import { NxtBreadcrumbService } from '../../../../../../../packages/ui/src/services/breadcrumb/breadcrumb.service';
-import { ANALYTICS_ADAPTER } from '../../../../../../../packages/ui/src/services/analytics/analytics-adapter.token';
-import { PERFORMANCE_ADAPTER } from '../../../../../../../packages/ui/src/services/performance';
+import { LiveViewSessionService } from '../../../../../../../../packages/ui/src/agent-x/live-view-session.service';
+import { AGENT_X_API_BASE_URL } from '../../../../../../../../packages/ui/src/agent-x/agent-x-job.service';
+import { NxtToastService } from '../../../../../../../../packages/ui/src/services/toast';
+import { NxtLoggingService } from '../../../../../../../../packages/ui/src/services/logging';
+import { NxtBreadcrumbService } from '../../../../../../../../packages/ui/src/services/breadcrumb/breadcrumb.service';
+import { ANALYTICS_ADAPTER } from '../../../../../../../../packages/ui/src/services/analytics/analytics-adapter.token';
+import { PERFORMANCE_ADAPTER } from '../../../../../../../../packages/ui/src/services/performance';
 
 // ============================================
 // MOCK FACTORIES
@@ -149,7 +153,7 @@ function createService() {
   const loggerMock = createLoggerMock();
   const toastMock = createToastMock();
   const analyticsMock = createAnalyticsMock();
-  const breadcrumbMock = createBreadcrumbMock();
+  const _breadcrumbMock = createBreadcrumbMock();
   const performanceMock = createPerformanceMock();
 
   const injector = Injector.create({
@@ -158,7 +162,7 @@ function createService() {
       { provide: AGENT_X_API_BASE_URL, useValue: '/api' },
       { provide: NxtToastService, useValue: toastMock },
       { provide: NxtLoggingService, useValue: loggerMock },
-      { provide: NxtBreadcrumbService, useValue: breadcrumbMock },
+      { provide: NxtBreadcrumbService, useValue: _breadcrumbMock },
       { provide: ANALYTICS_ADAPTER, useValue: analyticsMock },
       { provide: PERFORMANCE_ADAPTER, useValue: performanceMock },
     ],
@@ -172,7 +176,7 @@ function createService() {
     loggerChild: loggerMock._child,
     toastMock,
     analyticsMock,
-    breadcrumbMock,
+    breadcrumbMock: _breadcrumbMock,
     performanceMock,
   };
 }
@@ -187,7 +191,6 @@ describe('LiveViewSessionService', () => {
   let loggerChild: ReturnType<typeof createLoggerChild>;
   let toastMock: ReturnType<typeof createToastMock>;
   let analyticsMock: ReturnType<typeof createAnalyticsMock>;
-  let breadcrumbMock: ReturnType<typeof createBreadcrumbMock>;
   let performanceMock: ReturnType<typeof createPerformanceMock>;
 
   beforeEach(() => {
@@ -198,7 +201,6 @@ describe('LiveViewSessionService', () => {
     loggerChild = ctx.loggerChild;
     toastMock = ctx.toastMock;
     analyticsMock = ctx.analyticsMock;
-    breadcrumbMock = ctx.breadcrumbMock;
     performanceMock = ctx.performanceMock;
   });
 

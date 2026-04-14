@@ -31,7 +31,7 @@ import { createProfileHydrationService } from '../services/profile-hydration.ser
 import type { User, UserSummary, SportProfile } from '@nxt1/core';
 import type { UpdateSportProfileRequest, ProfileSearchParams } from '@nxt1/core';
 import { RosterEntryStatus } from '@nxt1/core/models';
-import { PROFILE_CACHE_KEYS } from '@nxt1/core';
+import { PROFILE_CACHE_KEYS, isTeamRole } from '@nxt1/core';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { validationError, notFoundError, forbiddenError } from '@nxt1/core/errors';
 import type { FeedItemResponse } from '@nxt1/core/feed';
@@ -160,13 +160,6 @@ function buildProfileByIdCacheKey(userId: string): string {
 }
 
 /**
- * Build Redis cache key for a profile by username (case-insensitive).
- */
-function buildProfileByUsernameCacheKey(username: string): string {
-  return `${PROFILE_CACHE_KEYS.BY_USERNAME}${username.toLowerCase()}`;
-}
-
-/**
  * Build Redis cache key for a profile by unicode (case-insensitive).
  */
 function buildProfileByUnicodeCacheKey(unicode: string): string {
@@ -195,7 +188,6 @@ function buildProfileSearchCacheKey(params: ProfileSearchParams): string {
  */
 export async function invalidateProfileCaches(
   userId: string,
-  username?: string,
   unicode?: string | null
 ): Promise<void> {
   const cache = getCacheService();
@@ -207,19 +199,27 @@ export async function invalidateProfileCaches(
     USER_CACHE_KEYS.USER_BY_ID(userId),
     `${AGENT_CONTEXT_PREFIX}${userId}`,
   ];
-  if (username) {
-    keysToDelete.push(buildProfileByUsernameCacheKey(username));
-  }
   if (unicode) {
     keysToDelete.push(buildProfileByUnicodeCacheKey(unicode));
   }
 
   await Promise.all(keysToDelete.map((k) => cache.del(k)));
+  await Promise.all([
+    cache.delByPrefix(`profile:sub:timeline:v2:${userId}`),
+    cache.delByPrefix(`profile:sub:stats:${userId}:`),
+    cache.delByPrefix(`profile:sub:gamelogs:${userId}:`),
+    cache.delByPrefix(`profile:metrics:${userId}:`),
+    cache.delByPrefix(`profile:sub:rankings:${userId}:`),
+    cache.del(`profile:${userId}:recruiting:all`),
+    cache.delByPrefix(`profile:${userId}:recruiting:`),
+    cache.delByPrefix(`profile:sub:news:${userId}:`),
+    cache.delByPrefix(`profile:sub:scout-reports:${userId}:`),
+  ]);
 
   // Invalidate all profile search results (pattern delete)
   await cache.del(`${PROFILE_CACHE_KEYS.SEARCH}*`);
 
-  logger.debug('[Profile] Cache invalidated', { userId, username, unicode });
+  logger.debug('[Profile] Cache invalidated', { userId, unicode });
 }
 
 // ============================================
@@ -334,7 +334,7 @@ router.get(
     // Merge them into the user profile so the frontend sees them.
     const isTeamRole = user.role === 'coach' || user.role === 'director';
     const activeSportData = user.sports?.[user.activeSportIndex ?? 0] ?? user.sports?.[0];
-    const teamId = activeSportData?.team?.teamId;
+    const teamId = (user as any).teamCode?.teamId ?? activeSportData?.team?.teamId;
     if (isTeamRole && teamId) {
       try {
         const teamDoc = await db.collection('Teams').doc(teamId).get();
@@ -595,69 +595,9 @@ router.get(
 );
 
 /**
- * Get user profile by username.
- * GET /api/v1/auth/profile/username/:username
- */
-router.get(
-  '/username/:username',
-  optionalAuth,
-  asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { username } = req.params as { username: string };
-
-    if (!username?.trim()) {
-      sendError(
-        res,
-        validationError([{ field: 'username', message: 'Username is required', rule: 'required' }])
-      );
-      return;
-    }
-
-    const cacheKey = buildProfileByUsernameCacheKey(username);
-    const cache = getCacheService();
-
-    // --- Cache hit ---
-    const cached = await cache.get<User>(cacheKey);
-    if (cached) {
-      logger.debug('[Profile] Username cache hit', { username });
-      markCacheHit(req, 'redis', cacheKey);
-      res.json({ success: true, data: cached });
-      return;
-    }
-
-    // --- Cache miss: query Firestore ---
-    const db = req.firebase!.db;
-    const snapshot = await db
-      .collection(USERS_COLLECTION)
-      .where('username', '==', username.toLowerCase())
-      .limit(1)
-      .get();
-
-    if (snapshot.empty) {
-      sendError(res, notFoundError('profile'));
-      return;
-    }
-
-    const doc = snapshot.docs[0]!;
-    const rawUser = docToUser(doc.id, doc.data() as UserFirestoreDoc);
-
-    // Hydrate with LIVE Organization branding (replaces stale team snapshots)
-    const hydrationService = getHydrationService(db);
-    const user = await hydrationService.hydrateUser(rawUser);
-
-    // Populate both cache keys so both lookup paths benefit
-    await Promise.all([
-      cache.set(cacheKey, user, { ttl: CACHE_TTL.PROFILES }),
-      cache.set(buildProfileByIdCacheKey(doc.id), user, { ttl: CACHE_TTL.PROFILES }),
-    ]);
-
-    logger.debug('[Profile] Username cache set', { username, userId: doc.id });
-    res.json({ success: true, data: user });
-  })
-);
-
-/**
  * Get polymorphic timeline feed for a user profile.
- * Assembles items from Posts, Events, and PlayerStats at read time.
+ * Assembles items from Posts, Events, PlayerStats, Recruiting,
+ * PlayerMetrics, and Rankings at read time.
  * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/timeline?sportId=football
  * GET /api/v1/auth/profile/:userId/timeline
  */
@@ -1254,7 +1194,7 @@ router.get(
     // Merge them so callers (including auth sync) see the correct sources.
     const isTeamRole = user.role === 'coach' || user.role === 'director';
     const activeSportData = user.sports?.[user.activeSportIndex ?? 0] ?? user.sports?.[0];
-    const teamId = activeSportData?.team?.teamId;
+    const teamId = (user as any).teamCode?.teamId ?? activeSportData?.team?.teamId;
     if (isTeamRole && teamId) {
       try {
         const teamDoc = await db.collection('Teams').doc(teamId).get();
@@ -1365,8 +1305,67 @@ router.put(
     }
 
     const currentData = currentDoc.data() as UserFirestoreDoc;
-    const currentUsername = currentData['username'] as string | undefined;
     const currentUnicode = currentData['unicode'] as string | null | undefined;
+    const currentRole = typeof currentData['role'] === 'string' ? currentData['role'] : null;
+
+    if (isTeamRole(currentRole)) {
+      const blockedFields = [
+        'measurables',
+        'classOf',
+        'sports',
+        'activeSportIndex',
+        'teamHistory',
+        'awards',
+        'connectedSources',
+        'athlete',
+        'recruiter',
+        'parent',
+      ] as const;
+      const blockedUpdates = blockedFields.filter((field) => updates[field] !== undefined);
+
+      if (blockedUpdates.length > 0) {
+        logger.warn('[Profile] Ignoring self-update fields blocked for team roles', {
+          userId,
+          role: currentRole,
+          blockedUpdates,
+        });
+
+        for (const field of blockedUpdates) {
+          delete updates[field];
+        }
+      }
+
+      if (Object.keys(updates).length === 0) {
+        sendError(
+          res,
+          validationError([
+            {
+              field: 'body',
+              message: 'No valid fields to update for this role',
+              rule: 'forbidden_fields',
+            },
+          ])
+        );
+        return;
+      }
+    }
+
+    if (
+      updates['displayName'] === undefined &&
+      (updates['firstName'] !== undefined || updates['lastName'] !== undefined)
+    ) {
+      const nextFirstName =
+        (typeof updates['firstName'] === 'string'
+          ? updates['firstName']
+          : currentData['firstName']) ?? '';
+      const nextLastName =
+        (typeof updates['lastName'] === 'string' ? updates['lastName'] : currentData['lastName']) ??
+        '';
+      updates['displayName'] = [nextFirstName, nextLastName]
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .join(' ');
+    }
 
     updates['updatedAt'] = new Date().toISOString();
 
@@ -1374,38 +1373,17 @@ router.put(
 
     // Fetch updated document
     const updatedDoc = await userRef.get();
-    const updatedUser = docToUser(updatedDoc.id, updatedDoc.data() as UserFirestoreDoc);
+    const updatedData = updatedDoc.data() as UserFirestoreDoc;
+    const updatedUser = docToUser(updatedDoc.id, updatedData);
 
-    // Sync cached user data across all RosterEntries for this user.
-    // Only propagate the fields that RosterEntry caches for roster list display.
-    const rosterCacheFields: Partial<import('@nxt1/core/models').RosterEntry> = {};
-    if (updates['firstName']) rosterCacheFields.firstName = updates['firstName'] as string;
-    if (updates['lastName']) rosterCacheFields.lastName = updates['lastName'] as string;
-    if (updates['profileImgs']) {
-      rosterCacheFields.profileImgs = updates['profileImgs'] as string[];
-    }
-    if (updates['height']) rosterCacheFields.height = updates['height'] as string;
-    if (updates['weight']) rosterCacheFields.weight = updates['weight'] as string;
-    // Also sync height/weight from measurables[] when those are updated
-    if (updates['measurables'] && Array.isArray(updates['measurables'])) {
-      const measurables = updates['measurables'] as Array<{
-        field: string;
-        value: string | number;
-      }>;
-      const h = measurables.find((m) => m.field === 'height');
-      const w = measurables.find((m) => m.field === 'weight');
-      if (h) rosterCacheFields.height = String(h.value);
-      if (w) rosterCacheFields.weight = String(w.value);
-    }
-    if (updates['classOf']) rosterCacheFields.classOf = updates['classOf'] as number;
-
-    if (Object.keys(rosterCacheFields).length > 0) {
-      const rosterEntryService = createRosterEntryService(db);
-      await rosterEntryService.updateCachedUserData(userId, rosterCacheFields);
-    }
+    const rosterEntryService = createRosterEntryService(db);
+    await rosterEntryService.syncUserProfileToRosterEntries(
+      userId,
+      updatedData as Record<string, unknown>
+    );
 
     // Invalidate stale cache entries
-    await invalidateProfileCaches(userId, currentUsername, currentUnicode);
+    await invalidateProfileCaches(userId, currentUnicode);
 
     logger.info('[Profile] Profile updated', { userId });
     res.json({ success: true, data: updatedUser });
@@ -1442,7 +1420,6 @@ router.post(
     }
 
     const currentData = currentDoc.data() as UserFirestoreDoc;
-    const currentUsername = currentData['username'] as string | undefined;
     const currentUnicode = currentData['unicode'] as string | null | undefined;
 
     // Store as profileImgs array (new format)
@@ -1459,7 +1436,13 @@ router.post(
       updatedAt: new Date().toISOString(),
     });
 
-    await invalidateProfileCaches(userId, currentUsername, currentUnicode);
+    const rosterEntryService = createRosterEntryService(db);
+    await rosterEntryService.syncUserProfileToRosterEntries(userId, {
+      ...currentData,
+      profileImgs: updatedImgs,
+    });
+
+    await invalidateProfileCaches(userId, currentUnicode);
 
     logger.info('[Profile] Profile image updated', { userId });
     res.json({ success: true, data: { url: imageUrl.trim() } });
@@ -1532,9 +1515,14 @@ router.put(
       updatedAt: new Date().toISOString(),
     });
 
-    const currentUsername = currentData['username'] as string | undefined;
+    const rosterEntryService = createRosterEntryService(db);
+    await rosterEntryService.syncUserProfileToRosterEntries(userId, {
+      ...currentData,
+      sports: updatedSports,
+    });
+
     const currentUnicode = currentData['unicode'] as string | null | undefined;
-    await invalidateProfileCaches(userId, currentUsername, currentUnicode);
+    await invalidateProfileCaches(userId, currentUnicode);
 
     logger.info('[Profile] Sport updated', { userId, sportIndex });
     res.json({ success: true, data: updatedSport });
@@ -1736,9 +1724,14 @@ router.post(
             teamId: team.id!,
             organizationId: inheritedOrgId,
             role: userRole,
+            sport: newSport.sport as string,
             status: RosterEntryStatus.ACTIVE,
             firstName: (currentData['firstName'] as string) || '',
             lastName: (currentData['lastName'] as string) || '',
+            displayName: (
+              (currentData['displayName'] as string | undefined) ??
+              `${currentData['firstName'] || ''} ${currentData['lastName'] || ''}`
+            ).trim(),
             email: (currentData['email'] as string) || '',
             phoneNumber: (currentData['phoneNumber'] as string) || '',
             profileImgs: (currentData['profileImgs'] as string[]) || [],
@@ -1755,9 +1748,8 @@ router.post(
         });
 
         // Invalidate caches and return success
-        const currentUsername = currentData['username'] as string | undefined;
         const currentUnicode = currentData['unicode'] as string | null | undefined;
-        await invalidateProfileCaches(userId, currentUsername, currentUnicode);
+        await invalidateProfileCaches(userId, currentUnicode);
 
         res.status(201).json({ success: true, data: { sport: newSport.sport, teamId: team.id } });
         return;
@@ -1785,9 +1777,14 @@ router.post(
       updatedAt: new Date().toISOString(),
     });
 
-    const currentUsername = currentData['username'] as string | undefined;
+    const rosterEntryService = createRosterEntryService(db);
+    await rosterEntryService.syncUserProfileToRosterEntries(userId, {
+      ...currentData,
+      sports: [...existingSports, newSport],
+    });
+
     const currentUnicode = currentData['unicode'] as string | null | undefined;
-    await invalidateProfileCaches(userId, currentUsername, currentUnicode);
+    await invalidateProfileCaches(userId, currentUnicode);
 
     logger.info('[Profile] Sport added', { userId, sport: newSport.sport });
     res.status(201).json({ success: true, data: newSport });
@@ -1861,9 +1858,14 @@ router.delete(
       updatedAt: new Date().toISOString(),
     });
 
-    const currentUsername = currentData['username'] as string | undefined;
+    const rosterEntryService = createRosterEntryService(db);
+    await rosterEntryService.syncUserProfileToRosterEntries(userId, {
+      ...currentData,
+      sports: updatedSports,
+    });
+
     const currentUnicode = currentData['unicode'] as string | null | undefined;
-    await invalidateProfileCaches(userId, currentUsername, currentUnicode);
+    await invalidateProfileCaches(userId, currentUnicode);
 
     logger.info('[Profile] Sport removed', { userId, sportIndex });
     res.json({ success: true, data: null });

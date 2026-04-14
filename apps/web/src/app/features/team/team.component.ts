@@ -31,6 +31,7 @@ import {
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Router, ActivatedRoute } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { TeamProfileShellWebComponent } from '@nxt1/ui/team-profile';
 import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/cta-banner';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
@@ -46,7 +47,13 @@ import {
   type BottomSheetAction,
 } from '@nxt1/ui/components/bottom-sheet';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
-import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from '@nxt1/core';
+import {
+  buildCanonicalProfilePath,
+  buildCanonicalTeamPath,
+  type TeamProfileTabId,
+  type TeamProfileRosterMember,
+  type TeamProfilePost,
+} from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
 import { AuthFlowService } from '../../core/services/auth';
 import {
@@ -145,9 +152,15 @@ export class TeamComponent implements OnInit {
   /**
    * Team slug from route parameter.
    */
-  protected readonly teamSlug = computed<string>(() => {
-    return this.route.snapshot.paramMap.get('slug') || '';
+  private readonly routeParams = toSignal(this.route.paramMap, {
+    initialValue: this.route.snapshot.paramMap,
   });
+
+  protected readonly teamSlug = computed<string>(() => {
+    return this.routeParams().get('slug') || '';
+  });
+
+  private readonly routeTeamCode = computed<string>(() => this.routeParams().get('teamCode') || '');
 
   /**
    * Whether the current user is an admin of this team.
@@ -205,6 +218,24 @@ export class TeamComponent implements OnInit {
       }
     });
 
+    effect(() => {
+      const team = this.teamProfile.team();
+      const routeSlug = this.teamSlug();
+      const routeTeamCode = this.routeTeamCode();
+      const teamCode = team?.teamCode?.trim();
+      if (!team || !routeSlug || !teamCode) return;
+
+      const canonicalPath = buildCanonicalTeamPath({
+        slug: team.slug || routeSlug,
+        teamName: team.teamName,
+        teamCode,
+      });
+
+      if (this.router.url.split('?')[0] !== canonicalPath || routeTeamCode !== teamCode) {
+        void this.router.navigateByUrl(canonicalPath, { replaceUrl: true });
+      }
+    });
+
     // Clear mobile action buttons when navigating away from this page
     this.destroyRef.onDestroy(() => this.profilePageActions.clearMobileActions());
   }
@@ -250,6 +281,7 @@ export class TeamComponent implements OnInit {
     this.seo.updateForTeam({
       id: team.id,
       slug: team.slug,
+      teamCode: team.teamCode,
       teamName: team.teamName,
       sport: team.sport,
       location: team.location,
@@ -306,6 +338,7 @@ export class TeamComponent implements OnInit {
     await this.share.shareTeam({
       id: team.id,
       slug: team.slug,
+      teamCode: team.teamCode,
       teamName: team.teamName,
       sport: team.sport,
       location: team.location,
@@ -322,13 +355,20 @@ export class TeamComponent implements OnInit {
     const team = this.teamProfile.team();
     if (!team) return;
 
+    const teamPath = buildCanonicalTeamPath({
+      slug: team.slug,
+      teamName: team.teamName,
+      teamCode: team.teamCode,
+      id: team.id,
+    });
+
     try {
       await this.qrCode.open({
-        url: `https://nxt1sports.com/team/${team.slug}`,
+        url: `https://nxt1sports.com${teamPath}`,
         displayName: team.teamName,
         profileImg: team.logoUrl || undefined,
         sport: team.sport || 'Sports',
-        unicode: team.slug,
+        unicode: team.teamCode || team.slug,
         isOwnProfile: this.isTeamAdmin(),
         entityType: 'team',
       });
@@ -365,7 +405,15 @@ export class TeamComponent implements OnInit {
    */
   protected onRosterMemberClick(member: TeamProfileRosterMember): void {
     if (member.profileCode) {
-      this.router.navigate(['/profile', member.profileCode]);
+      const teamSport = this.teamProfile.team()?.sport;
+      const athleteName = member.displayName || `${member.firstName} ${member.lastName}`.trim();
+      this.router.navigateByUrl(
+        buildCanonicalProfilePath({
+          athleteName,
+          sport: teamSport,
+          unicode: member.profileCode,
+        })
+      );
     } else {
       this.logger.debug('Roster member has no profile code', { memberId: member.id });
     }

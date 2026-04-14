@@ -583,6 +583,78 @@ describe('createAgentXApi', () => {
   });
 
   // ============================================
+  // getThreadMessages
+  // ============================================
+
+  describe('getThreadMessages', () => {
+    it('should fetch thread messages with default limit', async () => {
+      vi.mocked(http.get).mockResolvedValue({
+        success: true,
+        data: {
+          items: [
+            {
+              id: 'm-1',
+              threadId: 'thread-123',
+              userId: 'user-123',
+              role: 'user',
+              content: 'hello',
+              origin: 'user',
+              createdAt: '2026-04-13T10:00:00.000Z',
+            },
+          ],
+          hasMore: true,
+          nextCursor: '2026-04-13T10:00:00.000Z',
+        },
+      });
+
+      const result = await api.getThreadMessages('thread-123');
+
+      expect(http.get).toHaveBeenCalledWith(
+        `${baseUrl}${AGENT_X_ENDPOINTS.THREAD_MESSAGES}/${encodeURIComponent('thread-123')}/messages?limit=50`
+      );
+      expect(result).toEqual({
+        messages: [
+          {
+            id: 'm-1',
+            threadId: 'thread-123',
+            userId: 'user-123',
+            role: 'user',
+            content: 'hello',
+            origin: 'user',
+            createdAt: '2026-04-13T10:00:00.000Z',
+          },
+        ],
+        hasMore: true,
+        nextCursor: '2026-04-13T10:00:00.000Z',
+      });
+    });
+
+    it('should include the before cursor when provided', async () => {
+      vi.mocked(http.get).mockResolvedValue({
+        success: true,
+        data: {
+          items: [],
+          hasMore: false,
+        },
+      });
+
+      await api.getThreadMessages('thread-123', 200, '2026-04-13T10:00:00.000Z');
+
+      expect(http.get).toHaveBeenCalledWith(
+        `${baseUrl}${AGENT_X_ENDPOINTS.THREAD_MESSAGES}/${encodeURIComponent('thread-123')}/messages?limit=200&before=${encodeURIComponent('2026-04-13T10:00:00.000Z')}`
+      );
+    });
+
+    it('should return null when the API response is unsuccessful', async () => {
+      vi.mocked(http.get).mockResolvedValue({ success: false, error: 'Not found' });
+
+      const result = await api.getThreadMessages('thread-123');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  // ============================================
   // clearHistory
   // ============================================
 

@@ -14,6 +14,7 @@
 
 import { isTeamRole } from '../constants/user.constants';
 import { formatSportDisplayName, getPositionAbbreviation } from '../constants/sport.constants';
+import { buildCanonicalTeamPath, buildTeamSlug } from '../helpers/formatters';
 import type { SidenavSportProfile } from './platform/navigation.model';
 
 // ============================================
@@ -32,7 +33,9 @@ export interface UserDisplayInput {
   readonly unicode?: string;
   readonly role?: string | null;
   readonly teamCode?: {
+    readonly teamCode?: string;
     readonly slug?: string;
+    readonly unicode?: string;
     readonly teamName?: string;
     readonly sport?: string;
     readonly logoUrl?: string | null;
@@ -44,6 +47,11 @@ export interface UserDisplayInput {
     readonly positions?: string[];
     readonly isPrimary?: boolean;
     readonly order?: number;
+    readonly team?: {
+      readonly name?: string;
+      readonly logoUrl?: string | null;
+      readonly logo?: string | null;
+    };
   }>;
   readonly primarySport?: string;
 }
@@ -166,13 +174,22 @@ export function buildUserDisplayContext(
 
 function buildTeamContext(user: UserDisplayInput, personalName: string): UserDisplayContext {
   const teamCode = user.teamCode;
-  const slug = teamCode?.slug ?? user.managedTeamCodes?.[0];
-  const teamName = teamCode?.teamName;
-  const sport = teamCode?.sport;
-  const logoUrl = teamCode?.logoUrl ?? teamCode?.teamLogoImg ?? null;
+  const activeSport =
+    user.sports?.find((sport) => sport.isPrimary || sport.order === 0) ?? user.sports?.[0];
+  const teamName = teamCode?.teamName?.trim() || activeSport?.team?.name?.trim();
+  const slug = teamCode?.slug?.trim() || (teamName ? buildTeamSlug(teamName) : '');
+  const teamIdentifier = teamCode?.teamCode?.trim() || teamCode?.unicode?.trim() || '';
+  const sport = teamCode?.sport?.trim() || activeSport?.sport?.trim() || user.primarySport?.trim();
+  const logoUrl =
+    teamCode?.logoUrl ??
+    teamCode?.teamLogoImg ??
+    activeSport?.team?.logoUrl ??
+    activeSport?.team?.logo ??
+    null;
 
   // Name: ALWAYS the team name for team roles. If no team name set, show explicit fallback.
   const name = teamName || personalName;
+  const isPersonalIdentityFallback = !teamName;
 
   // Avatar: ONLY the team logo. Never the user's personal/Google photo.
   const profileImg = logoUrl || undefined;
@@ -187,10 +204,10 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
   const primaryProfile: SidenavSportProfile | null = sport
     ? {
         id: 'team-primary',
-        sport: name,
-        position: formatSportDisplayName(sport),
+        sport: isPersonalIdentityFallback ? formatSportDisplayName(sport) : name,
+        position: isPersonalIdentityFallback ? undefined : formatSportDisplayName(sport),
         isActive: true,
-        profileImg,
+        profileImg: isPersonalIdentityFallback ? undefined : profileImg,
       }
     : null;
 
@@ -201,10 +218,10 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
       ?.filter((s) => s.sport?.trim().toLowerCase() !== primarySportNorm)
       .map((s, i) => ({
         id: `team-sport-${i}`,
-        sport: name,
-        position: formatSportDisplayName(s.sport),
+        sport: isPersonalIdentityFallback ? formatSportDisplayName(s.sport) : name,
+        position: isPersonalIdentityFallback ? undefined : formatSportDisplayName(s.sport),
         isActive: false,
-        profileImg,
+        profileImg: isPersonalIdentityFallback ? undefined : profileImg,
       })) ?? [];
 
   const sportProfiles: SidenavSportProfile[] = [
@@ -225,7 +242,11 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
     sportLabel,
     actionLabel: 'Add Team',
     sportProfiles,
-    profileRoute: slug ? `/team/${slug}` : '/profile',
+    profileRoute: slug
+      ? teamIdentifier
+        ? buildCanonicalTeamPath({ slug, teamName: name, teamCode: teamIdentifier })
+        : `/team/${slug}`
+      : '/profile',
   };
 }
 

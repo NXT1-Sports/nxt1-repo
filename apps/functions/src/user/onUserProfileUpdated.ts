@@ -11,7 +11,7 @@
 import * as admin from 'firebase-admin';
 import { onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { logger } from 'firebase-functions/v2';
-import { calculateProfileCompleteness } from './helpers';
+import { calculateProfileCompleteness, getPrimarySportName } from './helpers';
 
 const db = admin.firestore();
 
@@ -41,8 +41,8 @@ export const onUserProfileUpdatedV3 = onDocumentUpdated('Users/{userId}', async 
   }
 
   // Update analytics on sport change
-  const beforeSport = beforeData['primarySport'] as string | undefined;
-  const afterSport = afterData['primarySport'] as string | undefined;
+  const beforeSport = getPrimarySportName(beforeData);
+  const afterSport = getPrimarySportName(afterData);
 
   if (beforeSport !== afterSport) {
     await db

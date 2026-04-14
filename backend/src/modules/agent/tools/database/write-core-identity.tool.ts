@@ -17,6 +17,10 @@ import { isTeamRole } from '@nxt1/core';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { ScraperMediaService } from '../integrations/scraper-media.service.js';
 import { getCacheService } from '../../../../services/cache.service.js';
+import {
+  createProfileWriteAccessService,
+  resolveAuthorizedTargetSportSelection,
+} from '../../../../services/profile-write-access.service.js';
 
 import { createOrganizationService } from '../../../../services/organization.service.js';
 import { enqueueWelcomeGraphicIfReady } from '../../../../services/agent-welcome.service.js';
@@ -227,6 +231,10 @@ export class WriteCoreIdentityTool extends BaseTool {
     const explicitTeamId = this.str(input, 'teamId') ?? undefined;
     const explicitOrgId = this.str(input, 'organizationId') ?? undefined;
 
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
+    }
+
     context?.onProgress?.('Validating identity fields…');
 
     // At least one data section must be provided
@@ -258,7 +266,9 @@ export class WriteCoreIdentityTool extends BaseTool {
         context.userId,
         brandingDest
       );
-      if (promoted) (team as Record<string, unknown>)['logoUrl'] = promoted;
+      if (promoted) {
+        (team as Record<string, unknown>)['logoUrl'] = promoted;
+      }
     }
 
     // ── Promote profileImgs from thread staging → permanent path ──────
@@ -286,12 +296,63 @@ export class WriteCoreIdentityTool extends BaseTool {
     }
 
     try {
-      const userDoc = await userRef.get();
-      if (!userDoc.exists) {
-        return { success: false, error: `User "${userId}" not found.` };
+      const accessGrant = await createProfileWriteAccessService(
+        this.db
+      ).assertCanManageProfileTarget({
+        actorUserId: context.userId,
+        targetUserId: userId,
+        action: 'tool:write_core_identity',
+      });
+      const userData = accessGrant.targetUserData;
+      const normalizedTargetSport = targetSport.trim().toLowerCase();
+      const authorizedSportSelection = accessGrant.isSelfWrite
+        ? null
+        : resolveAuthorizedTargetSportSelection(userData, normalizedTargetSport, accessGrant);
+      if (!accessGrant.isSelfWrite && !authorizedSportSelection) {
+        return { success: false, error: 'Not authorized to write profile data for this sport.' };
+      }
+      const authorizedTeamId = accessGrant.isSelfWrite
+        ? undefined
+        : authorizedSportSelection?.teamId;
+      const authorizedOrgId = accessGrant.isSelfWrite
+        ? undefined
+        : authorizedSportSelection?.organizationId;
+      const scopedExplicitTeamId =
+        accessGrant.isSelfWrite || !explicitTeamId || explicitTeamId === authorizedTeamId
+          ? explicitTeamId
+          : undefined;
+      const scopedExplicitOrgId =
+        accessGrant.isSelfWrite || !explicitOrgId || explicitOrgId === authorizedOrgId
+          ? explicitOrgId
+          : undefined;
+
+      if (
+        (!accessGrant.isSelfWrite && explicitTeamId && explicitTeamId !== scopedExplicitTeamId) ||
+        (!accessGrant.isSelfWrite && explicitOrgId && explicitOrgId !== scopedExplicitOrgId)
+      ) {
+        logger.warn('[WriteCoreIdentity] Ignoring out-of-scope team/org identifiers', {
+          actorUserId: context.userId,
+          targetUserId: userId,
+          explicitTeamId,
+          explicitOrgId,
+          sharedTeamIds: accessGrant.sharedTeamIds,
+          sharedOrganizationIds: accessGrant.sharedOrganizationIds,
+        });
       }
 
-      const userData = userDoc.data() as Record<string, unknown>;
+      const effectiveTeam = team ? { ...team } : null;
+      if (!accessGrant.isSelfWrite && effectiveTeam) {
+        const nestedTeamId = this.str(effectiveTeam, 'teamId') ?? undefined;
+        const nestedOrgId = this.str(effectiveTeam, 'organizationId') ?? undefined;
+
+        if (nestedTeamId && nestedTeamId !== authorizedTeamId) {
+          delete effectiveTeam['teamId'];
+        }
+        if (nestedOrgId && nestedOrgId !== authorizedOrgId) {
+          delete effectiveTeam['organizationId'];
+        }
+      }
+
       const userRole = typeof userData['role'] === 'string' ? userData['role'] : 'athlete';
       const isCoachOrDirector = isTeamRole(userRole);
 
@@ -369,7 +430,8 @@ export class WriteCoreIdentityTool extends BaseTool {
       // ── Sport-scoped data ────────────────────────────────────────────
       // Coaches/directors NEVER create new sports or write sportInfo/measurables.
       // They may still write team/coach refs on an EXISTING sport.
-      const sportIndex = this.resolveSportIndex(existingSports, targetSport);
+      const sportIndex =
+        authorizedSportSelection?.index ?? this.resolveSportIndex(existingSports, targetSport);
       const isNewSport = sportIndex >= existingSports.length;
 
       if (isNewSport) {
@@ -377,7 +439,7 @@ export class WriteCoreIdentityTool extends BaseTool {
         context?.onProgress?.(
           `Skipping sport update: User does not have ${targetSport} on their profile.`
         );
-      } else if (sportInfo || team || coach) {
+      } else if (sportInfo || effectiveTeam || coach) {
         const updatedSports = existingSports.map((s) => ({ ...s }));
         const sportObj = { ...(updatedSports[sportIndex] ?? {}) } as Record<string, unknown>;
 
@@ -398,23 +460,26 @@ export class WriteCoreIdentityTool extends BaseTool {
           if (sportInfoUpdated) writtenSections.push('sportInfo');
         }
 
-        if (team) {
+        if (effectiveTeam) {
           const existingTeam = (sportObj['team'] ?? {}) as Record<string, unknown>;
           sportObj['team'] = this.mergeTeamRef(
             existingTeam,
-            team,
-            explicitTeamId,
-            explicitOrgId,
+            effectiveTeam,
+            scopedExplicitTeamId,
+            scopedExplicitOrgId,
             isCoachOrDirector ? coachTitle : undefined
           );
           writtenSections.push('team');
-        } else if (isCoachOrDirector && (coachTitle || explicitTeamId || explicitOrgId)) {
+        } else if (
+          isCoachOrDirector &&
+          (coachTitle || scopedExplicitTeamId || scopedExplicitOrgId)
+        ) {
           const existingTeam = (sportObj['team'] ?? {}) as Record<string, unknown>;
           sportObj['team'] = this.mergeTeamRef(
             existingTeam,
             {},
-            explicitTeamId,
-            explicitOrgId,
+            scopedExplicitTeamId,
+            scopedExplicitOrgId,
             coachTitle
           );
           writtenSections.push('team');
@@ -466,8 +531,10 @@ export class WriteCoreIdentityTool extends BaseTool {
       const resolvedTeamRef = this.resolveTeamRef(
         resolvedSport,
         userData,
-        explicitTeamId,
-        explicitOrgId
+        scopedExplicitTeamId,
+        scopedExplicitOrgId,
+        authorizedTeamId,
+        authorizedOrgId
       );
 
       // ── Connected source sync record ─────────────────────────────────
@@ -533,16 +600,16 @@ export class WriteCoreIdentityTool extends BaseTool {
       }
 
       // Clean up legacy flat fields if team data was written
-      if (team && !isCoachOrDirector) {
+      if (effectiveTeam && !isCoachOrDirector) {
         payload['conference'] = FieldValue.delete();
         payload['division'] = FieldValue.delete();
         payload['level'] = FieldValue.delete();
       }
 
       // ── Sync Team/Organization metadata ──────────────────────────────
-      if (team) {
+      if (effectiveTeam) {
         context?.onProgress?.('Syncing team organization metadata…');
-        await this.syncTeamMetadata(resolvedTeamRef, team, 'team', promotedTeamGallery);
+        await this.syncTeamMetadata(resolvedTeamRef, effectiveTeam, 'team', promotedTeamGallery);
         if (isCoachOrDirector) writtenSections.push('teamMetadata');
       }
 
@@ -573,7 +640,6 @@ export class WriteCoreIdentityTool extends BaseTool {
             cache.del(USER_CACHE_KEYS.USER_BY_ID(userId)),
             invalidateProfileCaches(
               userId,
-              typeof userData['username'] === 'string' ? userData['username'] : undefined,
               typeof userData['unicode'] === 'string' ? userData['unicode'] : null
             ),
           ]);
@@ -1044,11 +1110,19 @@ export class WriteCoreIdentityTool extends BaseTool {
     resolvedSport: Record<string, unknown> | undefined,
     userData: Record<string, unknown>,
     explicitTeamId?: string,
-    explicitOrgId?: string
+    explicitOrgId?: string,
+    lockedTeamId?: string,
+    lockedOrgId?: string
   ): Record<string, unknown> {
     let teamRef = resolvedSport?.['team'] as Record<string, unknown> | undefined;
 
     if (!teamRef) teamRef = {};
+    if (lockedTeamId) {
+      teamRef = { ...teamRef, teamId: lockedTeamId };
+    }
+    if (lockedOrgId) {
+      teamRef = { ...teamRef, organizationId: lockedOrgId };
+    }
     if (!this.str(teamRef, 'teamId') && typeof userData['teamId'] === 'string') {
       teamRef = { ...teamRef, teamId: userData['teamId'] };
     }

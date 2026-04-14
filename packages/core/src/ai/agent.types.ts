@@ -58,6 +58,8 @@ export interface AgentOperation {
 
 /** The final output of a completed operation. */
 export interface AgentOperationResult {
+  /** Short AI-generated title for activity feed items and notifications. */
+  readonly title?: string;
   readonly summary: string;
   /** Structured data the UI can render (generated graphics, sent emails, etc.). */
   readonly data?: Record<string, unknown>;
@@ -250,6 +252,8 @@ export interface AgentSessionContext {
   readonly retrievedMemories?: readonly AgentMemoryEntry[];
   readonly createdAt: string;
   readonly lastActiveAt: string;
+  /** Which backend environment is serving this agent run. */
+  readonly environment?: 'staging' | 'production';
   /** The job/operation ID — threaded into LLM calls as Helicone-Property-Job-Id for cost tracking. */
   readonly operationId?: string;
   /** The MongoDB thread ID for the current conversation. Used by tools for thread-scoped storage. */

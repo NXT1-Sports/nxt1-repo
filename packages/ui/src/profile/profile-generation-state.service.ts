@@ -9,7 +9,8 @@
  * Lifecycle:
  * 1. Onboarding `handleCompletion()` calls `startGeneration(jobId, platforms)`
  * 2. Profile page detects `isGenerating()` and shows overlay
- * 3. Overlay calls `pollUntilDone()` which polls `/agent-x/status/:id`
+ * 3. Overlay calls `pollUntilDone()` which attaches to the live background
+ *    operation event stream in Firestore
  * 4. When job completes/fails/times out, overlay dismisses and calls `reset()`
  * 5. If user navigates away and returns, overlay re-mounts and resumes polling
  *    from current backend progress (no phase reset)
@@ -18,10 +19,16 @@
  */
 
 import { Injectable, inject, signal, computed } from '@angular/core';
+import type { JobEvent } from '@nxt1/core/ai';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
-import { AgentXJobService } from '../agent-x/agent-x-job.service';
+import {
+  AgentXOperationEventService,
+  FIRESTORE_ADAPTER,
+  type FirestoreAdapter,
+  type OperationEventSubscription,
+} from '../agent-x/agent-x-operation-event.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 
 /** Generation status phases for UI messaging */
@@ -54,18 +61,26 @@ const PHASE_CONFIG: Record<GenerationPhase, { message: string; progress: number 
   error: { message: 'Generation encountered an issue', progress: 0 },
 };
 
-/** Max poll duration before auto-dismissing (5 minutes — scraping + AI analysis takes time) */
-const MAX_POLL_DURATION_MS = 300_000;
+/** Max tracking duration before auto-dismissing (5 minutes — scraping + AI analysis takes time) */
+const MAX_TRACK_DURATION_MS = 300_000;
 
-/** Poll interval (3 seconds) */
-const POLL_INTERVAL_MS = 3_000;
+const PHASE_ORDER: Record<GenerationPhase, number> = {
+  connecting: 0,
+  scraping: 1,
+  analyzing: 2,
+  building: 3,
+  finalizing: 4,
+  complete: 5,
+  error: 6,
+};
 
 @Injectable({ providedIn: 'root' })
 export class ProfileGenerationStateService {
   private readonly logger = inject(NxtLoggingService).child('ProfileGenerationState');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
-  private readonly agentXJobService = inject(AgentXJobService);
+  private readonly operationEvents = inject(AgentXOperationEventService);
+  private readonly firestoreAdapter = inject(FIRESTORE_ADAPTER, { optional: true });
 
   // ── Private writeable signals ─────────────────────────────────────────
   private readonly _jobId = signal<string | null>(null);
@@ -96,13 +111,14 @@ export class ProfileGenerationStateService {
     };
   });
 
-  // ── Polling state ────────────────────────────────────────────────────
-  private pollTimer: ReturnType<typeof setTimeout> | null = null;
-  private pollStartTime = 0;
+  // ── Live tracking state ──────────────────────────────────────────────
+  private trackingTimeout: ReturnType<typeof setTimeout> | null = null;
+  private trackingStartTime = 0;
   /** Guards against concurrent `pollUntilDone()` calls */
   private isPolling = false;
   /** Tracks whether backend progress has been received at least once */
   private hasReceivedBackendProgress = false;
+  private activeOperationSubscription: OperationEventSubscription | null = null;
 
   /**
    * Called by onboarding `handleCompletion()` after the Agent X job is enqueued.
@@ -124,7 +140,7 @@ export class ProfileGenerationStateService {
   }
 
   /**
-   * Poll the Agent X job status until completion, failure, or timeout.
+   * Track the Agent X job until completion, failure, or timeout.
    * Called by the overlay component in `ngOnInit()`.
    *
    * Idempotent — if polling is already active, the call returns a promise
@@ -142,9 +158,17 @@ export class ProfileGenerationStateService {
     }
 
     this.isPolling = true;
-    this.pollStartTime = Date.now();
-    this.logger.info('Starting status polling', { jobId });
-    this.breadcrumb.trackStateChange('profile-generation:polling', { jobId });
+    this.trackingStartTime = Date.now();
+    this.logger.info('Starting live profile generation tracking', { jobId });
+    this.breadcrumb.trackStateChange('profile-generation:tracking', { jobId });
+
+    if (!this.firestoreAdapter) {
+      this.logger.warn('Profile generation tracking unavailable without Firestore adapter', {
+        jobId,
+      });
+      this.resolvePoll('timeout');
+      return 'timeout';
+    }
 
     // Only show the connecting → scraping intro sequence on first poll.
     // On re-mount (navigate away and back), skip the intro and immediately
@@ -161,7 +185,7 @@ export class ProfileGenerationStateService {
 
     return new Promise((resolve) => {
       this.activePollResolve = resolve;
-      void this.poll(jobId);
+      this.subscribeToOperation(jobId);
     });
   }
 
@@ -172,13 +196,17 @@ export class ProfileGenerationStateService {
    * re-appears on return and resumes polling from current progress.
    */
   stopPolling(): void {
-    if (this.pollTimer) {
-      clearTimeout(this.pollTimer);
-      this.pollTimer = null;
+    if (this.trackingTimeout) {
+      clearTimeout(this.trackingTimeout);
+      this.trackingTimeout = null;
     }
+    this.activeOperationSubscription?.unsubscribe();
+    this.activeOperationSubscription = null;
     this.isPolling = false;
     this.activePollResolve = null;
-    this.logger.info('Polling stopped (overlay unmounted)', { jobId: this._jobId() });
+    this.logger.info('Profile generation tracking stopped (overlay unmounted)', {
+      jobId: this._jobId(),
+    });
   }
 
   /**
@@ -198,12 +226,18 @@ export class ProfileGenerationStateService {
   /**
    * One-shot status check for a known jobId.
    * Used by the profile page on init to detect if a background generation
-   * completed while the user was away. Returns the backend-reported status
+   * completed while the user was away. Returns the backend-derived status
    * ('completed' | 'failed' | 'processing' | 'pending' | null).
    */
   async checkJobStatus(jobId: string): Promise<string | null> {
-    const status = await this.agentXJobService.getStatus(jobId);
-    return status?.status ?? null;
+    if (this._jobId() === jobId) {
+      const phase = this._phase();
+      if (phase === 'complete') return 'completed';
+      if (phase === 'error') return 'failed';
+      if (this._isGenerating()) return 'processing';
+    }
+
+    return this.readOperationStatus(jobId, this.firestoreAdapter);
   }
 
   // ── Private helpers ──────────────────────────────────────────────────
@@ -229,60 +263,57 @@ export class ProfileGenerationStateService {
     });
   }
 
-  /**
-   * Core polling loop — recursively polls until the job reaches a terminal state.
-   */
-  private async poll(jobId: string): Promise<void> {
-    if (!this._isGenerating() || !this.isPolling) {
-      this.resolvePoll('completed');
-      return;
-    }
-
-    // Timeout check
-    if (Date.now() - this.pollStartTime > MAX_POLL_DURATION_MS) {
-      this.logger.warn('Profile generation polling timed out', { jobId });
+  private subscribeToOperation(jobId: string): void {
+    this.clearTrackingTimeout();
+    this.trackingTimeout = setTimeout(() => {
+      this.logger.warn('Profile generation tracking timed out', { jobId });
       this.finishGeneration('timeout');
       this.resolvePoll('timeout');
-      return;
-    }
+    }, MAX_TRACK_DURATION_MS);
 
-    const status = await this.agentXJobService.getStatus(jobId);
+    this.activeOperationSubscription?.unsubscribe();
+    this.activeOperationSubscription = this.operationEvents.subscribe(jobId, {
+      onDelta: () => {
+        this.hasReceivedBackendProgress = true;
+        if (PHASE_ORDER[this._phase()] < PHASE_ORDER.analyzing) {
+          this.promotePhase('analyzing');
+        }
+      },
+      onStep: (step) => {
+        this.hasReceivedBackendProgress = true;
+        this.promotePhase(this.resolvePhaseFromStep(step.label, step.detail));
+      },
+      onDone: ({ success, error }) => {
+        if (!this.isPolling) return;
 
-    if (!status) {
-      // Network error — keep polling, don't fail immediately
-      this.pollTimer = setTimeout(() => void this.poll(jobId), POLL_INTERVAL_MS);
-      return;
-    }
+        if (success) {
+          this.logger.info('Profile generation completed', { jobId });
+          this.setPhase('complete');
+          void this.delay(1200).then(() => {
+            this.finishGeneration('completed');
+            this.resolvePoll('completed');
+          });
+          return;
+        }
 
-    // Map backend status to UI phase
-    this.mapStatusToPhase(status);
-
-    if (status.status === 'completed') {
-      this.logger.info('Profile generation completed', { jobId });
-      this.setPhase('complete');
-      // Brief pause to show "Profile ready!" message
-      await this.delay(1200);
-      this.finishGeneration('completed');
-      this.resolvePoll('completed');
-      return;
-    }
-
-    if (status.status === 'failed') {
-      this.logger.warn('Profile generation job failed', {
-        jobId,
-        error: status.error,
-      });
-      this.finishGeneration('failed');
-      this.resolvePoll('failed');
-      return;
-    }
-
-    // Still in progress — poll again
-    this.pollTimer = setTimeout(() => void this.poll(jobId), POLL_INTERVAL_MS);
+        this.logger.warn('Profile generation job failed', { jobId, error });
+        this.setPhase('error');
+        this.finishGeneration('failed');
+        this.resolvePoll('failed');
+      },
+      onError: (message) => {
+        this.logger.error('Profile generation live tracking failed', new Error(message), {
+          jobId,
+        });
+      },
+    });
   }
 
   /** Resolve the active poll promise and clear the polling flag. */
   private resolvePoll(result: 'completed' | 'failed' | 'timeout'): void {
+    this.clearTrackingTimeout();
+    this.activeOperationSubscription?.unsubscribe();
+    this.activeOperationSubscription = null;
     this.isPolling = false;
     this.activePollResolve?.(result);
     this.activePollResolve = null;
@@ -295,35 +326,94 @@ export class ProfileGenerationStateService {
     this._message.set(config.message);
   }
 
-  private mapStatusToPhase(
-    status: NonNullable<Awaited<ReturnType<AgentXJobService['getStatus']>>>
-  ): void {
-    const percent = status.progress?.percent ?? 0;
-    const message = status.progress?.message;
-
-    // Track that we've received real progress from the backend
-    if (percent > 0 || message) {
-      this.hasReceivedBackendProgress = true;
+  private promotePhase(nextPhase: GenerationPhase): void {
+    const currentPhase = this._phase();
+    if (PHASE_ORDER[nextPhase] > PHASE_ORDER[currentPhase]) {
+      this.setPhase(nextPhase);
+      return;
     }
 
-    if (percent < 20) {
-      this.setPhase('scraping');
-    } else if (percent < 50) {
-      this.setPhase('analyzing');
-    } else if (percent < 85) {
-      this.setPhase('building');
-    } else {
-      this.setPhase('finalizing');
+    const nextProgress = PHASE_CONFIG[nextPhase].progress;
+    if (this._progress() < nextProgress) {
+      this._progress.set(nextProgress);
+    }
+  }
+
+  private resolvePhaseFromStep(label?: string, detail?: string): GenerationPhase {
+    const stepText = `${label ?? ''} ${detail ?? ''}`.toLowerCase();
+
+    if (/final|complete|done|persist|save|sync|publish|write back|finish|ready/.test(stepText)) {
+      return 'finalizing';
     }
 
-    // Override message if backend provides one
-    if (message) {
-      this._message.set(message);
+    if (/build|compose|generate|merge|update profile|enrich|draft|create|assemble/.test(stepText)) {
+      return 'building';
     }
-    // Always update progress to the real value
-    if (percent > 0) {
-      this._progress.set(percent);
+
+    if (/analy|review|score|classif|extract|parse|rank|intel|reason/.test(stepText)) {
+      return 'analyzing';
     }
+
+    if (/connect|auth|login|session|open|scrap|crawl|fetch|pull|collect|source/.test(stepText)) {
+      return 'scraping';
+    }
+
+    const currentPhase = this._phase();
+    if (currentPhase === 'connecting') return 'scraping';
+    if (currentPhase === 'scraping') return 'analyzing';
+    if (currentPhase === 'analyzing') return 'building';
+    return 'finalizing';
+  }
+
+  private clearTrackingTimeout(): void {
+    if (this.trackingTimeout) {
+      clearTimeout(this.trackingTimeout);
+      this.trackingTimeout = null;
+    }
+  }
+
+  private readOperationStatus(
+    jobId: string,
+    firestoreAdapter: FirestoreAdapter | null
+  ): Promise<string | null> {
+    if (!firestoreAdapter) {
+      return Promise.resolve(null);
+    }
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const settle = (status: string | null): void => {
+        if (settled) return;
+        settled = true;
+        unsubscribe();
+        resolve(status);
+      };
+
+      const timeout = setTimeout(() => settle(null), 2_000);
+
+      const unsubscribe = firestoreAdapter.onSnapshot(
+        `agentJobs/${jobId}/events`,
+        'seq',
+        (docs) => {
+          clearTimeout(timeout);
+          const events = docs as unknown as readonly JobEvent[];
+          const doneEvent = [...events]
+            .reverse()
+            .find((event) => event.type === 'done' && typeof event.success === 'boolean');
+
+          if (doneEvent) {
+            settle(doneEvent.success ? 'completed' : 'failed');
+            return;
+          }
+
+          settle(events.length > 0 ? 'processing' : 'pending');
+        },
+        () => {
+          clearTimeout(timeout);
+          settle(null);
+        }
+      );
+    });
   }
 
   private finishGeneration(result: 'completed' | 'failed' | 'timeout'): void {
@@ -337,10 +427,7 @@ export class ProfileGenerationStateService {
       { jobId, result }
     );
 
-    if (this.pollTimer) {
-      clearTimeout(this.pollTimer);
-      this.pollTimer = null;
-    }
+    this.clearTrackingTimeout();
     // NOTE: Do NOT set _isGenerating to false here.
     // The overlay's dismiss() → reset() handles that after the fade-out animation
     // completes and the dismissed event is emitted. Setting it here would destroy

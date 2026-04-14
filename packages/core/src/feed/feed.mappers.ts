@@ -15,9 +15,12 @@ import type {
   FeedItemPost,
   FeedItemEvent,
   FeedItemStat,
+  FeedItemMetric,
   FeedItemOffer,
+  FeedItemCommitment,
   FeedItemVisit,
   FeedItemCamp,
+  FeedItemAward,
   FeedItemBase,
   FeedEngagement,
   FeedUserEngagement,
@@ -704,6 +707,237 @@ export function statDocToFeedItemStat(
       opponent: data.opponent,
       stats: data.stats,
       seasonTotals: data.seasonTotals,
+    },
+  };
+}
+
+function normalizeRecruitingVisitType(
+  value: string | undefined
+): 'official' | 'unofficial' | 'junior-day' | 'game-day' {
+  const normalized =
+    value
+      ?.trim()
+      .toLowerCase()
+      .replace(/[_\s]+/g, '-') ?? '';
+
+  if (normalized === 'official') return 'official';
+  if (normalized === 'junior-day') return 'junior-day';
+  if (normalized === 'game-day' || normalized === 'gameday') return 'game-day';
+  return 'unofficial';
+}
+
+function normalizeOfferType(
+  category: string,
+  scholarshipType?: string
+): 'scholarship' | 'preferred-walk-on' | 'walk-on' | 'interest' {
+  if (category === 'interest') return 'interest';
+
+  const normalizedScholarship = scholarshipType
+    ?.trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, '-');
+  if (normalizedScholarship === 'preferred-walk-on') return 'preferred-walk-on';
+  if (normalizedScholarship === 'walk-on') return 'walk-on';
+
+  return 'scholarship';
+}
+
+/**
+ * Convert a Recruiting document into the correct FeedItem variant.
+ */
+export function recruitingDocToFeedItemVariant(
+  docId: string,
+  data: {
+    category: string;
+    collegeName: string;
+    collegeLogoUrl?: string;
+    division?: string;
+    conference?: string;
+    sport?: string;
+    date: string;
+    endDate?: string;
+    scholarshipType?: string;
+    visitType?: string;
+    commitmentStatus?: string;
+    announcedAt?: string;
+    coachName?: string;
+    notes?: string;
+    graphicUrl?: string;
+  },
+  author: FeedAuthor
+): FeedItemOffer | FeedItemCommitment | FeedItemVisit | FeedItemCamp | FeedItemAward {
+  const category = data.category.trim().toLowerCase();
+  const media: readonly FeedMedia[] = data.graphicUrl
+    ? [
+        {
+          id: `${docId}-graphic`,
+          type: 'image',
+          url: data.graphicUrl,
+          thumbnailUrl: data.graphicUrl,
+          altText: `${data.collegeName} recruiting graphic`,
+        },
+      ]
+    : [];
+
+  if (category === 'offer' || category === 'interest') {
+    return {
+      ...buildFeedItemBase(`recruiting-${docId}`, author, data.date),
+      feedType: 'OFFER',
+      referenceId: docId,
+      offerData: {
+        collegeName: data.collegeName,
+        collegeLogoUrl: data.collegeLogoUrl,
+        offerType: normalizeOfferType(category, data.scholarshipType),
+        sport: data.sport ?? '',
+        division: data.division,
+        conference: data.conference,
+      },
+      media,
+    };
+  }
+
+  if (category === 'commitment') {
+    const commitmentStatus = data.commitmentStatus?.trim().toLowerCase();
+    return {
+      ...buildFeedItemBase(`commitment-${docId}`, author, data.announcedAt ?? data.date),
+      feedType: 'COMMITMENT',
+      referenceId: docId,
+      commitmentData: {
+        collegeName: data.collegeName,
+        collegeLogoUrl: data.collegeLogoUrl,
+        sport: data.sport ?? '',
+        division: data.division,
+        commitDate: data.announcedAt ?? data.date,
+        isSigned: commitmentStatus === 'signed' || commitmentStatus === 'enrolled',
+      },
+      media,
+    };
+  }
+
+  if (category === 'visit') {
+    return {
+      ...buildFeedItemBase(`visit-${docId}`, author, data.date),
+      feedType: 'VISIT',
+      referenceId: docId,
+      visitData: {
+        collegeName: data.collegeName,
+        collegeLogoUrl: data.collegeLogoUrl,
+        visitType: normalizeRecruitingVisitType(data.visitType),
+        location: [data.conference, data.division].filter(Boolean).join(' • ') || undefined,
+        visitDate: data.date,
+        endDate: data.endDate,
+        sport: data.sport,
+        graphicUrl: data.graphicUrl,
+      },
+      media,
+    };
+  }
+
+  if (category === 'camp') {
+    return {
+      ...buildFeedItemBase(`camp-${docId}`, author, data.date),
+      feedType: 'CAMP',
+      referenceId: docId,
+      campData: {
+        campName: `${data.collegeName} Camp`,
+        campType: 'camp',
+        location: [data.conference, data.division].filter(Boolean).join(' • ') || undefined,
+        eventDate: data.date,
+        logoUrl: data.collegeLogoUrl,
+        graphicUrl: data.graphicUrl,
+      },
+      media,
+    };
+  }
+
+  return {
+    ...buildFeedItemBase(`recruiting-${docId}`, author, data.date),
+    feedType: 'AWARD',
+    referenceId: docId,
+    awardData: {
+      awardName:
+        category === 'questionnaire'
+          ? 'Recruiting Questionnaire Submitted'
+          : data.coachName
+            ? `Coach Contact: ${data.coachName}`
+            : 'Recruiting Activity',
+      organization: data.collegeName,
+      category: 'Recruiting',
+      season: data.sport,
+      icon: 'graduation-cap',
+    },
+  };
+}
+
+/**
+ * Convert a grouped PlayerMetrics payload into a FeedItemMetric.
+ */
+export function metricGroupToFeedItemMetric(
+  docId: string,
+  data: {
+    measuredAt: string;
+    source: string;
+    category?: string;
+    metrics: readonly {
+      label: string;
+      value: string | number;
+      unit?: string;
+      verified?: boolean;
+      previousValue?: string | number;
+    }[];
+  },
+  author: FeedAuthor
+): FeedItemMetric {
+  return {
+    ...buildFeedItemBase(`metric-${docId}`, author, data.measuredAt),
+    feedType: 'METRIC',
+    referenceId: docId,
+    metricsData: {
+      source: data.source,
+      measuredAt: data.measuredAt,
+      category: data.category,
+      metrics: data.metrics,
+    },
+  };
+}
+
+/**
+ * Convert a Rankings document into a FeedItemAward.
+ */
+export function rankingDocToFeedItemAward(
+  docId: string,
+  data: {
+    createdAt: string;
+    name: string;
+    sport?: string;
+    classOf?: number;
+    nationalRank?: number | null;
+    stateRank?: number | null;
+    positionRank?: number | null;
+    stars?: number | null;
+  },
+  author: FeedAuthor
+): FeedItemAward {
+  const rankingSummary = [
+    data.nationalRank != null ? `Nat #${data.nationalRank}` : null,
+    data.stateRank != null ? `State #${data.stateRank}` : null,
+    data.positionRank != null ? `Pos #${data.positionRank}` : null,
+    data.stars != null ? `${data.stars}-Star` : null,
+    data.classOf != null ? `Class ${data.classOf}` : null,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(' • ');
+
+  return {
+    ...buildFeedItemBase(`ranking-${docId}`, author, data.createdAt),
+    feedType: 'AWARD',
+    referenceId: docId,
+    awardData: {
+      awardName: rankingSummary || 'Ranking Update',
+      organization: data.name,
+      category: data.sport ? `${data.sport} rankings` : 'Rankings',
+      season: data.sport,
+      icon: 'podium',
     },
   };
 }

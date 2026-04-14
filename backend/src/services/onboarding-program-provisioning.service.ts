@@ -42,6 +42,7 @@ export interface ProvisionOnboardingProgramsInput {
   currentUser?: {
     firstName?: string;
     lastName?: string;
+    displayName?: string;
     email?: string;
     contact?: { phone?: string };
     profileImgs?: string[];
@@ -136,6 +137,15 @@ export function getProvisioningSports(sports: readonly SportProfile[]): string[]
     new Set(sports.map((sport) => sport.sport).filter((sport): sport is string => Boolean(sport)))
   );
   return uniqueSports.length > 0 ? uniqueSports : ['basketball'];
+}
+
+function getSportProfileForRoster(
+  sports: readonly SportProfile[],
+  sportName: string
+): SportProfile | undefined {
+  return sports.find(
+    (sport) => sport.sport?.trim().toLowerCase() === sportName.trim().toLowerCase()
+  );
 }
 
 function getRosterTitleForSport(
@@ -390,6 +400,8 @@ async function ensureRosterEntry(
   const rosterStatus =
     input.role === 'athlete' ? RosterEntryStatus.PENDING : RosterEntryStatus.ACTIVE;
   const rosterTitle = getRosterTitleForSport(input.sports, sportName, input.updateData.coachTitle);
+  const matchingSport = getSportProfileForRoster(input.sports, sportName);
+  const rosterPositions = input.role === 'athlete' ? matchingSport?.positions : undefined;
 
   try {
     const existingEntry = await rosterEntryService.getActiveOrPendingRosterEntry(
@@ -400,8 +412,10 @@ async function ensureRosterEntry(
     if (existingEntry?.id) {
       await rosterEntryService.updateRosterEntry(existingEntry.id, {
         role: input.role,
+        sport: sportName,
         status: rosterStatus,
         ...(rosterTitle ? { title: rosterTitle } : {}),
+        ...(input.role === 'athlete' ? { positions: rosterPositions ?? [] } : {}),
       });
       return;
     }
@@ -411,10 +425,21 @@ async function ensureRosterEntry(
       teamId,
       organizationId: program.organizationId,
       role: input.role,
+      sport: sportName,
       ...(rosterTitle ? { title: rosterTitle } : {}),
       status: rosterStatus,
+      ...(input.role === 'athlete' ? { positions: rosterPositions } : {}),
       firstName: input.updateData.firstName ?? input.currentUser?.firstName ?? '',
       lastName: input.updateData.lastName ?? input.currentUser?.lastName ?? '',
+      displayName:
+        input.currentUser?.displayName ??
+        [
+          input.updateData.firstName ?? input.currentUser?.firstName ?? '',
+          input.updateData.lastName ?? input.currentUser?.lastName ?? '',
+        ]
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .join(' '),
       email: input.currentUser?.email ?? '',
       profileImgs: input.updateData.profileImgs ?? input.currentUser?.profileImgs ?? [],
       classOf: input.updateData.athlete?.classOf,

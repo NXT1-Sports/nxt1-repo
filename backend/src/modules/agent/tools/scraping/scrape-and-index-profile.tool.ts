@@ -417,7 +417,7 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
               instructions:
                 'Use `read_distilled_section` with the URL and a section name to fetch detailed data for each section. ' +
                 'Then call the appropriate write tool for each section: ' +
-                'write_core_identity, write_season_stats, write_combine_metrics, ' +
+                'write_core_identity, write_season_stats, write_combine_metrics, write_rankings, ' +
                 'write_recruiting_activity, write_calendar_events, write_athlete_videos.',
             },
           };
@@ -449,7 +449,7 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
             'AI extraction could not process this URL. ' +
             'Analyze the markdown content above to extract athlete data. ' +
             'Use the atomic write tools (write_core_identity, write_season_stats, ' +
-            'write_combine_metrics, write_athlete_videos, write_recruiting_activity, ' +
+            'write_combine_metrics, write_rankings, write_athlete_videos, write_recruiting_activity, ' +
             'write_calendar_events) to write the extracted fields.',
         },
       };

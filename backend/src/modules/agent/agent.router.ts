@@ -60,6 +60,11 @@ const TASK_MAX_RETRIES = 2;
  */
 const MAX_DELEGATION_DEPTH = 2;
 
+type MutableAgentTask = AgentTask & {
+  status: AgentTaskStatus;
+  _lastError?: string;
+};
+
 // ─── Router ─────────────────────────────────────────────────────────────────
 
 export class AgentRouter {
@@ -117,7 +122,8 @@ export class AgentRouter {
     payload: AgentJobPayload,
     onUpdate?: (update: AgentJobUpdate) => void,
     firestore?: FirebaseFirestore.Firestore,
-    onStreamEvent?: OnStreamEvent
+    onStreamEvent?: OnStreamEvent,
+    environment: 'staging' | 'production' = 'production'
   ): Promise<AgentOperationResult> {
     const { operationId, userId, intent } = payload;
     const approvalGate = firestore ? new ApprovalGateService(firestore) : undefined;
@@ -130,7 +136,7 @@ export class AgentRouter {
       | undefined;
 
     if (yieldState) {
-      return this.runResumed(payload, yieldState, onUpdate, firestore, onStreamEvent);
+      return this.runResumed(payload, yieldState, onUpdate, firestore, onStreamEvent, environment);
     }
 
     // ── Step 1: Build context ─────────────────────────────────────────────
@@ -157,7 +163,13 @@ export class AgentRouter {
         ? ((contextObj as Record<string, unknown>)['threadId'] as string)
         : undefined;
 
-    const context = this.buildSessionContext(userId, payload.sessionId, operationId, threadId);
+    const context = this.buildSessionContext(
+      userId,
+      payload.sessionId,
+      operationId,
+      threadId,
+      environment
+    );
 
     // Inject thread history for conversation continuity
     let threadHistoryStr = '';
@@ -390,7 +402,7 @@ export class AgentRouter {
     const mutableTasks = plan.tasks.map((t) => ({
       ...t,
       _lastError: undefined as string | undefined,
-    })) as Array<AgentTask & { status: AgentTaskStatus; _lastError?: string }>;
+    })) as MutableAgentTask[];
 
     while (this.hasPendingTasks(mutableTasks)) {
       // Find tasks whose dependencies are all completed
@@ -403,7 +415,13 @@ export class AgentRouter {
       );
 
       if (ready.length === 0) {
-        // All remaining tasks have unmet dependencies (shouldn't happen with DAG validation)
+        for (const task of mutableTasks) {
+          if (task.status === 'pending') {
+            task.status = 'failed' as AgentTaskStatus;
+            task._lastError =
+              'Execution plan stalled because remaining tasks had unmet dependencies.';
+          }
+        }
         break;
       }
 
@@ -540,12 +558,19 @@ export class AgentRouter {
                   forwardingIntent: delErr.payload.forwardingIntent.slice(0, 100),
                 }
               );
+              task._lastError = `Delegated back to router: ${delErr.payload.forwardingIntent}`;
               task.status = 'failed' as AgentTaskStatus;
               this.emitUpdate(
                 onUpdate,
                 operationId,
                 'acting',
-                `Task ${task.id} was misrouted — ${task.assignedAgent} could not handle it.`
+                `Task ${task.id} was misrouted — ${task.assignedAgent} could not handle it.`,
+                {
+                  eventType: 'task_failed',
+                  taskId: task.id,
+                  assignedAgent: task.assignedAgent,
+                  error: task._lastError,
+                }
               );
               this.cascadeFailure(task.id, mutableTasks);
               break; // Exit retry loop
@@ -559,11 +584,25 @@ export class AgentRouter {
             // If this was the last retry, cascade failure
             if (attempt === TASK_MAX_RETRIES) {
               task.status = 'failed' as AgentTaskStatus;
+              logger.error('[AgentRouter] Task failed after retries exhausted', {
+                operationId,
+                taskId: task.id,
+                assignedAgent: task.assignedAgent,
+                attempts: TASK_MAX_RETRIES + 1,
+                error: message,
+              });
               this.emitUpdate(
                 onUpdate,
                 operationId,
                 'acting',
-                `Task ${task.id} failed after ${TASK_MAX_RETRIES + 1} attempts: ${message}`
+                `Task ${task.id} failed after ${TASK_MAX_RETRIES + 1} attempts: ${message}`,
+                {
+                  eventType: 'task_failed',
+                  taskId: task.id,
+                  assignedAgent: task.assignedAgent,
+                  attempts: TASK_MAX_RETRIES + 1,
+                  error: message,
+                }
               );
 
               // Cascade failure to all downstream dependents
@@ -575,10 +614,59 @@ export class AgentRouter {
     }
 
     // ── Step 4: Aggregate results ─────────────────────────────────────────
-    this.emitUpdate(onUpdate, operationId, 'completed', 'All tasks finished.');
-
     const summaries = [...taskResults.values()].map((r) => r.summary);
     const allSuggestions = [...taskResults.values()].flatMap((r) => r.suggestions ?? []);
+    const failedTasks = mutableTasks.filter(
+      (task): task is MutableAgentTask => task.status === 'failed'
+    );
+
+    if (failedTasks.length > 0) {
+      const firstFailedTask = failedTasks[0];
+      const firstFailureMessage = firstFailedTask._lastError ?? 'Unknown error';
+      const failureHeadline =
+        `Execution plan failed. Task ${firstFailedTask.id} ` +
+        `(${firstFailedTask.assignedAgent}) failed: ${firstFailureMessage}`;
+      const partialSummary = summaries.join('\n\n').trim();
+      const failedTaskDetails = failedTasks.map((task) => ({
+        id: task.id,
+        description: task.description,
+        assignedAgent: task.assignedAgent,
+        dependsOn: task.dependsOn,
+        error: task._lastError ?? 'Unknown error',
+      }));
+
+      logger.error('[AgentRouter] Execution plan failed', {
+        operationId,
+        failedTaskId: firstFailedTask.id,
+        assignedAgent: firstFailedTask.assignedAgent,
+        error: firstFailureMessage,
+        completedTaskCount: taskResults.size,
+        totalTaskCount: mutableTasks.length,
+      });
+
+      this.emitUpdate(onUpdate, operationId, 'failed', failureHeadline, {
+        eventType: 'plan_failed',
+        failedTasks: failedTaskDetails,
+        firstFailedTask: failedTaskDetails[0],
+      });
+
+      return {
+        summary:
+          partialSummary.length > 0
+            ? `${failureHeadline}\n\nPartial completed work:\n${partialSummary}`
+            : failureHeadline,
+        data: {
+          plan,
+          taskResults: Object.fromEntries(taskResults),
+          operationStatus: 'failed',
+          failedTasks: failedTaskDetails,
+          firstFailedTask: failedTaskDetails[0],
+        },
+        suggestions: allSuggestions.length > 0 ? allSuggestions : undefined,
+      };
+    }
+
+    this.emitUpdate(onUpdate, operationId, 'completed', 'All tasks finished.');
 
     const aggregatedResult: AgentOperationResult = {
       summary: summaries.join('\n\n'),
@@ -613,7 +701,8 @@ export class AgentRouter {
     yieldState: import('@nxt1/core').AgentYieldState,
     onUpdate?: (update: AgentJobUpdate) => void,
     firestore?: FirebaseFirestore.Firestore,
-    onStreamEvent?: OnStreamEvent
+    onStreamEvent?: OnStreamEvent,
+    environment: 'staging' | 'production' = 'production'
   ): Promise<AgentOperationResult> {
     const { operationId, userId, intent } = payload;
     this.emitUpdate(onUpdate, operationId, 'acting', 'Resuming from your response...');
@@ -658,7 +747,8 @@ export class AgentRouter {
       userId,
       payload.sessionId,
       operationId,
-      resumeThreadId
+      resumeThreadId,
+      environment
     );
     const approvalId =
       typeof (resumeContextObj as Record<string, unknown>)['approvalId'] === 'string'
@@ -793,7 +883,8 @@ export class AgentRouter {
     userId: string,
     sessionId?: string,
     operationId?: string,
-    threadId?: string
+    threadId?: string,
+    environment?: 'staging' | 'production'
   ): AgentSessionContext {
     const now = new Date().toISOString();
     return {
@@ -802,6 +893,7 @@ export class AgentRouter {
       conversationHistory: [],
       createdAt: now,
       lastActiveAt: now,
+      ...(environment && { environment }),
       ...(operationId && { operationId }),
       ...(threadId && { threadId }),
     };

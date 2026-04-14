@@ -109,8 +109,48 @@ describe('provisionOnboardingPrograms roster sync', () => {
     expect(createRosterEntryMock).toHaveBeenCalledWith(
       expect.objectContaining({
         role: 'coach',
+        sport: 'Football',
         title: 'Head Coach',
         status: RosterEntryStatus.ACTIVE,
+        displayName: 'Pat Summitt',
+      })
+    );
+    expect(createRosterEntryMock.mock.calls[0]?.[0]).not.toHaveProperty('positions');
+  });
+
+  it('creates athlete roster entries with sport-matched positions only', async () => {
+    const db = createMockDb();
+
+    await provisionOnboardingPrograms({
+      db: db as never,
+      userId: 'athlete-1',
+      role: 'athlete',
+      sports: [
+        {
+          sport: 'Football',
+          order: 0,
+          positions: ['QB', 'Safety'],
+          team: { type: 'high-school', name: 'Alcoa' },
+        },
+      ],
+      currentUser: { email: 'athlete@test.com' },
+      updateData: {
+        firstName: 'Peyton',
+        lastName: 'Manning',
+        athlete: { classOf: 2028 },
+      },
+      teamSelection: {
+        teams: [{ id: 'org-1', name: 'Alcoa', organizationId: 'org-1', teamType: 'high-school' }],
+      },
+    });
+
+    expect(createRosterEntryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'athlete',
+        sport: 'Football',
+        positions: ['QB', 'Safety'],
+        status: RosterEntryStatus.PENDING,
+        displayName: 'Peyton Manning',
       })
     );
   });
@@ -154,6 +194,7 @@ describe('provisionOnboardingPrograms roster sync', () => {
       'entry-1',
       expect.objectContaining({
         role: 'coach',
+        sport: 'Football',
         title: 'Head Coach',
         status: RosterEntryStatus.ACTIVE,
       })

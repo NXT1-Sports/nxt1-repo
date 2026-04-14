@@ -16,6 +16,7 @@ export {
 export { ApifyMcpBridgeService } from './apify-mcp-bridge.service.js';
 export { FirecrawlMcpBridgeService } from './firecrawl-mcp-bridge.service.js';
 export { RunwayMcpBridgeService } from './runway-mcp-bridge.service.js';
+export { FirebaseMcpBridgeService } from './firebase-mcp-bridge.service.js';
 
 // ── MCP-Bridged Apify Tools (2026 architecture) ──────────────────────────
 export { SearchApifyActorsTool } from './search-apify-actors.tool.js';
@@ -28,6 +29,8 @@ export { FirecrawlScrapeTool } from './firecrawl-scrape.tool.js';
 export { FirecrawlSearchTool } from './firecrawl-search.tool.js';
 export { FirecrawlMapTool } from './firecrawl-map.tool.js';
 export { FirecrawlExtractTool } from './firecrawl-extract.tool.js';
+export { ListNxt1DataViewsTool } from './list-user-firebase-views.tool.js';
+export { QueryNxt1DataTool } from './query-user-firebase-data.tool.js';
 
 // ── Legacy Apify Direct-API Tools (backup — do not remove) ──────────────
 export { ScrapeTwitterTool } from './scrape-twitter.tool.js';

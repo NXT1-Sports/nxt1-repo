@@ -3,7 +3,7 @@
 
 scripts:
   # Move to monorepo root, install all deps, then build just the backend (and @nxt1/core)
-  buildCommand: cd .. && npm ci && npx turbo run build --filter=@nxt1/backend
+  buildCommand: cd .. && npm ci --include=dev && npx turbo run build --filter=@nxt1/backend
   runCommand: node dist/index.js
 
 runConfig:
@@ -16,7 +16,16 @@ runConfig:
 env:
   - variable: NODE_ENV
     value: 'production'
+  # Backend builds pull in @nxt1/core declaration generation, which requires devDependencies.
+  - variable: NPM_CONFIG_PRODUCTION
+    value: 'false'
+  - variable: NPM_CONFIG_INCLUDE
+    value: 'dev'
   - variable: CRON_SECRET
     secret: CRON_SECRET
+    availability:
+      - RUNTIME
   - variable: REDIS_URL
     secret: REDIS_URL
+    availability:
+      - RUNTIME
