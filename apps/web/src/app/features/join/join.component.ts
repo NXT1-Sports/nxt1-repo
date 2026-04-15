@@ -5,23 +5,37 @@
  * Handles incoming invite links:
  *   /join/:code?ref=<uid>&type=<general|team|...>&team=<firestoreId>&teamCode=<code>&teamName=<name>
  *
- * Flow:
+ * Flow (unauthenticated):
  * 1. Extracts referral params from URL (route param + query params)
  * 2. Stores invite data in sessionStorage with default role='Athlete'
  * 3. Redirects to /auth?mode=signup&invite=CODE
  * 4. During onboarding, user can select role (Athlete or Coach only for team invites)
  * 5. After signup, AuthFlowService reads sessionStorage and calls POST /invite/accept
  *
+ * Flow (already authenticated + team invite):
+ * 1. Shows confirmation modal: "TeamName invited you to join"
+ * 2. User clicks Accept → POST /invite/accept → navigate to /home
+ * 3. User clicks Decline → navigate to /home
+ *
  * On SSR this component is a no-op; redirect logic only runs in browser.
  */
 
-import { Component, ChangeDetectionStrategy, inject, OnInit, PLATFORM_ID } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  OnInit,
+  PLATFORM_ID,
+  signal,
+} from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtLogoComponent } from '@nxt1/ui/components/logo';
 import { SeoService } from '../../core/services';
 import { AuthApiService } from '../../core/services/auth/auth-api.service';
+import { AuthFlowService } from '../../core/services/auth';
+import { InviteApiService } from '@nxt1/ui/invite';
 import type { ValidatedTeamInfo } from '@nxt1/core';
 
 /** Shape of referral data persisted to sessionStorage. */
@@ -60,10 +74,43 @@ export const PENDING_REFERRAL_KEY = 'nxt1:pending_referral';
       class="bg-background flex min-h-screen items-center justify-center"
       data-testid="join-redirect-page"
     >
-      <div class="flex flex-col items-center gap-4 text-center">
-        <nxt1-logo variant="default" size="lg" />
-        <p class="animate-pulse text-sm text-text-secondary">Preparing your invite…</p>
-      </div>
+      @if (confirmState()) {
+        <!-- Confirmation modal for already-authenticated users -->
+        <div
+          class="flex max-w-sm flex-col items-center gap-6 rounded-2xl border border-white/10 bg-white/5 p-8 text-center shadow-xl"
+        >
+          <nxt1-logo variant="default" size="md" />
+          <div class="flex flex-col gap-2">
+            <h2 class="text-lg font-semibold text-text-primary">You've been invited!</h2>
+            <p class="text-sm text-text-secondary">
+              <strong class="text-text-primary">{{ confirmState()!.teamName }}</strong>
+              invited you to join their team.
+            </p>
+          </div>
+          <div class="flex w-full flex-col gap-3">
+            <button
+              class="bg-brand-primary w-full rounded-xl px-6 py-3 text-sm font-semibold text-black transition hover:opacity-90 disabled:opacity-50"
+              [disabled]="isAccepting()"
+              (click)="acceptInvite()"
+            >
+              {{ isAccepting() ? 'Joining…' : 'Accept & Join Team' }}
+            </button>
+            <button
+              class="w-full rounded-xl border border-white/10 px-6 py-3 text-sm font-medium text-text-secondary transition hover:bg-white/5"
+              [disabled]="isAccepting()"
+              (click)="declineInvite()"
+            >
+              Decline
+            </button>
+          </div>
+        </div>
+      } @else {
+        <!-- Loading / redirecting state -->
+        <div class="flex flex-col items-center gap-4 text-center">
+          <nxt1-logo variant="default" size="lg" />
+          <p class="animate-pulse text-sm text-text-secondary">Preparing your invite…</p>
+        </div>
+      }
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -74,7 +121,36 @@ export class JoinComponent implements OnInit {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly logger = inject(NxtLoggingService).child('JoinComponent');
   private readonly authApi = inject(AuthApiService);
+  private readonly authFlow = inject(AuthFlowService);
+  private readonly inviteApi = inject(InviteApiService);
   private readonly seo = inject(SeoService);
+
+  protected readonly confirmState = signal<{
+    teamName: string;
+    code: string;
+    teamCode: string;
+    inviterUid: string;
+  } | null>(null);
+  protected readonly isAccepting = signal(false);
+
+  protected async acceptInvite(): Promise<void> {
+    const state = this.confirmState();
+    if (!state || this.isAccepting()) return;
+    this.isAccepting.set(true);
+    try {
+      await this.inviteApi.acceptInvite(state.code, state.teamCode, 'Athlete', state.inviterUid);
+      this.logger.info('Invite accepted by authenticated user', { teamCode: state.teamCode });
+    } catch (err) {
+      this.logger.warn('Invite accept failed (non-blocking)', { error: err });
+    } finally {
+      this.isAccepting.set(false);
+    }
+    this.router.navigate(['/home'], { replaceUrl: true });
+  }
+
+  protected declineInvite(): void {
+    this.router.navigate(['/home'], { replaceUrl: true });
+  }
 
   async ngOnInit(): Promise<void> {
     const code = this.route.snapshot.paramMap.get('code')?.trim().toUpperCase() ?? '';
@@ -155,6 +231,22 @@ export class JoinComponent implements OnInit {
           error: err,
           teamCode,
         });
+      }
+
+      // If the user is already authenticated, show a confirmation instead of redirecting to signup
+      if (this.authFlow.isAuthenticated()) {
+        const displayName = teamName ?? teamData?.teamName ?? 'A team';
+        this.logger.info('Authenticated user opening team invite — showing confirmation', {
+          teamCode,
+          teamName: displayName,
+        });
+        this.confirmState.set({
+          teamName: displayName,
+          code,
+          teamCode: teamCode!,
+          inviterUid,
+        });
+        return;
       }
     }
 

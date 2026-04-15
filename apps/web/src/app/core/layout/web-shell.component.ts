@@ -1206,7 +1206,7 @@ export class WebShellComponent {
       const authUser = this.authFlow.user() as { role?: string | null } | null;
       void this.inviteOverlay.open({
         component: InviteShellComponent,
-        inputs: { isModal: true, user: { role: authUser?.role ?? undefined } },
+        inputs: { isModal: true, inviteType: 'team', user: { role: authUser?.role ?? undefined } },
         size: 'lg',
         backdropDismiss: true,
       });
@@ -1368,7 +1368,7 @@ export class WebShellComponent {
       const authUser = this.authFlow.user() as { role?: string | null } | null;
       void this.inviteOverlay.open({
         component: InviteShellComponent,
-        inputs: { isModal: true, user: { role: authUser?.role ?? undefined } },
+        inputs: { isModal: true, inviteType: 'team', user: { role: authUser?.role ?? undefined } },
         size: 'lg',
         backdropDismiss: true,
       });

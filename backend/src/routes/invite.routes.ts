@@ -336,10 +336,13 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
     let pathCode: string;
 
     if (type === 'team' && teamCode) {
-      // Team invite: /join/{teamCode}?type=team&sport={sport}
+      // Team invite: /join/{teamCode}?type=team&sport={sport}&ref={userId}&teamName={name}
       pathCode = teamCode;
       params.set('type', 'team');
       if (teamSport) params.set('sport', teamSport);
+      // Include inviter UID so join page can pass it to /invite/accept for $5 credit
+      params.set('ref', userId);
+      if (teamName) params.set('teamName', encodeURIComponent(teamName));
     } else {
       // General/profile invite: /join/{referralCode}?type=...
       pathCode = referralCode;

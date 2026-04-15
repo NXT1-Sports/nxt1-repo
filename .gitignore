@@ -9,7 +9,7 @@ lib/
 build/
 www/
 .turbo/
-
+package-lock.json
 # TypeScript compiled output in source directories (use dist/)
 packages/*/src/**/*.js
 packages/*/src/**/*.js.map
