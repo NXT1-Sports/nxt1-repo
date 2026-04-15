@@ -1,0 +1,850 @@
+{
+  "timestamp": "2026-04-14T15:10:44.718Z",
+  "dryRun": false,
+  "stats": {
+    "total": 4710,
+    "migrated": 4580,
+    "skipped": 130,
+    "errors": 0,
+    "warnings": 603,
+    "roleBreakdown": {
+      "athlete": 4565,
+      "coach": 8,
+      "recruiter": 7
+    },
+    "sportBreakdown": {
+      "football": 2538,
+      "tennis womens": 1,
+      "tennis mens": 4,
+      "field hockey": 6,
+      "basketball womens": 67,
+      "wrestling": 41,
+      "baseball": 272,
+      "basketball mens": 720,
+      "volleyball womens": 45,
+      "track & field womens": 14,
+      "soccer mens": 96,
+      "track & field mens": 81,
+      "softball": 233,
+      "cross country mens": 6,
+      "lacrosse mens": 19,
+      "soccer womens": 54,
+      "ice hockey mens": 3,
+      "cross country womens": 1,
+      "volleyball mens": 6,
+      "golf mens": 4,
+      "golf womens": 2,
+      "swimming & diving mens": 4,
+      "gymnastics womens": 1,
+      "lacrosse womens": 1,
+      "gymnastics mens": 1
+    },
+    "formatBreakdown": {
+      "v1": 4580,
+      "v2": 0
+    }
+  },
+  "errors": [],
+  "warnings": [
+    {
+      "uid": "LdU2FburV1Qc6YPiSHWY8smMqzC2",
+      "warnings": ["Could not parse offers JSON (length=28)"]
+    },
+    {
+      "uid": "y0SYP7IEdUPUh47FfulKNagz9XH2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "Yp9MAWQmMjbL0I7KyN3n11yanu82",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "IO7BoS8tuGXXRXkKDjKZIlgQ2o22",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "rp28yCNPlZZd7ZUYkTu2pZN6gcA3",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "MeyC8o4AtjVRTbc4CsVFXlQvRlD3",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "jdMeK19EpPalJJad1jipyNNxLwV2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "Ob7E2kQ71tMyLckX4hOEM5WyzXS2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "ifuc4fJE1RaFM2s4AXlfLAURva42",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "2InGbuUqpIX58hB9hylJddwKhWA2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "nrtgVs1EWlS285neLjBLeWlDv6g2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "wPRXJ9fdiBPALwVr7f6Ro6SlYoA3",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "mEovBIhIgTbj5WxCO2gFjshMo9u2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "zGA4KFfsEEXT5GHIjwkuCzWaad62",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "d1sWzpqrd4UYEPQbtTSsqRgIZWk1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "0UUs7jtz3KNm01KC6nlzzAMx5ta2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "Du5Lg5QAccXBAAQWHvieOepb94Z2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "vQu6bYxFANUQajmtxSgwGESpT6l1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "cSlH2oIyveSgSPX3S62I8FK5Tg52",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "tZAA8Ot9ynf3yJMSKSGSuzRwIbl2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "FzzNxTPWkxMMhegecBzN4vmeKGo2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "C62CdSPEKwc7QEFQ3u0A6UUXeEa2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "5YeKS5tjXAhuPn3E4kPUnD4iY9f2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "INiL9rSRuagK4s6uM6WkpIKMOR32",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "pV8DX0ehE1RqfoPzHjBBPBRLuI93",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "u9qVJpvLBrcRZSQhNsBYqjvGQPF3",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "5SCxnHV37Pe7MphfwO4KwRmelyY2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "JtGsuOvaNBUHbezHyvSG0j92ro93",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "Vf8VIRLZjGUeyOf4bkKdXq4vvju1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "ZvNTHe4JkTVjCeB1m799e0Qaifj1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "92Dd7C2aotYIsms2faKoC6DKNuV2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "sRhr5LPxmPXSvyfHSZfVJEkD6Hq2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "fPbG6YYeRmdTLfw8lIIo8OuCoRv1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "4JtDYERAFFP6QAdPk2YCfjMV0dO2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "fMyzPgKnGrQtTuYp8ZDhqqad5Lz1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "mKNOmtUDj4ZErf2PlGDGUdqkv9f2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "roo7Z81NceTOPE21x77Qcb8VneD2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "5Yek4B6THGZhGIhBTNNNJMQJ7b53",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "DGv4vMEEhBTYftffue3TkQpBw2e2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "DMoNNFQFNUQXuzZBWeCz4jJ2UkQ2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "VKdIVJsqR6g6CXGQp9pMYNumihE3",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "LE6qBZL5E7OSNFVZpYLpwI1s7qI3",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "d26cTa5areTBlS2blnZVpFeJqi22",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "p6354zChgoZJ7JsDvYGdIzSSfiB3",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "vsPlBp4o2ZSyhCmUbtyeRptbxg73",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "Jn7MkJx7Wzec81lSkwScCEO1H2h2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "W4vRiU8oZxPZLuK9RhzHGtBzSNg1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "zmAIj3OwHpV9Eo4SMNjZ8xTLG9n1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "WXOX78Vy5FWarQLqjqrK6BjhMfS2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "kr3yKWNRICMV81OEaHZpA0MjikM2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "ejpJD82r9PdlBV8HdpTSa2zKDZr1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "GjMl27lVkdYRY3cIiMoCPkeDz3u1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "KLruxsmOQJMkWwW0bzy3xvxn1U42",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "KiwBubFQEfSdk4lvwpVgavCHfBF3",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "ZZCsOFxXcMcuepCXkRNwj6N9T7Q2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "67Ne8tNaotWlaG99bKWElY90V6s1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "mBsz9LyVkZRa8zApWDG2yyIZPCf1",
+      "warnings": ["Could not parse offers JSON (length=4)"]
+    },
+    {
+      "uid": "H9rFGhjiWbejPUkEW5QyxhfKqX73",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "lmPfLKh3PhW7JGjkGw9xAiht89q2",
+      "warnings": ["Could not parse offers JSON (length=1)"]
+    },
+    {
+      "uid": "nOwhqVY8Z4RdLYalwouWUjl4HIn2",
+      "warnings": ["Could not parse offers JSON (length=65)"]
+    },
+    {
+      "uid": "syL5LxdtOsNViadK2oQ9Ude5tjk2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "zzOzmAvXPsg4aKAKPmgAydu8WPk2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "OLa0zrwkzcZUcQhkVrmWnpr1oxb2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "0Q7Ui6mFYeeCMVIvT8HoE2DaUCe2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "KYYnLdHuS7QFIhuBy89WCZZZ3wf1",
+      "warnings": ["Could not parse offers JSON (length=68)"]
+    },
+    {
+      "uid": "5jSY3pDxm8XGeQOiUgiDU9wNuTK2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "jHZ0YgA0eDMduDtfEBxNZj1dl6V2",
+      "warnings": ["Could not parse offers JSON (length=16)"]
+    },
+    {
+      "uid": "IEJu3qEcLxYspyCzD0W6NQUcmt53",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "GlbULcCLGXhnAOKbvbQMqgGw0rX2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "XmOFCx9P2LT9IAPsQ57uAySNYhF3",
+      "warnings": ["Could not parse offers JSON (length=639)"]
+    },
+    {
+      "uid": "gkbjc0aKkATuNyASSFAPYUITfj63",
+      "warnings": ["Could not parse offers JSON (length=56)"]
+    },
+    {
+      "uid": "8Adv6UVOPyMCuGttHPzsZ8GxMeu1",
+      "warnings": ["Could not parse offers JSON (length=26)"]
+    },
+    {
+      "uid": "HLfKROxFjtXM1TcBAqOyJQAlUyp1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "255jVrxtthUi6X3Z61XWtcHYe4l2",
+      "warnings": ["Could not parse offers JSON (length=23)"]
+    },
+    {
+      "uid": "X8a4XqzoagS7dAlds5L2dvRNfRm2",
+      "warnings": ["Could not parse offers JSON (length=44)"]
+    },
+    {
+      "uid": "Nzju3YnV8vN8boLFeouwxh6XMgH2",
+      "warnings": ["Could not parse offers JSON (length=12)"]
+    },
+    {
+      "uid": "AKXg4jtVNgP5RfarRU7k7tQoWN23",
+      "warnings": ["Could not parse offers JSON (length=33)"]
+    },
+    {
+      "uid": "fTsEs2JtlNgxBdPlKDwmczF0mgw1",
+      "warnings": ["Could not parse offers JSON (length=40)"]
+    },
+    {
+      "uid": "JwD1WbRSZXWFTo4PuowaPLcQoUT2",
+      "warnings": ["Could not parse offers JSON (length=22)"]
+    },
+    {
+      "uid": "K8eJNnOsDIeuKyGkwbKv118PA2a2",
+      "warnings": ["Could not parse offers JSON (length=24)"]
+    },
+    {
+      "uid": "rBw8jHTdkodFszDRpPKSP3osTU22",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "5kU5WFbvpPdkOM2VI8wyuahotcz2",
+      "warnings": ["Could not parse offers JSON (length=59)"]
+    },
+    {
+      "uid": "DawiMQhOhAc5GTI1zNUT07i5Wa03",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "DBpjlbxKjMT0H1My3lYrzycv2gX2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "FdKPyXs50yakhowmI0eyO8gB2N43",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "BvVLq3meVLQl3N0Qg1Ncmnd6yg72",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "v801IA3pwLhS6AQzTHXdpHPK5ri2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "1KQnUijsmWWADJY0CJyT0rVkqnF2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "VjhARuv5GycpyM6LwUH2Nqsu3aj2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "HyOndT1JhQegktPeKabzRi7I3OO2",
+      "warnings": ["Could not parse offers JSON (length=137)"]
+    },
+    {
+      "uid": "UVa5y5SJUwbmLbSim7H7HCZJecr2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "nuWjl56LYzNRtgnC0htCJ8zJ1kp1",
+      "warnings": ["Could not parse offers JSON (length=367)"]
+    },
+    {
+      "uid": "DizA0wq7cpbswcwide0KQaLwhpg1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "K6MOVFb8HBS2rm6G0WiFQOrIN8t1",
+      "warnings": ["Could not parse offers JSON (length=22)"]
+    },
+    {
+      "uid": "uSqApnZtimOFtmsMcjP1SqjRo1x2",
+      "warnings": ["Could not parse offers JSON (length=261)"]
+    },
+    {
+      "uid": "9SeoZg5fCQcNJsYGzmhWpoTvsF73",
+      "warnings": ["Could not parse offers JSON (length=18)"]
+    },
+    {
+      "uid": "k9Qe6mn1BrdNIuAKGPmEkLfvPwg2",
+      "warnings": ["Could not parse offers JSON (length=113)"]
+    },
+    {
+      "uid": "uMhN6FZx1ZPq4Thxwl4Bu1gfL813",
+      "warnings": ["Could not parse offers JSON (length=126)"]
+    },
+    {
+      "uid": "OjpwkvXpxrcavSMYPdfWLBZCC462",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "ooEJBNV5bTfRtCuuFbJ4CJFwclu2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "MeTPXNGMWycoh8UWrPrCKUeflMu2",
+      "warnings": ["Could not parse offers JSON (length=25)"]
+    },
+    {
+      "uid": "JetC9xYSRUTGH65dpS4TbVNxjRu2",
+      "warnings": ["Could not parse offers JSON (length=46)"]
+    },
+    {
+      "uid": "CMnCnEYyd2fSdMNKUKMyoCJbWHC3",
+      "warnings": ["Could not parse offers JSON (length=34)"]
+    },
+    {
+      "uid": "rsLj5thukwakaEHuB5Wbt72iXQ83",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "IlCyHIcW4aVj5rIiGiQ1gTdr22z1",
+      "warnings": ["Could not parse offers JSON (length=67)"]
+    },
+    {
+      "uid": "fmf83pkfxzWMLEaKpQhmPzP8bE12",
+      "warnings": ["Could not parse offers JSON (length=129)"]
+    },
+    {
+      "uid": "LIpVksfKJ8YhutiunGuPR0dGTHA3",
+      "warnings": ["Could not parse offers JSON (length=18)"]
+    },
+    {
+      "uid": "St69f0CbFAeDwW39eVgyVYdKf9C3",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "0tNl9jzPF9MmgeF0Vr2AEEtmQtz2",
+      "warnings": ["Could not parse offers JSON (length=113)"]
+    },
+    {
+      "uid": "ISfayIdBpCfHAbgIXVmmYb0T0xr1",
+      "warnings": ["Could not parse offers JSON (length=32)"]
+    },
+    {
+      "uid": "ON3d4nTM67OPrNJE5mWXtI7vJUw2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "8PWt5mHSWARHhqkmVtJ5nHYy6tQ2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "Q6l6YoyykyfUf7sjejMA71VEnLB3",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "lcUSM56czFfsC2ObFXERA7ElSCo2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "2bb6kz3JZheFIohEQZtc4v7tmDD3",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "SEru0Qh8jAg6xutZBbgwDZkVFMG2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "i5RsEGuBY0ZG43XciK4Gm0hCXDJ2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "Xey2JZJ8y6dKsmjIdsQj6NkxPgo2",
+      "warnings": ["Could not parse offers JSON (length=27)"]
+    },
+    {
+      "uid": "MPR4UjST0devYzEfBxx9ExSRSfY2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "OXGkz5AE7rQw19JwIZoUkuLmA6m2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "kHb9UKlxnAbNZfbODlX78WBCxOy1",
+      "warnings": ["Could not parse offers JSON (length=37)"]
+    },
+    {
+      "uid": "4FvJXxOmWaSmNJNsMKLrpju91iN2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "KIdnsb3n3teHM7ifVj7Zpa5U2R03",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "6wx3PN9877b1JYSFRPOY1Jlk4kB3",
+      "warnings": ["Could not parse offers JSON (length=55)"]
+    },
+    {
+      "uid": "Qvjph5ATjeP1v6LusMsCqBLY1a52",
+      "warnings": ["Could not parse offers JSON (length=34)"]
+    },
+    {
+      "uid": "FKUFdxSpkcYwaO1mZZaJdeGHx3b2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "b9xeYDgc6NOTav47RVLIMGrZpA62",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "YeAyiM5WQjQggoEoE0akLvWLvzq1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "8kGVyJJnTnZVpDcoSlxJeb9GIwe2",
+      "warnings": ["Could not parse offers JSON (length=47)"]
+    },
+    {
+      "uid": "tC6cOtbEFwdwxdVz5hEUgeXamGa2",
+      "warnings": ["Could not parse offers JSON (length=24)"]
+    },
+    {
+      "uid": "7ZYkjzqLeNhAbD5fj593Yd2Nf8z1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "rewFv3X54zLs4eemfXgq53HZG8r1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "GvQLOq2tODRNSGBHTmE9kHQcmwY2",
+      "warnings": ["Could not parse offers JSON (length=32)"]
+    },
+    {
+      "uid": "GbfYFK4pZCX1dPFd4EAH6ughQmu1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "uLmI6dha3sbSkznvUPuemdgE4qN2",
+      "warnings": ["Could not parse offers JSON (length=22)"]
+    },
+    {
+      "uid": "evIdVndqrIPCVUjFyKZyc5WTQeA3",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "ZZbIaYq8byWe5fyKptNboH2SOTA2",
+      "warnings": ["Could not parse offers JSON (length=324)"]
+    },
+    {
+      "uid": "v25b7F0d2PU8nRBxiu5ZmwUanL33",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "oRit4wznXXcFbyuMStAuNBCjD8w2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "TxRXBtj647bHWID42VqZc9kpWe02",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "Q3gp9OIZ9dW5KzVqs4PN1ws9gaH3",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "igGVbWluDqWgpflptG4hgFgmfa83",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "MxELDFcNWrYoiBBBiRDxyJofEIn1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "CwOI8Nu2Y3hbdxme9nweheDFH7x1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "pA0hrLnk8xbY7v8E3k4RnfrUQ1D2",
+      "warnings": ["Could not parse offers JSON (length=105)"]
+    },
+    {
+      "uid": "EB09g0RZlpYYSfbs1kGsqgmeY7I3",
+      "warnings": ["Could not parse offers JSON (length=49)"]
+    },
+    {
+      "uid": "O9yftiSzjcaNbBJ99QmiuXVV5ML2",
+      "warnings": ["Could not parse offers JSON (length=15)"]
+    },
+    {
+      "uid": "ICLqOTIIL8Td6SUCxQ4SLBCH0JP2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "QzP3yRJxf2QlroadLxyIVShptPc2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "8yQPblSgaRQktL561Mg7JLdgMim1",
+      "warnings": ["Could not parse offers JSON (length=97)"]
+    },
+    {
+      "uid": "byJ4kCkS8lf8md2tMgEL7mBRRo53",
+      "warnings": ["Could not parse offers JSON (length=58)"]
+    },
+    {
+      "uid": "26pT2QYCKPZhAjwcgHTwuONbgAM2",
+      "warnings": ["Could not parse offers JSON (length=197)"]
+    },
+    {
+      "uid": "cUpSg0vEotfQpvGHui4jAr7ZmhJ3",
+      "warnings": ["Could not parse offers JSON (length=27)"]
+    },
+    {
+      "uid": "VZcQTqr257c3fPSC7Joi7ic2Y5g1",
+      "warnings": ["Could not parse offers JSON (length=39)"]
+    },
+    {
+      "uid": "1xMhoZnIT0V5kiZxaQqKvqRwjGv1",
+      "warnings": ["Could not parse offers JSON (length=27)"]
+    },
+    {
+      "uid": "ZEfzzwHVxogUJtkU7jrEyCTKqKC3",
+      "warnings": ["Could not parse offers JSON (length=133)"]
+    },
+    {
+      "uid": "GbZMPe2JEKbMLk6n4mpIouZuBH22",
+      "warnings": ["Could not parse offers JSON (length=24)"]
+    },
+    {
+      "uid": "rFFpEQRgPiPflJqpF7MS4bxLfII2",
+      "warnings": ["Could not parse offers JSON (length=53)"]
+    },
+    {
+      "uid": "fRcqGkZ4ksVAtJWPhiQwoHyQYju2",
+      "warnings": ["Could not parse offers JSON (length=19)"]
+    },
+    {
+      "uid": "ipYxCmqnw8Rtr6rweBV1ICkYRHH3",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "GpaiHRaKcJOhibLwVr6uZdiSpgu1",
+      "warnings": ["Could not parse offers JSON (length=14)"]
+    },
+    {
+      "uid": "vPJsgJ6SnWe0NXlYGfRBQ1ywKAi1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "BQgNojyHRETJAwGk0Ax9plF4dq92",
+      "warnings": ["Could not parse offers JSON (length=23)"]
+    },
+    {
+      "uid": "zUjXtmX7seRMtS3mMsFjaKsFU7X2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "5CC3b6N2rOfHoKIrjZIVtpcItRP2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "dng7ioGYw5XhHXNKduhbpDe1p9p2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "NcZLi80j9ddAByIcbnVt8Gr9oLk1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "lPNMz8zxamWIanoEH2v7sV72oeB2",
+      "warnings": ["Could not parse offers JSON (length=17)"]
+    },
+    {
+      "uid": "aPgYONXj4FRGJimFpk6geptqdmT2",
+      "warnings": ["Could not parse offers JSON (length=249)"]
+    },
+    {
+      "uid": "pModueyCwGayprpesAAiV18Gafl2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "ZGgOmPP5w3NLt3Fl5P6b34qt65A3",
+      "warnings": ["Could not parse offers JSON (length=20)"]
+    },
+    {
+      "uid": "pOZ5hI4Qb3P3ffT3yRCqMhqqquv2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "FfTuXtsD1DOgGT6WwhtgT9RLRiq1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "D2zudvkaJqecSAygrH1hHhoNYWe2",
+      "warnings": ["Could not parse offers JSON (length=122)"]
+    },
+    {
+      "uid": "I44ZkqVZzygupJlv3zbZn6mpqDs2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "qrNp2Dnv86XRjnx3u3tgRdCN9nh1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "FaI5kXsPaoSrk6r9nxyF8WBNZ5r1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "aHBgkjL29MWJKcYmNeP4etp1civ1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "DO4ZEY4Z4PQxcdFtCqSuSxHOUCN2",
+      "warnings": ["Could not parse offers JSON (length=14)"]
+    },
+    {
+      "uid": "JPrs9axKQRTl83yj0r5qmQxgk9r2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "Tghdd4ywnoh81CyAUpxfoi5Csvk2",
+      "warnings": ["Could not parse offers JSON (length=66)"]
+    },
+    {
+      "uid": "OombjDiPwZYSVRcGBRRHqyEcto02",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "bt62751CVrctcZ6itLiEjoCX9Gs2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "FBljZ37F9Pc5lfF7zjBm7VWOg5L2",
+      "warnings": ["Could not parse offers JSON (length=38)"]
+    },
+    {
+      "uid": "lkKieVjDLTTOP2cqtwL2t2r1opF2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "ibQP0XbBv2deCKbr1CBra7yNcds2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "Trn0kxOToBNVGMqvfguj2l0hft92",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "jCCoWVKf5kcw2VftWWZZ2dXe5Yp2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "SdCjf6JaArNemwPhlFuSaWbtxwp1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "PINjcPF29DNNwsY9Eq3XZAchLaS2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "nSIF2fkZoUUBEhbYxqCVA3Al1YO2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "MKucdeiI13MzBCi8SNsgJR4XL0L2",
+      "warnings": ["Could not parse offers JSON (length=46)"]
+    },
+    {
+      "uid": "zu0sHo0fAUWhsind2cbYlS3b36t1",
+      "warnings": ["Could not parse offers JSON (length=23)"]
+    },
+    {
+      "uid": "IgPretuQTncAQaqPRUOSOuUH9Q13",
+      "warnings": ["Could not parse offers JSON (length=60)"]
+    },
+    {
+      "uid": "kQrqkXu67fTXuwO3itkvG5hAsbi1",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "LG3B0hyRsddhWcp6XIpLaLHFORk2",
+      "warnings": ["Athlete has no sport data"]
+    },
+    {
+      "uid": "PX6aPeaoYMeItOy6PrYtruAAXxE2",
+      "warnings": ["Could not parse offers JSON (length=125)"]
+    },
+    {
+      "uid": "J0EIleB5pIaRMh7ljZTFeGyXmyp1",
+      "warnings": ["Could not parse offers JSON (length=107)"]
+    },
+    {
+      "uid": "X3kjGNG688S0Q4pmZQVcfQmaeRk1",
+      "warnings": ["Could not parse offers JSON (length=15)"]
+    },
+    {
+      "uid": "TdaXXpYr8bVl5Z8FuoEo3Ogmxvu2",
+      "warnings": ["Could not parse offers JSON (length=155)"]
+    }
+  ]
+}

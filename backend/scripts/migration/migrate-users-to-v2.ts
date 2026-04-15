@@ -22,6 +22,7 @@
  *   --target=       staging (default) | production
  *   --verbose       Print per-user transform detail
  *   --resume        Start after last migrated user (by createdAt)
+ *   --email=        Process only the single user with this email (bypasses test/demo filter)
  *   --legacy-sa=    Override path to legacy service account JSON
  *
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -30,6 +31,8 @@
 import {
   initLegacyApp,
   initTargetApp,
+  getTarget,
+  getArg,
   isDryRun,
   isVerbose,
   getLimit,
@@ -51,6 +54,8 @@ import {
   normalizeRole,
   migrationMeta,
   safeJsonParse,
+  rewriteStorageUrlWithPath,
+  rewriteStorageUrlsWithPath,
 } from './migration-utils.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -100,33 +105,20 @@ function isV2Format(d: LegacyUser): boolean {
   );
 }
 
-const LEGACY_BUCKET = process.env['LEGACY_FIREBASE_STORAGE_BUCKET'] || 'nxt-1-de054.appspot.com';
 const STAGING_BUCKET =
   process.env['STAGING_FIREBASE_STORAGE_BUCKET'] || 'nxt-1-staging-v2.firebasestorage.app';
+const PRODUCTION_BUCKET = process.env['FIREBASE_STORAGE_BUCKET'] || 'nxt-1-v2.firebasestorage.app';
+// Resolved at startup: pick the right target bucket based on --target flag
+const TARGET_BUCKET = getTarget() === 'production' ? PRODUCTION_BUCKET : STAGING_BUCKET;
 
-/**
- * Rewrite a Firebase Storage URL from legacy bucket → staging bucket.
- * Handles both URL formats:
- *   https://firebasestorage.googleapis.com/v0/b/nxt-1-de054.appspot.com/o/...
- *   https://storage.googleapis.com/nxt-1-de054.appspot.com/...
- * Returns the original URL unchanged if it's not a legacy storage URL.
- */
-function rewriteStorageUrl(url: string | undefined): string | undefined {
-  if (!url) return undefined;
-  return url
-    .replace(
-      `https://firebasestorage.googleapis.com/v0/b/${LEGACY_BUCKET}/`,
-      `https://firebasestorage.googleapis.com/v0/b/${STAGING_BUCKET}/`
-    )
-    .replace(
-      `https://storage.googleapis.com/${LEGACY_BUCKET}/`,
-      `https://storage.googleapis.com/${STAGING_BUCKET}/`
-    );
+/** Rewrite a single storage URL with path remapping. Requires uid context for correct folder. */
+function rewriteStorageUrl(url: string | undefined, uid?: string): string | undefined {
+  return rewriteStorageUrlWithPath(url, TARGET_BUCKET, uid ? { uid } : {});
 }
 
-/** Apply rewriteStorageUrl to an array of URLs */
-function rewriteStorageUrls(urls: string[]): string[] {
-  return urls.map((u) => rewriteStorageUrl(u) ?? u);
+/** Rewrite an array of storage URLs with path remapping. */
+function rewriteStorageUrls(urls: string[], uid?: string): string[] {
+  return rewriteStorageUrlsWithPath(urls, TARGET_BUCKET, uid ? { uid } : {});
 }
 
 /** Safely extract a nested value: get(data, 'social.hudl') */
@@ -171,7 +163,7 @@ function transformLegacyUser(docId: string, d: LegacyUser): TransformResult {
   const unicode = cleanString(d['unicode']) || '';
   const username = unicode || generateUsername(firstName, lastName, d['classOf']);
 
-  const profileImg = rewriteStorageUrl(cleanString(d['profileImg']));
+  const profileImg = rewriteStorageUrl(cleanString(d['profileImg']), docId);
   const profileImgs: string[] = profileImg ? [profileImg] : [];
 
   // ─── B. Role Mapping ────────────────────────────────────────────────
@@ -191,7 +183,7 @@ function transformLegacyUser(docId: string, d: LegacyUser): TransformResult {
     for (let i = 0; i < (d['sports'] as unknown[]).length; i++) {
       const s = (d['sports'] as Record<string, unknown>[])[i];
       if (!s || typeof s !== 'object') continue;
-      sports.push(mapV2Sport(s, i, d, warnings));
+      sports.push(mapV2Sport(s, i, d, warnings, docId));
     }
   } else {
     // V1 format: build sports[0] from flat primary fields
@@ -205,13 +197,14 @@ function transformLegacyUser(docId: string, d: LegacyUser): TransformResult {
             athleticInfo: d['primarySportAthleticInfo'],
             stats: d['primarySportStats'],
             gameStats: d['primarySportGameStats'],
-            profileImg: rewriteStorageUrl(cleanString(d['primarySportProfileImg']) || profileImg),
+            profileImg: cleanString(d['primarySportProfileImg']) || profileImg,
             level: cleanString(d['level']),
             side: d['side'],
           },
           /* order */ 0,
           d,
-          warnings
+          warnings,
+          docId
         )
       );
     }
@@ -233,7 +226,8 @@ function transformLegacyUser(docId: string, d: LegacyUser): TransformResult {
           },
           /* order */ 1,
           d,
-          warnings
+          warnings,
+          docId
         )
       );
     }
@@ -309,8 +303,8 @@ function transformLegacyUser(docId: string, d: LegacyUser): TransformResult {
     username,
     unicode,
     aboutMe: cleanString(d['aboutMe']) || '',
-    bannerImg: rewriteStorageUrl(cleanString(d['bannerImg'])) || null,
-    profileImgs: rewriteStorageUrls(profileImgs),
+    bannerImg: rewriteStorageUrl(cleanString(d['bannerImg']), docId) || null,
+    profileImgs: rewriteStorageUrls(profileImgs, docId),
     gender: cleanString(d['gender']) || undefined,
 
     // B — Role & Status
@@ -394,7 +388,8 @@ function buildSportProfile(
   },
   order: number,
   d: LegacyUser,
-  warnings: string[]
+  warnings: string[],
+  uid: string
 ): Record<string, unknown> {
   const sport = params.sport.toLowerCase().trim();
   const positions = normalizePositions(params.positions);
@@ -449,7 +444,7 @@ function buildSportProfile(
   const recruiting = buildRecruitingSummary(d, order, warnings);
 
   // ── Primary video
-  const pinnedVideo = rewriteStorageUrl(cleanString(d['pinnedProfileVideo']));
+  const pinnedVideo = rewriteStorageUrl(cleanString(d['pinnedProfileVideo']), uid);
   const primaryVideo = pinnedVideo ? { url: pinnedVideo } : undefined;
 
   const now = new Date().toISOString();
@@ -457,7 +452,7 @@ function buildSportProfile(
   const profile: Record<string, unknown> = {
     sport,
     order,
-    profileImg: rewriteStorageUrl(params.profileImg) || undefined,
+    profileImg: rewriteStorageUrl(params.profileImg, uid) || undefined,
     positions,
     level: params.level || undefined,
     side: normalizeSide(params.side),
@@ -482,7 +477,8 @@ function mapV2Sport(
   s: Record<string, unknown>,
   index: number,
   d: LegacyUser,
-  warnings: string[]
+  warnings: string[],
+  uid: string
 ): Record<string, unknown> {
   const sport = cleanString(s['sport'])?.toLowerCase() || 'unknown';
   const positions = normalizePositions(s['positions']);
@@ -523,7 +519,7 @@ function mapV2Sport(
   const profile: Record<string, unknown> = {
     sport,
     order: typeof s['order'] === 'number' ? s['order'] : index,
-    profileImg: rewriteStorageUrl(cleanString(s['profileImg'])) || undefined,
+    profileImg: rewriteStorageUrl(cleanString(s['profileImg']), uid) || undefined,
     positions,
     level: cleanString(s['level']) || undefined,
     side: normalizeSide(s['side']),
@@ -1076,6 +1072,7 @@ async function main(): Promise<void> {
   const limit = getLimit();
   const resume = hasFlag('resume');
   const targetUsersOnly = hasFlag('target-users');
+  const emailFilter = getArg('email')?.toLowerCase().trim() || null;
 
   const stats: MigrationStats = {
     total: 0,
@@ -1189,88 +1186,149 @@ async function main(): Promise<void> {
     await writer.flush();
   } else {
     // ─── Mode B: Full migration (paginate all users) ──────────────────
-    while (true) {
-      // Build paginated query
-      let query: FirebaseFirestore.Query = legacyDb
+
+    // Fast path: when --email is set, query directly instead of paginating
+    if (emailFilter) {
+      console.log(`  Mode: single-user (email=${emailFilter})\n`);
+      const emailSnap = await legacyDb
         .collection(COLLECTIONS.LEGACY_USERS)
-        .orderBy('createdAt', 'asc')
-        .limit(PAGE_SIZE);
+        .where('email', '==', emailFilter)
+        .limit(1)
+        .get();
 
-      if (resumeAfter && !cursor) {
-        query = query.startAfter(resumeAfter);
-      } else if (cursor) {
-        query = query.startAfter(cursor);
-      }
-
-      const snap = await query.get();
-      if (snap.empty) break;
-
-      for (const doc of snap.docs) {
-        if (limit > 0 && processed >= limit) break;
-
-        stats.total++;
-        processed++;
+      if (emailSnap.empty) {
+        console.log(`  ⚠ No user found with email: ${emailFilter}`);
+      } else {
+        const doc = emailSnap.docs[0];
         const uid = doc.id;
         const data = doc.data() as LegacyUser;
-
+        stats.total++;
+        processed++;
         try {
-          // Track format
-          if (isV2Format(data)) {
-            stats.formatBreakdown.v2++;
-          } else {
-            stats.formatBreakdown.v1++;
-          }
-
-          // Transform
+          if (isV2Format(data)) stats.formatBreakdown.v2++;
+          else stats.formatBreakdown.v1++;
           const { user, warnings } = transformLegacyUser(uid, data);
-
-          // Track role
           const role = user['role'] as string;
           stats.roleBreakdown[role] = (stats.roleBreakdown[role] || 0) + 1;
-
-          // Track sports
           const sports = user['sports'] as Record<string, unknown>[];
           for (const s of sports) {
             const sn = (s['sport'] as string) || 'unknown';
             stats.sportBreakdown[sn] = (stats.sportBreakdown[sn] || 0) + 1;
           }
-
-          // Track warnings
           if (warnings.length > 0) {
             stats.warnings += warnings.length;
             warningLog.push({ uid, warnings });
-            if (isVerbose) {
-              console.log(`\n    ⚠ ${uid}: ${warnings.join('; ')}`);
-            }
           }
-
-          // Write to target (preserve UID)
+          if (isVerbose) {
+            console.log(`\n    User: ${uid}`);
+            console.log(JSON.stringify(user, null, 2));
+          }
           const ref = targetDb.collection(COLLECTIONS.USERS).doc(uid);
           writer.set(ref, user);
-          await writer.flushIfNeeded();
-
+          await writer.flush();
           stats.migrated++;
-
-          if (isVerbose && stats.migrated % 50 === 0) {
-            console.log(
-              `\n    ✓ ${uid} → role=${role}, sports=${sports.length}, measurables=${(user['measurables'] as unknown[]).length}`
-            );
-          }
         } catch (err) {
           stats.errors++;
           const msg = err instanceof Error ? err.message : String(err);
           errorLog.push({ uid, error: msg });
           console.error(`\n    ❌ ${uid}: ${msg}`);
         }
-
-        progress.tick(processed);
       }
+    } else {
+      // ─── Normal paginated migration ─────────────────────────────────
+      while (true) {
+        // Build paginated query
+        let query: FirebaseFirestore.Query = legacyDb
+          .collection(COLLECTIONS.LEGACY_USERS)
+          .orderBy('createdAt', 'asc')
+          .limit(PAGE_SIZE);
 
-      cursor = snap.docs[snap.docs.length - 1];
+        if (resumeAfter && !cursor) {
+          query = query.startAfter(resumeAfter);
+        } else if (cursor) {
+          query = query.startAfter(cursor);
+        }
 
-      // Respect limit
-      if (limit > 0 && processed >= limit) break;
-    } // end while (Mode B)
+        const snap = await query.get();
+        if (snap.empty) break;
+
+        for (const doc of snap.docs) {
+          if (limit > 0 && processed >= limit) break;
+
+          stats.total++;
+          processed++;
+          const uid = doc.id;
+          const data = doc.data() as LegacyUser;
+
+          // Skip test/demo accounts — not migrated to Auth in production
+          const userEmail = cleanEmail(data['email'] as string) || '';
+          if (
+            userEmail &&
+            (userEmail.toLowerCase().includes('test') || userEmail.toLowerCase().includes('demo'))
+          ) {
+            stats.skipped++;
+            continue;
+          }
+
+          try {
+            // Track format
+            if (isV2Format(data)) {
+              stats.formatBreakdown.v2++;
+            } else {
+              stats.formatBreakdown.v1++;
+            }
+
+            // Transform
+            const { user, warnings } = transformLegacyUser(uid, data);
+
+            // Track role
+            const role = user['role'] as string;
+            stats.roleBreakdown[role] = (stats.roleBreakdown[role] || 0) + 1;
+
+            // Track sports
+            const sports = user['sports'] as Record<string, unknown>[];
+            for (const s of sports) {
+              const sn = (s['sport'] as string) || 'unknown';
+              stats.sportBreakdown[sn] = (stats.sportBreakdown[sn] || 0) + 1;
+            }
+
+            // Track warnings
+            if (warnings.length > 0) {
+              stats.warnings += warnings.length;
+              warningLog.push({ uid, warnings });
+              if (isVerbose) {
+                console.log(`\n    ⚠ ${uid}: ${warnings.join('; ')}`);
+              }
+            }
+
+            // Write to target (preserve UID)
+            const ref = targetDb.collection(COLLECTIONS.USERS).doc(uid);
+            writer.set(ref, user);
+            await writer.flushIfNeeded();
+
+            stats.migrated++;
+
+            if (isVerbose && stats.migrated % 50 === 0) {
+              console.log(
+                `\n    ✓ ${uid} → role=${role}, sports=${sports.length}, measurables=${(user['measurables'] as unknown[]).length}`
+              );
+            }
+          } catch (err) {
+            stats.errors++;
+            const msg = err instanceof Error ? err.message : String(err);
+            errorLog.push({ uid, error: msg });
+            console.error(`\n    ❌ ${uid}: ${msg}`);
+          }
+
+          progress.tick(processed);
+        }
+
+        cursor = snap.docs[snap.docs.length - 1];
+
+        // Respect limit
+        if (limit > 0 && processed >= limit) break;
+      } // end while (Mode B)
+    } // end else (emailFilter fast path)
   } // end else (Mode B)
 
   // Flush remaining writes

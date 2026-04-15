@@ -1,0 +1,56 @@
+{
+  "migrationId": "canary-2026-04-10",
+  "checkedAt": "2026-04-10T17:54:38.609Z",
+  "sourceProject": "nxt-1-de054",
+  "results": [
+    {
+      "email": "john@nxt1sports.com",
+      "uid": "p8OiVVIknKhgncxVahKeRs8HzD63",
+      "firestoreExists": true,
+      "authExists": true,
+      "firstName": "John",
+      "lastName": "Doe",
+      "role": "Athlete"
+    },
+    {
+      "email": "ngocsonxx98@gmail.com",
+      "uid": "aQCDuA3XYdcJdLt6wpzpxWgeHge2",
+      "firestoreExists": true,
+      "authExists": true,
+      "firstName": "8128",
+      "lastName": "Hsua"
+    },
+    {
+      "email": "sonngoc.dev@gmail.com",
+      "uid": "evIdVndqrIPCVUjFyKZyc5WTQeA3",
+      "firestoreExists": true,
+      "authExists": true
+    },
+    {
+      "email": "web.developer.gz@gmail.com",
+      "uid": "pXBew7UKMPPuMvpX8HBDZaqjvIA3",
+      "firestoreExists": true,
+      "authExists": true,
+      "firstName": "William",
+      "lastName": "Johnson",
+      "role": "Parent"
+    },
+    {
+      "email": "superadmin@nxt1sports.com",
+      "uid": "8bFPSc7LY6VoAL6kEDO6pEha8yE2",
+      "firestoreExists": true,
+      "authExists": true,
+      "firstName": "NXT 1",
+      "lastName": "Sports"
+    },
+    {
+      "email": "devtest@test.com",
+      "uid": "i1GWzZbhfaTPeErWgVAcYHSkHFg2",
+      "firestoreExists": true,
+      "authExists": true,
+      "firstName": "Ngoc ",
+      "lastName": "Son",
+      "role": "Athlete"
+    }
+  ]
+}

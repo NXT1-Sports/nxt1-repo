@@ -109,6 +109,7 @@ export function initLegacyApp(): { app: App; db: Firestore } {
 
   const app = initializeApp({ credential: cert(sa) }, LEGACY_APP_NAME);
   const db = getFirestore(app);
+  db.settings({ ignoreUndefinedProperties: true });
   return { app, db };
 }
 
@@ -127,17 +128,20 @@ export function initTargetApp(): { app: App; db: Firestore } {
   const target = getTarget();
 
   // Try env variables first (matches migrate-auth-master.ts pattern)
+  // For production: check PRODUCTION_FIREBASE_* first, then fallback to unprefixed FIREBASE_*
   const envProjectId =
     target === 'production'
-      ? process.env['PRODUCTION_FIREBASE_PROJECT_ID']
+      ? (process.env['PRODUCTION_FIREBASE_PROJECT_ID'] ?? process.env['FIREBASE_PROJECT_ID'])
       : process.env['STAGING_FIREBASE_PROJECT_ID'];
   const envClientEmail =
     target === 'production'
-      ? process.env['PRODUCTION_FIREBASE_CLIENT_EMAIL']
+      ? (process.env['PRODUCTION_FIREBASE_CLIENT_EMAIL'] ?? process.env['FIREBASE_CLIENT_EMAIL'])
       : process.env['STAGING_FIREBASE_CLIENT_EMAIL'];
   const envPrivateKey =
     target === 'production'
-      ? process.env['PRODUCTION_FIREBASE_PRIVATE_KEY']?.replace(/\\n/g, '\n')
+      ? (
+          process.env['PRODUCTION_FIREBASE_PRIVATE_KEY'] ?? process.env['FIREBASE_PRIVATE_KEY']
+        )?.replace(/\\n/g, '\n')
       : process.env['STAGING_FIREBASE_PRIVATE_KEY']?.replace(/\\n/g, '\n');
 
   if (envProjectId && envClientEmail && envPrivateKey) {
@@ -153,6 +157,7 @@ export function initTargetApp(): { app: App; db: Firestore } {
       TARGET_APP_NAME
     );
     const db = getFirestore(app);
+    db.settings({ ignoreUndefinedProperties: true });
     return { app, db };
   }
 
@@ -162,6 +167,7 @@ export function initTargetApp(): { app: App; db: Firestore } {
   const sa = loadServiceAccount(saPath);
   const app = initializeApp({ credential: cert(sa) }, TARGET_APP_NAME);
   const db = getFirestore(app);
+  db.settings({ ignoreUndefinedProperties: true });
   return { app, db };
 }
 
@@ -474,13 +480,113 @@ export const COLLECTIONS = {
   ORGANIZATIONS: 'Organizations',
   TEAMS: 'Teams',
   ROSTER_ENTRIES: 'RosterEntries',
-  RECRUITING: 'recruiting',
-  POSTS: 'posts',
-  PLAYER_STATS: 'playerStats',
-  GAME_STATS: 'gameStats',
+  RECRUITING: 'Recruiting',
+  POSTS: 'Posts',
+  PLAYER_STATS: 'PlayerStats',
+  GAME_STATS: 'GameStats',
   PLAYER_METRICS: 'PlayerMetrics',
-  BILLING_CONTEXTS: 'billingContexts',
+  BILLING_CONTEXTS: 'BillingContexts',
 } as const;
+
+// ─── Storage URL Path Rewriting ──────────────────────────────────────────────
+
+export const LEGACY_STORAGE_BUCKET = 'nxt-1-de054.appspot.com';
+
+export interface StorageRewriteCtx {
+  uid?: string;
+  teamId?: string;
+}
+
+/**
+ * Map a legacy storage path to the new folder structure.
+ * - Users/{uid}/...        → Profiles/ProfileImages/{uid}/...
+ * - ProspectProfiles/{uid}/... → Profiles/ProfileImages/{uid}/...
+ * - HighLightImages/{file} → Profiles/FeedImages/{uid}/{file}  (uid from ctx)
+ * - posts/{rest}           → Profiles/FeedImages/{uid}/{rest}  (uid from ctx)
+ * - TeamsLogo/{file}       → Teams/TeamLogos/{file}
+ * - UserTemplates/{file}   → Teams/GalleryImages/{teamId}/{file} (teamId from ctx)
+ */
+function mapStoragePath(path: string, ctx: StorageRewriteCtx): string {
+  if (path.startsWith('Users/')) return path.replace(/^Users\//, 'Profiles/ProfileImages/');
+  if (path.startsWith('ProspectProfiles/'))
+    return path.replace(/^ProspectProfiles\//, 'Profiles/ProfileImages/');
+  if (path.startsWith('HighLightImages/')) {
+    const filename = path.slice('HighLightImages/'.length);
+    return ctx.uid
+      ? `Profiles/FeedImages/${ctx.uid}/${filename}`
+      : `Profiles/FeedImages/${filename}`;
+  }
+  if (path.startsWith('posts/')) {
+    const rest = path.slice('posts/'.length);
+    return ctx.uid ? `Profiles/FeedImages/${ctx.uid}/${rest}` : `Profiles/FeedImages/${rest}`;
+  }
+  if (path.startsWith('TeamsLogo/')) return path.replace(/^TeamsLogo\//, 'Teams/TeamLogos/');
+  if (path.startsWith('UserTemplates/')) {
+    const filename = path.slice('UserTemplates/'.length);
+    return ctx.teamId
+      ? `Teams/GalleryImages/${ctx.teamId}/${filename}`
+      : `Teams/GalleryImages/${filename}`;
+  }
+  return path;
+}
+
+/**
+ * Rewrite a Firebase Storage URL from the legacy bucket to targetBucket,
+ * remapping the folder path according to the V3 storage structure.
+ * Strips invalid `token=` params; preserves `alt=media`.
+ * Returns the original URL unchanged if it doesn't point to the legacy bucket.
+ */
+export function rewriteStorageUrlWithPath(
+  url: string | undefined,
+  targetBucket: string,
+  ctx: StorageRewriteCtx = {}
+): string | undefined {
+  if (!url) return undefined;
+
+  // ── Firebase Storage URL format ──────────────────────────────────────────
+  // https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<encoded-path>?<query>
+  const fbRe =
+    /^(https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/)([^/]+)(\/o\/)([^?#]+)((?:\?[^#]*)?)$/;
+  const fm = url.match(fbRe);
+  if (fm) {
+    const [, prefix, bucket, oSlash, encodedPath, query] = fm;
+    if (bucket !== LEGACY_STORAGE_BUCKET) return url;
+    const decodedPath = decodeURIComponent(encodedPath);
+    const newPath = mapStoragePath(decodedPath, ctx);
+    const newEncoded = newPath.split('/').map(encodeURIComponent).join('%2F');
+    // Strip token= but keep alt=media
+    let newQuery = query
+      .replace(/[?&]token=[^&]*/g, '')
+      .replace(/^&/, '?')
+      .replace(/\?$/, '');
+    if (query.includes('alt=media') && !newQuery.includes('alt=media')) {
+      newQuery = newQuery ? `${newQuery}&alt=media` : '?alt=media';
+    }
+    return `${prefix}${targetBucket}${oSlash}${newEncoded}${newQuery}`;
+  }
+
+  // ── GCS URL format ────────────────────────────────────────────────────────
+  // https://storage.googleapis.com/<bucket>/<path>
+  const gcsRe = /^(https:\/\/storage\.googleapis\.com\/)([^/]+)\/(.+)$/;
+  const gm = url.match(gcsRe);
+  if (gm) {
+    const [, prefix, bucket, path] = gm;
+    if (bucket !== LEGACY_STORAGE_BUCKET) return url;
+    const newPath = mapStoragePath(path, ctx);
+    return `${prefix}${targetBucket}/${newPath}`;
+  }
+
+  return url;
+}
+
+/** Apply rewriteStorageUrlWithPath to an array of URLs */
+export function rewriteStorageUrlsWithPath(
+  urls: string[],
+  targetBucket: string,
+  ctx: StorageRewriteCtx = {}
+): string[] {
+  return urls.map((u) => rewriteStorageUrlWithPath(u, targetBucket, ctx) ?? u);
+}
 
 // ─── Migration Metadata ───────────────────────────────────────────────────────
 

@@ -23,6 +23,7 @@ import {
   isDryRun,
   isVerbose,
   getLimit,
+  getTarget,
   PAGE_SIZE,
   COLLECTIONS,
   BatchWriter,
@@ -36,7 +37,13 @@ import {
   cleanEmail,
   migrationMeta,
   normalizeRole,
+  rewriteStorageUrlWithPath,
 } from './migration-utils.js';
+
+const TARGET_BUCKET =
+  getTarget() === 'production'
+    ? process.env['FIREBASE_STORAGE_BUCKET'] || 'nxt-1-v2.firebasestorage.app'
+    : process.env['STAGING_FIREBASE_STORAGE_BUCKET'] || 'nxt-1-staging-v2.firebasestorage.app';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -199,7 +206,8 @@ function buildOrganizationDoc(
             country: 'US',
           }
         : undefined,
-    logoUrl: cleanString(legacy.teamLogoImg) ?? undefined,
+    logoUrl:
+      rewriteStorageUrlWithPath(cleanString(legacy.teamLogoImg), TARGET_BUCKET, {}) ?? undefined,
     primaryColor: cleanString(legacy.teamColor1) ?? undefined,
     secondaryColor: cleanString(legacy.teamColor2) ?? undefined,
     mascot: cleanString(legacy.mascot) ?? undefined,
@@ -247,8 +255,10 @@ function buildTeamDoc(
     expireAt: toISOString(legacy.expireAt) ?? undefined,
 
     // Branding
-    logoUrl: cleanString(legacy.teamLogoImg) ?? undefined,
-    teamLogoImg: cleanString(legacy.teamLogoImg) ?? undefined,
+    logoUrl:
+      rewriteStorageUrlWithPath(cleanString(legacy.teamLogoImg), TARGET_BUCKET, {}) ?? undefined,
+    teamLogoImg:
+      rewriteStorageUrlWithPath(cleanString(legacy.teamLogoImg), TARGET_BUCKET, {}) ?? undefined,
     primaryColor: cleanString(legacy.teamColor1) ?? undefined,
     secondaryColor: cleanString(legacy.teamColor2) ?? undefined,
     mascot: cleanString(legacy.mascot) ?? undefined,
@@ -421,7 +431,7 @@ async function main(): Promise<void> {
           });
         } else {
           // Create new organization. Use legacyId as seed for deterministic ID
-          organizationId = `org_${legacyId}`;
+          organizationId = `${legacyId}`;
 
           // Find admin/coach members for the org admins list
           const adminMembers = (data.members ?? []).filter(

@@ -1,0 +1,25 @@
+{
+  "timestamp": "2026-04-14T16:29:31.341Z",
+  "dryRun": false,
+  "collectionFilter": "all",
+  "stats": {
+    "usersProcessed": 4580,
+    "recruiting": {
+      "created": 550,
+      "errors": 0
+    },
+    "roster": {
+      "created": 0,
+      "errors": 0
+    },
+    "posts": {
+      "created": 1326,
+      "errors": 0
+    },
+    "stats": {
+      "created": 4061,
+      "errors": 0
+    }
+  },
+  "errors": []
+}

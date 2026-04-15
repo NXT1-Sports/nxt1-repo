@@ -33,6 +33,7 @@ import {
   isVerbose,
   getLimit,
   getArg,
+  getTarget,
   PAGE_SIZE,
   COLLECTIONS,
   BatchWriter,
@@ -48,7 +49,14 @@ import {
   parseInt_,
   migrationMeta,
   safeJsonParse,
+  rewriteStorageUrlWithPath,
+  rewriteStorageUrlsWithPath,
 } from './migration-utils.js';
+
+const TARGET_BUCKET =
+  getTarget() === 'production'
+    ? process.env['FIREBASE_STORAGE_BUCKET'] || 'nxt-1-v2.firebasestorage.app'
+    : process.env['STAGING_FIREBASE_STORAGE_BUCKET'] || 'nxt-1-staging-v2.firebasestorage.app';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -346,11 +354,22 @@ async function migrateUserPosts(
         cleanString(p['authorName']) ||
         [cleanString(d['firstName']), cleanString(d['lastName'])].filter(Boolean).join(' '),
       authorProfileImg:
-        cleanString(p['authorProfileImg']) || cleanString(d['profileImg']) || undefined,
+        rewriteStorageUrlWithPath(
+          cleanString(p['authorProfileImg']) || cleanString(d['profileImg']) || undefined,
+          TARGET_BUCKET,
+          { uid }
+        ) || undefined,
       content: cleanString(p['content'] ?? p['text'] ?? p['body']) || '',
       type: cleanString(p['type']) || 'text',
-      mediaUrls: Array.isArray(p['mediaUrls']) ? p['mediaUrls'] : [],
-      thumbnailUrl: cleanString(p['thumbnailUrl']) || undefined,
+      mediaUrls: rewriteStorageUrlsWithPath(
+        Array.isArray(p['mediaUrls']) ? (p['mediaUrls'] as string[]) : [],
+        TARGET_BUCKET,
+        { uid }
+      ),
+      thumbnailUrl:
+        rewriteStorageUrlWithPath(cleanString(p['thumbnailUrl']) || undefined, TARGET_BUCKET, {
+          uid,
+        }) || undefined,
       sport:
         cleanString(p['sport'])?.toLowerCase() ||
         cleanString(d['primarySport'])?.toLowerCase() ||
@@ -391,7 +410,11 @@ async function migrateUserPosts(
       authorId: uid,
       content: cleanString(p['content'] ?? p['text'] ?? p['body']) || '',
       type: cleanString(p['type']) || 'text',
-      mediaUrls: Array.isArray(p['mediaUrls']) ? p['mediaUrls'] : [],
+      mediaUrls: rewriteStorageUrlsWithPath(
+        Array.isArray(p['mediaUrls']) ? (p['mediaUrls'] as string[]) : [],
+        TARGET_BUCKET,
+        { uid }
+      ),
       likes: typeof p['likes'] === 'number' ? p['likes'] : 0,
       comments: typeof p['comments'] === 'number' ? p['comments'] : 0,
       shares: typeof p['shares'] === 'number' ? p['shares'] : 0,
@@ -621,9 +644,19 @@ async function main(): Promise<void> {
       if (limit > 0 && processed >= limit) break;
 
       processed++;
-      stats.usersProcessed++;
       const uid = doc.id;
       const data = doc.data() as LegacyUser;
+
+      // Skip test/demo accounts — not migrated to Auth in production
+      const userEmail = cleanEmail(data['email'] as string) || '';
+      if (
+        userEmail &&
+        (userEmail.toLowerCase().includes('test') || userEmail.toLowerCase().includes('demo'))
+      ) {
+        continue;
+      }
+
+      stats.usersProcessed++;
 
       try {
         // Recruiting Activity

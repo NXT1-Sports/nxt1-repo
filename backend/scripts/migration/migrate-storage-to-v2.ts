@@ -1,554 +1,536 @@
 #!/usr/bin/env npx tsx
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * Phase 6 — Storage Migration (Firebase Storage Buckets)
+ * Phase 6 — Storage File Migration  (nxt-1-de054 → nxt-1-v2)
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * Analyzes legacy Firebase Storage structure, copies media files to the V3
- * bucket, and optionally rewrites URLs in migrated Firestore documents.
+ * Copies all storage files from the legacy bucket to the V3 bucket with the
+ * path remapping required by the V3 folder structure.
  *
- * This phase operates in three modes:
- *   1. analyze  — Scan legacy bucket, report structure & size (default)
- *   2. copy     — Copy files from legacy → V3 bucket
- *   3. rewrite  — Update URLs in V3 Firestore docs to point to the new bucket
+ * PATH MAPPING:
+ *   Users/{uid}/...             → Profiles/ProfileImages/{uid}/...    [Phase 1]
+ *   ProspectProfiles/{uid}/...  → Profiles/ProfileImages/{uid}/...    [Phase 1]
+ *   TeamsLogo/{file}            → Teams/TeamLogos/{file}              [Phase 1]
+ *   HighLightImages/{file}      → Profiles/FeedImages/{uid}/{file}    [Phase 2]
+ *     (uid looked up from Users.profileImg / profileImgs in Firestore)
+ *   posts/{rest}                → Profiles/FeedImages/{uid}/{rest}    [Phase 3]
+ *     (uid looked up from Posts.mediaUrls / thumbnailUrl in Firestore)
+ *   UserTemplates/{file}        → Teams/GalleryImages/{teamId}/{file} [Phase 4]
+ *     (teamId from Teams collection in Firestore)
+ *
+ * Copy mechanism: stream from legacy bucket → target bucket (two separate SA
+ * credentials; no cross-project IAM change needed).
  *
  * Usage:
- *   npx tsx scripts/migration/migrate-storage-to-v2.ts --mode=analyze
- *   npx tsx scripts/migration/migrate-storage-to-v2.ts --mode=copy --dry-run
- *   npx tsx scripts/migration/migrate-storage-to-v2.ts --mode=rewrite --target=staging
+ *   npx tsx backend/scripts/migration/migrate-storage-to-v2.ts --dry-run
+ *   npx tsx backend/scripts/migration/migrate-storage-to-v2.ts --target=production
+ *   npx tsx backend/scripts/migration/migrate-storage-to-v2.ts --target=production --phase=1
+ *   npx tsx backend/scripts/migration/migrate-storage-to-v2.ts --target=production --phases=1,2,3
  *
  * Flags:
- *   --mode=            analyze (default) | copy | rewrite
- *   --dry-run          Log operations but don't execute
- *   --limit=N          Process at most N files/docs
- *   --target=          staging (default) | production
- *   --verbose          Print per-file detail
- *   --prefix=          Limit to a storage prefix (e.g. profileImages/)
- *   --legacy-sa=       Override path to legacy service account JSON
- *
- * Prerequisites:
- *   npm install @google-cloud/storage (already in firebase-admin deps)
+ *   --dry-run         Log operations but copy nothing
+ *   --target=         staging (default) | production
+ *   --phases=         Comma-separated phases: 1,2,3,4  (default: all)
+ *   --phase=N         Run a single phase only
+ *   --concurrency=N   Parallel file copies (default: 10)
+ *   --limit=N         Stop after N total copied files
+ *   --verbose         Print per-file detail
+ *   --legacy-sa=      Override path to legacy service account JSON
  *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
-import {
-  initLegacyApp,
-  initTargetApp,
-  isDryRun,
-  isVerbose,
-  getLimit,
-  getArg,
-  hasFlag,
-  COLLECTIONS,
-  PAGE_SIZE,
-  BatchWriter,
-  ProgressReporter,
-  printBanner,
-  printSummary,
-  writeReport,
-  formatNum,
-} from './migration-utils.js';
+import { config } from 'dotenv';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { readFileSync } from 'fs';
 
-import admin from 'firebase-admin';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+config({ path: resolve(__dirname, '../../.env') });
+
+import { initializeApp, cert, getApp } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
+
+// ─── CLI Args ─────────────────────────────────────────────────────────────────
+
+const _args = process.argv.slice(2);
+const isDryRun = _args.includes('--dry-run');
+const isVerbose = _args.includes('--verbose');
+const target = _args.find((a) => a.startsWith('--target='))?.split('=')[1] ?? 'staging';
+
+const _phasesArg = _args.find((a) => a.startsWith('--phases='))?.split('=')[1];
+const _phaseArg = _args.find((a) => a.startsWith('--phase='))?.split('=')[1];
+const phasesToRun: number[] = _phasesArg
+  ? _phasesArg.split(',').map(Number)
+  : _phaseArg
+    ? [Number(_phaseArg)]
+    : [1, 2, 3, 4];
+
+const CONCURRENCY = Number(
+  _args.find((a) => a.startsWith('--concurrency='))?.split('=')[1] ?? '10'
+);
+const LIMIT = Number(_args.find((a) => a.startsWith('--limit='))?.split('=')[1] ?? '0');
+const legacySaOverride = _args.find((a) => a.startsWith('--legacy-sa='))?.split('=')[1];
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const LEGACY_BUCKET = process.env['LEGACY_FIREBASE_STORAGE_BUCKET'] ?? 'nxt-1-de054.appspot.com';
+const TARGET_BUCKET =
+  target === 'production'
+    ? (process.env['FIREBASE_STORAGE_BUCKET'] ?? 'nxt-1-v2.firebasestorage.app')
+    : (process.env['STAGING_FIREBASE_STORAGE_BUCKET'] ?? 'nxt-1-staging-v2.firebasestorage.app');
+
+const LEGACY_APP = 'storage-legacy';
+const TARGET_APP = 'storage-target';
+const PAGE_SIZE = 500;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type MigrationMode = 'analyze' | 'copy' | 'rewrite';
+interface CopyOp {
+  legacyPath: string;
+  newPath: string;
+}
 
-interface StorageStats {
-  totalFiles: number;
-  totalSizeBytes: number;
-  byPrefix: Map<string, { count: number; sizeBytes: number }>;
+interface Stats {
   copied: number;
-  copyErrors: number;
-  rewritten: number;
-  rewriteErrors: number;
+  skipped: number; // already existed in target
+  missing: number; // not found in legacy
+  errors: number;
 }
 
-interface FileInfo {
-  name: string;
-  prefix: string;
-  sizeBytes: number;
-  contentType: string;
-  updated: string;
+// ─── Firebase Init ────────────────────────────────────────────────────────────
+
+function initLegacy() {
+  try {
+    return getApp(LEGACY_APP);
+  } catch {
+    /* not yet initialised */
+  }
+  const saPath =
+    legacySaOverride ??
+    resolve(
+      __dirname,
+      '../../../../nxt1-backend/assets/nxt-1-de054-firebase-adminsdk-w01w0-2bab8ae108.json'
+    );
+  const sa = JSON.parse(readFileSync(saPath, 'utf-8'));
+  return initializeApp({ credential: cert(sa), storageBucket: LEGACY_BUCKET }, LEGACY_APP);
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function humanizeBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const idx = Math.floor(Math.log(bytes) / Math.log(1024));
-  const val = bytes / Math.pow(1024, idx);
-  return `${val.toFixed(1)} ${units[idx]}`;
-}
-
-function getPrefix(filePath: string): string {
-  const parts = filePath.split('/');
-  return parts.length > 1 ? parts[0] : '(root)';
-}
-
-/**
- * Build new storage path, preserving structure.
- * Legacy:  gs://nxt-1-de054.appspot.com/profileImages/{uid}/photo.jpg
- * V3:      gs://nxt-1-staging-v2.appspot.com/profileImages/{uid}/photo.jpg
- */
-function buildV3Path(legacyPath: string): string {
-  // Preserve the same path structure — just different bucket
-  return legacyPath;
-}
-
-/**
- * Rewrite legacy storage URLs to point to the new bucket.
- */
-function rewriteUrl(url: string, legacyBucket: string, targetBucket: string): string | null {
-  if (!url || typeof url !== 'string') return null;
-
-  // Handle gs:// URLs
-  if (url.includes(legacyBucket)) {
-    return url.replace(legacyBucket, targetBucket);
+function initTarget() {
+  try {
+    return getApp(TARGET_APP);
+  } catch {
+    /* not yet initialised */
   }
 
-  // Handle HTTPS download URLs
-  const legacyEncoded = encodeURIComponent(legacyBucket);
-  if (url.includes(legacyEncoded)) {
-    return url.replace(legacyEncoded, encodeURIComponent(targetBucket));
-  }
+  // Prefer env vars (matches existing migration pattern)
+  const pid =
+    target === 'production'
+      ? (process.env['PRODUCTION_FIREBASE_PROJECT_ID'] ?? process.env['FIREBASE_PROJECT_ID'])
+      : process.env['STAGING_FIREBASE_PROJECT_ID'];
+  const email =
+    target === 'production'
+      ? (process.env['PRODUCTION_FIREBASE_CLIENT_EMAIL'] ?? process.env['FIREBASE_CLIENT_EMAIL'])
+      : process.env['STAGING_FIREBASE_CLIENT_EMAIL'];
+  const key = (
+    target === 'production'
+      ? (process.env['PRODUCTION_FIREBASE_PRIVATE_KEY'] ?? process.env['FIREBASE_PRIVATE_KEY'])
+      : process.env['STAGING_FIREBASE_PRIVATE_KEY']
+  )?.replace(/\\n/g, '\n');
 
-  // Handle firebasestorage.googleapis.com URLs
-  const legacyProject = legacyBucket.replace('.appspot.com', '');
-  const targetProject = targetBucket.replace('.appspot.com', '');
-  if (url.includes(`/b/${legacyBucket}/`)) {
-    return url.replace(`/b/${legacyBucket}/`, `/b/${targetBucket}/`);
-  }
-  if (url.includes(legacyProject)) {
-    return url.replace(
-      new RegExp(legacyProject.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
-      targetProject
+  if (pid && email && key) {
+    return initializeApp(
+      {
+        credential: cert({ projectId: pid, clientEmail: email, privateKey: key }),
+        storageBucket: TARGET_BUCKET,
+      },
+      TARGET_APP
     );
   }
 
-  return null; // URL doesn't reference legacy bucket
+  // Fallback to SA file
+  const saPath = resolve(__dirname, '../../assets/nxt-1-v2-firebase-adminsdk.json');
+  const sa = JSON.parse(readFileSync(saPath, 'utf-8'));
+  return initializeApp({ credential: cert(sa), storageBucket: TARGET_BUCKET }, TARGET_APP);
 }
 
-// ─── Analyze Mode ─────────────────────────────────────────────────────────────
+// ─── URL Helpers ──────────────────────────────────────────────────────────────
 
-async function analyzeStorage(
-  legacyApp: admin.app.App,
-  stats: StorageStats,
-  prefixFilter?: string
-): Promise<FileInfo[]> {
-  const bucket = legacyApp.storage().bucket();
-  const files: FileInfo[] = [];
-  const limit = getLimit();
-
-  console.log(`  Bucket: ${bucket.name}`);
-  console.log(`  Prefix filter: ${prefixFilter || '(none)'}\n`);
-
-  const [bucketFiles] = await bucket.getFiles({
-    prefix: prefixFilter || undefined,
-    maxResults: limit > 0 ? limit : 10000,
-  });
-
-  const progress = new ProgressReporter('Scanning files');
-
-  for (let i = 0; i < bucketFiles.length; i++) {
-    const file = bucketFiles[i];
-    const [metadata] = await file.getMetadata();
-
-    const info: FileInfo = {
-      name: file.name,
-      prefix: getPrefix(file.name),
-      sizeBytes: parseInt(String(metadata.size ?? '0'), 10),
-      contentType: String(metadata.contentType ?? 'unknown'),
-      updated: String(metadata.updated ?? ''),
-    };
-
-    files.push(info);
-    stats.totalFiles++;
-    stats.totalSizeBytes += info.sizeBytes;
-
-    const existing = stats.byPrefix.get(info.prefix) ?? { count: 0, sizeBytes: 0 };
-    existing.count++;
-    existing.sizeBytes += info.sizeBytes;
-    stats.byPrefix.set(info.prefix, existing);
-
-    if (isVerbose && i < 20) {
-      console.log(`    ${info.name} (${humanizeBytes(info.sizeBytes)}, ${info.contentType})`);
-    }
-
-    progress.tick(i + 1);
+/** Extract the storage object path from a Firebase Storage HTTPS URL. */
+function extractPath(url: string | unknown): string | null {
+  if (!url || typeof url !== 'string') return null;
+  // https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{encoded-path}?...
+  const m = url.match(/\/o\/([^?#]+)/);
+  if (!m) return null;
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return null;
   }
-
-  progress.done(bucketFiles.length);
-  return files;
 }
 
-// ─── Copy Mode ────────────────────────────────────────────────────────────────
-
-async function copyStorage(
-  legacyApp: admin.app.App,
-  targetApp: admin.app.App,
-  stats: StorageStats,
-  prefixFilter?: string
-): Promise<void> {
-  const sourceBucket = legacyApp.storage().bucket();
-  const destBucket = targetApp.storage().bucket();
-  const limit = getLimit();
-
-  console.log(`  Source: ${sourceBucket.name}`);
-  console.log(`  Destination: ${destBucket.name}`);
-  console.log(`  Prefix: ${prefixFilter || '(all)'}`);
-  console.log(`  Dry run: ${isDryRun}\n`);
-
-  const [files] = await sourceBucket.getFiles({
-    prefix: prefixFilter || undefined,
-    maxResults: limit > 0 ? limit : 50000,
-  });
-
-  const progress = new ProgressReporter('Copying files');
-
-  for (let i = 0; i < files.length; i++) {
-    const sourceFile = files[i];
-    const destPath = buildV3Path(sourceFile.name);
-    const destFile = destBucket.file(destPath);
-
-    try {
-      // Check if already exists (idempotent)
-      const [exists] = await destFile.exists();
-      if (exists) {
-        if (isVerbose) console.log(`    ⏭ ${sourceFile.name} (already exists)`);
-        stats.copied++;
-        progress.tick(i + 1);
-        continue;
-      }
-
-      if (isDryRun) {
-        if (isVerbose) console.log(`    [DRY] Would copy: ${sourceFile.name} → ${destPath}`);
-        stats.copied++;
-      } else {
-        await sourceFile.copy(destFile);
-        stats.copied++;
-        if (isVerbose) console.log(`    ✅ ${sourceFile.name} → ${destPath}`);
-      }
-    } catch (err) {
-      stats.copyErrors++;
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`    ❌ ${sourceFile.name}: ${msg}`);
-    }
-
-    progress.tick(i + 1);
-  }
-
-  progress.done(files.length);
+/** Return true if the URL references the TARGET bucket (already migrated URL). */
+function isTargetUrl(url: string): boolean {
+  return url.includes(TARGET_BUCKET);
 }
 
-// ─── Rewrite Mode ─────────────────────────────────────────────────────────────
+// ─── Phase 1: Simple Prefix Renames ──────────────────────────────────────────
 
-async function rewriteUrls(
-  legacyApp: admin.app.App,
-  targetApp: admin.app.App,
-  targetDb: FirebaseFirestore.Firestore,
-  stats: StorageStats
-): Promise<void> {
-  const legacyBucket = legacyApp.storage().bucket().name;
-  const targetBucket = targetApp.storage().bucket().name;
-  const limit = getLimit();
-  const writer = new BatchWriter(targetDb, isDryRun);
-
-  console.log(`  Rewriting: ${legacyBucket} → ${targetBucket}`);
-  console.log(`  Dry run: ${isDryRun}\n`);
-
-  // Fields known to contain storage URLs
-  const URL_FIELDS = [
-    'profileImg',
-    'coverImg',
-    'profileImgs',
-    'bannerUrl',
-    'videoUrl',
-    'thumbnailUrl',
-    'mediaUrls',
-    'authorProfileImg',
-    'logoUrl',
-    'iconUrl',
+/**
+ * Collect all files under a legacy prefix and map them to their new path
+ * by swapping the prefix.
+ */
+async function collectPhase1Ops(
+  legacyBucket: ReturnType<ReturnType<typeof getStorage>['bucket']>
+): Promise<CopyOp[]> {
+  const PREFIXES: [string, string][] = [
+    ['Users/', 'Profiles/ProfileImages/'],
+    ['ProspectProfiles/', 'Profiles/ProfileImages/'],
+    ['TeamsLogo/', 'Teams/TeamLogos/'],
   ];
 
-  const progress = new ProgressReporter('Rewriting user URLs');
+  const all: CopyOp[] = [];
 
-  let cursor: FirebaseFirestore.QueryDocumentSnapshot | undefined;
-  let processed = 0;
+  for (const [legacyPrefix, newPrefix] of PREFIXES) {
+    process.stdout.write(`  Listing legacy ${legacyPrefix}…`);
+    const [files] = await legacyBucket.getFiles({ prefix: legacyPrefix });
+    console.log(` ${files.length} files`);
+    for (const f of files) {
+      all.push({
+        legacyPath: f.name,
+        newPath: newPrefix + f.name.slice(legacyPrefix.length),
+      });
+    }
+  }
+
+  return all;
+}
+
+// ─── Phase 2: HighLightImages (uid from Users Firestore) ─────────────────────
+
+/**
+ * Read Users collection from nxt-1-v2 Firestore.
+ * For each URL in the Profiles/FeedImages/{uid}/... shape inside profileImg /
+ * profileImgs / primarySportProfileImg, produce a CopyOp:
+ *   legacyPath = HighLightImages/{filename}
+ *   newPath    = Profiles/FeedImages/{uid}/{filename}
+ */
+async function collectPhase2Ops(db: FirebaseFirestore.Firestore): Promise<CopyOp[]> {
+  const ops: CopyOp[] = [];
+  const seen = new Set<string>();
+  let cursor: FirebaseFirestore.DocumentSnapshot | undefined;
+  let users = 0;
+
+  process.stdout.write('  Reading Users for HighLightImages refs…');
 
   while (true) {
-    let query: FirebaseFirestore.Query = targetDb
-      .collection(COLLECTIONS.USERS)
+    let q = db
+      .collection('Users')
       .orderBy('createdAt', 'asc')
-      .limit(PAGE_SIZE);
+      .limit(PAGE_SIZE) as FirebaseFirestore.Query;
+    if (cursor) q = q.startAfter(cursor);
 
-    if (cursor) query = query.startAfter(cursor);
-
-    const snap = await query.get();
+    const snap = await q.get();
     if (snap.empty) break;
 
     for (const doc of snap.docs) {
-      if (limit > 0 && processed >= limit) break;
+      users++;
+      const d = doc.data();
+      const uid = doc.id;
 
-      processed++;
-      const data = doc.data();
-      const updates: Record<string, unknown> = {};
-      let hasUpdates = false;
+      // Collect all URL values from feed-image fields
+      const urls: unknown[] = [
+        d['profileImg'],
+        ...(Array.isArray(d['profileImgs']) ? d['profileImgs'] : []),
+        d['primarySportProfileImg'],
+      ];
 
-      for (const field of URL_FIELDS) {
-        const value = data[field];
+      for (const url of urls) {
+        const p = extractPath(url);
+        if (!p) continue;
+        if (!p.startsWith('Profiles/FeedImages/')) continue;
+        if (!isTargetUrl(String(url))) continue; // skip if not in target bucket
+        if (seen.has(p)) continue;
+        seen.add(p);
 
-        if (typeof value === 'string') {
-          const rewritten = rewriteUrl(value, legacyBucket, targetBucket);
-          if (rewritten) {
-            updates[field] = rewritten;
-            hasUpdates = true;
-          }
-        } else if (Array.isArray(value)) {
-          const rewrittenArr = value.map((v) =>
-            typeof v === 'string' ? (rewriteUrl(v, legacyBucket, targetBucket) ?? v) : v
-          );
-          const changed = rewrittenArr.some((v, idx) => v !== value[idx]);
-          if (changed) {
-            updates[field] = rewrittenArr;
-            hasUpdates = true;
-          }
-        }
+        // Profiles/FeedImages/{uid}/{filename}
+        // parts[0]=Profiles, parts[1]=FeedImages, parts[2]=uid, parts[3+]=filename
+        const parts = p.split('/');
+        if (parts.length < 4) continue;
+        const filename = parts.slice(3).join('/');
+
+        ops.push({ legacyPath: `HighLightImages/${filename}`, newPath: p });
       }
-
-      // Check nested sports[].primaryVideo, sports[].media
-      const sports = data['sports'];
-      if (Array.isArray(sports)) {
-        let sportsUpdated = false;
-        const newSports = sports.map((s: Record<string, unknown>) => {
-          if (!s || typeof s !== 'object') return s;
-          const copy = { ...s };
-          if (typeof copy['primaryVideo'] === 'string') {
-            const r = rewriteUrl(copy['primaryVideo'] as string, legacyBucket, targetBucket);
-            if (r) {
-              copy['primaryVideo'] = r;
-              sportsUpdated = true;
-            }
-          }
-          if (typeof copy['thumbnailUrl'] === 'string') {
-            const r = rewriteUrl(copy['thumbnailUrl'] as string, legacyBucket, targetBucket);
-            if (r) {
-              copy['thumbnailUrl'] = r;
-              sportsUpdated = true;
-            }
-          }
-          return copy;
-        });
-        if (sportsUpdated) {
-          updates['sports'] = newSports;
-          hasUpdates = true;
-        }
-      }
-
-      if (hasUpdates) {
-        try {
-          const ref = targetDb.collection(COLLECTIONS.USERS).doc(doc.id);
-          writer.set(ref, updates); // merge:true from BatchWriter
-          stats.rewritten++;
-          if (isVerbose) {
-            console.log(`    ✅ ${doc.id}: ${Object.keys(updates).join(', ')}`);
-          }
-        } catch (err) {
-          stats.rewriteErrors++;
-        }
-      }
-
-      await writer.flushIfNeeded();
-      progress.tick(processed);
     }
 
     cursor = snap.docs[snap.docs.length - 1];
-    if (limit > 0 && processed >= limit) break;
   }
 
-  await writer.flush();
-  progress.done(processed);
+  console.log(` ${users} users → ${ops.length} HighLightImages ops`);
+  return ops;
+}
 
-  // Also rewrite URLs in posts collection
-  console.log('\n  Rewriting post URLs…');
-  let postCursor: FirebaseFirestore.QueryDocumentSnapshot | undefined;
-  let postProcessed = 0;
+// ─── Phase 3: posts/ files (uid from Posts Firestore) ────────────────────────
+
+/**
+ * Read Posts collection from nxt-1-v2 Firestore.
+ * For each mediaUrl / thumbnailUrl in the Profiles/FeedImages/{uid}/{rest} shape
+ * produce a CopyOp:
+ *   legacyPath = posts/{rest}
+ *   newPath    = Profiles/FeedImages/{uid}/{rest}
+ */
+async function collectPhase3Ops(db: FirebaseFirestore.Firestore): Promise<CopyOp[]> {
+  const ops: CopyOp[] = [];
+  const seen = new Set<string>();
+  let cursor: FirebaseFirestore.DocumentSnapshot | undefined;
+  let posts = 0;
+
+  process.stdout.write('  Reading Posts for posts/ refs…');
 
   while (true) {
-    let query: FirebaseFirestore.Query = targetDb
-      .collection(COLLECTIONS.POSTS)
+    let q = db
+      .collection('Posts')
       .orderBy('createdAt', 'asc')
-      .limit(PAGE_SIZE);
+      .limit(PAGE_SIZE) as FirebaseFirestore.Query;
+    if (cursor) q = q.startAfter(cursor);
 
-    if (postCursor) query = query.startAfter(postCursor);
-
-    const snap = await query.get();
+    const snap = await q.get();
     if (snap.empty) break;
 
     for (const doc of snap.docs) {
-      postProcessed++;
-      const data = doc.data();
-      const updates: Record<string, unknown> = {};
-      let hasUpdates = false;
+      posts++;
+      const d = doc.data();
 
-      for (const field of ['mediaUrls', 'thumbnailUrl', 'authorProfileImg', 'videoUrl']) {
-        const value = data[field];
-        if (typeof value === 'string') {
-          const r = rewriteUrl(value, legacyBucket, targetBucket);
-          if (r) {
-            updates[field] = r;
-            hasUpdates = true;
+      const urls: unknown[] = [
+        d['thumbnailUrl'],
+        d['videoUrl'],
+        ...(Array.isArray(d['mediaUrls']) ? d['mediaUrls'] : []),
+      ];
+
+      for (const url of urls) {
+        const p = extractPath(url);
+        if (!p) continue;
+        if (!p.startsWith('Profiles/FeedImages/')) continue;
+        if (!isTargetUrl(String(url))) continue;
+        if (seen.has(p)) continue;
+        seen.add(p);
+
+        // Profiles/FeedImages/{uid}/{rest}
+        const parts = p.split('/');
+        if (parts.length < 4) continue;
+        const rest = parts.slice(3).join('/');
+
+        ops.push({ legacyPath: `posts/${rest}`, newPath: p });
+      }
+    }
+
+    cursor = snap.docs[snap.docs.length - 1];
+  }
+
+  console.log(` ${posts} posts → ${ops.length} posts/ ops`);
+  return ops;
+}
+
+// ─── Phase 4: UserTemplates (teamId from Teams Firestore) ────────────────────
+
+/**
+ * Read Teams collection from nxt-1-v2 Firestore.
+ * For each Teams/GalleryImages/{teamId}/{filename} URL:
+ *   legacyPath = UserTemplates/{filename}
+ *   newPath    = Teams/GalleryImages/{teamId}/{filename}
+ */
+async function collectPhase4Ops(db: FirebaseFirestore.Firestore): Promise<CopyOp[]> {
+  const ops: CopyOp[] = [];
+  const seen = new Set<string>();
+
+  const snap = await db.collection('Teams').get();
+  process.stdout.write(`  Reading Teams (${snap.size} docs) for UserTemplates refs…`);
+
+  for (const doc of snap.docs) {
+    const d = doc.data();
+    const urls: unknown[] = [
+      d['userTemplate'],
+      d['templateUrl'],
+      ...(Array.isArray(d['templates']) ? d['templates'] : []),
+      ...(Array.isArray(d['galleryImages']) ? d['galleryImages'] : []),
+    ];
+
+    for (const url of urls) {
+      const p = extractPath(url);
+      if (!p) continue;
+      if (!p.startsWith('Teams/GalleryImages/')) continue;
+      if (!isTargetUrl(String(url))) continue;
+      if (seen.has(p)) continue;
+      seen.add(p);
+
+      // Teams/GalleryImages/{teamId}/{filename}
+      const parts = p.split('/');
+      if (parts.length < 4) continue;
+      const filename = parts.slice(3).join('/');
+
+      ops.push({ legacyPath: `UserTemplates/${filename}`, newPath: p });
+    }
+  }
+
+  console.log(` ${ops.length} UserTemplates ops`);
+  return ops;
+}
+
+// ─── Execute Copy Ops ─────────────────────────────────────────────────────────
+
+/**
+ * Uses server-side GCS copy (rewriteObject API).
+ * targetSrcBkt: target SA's handle to the LEGACY bucket (has objectViewer IAM).
+ * targetBkt:    target SA's handle to the target bucket.
+ * Both are authenticated with the same (target) SA — GCS copies within-network.
+ */
+async function executeCopies(
+  ops: CopyOp[],
+  targetSrcBkt: ReturnType<ReturnType<typeof getStorage>['bucket']>,
+  targetBkt: ReturnType<ReturnType<typeof getStorage>['bucket']>,
+  stats: Stats
+): Promise<void> {
+  if (ops.length === 0) {
+    console.log('  (no ops)');
+    return;
+  }
+
+  let done = 0;
+
+  for (let i = 0; i < ops.length; i += CONCURRENCY) {
+    if (LIMIT > 0 && stats.copied >= LIMIT) {
+      console.log(`\n  Limit of ${LIMIT} reached — stopping.`);
+      break;
+    }
+
+    const batch = ops.slice(i, i + CONCURRENCY);
+
+    await Promise.all(
+      batch.map(async (op) => {
+        const n = ++done;
+        process.stdout.write(`\r  [${n}/${ops.length}] ${op.legacyPath.slice(0, 60).padEnd(60)}`);
+
+        if (isDryRun) {
+          if (isVerbose) console.log(`\n  [DRY] ${op.legacyPath} → ${op.newPath}`);
+          stats.copied++;
+          return;
+        }
+
+        try {
+          const srcFile = targetSrcBkt.file(op.legacyPath);
+          const dstFile = targetBkt.file(op.newPath);
+
+          // Idempotent: skip if already exists in target
+          const [dstExists] = await dstFile.exists();
+          if (dstExists) {
+            stats.skipped++;
+            if (isVerbose) console.log(`\n  ⏭  ${op.newPath} (already exists)`);
+            return;
           }
-        } else if (Array.isArray(value)) {
-          const arr = value.map((v) =>
-            typeof v === 'string' ? (rewriteUrl(v, legacyBucket, targetBucket) ?? v) : v
-          );
-          const changed = arr.some((v, idx) => v !== value[idx]);
-          if (changed) {
-            updates[field] = arr;
-            hasUpdates = true;
+
+          // Server-side copy: stays within GCS network, no local streaming
+          // Works because target SA has objectViewer on legacy bucket (IAM granted)
+          await srcFile.copy(dstFile);
+
+          stats.copied++;
+          if (isVerbose) console.log(`\n  ✅  ${op.legacyPath} → ${op.newPath}`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          // 404 = file doesn't exist in legacy
+          if (msg.includes('404') || msg.includes('No such object')) {
+            stats.missing++;
+            if (isVerbose) console.log(`\n  ⚠  ${op.legacyPath} (not in legacy bucket)`);
+          } else {
+            stats.errors++;
+            console.error(`\n  ❌  ${op.legacyPath}: ${msg}`);
           }
         }
-      }
-
-      if (hasUpdates) {
-        const ref = targetDb.collection(COLLECTIONS.POSTS).doc(doc.id);
-        writer.set(ref, updates);
-        stats.rewritten++;
-      }
-
-      await writer.flushIfNeeded();
-    }
-
-    postCursor = snap.docs[snap.docs.length - 1];
+      })
+    );
   }
 
-  await writer.flush();
-  console.log(`  Posts processed: ${formatNum(postProcessed)}`);
+  process.stdout.write('\n');
 }
 
-// ─── Main Pipeline ────────────────────────────────────────────────────────────
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
-async function main(): Promise<void> {
-  printBanner('Phase 6 — Storage Migration');
+async function main() {
+  const startMs = Date.now();
 
-  const mode = (getArg('mode') || 'analyze') as MigrationMode;
-  const validModes: MigrationMode[] = ['analyze', 'copy', 'rewrite'];
-  if (!validModes.includes(mode)) {
-    console.error(`  ❌ Invalid --mode=${mode}. Valid: ${validModes.join(', ')}`);
-    process.exit(1);
-  }
-
-  const prefixFilter = getArg('prefix');
-  const { app: legacyApp, db: legacyDb } = initLegacyApp();
-  const { app: targetApp, db: targetDb } = initTargetApp();
-
-  const stats: StorageStats = {
-    totalFiles: 0,
-    totalSizeBytes: 0,
-    byPrefix: new Map(),
-    copied: 0,
-    copyErrors: 0,
-    rewritten: 0,
-    rewriteErrors: 0,
-  };
-
-  console.log(`  Mode: ${mode}`);
-  if (isDryRun) console.log('  ⚠ DRY RUN — no writes will be made');
+  console.log('\n══════════════════════════════════════════════════════════════');
+  console.log('  Phase 6 — Storage File Migration');
+  console.log('══════════════════════════════════════════════════════════════');
+  console.log(`  Legacy bucket : ${LEGACY_BUCKET}`);
+  console.log(`  Target bucket : ${TARGET_BUCKET}`);
+  console.log(`  Dry run       : ${isDryRun}`);
+  console.log(`  Phases        : ${phasesToRun.join(', ')}`);
+  console.log(`  Concurrency   : ${CONCURRENCY}`);
+  if (LIMIT > 0) console.log(`  Limit         : ${LIMIT}`);
   console.log('');
 
-  switch (mode) {
-    case 'analyze': {
-      const files = await analyzeStorage(legacyApp, stats, prefixFilter);
+  const legacyApp = initLegacy();
+  const targetApp = initTarget();
 
-      printSummary('Storage Analysis', [
-        ['Total files', stats.totalFiles],
-        ['Total size', humanizeBytes(stats.totalSizeBytes) as unknown as number],
-      ]);
+  // legacyBktForList: use legacy SA credentials to list objects in legacy bucket
+  const legacyBktForList = getStorage(legacyApp).bucket(LEGACY_BUCKET);
+  // targetSrcBkt: use TARGET SA credentials to READ from legacy bucket
+  //   (possible because target SA was granted objectViewer IAM on legacy bucket)
+  const targetSrcBkt = getStorage(targetApp).bucket(LEGACY_BUCKET);
+  // targetBkt: use target SA credentials to WRITE to target bucket
+  const targetBkt = getStorage(targetApp).bucket(TARGET_BUCKET);
 
-      console.log('\n  By prefix:');
-      const sorted = [...stats.byPrefix.entries()].sort((a, b) => b[1].sizeBytes - a[1].sizeBytes);
-      for (const [prefix, info] of sorted) {
-        console.log(
-          `    ${prefix.padEnd(30)} ${formatNum(info.count).padStart(8)} files  ${humanizeBytes(info.sizeBytes).padStart(12)}`
-        );
-      }
+  const stats: Stats = { copied: 0, skipped: 0, missing: 0, errors: 0 };
 
-      writeReport(`storage-analysis-${new Date().toISOString().slice(0, 10)}.json`, {
-        timestamp: new Date().toISOString(),
-        bucket: legacyApp.storage().bucket().name,
-        totalFiles: stats.totalFiles,
-        totalSizeBytes: stats.totalSizeBytes,
-        totalSizeHuman: humanizeBytes(stats.totalSizeBytes),
-        byPrefix: Object.fromEntries(
-          [...stats.byPrefix.entries()].map(([k, v]) => [
-            k,
-            { ...v, sizeHuman: humanizeBytes(v.sizeBytes) },
-          ])
-        ),
-        sampleFiles: files.slice(0, 50).map((f) => ({
-          name: f.name,
-          size: humanizeBytes(f.sizeBytes),
-          contentType: f.contentType,
-        })),
-      });
-      break;
+  // ── Phase 1 ────────────────────────────────────────────────────────────────
+  if (phasesToRun.includes(1)) {
+    console.log('\n── Phase 1: Users / ProspectProfiles / TeamsLogo ─────────────');
+    const ops = await collectPhase1Ops(legacyBktForList);
+    console.log(`  Total files: ${ops.length}`);
+    await executeCopies(ops, targetSrcBkt, targetBkt, stats);
+  }
+
+  // ── Phases 2–4 need target Firestore ───────────────────────────────────────
+  if (phasesToRun.some((p) => p >= 2)) {
+    const db = getFirestore(targetApp);
+    db.settings({ ignoreUndefinedProperties: true });
+
+    if (phasesToRun.includes(2)) {
+      console.log('\n── Phase 2: HighLightImages → Profiles/FeedImages/{uid}/ ──────');
+      const ops = await collectPhase2Ops(db);
+      await executeCopies(ops, targetSrcBkt, targetBkt, stats);
     }
 
-    case 'copy': {
-      await copyStorage(legacyApp, targetApp, stats, prefixFilter);
-
-      printSummary('Storage Copy Results', [
-        ['Files copied', stats.copied],
-        ['Copy errors', stats.copyErrors],
-      ]);
-
-      writeReport(`storage-copy-${new Date().toISOString().slice(0, 10)}.json`, {
-        timestamp: new Date().toISOString(),
-        dryRun: isDryRun,
-        sourceBucket: legacyApp.storage().bucket().name,
-        destBucket: targetApp.storage().bucket().name,
-        prefix: prefixFilter || '(all)',
-        copied: stats.copied,
-        errors: stats.copyErrors,
-      });
-      break;
+    if (phasesToRun.includes(3)) {
+      console.log('\n── Phase 3: posts/ → Profiles/FeedImages/{uid}/ ───────────────');
+      const ops = await collectPhase3Ops(db);
+      await executeCopies(ops, targetSrcBkt, targetBkt, stats);
     }
 
-    case 'rewrite': {
-      await rewriteUrls(legacyApp, targetApp, targetDb, stats);
-
-      printSummary('URL Rewrite Results', [
-        ['Documents rewritten', stats.rewritten],
-        ['Rewrite errors', stats.rewriteErrors],
-      ]);
-
-      writeReport(`storage-rewrite-${new Date().toISOString().slice(0, 10)}.json`, {
-        timestamp: new Date().toISOString(),
-        dryRun: isDryRun,
-        rewritten: stats.rewritten,
-        errors: stats.rewriteErrors,
-      });
-      break;
+    if (phasesToRun.includes(4)) {
+      console.log('\n── Phase 4: UserTemplates/ → Teams/GalleryImages/{teamId}/ ────');
+      const ops = await collectPhase4Ops(db);
+      await executeCopies(ops, targetSrcBkt, targetBkt, stats);
     }
   }
 
-  const totalErrors = stats.copyErrors + stats.rewriteErrors;
-  if (totalErrors > 0) {
-    console.log(`\n  ⚠ ${totalErrors} error(s) — check report for details.`);
-  }
+  const elapsed = ((Date.now() - startMs) / 1000).toFixed(1);
 
-  console.log('\n  Done.\n');
-  process.exit(totalErrors > 0 ? 1 : 0);
+  console.log('\n══════════════════════════════════════════════════════════════');
+  console.log('  STORAGE MIGRATION COMPLETE');
+  console.log('══════════════════════════════════════════════════════════════');
+  console.log(`  Copied  : ${stats.copied}`);
+  console.log(`  Skipped : ${stats.skipped}  (already existed in target)`);
+  console.log(`  Missing : ${stats.missing}  (not found in legacy bucket)`);
+  console.log(`  Errors  : ${stats.errors}`);
+  console.log(`  Time    : ${elapsed}s`);
+  console.log('');
+
+  if (stats.errors > 0) process.exit(1);
 }
 
-// ─── Firestore import ─────────────────────────────────────────────────────────
-import FirebaseFirestore from 'firebase-admin/firestore';
-
 main().catch((err) => {
-  console.error('\n  FATAL:', err);
-  process.exit(2);
+  console.error('\n[FATAL]', err instanceof Error ? err.message : err);
+  process.exit(1);
 });

@@ -421,7 +421,7 @@ async function main(): Promise<void> {
           });
         } else {
           // Create new organization. Use legacyId as seed for deterministic ID
-          organizationId = `org_${legacyId}`;
+          organizationId = `${legacyId}`;
 
           // Find admin/coach members for the org admins list
           const adminMembers = (data.members ?? []).filter(

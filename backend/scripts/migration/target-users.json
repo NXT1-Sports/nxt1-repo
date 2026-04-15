@@ -1,0 +1,15 @@
+{
+  "targetEmails": [
+    "john@nxt1sports.com",
+    "ngocsonxx98@gmail.com",
+    "sonngoc.dev@gmail.com",
+    "web.developer.gz@gmail.com",
+    "superadmin@nxt1sports.com",
+    "devtest@test.com"
+  ],
+  "migrationId": "canary-2026-04-10",
+  "description": "Canary migration: 6 test users from legacy prod (nxt-1-de054) to staging-v2 (nxt-1-staging-v2)",
+  "sourceProject": "nxt-1-de054",
+  "targetProject": "nxt-1-staging-v2",
+  "notes": "jkellerr8@gmail.com removed - not found in source project. Added devtest@test.com on April 11, 2026."
+}

@@ -1118,6 +1118,13 @@ async function main(): Promise<void> {
       const uid = doc.id;
       const data = doc.data() as LegacyUser;
 
+      // Skip test/demo accounts
+      const userEmail = cleanEmail(data['email'] as string) || '';
+      if (userEmail && (userEmail.includes('test') || userEmail.includes('demo'))) {
+        stats.skipped++;
+        continue;
+      }
+
       try {
         // Track format
         if (isV2Format(data)) {
