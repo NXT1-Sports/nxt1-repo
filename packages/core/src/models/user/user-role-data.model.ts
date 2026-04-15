@@ -17,24 +17,13 @@ import type { AcademicInfo } from './user-base.model';
 // ============================================
 
 /**
- * Athlete-specific data
- * Personal info that applies across ALL sports the athlete plays.
- * Sport-specific data (positions, stats, team) goes in SportProfile[].
+ * @deprecated Removed in v3.0. Role-specific nested data is no longer stored
+ * on the User document. `academics` lives at `user.academics` (top-level).
+ * Kept here only so legacy Firestore migration scripts can still import the type.
  */
 export interface AthleteData {
-  /** Academic information (GPA, test scores, etc.) */
+  /** @deprecated Use user.academics instead */
   academics?: AcademicInfo;
-  /** Parent/guardian contact info */
-  parentInfo?: {
-    name?: string;
-    email?: string;
-    phone?: string;
-    relationship?: ParentRelationship;
-  };
-  /** NCAA/NAIA eligibility status */
-  eligibilityStatus?: 'eligible' | 'pending' | 'ineligible';
-  /** Eligibility center ID (NCAA Clearinghouse, etc.) */
-  eligibilityId?: string;
 }
 
 // ============================================

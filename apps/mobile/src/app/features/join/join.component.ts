@@ -5,24 +5,31 @@
  * Handles incoming invite deep links on mobile:
  *   /join/:code?ref=<uid>&type=<general|team|...>&teamCode=<code>&teamName=<name>
  *
- * Flow:
+ * Flow (unauthenticated):
  * 1. Extracts code + query params from URL
  * 2. Stores invite data in native storage with default role='Athlete'
  * 3. Navigates to /auth?mode=signup&invite=CODE
  * 4. During onboarding, user can select role (Athlete or Coach only for team invites)
  * 5. After signup, AuthFlowService reads storage and calls POST /invite/accept
  *
+ * Flow (already authenticated + team invite):
+ * 1. Shows confirmation screen: "TeamName invited you to join"
+ * 2. User taps Accept → POST /invite/accept using their actual role → navigate to /home
+ * 3. User taps Decline → navigate to /home
+ *
  * Mirrors apps/web/src/app/features/join/join.component.ts
  */
 
-import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, OnInit, signal } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { NavController } from '@ionic/angular/standalone';
-import { IonSpinner } from '@ionic/angular/standalone';
+import { IonSpinner, IonButton } from '@ionic/angular/standalone';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtLogoComponent } from '@nxt1/ui/components/logo';
 import type { ValidatedTeamInfo } from '@nxt1/core';
 import { AuthApiService } from '../../core/services/auth/auth-api.service';
+import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
+import { InviteApiService } from '@nxt1/ui/invite';
 import { createNativeStorageAdapter } from '../../core/infrastructure/native-storage.adapter';
 
 /** Shape of referral data persisted to sessionStorage. */
@@ -51,13 +58,46 @@ export const INVITE_SPORT_KEY = 'nxt1:invite_sport';
 @Component({
   selector: 'app-join-mobile',
   standalone: true,
-  imports: [IonSpinner, NxtLogoComponent],
+  imports: [IonSpinner, IonButton, NxtLogoComponent],
   template: `
-    <div class="loading-container" data-testid="join-redirect-page">
-      <nxt1-logo variant="default" size="lg" />
-      <ion-spinner name="crescent" />
-      <p>Preparing your invite…</p>
-    </div>
+    @if (confirmState(); as state) {
+      <!-- Confirmation screen for already-authenticated users -->
+      <div class="confirm-container" data-testid="join-confirm-page">
+        <nxt1-logo variant="default" size="md" />
+        <div class="confirm-body">
+          <h2 class="confirm-title">You've been invited!</h2>
+          <p class="confirm-message">
+            <strong>{{ state.teamName }}</strong> invited you to join their team.
+          </p>
+        </div>
+        <div class="confirm-actions">
+          <ion-button
+            expand="block"
+            color="primary"
+            [disabled]="isAccepting()"
+            (click)="acceptInvite()"
+          >
+            {{ isAccepting() ? 'Joining…' : 'Accept & Join Team' }}
+          </ion-button>
+          <ion-button
+            expand="block"
+            fill="outline"
+            color="medium"
+            [disabled]="isAccepting()"
+            (click)="declineInvite()"
+          >
+            Decline
+          </ion-button>
+        </div>
+      </div>
+    } @else {
+      <!-- Loading / redirecting state -->
+      <div class="loading-container" data-testid="join-redirect-page">
+        <nxt1-logo variant="default" size="lg" />
+        <ion-spinner name="crescent" />
+        <p>Preparing your invite…</p>
+      </div>
+    }
   `,
   styles: [
     `
@@ -78,6 +118,43 @@ export const INVITE_SPORT_KEY = 'nxt1:invite_sport';
         color: var(--nxt1-color-text-secondary);
         font-size: 14px;
       }
+
+      .confirm-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        gap: 24px;
+        padding: 32px 24px;
+      }
+
+      .confirm-body {
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .confirm-title {
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--nxt1-color-text-primary);
+        margin: 0;
+      }
+
+      .confirm-message {
+        font-size: 14px;
+        color: var(--nxt1-color-text-secondary);
+        margin: 0;
+      }
+
+      .confirm-actions {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -87,7 +164,40 @@ export class JoinMobileComponent implements OnInit {
   private readonly navController = inject(NavController);
   private readonly logger = inject(NxtLoggingService).child('JoinMobileComponent');
   private readonly authApi = inject(AuthApiService);
+  private readonly authFlow = inject(AuthFlowService);
+  private readonly inviteApi = inject(InviteApiService);
   private readonly storage = createNativeStorageAdapter();
+
+  protected readonly confirmState = signal<{
+    teamName: string;
+    code: string;
+    teamCode: string;
+    inviterUid: string;
+  } | null>(null);
+  protected readonly isAccepting = signal(false);
+
+  protected async acceptInvite(): Promise<void> {
+    const state = this.confirmState();
+    if (!state || this.isAccepting()) return;
+    this.isAccepting.set(true);
+    const role = this.authFlow.userRole() ?? 'athlete';
+    try {
+      await this.inviteApi.acceptInvite(state.code, state.teamCode, role, state.inviterUid);
+      this.logger.info('Invite accepted by authenticated mobile user', {
+        teamCode: state.teamCode,
+        role,
+      });
+    } catch (err) {
+      this.logger.warn('Invite accept failed (non-blocking)', { error: err });
+    } finally {
+      this.isAccepting.set(false);
+    }
+    void this.navController.navigateRoot('/home');
+  }
+
+  protected declineInvite(): void {
+    void this.navController.navigateRoot('/home');
+  }
 
   async ngOnInit(): Promise<void> {
     const code = this.route.snapshot.paramMap.get('code')?.trim().toUpperCase() ?? '';
@@ -140,6 +250,22 @@ export class JoinMobileComponent implements OnInit {
           error: err,
           teamCode,
         });
+      }
+
+      // If the user is already authenticated, show a confirmation instead of redirecting to signup
+      if (this.authFlow.isAuthenticated()) {
+        const displayName = teamName ?? teamData?.teamName ?? 'A team';
+        this.logger.info('Authenticated mobile user opening team invite — showing confirmation', {
+          teamCode,
+          teamName: displayName,
+        });
+        this.confirmState.set({
+          teamName: displayName,
+          code,
+          teamCode: teamCode!,
+          inviterUid,
+        });
+        return;
       }
     }
 

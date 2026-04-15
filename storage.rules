@@ -1,0 +1,64 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ─── Public read: profile & team media ────────────────────────────────
+    // Profiles/ProfileImages/{uid}/...
+    match /Profiles/ProfileImages/{uid}/{allPaths=**} {
+      allow read;
+    }
+
+    // Profiles/FeedImages/{uid}/...  (posts & highlight images)
+    match /Profiles/FeedImages/{uid}/{allPaths=**} {
+      allow read;
+    }
+
+    // Teams/TeamLogos/...
+    match /Teams/TeamLogos/{allPaths=**} {
+      allow read;
+    }
+
+    // Teams/GalleryImages/{teamId}/...
+    match /Teams/GalleryImages/{teamId}/{allPaths=**} {
+      allow read;
+    }
+
+    // ─── Public read: static / shared assets ──────────────────────────────
+    match /Colleges/{allPaths=**} {
+      allow read;
+    }
+
+    match /Conferences/{allPaths=**} {
+      allow read;
+    }
+
+    match /Fonts/{allPaths=**} {
+      allow read;
+    }
+
+    match /Sports/{allPaths=**} {
+      allow read;
+    }
+
+    match /SponsorLogos/{allPaths=**} {
+      allow read;
+    }
+
+    match /brand-assets/{allPaths=**} {
+      allow read;
+    }
+
+    match /HomePageMedia/{allPaths=**} {
+      allow read;
+    }
+
+    match /StartScreenMedia/{allPaths=**} {
+      allow read;
+    }
+
+    // ─── Everything else: authenticated users only ────────────────────────
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

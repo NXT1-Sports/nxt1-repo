@@ -179,7 +179,6 @@ export {
   isCommitted,
   getDisplayName,
   getProfileImg,
-  getBannerImg,
   getProfileImages,
   getGalleryImages,
   getSocialUrl,

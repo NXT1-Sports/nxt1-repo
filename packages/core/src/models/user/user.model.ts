@@ -38,13 +38,7 @@ import type {
   AcademicInfo,
 } from './user-base.model';
 import type { SportProfile, VerifiedMetric } from './user-sport.model';
-import type {
-  AthleteData,
-  CoachData,
-  RecruiterData,
-  DirectorData,
-  ParentData,
-} from './user-role-data.model';
+import type { CoachData, RecruiterData, DirectorData, ParentData } from './user-role-data.model';
 
 // Re-export for convenience
 export { USER_SCHEMA_VERSION } from './user-base.model';
@@ -147,9 +141,6 @@ export interface User {
 
   /** Optional bio/about text */
   aboutMe?: string;
-
-  /** Banner/cover image URL */
-  bannerImg?: string | null;
 
   /** Profile images for carousel display (multiple images, max enforced by backend) */
   profileImgs?: string[];
@@ -256,10 +247,9 @@ export interface User {
   // ============================================
   // ROLE-SPECIFIC DATA
   // Only ONE of these should be populated based on user's role.
-  // Athletes also have sports[] for sport-specific data.
+  // Note: 'athlete' nested object has been removed — athlete data lives at
+  // top-level fields (academics, measurables, classOf, sports[]).
   // ============================================
-  /** Athlete-specific data (academics, parent info) - role: 'athlete' */
-  athlete?: AthleteData;
   /** HS/Club coach-specific data - role: 'coach' */
   coach?: CoachData;
   /** Athletic/Program director data - role: 'director' */
@@ -356,18 +346,18 @@ export interface UserSummary {
 // TYPE GUARDS
 // ============================================
 
-/** Check if user is an athlete with athlete data populated */
+/** Check if user is an athlete */
 export function isAthlete(user: User): boolean {
-  return user.role === USER_ROLES.ATHLETE && !!user.athlete;
+  return user.role === USER_ROLES.ATHLETE;
 }
 
-/** Check if user is a coach with coach data populated */
+/** Check if user is a coach */
 export function isCoach(user: User): boolean {
   return user.role === USER_ROLES.COACH && !!user.coach;
 }
 
-/** Check if user is a college coach with college coach data populated */
-/** @deprecated Use isRecruiter() instead */
+/** Check if user is a college coach
+ * @deprecated Use isRecruiter() instead */
 export function isCollegeCoach(user: User): boolean {
   return user.role === USER_ROLES.RECRUITER && !!user.recruiter;
 }
@@ -377,7 +367,7 @@ export function isRecruiter(user: User): boolean {
   return user.role === USER_ROLES.RECRUITER && !!user.recruiter;
 }
 
-/** Check if user is a director with director data populated */
+/** Check if user is a director */
 export function isDirector(user: User): boolean {
   return user.role === USER_ROLES.DIRECTOR && !!user.director;
 }
@@ -451,11 +441,6 @@ export function getDisplayName(user: User): string {
 /** Get user's profile image URL */
 export function getProfileImg(user: User): string | null {
   return user.profileImgs?.[0] ?? null;
-}
-
-/** Get user's banner image URL */
-export function getBannerImg(user: User): string | null {
-  return user.bannerImg ?? null;
 }
 
 /** Get all profile images for carousel display */

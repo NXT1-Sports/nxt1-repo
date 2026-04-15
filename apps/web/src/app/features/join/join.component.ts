@@ -137,9 +137,11 @@ export class JoinComponent implements OnInit {
     const state = this.confirmState();
     if (!state || this.isAccepting()) return;
     this.isAccepting.set(true);
+    // Use the authenticated user's actual role rather than hard-coding 'Athlete'
+    const role = this.authFlow.userRole() ?? 'athlete';
     try {
-      await this.inviteApi.acceptInvite(state.code, state.teamCode, 'Athlete', state.inviterUid);
-      this.logger.info('Invite accepted by authenticated user', { teamCode: state.teamCode });
+      await this.inviteApi.acceptInvite(state.code, state.teamCode, role, state.inviterUid);
+      this.logger.info('Invite accepted by authenticated user', { teamCode: state.teamCode, role });
     } catch (err) {
       this.logger.warn('Invite accept failed (non-blocking)', { error: err });
     } finally {

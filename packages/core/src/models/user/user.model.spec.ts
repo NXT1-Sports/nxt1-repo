@@ -23,7 +23,6 @@ import {
   isCommitted,
   type User,
   type SportProfile,
-  type AthleteData,
   type CoachData,
   type RecruiterData,
 } from '.';
@@ -68,7 +67,6 @@ describe('User Model Type Guards', () => {
     it('should return true for athlete role with athlete data', () => {
       const user = createMockUser({
         role: 'athlete',
-        athlete: { classOf: 2025, academics: { gpa: 3.5 } } as unknown as AthleteData,
       });
       expect(isAthlete(user)).toBe(true);
     });

@@ -33,6 +33,7 @@ import {
   normalizeSportKey,
   isTeamRole,
 } from '@nxt1/core';
+import { RosterEntryStatus } from '@nxt1/core/models';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import {
   validationError,
@@ -645,6 +646,62 @@ router.post(
       // V2: Membership tracked via RosterEntry docs only.
       // No more memberIds[] writes on the Team doc.
     });
+
+    // Create RosterEntry so team membership is tracked in the junction table
+    // (required for billing org-resolution, coach roster views, etc.)
+    try {
+      const rosterService = createRosterEntryService(db);
+      const userData = (await db.collection('Users').doc(userId).get()).data();
+      const userRole: UserRole = (userData?.['role'] as UserRole | undefined) ?? 'athlete';
+      const organizationId: string = teamData['organizationId'] ?? '';
+      const teamSport: string = teamData['sport'] ?? '';
+      const isStaffRole = isTeamRole(userRole);
+      const rosterStatus = isStaffRole ? RosterEntryStatus.PENDING : RosterEntryStatus.ACTIVE;
+
+      const sportProfiles = userData?.['sports'] as SportProfile[] | undefined;
+      const athletePositions =
+        userRole === 'athlete'
+          ? sportProfiles?.find(
+              (s) => s.sport?.trim().toLowerCase() === teamSport.trim().toLowerCase()
+            )?.positions
+          : undefined;
+
+      await rosterService.createRosterEntry({
+        userId,
+        teamId: teamDoc.id,
+        organizationId,
+        role: userRole,
+        sport: teamSport,
+        status: rosterStatus,
+        ...(userRole === 'athlete' ? { positions: athletePositions } : {}),
+        firstName: (userData?.['firstName'] as string | undefined) ?? '',
+        lastName: (userData?.['lastName'] as string | undefined) ?? '',
+        displayName:
+          (userData?.['displayName'] as string | undefined) ??
+          [userData?.['firstName'] ?? '', userData?.['lastName'] ?? '']
+            .map((v) => String(v).trim())
+            .filter(Boolean)
+            .join(' '),
+        email: (userData?.['email'] as string | undefined) ?? '',
+      });
+
+      logger.info('[POST /auth/join-team] RosterEntry created', {
+        userId,
+        teamId: teamDoc.id,
+        role: userRole,
+        status: rosterStatus,
+      });
+    } catch (rosterErr: unknown) {
+      const msg = rosterErr instanceof Error ? rosterErr.message : String(rosterErr);
+      // Duplicate entry is harmless — user may have an existing entry
+      if (!msg.includes('already')) {
+        logger.warn('[POST /auth/join-team] RosterEntry creation failed (non-blocking)', {
+          userId,
+          teamId: teamDoc.id,
+          error: msg,
+        });
+      }
+    }
 
     res.json({
       success: true,

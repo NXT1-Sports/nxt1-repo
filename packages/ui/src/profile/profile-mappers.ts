@@ -261,7 +261,7 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
   const verifications: readonly DataVerification[] | undefined = undefined;
 
   // ── Academic data (top-level canonical, athlete.academics fallback) ────────
-  const academics = user.academics ?? user.athlete?.academics;
+  const academics = user.academics;
   const rawGpa = academics?.gpa;
   const gpa = (() => {
     if (rawGpa == null) return undefined;
@@ -296,8 +296,6 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     user.coach?.title ?? user.recruiter?.title ?? user.director?.title ?? undefined;
 
   // ── Profile images ────────────────────────────────────────────────────────
-  const bannerImg = user.bannerImg ?? undefined;
-  // Carousel: use profileImgs array (new)
   const profileImgs: readonly string[] = user.profileImgs?.length ? user.profileImgs : [];
   // Primary profile image: first from array or undefined
   const profileImg = profileImgs[0] ?? undefined;
@@ -315,7 +313,6 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
 
     // Images
     profileImg,
-    bannerImg,
     profileImgs,
 
     // Role

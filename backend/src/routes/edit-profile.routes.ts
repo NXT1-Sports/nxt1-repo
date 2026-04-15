@@ -283,7 +283,6 @@ function userToEditProfileFormData(
       classYear: user.classOf ? String(user.classOf) : undefined,
     },
     photos: {
-      bannerImg: user.bannerImg ?? undefined,
       profileImgs: user.profileImgs ?? undefined,
     },
     sportsInfo: {
@@ -292,37 +291,22 @@ function userToEditProfileFormData(
       secondaryPositions: activeSport?.positions?.slice(1),
       jerseyNumber: activeSport?.jerseyNumber,
       yearsExperience: activeSport?.yearsExperience,
-      teamName: activeSport?.team?.name,
-      teamType: activeSport?.team?.type,
-      teamLogoUrl: activeSport?.team?.logoUrl,
-      teamOrganizationId: activeSport?.team?.organizationId,
     },
     academics: {
-      school: activeSport?.team?.name,
       gpa:
-        user.athlete?.academics?.gpa != null
-          ? Number.isInteger(user.athlete.academics.gpa)
-            ? user.athlete.academics.gpa.toFixed(1)
-            : String(user.athlete.academics.gpa)
+        user.academics?.gpa != null
+          ? Number.isInteger(user.academics.gpa)
+            ? user.academics.gpa.toFixed(1)
+            : String(user.academics.gpa)
           : undefined,
-      sat: user.athlete?.academics?.satScore ? String(user.athlete.academics.satScore) : undefined,
-      act: user.athlete?.academics?.actScore ? String(user.athlete.academics.actScore) : undefined,
-      intendedMajor: user.athlete?.academics?.intendedMajor,
+      sat: user.academics?.satScore ? String(user.academics.satScore) : undefined,
+      act: user.academics?.actScore ? String(user.academics.actScore) : undefined,
+      intendedMajor: user.academics?.intendedMajor,
       graduationDate: user.classOf ? String(user.classOf) : undefined,
     },
     physical: {
       height: user.measurables?.find((m) => m.field === 'height')?.value?.toString(),
       weight: user.measurables?.find((m) => m.field === 'weight')?.value?.toString(),
-      // SportProfile doesn't have 'measurements' field - use 'metrics' (deprecated) instead
-      wingspan: activeSport?.metrics?.['wingspan']
-        ? String(activeSport.metrics['wingspan'])
-        : undefined,
-      fortyYardDash: activeSport?.metrics?.['40YardDash']
-        ? String(activeSport.metrics['40YardDash'])
-        : undefined,
-      verticalJump: activeSport?.metrics?.['verticalJump']
-        ? String(activeSport.metrics['verticalJump'])
-        : undefined,
     },
     socialLinks: {
       links: (connectedSourcesOverride ?? user.connectedSources ?? []).map((cs) => ({
@@ -337,8 +321,6 @@ function userToEditProfileFormData(
     contact: {
       email: user.email,
       phone: user.contact?.phone ?? undefined,
-      parentEmail: user.athlete?.parentInfo?.email,
-      parentPhone: user.athlete?.parentInfo?.phone,
       coachEmail: activeSport?.coach?.email,
       preferredContactMethod: user.preferredContactMethod ?? 'email',
     },
@@ -388,7 +370,6 @@ function sectionToFirestoreUpdate(
 
     case 'photos': {
       const data = sectionData as EditProfilePhotos;
-      if (data.bannerImg !== undefined) updates['bannerImg'] = data.bannerImg || null;
       if (data.profileImgs !== undefined) updates['profileImgs'] = data.profileImgs || [];
       break;
     }

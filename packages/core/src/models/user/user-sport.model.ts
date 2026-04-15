@@ -348,9 +348,6 @@ export interface SportProfile {
   /** Display order (0 = primary) */
   order: number;
 
-  /** Profile image specific to this sport */
-  profileImg?: string | null;
-
   /** Sport-specific bio */
   aboutMe?: string;
 
