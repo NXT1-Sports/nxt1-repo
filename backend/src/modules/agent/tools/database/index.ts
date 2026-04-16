@@ -30,3 +30,4 @@ export { TrackAnalyticsEventTool } from './track-analytics-event.tool.js';
 export { GetAnalyticsSummaryTool } from './get-analytics-summary.tool.js';
 export { SaveMemoryTool } from './save-memory.tool.js';
 export { DeleteMemoryTool } from './delete-memory.tool.js';
+export { WriteConnectedSourceTool } from './write-connected-source.tool.js';

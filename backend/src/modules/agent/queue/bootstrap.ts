@@ -62,6 +62,7 @@ import {
   GetAnalyticsSummaryTool,
   SaveMemoryTool,
   DeleteMemoryTool,
+  WriteConnectedSourceTool,
 } from '../tools/database/index.js';
 import {
   GenerateGraphicTool,
@@ -314,6 +315,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new SearchMemoryTool(vectorMemory));
   toolRegistry.register(new SaveMemoryTool(vectorMemory));
   toolRegistry.register(new DeleteMemoryTool(vectorMemory));
+  toolRegistry.register(new WriteConnectedSourceTool(stagingDb));
   toolRegistry.register(new AskUserTool());
   toolRegistry.register(new WriteTimelinePostTool(stagingDb));
   toolRegistry.register(new SendEmailTool(stagingDb));
