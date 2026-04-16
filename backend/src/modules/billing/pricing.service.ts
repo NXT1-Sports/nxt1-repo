@@ -5,7 +5,7 @@
  * Calculates the amount to charge a user based on actual AI cost (from Helicone)
  * multiplied by a configurable margin multiplier stored in Firestore.
  *
- * Config stored in Firestore collection `pricingConfig` doc `default`:
+ * Config stored in Firestore collection `PricingConfig` doc `default`:
  * {
  *   defaultMultiplier: 3.0,
  *   featureOverrides: { "scout-report": 4.0, "highlights": 3.5 }
@@ -33,7 +33,7 @@ export interface ChargeCalculation {
   feature: string;
 }
 
-const PRICING_CONFIG_COLLECTION = 'pricingConfig';
+const PRICING_CONFIG_COLLECTION = 'PricingConfig';
 const PRICING_CONFIG_DOC = 'default';
 
 // In-memory cache to avoid reading Firestore on every request

@@ -21,7 +21,7 @@ import { logger } from '../../../../utils/logger.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-const RECURRING_TASKS_COLLECTION = 'recurring_tasks' as const;
+const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
 
 /**
  * Parse a cron expression and estimate the minimum interval in ms

@@ -105,10 +105,10 @@ service cloud.firestore {
         allow write: if false; // Only Cloud Functions can write metrics
       }
       
-      // User notifications
-      match /notifications/{notificationId} {
+      // User Notifications
+      match /Notifications/{notificationId} {
         allow read: if isOwner(userId);
-        allow create: if isAuthenticated(); // Others can send notifications
+        allow create: if isAuthenticated(); // Others can send Notifications
         allow update: if isOwner(userId) && onlyUpdatesFields(['read', 'readAt']);
         allow delete: if isOwner(userId);
       }

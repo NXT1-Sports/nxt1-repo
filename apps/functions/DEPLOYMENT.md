@@ -578,7 +578,7 @@ Update CHANGELOG.md or commit messages with deployment notes.
 Tag releases in git:
 
 ```bash
-git tag -a functions-v2.1.0 -m "Add new user notifications"
+git tag -a functions-v2.1.0 -m "Add new user Notifications"
 git push origin functions-v2.1.0
 ```
 

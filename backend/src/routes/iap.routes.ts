@@ -167,7 +167,7 @@ router.post(
       const { newBalance } = await addWalletTopUp(db, userId, amountCents);
 
       // Write payment history record so the Usage dashboard history tab shows IAP purchases
-      await db.collection('paymentLogs').add({
+      await db.collection('PaymentLogs').add({
         userId,
         amount: amountCents,
         currency: 'usd',

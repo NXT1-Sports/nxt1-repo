@@ -269,7 +269,7 @@ export async function handleChargeRefunded(
     const amountRefundedCents = charge.amount_refunded;
     if (!amountRefundedCents) return;
 
-    // Look up our internal billing user via stripeCustomers cache
+    // Look up our internal billing user via StripeCustomers cache
     const customerSnap = await db
       .collection(COLLECTIONS.STRIPE_CUSTOMERS)
       .where('stripeCustomerId', '==', customerId)

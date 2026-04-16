@@ -46,7 +46,7 @@ export const onUserProfileUpdatedV3 = onDocumentUpdated('Users/{userId}', async 
 
   if (beforeSport !== afterSport) {
     await db
-      .collection('user_analytics')
+      .collection('UserAnalytics')
       .doc(userId)
       .update({
         sportChanges: admin.firestore.FieldValue.increment(1),

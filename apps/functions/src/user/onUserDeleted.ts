@@ -22,7 +22,7 @@ const SHADOW_USER_COLLECTION = 'users';
 const BATCH_SIZE = 250;
 
 const SINGLETON_COLLECTIONS = [
-  'user_analytics',
+  'UserAnalytics',
   'FcmTokens',
   'Subscriptions',
   'UserEntitlements',

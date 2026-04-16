@@ -3,7 +3,7 @@
  * @module @nxt1/backend/modules/agent/queue
  *
  * Accumulates high-frequency LLM token deltas and flushes them to the
- * `agentJobs/{operationId}/events` subcollection at configurable intervals
+ * `AgentJobs/{operationId}/events` subcollection at configurable intervals
  * (default 300ms). This keeps the "live typing" feel while capping Firestore
  * writes to ~3-4/sec instead of hundreds.
  *

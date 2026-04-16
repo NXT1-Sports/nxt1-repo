@@ -2,7 +2,7 @@
  * @fileoverview Agent X Operation Event Service — Firestore Live Event Bridge
  * @module @nxt1/ui/agent-x
  *
- * Subscribes to the `agentJobs/{operationId}/events` Firestore subcollection
+ * Subscribes to the `AgentJobs/{operationId}/events` Firestore subcollection
  * via `onSnapshot` and converts backend `JobEvent` documents into the same
  * signal updates that the SSE streaming path uses (`AgentXToolStep`, content
  * deltas, and rich cards).
@@ -15,7 +15,7 @@
  * Architecture:
  * ```
  * Firestore onSnapshot  →  OperationEventService  →  AgentXService signals
- * (agentJobs/{id}/events)    (converts JobEvent)       (_messages, tool steps)
+ * (AgentJobs/{id}/events)    (converts JobEvent)       (_messages, tool steps)
  * ```
  *
  * @example
@@ -183,7 +183,7 @@ export class AgentXOperationEventService {
    * Subscribe to live events for a background operation.
    *
    * Establishes a Firestore `onSnapshot` listener on
-   * `agentJobs/{operationId}/events` ordered by `seq`.
+   * `AgentJobs/{operationId}/events` ordered by `seq`.
    * Incoming events are translated into the same callbacks
    * that the SSE streaming path uses.
    *
@@ -215,7 +215,7 @@ export class AgentXOperationEventService {
     // when the same tool is invoked multiple times in one operation.
     const pendingStepIds = new Map<string, string[]>();
 
-    const collectionPath = `agentJobs/${operationId}/events`;
+    const collectionPath = `AgentJobs/${operationId}/events`;
 
     const unsubscribeFn = this.firestoreAdapter.onSnapshot(
       collectionPath,

@@ -135,12 +135,12 @@ export function getUnitCost(feature: UsageFeature): number {
  * Firestore collection names
  */
 export const COLLECTIONS = {
-  USAGE_EVENTS: 'usageEvents',
-  STRIPE_CUSTOMERS: 'stripeCustomers',
-  PAYMENT_LOGS: 'paymentLogs',
-  BILLING_CONTEXTS: 'billingContexts',
+  USAGE_EVENTS: 'UsageEvents',
+  STRIPE_CUSTOMERS: 'StripeCustomers',
+  PAYMENT_LOGS: 'PaymentLogs',
+  BILLING_CONTEXTS: 'BillingContexts',
   TEAM_BUDGET_ALLOCATIONS: 'teamBudgetAllocations',
-  WALLET_HOLDS: 'walletHolds',
+  WALLET_HOLDS: 'WalletHolds',
 } as const;
 
 /**

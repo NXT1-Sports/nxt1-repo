@@ -746,7 +746,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     } catch (queryErr) {
       // Gracefully handle missing composite index or empty collection
       const msg = queryErr instanceof Error ? queryErr.message : String(queryErr);
-      logger.warn('agentJobs query failed — composite index may not be deployed', {
+      logger.warn('AgentJobs query failed — composite index may not be deployed', {
         userId: user.uid,
         error: msg,
       });

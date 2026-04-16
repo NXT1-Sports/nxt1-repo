@@ -124,7 +124,7 @@ npx tsx scripts/migration/migrate-teamcodes-to-v2.ts --target=staging
 npx tsx scripts/migration/migrate-teamcodes-to-v2.ts --limit=50 --verbose
 ```
 
-**Creates:** `organizations`, `teams`, `rosterEntries`, `billingContexts`
+**Creates:** `organizations`, `teams`, `rosterEntries`, `BillingContexts`
 collections.
 
 **Report:** `backend/reports/migration/teamcodes-migration-YYYY-MM-DD.json`

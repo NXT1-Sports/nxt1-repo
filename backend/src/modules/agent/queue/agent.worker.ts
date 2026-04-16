@@ -280,7 +280,7 @@ export class AgentWorker {
     };
 
     // ── Debounced Event Writer: streams granular events to Firestore subcollection ──
-    // The frontend subscribes to `agentJobs/{operationId}/events` via onSnapshot
+    // The frontend subscribes to `AgentJobs/{operationId}/events` via onSnapshot
     // to render a live "watch it work" chat experience.
     const eventWriter = new DebouncedEventWriter(repo, payload.operationId);
 

@@ -851,7 +851,7 @@ export interface AgentUsageLimits {
 // ─── Job Event Types (Firestore Subcollection) ─────────────────────────────
 
 /**
- * Event types written to the `agentJobs/{operationId}/events` subcollection.
+ * Event types written to the `AgentJobs/{operationId}/events` subcollection.
  * The frontend subscribes via Firestore `onSnapshot` to render live UI.
  *
  * @see backend/src/modules/agent/queue/job.repository.ts — canonical source
@@ -867,7 +867,7 @@ export type JobEventType =
   | 'done';
 
 /**
- * A single event document stored in `agentJobs/{operationId}/events/{autoId}`.
+ * A single event document stored in `AgentJobs/{operationId}/events/{autoId}`.
  * The frontend reads these via `onSnapshot`, ordered by `seq`, to reconstruct
  * the live agent execution as a chat-like experience.
  *

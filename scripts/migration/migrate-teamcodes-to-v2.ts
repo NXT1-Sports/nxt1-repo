@@ -7,7 +7,7 @@
  *   3. **RosterEntry** docs for every `members[]` entry
  *
  * Billing fields (`packageId`, `isFreeTrial`, `trialStartDate`, `expireAt`)
- * are written to `billingContexts`.
+ * are written to `BillingContexts`.
  *
  * Idempotent — uses set({ merge: true }) and _legacyId tracking.
  *

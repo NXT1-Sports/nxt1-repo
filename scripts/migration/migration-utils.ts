@@ -452,7 +452,7 @@ export const COLLECTIONS = {
   PLAYER_STATS: 'playerStats',
   GAME_STATS: 'gameStats',
   PLAYER_METRICS: 'PlayerMetrics',
-  BILLING_CONTEXTS: 'billingContexts',
+  BILLING_CONTEXTS: 'BillingContexts',
 } as const;
 
 // ─── Migration Metadata ───────────────────────────────────────────────────────

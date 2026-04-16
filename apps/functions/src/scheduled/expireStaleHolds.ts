@@ -11,8 +11,8 @@
  * via the `platformConfig/billing` Firestore document (`holdExpiryMs`).
  *
  * Collections affected:
- * - `walletHolds`      (marks stale holds as 'expired')
- * - `billingContexts`  (releases pendingHoldsCents back to available balance)
+ * - `WalletHolds`      (marks stale holds as 'expired')
+ * - `BillingContexts`  (releases pendingHoldsCents back to available balance)
  */
 
 import * as admin from 'firebase-admin';
@@ -58,7 +58,7 @@ async function getHoldExpiryMs(db: FirebaseFirestore.Firestore): Promise<number>
 /**
  * Expire stale wallet holds — runs every 15 minutes.
  *
- * 1. Queries `walletHolds` for active holds older than the configured expiry.
+ * 1. Queries `WalletHolds` for active holds older than the configured expiry.
  * 2. Batch-updates them to status 'expired'.
  * 3. Releases the held amount back on each user's billingContext.
  */

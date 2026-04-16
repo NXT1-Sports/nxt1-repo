@@ -1275,7 +1275,7 @@ async function resolveAthleteOrgTarget(
   const billingUserId = orgId ? `org:${orgId}` : `team:${teamId}`;
 
   // Fetch all team IDs for this org so the usage dashboard can query
-  // usageEvents across the entire organization (same as resolveUserOrgTarget).
+  // UsageEvents across the entire organization (same as resolveUserOrgTarget).
   // Without this, fetchUsageEvents falls through to the individual query path
   // and queries `userId == 'org:{orgId}'` — which matches zero events.
   let teamIds: string[] = [teamId];
@@ -1839,7 +1839,7 @@ const DEFAULT_HOLD_EXPIRY_MS = 10 * 60 * 1000;
  *
  * This prevents race conditions where N parallel requests all pass the balance
  * check and then overdraw the wallet. The hold increases `pendingHoldsCents`
- * on the billing context and creates a `walletHolds` document for tracking.
+ * on the billing context and creates a `WalletHolds` document for tracking.
  *
  * @param db Firestore instance
  * @param userId User's Firebase UID
@@ -2252,10 +2252,10 @@ export interface WalletTopUpResult {
 /**
  * Credit a referral reward to the referring user's Agent X wallet.
  *
- * Uses `referralRewards` collection for idempotency — each (referrerId, newUserId)
+ * Uses `ReferralRewards` collection for idempotency — each (referrerId, newUserId)
  * pair can only be rewarded once. Safe to call multiple times for the same pair.
  *
- * Writes to `billingContexts.walletBalanceCents` (the single source of truth)
+ * Writes to `BillingContexts.walletBalanceCents` (the single source of truth)
  * via `addWalletTopUp`.
  *
  * @param db        Firestore instance
@@ -2279,7 +2279,7 @@ export async function creditReferralReward(
 
   // Idempotency key: one reward per (referrer, newUser) pair
   const idempotencyKey = `referral_${referrerId}_${newUserId}`;
-  const rewardRef = db.collection('referralRewards').doc(idempotencyKey);
+  const rewardRef = db.collection('ReferralRewards').doc(idempotencyKey);
 
   try {
     // Check idempotency first (non-transactional read is fine — worst case

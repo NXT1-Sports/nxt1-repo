@@ -67,7 +67,7 @@ export async function notifyUser(
   const dedupId = rawKey.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100);
   const activityDedupId = `${dedupId}_a`;
 
-  const notificationRef = db.collection('notifications').doc(dedupId);
+  const notificationRef = db.collection('Notifications').doc(dedupId);
   const activityRef = db
     .collection('Users')
     .doc(input.userId)

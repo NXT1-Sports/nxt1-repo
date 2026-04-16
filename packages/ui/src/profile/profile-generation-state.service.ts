@@ -392,7 +392,7 @@ export class ProfileGenerationStateService {
       const timeout = setTimeout(() => settle(null), 2_000);
 
       const unsubscribe = firestoreAdapter.onSnapshot(
-        `agentJobs/${jobId}/events`,
+        `AgentJobs/${jobId}/events`,
         'seq',
         (docs) => {
           clearTimeout(timeout);

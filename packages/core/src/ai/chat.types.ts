@@ -11,7 +11,7 @@
  * - MongoDB for chronological chat history (Thread + Message models)
  * - MongoDB Atlas Vector Search (Phase 2) for semantic memory via
  *   optional `embedding` field on messages
- * - Firestore remains ephemeral job progress only (agentJobs collection)
+ * - Firestore remains ephemeral job progress only (AgentJobs collection)
  *
  * 100% Portable — Zero framework dependencies.
  */

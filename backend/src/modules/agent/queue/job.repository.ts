@@ -12,7 +12,7 @@
  *   persistent, real-time document to bind to. Even if Redis is
  *   flushed or the server restarts, the job history stays.
  *
- * Collection: `agentJobs/{operationId}`
+ * Collection: `AgentJobs/{operationId}`
  *
  * @example
  * ```ts
@@ -34,12 +34,12 @@ import type { AgentJobProgress } from './queue.types.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const COLLECTION = 'agentJobs' as const;
+const COLLECTION = 'AgentJobs' as const;
 const EVENTS_SUBCOLLECTION = 'events' as const;
 const ACTIVE_JOB_RETENTION_DAYS = 14;
 const TERMINAL_JOB_RETENTION_DAYS = 30;
 
-// ─── Job Event Types (Subcollection: agentJobs/{operationId}/events) ────────
+// ─── Job Event Types (Subcollection: AgentJobs/{operationId}/events) ────────
 
 /**
  * Event types written to the `events` subcollection.
@@ -64,7 +64,7 @@ export type JobEventType =
   | 'done';
 
 /**
- * A single event document stored in `agentJobs/{operationId}/events/{autoId}`.
+ * A single event document stored in `AgentJobs/{operationId}/events/{autoId}`.
  * The frontend reads these via `onSnapshot`, ordered by `seq`, to reconstruct
  * the live agent execution as a chat-like experience.
  */

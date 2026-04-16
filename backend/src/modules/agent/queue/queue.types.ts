@@ -156,7 +156,7 @@ export interface AgentJobStatusResponse {
 /**
  * Frontend-facing summary of a single recurring schedule.
  * Returned by the list_recurring_tasks tool and the REST API.
- * Metadata is persisted in Firestore (`recurring_tasks/{key}`).
+ * Metadata is persisted in Firestore (`RecurringTasks/{key}`).
  */
 export interface RecurringJobInfo {
   /** The BullMQ repeatable job key (used for removal). */

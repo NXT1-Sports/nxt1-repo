@@ -244,7 +244,7 @@ export type BillingEntity = 'individual' | 'team' | 'organization';
 export type PaymentProvider = 'stripe' | 'iap';
 
 /**
- * Billing context stored per user in Firestore (`billingContexts` collection).
+ * Billing context stored per user in Firestore (`BillingContexts` collection).
  * Determines whether a user's usage is billed to them or to their organization.
  */
 export interface BillingContext {
@@ -364,7 +364,7 @@ export interface TeamBudgetAllocation {
 
 /**
  * Wallet hold — a temporary reservation of funds for an in-flight AI operation.
- * Stored in Firestore `walletHolds` collection.
+ * Stored in Firestore `WalletHolds` collection.
  */
 export interface WalletHold {
   /** Hold document ID */

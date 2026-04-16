@@ -826,8 +826,8 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
 
     const eventsDocs = await fetchUsageEvents(db, target, start, end, false, 10000);
 
-    // For IAP wallet users, charges go directly to billingContexts.currentPeriodSpend
-    // (deductWallet does not write usageEvents). Use the authoritative source directly.
+    // For IAP wallet users, charges go directly to BillingContexts.currentPeriodSpend
+    // (deductWallet does not write UsageEvents). Use the authoritative source directly.
     const isIapUser =
       billingCtx.billingEntity === 'individual' && billingCtx.paymentProvider === 'iap';
     const isOrgBilling = billingCtx.billingEntity === 'organization';

@@ -1,7 +1,7 @@
 {
   "indexes": [
     {
-      "collectionGroup": "agentJobs",
+      "collectionGroup": "AgentJobs",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
@@ -10,7 +10,7 @@
       ]
     },
     {
-      "collectionGroup": "agentJobs",
+      "collectionGroup": "AgentJobs",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
@@ -18,7 +18,7 @@
       ]
     },
     {
-      "collectionGroup": "agentJobs",
+      "collectionGroup": "AgentJobs",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
@@ -88,7 +88,7 @@
       ]
     },
     {
-      "collectionGroup": "billingContexts",
+      "collectionGroup": "BillingContexts",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "billingEntity", "order": "ASCENDING" },
@@ -135,7 +135,7 @@
       ]
     },
     {
-      "collectionGroup": "usageEvents",
+      "collectionGroup": "UsageEvents",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
@@ -143,7 +143,7 @@
       ]
     },
     {
-      "collectionGroup": "usageEvents",
+      "collectionGroup": "UsageEvents",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
@@ -151,7 +151,7 @@
       ]
     },
     {
-      "collectionGroup": "usageEvents",
+      "collectionGroup": "UsageEvents",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "teamId", "order": "ASCENDING" },
@@ -159,7 +159,7 @@
       ]
     },
     {
-      "collectionGroup": "usageEvents",
+      "collectionGroup": "UsageEvents",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "teamId", "order": "ASCENDING" },
@@ -175,7 +175,7 @@
       ]
     },
     {
-      "collectionGroup": "paymentLogs",
+      "collectionGroup": "PaymentLogs",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "organizationId", "order": "ASCENDING" },
@@ -183,7 +183,7 @@
       ]
     },
     {
-      "collectionGroup": "paymentLogs",
+      "collectionGroup": "PaymentLogs",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
@@ -199,7 +199,7 @@
       ]
     },
     {
-      "collectionGroup": "walletHolds",
+      "collectionGroup": "WalletHolds",
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
@@ -261,7 +261,7 @@
   ],
   "fieldOverrides": [
     {
-      "collectionGroup": "agentJobs",
+      "collectionGroup": "AgentJobs",
       "fieldPath": "expiresAt",
       "ttl": true,
       "indexes": []

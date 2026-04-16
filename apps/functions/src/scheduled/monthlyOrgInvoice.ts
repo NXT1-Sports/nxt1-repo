@@ -9,7 +9,7 @@
  *
  * Billing model:
  *   - Org master billing contexts: userId = 'org:<organizationId>'
- *   - Stripe customer is looked up from the 'stripeCustomers' collection
+ *   - Stripe customer is looked up from the 'StripeCustomers' collection
  *   - Invoice collection method: send_invoice / Net 30
  */
 
