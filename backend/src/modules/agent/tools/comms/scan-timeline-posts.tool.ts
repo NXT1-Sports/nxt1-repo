@@ -392,7 +392,9 @@ export class ScanTimelinePostsTool extends BaseTool {
 
       // Resolve target — fall back to 'user' when required IDs are unavailable.
       // VectorMemoryService.store() throws if target='team' without teamId, or
-      // target='organization' without organizationId; we defensively downgrade.
+      // target='organization' without organizationId. Since this tool's input
+      // scope only exposes teamId (not organizationId), organization always
+      // downgrades to 'user'; team downgrades if the caller omitted teamId.
       let target: AgentMemoryTarget = VALID_TARGETS.includes(fact.target as AgentMemoryTarget)
         ? (fact.target as AgentMemoryTarget)
         : 'user';
