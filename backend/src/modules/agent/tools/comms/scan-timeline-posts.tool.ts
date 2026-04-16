@@ -206,7 +206,7 @@ export class ScanTimelinePostsTool extends BaseTool {
           telemetryContext: {
             operationId: `scan-timeline-posts-${userId}`,
             userId,
-            agentId: 'data_coordinator',
+            agentId: 'router',
             feature: 'scan-timeline-posts',
           },
         }
