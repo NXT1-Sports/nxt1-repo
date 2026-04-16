@@ -34,7 +34,7 @@ import {
 } from './middleware/cache-status.middleware.js';
 
 // Routes
-import authRoutes from './routes/auth.routes.js';
+import authRoutes from './routes/auth/index.js';
 import uploadRoutes from './routes/upload.routes.js';
 import sitemapRoutes from './routes/sitemap.routes.js';
 import feedRoutes from './routes/feed.routes.js';
@@ -46,7 +46,7 @@ import inviteRoutes from './routes/invite.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import helpCenterRoutes from './routes/help-center.routes.js';
 import editProfileRoutes from './routes/edit-profile.routes.js';
-import agentXRoutes from './routes/agent-x.routes.js';
+import agentXRoutes from './routes/agent-x/index.js';
 import messagesRoutes from './routes/messages.routes.js';
 
 import { bootstrapAgentQueue } from './modules/agent/queue/bootstrap.js';
@@ -56,12 +56,12 @@ import { ensureTopicExists } from './modules/billing/index.js';
 import programsRoutes from './routes/programs.routes.js';
 // Billing routes
 import billingRoutes from './routes/billing.routes.js';
-import webhookRoutes, { webhookRawBodyMiddleware } from './routes/webhook.routes.js';
-import sentryWebhookRoutes from './routes/sentry-webhook.routes.js';
-import heliconeRoutes from './routes/helicone.routes.js';
+import webhookRoutes, { webhookRawBodyMiddleware } from './routes/webhooks/stripe.routes.js';
+import sentryWebhookRoutes from './routes/webhooks/sentry.routes.js';
+import heliconeRoutes from './routes/webhooks/helicone.routes.js';
 import usageRoutes from './routes/usage.routes.js';
 import iapRoutes from './routes/iap.routes.js';
-import cloudflareWebhookRoutes from './routes/cloudflare-webhook.routes.js';
+import cloudflareWebhookRoutes from './routes/webhooks/cloudflare.routes.js';
 import teamsRoutes from './routes/teams.routes.js';
 // Staging-only dev utilities
 
