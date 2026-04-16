@@ -41,7 +41,7 @@ import { dispatch } from '../../../services/notification.service.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Firestore collection for approval request documents. */
-const APPROVALS_COLLECTION = 'agentApprovalRequests' as const;
+const APPROVALS_COLLECTION = 'AgentApprovalRequests' as const;
 
 const LIVE_VIEW_DESTRUCTIVE_KEYWORDS =
   /\b(submit|send|confirm|purchase|buy|place\s+order|delete|remove|pay|checkout|sign\s+up|register|apply|publish|post|transfer|authorize|approve)\b/i;

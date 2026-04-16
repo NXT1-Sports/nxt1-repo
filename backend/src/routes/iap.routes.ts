@@ -149,7 +149,7 @@ router.post(
 
       // Idempotency guard — prevent replay attacks from crediting the wallet multiple times
       // for the same Apple transaction (e.g., client retries or intercepted JWS reuse).
-      const txnDocRef = db.collection('iap_processed_transactions').doc(transactionId);
+      const txnDocRef = db.collection('IapProcessedTransactions').doc(transactionId);
       const existing = await txnDocRef.get();
       if (existing.exists) {
         logger.warn('[iap/verify-receipt] Duplicate transaction — already processed', {

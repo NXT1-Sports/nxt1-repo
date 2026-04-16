@@ -319,10 +319,10 @@ environment setup, price ID mapping, and retry policy.
 
 ### `iap.routes.ts`
 
-| Method | Path                         | Auth             | Description                                                                                                                                                                                                                                                  |
-| ------ | ---------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `POST` | `/api/v1/iap/verify-receipt` | `appGuard`       | Called by iOS app after a StoreKit 2 purchase. Body: `{ jwsTransaction: string }`. Verifies the JWS signature with Apple root CAs, maps `productId` to cents, guards against replay via `iap_processed_transactions`, credits wallet via `addWalletTopUp()`. |
-| `POST` | `/api/v1/iap/webhook`        | none (Apple S2S) | Apple App Store Server Notifications V2. Verifies the signed payload, handles `REFUND` events by calling `processWalletRefund()`. Always returns `200` to prevent Apple retry storms.                                                                        |
+| Method | Path                         | Auth             | Description                                                                                                                                                                                                                                                |
+| ------ | ---------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST` | `/api/v1/iap/verify-receipt` | `appGuard`       | Called by iOS app after a StoreKit 2 purchase. Body: `{ jwsTransaction: string }`. Verifies the JWS signature with Apple root CAs, maps `productId` to cents, guards against replay via `IapProcessedTransactions`, credits wallet via `addWalletTopUp()`. |
+| `POST` | `/api/v1/iap/webhook`        | none (Apple S2S) | Apple App Store Server Notifications V2. Verifies the signed payload, handles `REFUND` events by calling `processWalletRefund()`. Always returns `200` to prevent Apple retry storms.                                                                      |
 
 **Product ID mapping** (defined in `iap.routes.ts`):
 
@@ -352,17 +352,17 @@ environment setup, price ID mapping, and retry policy.
 
 ## Firestore Collections Summary
 
-| Collection                   | Key                   | Purpose                                                                 |
-| ---------------------------- | --------------------- | ----------------------------------------------------------------------- |
-| `BillingContexts`            | `userId`              | Central billing state (budget, spend, wallet balance, payment provider) |
-| `wallets`                    | `userId`              | Lightweight wallet balance (used by `wallet.service.ts`)                |
-| `UsageEvents`                | auto-id               | All billable usage events with state machine                            |
-| `StripeCustomers`            | auto-id               | Stripe customer ID cache per user/environment                           |
-| `PaymentLogs`                | auto-id               | Raw Stripe webhook event data                                           |
-| `iap_processed_transactions` | Apple `transactionId` | Idempotency guard for IAP receipts                                      |
-| `iapLogs`                    | Apple `transactionId` | Idempotency guard used by `wallet.service.ts`                           |
-| `walletRefunds`              | auto-id               | Audit log of all wallet refunds                                         |
-| `PricingConfig`              | `default`             | Multiplier config (`defaultMultiplier`, `featureOverrides`)             |
+| Collection                 | Key                   | Purpose                                                                 |
+| -------------------------- | --------------------- | ----------------------------------------------------------------------- |
+| `BillingContexts`          | `userId`              | Central billing state (budget, spend, wallet balance, payment provider) |
+| `wallets`                  | `userId`              | Lightweight wallet balance (used by `wallet.service.ts`)                |
+| `UsageEvents`              | auto-id               | All billable usage events with state machine                            |
+| `StripeCustomers`          | auto-id               | Stripe customer ID cache per user/environment                           |
+| `PaymentLogs`              | auto-id               | Raw Stripe webhook event data                                           |
+| `IapProcessedTransactions` | Apple `transactionId` | Idempotency guard for IAP receipts                                      |
+| `iapLogs`                  | Apple `transactionId` | Idempotency guard used by `wallet.service.ts`                           |
+| `walletRefunds`            | auto-id               | Audit log of all wallet refunds                                         |
+| `PricingConfig`            | `default`             | Multiplier config (`defaultMultiplier`, `featureOverrides`)             |
 
 ---
 

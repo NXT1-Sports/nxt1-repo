@@ -552,7 +552,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
 
     // Atomically resolve the approval inside a Firestore transaction to
     // prevent TOCTOU races (two concurrent taps both seeing "pending").
-    const approvalRef = db.collection('agentApprovalRequests').doc(approvalId);
+    const approvalRef = db.collection('AgentApprovalRequests').doc(approvalId);
 
     const transactionResult = await db.runTransaction(async (txn) => {
       const approvalSnap = await txn.get(approvalRef);
@@ -1032,7 +1032,7 @@ router.post(
       const bucket = getStorage().bucket();
       const timestamp = Date.now();
       const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const storagePath = `agent-x/${user.uid}/${timestamp}_${sanitizedName}`;
+      const storagePath = `AgentX/${user.uid}/${timestamp}_${sanitizedName}`;
       const storageFile = bucket.file(storagePath);
 
       await storageFile.save(file.buffer, {

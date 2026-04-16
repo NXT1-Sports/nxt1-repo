@@ -275,12 +275,12 @@ function buildExtensionCompatiblePath(
       // Documents don't go through extension - keep original format
       const docExtension = fileName?.split('.').pop() || 'pdf';
       const sanitizedName = (fileName || 'document').replace(/[^a-zA-Z0-9.-]/g, '_').split('.')[0];
-      return `users/${userId}/documents/${timestamp}_${sanitizedName}.${docExtension}`;
+      return `Users/${userId}/documents/${timestamp}_${sanitizedName}.${docExtension}`;
     }
 
     default:
       // Fallback for unknown categories
-      return `users/${userId}/uploads/${timestamp}.${extension}`;
+      return `Users/${userId}/uploads/${timestamp}.${extension}`;
   }
 }
 
@@ -423,7 +423,7 @@ function buildStoragePath(userId: string, category: FileCategory, fileName: stri
   }
 
   const extension = sanitizedName.split('.').pop() || 'bin';
-  return `users/${userId}/${category}/${timestamp}_${sanitizedName.split('.')[0]}.${extension}`;
+  return `Users/${userId}/${category}/${timestamp}_${sanitizedName.split('.')[0]}.${extension}`;
 }
 
 /**
@@ -1526,7 +1526,7 @@ router.delete(
 
     // Security: Ensure path belongs to user
     const pathString = String(storagePath);
-    if (!pathString.startsWith(`users/${userId}/`)) {
+    if (!pathString.startsWith(`Users/${userId}/`)) {
       throw forbiddenError('owner');
     }
 

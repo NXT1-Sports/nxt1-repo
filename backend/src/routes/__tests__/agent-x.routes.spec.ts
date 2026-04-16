@@ -110,7 +110,7 @@ describe('Agent X Routes', () => {
       } as never,
     });
 
-    __seedMockFirestoreDocument('agentApprovalRequests/approval-123', {
+    __seedMockFirestoreDocument('AgentApprovalRequests/approval-123', {
       userId: 'test-user',
       status: 'pending',
       operationId: 'op-original',
@@ -150,7 +150,7 @@ describe('Agent X Routes', () => {
     expect(resumedPayload.context?.approvalId).toBe('approval-123');
     expect(resumedPayload.context?.yieldState?.pendingToolCall?.toolInput).toEqual(editedToolInput);
 
-    expect(__getMockFirestoreDocument('agentApprovalRequests/approval-123')).toMatchObject({
+    expect(__getMockFirestoreDocument('AgentApprovalRequests/approval-123')).toMatchObject({
       status: 'approved',
       resolvedBy: 'test-user',
       toolInput: editedToolInput,
