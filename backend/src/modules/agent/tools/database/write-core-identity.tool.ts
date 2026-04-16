@@ -15,7 +15,7 @@
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { isTeamRole } from '@nxt1/core';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { ScraperMediaService } from '../integrations/scraper-media.service.js';
+import { ScraperMediaService } from '../integrations/social/scraper-media.service.js';
 import { getCacheService } from '../../../../services/cache.service.js';
 import {
   createProfileWriteAccessService,
@@ -27,7 +27,7 @@ import { enqueueWelcomeGraphicIfReady } from '../../../../services/agent-welcome
 import { invalidateTeamCache } from '../../../../services/team-code.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
-import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
+import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
 import { platformDisplayName } from './platform-utils.js';
 import { SyncDiffService, type PreviousProfileState } from '../../sync/index.js';

@@ -105,12 +105,12 @@ export class IntelService {
   );
   readonly error = computed(() => this._error());
 
-  /** Ordered dossier sections from the active athlete Intel report. */
+  /** Ordered Intel report sections from the active athlete Intel report. */
   readonly athleteSections = computed(
     (): readonly IntelBriefSection[] => this._athleteReport()?.sections ?? []
   );
 
-  /** Ordered dossier sections from the active team Intel report. */
+  /** Ordered Intel report sections from the active team Intel report. */
   readonly teamSections = computed(
     (): readonly IntelBriefSection[] => this._teamReport()?.sections ?? []
   );
@@ -351,6 +351,80 @@ export class IntelService {
     } finally {
       this._isGenerating.set(false);
       this._isPendingGeneration.set(false);
+    }
+  }
+
+  // ============================================
+  // TARGETED SECTION UPDATE — ATHLETE
+  // ============================================
+
+  /**
+   * Regenerates a single section of the active athlete Intel report in-place.
+   * The other sections remain unchanged. The stored Firestore document is updated
+   * by the backend; this method also updates the in-memory signal immediately.
+   */
+  async updateAthleteIntelSection(userId: string, sectionId: string): Promise<void> {
+    this._isGenerating.set(true);
+    this._error.set(null);
+    this.logger.info('Updating athlete Intel section', { userId, sectionId });
+    this.breadcrumb.trackStateChange('intel:section-updating', { userId, sectionId });
+
+    try {
+      const report = await this.api.updateAthleteIntelSection(userId, sectionId);
+      this._athleteReport.set(report);
+      this.logger.info('Athlete Intel section updated', { userId, sectionId });
+      this.breadcrumb.trackStateChange('intel:section-updated', { userId, sectionId });
+      this.analytics?.trackEvent(APP_EVENTS.INTEL_ATHLETE_GENERATED, {
+        userId,
+        mode: 'section-update',
+        sectionId,
+      });
+      this.toast.success('Section updated');
+    } catch (err) {
+      this.logger.error('Failed to update athlete Intel section', err, { userId, sectionId });
+      this.breadcrumb.trackStateChange('intel:section-update-error', { userId, sectionId });
+      const msg = err instanceof Error ? err.message : 'Failed to update section';
+      this._error.set(msg);
+      this.toast.error(msg);
+    } finally {
+      this._isGenerating.set(false);
+    }
+  }
+
+  // ============================================
+  // TARGETED SECTION UPDATE — TEAM
+  // ============================================
+
+  /**
+   * Regenerates a single section of the active team Intel report in-place.
+   * The other sections remain unchanged. The stored Firestore document is updated
+   * by the backend; this method also updates the in-memory signal immediately.
+   */
+  async updateTeamIntelSection(teamId: string, sectionId: string): Promise<void> {
+    this._isGenerating.set(true);
+    this._error.set(null);
+    this.logger.info('Updating team Intel section', { teamId, sectionId });
+    this.breadcrumb.trackStateChange('intel:section-updating', { teamId, sectionId });
+
+    try {
+      const report = await this.api.updateTeamIntelSection(teamId, sectionId);
+      this._teamReport.set(report);
+      this.logger.info('Team Intel section updated', { teamId, sectionId });
+      this.breadcrumb.trackStateChange('intel:section-updated', { teamId, sectionId });
+      this.analytics?.trackEvent(APP_EVENTS.INTEL_TEAM_GENERATED, {
+        teamId,
+        mode: 'section-update',
+        sectionId,
+      });
+      this.toast.success('Section updated');
+    } catch (err) {
+      this.logger.error('Failed to update team Intel section', err, { teamId, sectionId });
+      this.breadcrumb.trackStateChange('intel:section-update-error', { teamId, sectionId });
+      const msg = err instanceof Error ? err.message : 'Failed to update section';
+      this._error.set(msg);
+      this.toast.error(msg);
+    } finally {
+      this._isGenerating.set(false);
     }
   }
 

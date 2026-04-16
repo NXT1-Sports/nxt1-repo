@@ -16,7 +16,7 @@ import { asyncHandler } from '@nxt1/core/errors/express';
 import { notFoundError, forbiddenError, fieldError } from '@nxt1/core/errors';
 import type { User, SportProfile, TeamType, UserRole, VerifiedMetric } from '@nxt1/core';
 import { formatFileSize, TEAM_TYPES, SPORT_POSITIONS, normalizeSportKey } from '@nxt1/core';
-import { invalidateProfileCaches } from './profile.routes.js';
+import { invalidateProfileCaches } from './profile/shared.js';
 import { enqueueWelcomeGraphicIfReady } from '../services/agent-welcome.service.js';
 import { createRosterEntryService } from '../services/roster-entry.service.js';
 import {
@@ -196,7 +196,6 @@ function buildDelegatedFormData(formData: EditProfileFormData): EditProfileFormD
       classYear: undefined,
     },
     photos: {
-      bannerImg: undefined,
       profileImgs: undefined,
     },
     contact: {
@@ -269,17 +268,19 @@ function userToEditProfileFormData(user: User, sportIndex?: number): EditProfile
       teamName: activeSport?.team?.name,
       teamType: activeSport?.team?.type,
       teamOrganizationId: activeSport?.team?.organizationId,
+      jerseyNumber:
+        activeSport?.jerseyNumber != null ? String(activeSport.jerseyNumber) : undefined,
     },
     academics: {
       gpa:
-        user.athlete?.academics?.gpa != null
-          ? Number.isInteger(user.athlete.academics.gpa)
-            ? user.athlete.academics.gpa.toFixed(1)
-            : String(user.athlete.academics.gpa)
+        user.academics?.gpa != null
+          ? Number.isInteger(user.academics.gpa)
+            ? user.academics.gpa.toFixed(1)
+            : String(user.academics.gpa)
           : undefined,
-      sat: user.athlete?.academics?.satScore ? String(user.athlete.academics.satScore) : undefined,
-      act: user.athlete?.academics?.actScore ? String(user.athlete.academics.actScore) : undefined,
-      intendedMajor: user.athlete?.academics?.intendedMajor,
+      sat: user.academics?.satScore ? String(user.academics.satScore) : undefined,
+      act: user.academics?.actScore ? String(user.academics.actScore) : undefined,
+      intendedMajor: user.academics?.intendedMajor,
     },
     physical: {
       height: user.measurables?.find((m) => m.field === 'height')?.value?.toString(),
@@ -315,7 +316,15 @@ function sectionToFirestoreUpdate(
       const data = sectionData as EditProfileBasicInfo;
       if (data.firstName) updates['firstName'] = data.firstName;
       if (data.lastName) updates['lastName'] = data.lastName;
-      if (data.displayName !== undefined) updates['displayName'] = data.displayName || null;
+      if (data.displayName !== undefined) {
+        updates['displayName'] = data.displayName || null;
+      } else if (data.firstName !== undefined || data.lastName !== undefined) {
+        // Auto-sync displayName whenever first/last name changes (backend safety net).
+        const newFirst = (data.firstName ?? user.firstName ?? '').trim();
+        const newLast = (data.lastName ?? user.lastName ?? '').trim();
+        const derived = [newFirst, newLast].filter(Boolean).join(' ');
+        updates['displayName'] = derived || null;
+      }
       if (data.bio !== undefined) updates['aboutMe'] = data.bio || null;
 
       // Parse location
@@ -338,7 +347,6 @@ function sectionToFirestoreUpdate(
 
     case 'photos': {
       const data = sectionData as EditProfilePhotos;
-      if (data.bannerImg !== undefined) updates['bannerImg'] = data.bannerImg || null;
       if (data.profileImgs !== undefined) updates['profileImgs'] = data.profileImgs || [];
       break;
     }
@@ -395,6 +403,12 @@ function sectionToFirestoreUpdate(
       const targetSport = updatedSports[targetIndex];
 
       // Note: Sport type (data.sport) is read-only - cannot be changed via edit profile
+
+      // Jersey number
+      if (data.jerseyNumber !== undefined) {
+        const trimmed = data.jerseyNumber?.trim() ?? '';
+        targetSport.jerseyNumber = trimmed || undefined;
+      }
 
       // Team / program name and type
       if (

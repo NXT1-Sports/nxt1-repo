@@ -9,10 +9,8 @@
 import type { Timestamp } from 'firebase-admin/firestore';
 import type {
   FeedPost,
-  FeedComment,
   FeedMedia,
   FeedAuthor,
-  FeedCommentAuthor,
   FeedPostType,
   FeedAuthorRole,
   FeedVerificationStatus,
@@ -68,23 +66,6 @@ export interface FirestorePostDoc {
 }
 
 /**
- * Firestore Comment document (raw from Firestore)
- */
-export interface FirestoreCommentDoc {
-  postId: string;
-  userId: string;
-  content: string;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-  deletedAt?: Timestamp;
-  stats?: {
-    likes: number;
-    replies: number;
-  };
-  parentId?: string;
-}
-
-/**
  * User profile data for enrichment
  */
 export interface UserProfile {
@@ -125,20 +106,21 @@ export function userProfileToFeedAuthor(profile: UserProfile): FeedAuthor {
   const validRoles: readonly FeedAuthorRole[] = [
     'athlete',
     'coach',
+    'director',
     'team',
-    'recruiter',
-    'parent',
     'official',
   ];
 
-  // Normalize legacy role strings to new FeedAuthorRole values
+  // Normalize legacy role strings to current FeedAuthorRole values
   let profileRole = profile.role as string;
   const legacyRoleMap: Record<string, FeedAuthorRole> = {
-    college_coach: 'recruiter',
-    'college-coach': 'recruiter',
-    'recruiting-service': 'recruiter',
-    scout: 'recruiter',
-    media: 'recruiter',
+    college_coach: 'coach',
+    'college-coach': 'coach',
+    'recruiting-service': 'coach',
+    recruiter: 'coach',
+    scout: 'coach',
+    media: 'coach',
+    parent: 'athlete',
     fan: 'athlete',
   };
   if (legacyRoleMap[profileRole]) {
@@ -176,19 +158,6 @@ export function userProfileToFeedAuthor(profile: UserProfile): FeedAuthor {
     schoolName: profile.schoolName,
     schoolLogoUrl: profile.schoolLogoUrl,
     classYear: profile.classYear,
-  };
-}
-
-/**
- * Convert user profile to FeedCommentAuthor
- */
-export function userProfileToCommentAuthor(profile: UserProfile): FeedCommentAuthor {
-  return {
-    uid: profile.uid,
-    profileCode: profile.profileCode || profile.uid,
-    displayName: profile.displayName,
-    avatarUrl: profile.photoURL,
-    isVerified: profile.isVerified || false,
   };
 }
 
@@ -253,28 +222,6 @@ export function firestorePostToFeedPost(
 }
 
 /**
- * Convert Firestore comment document to FeedComment
- */
-export function firestoreCommentToFeedComment(
-  id: string,
-  doc: FirestoreCommentDoc,
-  author: FeedCommentAuthor,
-  isLiked?: boolean
-): FeedComment {
-  return {
-    id,
-    postId: doc.postId,
-    author,
-    content: doc.content,
-    likeCount: doc.stats?.likes || 0,
-    isLiked: isLiked || false,
-    replyCount: doc.stats?.replies || 0,
-    parentId: doc.parentId,
-    createdAt: timestampToISO(doc.createdAt),
-  };
-}
-
-/**
  * Map backend PostType to FeedPostType
  */
 function mapPostTypeToFeedType(type: PostType): FeedPostType {
@@ -298,59 +245,3 @@ function mapPostTypeToFeedType(type: PostType): FeedPostType {
 // ============================================
 // BATCH CONVERSION UTILITIES
 // ============================================
-
-/**
- * Convert multiple Firestore posts to FeedPosts
- */
-export async function batchConvertPosts(
-  posts: Array<{ id: string; data: FirestorePostDoc }>,
-  getUserProfile: (userId: string) => Promise<UserProfile | null>,
-  getUserEngagement?: (
-    postId: string,
-    userId: string
-  ) => Promise<
-    | {
-        isLiked?: boolean;
-        isBookmarked?: boolean;
-        isReposted?: boolean;
-      }
-    | undefined
-  >
-): Promise<FeedPost[]> {
-  const feedPosts: FeedPost[] = [];
-
-  for (const post of posts) {
-    const author = await getUserProfile(post.data.userId);
-    if (!author) continue;
-
-    const feedAuthor = userProfileToFeedAuthor(author);
-    const engagement = getUserEngagement ? await getUserEngagement(post.id, author.uid) : undefined;
-
-    feedPosts.push(firestorePostToFeedPost(post.id, post.data, feedAuthor, engagement));
-  }
-
-  return feedPosts;
-}
-
-/**
- * Convert multiple Firestore comments to FeedComments
- */
-export async function batchConvertComments(
-  comments: Array<{ id: string; data: FirestoreCommentDoc }>,
-  getUserProfile: (userId: string) => Promise<UserProfile | null>,
-  getUserLikes?: (commentId: string, userId: string) => Promise<boolean>
-): Promise<FeedComment[]> {
-  const feedComments: FeedComment[] = [];
-
-  for (const comment of comments) {
-    const author = await getUserProfile(comment.data.userId);
-    if (!author) continue;
-
-    const feedAuthor = userProfileToCommentAuthor(author);
-    const isLiked = getUserLikes ? await getUserLikes(comment.id, author.uid) : false;
-
-    feedComments.push(firestoreCommentToFeedComment(comment.id, comment.data, feedAuthor, isLiked));
-  }
-
-  return feedComments;
-}

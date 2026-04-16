@@ -66,7 +66,7 @@ export const HELP_CATEGORIES: readonly HelpCategory[] = [
     icon: 'school-outline',
     description: 'Navigate the college recruiting process',
     color: 'var(--nxt1-color-feedback-warning)',
-    targetUsers: ['athlete', 'parent', 'coach'],
+    targetUsers: ['athlete', 'coach'],
     order: 5,
   },
   {
@@ -203,16 +203,6 @@ export const HELP_USER_TYPES: Record<
     icon: 'clipboard-outline',
     description: 'College and high school coaches discovering and evaluating talent',
   },
-  parent: {
-    label: 'Parent',
-    icon: 'people-outline',
-    description: "Parents supporting their athlete's journey",
-  },
-  recruiter: {
-    label: 'Recruiter',
-    icon: 'eye-outline',
-    description: 'College coaches, scouts, and recruiting professionals',
-  },
   director: {
     label: 'Director',
     icon: 'briefcase-outline',
@@ -285,14 +275,14 @@ export const HELP_QUICK_ACTIONS: readonly ChatQuickAction[] = [
     label: 'Find athletes',
     icon: 'search-outline',
     message: 'How can I search for and discover athletes on NXT1?',
-    targetUsers: ['coach', 'recruiter'],
+    targetUsers: ['coach', 'director'],
   },
   {
     id: 'recruiting-tips',
     label: 'Recruiting tips',
     icon: 'school-outline',
     message: 'What are the best practices for getting recruited?',
-    targetUsers: ['athlete', 'parent'],
+    targetUsers: ['athlete'],
   },
   {
     id: 'subscription-info',

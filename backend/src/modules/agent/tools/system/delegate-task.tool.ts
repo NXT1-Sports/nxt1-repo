@@ -22,7 +22,7 @@
 
 import type { AgentIdentifier, AgentToolCategory } from '@nxt1/core';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { AgentDelegationException } from '../../errors/agent-delegation.error.js';
+import { AgentDelegationException } from '../../exceptions/agent-delegation.exception.js';
 
 export class DelegateTaskTool extends BaseTool {
   readonly name = 'delegate_task';

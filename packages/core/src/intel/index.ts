@@ -18,7 +18,7 @@ export {
   type IntelDataAvailability,
   type IntelMissingDataPrompt,
   type IntelQuickCommand,
-  // Dossier section types
+  // Intel Report section types
   type IntelBriefItem,
   type IntelBriefSection,
   // Athlete types

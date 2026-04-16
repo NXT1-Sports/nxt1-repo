@@ -29,7 +29,7 @@ import type { VerificationScope } from '../models/user';
 // ============================================
 
 /**
- * Profile content tabs — 3-tab Intelligence Dossier layout.
+ * Profile content tabs — 3-tab Intelligence Intel Report layout.
  * Order determines display order in tab bar.
  */
 export const PROFILE_TABS: readonly ProfileTab[] = [
@@ -114,7 +114,7 @@ const INTEL_SIDE_TAB_SCOPES: Readonly<Record<string, readonly VerificationScope[
   awards: ['stats'],
   academic: ['academics'],
 
-  // ── New Agent X dossier section IDs ──
+  // ── New Agent X Intel report section IDs ──
   agent_x_brief: ['measurables', 'stats'],
   athletic_measurements: ['measurables'],
   season_stats: ['stats'],

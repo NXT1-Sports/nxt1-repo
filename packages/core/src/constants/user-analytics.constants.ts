@@ -27,7 +27,6 @@ export const ANALYTICS_EVENT_TYPES = {
   // Engagement events
   SHARE: 'share',
   REACTION: 'reaction',
-  COMMENT: 'comment',
   REPOST: 'repost',
 
   // Content events
@@ -103,18 +102,22 @@ export type TrendDirection = (typeof TREND_DIRECTIONS)[keyof typeof TREND_DIRECT
 // ============================================
 
 export const VIEWER_TYPES = {
-  RECRUITER: 'recruiter',
-  HIGH_SCHOOL_COACH: 'high_school_coach',
   COACH: 'coach',
-  ATHLETE: 'athlete',
-  PARENT: 'parent',
   DIRECTOR: 'director',
+  ATHLETE: 'athlete',
   ANONYMOUS: 'anonymous',
-  /** @deprecated Use RECRUITER instead */
-  COLLEGE_COACH: 'recruiter',
-  /** @deprecated Use RECRUITER instead */
-  SCOUT: 'recruiter',
-  /** @deprecated Removed */
+  // Legacy aliases (kept for backward compatibility with existing analytics data)
+  /** @deprecated Maps to COACH */
+  RECRUITER: 'coach',
+  /** @deprecated Maps to COACH */
+  HIGH_SCHOOL_COACH: 'coach',
+  /** @deprecated Maps to COACH */
+  COLLEGE_COACH: 'coach',
+  /** @deprecated Maps to COACH */
+  SCOUT: 'coach',
+  /** @deprecated Maps to ATHLETE */
+  PARENT: 'athlete',
+  /** @deprecated Maps to ATHLETE */
   FAN: 'athlete',
 } as const;
 

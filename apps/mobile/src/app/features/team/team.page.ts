@@ -48,11 +48,13 @@ import {
   NxtIconComponent,
   NxtBottomSheetService,
   NxtSidenavService,
+  NxtRefresherComponent,
   SHEET_PRESETS,
   IntelService,
   AgentXOperationChatComponent,
   type ActionFooterButton,
   type BottomSheetAction,
+  type RefreshEvent,
 } from '@nxt1/ui';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import {
@@ -82,6 +84,7 @@ import { environment } from '../../../environments/environment';
     IonToolbar,
     NxtPageHeaderComponent,
     NxtIconComponent,
+    NxtRefresherComponent,
     TeamProfileShellWebComponent,
   ],
   template: `
@@ -138,6 +141,7 @@ import { environment } from '../../../environments/environment';
 
       <!-- Inner scrollable content (mirrors profile-shell ion-content pattern) -->
       <ion-content [fullscreen]="true" class="team-scroll-content">
+        <nxt-refresher (onRefresh)="handleRefresh($event)" />
         <nxt1-team-profile-shell-web
           [teamSlug]="teamSlug()"
           [teamId]="routeTeamCode()"
@@ -151,6 +155,7 @@ import { environment } from '../../../environments/environment';
           (manageTeamClick)="onManageTeam()"
           (rosterMemberClick)="onRosterMemberClick($event)"
           (postClick)="onPostClick($event)"
+          (refreshRequest)="onRefreshRequest()"
         />
       </ion-content>
     </ion-content>
@@ -464,6 +469,48 @@ export class TeamPage {
   // EVENT HANDLERS
   // ============================================
 
+  /**
+   * Handle native pull-to-refresh (ion-refresher event from the inner ion-content).
+   */
+  protected async handleRefresh(event: RefreshEvent): Promise<void> {
+    try {
+      await this.onRefreshRequest();
+    } finally {
+      event.complete();
+    }
+  }
+
+  /**
+   * Re-fetches team data from the API and pushes it into TeamProfileService.
+   * Called by both the native refresher and the shell's (refreshRequest) output.
+   */
+  protected async onRefreshRequest(): Promise<void> {
+    const slug = this.teamSlug();
+    const teamCode = this.routeTeamCode();
+
+    if (!slug && !teamCode) {
+      return;
+    }
+
+    try {
+      const response = teamCode
+        ? await this.teamApi.getTeamById(teamCode)
+        : await this.teamApi.getTeamBySlug(slug);
+
+      if (response.success && response.data) {
+        this.teamProfile.loadFromExternalData(response.data);
+        this.logger.info('Team profile refreshed', { slug, teamCode });
+
+        const teamId = response.data.team?.id;
+        if (teamId) {
+          await this.intel.loadTeamIntel(teamId, true);
+        }
+      }
+    } catch (err) {
+      this.logger.error('Failed to refresh team profile', err, { slug, teamCode });
+    }
+  }
+
   protected onBackClick(): void {
     this.navController.back();
   }
@@ -661,7 +708,7 @@ export class TeamPage {
         contextType: 'command',
         initialMessage: hasReport
           ? `I want to update my team's Intel report. What information or recent results should I include to strengthen it?`
-          : `I want to build an Intel dossier for my team. What information do you need from me to create the best possible report?`,
+          : `I want to build an Intel Intel report for my team. What information do you need from me to create the best possible report?`,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

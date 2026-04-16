@@ -2,43 +2,49 @@
  * @fileoverview Integration Tools — Barrel Export
  * @module @nxt1/backend/modules/agent/tools/integrations
  *
- * Exports all third-party integration tools and their supporting services.
- * Legacy Apify direct-API tools (ScrapeTwitterTool, ScrapeInstagramTool) are
- * preserved alongside the new MCP-bridged tools.
+ * Exports all third-party integration tools and their supporting services,
+ * grouped by provider/domain.
+ *
+ * Directory:
+ *   apify/             — Apify actor platform (MCP bridge + direct-API tools)
+ *   firecrawl/         — Firecrawl web scraping (MCP bridge + tools)
+ *   firebase-mcp/      — Firebase read-only MCP bridge + tools
+ *   cloudflare-stream/ — Cloudflare Stream video tools
+ *   runway/            — Runway ML video/image generation
+ *   social/            — Twitter/Instagram scrapers + media service
+ *   web/               — Tavily web search
+ *   email/             — Email sending (Gmail + Microsoft)
  */
 
-// ── MCP Foundation ────────────────────────────────────────────────────────
+// ── MCP Foundation (shared base) ─────────────────────────────────────────
 export {
   BaseMcpClientService,
   type McpToolCallResult,
   type McpExecuteOptions,
 } from './base-mcp-client.service.js';
-export { ApifyMcpBridgeService } from './apify-mcp-bridge.service.js';
-export { FirecrawlMcpBridgeService } from './firecrawl-mcp-bridge.service.js';
-export { RunwayMcpBridgeService } from './runway-mcp-bridge.service.js';
-export { FirebaseMcpBridgeService } from './firebase-mcp-bridge.service.js';
 
-// ── MCP-Bridged Apify Tools (2026 architecture) ──────────────────────────
-export { SearchApifyActorsTool } from './search-apify-actors.tool.js';
-export { GetApifyActorDetailsTool } from './get-apify-actor-details.tool.js';
-export { CallApifyActorTool } from './call-apify-actor.tool.js';
-export { GetApifyActorOutputTool } from './get-apify-actor-output.tool.js';
+// ── Apify — Actor platform ────────────────────────────────────────────────
+export { ApifyMcpBridgeService } from './apify/apify-mcp-bridge.service.js';
+export { ApifyService } from './apify/apify.service.js';
+export { SearchApifyActorsTool } from './apify/search-apify-actors.tool.js';
+export { GetApifyActorDetailsTool } from './apify/get-apify-actor-details.tool.js';
+export { CallApifyActorTool } from './apify/call-apify-actor.tool.js';
+export { GetApifyActorOutputTool } from './apify/get-apify-actor-output.tool.js';
 
-// ── MCP-Bridged Firecrawl Tools (2026 architecture) ─────────────────────
-export { FirecrawlScrapeTool } from './firecrawl-scrape.tool.js';
-export { FirecrawlSearchTool } from './firecrawl-search.tool.js';
-export { FirecrawlMapTool } from './firecrawl-map.tool.js';
-export { FirecrawlExtractTool } from './firecrawl-extract.tool.js';
-export { ListNxt1DataViewsTool } from './list-user-firebase-views.tool.js';
-export { QueryNxt1DataTool } from './query-user-firebase-data.tool.js';
+// ── Firecrawl — Web scraping ──────────────────────────────────────────────
+export { FirecrawlMcpBridgeService } from './firecrawl/firecrawl-mcp-bridge.service.js';
+export { FirecrawlScrapeTool } from './firecrawl/firecrawl-scrape.tool.js';
+export { FirecrawlSearchTool } from './firecrawl/firecrawl-search.tool.js';
+export { FirecrawlMapTool } from './firecrawl/firecrawl-map.tool.js';
+export { FirecrawlExtractTool } from './firecrawl/firecrawl-extract.tool.js';
 
-// ── Legacy Apify Direct-API Tools (backup — do not remove) ──────────────
-export { ScrapeTwitterTool } from './scrape-twitter.tool.js';
-export { ScrapeInstagramTool } from './scrape-instagram.tool.js';
-export { ApifyService } from './apify.service.js';
+// ── Firebase MCP — Read-only Firestore access ─────────────────────────────
+export { FirebaseMcpBridgeService } from './firebase-mcp/firebase-mcp-bridge.service.js';
+export { ListNxt1DataViewsTool } from './firebase-mcp/list-user-firebase-views.tool.js';
+export { QueryNxt1DataTool } from './firebase-mcp/query-user-firebase-data.tool.js';
 
-// ── MCP-Bridged Cloudflare Stream Tools (2026 architecture) ─────────────
-export { CloudflareMcpBridgeService } from './cloudflare-mcp-bridge.service.js';
+// ── Cloudflare Stream — Video processing ─────────────────────────────────
+export { CloudflareMcpBridgeService } from './cloudflare-stream/cloudflare-mcp-bridge.service.js';
 export {
   ImportVideoTool,
   ClipVideoTool,
@@ -50,9 +56,16 @@ export {
   ManageWatermarkTool,
 } from './cloudflare-stream/index.js';
 
-// ── Other Integration Tools ─────────────────────────────────────────────
-export { WebSearchTool } from './web-search.tool.js';
-export { SendEmailTool } from './send-email.tool.js';
+// ── Runway — AI video/image generation ───────────────────────────────────
+export { RunwayMcpBridgeService } from './runway/runway-mcp-bridge.service.js';
 
-// ── Shared Services ─────────────────────────────────────────────────────
-export { ScraperMediaService } from './scraper-media.service.js';
+// ── Social — Twitter/Instagram scrapers ──────────────────────────────────
+export { ScraperMediaService } from './social/scraper-media.service.js';
+export { ScrapeTwitterTool } from './social/scrape-twitter.tool.js';
+export { ScrapeInstagramTool } from './social/scrape-instagram.tool.js';
+
+// ── Web — Tavily search ───────────────────────────────────────────────────
+export { WebSearchTool } from './web/web-search.tool.js';
+
+// ── Email — Multi-provider sending ───────────────────────────────────────
+export { SendEmailTool } from './email/send-email.tool.js';

@@ -2,8 +2,11 @@
  * @fileoverview User Role-Specific Data
  * @module @nxt1/core/models/user
  *
- * Role-specific data interfaces for all user roles:
- * Athlete, Coach, Recruiter, Director, Parent, Scout, Media, Fan
+ * Role-specific data interfaces for the 3 core roles:
+ * Athlete, Coach, Director
+ *
+ * Legacy interfaces (RecruiterData, ParentData, etc.) are kept below for
+ * backward compatibility with migration scripts only — do not use in new code.
  *
  * @author NXT1 Engineering
  * @version 2.0.0

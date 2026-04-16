@@ -2,7 +2,7 @@
  * @fileoverview Intel Generation Service — AI-Powered Profile Intelligence
  * @module @nxt1/backend/modules/agent/services
  *
- * Generates on-demand Intel dossier reports for athletes and teams using OpenRouter LLM.
+ * Generates on-demand Intel reports for athletes and teams using OpenRouter LLM.
  * Agent X is the athlete's advocate — it tells their story, not their score.
  * Reports are persisted to Firestore and re-used until manually regenerated.
  *
@@ -12,8 +12,7 @@
 
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { logger } from '../../../utils/logger.js';
-import { getSeasonInfo, resolvePrimarySport } from './elite-context.js';
-import { ContextBuilder } from '../memory/context-builder.js';
+import { getSeasonInfo, resolvePrimarySport, ContextBuilder } from '../memory/context-builder.js';
 import { VectorMemoryService } from '../memory/vector.service.js';
 import { OpenRouterService } from '../llm/openrouter.service.js';
 
@@ -184,7 +183,7 @@ export class IntelGenerationService {
       (userData['position'] as string | undefined) ||
       'Unknown';
     const query = [
-      'athlete intel dossier',
+      'athlete intel report',
       `sport: ${fallbackSport}`,
       `position: ${fallbackPosition}`,
       'retrieve performance data, recruiting context, awards, profile updates, measurables, and durable memory',
@@ -311,7 +310,7 @@ export class IntelGenerationService {
               'You are Agent X — the AI sports intelligence engine powering NXT1. ' +
               "You are the athlete's advocate. Your job is to TELL THEIR STORY, not score them. " +
               'You never produce evaluation ratings, tier labels, or numeric scores. ' +
-              "You produce a professional, narrative-first dossier that showcases the athlete's " +
+              "You produce a professional, narrative-first Intel report that showcases the athlete's " +
               'journey, achievements, measurables, recruiting activity, and academic profile. ' +
               'ABSOLUTE RULE: Do NOT invent, hallucinate, or fabricate any data. ' +
               "If a data field is 'NONE', write factual absence text only. " +
@@ -343,7 +342,8 @@ export class IntelGenerationService {
       primaryPosition,
       parsed,
       citations,
-      missingDataPrompts
+      missingDataPrompts,
+      dataAvailability
     );
 
     // ── Persist to Firestore ──
@@ -355,7 +355,7 @@ export class IntelGenerationService {
       generatedAt: FieldValue.serverTimestamp(),
     });
 
-    logger.info('[IntelGenerationService] Athlete intel dossier generated', {
+    logger.info('[IntelGenerationService] Athlete Intel report generated', {
       userId,
       reportId: docRef.id,
       sectionCount: (report['sections'] as unknown[]).length,
@@ -418,7 +418,7 @@ export class IntelGenerationService {
               'You are Agent X — the AI sports intelligence engine powering NXT1. ' +
               "You are the program's advocate. Your job is to TELL THE PROGRAM'S STORY. " +
               'You never produce evaluation ratings or numeric scores for athletes. ' +
-              "You produce a professional, narrative-first team dossier that covers the program's " +
+              "You produce a professional, narrative-first team Intel report that covers the program's " +
               'identity, roster composition, performance stats, recruiting pipeline, and schedule. ' +
               'ABSOLUTE RULE: Do NOT invent, hallucinate, or fabricate any data. ' +
               "If a data field is 'NONE', write factual absence text only. " +
@@ -456,7 +456,7 @@ export class IntelGenerationService {
       generatedAt: FieldValue.serverTimestamp(),
     });
 
-    logger.info('[IntelGenerationService] Team intel dossier generated', {
+    logger.info('[IntelGenerationService] Team Intel report generated', {
       teamId,
       reportId: docRef.id,
       sectionCount: (report['sections'] as unknown[]).length,
@@ -645,7 +645,7 @@ export class IntelGenerationService {
 ═══ ATHLETE CONTEXT (RAG PROFILE + MEMORY) ═══
 ${promptContextText}
 
-═══ RAW DATA FOR DOSSIER GENERATION ═══
+═══ RAW DATA FOR INTEL REPORT GENERATION ═══
 
 SPORT: ${sport}
 PRIMARY POSITION: ${position}
@@ -671,7 +671,7 @@ ${academicJson}
 DATA SOURCES CONNECTED: ${sourcesStr}
 
 ═══ TASK ═══
-You are Agent X. Generate a 6-section athlete dossier in JSON.
+You are Agent X. Generate a 6-section athlete Intel report in JSON.
 NXT1 is the athlete's advocate — you TELL THEIR STORY, not score them.
 Do NOT produce ratings, tier labels, or overall scores.
 ABSOLUTE RULE: Base ALL content ONLY on the ACTUAL data provided above.
@@ -826,7 +826,7 @@ RECRUITING ACTIVITY (Recruiting by teamId):
 ${recruitingJson}
 
 ═══ TASK ═══
-You are Agent X. Generate a 5-section team dossier in JSON.
+You are Agent X. Generate a 5-section team Intel report in JSON.
 You are the program's advocate — TELL THE PROGRAM'S STORY.
 Do NOT produce player scores, tier labels, or ratings.
 ABSOLUTE RULE: Base ALL content ONLY on ACTUAL data provided above.
@@ -910,20 +910,48 @@ Output this EXACT JSON structure with all 5 sections:
       lastSyncedAt?: string;
       verified?: boolean;
     }>,
-    missingDataPrompts: Array<Record<string, string>>
+    missingDataPrompts: Array<Record<string, string>>,
+    availability: Record<string, boolean>
   ): Record<string, unknown> {
+    // Short canonical fallbacks for sections with no source data.
+    // These replace whatever the LLM wrote when the underlying data is absent,
+    // preventing long speculative narratives from appearing on the profile.
+    const NO_DATA_OVERRIDES: Partial<Record<AthleteSectionId, string>> = {
+      athletic_measurements: availability['hasMetrics']
+        ? undefined
+        : 'No measurables have been added yet.',
+      season_stats: availability['hasStats'] ? undefined : 'No stats have been recorded yet.',
+      recruiting_activity: availability['hasRecruiting']
+        ? undefined
+        : 'No recruiting activity has been recorded yet.',
+      awards_honors: availability['hasAwards'] ? undefined : 'No awards have been recorded yet.',
+      academic_profile: availability['hasAcademics']
+        ? undefined
+        : 'No academic information has been added yet.',
+    };
+
+    const sections = this.normalizeSections(
+      parsed['sections'],
+      ATHLETE_SECTION_ORDER,
+      ATHLETE_SECTION_META
+    ).map((section) => {
+      const override = NO_DATA_OVERRIDES[section.id as AthleteSectionId];
+      if (!override) return section;
+      return {
+        ...section,
+        content: override,
+        // Also clear any LLM-invented items for empty sections
+        items: undefined,
+      };
+    });
+
     return {
       userId,
       sportName: sport,
       primaryPosition: position,
       status: 'ready',
       generatedBy: 'agent-x',
-
-      sections: this.normalizeSections(
-        parsed['sections'],
-        ATHLETE_SECTION_ORDER,
-        ATHLETE_SECTION_META
-      ),
+      sections,
       citations,
       missingDataPrompts,
       quickCommands: this.normalizeQuickCommands(parsed['quickCommands']),
@@ -987,11 +1015,15 @@ Output this EXACT JSON structure with all 5 sections:
 
       return {
         id,
-        title: typeof section?.['title'] === 'string' ? section['title'] : fallbackMeta.title,
+        // Always use canonical meta title — never trust the LLM-returned title string
+        title: fallbackMeta.title,
         icon: typeof section?.['icon'] === 'string' ? section['icon'] : fallbackMeta.icon,
         content: (() => {
           const raw = typeof section?.['content'] === 'string' ? section['content'].trim() : '';
-          return raw || 'No data available for this section yet.';
+          if (!raw) return 'No data available for this section yet.';
+          // Normalize single newlines between text → double newlines so markdown
+          // renders distinct <p> tags instead of one collapsed paragraph.
+          return raw.replace(/([^\n])\n([^\n])/g, '$1\n\n$2');
         })(),
         items: this.normalizeBriefItems(section?.['items']),
         sources: this.normalizeSectionSources(section?.['sources']),
@@ -1096,7 +1128,7 @@ Output this EXACT JSON structure with all 5 sections:
         category: 'hasVideo',
         title: 'Upload Highlight Video',
         description:
-          'Coaches want to see you play. Add your highlight reel to strengthen your dossier.',
+          'Coaches want to see you play. Add your highlight reel to strengthen your Intel report.',
         actionLabel: 'Add Video',
         actionRoute: '/edit-profile/media',
         icon: 'videocam',
@@ -1128,7 +1160,7 @@ Output this EXACT JSON structure with all 5 sections:
         category: 'hasAwards',
         title: 'Add Awards & Honors',
         description:
-          'All-conference selections, MVP awards, and academic honors belong in your dossier.',
+          'All-conference selections, MVP awards, and academic honors belong in your Intel report.',
         actionLabel: 'Add Awards',
         actionRoute: '/edit-profile/awards',
         icon: 'trophy',
@@ -1147,5 +1179,750 @@ Output this EXACT JSON structure with all 5 sections:
       icon: String(c?.['icon'] ?? 'flash'),
       agentPrompt: String(c?.['agentPrompt'] ?? ''),
     }));
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TARGETED SECTION UPDATE — ATHLETE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Re-generates a single section of an existing athlete Intel report and
+   * merges it back into Firestore, preserving all other sections unchanged.
+   *
+   * @returns The updated full report document.
+   */
+  async updateAthleteIntelSection(
+    userId: string,
+    sectionId: AthleteSectionId,
+    dbOverride?: Firestore
+  ): Promise<Record<string, unknown>> {
+    const db = this.resolveDb(dbOverride);
+
+    // ── Load the most-recent existing report ──
+    const snap = await db
+      .collection('Users')
+      .doc(userId)
+      .collection('intel_reports')
+      .orderBy('generatedAt', 'desc')
+      .limit(1)
+      .get();
+
+    if (snap.empty) {
+      throw new Error(
+        'No existing Intel report found. Use /generate to create the full report first.'
+      );
+    }
+
+    const reportDoc = snap.docs[0];
+    const existingReport = reportDoc.data() as Record<string, unknown>;
+    const existingSections = (existingReport['sections'] as NormalizedSection[] | undefined) ?? [];
+
+    // ── Load user doc ──
+    const userDoc = await db.collection('Users').doc(userId).get();
+    if (!userDoc.exists) throw new Error('User not found');
+    const userData = userDoc.data() ?? {};
+
+    // ── Gather only the data relevant to this section ──
+    const sectionRaw = await this.gatherAthleteSectionData(userId, userData, sectionId, db);
+
+    // ── Determine section data availability ──
+    const sectionAvailability = this.computeAthleteSectionAvailability(
+      sectionId,
+      userData,
+      sectionRaw
+    );
+
+    // ── Build targeted prompt for just this section ──
+    const { promptContextText, sport, primaryPosition } = await this.buildAthletePromptContext(
+      userId,
+      userData,
+      db
+    );
+
+    const prompt = this.buildAthleteSectionPrompt(
+      sectionId,
+      promptContextText,
+      sport,
+      primaryPosition,
+      sectionRaw,
+      userData
+    );
+
+    // ── Call OpenRouter for single-section output ──
+    let parsedSection: Record<string, unknown>;
+    try {
+      const llm = this.getOrCreateLlmService();
+      const result = await llm.complete(
+        [
+          {
+            role: 'system',
+            content:
+              'You are Agent X — the AI sports intelligence engine powering NXT1. ' +
+              "You are the athlete's advocate. Your job is to TELL THEIR STORY, not score them. " +
+              'You never produce evaluation ratings, tier labels, or numeric scores. ' +
+              'ABSOLUTE RULE: Do NOT invent, hallucinate, or fabricate any data. ' +
+              "If a data field is 'NONE', write factual absence text only. " +
+              'Output valid JSON only — a single section object.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        {
+          tier: 'evaluator',
+          maxTokens: 1200,
+          temperature: 0.6,
+          jsonMode: true,
+        }
+      );
+
+      if (!result.content) throw new Error('Empty LLM response');
+      parsedSection = JSON.parse(stripMarkdownFences(result.content));
+    } catch (err) {
+      logger.error('[IntelGenerationService] Section LLM call failed for athlete', {
+        userId,
+        sectionId,
+        err,
+      });
+      throw new Error(`Section update failed for ${sectionId} — please try again`, { cause: err });
+    }
+
+    // ── Normalize the single updated section ──
+    const [normalizedSection] = this.normalizeSections(
+      [parsedSection],
+      [sectionId] as readonly string[],
+      ATHLETE_SECTION_META
+    );
+
+    // Apply NO_DATA_OVERRIDE for the updated section if applicable
+    const noDataOverride = this.getAthleteNoDataOverride(sectionId, sectionAvailability);
+    const finalSection: NormalizedSection = noDataOverride
+      ? { ...normalizedSection, content: noDataOverride, items: undefined }
+      : normalizedSection;
+
+    // ── Merge: replace only the target section, preserve all others ──
+    const updatedSections = existingSections.map((s) => (s.id === sectionId ? finalSection : s));
+
+    // If the section didn't exist in the old report (edge case), append it in correct order
+    if (!updatedSections.some((s) => s.id === sectionId)) {
+      const insertIdx = ATHLETE_SECTION_ORDER.indexOf(sectionId as AthleteSectionId);
+      updatedSections.splice(insertIdx, 0, finalSection);
+    }
+
+    // ── Persist: update the existing report doc in-place ──
+    await reportDoc.ref.update({
+      sections: updatedSections,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    logger.info('[IntelGenerationService] Athlete Intel section updated', {
+      userId,
+      reportId: reportDoc.id,
+      sectionId,
+    });
+
+    return {
+      ...existingReport,
+      id: reportDoc.id,
+      sections: updatedSections,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TARGETED SECTION UPDATE — TEAM
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Re-generates a single section of an existing team Intel report and
+   * merges it back into Firestore, preserving all other sections unchanged.
+   *
+   * @returns The updated full report document.
+   */
+  async updateTeamIntelSection(
+    teamId: string,
+    sectionId: TeamSectionId,
+    dbOverride?: Firestore
+  ): Promise<Record<string, unknown>> {
+    const db = this.resolveDb(dbOverride);
+
+    // ── Load the most-recent existing report ──
+    const snap = await db
+      .collection('Teams')
+      .doc(teamId)
+      .collection('intel_reports')
+      .orderBy('generatedAt', 'desc')
+      .limit(1)
+      .get();
+
+    if (snap.empty) {
+      throw new Error(
+        'No existing team Intel report found. Use /generate to create the full report first.'
+      );
+    }
+
+    const reportDoc = snap.docs[0];
+    const existingReport = reportDoc.data() as Record<string, unknown>;
+    const existingSections = (existingReport['sections'] as NormalizedSection[] | undefined) ?? [];
+
+    // ── Load team doc ──
+    const teamDoc = await db.collection('Teams').doc(teamId).get();
+    if (!teamDoc.exists) throw new Error('Team not found');
+    const teamData = teamDoc.data() ?? {};
+
+    // ── Gather only the data relevant to this section ──
+    const sectionRaw = await this.gatherTeamSectionData(teamId, teamData, sectionId, db);
+
+    // ── Build targeted prompt for just this section ──
+    const prompt = this.buildTeamSectionPrompt(sectionId, teamData, sectionRaw);
+
+    // ── Call OpenRouter for single-section output ──
+    let parsedSection: Record<string, unknown>;
+    try {
+      const llm = this.getOrCreateLlmService();
+      const result = await llm.complete(
+        [
+          {
+            role: 'system',
+            content:
+              'You are Agent X — the AI sports intelligence engine powering NXT1. ' +
+              "You are the program's advocate. Your job is to TELL THE PROGRAM'S STORY. " +
+              'You never produce evaluation ratings or numeric scores for athletes. ' +
+              'ABSOLUTE RULE: Do NOT invent, hallucinate, or fabricate any data. ' +
+              "If a data field is 'NONE', write factual absence text only. " +
+              'Output valid JSON only — a single section object.',
+          },
+          { role: 'user', content: prompt },
+        ],
+        {
+          tier: 'evaluator',
+          maxTokens: 1200,
+          temperature: 0.6,
+          jsonMode: true,
+        }
+      );
+
+      if (!result.content) throw new Error('Empty LLM response');
+      parsedSection = JSON.parse(stripMarkdownFences(result.content));
+    } catch (err) {
+      logger.error('[IntelGenerationService] Section LLM call failed for team', {
+        teamId,
+        sectionId,
+        err,
+      });
+      throw new Error(`Section update failed for ${sectionId} — please try again`, { cause: err });
+    }
+
+    // ── Normalize the single updated section ──
+    const [normalizedSection] = this.normalizeSections(
+      [parsedSection],
+      [sectionId] as readonly string[],
+      TEAM_SECTION_META
+    );
+
+    // Apply NO_DATA_OVERRIDE for the updated section if applicable
+    const noDataOverride = this.getTeamNoDataOverride(sectionId, sectionRaw);
+    const finalSection: NormalizedSection = noDataOverride
+      ? { ...normalizedSection, content: noDataOverride, items: undefined }
+      : normalizedSection;
+
+    // ── Merge: replace only the target section, preserve all others ──
+    const updatedSections = existingSections.map((s) => (s.id === sectionId ? finalSection : s));
+
+    // If the section didn't exist in the old report (edge case), append it in correct order
+    if (!updatedSections.some((s) => s.id === sectionId)) {
+      const insertIdx = TEAM_SECTION_ORDER.indexOf(sectionId as TeamSectionId);
+      updatedSections.splice(insertIdx, 0, finalSection);
+    }
+
+    // ── Persist: update the existing report doc in-place ──
+    await reportDoc.ref.update({
+      sections: updatedSections,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    logger.info('[IntelGenerationService] Team Intel section updated', {
+      teamId,
+      reportId: reportDoc.id,
+      sectionId,
+    });
+
+    return {
+      ...existingReport,
+      id: reportDoc.id,
+      sections: updatedSections,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION-SCOPED DATA GATHERING
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Gathers only the Firestore collections needed to regenerate a specific athlete section.
+   * Avoids fetching all 6 collections when only 1-2 are needed.
+   */
+  private async gatherAthleteSectionData(
+    userId: string,
+    userData: Record<string, unknown>,
+    sectionId: AthleteSectionId,
+    db: Firestore
+  ): Promise<Partial<RawProfileData>> {
+    switch (sectionId) {
+      case 'agent_x_brief': {
+        // Brief needs a holistic view — fetch everything
+        const full = await this.gatherAthleteData(userId, userData, db);
+        return full;
+      }
+
+      case 'athletic_measurements': {
+        const metricsSnap = await db
+          .collection('PlayerMetrics')
+          .where('userId', '==', userId)
+          .get();
+        const metrics = metricsSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() }) as Record<string, unknown>)
+          .sort((a, b) =>
+            String(b['dateRecorded'] ?? '').localeCompare(String(a['dateRecorded'] ?? ''))
+          )
+          .slice(0, 20);
+        return { userData, metrics };
+      }
+
+      case 'season_stats': {
+        const statsSnap = await db.collection('PlayerStats').where('userId', '==', userId).get();
+        return {
+          userData,
+          stats: statsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+        };
+      }
+
+      case 'recruiting_activity': {
+        const [recruitingSnap, eventsSnap] = await Promise.all([
+          db.collection('Recruiting').where('userId', '==', userId).get(),
+          db
+            .collection('Events')
+            .where('ownerType', '==', 'user')
+            .where('userId', '==', userId)
+            .orderBy('date', 'desc')
+            .limit(30)
+            .get(),
+        ]);
+        const recruiting = recruitingSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() }) as Record<string, unknown>)
+          .sort((a, b) => String(b['createdAt'] ?? '').localeCompare(String(a['createdAt'] ?? '')))
+          .slice(0, 30);
+        return {
+          userData,
+          recruiting,
+          events: eventsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+        };
+      }
+
+      case 'academic_profile': {
+        // Academic data lives entirely on the user document — no separate collection
+        return { userData };
+      }
+
+      case 'awards_honors': {
+        const awardsSnap = await db.collection('Awards').where('userId', '==', userId).get();
+        return {
+          userData,
+          awards: awardsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+        };
+      }
+
+      default:
+        return { userData };
+    }
+  }
+
+  /**
+   * Gathers only the Firestore collections needed to regenerate a specific team section.
+   */
+  private async gatherTeamSectionData(
+    teamId: string,
+    teamData: Record<string, unknown>,
+    sectionId: TeamSectionId,
+    db: Firestore
+  ): Promise<Partial<RawTeamData>> {
+    const teamRef = db.collection('Teams').doc(teamId);
+
+    switch (sectionId) {
+      case 'agent_overview': {
+        // Overview needs the whole picture
+        const full = await this.gatherTeamData(teamId, teamData, db);
+        return full;
+      }
+
+      case 'team': {
+        const [rosterSnap, staffSnap] = await Promise.all([
+          db.collection('RosterEntries').where('teamId', '==', teamId).get(),
+          teamRef.collection('staff').get(),
+        ]);
+        return {
+          teamData,
+          roster: rosterSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+          staff: staffSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+        };
+      }
+
+      case 'stats': {
+        const [teamStatsSnap, playerStatsSnap, gameStatsSnap] = await Promise.all([
+          db.collection('TeamStats').where('teamId', '==', teamId).get(),
+          db.collection('PlayerStats').where('teamId', '==', teamId).limit(50).get(),
+          db.collection('GameStats').where('teamId', '==', teamId).limit(30).get(),
+        ]);
+        const teamStats = teamStatsSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() }) as Record<string, unknown>)
+          .sort((a, b) => String(b['season'] ?? '').localeCompare(String(a['season'] ?? '')))
+          .slice(0, 5);
+        return {
+          teamData,
+          teamStats,
+          playerStats: playerStatsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+          gameStats: gameStatsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+        };
+      }
+
+      case 'recruiting': {
+        const recruitingSnap = await db
+          .collection('Recruiting')
+          .where('teamId', '==', teamId)
+          .limit(30)
+          .get();
+        return {
+          teamData,
+          recruiting: recruitingSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+        };
+      }
+
+      case 'schedule': {
+        const eventsSnap = await db
+          .collection('Events')
+          .where('ownerType', '==', 'team')
+          .where('userId', '==', teamId)
+          .orderBy('date', 'desc')
+          .limit(30)
+          .get();
+        return {
+          teamData,
+          events: eventsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+        };
+      }
+
+      default:
+        return { teamData };
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION-SCOPED PROMPT BUILDING
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private buildAthleteSectionPrompt(
+    sectionId: AthleteSectionId,
+    promptContextText: string,
+    sport: string,
+    position: string,
+    raw: Partial<RawProfileData>,
+    userData: Record<string, unknown>
+  ): string {
+    const sectionMeta = ATHLETE_SECTION_META[sectionId];
+    const header = `
+═══ ATHLETE CONTEXT (RAG PROFILE + MEMORY) ═══
+${promptContextText}
+
+SPORT: ${sport}
+PRIMARY POSITION: ${position}
+`.trim();
+
+    let dataBlock: string;
+
+    switch (sectionId) {
+      case 'agent_x_brief': {
+        const r = raw as RawProfileData;
+        dataBlock = `
+MEASURABLES: ${r.metrics?.length ? JSON.stringify(r.metrics.slice(0, 20)) : 'NONE'}
+SEASON STATS: ${r.stats?.length ? JSON.stringify(r.stats.slice(0, 20)) : 'NONE'}
+RECRUITING: ${r.recruiting?.length ? JSON.stringify(r.recruiting.slice(0, 15)) : 'NONE'}
+AWARDS: ${r.awards?.length ? JSON.stringify(r.awards.slice(0, 10)) : 'NONE'}
+EVENTS: ${r.events?.length ? JSON.stringify(r.events.slice(0, 10)) : 'NONE'}
+`.trim();
+        break;
+      }
+      case 'athletic_measurements': {
+        dataBlock = `MEASURABLES (PlayerMetrics): ${raw.metrics?.length ? JSON.stringify(raw.metrics.slice(0, 50)) : 'NONE — athlete has not added measurables yet'}`;
+        break;
+      }
+      case 'season_stats': {
+        dataBlock = `SEASON STATS (PlayerStats): ${raw.stats?.length ? JSON.stringify(raw.stats.slice(0, 50)) : 'NONE — athlete has not added stats yet'}`;
+        break;
+      }
+      case 'recruiting_activity': {
+        dataBlock = `
+RECRUITING ACTIVITY (Recruiting): ${raw.recruiting?.length ? JSON.stringify(raw.recruiting.slice(0, 30)) : 'NONE — no recruiting activity recorded'}
+CAMPS & EVENTS: ${raw.events?.length ? JSON.stringify(raw.events.slice(0, 20)) : 'NONE'}
+`.trim();
+        break;
+      }
+      case 'academic_profile': {
+        const academic = (userData['academics'] as Record<string, unknown> | undefined) ?? {};
+        dataBlock = `ACADEMICS: ${JSON.stringify({
+          gpa: academic['gpa'] ?? userData['gpa'],
+          classOf: userData['classOf'],
+          satScore: academic['satScore'] ?? userData['satScore'],
+          actScore: academic['actScore'] ?? userData['actScore'],
+        })}`;
+        break;
+      }
+      case 'awards_honors': {
+        dataBlock = `AWARDS & HONORS (Awards): ${raw.awards?.length ? JSON.stringify(raw.awards.slice(0, 20)) : 'NONE — no awards recorded'}`;
+        break;
+      }
+    }
+
+    const sectionSchemas: Record<AthleteSectionId, string> = {
+      agent_x_brief: `{
+  "id": "agent_x_brief",
+  "title": "Agent X Brief",
+  "icon": "sparkles",
+  "content": "<2-4 paragraph first-person Agent X narrative — who is this athlete, what defines them, what is their story right now>",
+  "sources": [{"platform": "agent-x", "label": "Agent X Analysis", "verified": false}]
+}`,
+      athletic_measurements: `{
+  "id": "athletic_measurements",
+  "title": "Athletic Measurements",
+  "icon": "body",
+  "content": "<1-2 paragraph narrative on the athlete's physical profile>",
+  "items": [{"label": "<e.g. Height>", "value": "<value>", "source": "<source>", "verified": false}]
+}`,
+      season_stats: `{
+  "id": "season_stats",
+  "title": "Season Stats",
+  "icon": "stats-chart",
+  "content": "<1-3 paragraph narrative on season performance>",
+  "items": [{"label": "<stat label>", "value": "<value>", "sublabel": "<season>", "source": "<source>", "verified": false}]
+}`,
+      recruiting_activity: `{
+  "id": "recruiting_activity",
+  "title": "Recruiting Activity",
+  "icon": "school",
+  "content": "<1-3 paragraph narrative on recruiting status, camps attended, interest received>",
+  "items": [{"label": "<e.g. Offers>", "value": "<N>"}, {"label": "<e.g. Camps Attended>", "value": "<N>"}]
+}`,
+      academic_profile: `{
+  "id": "academic_profile",
+  "title": "Academic Profile",
+  "icon": "book",
+  "content": "<1-2 paragraph narrative on academic standing, eligibility, class year>",
+  "items": [{"label": "GPA", "value": "<value>"}, {"label": "Class Of", "value": "<value>"}, {"label": "SAT", "value": "<value>"}, {"label": "ACT", "value": "<value>"}]
+}`,
+      awards_honors: `{
+  "id": "awards_honors",
+  "title": "Awards & Honors",
+  "icon": "trophy",
+  "content": "<1-2 paragraph narrative on accolades, recognition, milestones>",
+  "items": [{"label": "<award title>", "value": "<year or org>", "source": "<source>", "verified": false}]
+}`,
+    };
+
+    return `
+${header}
+
+═══ DATA FOR SECTION UPDATE ═══
+${dataBlock}
+
+═══ TASK ═══
+Regenerate ONLY the "${sectionMeta.title}" section (id: "${sectionId}") of the athlete Intel report.
+NXT1 is the athlete's advocate — TELL THEIR STORY, not score them.
+ABSOLUTE RULE: Base ALL content ONLY on the ACTUAL data provided above. Do NOT invent data.
+If data is NONE or missing, write a short factual absence statement only.
+
+Return a single JSON section object matching this schema:
+${sectionSchemas[sectionId]}
+`.trim();
+  }
+
+  private buildTeamSectionPrompt(
+    sectionId: TeamSectionId,
+    teamData: Record<string, unknown>,
+    raw: Partial<RawTeamData>
+  ): string {
+    const sectionMeta = TEAM_SECTION_META[sectionId];
+    const teamName = (teamData['teamName'] as string) || 'Unknown';
+    const sport = (teamData['sport'] as string) || 'Unknown';
+    const location = [teamData['city'], teamData['state']].filter(Boolean).join(', ') || 'Unknown';
+
+    const header = `
+TEAM: ${teamName}
+SPORT: ${sport}
+LOCATION: ${location}
+`.trim();
+
+    let dataBlock: string;
+
+    switch (sectionId) {
+      case 'agent_overview': {
+        const r = raw as RawTeamData;
+        dataBlock = `
+ROSTER SIZE: ${r.roster?.length ?? 0}
+STAFF SIZE: ${r.staff?.length ?? 0}
+DESCRIPTION: ${(teamData['description'] as string) || 'Not provided'}
+RECORD: ${teamData['record'] ? JSON.stringify(teamData['record']) : 'Not set'}
+TEAM STATS: ${r.teamStats?.length ? JSON.stringify(r.teamStats.slice(0, 5)) : 'NONE'}
+RECRUITING: ${r.recruiting?.length ? JSON.stringify(r.recruiting.slice(0, 10)) : 'NONE'}
+`.trim();
+        break;
+      }
+      case 'team': {
+        dataBlock = `
+ROSTER (${raw.roster?.length ?? 0} members): ${raw.roster?.length ? JSON.stringify(raw.roster.slice(0, 50)) : 'NONE — no roster entries recorded yet'}
+COACHING STAFF (${raw.staff?.length ?? 0}): ${raw.staff?.length ? JSON.stringify(raw.staff.slice(0, 20)) : 'NONE — no coaching staff added yet'}
+`.trim();
+        break;
+      }
+      case 'stats': {
+        dataBlock = `
+PLAYER STATS: ${raw.playerStats?.length ? JSON.stringify(raw.playerStats.slice(0, 30)) : 'NONE — no player stats recorded yet'}
+GAME STATS: ${raw.gameStats?.length ? JSON.stringify(raw.gameStats.slice(0, 20)) : 'NONE — no game stats recorded yet'}
+TEAM STATS: ${raw.teamStats?.length ? JSON.stringify(raw.teamStats.slice(0, 10)) : 'NONE — no team stats recorded yet'}
+`.trim();
+        break;
+      }
+      case 'recruiting': {
+        dataBlock = `RECRUITING ACTIVITY: ${raw.recruiting?.length ? JSON.stringify(raw.recruiting.slice(0, 30)) : 'NONE — no recruiting activity recorded'}`;
+        break;
+      }
+      case 'schedule': {
+        dataBlock = `EVENTS & SCHEDULE (${raw.events?.length ?? 0} events): ${raw.events?.length ? JSON.stringify(raw.events.slice(0, 20)) : 'NONE — no schedule or events added yet'}`;
+        break;
+      }
+    }
+
+    const sectionSchemas: Record<TeamSectionId, string> = {
+      agent_overview: `{
+  "id": "agent_overview",
+  "title": "Agent Overview",
+  "icon": "sparkles",
+  "content": "<2-3 paragraph Agent X narrative on program identity. Based ONLY on provided data.>",
+  "sources": [{"platform": "agent-x", "label": "Agent X Analysis", "verified": false}]
+}`,
+      team: `{
+  "id": "team",
+  "title": "Team",
+  "icon": "people",
+  "content": "<1-2 paragraph narrative on roster composition and coaching staff.>",
+  "items": [{"label": "Roster Size", "value": "${String(raw.roster?.length ?? 0)}"}, {"label": "Coaching Staff", "value": "${String(raw.staff?.length ?? 0)}"}]
+}`,
+      stats: `{
+  "id": "stats",
+  "title": "Stats",
+  "icon": "stats-chart",
+  "content": "<1-2 paragraph narrative on team statistical profile. If all stats NONE write: 'No stats have been recorded yet.'>",
+  "items": [{"label": "<stat from actual data>", "value": "<actual value>", "sublabel": "<season>"}]
+}`,
+      recruiting: `{
+  "id": "recruiting",
+  "title": "Recruiting",
+  "icon": "school",
+  "content": "<1-2 paragraph narrative on recruiting pipeline. If NONE write: 'No recruiting activity has been recorded yet.'>",
+  "items": [{"label": "<recruiting label>", "value": "<actual value>"}]
+}`,
+      schedule: `{
+  "id": "schedule",
+  "title": "Schedule",
+  "icon": "calendar",
+  "content": "<1-2 paragraph narrative on upcoming games or recent results. If NONE write: 'No schedule or events have been added yet.'>",
+  "items": [{"label": "<opponent from actual data>", "value": "<result or date>", "sublabel": "<home/away>"}]
+}`,
+    };
+
+    return `
+${header}
+
+═══ DATA FOR SECTION UPDATE ═══
+${dataBlock}
+
+═══ TASK ═══
+Regenerate ONLY the "${sectionMeta.title}" section (id: "${sectionId}") of the team Intel report.
+You are the program's advocate — TELL THE PROGRAM'S STORY.
+ABSOLUTE RULE: Base ALL content ONLY on ACTUAL data provided above. Do NOT invent data.
+If data is NONE or missing, write a short factual absence statement only.
+
+Return a single JSON section object matching this schema:
+${sectionSchemas[sectionId]}
+`.trim();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // NO-DATA OVERRIDE HELPERS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  private computeAthleteSectionAvailability(
+    _sectionId: AthleteSectionId,
+    userData: Record<string, unknown>,
+    raw: Partial<RawProfileData>
+  ): Record<string, boolean> {
+    const academic = (userData['academics'] as Record<string, unknown> | undefined) ?? {};
+    return {
+      hasMetrics: (raw.metrics?.length ?? 0) > 0,
+      hasStats: (raw.stats?.length ?? 0) > 0,
+      hasRecruiting: (raw.recruiting?.length ?? 0) > 0,
+      hasAwards: (raw.awards?.length ?? 0) > 0,
+      hasAcademics: !!(
+        academic['gpa'] ||
+        userData['gpa'] ||
+        userData['satScore'] ||
+        userData['actScore']
+      ),
+    };
+  }
+
+  private getAthleteNoDataOverride(
+    sectionId: AthleteSectionId,
+    availability: Record<string, boolean>
+  ): string | undefined {
+    const overrides: Partial<Record<AthleteSectionId, string>> = {
+      athletic_measurements: availability['hasMetrics']
+        ? undefined
+        : 'No measurables have been added yet.',
+      season_stats: availability['hasStats'] ? undefined : 'No stats have been recorded yet.',
+      recruiting_activity: availability['hasRecruiting']
+        ? undefined
+        : 'No recruiting activity has been recorded yet.',
+      awards_honors: availability['hasAwards'] ? undefined : 'No awards have been recorded yet.',
+      academic_profile: availability['hasAcademics']
+        ? undefined
+        : 'No academic information has been added yet.',
+    };
+    return overrides[sectionId];
+  }
+
+  private getTeamNoDataOverride(
+    sectionId: TeamSectionId,
+    raw: Partial<RawTeamData>
+  ): string | undefined {
+    switch (sectionId) {
+      case 'team':
+        return (raw.roster?.length ?? 0) === 0 && (raw.staff?.length ?? 0) === 0
+          ? 'No roster or coaching staff data has been added yet.'
+          : undefined;
+      case 'stats':
+        return (raw.teamStats?.length ?? 0) === 0 &&
+          (raw.playerStats?.length ?? 0) === 0 &&
+          (raw.gameStats?.length ?? 0) === 0
+          ? 'No stats have been recorded yet.'
+          : undefined;
+      case 'recruiting':
+        return (raw.recruiting?.length ?? 0) === 0
+          ? 'No recruiting activity has been recorded yet.'
+          : undefined;
+      case 'schedule':
+        return (raw.events?.length ?? 0) === 0
+          ? 'No schedule or events have been added yet.'
+          : undefined;
+      default:
+        return undefined;
+    }
   }
 }

@@ -22,8 +22,9 @@ import {
 } from '@nxt1/core/constants';
 import { sanitizeContent, extractMentions } from '@nxt1/core/validation';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import { ScraperMediaService } from '../integrations/scraper-media.service.js';
+import { ScraperMediaService } from '../integrations/social/scraper-media.service.js';
 import { getCacheService } from '../../../../services/cache.service.js';
+import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
 import { logger } from '../../../../utils/logger.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -279,6 +280,29 @@ export class WriteTimelinePostTool extends BaseTool {
       // ── Cache invalidation ─────────────────────────────────────────────
       context?.onProgress?.('Invalidating feed caches…');
       await this.invalidateFeedCaches(postVisibility, userId, teamId ?? undefined);
+
+      // Track profile-post creation in user's engagement record.
+      // Posts live on the athlete's profile only (not a social feed), so we
+      // track shares and views only — no likes or comments.
+      void getAnalyticsLoggerService().safeTrack({
+        subjectId: userId,
+        subjectType: 'user',
+        domain: 'engagement',
+        eventType: 'content_viewed',
+        source: 'agent',
+        actorUserId: context?.userId ?? userId,
+        sessionId: context?.sessionId ?? null,
+        threadId: context?.threadId ?? null,
+        tags: [type, visibility],
+        payload: {
+          postId,
+          contentType: type,
+          visibility,
+          views: 0,
+          shares: 0,
+        },
+        metadata: { initiatedBy: 'write_timeline_post' },
+      });
 
       return {
         success: true,

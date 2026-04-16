@@ -29,6 +29,7 @@ import { isFemaleGender } from '@nxt1/core';
       <nxt1-entity-hero
         [name]="mobileDisplayName()"
         [subtitle]="mobileSubtitleLine()"
+        [subtitleExtra]="mobileClassYear()"
         [avatarSrc]="profile.user()?.isTeamManager ? null : profile.user()?.profileImg"
         [logoSrc]="
           profile.user()?.isTeamManager
@@ -127,7 +128,6 @@ export class ProfileMobileHeroComponent {
   });
 
   protected readonly mobileSubtitleLine = computed(() => {
-    // Use activeSport() instead of primarySport for sport-switching support
     const activeSport = this.profile.activeSport();
     const position = activeSport?.position?.trim();
     const jersey = activeSport?.jerseyNumber?.trim();
@@ -137,6 +137,12 @@ export class ProfileMobileHeroComponent {
     return '';
   });
 
+  protected readonly mobileClassYear = computed(() => {
+    const classYear = this.profile.user()?.classYear?.toString().trim();
+    if (!classYear) return '';
+    return `Class of '${classYear.slice(-2)}`;
+  });
+
   /** Meta rows passed to NxtEntityHeroComponent (Team, Class, Location) */
   protected readonly heroMetaItems = computed<EntityHeroMetaItem[]>(() => {
     const u = this.profile.user();
@@ -144,7 +150,6 @@ export class ProfileMobileHeroComponent {
     // Primary team for the active sport
     const primaryTeam = this.profile.teamAffiliations()[0];
     if (primaryTeam?.name) items.push({ key: 'Team', value: primaryTeam.name });
-    if (u?.classYear) items.push({ key: 'Class', value: String(u.classYear) });
     if (u?.location) items.push({ key: 'Location', value: u.location });
     return items;
   });

@@ -41,7 +41,7 @@ export const ANALYTICS_EVENT_TYPES = {
     'message_sent',
     'follow_up_scheduled',
   ],
-  system: ['agent_task_completed', 'tool_write_completed', 'sync_completed'],
+  system: ['agent_task_completed', 'agent_task_failed', 'tool_write_completed', 'sync_completed'],
   custom: ['custom_recorded'],
 } as const satisfies Record<AnalyticsDomain, readonly string[]>;
 

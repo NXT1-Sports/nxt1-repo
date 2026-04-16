@@ -1106,4 +1106,71 @@ router.post(
   })
 );
 
+/**
+ * PATCH /:id/intel/section/:sectionId
+ * Regenerate a single section of the team Intel report in-place.
+ * Requires authentication and admin/coach role.
+ */
+const VALID_TEAM_SECTIONS = new Set(['agent_overview', 'team', 'stats', 'recruiting', 'schedule']);
+
+router.patch(
+  '/:id/intel/section/:sectionId',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id, sectionId } = req.params as { id: string; sectionId: string };
+    const userId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    if (!VALID_TEAM_SECTIONS.has(sectionId)) {
+      throw validationError([
+        {
+          field: 'sectionId',
+          message: `Invalid section id "${sectionId}". Valid sections: ${[...VALID_TEAM_SECTIONS].join(', ')}`,
+          rule: 'enum',
+        },
+      ]);
+    }
+
+    const teamAdapter = createTeamAdapter(db);
+    let teamWithMembers: Awaited<ReturnType<typeof teamAdapter.getTeamWithMembers>>;
+
+    try {
+      teamWithMembers = await teamAdapter.getTeamWithMembers(id);
+    } catch {
+      throw validationError([{ field: 'id', message: 'Team not found', rule: 'exists' }]);
+    }
+
+    const legacyMembers =
+      (
+        teamWithMembers as unknown as {
+          members?: Array<{ id?: string; uid?: string; userId?: string; role?: string }>;
+        }
+      ).members ?? [];
+    const roster = teamWithMembers.roster ?? [];
+
+    if (!canGenerateTeamIntelForUser({ userId, legacyMembers, roster })) {
+      throw forbiddenError('permission');
+    }
+
+    const { IntelGenerationService } = await import('../modules/agent/services/intel.service.js');
+    const intelService = new IntelGenerationService();
+
+    // Cast is safe — we validated sectionId against the valid set above
+    const report = await intelService.updateTeamIntelSection(
+      id,
+      sectionId as Parameters<typeof intelService.updateTeamIntelSection>[1],
+      db
+    );
+
+    logger.info('[Teams] Intel section updated', { teamId: id, userId, sectionId });
+    res.json({
+      success: true,
+      status: 'ready',
+      message: `Section "${sectionId}" updated successfully`,
+      sectionId,
+      data: report,
+    });
+  })
+);
+
 export default router;

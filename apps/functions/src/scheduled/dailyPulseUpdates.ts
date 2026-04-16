@@ -458,7 +458,7 @@ URL: ${article.sourceUrl}
 Excerpt: ${article.excerpt}
 Sport: ${article.sport}
 
-Write the summary in your own words. Do NOT copy the original article verbatim. Focus on what matters to student-athletes, coaches, and recruiters. Include context about why this news matters for the recruiting landscape.
+Write the summary in your own words. Do NOT copy the original article verbatim. Focus on what matters to student-athletes, coaches, and directors. Include context about why this news matters for the sports landscape.
 
 FORMAT RULES:
 - Return clean HTML only (no markdown, no code fences).

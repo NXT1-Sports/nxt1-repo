@@ -45,14 +45,7 @@ export type HelpContentType = 'article' | 'video' | 'faq' | 'guide' | 'tutorial'
 /**
  * User types for targeted content.
  */
-export type HelpUserType =
-  | 'athlete'
-  | 'coach'
-  | 'parent'
-  | 'recruiter'
-  | 'director'
-  | 'team-admin'
-  | 'all';
+export type HelpUserType = 'athlete' | 'coach' | 'director' | 'team-admin' | 'all';
 
 /**
  * Configuration for a help center category.

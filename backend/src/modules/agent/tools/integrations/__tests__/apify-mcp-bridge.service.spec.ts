@@ -24,7 +24,7 @@ vi.mock('../../../../../services/cache.service.js', () => ({
   incrementCacheSet: vi.fn(),
 }));
 
-import { ApifyMcpBridgeService } from '../apify-mcp-bridge.service.js';
+import { ApifyMcpBridgeService } from '../apify/apify-mcp-bridge.service.js';
 
 describe('ApifyMcpBridgeService', () => {
   beforeEach(() => {

@@ -2345,6 +2345,7 @@ export interface InitialStateOptions {
 export interface UserDataForDetection {
   isRecruit?: boolean;
   isCollegeCoach?: boolean;
+  /** @deprecated Legacy field — no longer used */
   isFan?: boolean;
   highSchool?: string;
   primarySport?: string;
@@ -2796,14 +2797,14 @@ export function mapTeamCodeRole(role: string): OnboardingUserType {
     coach: 'coach',
     director: 'director',
     admin: 'director',
-    // Legacy aliases → 3 core roles
+    // Legacy aliases → 3 core roles (kept for backward compatibility with old data)
     recruiter: 'coach',
-    parent: 'athlete',
     'college-coach': 'coach',
     'recruiting-service': 'coach',
     service: 'coach',
     scout: 'coach',
     media: 'coach',
+    parent: 'athlete',
     fan: 'athlete',
   };
   return roleMap[role.toLowerCase()] ?? 'athlete';

@@ -2,7 +2,7 @@
  * @fileoverview Team Intel Component
  * @module @nxt1/ui/intel
  *
- * Renders the AI-generated Agent X dossier for team profiles.
+ * Renders the AI-generated Agent X Intel report for team profiles.
  * Narrative-first sections-based layout — Agent X tells the program's story.
  * One section card per active side-tab; sourced items shown with favicon badges.
  *
@@ -126,7 +126,7 @@ const SOURCE_META: Readonly<Record<IntelDataSource, SourceMeta>> = {
           <h3>No Team Intel Yet</h3>
           <p>
             @if (canGenerate()) {
-              Tap <strong>Generate Intel</strong> below to create the Agent X dossier for this
+              Tap <strong>Generate Intel</strong> below to create the Agent X Intel report for this
               program.
             } @else {
               No Intel report has been generated for this team yet.

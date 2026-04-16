@@ -26,7 +26,7 @@ vi.mock('../../../../../services/cache.service.js', () => ({
   incrementCacheSet: vi.fn(),
 }));
 
-import { FirecrawlMcpBridgeService } from '../firecrawl-mcp-bridge.service.js';
+import { FirecrawlMcpBridgeService } from '../firecrawl/firecrawl-mcp-bridge.service.js';
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 

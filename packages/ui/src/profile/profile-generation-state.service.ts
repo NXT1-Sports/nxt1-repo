@@ -113,7 +113,6 @@ export class ProfileGenerationStateService {
 
   // ── Live tracking state ──────────────────────────────────────────────
   private trackingTimeout: ReturnType<typeof setTimeout> | null = null;
-  private trackingStartTime = 0;
   /** Guards against concurrent `pollUntilDone()` calls */
   private isPolling = false;
   /** Tracks whether backend progress has been received at least once */
@@ -158,7 +157,6 @@ export class ProfileGenerationStateService {
     }
 
     this.isPolling = true;
-    this.trackingStartTime = Date.now();
     this.logger.info('Starting live profile generation tracking', { jobId });
     this.breadcrumb.trackStateChange('profile-generation:tracking', { jobId });
 

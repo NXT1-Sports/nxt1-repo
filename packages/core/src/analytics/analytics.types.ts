@@ -115,7 +115,6 @@ export interface PostAnalytics {
   readonly previewUrl?: string;
   readonly impressions: number;
   readonly likes: number;
-  readonly comments: number;
   readonly shares: number;
   readonly engagementRate: number;
   readonly createdAt: string;

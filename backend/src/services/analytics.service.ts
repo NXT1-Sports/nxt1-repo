@@ -180,12 +180,11 @@ export function buildViewsBySourceFromSurfaceCounts(
 export function buildViewerBreakdownFromRoleCounts(
   counts: Readonly<Record<string, number>>
 ): readonly AnalyticsViewerBreakdown[] {
-  const roleOrder = ['coach', 'athlete', 'recruiter', 'parent', 'other'];
+  const roleOrder = ['coach', 'director', 'athlete', 'other'];
   const roleLabels: Record<string, string> = {
     coach: 'Coaches',
+    director: 'Directors',
     athlete: 'Athletes',
-    recruiter: 'Recruiters',
-    parent: 'Parents',
     other: 'Other',
     anonymous: 'Anonymous',
   };
@@ -487,7 +486,7 @@ export function buildAthleteOverviewCards(
   const coachViews = Math.max(Number(rollupSnapshot?.coachViews ?? 0), legacyCoachViews);
   const followers = Math.max(Number(rollupSnapshot?.followerCount ?? 0), 0);
 
-  // Engagement rate = (likes + comments) / views * 100
+  // Engagement rate = (likes + shares) / views * 100
   const totalLikes = videos.reduce((acc, v) => acc + (Number(v['likes']) || 0), 0);
   const engagementRate =
     totalVideoViews > 0 ? Math.round((totalLikes / totalVideoViews) * 1000) / 10 : 0;
@@ -658,10 +657,9 @@ function buildPostAnalytics(posts: Array<Record<string, unknown>>): readonly Pos
     const stats = (p['stats'] as Record<string, number> | undefined) ?? {};
     const impressions = stats['views'] ?? (Number(p['views']) || 0);
     const likes = stats['likes'] ?? (Number(p['likes']) || 0);
-    const comments = stats['comments'] ?? (Number(p['comments']) || 0);
     const shares = stats['shares'] ?? (Number(p['shares']) || 0);
     const engagementRate =
-      impressions > 0 ? Math.round(((likes + comments + shares) / impressions) * 1000) / 10 : 0;
+      impressions > 0 ? Math.round(((likes + shares) / impressions) * 1000) / 10 : 0;
 
     return {
       id: String(p['id'] ?? ''),
@@ -669,7 +667,6 @@ function buildPostAnalytics(posts: Array<Record<string, unknown>>): readonly Pos
       previewUrl: p['mediaUrl'] as string | undefined,
       impressions,
       likes,
-      comments,
       shares,
       engagementRate,
       createdAt: String(toDate(p['createdAt'])?.toISOString() ?? new Date().toISOString()),

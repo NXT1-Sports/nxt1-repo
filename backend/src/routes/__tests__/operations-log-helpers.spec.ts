@@ -13,7 +13,7 @@ import {
   iconForCategory,
   computeDuration,
   type TimestampLike,
-} from '../operations-log.helpers.js';
+} from '../agent-x/operations-log.helpers.js';
 
 // ─── validateJobOrigin ──────────────────────────────────────────────────────
 

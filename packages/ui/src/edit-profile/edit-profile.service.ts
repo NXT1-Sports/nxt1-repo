@@ -341,6 +341,8 @@ export class EditProfileService {
         teamName: targetSport.team?.name,
         teamType: targetSport.team?.type,
         teamOrganizationId: targetSport.team?.organizationId,
+        jerseyNumber:
+          targetSport.jerseyNumber != null ? String(targetSport.jerseyNumber) : undefined,
       },
       academics: {
         ...currentFormData.academics,

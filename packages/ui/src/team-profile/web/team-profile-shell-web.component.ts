@@ -1224,6 +1224,7 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   readonly inviteRosterClick = output<void>();
   readonly rosterMemberClick = output<TeamProfileRosterMember>();
   readonly postClick = output<TeamProfilePost>();
+  readonly refreshRequest = output<void>();
 
   // ============================================
   // COMPUTED
@@ -1573,6 +1574,10 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
 
   protected async handleRefresh(event: RefreshEvent): Promise<void> {
     try {
+      if (this.skipInternalLoad()) {
+        this.refreshRequest.emit();
+        return;
+      }
       await this.teamProfile.refresh();
     } finally {
       event.complete();
@@ -1658,8 +1663,8 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     if (!team) return;
     const hasReport = !!this.intel.teamReport();
     const initialMessage = hasReport
-      ? `Update the Agent X Intel dossier for team ${team.id}.`
-      : `Generate an Agent X Intel dossier for team ${team.id}.`;
+      ? `Update the Agent X Intel Intel report for team ${team.id}.`
+      : `Generate an Agent X Intel Intel report for team ${team.id}.`;
     if (this.platform.isMobile()) {
       this.intel.startPendingGeneration();
       await this.bottomSheet.openSheet({

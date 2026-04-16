@@ -15,7 +15,6 @@
  */
 export const POSTS_COLLECTIONS = {
   POSTS: 'Posts',
-  POST_COMMENTS: 'PostComments',
   POST_LIKES: 'PostLikes',
   POST_BOOKMARKS: 'PostBookmarks',
   POST_SHARES: 'PostShares',
@@ -71,12 +70,6 @@ export const POST_LIMITS = {
   POLL_DURATION_MAX_HOURS: 168, // 7 days
 } as const;
 
-export const COMMENT_LIMITS = {
-  CONTENT_MIN: 1,
-  CONTENT_MAX: 2000,
-  REPLIES_MAX_DEPTH: 3,
-} as const;
-
 // ============================================
 // CACHE CONFIGS
 // ============================================
@@ -84,7 +77,6 @@ export const COMMENT_LIMITS = {
 export const POSTS_CACHE_TTL = {
   FEED: 60, // 1 minute
   POST: 300, // 5 minutes
-  COMMENTS: 180, // 3 minutes
   USER_POSTS: 120, // 2 minutes
 } as const;
 
@@ -97,6 +89,4 @@ export const POSTS_CACHE_PREFIX = 'posts:';
 export const POSTS_PAGINATION = {
   DEFAULT_LIMIT: 20,
   MAX_LIMIT: 50,
-  COMMENTS_DEFAULT_LIMIT: 10,
-  COMMENTS_MAX_LIMIT: 50,
 } as const;

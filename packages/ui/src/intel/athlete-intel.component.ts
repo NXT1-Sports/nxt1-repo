@@ -2,7 +2,7 @@
  * @fileoverview Athlete Intel Component
  * @module @nxt1/ui/intel
  *
- * Renders the AI-generated Agent X dossier for athlete profiles.
+ * Renders the AI-generated Agent X Intel report for athlete profiles.
  * Narrative-first sections-based layout — Agent X tells the athlete's story.
  * One section card per active side-tab; sourced items shown with favicon badges.
  *
@@ -84,10 +84,10 @@ const SOURCE_META: Readonly<Record<IntelDataSource, SourceMeta>> = {
         </div>
       } @else if (intel.isLoading()) {
         <div class="intel-skeleton" [attr.data-testid]="testIds.LOADING_SKELETON">
-          <div class="intel-skeleton-header animate-pulse"></div>
-          <div class="intel-skeleton-ratings animate-pulse"></div>
-          <div class="intel-skeleton-brief animate-pulse"></div>
-          <div class="intel-skeleton-cards animate-pulse"></div>
+          <div class="intel-skeleton-header"></div>
+          <div class="intel-skeleton-ratings"></div>
+          <div class="intel-skeleton-brief"></div>
+          <div class="intel-skeleton-cards"></div>
         </div>
       } @else if (intel.error() && !report()) {
         <nxt1-state-view
@@ -119,7 +119,7 @@ const SOURCE_META: Readonly<Record<IntelDataSource, SourceMeta>> = {
           <h3>No Intel Report Yet</h3>
           <p>
             @if (isOwnProfile()) {
-              Tap <strong>Generate Intel</strong> below to create your Agent X dossier.
+              Tap <strong>Generate Intel</strong> below to create your Agent X Intel report.
             } @else {
               No Intel report has been generated for this athlete yet.
             }
@@ -314,8 +314,29 @@ const SOURCE_META: Readonly<Record<IntelDataSource, SourceMeta>> = {
       .intel-skeleton-brief,
       .intel-skeleton-cards,
       .intel-skeleton-ratings {
-        border-radius: var(--intel-radius-sm);
-        background: var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08));
+        position: relative;
+        overflow: hidden;
+        border-radius: var(--nxt1-skeleton-radius-md, var(--intel-radius-sm, 8px));
+        background: var(--nxt1-skeleton-color-base, var(--nxt1-color-loading-skeleton));
+      }
+      /* Shimmer sweep using design token highlight color */
+      .intel-skeleton-header::before,
+      .intel-skeleton-brief::before,
+      .intel-skeleton-cards::before,
+      .intel-skeleton-ratings::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          90deg,
+          transparent 0%,
+          var(--nxt1-skeleton-color-highlight, var(--nxt1-color-loading-skeletonShimmer)) 25%,
+          var(--nxt1-skeleton-color-highlight, var(--nxt1-color-loading-skeletonShimmer)) 50%,
+          transparent 100%
+        );
+        background-size: 200% 100%;
+        animation: nxt1-intel-skeleton-shimmer var(--nxt1-skeleton-animation-duration, 1.5s)
+          var(--nxt1-skeleton-animation-timing, ease-in-out) infinite;
       }
       .intel-skeleton-header {
         height: 64px;
@@ -329,16 +350,12 @@ const SOURCE_META: Readonly<Record<IntelDataSource, SourceMeta>> = {
       .intel-skeleton-ratings {
         height: 160px;
       }
-      .animate-pulse {
-        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-      }
-      @keyframes pulse {
-        0%,
-        100% {
-          opacity: 1;
+      @keyframes nxt1-intel-skeleton-shimmer {
+        0% {
+          background-position: 200% 0;
         }
-        50% {
-          opacity: 0.5;
+        100% {
+          background-position: -200% 0;
         }
       }
 

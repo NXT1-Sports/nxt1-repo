@@ -7,7 +7,7 @@
  */
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
-import type { CloudflareMcpBridgeService } from '../cloudflare-mcp-bridge.service.js';
+import type { CloudflareMcpBridgeService } from './cloudflare-mcp-bridge.service.js';
 import { CreateSignedUrlInputSchema } from './schemas.js';
 import { logger } from '../../../../../utils/logger.js';
 

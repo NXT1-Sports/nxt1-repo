@@ -15,7 +15,7 @@ import type {
   ShellCommandCategory,
   ShellContentForRole,
 } from './agent-x.types';
-import { isTeamRole, USER_ROLES } from '../constants/user.constants';
+import { isTeamRole } from '../constants/user.constants';
 
 // ============================================
 // CONFIGURATION
@@ -1767,14 +1767,9 @@ export const RECRUITER_COORDINATORS: readonly ShellCommandCategory[] = [
  */
 export function getShellContentForRole(role: string | null | undefined): ShellContentForRole {
   const isTeam = isTeamRole(role);
-  const isRecruiterRole = role === USER_ROLES.RECRUITER;
 
   return {
-    coordinators: isTeam
-      ? TEAM_COORDINATORS
-      : isRecruiterRole
-        ? RECRUITER_COORDINATORS
-        : ATHLETE_COORDINATORS,
+    coordinators: isTeam ? TEAM_COORDINATORS : ATHLETE_COORDINATORS,
   };
 }
 

@@ -1,8 +1,8 @@
 /**
- * @fileoverview Feed Module Barrel Export
+ * @fileoverview Post Cards Module Barrel Export
  * @module @nxt1/ui/feed
  *
- * Home Feed UI components and services.
+ * Polymorphic post card components used by profile and team timelines.
  * Shared between web and mobile applications.
  *
  * @version 1.0.0
@@ -13,8 +13,6 @@
 // ============================================
 export { FeedSkeletonComponent, type FeedSkeletonVariant } from './feed-skeleton.component';
 export { FeedEmptyStateComponent } from './feed-empty-state.component';
-export { FeedListComponent } from './feed-list.component';
-export { FeedShellComponent } from './feed-shell.component';
 
 // ============================================
 // POLYMORPHIC SMART SHELL + ATOMIC CARDS
@@ -26,11 +24,6 @@ export { FeedEventCardComponent } from './feed-event-card.component';
 export { FeedMetricsCardComponent } from './feed-metrics-card.component';
 export { FeedAwardCardComponent } from './feed-award-card.component';
 export { FeedNewsCardComponent } from './feed-news-card.component';
-
-// ============================================
-// SERVICES
-// ============================================
-export { FeedService } from './feed.service';
 
 // ============================================
 // INJECTION TOKENS

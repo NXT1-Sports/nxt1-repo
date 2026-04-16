@@ -47,7 +47,6 @@ import {
   NxtSidenavService,
   ProfileService as UiProfileService,
   userToProfilePageData,
-  NxtRefresherComponent,
   ProfileGenerationStateService,
   TeamProfileShellWebComponent,
   TeamProfileService,
@@ -59,14 +58,13 @@ import {
   AgentXOperationChatComponent,
   NxtBottomSheetService,
   SHEET_PRESETS,
+  ConnectedAccountsModalService,
   type ActionFooterButton,
-  type RefreshEvent,
   type TeamSearchResult,
 } from '@nxt1/ui';
 import {
   buildCanonicalProfilePath,
   buildCanonicalTeamPath,
-  buildTeamSlug,
   parseApiError,
   requiresAuth,
   isTeamRole,
@@ -113,21 +111,12 @@ import { environment } from '../../../environments/environment';
   // Ionic's stack navigation keeps both components alive simultaneously
   // and they share the singleton — causing stale data cross-contamination.
   providers: [UiProfileService],
-  imports: [
-    IonHeader,
-    IonContent,
-    IonToolbar,
-    ProfileShellComponent,
-    TeamProfileShellWebComponent,
-    NxtRefresherComponent,
-  ],
+  imports: [IonHeader, IonContent, IonToolbar, ProfileShellComponent, TeamProfileShellWebComponent],
   template: `
     <ion-header class="ion-no-border" [translucent]="true">
       <ion-toolbar></ion-toolbar>
     </ion-header>
     <ion-content [fullscreen]="true">
-      <nxt-refresher (onRefresh)="handleRefresh($event)" />
-
       @if (showTeamProfile()) {
         <!-- Coach/Director own profile → Team Profile Shell -->
         <nxt1-team-profile-shell-web
@@ -142,6 +131,7 @@ import { environment } from '../../../environments/environment';
           (manageTeamClick)="onManageTeam()"
           (rosterMemberClick)="onRosterMemberClick($event)"
           (postClick)="onTeamPostClick($event)"
+          (refreshRequest)="onTeamRefreshRequest()"
         />
       } @else {
         <!-- Athlete/Parent profile (or viewing someone else's profile) -->
@@ -151,6 +141,7 @@ import { environment } from '../../../environments/environment';
           [isOwnProfile]="isOwnProfile()"
           [showBack]="true"
           [skipInternalLoad]="true"
+          [hideContactInlineCta]="true"
           (avatarClick)="onAvatarClick()"
           (menuClick)="onMenuClick()"
           (backClick)="onBackClick()"
@@ -165,22 +156,24 @@ import { environment } from '../../../environments/environment';
           (generationDismissed)="onGenerationDismissed($event)"
         />
       }
-    </ion-content>
-    @if (footerButtons().length > 0) {
-      <div class="profile-action-footer-bar">
-        <div class="profile-action-footer-inner">
-          @for (btn of footerButtons(); track btn.id) {
-            <button
-              type="button"
-              [class]="'paf-btn paf-btn--' + btn.variant"
-              (click)="btn.onClick()"
-            >
-              {{ btn.label }}
-            </button>
-          }
+      @if (footerButtons().length > 0) {
+        <div class="paf-overlay" slot="fixed">
+          <div class="profile-action-footer-bar">
+            <div class="profile-action-footer-inner">
+              @for (btn of footerButtons(); track btn.id) {
+                <button
+                  type="button"
+                  [class]="'paf-btn paf-btn--' + btn.variant"
+                  (click)="btn.onClick()"
+                >
+                  {{ btn.label }}
+                </button>
+              }
+            </div>
+          </div>
         </div>
-      </div>
-    }
+      }
+    </ion-content>
   `,
   styles: `
     :host {
@@ -207,17 +200,20 @@ import { environment } from '../../../environments/environment';
     ion-content::part(scroll) {
       overflow: visible;
     }
+    .paf-overlay {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      pointer-events: none;
+      padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 8px);
+    }
     .profile-action-footer-bar {
-      position: fixed;
-      bottom: 84px;
-      left: 16px;
-      right: 16px;
-      z-index: 999;
+      pointer-events: auto;
       background: var(--nxt1-nav-bgSolid, rgb(22, 22, 22));
       border-radius: 16px;
       border: 0.55px solid var(--nxt1-nav-borderSolid, rgba(255, 255, 255, 0.12));
       box-shadow: var(--nxt1-nav-shadowSolid, 0 1px 3px rgba(0, 0, 0, 0.12));
-      pointer-events: auto;
       overflow: hidden;
     }
     .profile-action-footer-inner {
@@ -270,6 +266,7 @@ export class ProfileComponent {
   protected readonly generation = inject(ProfileGenerationStateService);
   protected readonly intel = inject(IntelService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
 
   // Team profile dependencies (for coach/director own-profile view)
   private readonly teamProfile = inject(TeamProfileService);
@@ -377,6 +374,15 @@ export class ProfileComponent {
           label: 'Add Update',
           variant: 'primary',
           onClick: () => this.onAddUpdate(),
+        },
+      ];
+    if (tab === 'connect')
+      return [
+        {
+          id: 'connect-accounts',
+          label: 'Connect Accounts',
+          variant: 'primary',
+          onClick: () => this.onConnectAccountsFooter(),
         },
       ];
     return [];
@@ -649,6 +655,17 @@ export class ProfileComponent {
       team_slug: this.teamSlug(),
       context: 'own_team_profile',
     });
+  }
+
+  /**
+   * Handle pull-to-refresh from the team profile shell (coach/director own-profile view).
+   * Re-loads team data the same way as the initial load.
+   */
+  protected onTeamRefreshRequest(): void {
+    const profile = this.fetchedProfile();
+    if (profile) {
+      void this.loadTeamProfile(profile);
+    }
   }
 
   protected async onTeamShare(): Promise<void> {
@@ -1011,18 +1028,6 @@ export class ProfileComponent {
   }
 
   /**
-   * Handle native pull-to-refresh on the outer ion-content.
-   * Delegates to onRefreshRequest for the actual data fetching.
-   */
-  protected async handleRefresh(event: RefreshEvent): Promise<void> {
-    try {
-      await this.onRefreshRequest();
-    } finally {
-      event.complete();
-    }
-  }
-
-  /**
    * Handle pull-to-refresh from the profile shell.
    * Re-fetches profile + sub-collections from the real API and
    * pushes the fresh data into the shared UIProfileService.
@@ -1116,6 +1121,15 @@ export class ProfileComponent {
     void this.openCreatePostSheet();
   }
 
+  private async onConnectAccountsFooter(): Promise<void> {
+    const user = this.uiProfileService.user();
+    const role = user?.role ?? null;
+    await this.connectedAccountsModal.open({
+      role,
+      scope: role === 'coach' || role === 'director' ? 'team' : 'athlete',
+    });
+  }
+
   private async openCreatePostSheet(): Promise<void> {
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
@@ -1146,7 +1160,7 @@ export class ProfileComponent {
         contextType: 'command',
         initialMessage: hasReport
           ? `I want to update my Intel report. What new information or highlights should I add to make it stronger?`
-          : `I want to build my Agent X Intel dossier. What information do you need from me to create the best possible report?`,
+          : `I want to build my Agent X Intel Intel report. What information do you need from me to create the best possible report?`,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,
@@ -1169,7 +1183,7 @@ export class ProfileComponent {
         contextType: 'command',
         initialMessage: hasReport
           ? `I want to update my team's Intel report. What information or recent results should I include to strengthen it?`
-          : `I want to build an Intel dossier for my team. What information do you need from me to create the best possible report?`,
+          : `I want to build an Intel Intel report for my team. What information do you need from me to create the best possible report?`,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

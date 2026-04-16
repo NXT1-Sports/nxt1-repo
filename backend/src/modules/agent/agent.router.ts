@@ -38,8 +38,8 @@ import type { BaseAgent } from './agents/base.agent.js';
 import type { SkillRegistry } from './skills/skill-registry.js';
 import type { OnStreamEvent } from './queue/event-writer.js';
 import { PlannerAgent } from './agents/planner.agent.js';
-import { isAgentYield, AgentYieldException } from './errors/agent-yield.error.js';
-import { isAgentDelegation } from './errors/agent-delegation.error.js';
+import { isAgentYield, AgentYieldException } from './exceptions/agent-yield.exception.js';
+import { isAgentDelegation } from './exceptions/agent-delegation.exception.js';
 import { SemanticCacheService } from './memory/semantic-cache.service.js';
 import { ApprovalGateService } from './services/approval-gate.service.js';
 import { logger } from '../../utils/logger.js';
@@ -551,7 +551,7 @@ export class AgentRouter {
             // would just delegate again).
             if (isAgentDelegation(err)) {
               const delErr =
-                err as import('./errors/agent-delegation.error.js').AgentDelegationException;
+                err as import('./exceptions/agent-delegation.exception.js').AgentDelegationException;
               logger.warn(
                 `[AgentRouter] Agent "${task.assignedAgent}" delegated inside DAG — treating as task failure`,
                 {

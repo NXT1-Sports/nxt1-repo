@@ -67,12 +67,12 @@ function deriveConnectedHandle(profileUrl: string, fallback: string, prefix = ''
               This athlete hasn't added contact information yet.
             }
           </p>
-          @if (profile.isOwnProfile() && activeSection() === 'connected') {
+          @if (profile.isOwnProfile() && activeSection() === 'connected' && !hideInlineCta()) {
             <button type="button" class="madden-cta-btn" (click)="onConnectAccounts()">
               Connect Accounts
             </button>
           }
-          @if (profile.isOwnProfile() && activeSection() === 'contact') {
+          @if (profile.isOwnProfile() && activeSection() === 'contact' && !hideInlineCta()) {
             <button type="button" class="madden-cta-btn" (click)="onEditContact()">
               Edit Contact
             </button>
@@ -445,6 +445,7 @@ export class ProfileContactComponent {
   protected readonly profile = inject(ProfileService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
   readonly activeSection = input<string>('contact');
+  readonly hideInlineCta = input(false);
 
   // ── Connected Accounts ──
 

@@ -19,8 +19,8 @@ import {
   getRolePromptScaffolding,
   getSeasonInfo,
   resolvePrimarySport,
-} from './elite-context.js';
-import { ContextBuilder } from '../memory/context-builder.js';
+  ContextBuilder,
+} from '../memory/context-builder.js';
 import { VectorMemoryService } from '../memory/vector.service.js';
 import { OpenRouterService } from '../llm/openrouter.service.js';
 

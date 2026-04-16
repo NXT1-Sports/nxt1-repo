@@ -26,7 +26,7 @@ vi.mock('../../../../../services/users.service.js', () => ({
   },
 }));
 
-vi.mock('../../../../../routes/profile.routes.js', () => ({
+vi.mock('../../../../../routes/profile/shared.js', () => ({
   invalidateProfileCaches: mockInvalidateProfileCaches,
 }));
 

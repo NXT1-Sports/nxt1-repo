@@ -1,3 +1,4 @@
+export { CloudflareMcpBridgeService } from './cloudflare-mcp-bridge.service.js';
 /**
  * @fileoverview Cloudflare Stream Tools — Barrel Export
  * @module @nxt1/backend/modules/agent/tools/integrations/cloudflare-stream

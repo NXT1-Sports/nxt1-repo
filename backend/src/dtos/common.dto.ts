@@ -94,21 +94,6 @@ export class CreatePostDto {
   scheduledFor?: string;
 }
 
-export class CreateCommentDto {
-  @IsString()
-  @IsNotEmpty()
-  @Length(1, 2000, { message: 'Comment must be between 1 and 2000 characters' })
-  content!: string;
-
-  @IsString()
-  @IsNotEmpty()
-  postId!: string;
-
-  @IsString()
-  @IsOptional()
-  parentCommentId?: string; // For reply comments
-}
-
 // ============================================
 // AUTH DTOs
 // ============================================

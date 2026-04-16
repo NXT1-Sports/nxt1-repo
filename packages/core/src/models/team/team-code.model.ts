@@ -201,7 +201,7 @@ export interface CreateTeamCodeInput {
   sport: string;
   createdBy: string; // User ID (owner)
   /** Role of the user creating the team (determines member role in team doc) */
-  creatorRole?: 'athlete' | 'coach' | 'director' | 'media' | 'parent' | 'fan';
+  creatorRole?: 'athlete' | 'coach' | 'director';
   /** Display name for the creator member entry */
   creatorName?: string;
   /** Optional creator email for initial members[] payload */

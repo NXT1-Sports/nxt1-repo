@@ -2,12 +2,12 @@
  * @fileoverview Posts Validation
  * @module @nxt1/core/validation/posts
  *
- * Pure TypeScript validation for posts and comments.
+ * Pure TypeScript validation for posts.
  * 100% portable - works on web, mobile, and backend.
  */
 
 import type { ValidationResult, ValidationError } from './schemas';
-import { POST_LIMITS, COMMENT_LIMITS } from '../constants/posts.constants';
+import { POST_LIMITS } from '../constants/posts.constants';
 
 // Minimal local type for post creation validation (backend-owned full type)
 interface CreatePostRequest {
@@ -191,48 +191,6 @@ export function validateCreatePost(data: unknown): ValidationResult<CreatePostRe
   return {
     success: true,
     data: request as CreatePostRequest,
-    errors: [],
-  };
-}
-
-/**
- * Validate comment content
- */
-export function validateComment(content: unknown): ValidationResult<{ content: string }> {
-  const errors: ValidationError[] = [];
-
-  if (!content || typeof content !== 'string') {
-    return {
-      success: false,
-      errors: [{ field: 'content', message: 'Content is required', code: 'REQUIRED' }],
-    };
-  }
-
-  const trimmed = content.trim();
-
-  if (trimmed.length < COMMENT_LIMITS.CONTENT_MIN) {
-    errors.push({
-      field: 'content',
-      message: `Comment must be at least ${COMMENT_LIMITS.CONTENT_MIN} character`,
-      code: 'TOO_SHORT',
-    });
-  }
-
-  if (trimmed.length > COMMENT_LIMITS.CONTENT_MAX) {
-    errors.push({
-      field: 'content',
-      message: `Comment must not exceed ${COMMENT_LIMITS.CONTENT_MAX} characters`,
-      code: 'TOO_LONG',
-    });
-  }
-
-  if (errors.length > 0) {
-    return { success: false, errors };
-  }
-
-  return {
-    success: true,
-    data: { content: trimmed },
     errors: [],
   };
 }

@@ -82,7 +82,6 @@ import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import type { BottomSheetAction } from '../components/bottom-sheet/bottom-sheet.types';
-import { AgentXService } from '../agent-x/agent-x.service';
 import { AgentXOperationChatComponent } from '../agent-x';
 import { ProfileService } from './profile.service';
 import { ProfileTimelineComponent } from './profile-timeline.component';
@@ -274,7 +273,10 @@ export interface ProfileShellUser {
               }
 
               @case ('connect') {
-                <nxt1-profile-contact [activeSection]="activeSideTab()" />
+                <nxt1-profile-contact
+                  [activeSection]="activeSideTab()"
+                  [hideInlineCta]="hideContactInlineCta()"
+                />
               }
             }
           </section>
@@ -555,7 +557,6 @@ export class ProfileShellComponent implements OnInit {
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileShell');
   private readonly bottomSheet = inject(NxtBottomSheetService);
-  private readonly agentX = inject(AgentXService);
   private readonly intel = inject(IntelService);
   protected readonly generation = inject(ProfileGenerationStateService);
 
@@ -593,6 +594,12 @@ export class ProfileShellComponent implements OnInit {
    * Use when parent component fetches real data and calls loadFromExternalData().
    */
   readonly skipInternalLoad = input(false);
+
+  /**
+   * When true, hides the inline CTA buttons (Connect Accounts / Edit Contact) inside
+   * the contact tab. Use on mobile where a footer action bar replaces them.
+   */
+  readonly hideContactInlineCta = input(false);
 
   // ============================================
   // OUTPUTS
@@ -671,14 +678,14 @@ export class ProfileShellComponent implements OnInit {
           : [{ id: 'agent_x_brief', label: 'Overview' }],
       timeline: [
         {
-          id: 'pinned',
-          label: 'Pinned',
-          badge: this.profile.pinnedPosts().length || undefined,
-        },
-        {
           id: 'all-posts',
           label: 'All Posts',
           badge: this.profile.allPosts().length || undefined,
+        },
+        {
+          id: 'pinned',
+          label: 'Pinned',
+          badge: this.profile.pinnedPosts().length || undefined,
         },
         {
           id: 'media',
@@ -872,6 +879,24 @@ export class ProfileShellComponent implements OnInit {
   protected async onGenerateIntel(): Promise<void> {
     const hasReport = !!this.intel.athleteReport();
     const userId = this.profile.user()?.uid ?? '';
+    const activeSection = this.activeSideTab();
+
+    const isAthleteSection = [
+      'agent_x_brief',
+      'athletic_measurements',
+      'season_stats',
+      'recruiting_activity',
+      'academic_profile',
+      'awards_honors',
+    ].includes(activeSection);
+
+    const initialMessage =
+      hasReport && isAthleteSection
+        ? `Update the ${activeSection} section of my Agent X Intel report for athlete ${userId}.`
+        : hasReport
+          ? `Update my Agent X Intel report for athlete ${userId}.`
+          : `Generate an Agent X Intel report for athlete ${userId}.`;
+
     this.intel.startPendingGeneration();
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
@@ -880,9 +905,7 @@ export class ProfileShellComponent implements OnInit {
         contextTitle: hasReport ? 'Update Intel' : 'Generate Intel',
         contextIcon: 'flash-outline',
         contextType: 'command',
-        initialMessage: hasReport
-          ? `Update my Agent X Intel dossier for athlete ${userId}.`
-          : `Generate an Agent X Intel dossier for athlete ${userId}.`,
+        initialMessage,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

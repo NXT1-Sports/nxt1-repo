@@ -1,0 +1,1605 @@
+/**
+ * @fileoverview Agent X — Chat & conversation routes.
+ *
+ * POST /cancel/:id
+ * POST /resume-job/:operationId
+ * POST /approvals/:id/resolve
+ * POST /enqueue
+ * POST /chat
+ */
+
+import { Router, type Request, type Response } from 'express';
+import { appGuard } from '../../middleware/auth.middleware.js';
+import { validateBody } from '../../middleware/validation.middleware.js';
+import { AgentChatRequestDto, AgentEnqueueRequestDto } from '../../dtos/agent-x.dto.js';
+import type {
+  AgentJobPayload,
+  AgentJobOrigin,
+  AgentDashboardGoal,
+  AgentYieldState,
+} from '@nxt1/core';
+import { ApprovalGateService } from '../../modules/agent/services/approval-gate.service.js';
+import { isAgentYield } from '../../modules/agent/exceptions/agent-yield.exception.js';
+import type {
+  LLMMessage,
+  LLMContentPart,
+  LLMToolSchema,
+} from '../../modules/agent/llm/llm.types.js';
+import { STREAM_TERMINAL_EVENTS } from '../../modules/agent/queue/pubsub.service.js';
+import { notifyYield } from '../../modules/agent/services/yield-notifier.service.js';
+import { logger } from '../../utils/logger.js';
+import {
+  executeBillingDeduction,
+  UsageFeature,
+  resolveBillingTarget,
+  checkBudgetFromContext,
+} from '../../modules/billing/index.js';
+import crypto from 'node:crypto';
+
+import {
+  queueService,
+  jobRepository,
+  chatService,
+  contextBuilder,
+  llmService,
+  toolRegistryRef,
+  pubsubService,
+  activeAbortControllers,
+  MAX_AGENTIC_TURNS,
+  getAuthUser,
+  resolveThread,
+  replayJobEventsAsSSE,
+  buildInlineApprovalCard,
+  humanizeToolName,
+  forceProxyFlush,
+} from './shared.js';
+
+const router = Router();
+
+// ─── POST /cancel/:id — Explicit cancellation endpoint ───────────────────
+
+router.post('/cancel/:id', appGuard, (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user?.uid) {
+    res.status(401).json({ success: false, error: 'Unauthorized' });
+    return;
+  }
+
+  const operationId = req.params['id'] as string;
+  if (!operationId) {
+    res.status(400).json({ success: false, error: 'Operation ID is required' });
+    return;
+  }
+
+  const entry = activeAbortControllers.get(operationId);
+  if (entry) {
+    entry.controller.abort();
+    activeAbortControllers.delete(operationId);
+    logger.info('Agent X operation cancelled via explicit endpoint', {
+      operationId,
+      userId: user.uid,
+    });
+  } else {
+    logger.info('Cancel requested but operation not found (may have already completed)', {
+      operationId,
+      userId: user.uid,
+    });
+  }
+
+  res.json({ success: true, cancelled: !!entry });
+});
+
+// ─── POST /resume-job/:operationId — Resume a yielded agent job ───────────
+
+router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Response) => {
+  try {
+    if (!queueService || !jobRepository) {
+      res.status(503).json({ success: false, error: 'Agent queue not initialized' });
+      return;
+    }
+
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { operationId } = req.params;
+    if (!operationId || typeof operationId !== 'string') {
+      res.status(400).json({ success: false, error: 'Operation ID is required' });
+      return;
+    }
+
+    const { response: userResponse } = req.body as { response?: string };
+    if (!userResponse || typeof userResponse !== 'string' || userResponse.trim().length === 0) {
+      res.status(400).json({ success: false, error: 'A non-empty response is required' });
+      return;
+    }
+
+    if (userResponse.length > 5000) {
+      res.status(400).json({ success: false, error: 'Response must be 5000 characters or less' });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const jobDoc = await jobRepository.withDb(db).getById(operationId);
+    if (!jobDoc) {
+      res.status(404).json({ success: false, error: 'Job not found' });
+      return;
+    }
+
+    if (jobDoc.userId !== user.uid) {
+      res.status(404).json({ success: false, error: 'Job not found' });
+      return;
+    }
+
+    const status = jobDoc.status;
+    if (status !== 'awaiting_input' && status !== 'awaiting_approval') {
+      res.status(409).json({
+        success: false,
+        error: `Job is in "${status}" state — only yielded jobs can be resumed`,
+      });
+      return;
+    }
+
+    const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
+    if (!yieldState) {
+      res.status(409).json({ success: false, error: 'No yield state found on this job' });
+      return;
+    }
+
+    if (new Date(yieldState.expiresAt).getTime() < Date.now()) {
+      await jobRepository.withDb(db).markFailed(operationId, 'Yield expired before user responded');
+      res.status(410).json({ success: false, error: 'This request has expired' });
+      return;
+    }
+
+    const threadId = jobDoc.threadId;
+    if (threadId && chatService) {
+      try {
+        await chatService.addMessage({
+          threadId,
+          userId: user.uid,
+          role: 'user',
+          content: userResponse.trim(),
+          origin: 'user',
+          operationId,
+        });
+      } catch (chatErr) {
+        logger.warn('Failed to persist resume message to MongoDB', {
+          error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+          userId: user.uid,
+        });
+      }
+    }
+
+    const resumedPayload: AgentJobPayload = {
+      operationId: crypto.randomUUID(),
+      userId: user.uid,
+      intent: jobDoc.intent,
+      sessionId: crypto.randomUUID(),
+      origin: 'user' as AgentJobOrigin,
+      context: {
+        threadId,
+        resumedFrom: operationId,
+        yieldState: {
+          ...yieldState,
+          messages: [
+            ...yieldState.messages,
+            {
+              role: 'tool',
+              content: JSON.stringify({
+                success: true,
+                data: { userResponse: userResponse.trim() },
+              }),
+              tool_call_id: yieldState.pendingToolCall?.toolCallId ?? 'ask_user_response',
+            },
+          ],
+        } satisfies AgentYieldState,
+      },
+    };
+
+    await jobRepository.withDb(db).create(resumedPayload);
+    await jobRepository.withDb(db).markCompleted(operationId, {
+      summary: `Resumed by user — continuing as ${resumedPayload.operationId}`,
+      data: { resumedAs: resumedPayload.operationId },
+    });
+
+    const jobId = await queueService.enqueue(
+      resumedPayload,
+      req.isStaging ? 'staging' : 'production'
+    );
+
+    logger.info('Agent job resumed', {
+      originalOperationId: operationId,
+      newOperationId: resumedPayload.operationId,
+      userId: user.uid,
+    });
+
+    res.status(202).json({
+      success: true,
+      data: {
+        jobId,
+        operationId: resumedPayload.operationId,
+        threadId,
+        resumedFrom: operationId,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to resume agent job', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to resume job' });
+  }
+});
+
+// ─── POST /approvals/:id/resolve — Resolve an approval request ────────────
+
+router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Response) => {
+  try {
+    if (!queueService || !jobRepository) {
+      res.status(503).json({ success: false, error: 'Agent queue not initialized' });
+      return;
+    }
+
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const approvalId = req.params['id'];
+    if (!approvalId || typeof approvalId !== 'string') {
+      res.status(400).json({ success: false, error: 'Approval ID is required' });
+      return;
+    }
+
+    const { decision, toolInput } = req.body as {
+      decision?: string;
+      toolInput?: Record<string, unknown>;
+    };
+    if (decision !== 'approved' && decision !== 'rejected') {
+      res.status(400).json({
+        success: false,
+        error: 'Decision must be "approved" or "rejected"',
+      });
+      return;
+    }
+    if (
+      toolInput !== undefined &&
+      (typeof toolInput !== 'object' || toolInput === null || Array.isArray(toolInput))
+    ) {
+      res.status(400).json({
+        success: false,
+        error: 'toolInput must be an object when provided',
+      });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const approvalRef = db.collection('agentApprovalRequests').doc(approvalId);
+
+    const transactionResult = await db.runTransaction(async (txn) => {
+      const approvalSnap = await txn.get(approvalRef);
+      if (!approvalSnap.exists) return { code: 404, error: 'Approval request not found' } as const;
+
+      const approvalData = approvalSnap.data()!;
+
+      if (approvalData['userId'] !== user.uid) {
+        return { code: 404, error: 'Approval request not found' } as const;
+      }
+
+      if (approvalData['status'] !== 'pending') {
+        return {
+          code: 409,
+          error: `Approval is already "${approvalData['status']}"`,
+        } as const;
+      }
+
+      txn.update(approvalRef, {
+        status: decision,
+        resolvedAt: new Date().toISOString(),
+        resolvedBy: user.uid,
+        ...(toolInput ? { toolInput } : {}),
+      });
+
+      return {
+        code: 200,
+        operationId: approvalData['operationId'] as string | undefined,
+        toolInput: (toolInput ?? approvalData['toolInput']) as Record<string, unknown> | undefined,
+      } as const;
+    });
+
+    if ('error' in transactionResult) {
+      res.status(transactionResult.code).json({ success: false, error: transactionResult.error });
+      return;
+    }
+
+    const operationId = transactionResult.operationId;
+    const resolvedToolInput = transactionResult.toolInput;
+    if (!operationId) {
+      res.json({ success: true, data: { decision, resumed: false } });
+      return;
+    }
+
+    const jobDoc = await jobRepository.withDb(db).getById(operationId);
+    if (!jobDoc) {
+      res.json({ success: true, data: { decision, resumed: false } });
+      return;
+    }
+
+    const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
+
+    if (decision === 'rejected') {
+      await jobRepository.withDb(db).markCancelled(operationId);
+      res.json({ success: true, data: { decision, resumed: false } });
+      return;
+    }
+
+    if (!yieldState?.pendingToolCall) {
+      await jobRepository.withDb(db).markCompleted(operationId, {
+        summary: 'Approval granted but no pending action to resume.',
+      });
+      res.json({ success: true, data: { decision, resumed: false } });
+      return;
+    }
+
+    const threadId = jobDoc.threadId;
+
+    const resumedPayload: AgentJobPayload = {
+      operationId: crypto.randomUUID(),
+      userId: user.uid,
+      intent: jobDoc.intent,
+      sessionId: crypto.randomUUID(),
+      origin: 'user' as AgentJobOrigin,
+      context: {
+        threadId,
+        resumedFrom: operationId,
+        approvalId,
+        yieldState: yieldState.pendingToolCall
+          ? {
+              ...yieldState,
+              approvalId,
+              pendingToolCall: {
+                ...yieldState.pendingToolCall,
+                toolInput: resolvedToolInput ?? yieldState.pendingToolCall.toolInput,
+              },
+            }
+          : yieldState,
+      },
+    };
+
+    await jobRepository.withDb(db).create(resumedPayload);
+    await jobRepository.withDb(db).markCompleted(operationId, {
+      summary: `Approved — continuing as ${resumedPayload.operationId}`,
+      data: { resumedAs: resumedPayload.operationId, approvalId },
+    });
+
+    const jobId = await queueService.enqueue(
+      resumedPayload,
+      req.isStaging ? 'staging' : 'production'
+    );
+
+    logger.info('Approval resolved and job resumed', {
+      approvalId,
+      decision,
+      originalOperationId: operationId,
+      newOperationId: resumedPayload.operationId,
+      userId: user.uid,
+    });
+
+    res.status(202).json({
+      success: true,
+      data: {
+        decision,
+        resumed: true,
+        jobId,
+        operationId: resumedPayload.operationId,
+        threadId,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to resolve approval', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to resolve approval' });
+  }
+});
+
+// ─── POST /enqueue — Background enqueue without SSE ──────────────────────
+
+router.post(
+  '/enqueue',
+  appGuard,
+  validateBody(AgentEnqueueRequestDto),
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      if (!queueService || !jobRepository) {
+        res.status(503).json({ success: false, error: 'Agent queue is unavailable' });
+        return;
+      }
+
+      const { intent, userContext, threadId } = req.body as AgentEnqueueRequestDto;
+      const db = req.firebase?.db;
+      if (!db) {
+        res.status(500).json({ success: false, error: 'Firestore unavailable' });
+        return;
+      }
+
+      let resolvedThreadId: string | undefined;
+      if (chatService) {
+        try {
+          resolvedThreadId = await resolveThread(chatService, user.uid, threadId, intent);
+          if (resolvedThreadId) {
+            await chatService.addMessage({
+              threadId: resolvedThreadId,
+              userId: user.uid,
+              role: 'user',
+              content: intent.trim(),
+              origin: 'user',
+              agentId: 'general',
+            });
+          }
+        } catch (threadErr) {
+          logger.warn('Failed to prepare thread for background enqueue', {
+            userId: user.uid,
+            error: threadErr instanceof Error ? threadErr.message : String(threadErr),
+          });
+        }
+      }
+
+      const operationId = crypto.randomUUID();
+      const sessionId = crypto.randomUUID();
+      const payload: AgentJobPayload = {
+        operationId,
+        userId: user.uid,
+        intent: intent.trim(),
+        sessionId,
+        origin: 'user' as AgentJobOrigin,
+        context: {
+          ...(userContext ?? {}),
+          ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+        },
+      };
+
+      await jobRepository.withDb(db).create(payload);
+      const jobId = await queueService.enqueue(payload, req.isStaging ? 'staging' : 'production');
+
+      logger.info('Agent X background job enqueued', {
+        operationId,
+        jobId,
+        userId: user.uid,
+        hasThread: !!resolvedThreadId,
+      });
+
+      res.status(202).json({
+        success: true,
+        data: {
+          jobId,
+          operationId,
+          ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+        },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to enqueue Agent X background job', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to enqueue job' });
+    }
+  }
+);
+
+// ─── POST /chat — Real conversational Agent X chat (SSE Streaming) ────────
+
+router.post(
+  '/chat',
+  appGuard,
+  validateBody(AgentChatRequestDto),
+  async (req: Request, res: Response) => {
+    const chatOperationId = `chat-${crypto.randomUUID()}`;
+    const chatUser = getAuthUser(req);
+    let resolvedThreadId: string | undefined;
+
+    const abortController = new AbortController();
+    activeAbortControllers.set(chatOperationId, {
+      controller: abortController,
+      createdAt: Date.now(),
+    });
+
+    req.on('close', () => {
+      if (!abortController.signal.aborted) {
+        abortController.abort();
+        logger.info('Agent X operation aborted via SSE disconnect', {
+          operationId: chatOperationId,
+          userId: chatUser?.uid,
+        });
+      }
+      activeAbortControllers.delete(chatOperationId);
+    });
+
+    try {
+      const user = chatUser;
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { message, mode, history, threadId, attachments, resumeOperationId } =
+        req.body as AgentChatRequestDto;
+
+      // ── Drop Recovery ─────────────────────────────────────────────────
+      if (resumeOperationId && pubsubService && jobRepository) {
+        logger.info('Drop recovery: resuming heavy task stream', {
+          operationId: resumeOperationId,
+          userId: user.uid,
+        });
+
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.flushHeaders();
+
+        try {
+          const job = await jobRepository.getById(resumeOperationId);
+          if (!job || job.userId !== user.uid) {
+            res.write(
+              `event: error\ndata: ${JSON.stringify({ error: 'Operation not found or unauthorized' })}\n\n`
+            );
+            res.end();
+            return;
+          }
+
+          if (job.status === 'completed' || job.status === 'failed') {
+            const events = await jobRepository.getJobEvents(resumeOperationId);
+            replayJobEventsAsSSE(res, events);
+            res.write(
+              `event: done\ndata: ${JSON.stringify({
+                operationId: resumeOperationId,
+                status: job.status,
+                timestamp: new Date().toISOString(),
+              })}\n\n`
+            );
+            res.end();
+            logger.info('Drop recovery: replayed completed job from Firestore', {
+              operationId: resumeOperationId,
+              userId: user.uid,
+              eventCount: events.length,
+            });
+            return;
+          }
+
+          const events = await jobRepository.getJobEvents(resumeOperationId);
+          replayJobEventsAsSSE(res, events);
+
+          logger.info('Drop recovery: replayed events, subscribing to live stream', {
+            operationId: resumeOperationId,
+            userId: user.uid,
+            replayedCount: events.length,
+          });
+        } catch (replayErr) {
+          logger.warn('Drop recovery: Firestore replay failed, proceeding to PubSub only', {
+            operationId: resumeOperationId,
+            error: replayErr instanceof Error ? replayErr.message : String(replayErr),
+          });
+        }
+
+        const heartbeatInterval = setInterval(() => {
+          try {
+            res.write(`event: ping\ndata: {}\n\n`);
+          } catch {
+            clearInterval(heartbeatInterval);
+          }
+        }, 15_000);
+
+        const unsubscribe = await pubsubService.subscribe(resumeOperationId, (msg) => {
+          try {
+            res.write(`event: ${msg.event}\ndata: ${JSON.stringify(msg.data)}\n\n`);
+
+            if (STREAM_TERMINAL_EVENTS.has(msg.event)) {
+              clearInterval(heartbeatInterval);
+              void unsubscribe();
+              res.write(
+                `event: done\ndata: ${JSON.stringify({
+                  operationId: resumeOperationId,
+                  timestamp: new Date().toISOString(),
+                })}\n\n`
+              );
+              res.end();
+              logger.info('Drop recovery: PubSub stream completed', {
+                operationId: resumeOperationId,
+                userId: user.uid,
+              });
+            }
+          } catch {
+            clearInterval(heartbeatInterval);
+            void unsubscribe();
+          }
+        });
+
+        req.on('close', () => {
+          clearInterval(heartbeatInterval);
+          void unsubscribe();
+          logger.info('Drop recovery: client disconnected again', {
+            operationId: resumeOperationId,
+            userId: user.uid,
+          });
+        });
+
+        return;
+      }
+
+      // ── Step 1: Resolve thread ────────────────────────────────────────
+      const isNewThread = !threadId;
+      if (chatService) {
+        try {
+          resolvedThreadId = await resolveThread(chatService, user.uid, threadId, message);
+
+          if (resolvedThreadId) {
+            await chatService.addMessage({
+              threadId: resolvedThreadId,
+              userId: user.uid,
+              role: 'user',
+              content: message.trim(),
+              origin: 'user',
+            });
+          }
+        } catch (chatErr) {
+          logger.warn('Failed to persist user message to MongoDB', {
+            error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+            userId: user.uid,
+          });
+        }
+      }
+
+      // ── Step 2: Build system prompt ───────────────────────────────────
+      const { db } = req.firebase!;
+      const inlineApprovalGate = jobRepository ? new ApprovalGateService(db) : null;
+      let profileContext = '';
+      let threadHistoryStr = '';
+
+      if (contextBuilder) {
+        try {
+          const userContext = await contextBuilder.buildContext(user.uid, db);
+          profileContext = contextBuilder.compressToPrompt(userContext);
+        } catch (ctxErr) {
+          logger.warn('ContextBuilder failed, using minimal context', {
+            error: ctxErr instanceof Error ? ctxErr.message : String(ctxErr),
+            userId: user.uid,
+          });
+        }
+
+        if (resolvedThreadId) {
+          try {
+            threadHistoryStr = await contextBuilder.getRecentThreadHistory(resolvedThreadId, 20);
+          } catch {
+            // Thread history is non-critical
+          }
+        }
+      }
+
+      if (!profileContext) {
+        const userDoc = await db.collection('Users').doc(user.uid).get();
+        const userData = userDoc.data() ?? {};
+        const role = (userData['role'] ?? 'athlete') as string;
+        const displayName = (userData['displayName'] ?? '') as string;
+        const sport = (userData['sport'] ?? '') as string;
+        profileContext = `User: ${displayName} | Role: ${role}${sport ? ` | Sport: ${sport}` : ''}`;
+      }
+
+      const goalsDoc = await db.collection('Users').doc(user.uid).get();
+      const goalsData = goalsDoc.data() ?? {};
+      const agentGoals: AgentDashboardGoal[] = (goalsData['agentGoals'] ??
+        []) as AgentDashboardGoal[];
+      const goalContext =
+        agentGoals.length > 0 ? `\nGoals: ${agentGoals.map((g) => g.text).join('; ')}` : '';
+
+      const systemPrompt = [
+        `You are Agent X — The Ultimate AI Sports Coordinators. You are the AI assistant for NXT1, an AI-first sports platform.`,
+        `\n[User Profile]\n${profileContext}${goalContext}`,
+        threadHistoryStr ? `\n${threadHistoryStr}` : '',
+        `\nBe concise, actionable, and sports-aware. Format responses with markdown and bullet points when listing items.`,
+        `You can: create highlight reels, draft recruiting emails, generate scout reports, analyze film, build graphics, manage recruiting outreach, evaluate prospects, and handle NCAA compliance questions.`,
+        `\n[Tool Usage Rules]`,
+        `- When calling tools, extract userId, teamId, and organizationId from the [User Profile] above. NEVER ask the user for their UserID, TeamID, or OrgID — you already have them.`,
+        `- If a required parameter is available in the user profile context, use it directly.`,
+        `- When the user wants to BROWSE or SEE a website interactively, use the open_live_view tool. It opens a live browser in their command center. If they have a connected account for that platform, the session will be pre-authenticated.`,
+        `- After opening a live view, use navigate_live_view (change URL), read_live_view (extract page content), interact_with_live_view (click/type/scroll), and close_live_view (end session) to control the SAME browser the user sees. You do NOT need to pass a sessionId — the tools auto-resolve it from the userId. For content extraction from a separate URL, use scrape_webpage. For anything already open in live view, stay within the live-view tools so the user sees the same browser state.`,
+        `- You can safely call open_live_view again with a new URL — it automatically reuses the existing session. Only use close_live_view when the user explicitly asks to close the browser or the task is fully done.`,
+        mode ? `\nThe user is currently in "${mode}" mode.` : '',
+      ]
+        .filter(Boolean)
+        .join('');
+
+      // ── Step 3: Build LLM messages array ─────────────────────────────
+      const messages: LLMMessage[] = [{ role: 'system', content: systemPrompt }];
+
+      if (history?.length) {
+        const recentHistory = history.slice(-10);
+        for (const msg of recentHistory) {
+          if (msg.role === 'user' || msg.role === 'assistant') {
+            messages.push({ role: msg.role as 'user' | 'assistant', content: msg.content });
+          }
+        }
+      }
+
+      const fileAttachments = (attachments ?? []).filter(
+        (a: { mimeType: string }) =>
+          a.mimeType.startsWith('image/') ||
+          a.mimeType === 'application/pdf' ||
+          a.mimeType === 'text/csv' ||
+          a.mimeType === 'text/plain' ||
+          a.mimeType === 'application/vnd.ms-excel' ||
+          a.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+          a.mimeType === 'application/msword' ||
+          a.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      );
+
+      if (fileAttachments.length > 0) {
+        const contentParts: LLMContentPart[] = [{ type: 'text', text: message.trim() }];
+        for (const att of fileAttachments) {
+          contentParts.push({
+            type: 'image_url',
+            image_url: { url: att.url, detail: 'auto' },
+          });
+        }
+        messages.push({ role: 'user', content: contentParts });
+      } else {
+        messages.push({ role: 'user', content: message.trim() });
+      }
+
+      // ── Step 4: Budget preflight ──────────────────────────────────────
+      const chatTarget = await resolveBillingTarget(db, user.uid);
+      const chatCtx = chatTarget.context;
+      const chatBudgetCheck = checkBudgetFromContext(chatCtx);
+      if (!chatBudgetCheck.allowed) {
+        const isWalletUser =
+          chatCtx.billingEntity === 'individual' && chatCtx.paymentProvider === 'iap';
+        res.status(402).json({
+          success: false,
+          error: chatBudgetCheck.reason,
+          code: isWalletUser ? 'WALLET_EMPTY' : 'BUDGET_EXCEEDED',
+        });
+        return;
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      });
+
+      res.flushHeaders();
+      res.socket?.setNoDelay(true);
+
+      if (resolvedThreadId) {
+        res.write(
+          `event: thread\ndata: ${JSON.stringify({ threadId: resolvedThreadId, operationId: chatOperationId })}\n\n`
+        );
+
+        forceProxyFlush(res);
+
+        res.write(
+          `event: operation\ndata: ${JSON.stringify({
+            threadId: resolvedThreadId,
+            status: 'in-progress',
+            timestamp: new Date().toISOString(),
+          })}\n\n`
+        );
+        logger.info('SSE operation event emitted: in-progress', { threadId: resolvedThreadId });
+
+        forceProxyFlush(res);
+      }
+
+      let responseContent = '';
+      let model = 'unknown';
+      let tokenUsage: { inputTokens: number; outputTokens: number; model: string } | undefined;
+      let stepCounter = 0;
+      let pendingAutoOpenPanel: Record<string, unknown> | null = null;
+      const invokedTools: string[] = [];
+      let inlineYieldState: AgentYieldState | null = null;
+
+      const chatTools: LLMToolSchema[] = [];
+      if (toolRegistryRef) {
+        const defs = toolRegistryRef.getDefinitions();
+        for (const def of defs) {
+          chatTools.push({
+            type: 'function',
+            function: {
+              name: def.name,
+              description: def.description,
+              parameters: def.parameters,
+            },
+          });
+        }
+      }
+
+      if (llmService) {
+        try {
+          for (let turn = 0; turn < MAX_AGENTIC_TURNS; turn++) {
+            if (abortController.signal.aborted) {
+              logger.info('Agentic loop bailing: abort signal received between turns', {
+                turn,
+                operationId: chatOperationId,
+                userId: user.uid,
+              });
+              break;
+            }
+
+            const activeToolSteps = new Map<number, { id: string; name: string }>();
+
+            const streamResult = await llmService.completeStream(
+              messages,
+              {
+                tier: 'chat',
+                maxTokens: 4096,
+                temperature: 0.7,
+                signal: abortController.signal,
+                ...(chatTools.length > 0 ? { tools: chatTools } : {}),
+                telemetryContext: {
+                  operationId: chatOperationId,
+                  userId: user.uid,
+                  agentId: 'general' as const,
+                },
+              },
+              (delta) => {
+                if (delta.content) {
+                  res.write(
+                    `event: delta\ndata: ${JSON.stringify({ content: delta.content })}\n\n`
+                  );
+                }
+
+                if (delta.toolName != null && delta.toolCallIndex != null) {
+                  const stepId = `step-${stepCounter++}`;
+                  activeToolSteps.set(delta.toolCallIndex, { id: stepId, name: delta.toolName });
+
+                  res.write(
+                    `event: step\ndata: ${JSON.stringify({
+                      id: stepId,
+                      label: humanizeToolName(delta.toolName),
+                      status: 'active',
+                    })}\n\n`
+                  );
+                  forceProxyFlush(res);
+                }
+              }
+            );
+
+            model = streamResult.model;
+            tokenUsage = {
+              inputTokens: (tokenUsage?.inputTokens ?? 0) + streamResult.usage.inputTokens,
+              outputTokens: (tokenUsage?.outputTokens ?? 0) + streamResult.usage.outputTokens,
+              model: streamResult.model,
+            };
+
+            if (streamResult.toolCalls.length === 0) {
+              responseContent += streamResult.content;
+
+              for (const [, step] of activeToolSteps) {
+                res.write(
+                  `event: step\ndata: ${JSON.stringify({
+                    id: step.id,
+                    label: humanizeToolName(step.name),
+                    status: 'success',
+                  })}\n\n`
+                );
+              }
+              if (activeToolSteps.size > 0) forceProxyFlush(res);
+              break;
+            }
+
+            messages.push({
+              role: 'assistant',
+              content: streamResult.content || null,
+              tool_calls: streamResult.toolCalls,
+            });
+
+            const parsedToolCalls = streamResult.toolCalls.map((tc, tcIndex) => {
+              let parsedArgs: Record<string, unknown> = {};
+              try {
+                parsedArgs = JSON.parse(tc.function.arguments);
+              } catch {
+                logger.warn('Malformed tool arguments from LLM', {
+                  tool: tc.function.name,
+                  args: tc.function.arguments.slice(0, 200),
+                });
+              }
+
+              return {
+                tc,
+                parsedArgs,
+                stepInfo: activeToolSteps.get(tcIndex),
+              };
+            });
+
+            const approvalCandidate = inlineApprovalGate
+              ? parsedToolCalls
+                  .map((entry) => {
+                    const requirement = inlineApprovalGate.getApprovalRequirement(
+                      entry.tc.function.name,
+                      entry.parsedArgs
+                    );
+                    return requirement ? { ...entry, requirement } : null;
+                  })
+                  .find((entry) => entry !== null)
+              : null;
+
+            if (approvalCandidate && jobRepository) {
+              const approvalRequest = await inlineApprovalGate!.requestApproval({
+                operationId: chatOperationId,
+                taskId: 'inline_chat',
+                userId: user.uid,
+                toolName: approvalCandidate.tc.function.name,
+                toolInput: approvalCandidate.parsedArgs,
+                actionSummary: approvalCandidate.requirement.actionSummary,
+                reasoning: streamResult.content || undefined,
+                threadId: resolvedThreadId,
+              });
+
+              const yieldState: AgentYieldState = {
+                reason: 'needs_approval',
+                promptToUser: approvalCandidate.requirement.promptToUser,
+                agentId: 'general',
+                messages: messages.map((msg) => ({ ...msg })) as readonly Record<string, unknown>[],
+                pendingToolCall: {
+                  toolName: approvalCandidate.tc.function.name,
+                  toolInput: approvalCandidate.parsedArgs,
+                  toolCallId: approvalCandidate.tc.id,
+                },
+                approvalId: approvalRequest.id,
+                yieldedAt: new Date().toISOString(),
+                expiresAt: new Date(
+                  Date.now() + (approvalRequest.expiresInMs ?? 86_400_000)
+                ).toISOString(),
+              };
+
+              await jobRepository.withDb(db).create({
+                operationId: chatOperationId,
+                userId: user.uid,
+                intent: message.trim(),
+                sessionId: chatOperationId,
+                origin: 'user' as AgentJobOrigin,
+                context: {
+                  ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+                },
+              });
+              await jobRepository.withDb(db).markYielded(chatOperationId, yieldState);
+
+              const approvalCard = buildInlineApprovalCard({
+                toolName: approvalCandidate.tc.function.name,
+                approvalId: approvalRequest.id,
+                operationId: chatOperationId,
+                promptToUser: approvalCandidate.requirement.promptToUser,
+                toolInput: approvalCandidate.parsedArgs,
+              });
+
+              if (approvalCandidate.stepInfo) {
+                res.write(
+                  `event: step\ndata: ${JSON.stringify({
+                    id: approvalCandidate.stepInfo.id,
+                    label: 'Waiting for your approval',
+                    status: 'success',
+                  })}\n\n`
+                );
+                forceProxyFlush(res);
+              }
+
+              res.write(`event: card\ndata: ${JSON.stringify(approvalCard)}\n\n`);
+              forceProxyFlush(res);
+
+              if (streamResult.content) {
+                responseContent += streamResult.content;
+              }
+
+              const hitlMessage =
+                approvalCandidate.tc.function.name === 'send_email'
+                  ? "I've prepared a draft for your review. Edit it if needed, then approve it to continue."
+                  : 'I need your approval before I take the next action. Review the confirmation card and continue when ready.';
+              responseContent += hitlMessage;
+              res.write(`event: delta\ndata: ${JSON.stringify({ content: hitlMessage })}\n\n`);
+
+              if (resolvedThreadId) {
+                res.write(
+                  `event: operation\ndata: ${JSON.stringify({
+                    threadId: resolvedThreadId,
+                    status: 'awaiting_input',
+                    timestamp: new Date().toISOString(),
+                  })}\n\n`
+                );
+                forceProxyFlush(res);
+              }
+
+              logger.info('Inline chat yielded for approval', {
+                approvalId: approvalRequest.id,
+                operationId: chatOperationId,
+                tool: approvalCandidate.tc.function.name,
+                userId: user.uid,
+              });
+
+              break;
+            }
+
+            let heavyTaskOperationId: string | null = null;
+
+            const toolResults = await Promise.all(
+              parsedToolCalls.map(async ({ tc, parsedArgs, stepInfo }) => {
+                try {
+                  if (tc.function.name === 'enqueue_heavy_task') {
+                    parsedArgs['context'] = {
+                      ...(typeof parsedArgs['context'] === 'object' &&
+                      parsedArgs['context'] !== null
+                        ? (parsedArgs['context'] as Record<string, unknown>)
+                        : {}),
+                      environment: req.isStaging ? 'staging' : 'production',
+                    };
+                  }
+
+                  invokedTools.push(tc.function.name);
+
+                  const result = toolRegistryRef
+                    ? await toolRegistryRef.execute(tc.function.name, parsedArgs, {
+                        userId: user.uid,
+                        threadId: resolvedThreadId,
+                        sessionId: chatOperationId,
+                        signal: abortController.signal,
+                        onProgress: (label: string) => {
+                          if (stepInfo) {
+                            try {
+                              res.write(
+                                `event: step\ndata: ${JSON.stringify({
+                                  id: stepInfo.id,
+                                  label,
+                                  status: 'active',
+                                })}\n\n`
+                              );
+                              forceProxyFlush(res);
+                            } catch {
+                              // Client disconnected
+                            }
+                          }
+                        },
+                      })
+                    : { success: false, error: 'Tool registry unavailable' };
+
+                  if (
+                    tc.function.name === 'enqueue_heavy_task' &&
+                    result.success &&
+                    result.data &&
+                    typeof result.data === 'object' &&
+                    'operationId' in (result.data as Record<string, unknown>)
+                  ) {
+                    heavyTaskOperationId = (result.data as Record<string, unknown>)[
+                      'operationId'
+                    ] as string;
+                  }
+
+                  if (
+                    result.success &&
+                    result.data &&
+                    typeof result.data === 'object' &&
+                    'autoOpenPanel' in (result.data as Record<string, unknown>)
+                  ) {
+                    pendingAutoOpenPanel = (result.data as Record<string, unknown>)[
+                      'autoOpenPanel'
+                    ] as Record<string, unknown>;
+
+                    try {
+                      res.write(`event: panel\ndata: ${JSON.stringify(pendingAutoOpenPanel)}\n\n`);
+                      forceProxyFlush(res);
+                      logger.info('Emitted panel SSE event immediately', {
+                        type: (pendingAutoOpenPanel as Record<string, unknown>)['type'],
+                        userId: user.uid,
+                      });
+                    } catch {
+                      // Client disconnected
+                    }
+                  }
+
+                  if (result.success && result.data && typeof result.data === 'object') {
+                    const toolData = result.data as Record<string, unknown>;
+                    if (typeof toolData['imageUrl'] === 'string') {
+                      try {
+                        res.write(
+                          `event: media\ndata: ${JSON.stringify({
+                            type: 'image',
+                            url: toolData['imageUrl'],
+                            mimeType: toolData['mimeType'] ?? 'image/png',
+                          })}\n\n`
+                        );
+                        forceProxyFlush(res);
+                      } catch {
+                        // Client disconnected
+                      }
+                    }
+                    if (typeof toolData['videoUrl'] === 'string') {
+                      try {
+                        res.write(
+                          `event: media\ndata: ${JSON.stringify({
+                            type: 'video',
+                            url: toolData['videoUrl'],
+                            mimeType: toolData['mimeType'] ?? 'video/mp4',
+                          })}\n\n`
+                        );
+                        forceProxyFlush(res);
+                      } catch {
+                        // Client disconnected
+                      }
+                    }
+                  }
+
+                  if (stepInfo) {
+                    res.write(
+                      `event: step\ndata: ${JSON.stringify({
+                        id: stepInfo.id,
+                        label: humanizeToolName(stepInfo.name),
+                        status: result.success ? 'success' : 'error',
+                      })}\n\n`
+                    );
+                    forceProxyFlush(res);
+                  }
+
+                  return {
+                    role: 'tool' as const,
+                    tool_call_id: tc.id,
+                    content: JSON.stringify(result.success ? result.data : { error: result.error }),
+                  };
+                } catch (toolErr) {
+                  if (isAgentYield(toolErr) && jobRepository) {
+                    const yieldPayload = toolErr.payload;
+                    const now = new Date();
+                    const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+                    inlineYieldState = {
+                      reason: yieldPayload.reason,
+                      promptToUser: yieldPayload.promptToUser,
+                      agentId: yieldPayload.agentId,
+                      messages: yieldPayload.messages as unknown as readonly Record<
+                        string,
+                        unknown
+                      >[],
+                      pendingToolCall: yieldPayload.pendingToolCall,
+                      approvalId: yieldPayload.approvalId,
+                      planContext: yieldPayload.planContext,
+                      yieldedAt: now.toISOString(),
+                      expiresAt: expiresAt.toISOString(),
+                    };
+
+                    await jobRepository.withDb(db).create({
+                      operationId: chatOperationId,
+                      userId: user.uid,
+                      intent: message.trim(),
+                      sessionId: chatOperationId,
+                      origin: 'user' as AgentJobOrigin,
+                      context: {
+                        ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+                      },
+                    });
+                    await jobRepository.withDb(db).markYielded(chatOperationId, inlineYieldState);
+
+                    try {
+                      await notifyYield(db, {
+                        userId: user.uid,
+                        reason: yieldPayload.reason,
+                        promptToUser: yieldPayload.promptToUser,
+                        operationId: chatOperationId,
+                        ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+                        ...(yieldPayload.approvalId ? { approvalId: yieldPayload.approvalId } : {}),
+                      });
+                    } catch (notifyErr) {
+                      logger.warn('Failed to dispatch inline yield notification', {
+                        operationId: chatOperationId,
+                        error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+                      });
+                    }
+
+                    if (stepInfo) {
+                      res.write(
+                        `event: step\ndata: ${JSON.stringify({
+                          id: stepInfo.id,
+                          label:
+                            yieldPayload.reason === 'needs_approval'
+                              ? 'Waiting for your approval'
+                              : 'Waiting for your response',
+                          status: 'success',
+                        })}\n\n`
+                      );
+                      forceProxyFlush(res);
+                    }
+
+                    const prompt = yieldPayload.promptToUser.trim();
+                    if (prompt) {
+                      responseContent += `${responseContent ? '\n\n' : ''}${prompt}`;
+                      res.write(`event: delta\ndata: ${JSON.stringify({ content: prompt })}\n\n`);
+                      forceProxyFlush(res);
+                    }
+
+                    logger.info('Inline chat yielded for user input', {
+                      operationId: chatOperationId,
+                      threadId: resolvedThreadId,
+                      reason: yieldPayload.reason,
+                      tool: tc.function.name,
+                      userId: user.uid,
+                    });
+
+                    return {
+                      role: 'tool' as const,
+                      tool_call_id: tc.id,
+                      content: JSON.stringify({
+                        success: true,
+                        yielded: true,
+                        reason: yieldPayload.reason,
+                      }),
+                    };
+                  }
+
+                  logger.error('Tool execution failed', {
+                    tool: tc.function.name,
+                    error: toolErr instanceof Error ? toolErr.message : String(toolErr),
+                  });
+
+                  if (stepInfo) {
+                    res.write(
+                      `event: step\ndata: ${JSON.stringify({
+                        id: stepInfo.id,
+                        label: humanizeToolName(stepInfo.name),
+                        status: 'error',
+                      })}\n\n`
+                    );
+                    forceProxyFlush(res);
+                  }
+
+                  return {
+                    role: 'tool' as const,
+                    tool_call_id: tc.id,
+                    content: JSON.stringify({
+                      error: toolErr instanceof Error ? toolErr.message : 'Tool execution failed',
+                    }),
+                  };
+                }
+              })
+            );
+
+            for (const result of toolResults) {
+              messages.push(result);
+            }
+
+            // ── Heavy task SSE proxy ──────────────────────────────────────
+            if (heavyTaskOperationId && pubsubService) {
+              logger.info('Pivoting to PubSub SSE proxy for heavy task', {
+                operationId: heavyTaskOperationId,
+                userId: user.uid,
+              });
+
+              res.write(
+                `event: step\ndata: ${JSON.stringify({
+                  id: 'heavy-task-queued',
+                  label: 'Agent processing in background',
+                  status: 'active',
+                })}\n\n`
+              );
+              forceProxyFlush(res);
+
+              const heartbeatInterval = setInterval(() => {
+                try {
+                  res.write(`event: ping\ndata: {}\n\n`);
+                } catch {
+                  clearInterval(heartbeatInterval);
+                }
+              }, 15_000);
+
+              const unsubscribe = await pubsubService.subscribe(heavyTaskOperationId, (msg) => {
+                try {
+                  res.write(`event: ${msg.event}\ndata: ${JSON.stringify(msg.data)}\n\n`);
+
+                  if (
+                    msg.event === 'delta' &&
+                    msg.data &&
+                    typeof msg.data === 'object' &&
+                    'content' in (msg.data as Record<string, unknown>)
+                  ) {
+                    responseContent += (msg.data as Record<string, unknown>)['content'] as string;
+                  }
+
+                  if (STREAM_TERMINAL_EVENTS.has(msg.event)) {
+                    clearInterval(heartbeatInterval);
+                    void unsubscribe();
+
+                    res.write(
+                      `event: step\ndata: ${JSON.stringify({
+                        id: 'heavy-task-queued',
+                        label: 'Agent processing in background',
+                        status: msg.event === 'done' ? 'success' : 'error',
+                      })}\n\n`
+                    );
+
+                    const donePayload: Record<string, unknown> = {
+                      threadId: resolvedThreadId,
+                      model,
+                      usage: tokenUsage,
+                      timestamp: new Date().toISOString(),
+                      operationId: heavyTaskOperationId,
+                    };
+                    if (pendingAutoOpenPanel) {
+                      donePayload['autoOpenPanel'] = pendingAutoOpenPanel;
+                    }
+                    res.write(`event: done\ndata: ${JSON.stringify(donePayload)}\n\n`);
+
+                    res.write(
+                      `event: operation\ndata: ${JSON.stringify({
+                        threadId: resolvedThreadId,
+                        status: msg.event === 'done' ? 'complete' : 'error',
+                        timestamp: new Date().toISOString(),
+                      })}\n\n`
+                    );
+                    forceProxyFlush(res);
+
+                    res.end();
+
+                    logger.info('Heavy task SSE proxy completed', {
+                      operationId: heavyTaskOperationId,
+                      userId: user.uid,
+                      terminalEvent: msg.event,
+                    });
+                  }
+                } catch (proxyErr) {
+                  clearInterval(heartbeatInterval);
+                  void unsubscribe();
+                  logger.warn('SSE proxy write failed (client likely disconnected)', {
+                    operationId: heavyTaskOperationId,
+                    error: proxyErr instanceof Error ? proxyErr.message : String(proxyErr),
+                  });
+                }
+              });
+
+              req.on('close', () => {
+                clearInterval(heartbeatInterval);
+                void unsubscribe();
+                logger.info('Client disconnected during heavy task proxy', {
+                  operationId: heavyTaskOperationId,
+                  userId: user.uid,
+                });
+              });
+
+              if (chatService && resolvedThreadId && responseContent) {
+                try {
+                  await chatService.addMessage({
+                    threadId: resolvedThreadId,
+                    userId: user.uid,
+                    role: 'assistant',
+                    content: responseContent,
+                    origin: 'user',
+                    agentId: 'general',
+                    tokenUsage,
+                  });
+                } catch (persistErr) {
+                  logger.warn('Failed to persist pre-proxy assistant reply', {
+                    error: persistErr instanceof Error ? persistErr.message : String(persistErr),
+                    userId: user.uid,
+                  });
+                }
+              }
+
+              return;
+            }
+
+            if (streamResult.content) {
+              responseContent += streamResult.content;
+            }
+
+            if (inlineYieldState) {
+              break;
+            }
+
+            logger.info('Agentic turn completed', {
+              turn: turn + 1,
+              toolsCalled: streamResult.toolCalls.map((tc) => tc.function.name),
+              userId: user.uid,
+            });
+          }
+        } catch (llmErr) {
+          const isAbort =
+            abortController.signal.aborted ||
+            (llmErr instanceof Error && llmErr.name === 'AbortError');
+
+          if (isAbort) {
+            logger.info('Agent X chat aborted (user cancel or disconnect)', {
+              operationId: chatOperationId,
+              userId: user.uid,
+              partialContentLength: responseContent.length,
+            });
+          } else {
+            logger.warn('OpenRouter streaming failed, using fallback', {
+              error: llmErr instanceof Error ? llmErr.message : String(llmErr),
+            });
+            responseContent = `I understand you're asking about "${message.slice(0, 50)}". Agent X is being set up — full AI responses will be available shortly. In the meantime, explore the Coordinator cards on your dashboard for quick actions.`;
+            res.write(`event: delta\ndata: ${JSON.stringify({ content: responseContent })}\n\n`);
+          }
+        }
+      } else {
+        responseContent = `I understand you're asking about "${message.slice(0, 50)}". Agent X is being set up — full AI responses will be available shortly. In the meantime, explore the Coordinator cards on your dashboard for quick actions.`;
+        res.write(`event: delta\ndata: ${JSON.stringify({ content: responseContent })}\n\n`);
+      }
+
+      // ── Step 5: Persist assistant reply ──────────────────────────────
+      if (chatService && resolvedThreadId) {
+        try {
+          await chatService.addMessage({
+            threadId: resolvedThreadId,
+            userId: user.uid,
+            role: 'assistant',
+            content: responseContent,
+            origin: 'user',
+            agentId: 'general',
+            tokenUsage,
+          });
+        } catch (chatErr) {
+          logger.warn('Failed to persist assistant reply to MongoDB', {
+            error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+            userId: user.uid,
+          });
+        }
+      }
+
+      // ── Step 5b: Auto-generate thread title ───────────────────────────
+      let generatedTitle: string | null = null;
+      if (
+        !abortController.signal.aborted &&
+        isNewThread &&
+        chatService &&
+        llmService &&
+        resolvedThreadId &&
+        responseContent
+      ) {
+        try {
+          generatedTitle = await chatService.generateThreadTitle(
+            resolvedThreadId,
+            user.uid,
+            message,
+            responseContent,
+            llmService
+          );
+          if (generatedTitle) {
+            res.write(
+              `event: title_updated\ndata: ${JSON.stringify({ threadId: resolvedThreadId, title: generatedTitle })}\n\n`
+            );
+            forceProxyFlush(res);
+          }
+        } catch (titleErr) {
+          logger.warn('Title generation failed', {
+            error: titleErr instanceof Error ? titleErr.message : String(titleErr),
+            threadId: resolvedThreadId,
+          });
+        }
+      }
+
+      // ── Step 6: Send final done event ─────────────────────────────────
+      if (!abortController.signal.aborted) {
+        const donePayload: Record<string, unknown> = {
+          threadId: resolvedThreadId,
+          model,
+          usage: tokenUsage,
+          timestamp: new Date().toISOString(),
+          ...(inlineYieldState ? { operationId: chatOperationId } : {}),
+        };
+
+        if (pendingAutoOpenPanel) {
+          donePayload['autoOpenPanel'] = pendingAutoOpenPanel;
+          logger.info('Including autoOpenPanel in done event', {
+            type: (pendingAutoOpenPanel as Record<string, unknown>)['type'],
+            userId: user.uid,
+          });
+        }
+
+        res.write(`event: done\ndata: ${JSON.stringify(donePayload)}\n\n`);
+
+        if (resolvedThreadId) {
+          res.write(
+            `event: operation\ndata: ${JSON.stringify({
+              threadId: resolvedThreadId,
+              status: inlineYieldState ? 'awaiting_input' : 'complete',
+              timestamp: new Date().toISOString(),
+              operationId: chatOperationId,
+              ...(inlineYieldState ? { yieldState: inlineYieldState } : {}),
+            })}\n\n`
+          );
+          forceProxyFlush(res);
+        }
+      }
+
+      logger.info('Agent X SSE chat completed', {
+        userId: user.uid,
+        model,
+        threadId: resolvedThreadId,
+      });
+
+      activeAbortControllers.delete(chatOperationId);
+      res.end();
+
+      // ── Step 7: Billing deduction (fire-and-forget) ────────────────────
+      const { db: billingDb } = req.firebase!;
+      void executeBillingDeduction({
+        db: billingDb,
+        userId: user.uid,
+        operationId: chatOperationId,
+        feature: UsageFeature.ACTIVITY_USAGE,
+        environment: (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'production') as
+          | 'production'
+          | 'staging',
+        metadata: { threadId: resolvedThreadId, model, mode, agentTools: invokedTools },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+
+      const isAbort = abortController.signal.aborted || error.name === 'AbortError';
+
+      if (isAbort) {
+        logger.info('Agent X chat handler terminated by abort', {
+          operationId: chatOperationId,
+          userId: chatUser?.uid,
+        });
+        if (!res.writableEnded) {
+          try {
+            res.end();
+          } catch {
+            // Already closed
+          }
+        }
+        activeAbortControllers.delete(chatOperationId);
+        return;
+      }
+
+      logger.error('Agent X chat failed', { error: error.message, stack: error.stack });
+
+      if (req.firebase?.db && chatUser?.uid) {
+        void executeBillingDeduction({
+          db: req.firebase.db,
+          userId: chatUser.uid,
+          operationId: chatOperationId,
+          feature: UsageFeature.ACTIVITY_USAGE,
+          environment: (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'production') as
+            | 'production'
+            | 'staging',
+          metadata: { error: true },
+        });
+      }
+
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          error: 'Failed to process message',
+          errorCode: 'AI_SERVICE_ERROR',
+        });
+      } else {
+        try {
+          res.write(
+            `event: error\ndata: ${JSON.stringify({ error: 'Failed to process message' })}\n\n`
+          );
+          if (resolvedThreadId) {
+            res.write(
+              `event: operation\ndata: ${JSON.stringify({
+                threadId: resolvedThreadId,
+                status: 'error',
+                timestamp: new Date().toISOString(),
+              })}\n\n`
+            );
+            forceProxyFlush(res);
+          }
+          res.end();
+        } catch {
+          // Client already disconnected
+        }
+      }
+
+      activeAbortControllers.delete(chatOperationId);
+    }
+  }
+);
+
+export default router;

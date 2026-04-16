@@ -582,7 +582,7 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
      */
     async updateRole(
       userId: string,
-      userType: 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent'
+      userType: 'athlete' | 'coach' | 'director'
     ): Promise<OnboardingStepResponse> {
       return http.post(`${base}/auth/profile/onboarding-step`, {
         userId,

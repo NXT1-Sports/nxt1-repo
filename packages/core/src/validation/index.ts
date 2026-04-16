@@ -30,9 +30,4 @@ export {
 } from './schemas';
 
 // Posts validation
-export {
-  validateComment,
-  sanitizeContent,
-  extractHashtags,
-  extractMentions,
-} from './posts.validation';
+export { sanitizeContent, extractHashtags, extractMentions } from './posts.validation';

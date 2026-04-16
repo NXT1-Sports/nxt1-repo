@@ -262,9 +262,9 @@ export interface User {
   coach?: CoachData;
   /** Athletic/Program director data - role: 'director' */
   director?: DirectorData;
-  /** Recruiter data (college coach, scout, service) - role: 'recruiter' */
+  /** Recruiter data (college coach, scout, service) - @deprecated legacy Firestore field */
   recruiter?: RecruiterData;
-  /** Parent-specific data - role: 'parent' */
+  /** Parent-specific data - @deprecated legacy Firestore field */
   parent?: ParentData;
 
   // ============================================
@@ -365,14 +365,14 @@ export function isCoach(user: User): boolean {
 }
 
 /** Check if user is a college coach
- * @deprecated Use isRecruiter() instead */
+ * @deprecated Use isCoach() instead */
 export function isCollegeCoach(user: User): boolean {
-  return user.role === USER_ROLES.RECRUITER && !!user.recruiter;
+  return user.role === USER_ROLES.COACH && !!user.coach;
 }
 
-/** Check if user is a recruiter (college coach, scout, or recruiting service) */
+/** Check if user has recruiting capabilities (i.e., is a coach or director) */
 export function isRecruiter(user: User): boolean {
-  return user.role === USER_ROLES.RECRUITER && !!user.recruiter;
+  return user.role === USER_ROLES.COACH || user.role === USER_ROLES.DIRECTOR;
 }
 
 /** Check if user is a director */

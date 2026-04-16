@@ -628,7 +628,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               role: currentUser.role ?? null,
               onboardingCompleted: true, // Preserve the completed status
               completeSignUp: true,
-              isCollegeCoach: currentUser.role === USER_ROLES.RECRUITER,
+              isCollegeCoach: currentUser.role === USER_ROLES.COACH,
               isRecruit: currentUser.role === USER_ROLES.ATHLETE,
               profileImg: currentUser.profileImg ?? null,
               sports: [],

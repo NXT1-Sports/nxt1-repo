@@ -7,7 +7,7 @@
  * Original file (~1920 lines) has been split into 5 modular files:
  *   - user-base.model.ts        — Base types (Location, SocialLink, Verification, Awards, etc.)
  *   - user-sport.model.ts       — Sport profiles and sport-specific data (metrics, stats, recruiting)
- *   - user-role-data.model.ts   — Role-specific data interfaces (Athlete, Coach, Recruiter, etc.)
+ *   - user-role-data.model.ts   — Role-specific data interfaces (Athlete, Coach, Director)
  *   - user-collections.model.ts — Firestore collection types (PostDoc, VideoDoc, etc.)
  *   - user.model.ts             — Main User interface + preferences + counters + utility functions
  *
@@ -21,7 +21,7 @@ export * from './user-base.model';
 // Re-export sport types (SportProfile, VerifiedMetric, VerifiedStat, ScheduleEvent, RecruitingActivity, etc.)
 export * from './user-sport.model';
 
-// Re-export role data types (AthleteData, CoachData, RecruiterData, DirectorData, ParentData, etc.)
+// Re-export role data types (AthleteData, CoachData, DirectorData)
 export * from './user-role-data.model';
 
 // Re-export collection types (PostDoc, VideoDoc, PlayerStatDoc, GameStatDoc, RankingEntryDoc, etc.)

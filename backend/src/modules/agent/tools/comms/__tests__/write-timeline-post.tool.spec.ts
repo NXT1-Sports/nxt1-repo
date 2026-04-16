@@ -179,7 +179,7 @@ describe('WriteTimelinePostTool', () => {
       expect(result.success).toBe(true);
 
       const postDoc = mockDocRef.set.mock.calls[0][0] as Record<string, unknown>;
-      expect(postDoc['stats']).toEqual({ likes: 0, comments: 0, shares: 0, views: 0 });
+      expect(postDoc['stats']).toEqual({ likes: 0, shares: 0, views: 0 });
     });
 
     it('should set createdAt and updatedAt timestamps', async () => {

@@ -9,7 +9,7 @@
 
 import { getStorage } from 'firebase-admin/storage';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import type { RunwayMcpBridgeService } from '../integrations/runway-mcp-bridge.service.js';
+import type { RunwayMcpBridgeService } from '../integrations/runway/runway-mcp-bridge.service.js';
 
 export class RunwayCheckTaskTool extends BaseTool {
   readonly name = 'runway_check_task';

@@ -11,7 +11,7 @@ import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.to
 import type {
   RunwayMcpBridgeService,
   RunwayEditVideoOptions,
-} from '../integrations/runway-mcp-bridge.service.js';
+} from '../integrations/runway/runway-mcp-bridge.service.js';
 
 export class RunwayEditVideoTool extends BaseTool {
   readonly name = 'runway_edit_video';

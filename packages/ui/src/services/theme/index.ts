@@ -64,6 +64,7 @@ import {
   afterNextRender,
 } from '@angular/core';
 import { isPlatformBrowser, DOCUMENT } from '@angular/common';
+import { NxtLoggingService } from '../logging/logging.service';
 
 // ============================================
 // TYPES
@@ -349,6 +350,9 @@ export class NxtThemeService {
   private readonly doc = inject(DOCUMENT);
 
   /** SSR-provided theme preference (from cookie, optional) */
+  private readonly logger = inject(NxtLoggingService).child('NxtThemeService');
+
+  /** SSR-provided theme preference (from cookie, optional) */
   private readonly ssrTheme = inject(SSR_INITIAL_THEME, { optional: true });
 
   /** SSR-provided sport theme (from cookie, optional) */
@@ -362,9 +366,6 @@ export class NxtThemeService {
 
   /** Whether status bar sync is enabled */
   private statusBarSyncEnabled = false;
-
-  /** Whether native UI sync (keyboard + nav bar) is enabled */
-  private nativeUiSyncEnabled = false;
 
   // ============================================
   // STATE (Signals)
@@ -653,7 +654,6 @@ export class NxtThemeService {
     if (!this.isBrowser) return;
 
     this.statusBarSyncEnabled = true;
-    this.nativeUiSyncEnabled = true;
     void this.syncStatusBar();
     void this.syncKeyboard();
     void this.syncNavigationBar();
@@ -747,11 +747,11 @@ export class NxtThemeService {
       const NxtTheme = registerPlugin<{ setStyle: (opts: { style: string }) => Promise<void> }>(
         'NxtTheme'
       );
-      console.log('[NxtThemeService] calling NxtTheme.setStyle:', effectiveTheme);
+      this.logger.debug('Calling NxtTheme.setStyle', { theme: effectiveTheme });
       await NxtTheme.setStyle({ style: effectiveTheme });
-      console.log('[NxtThemeService] NxtTheme.setStyle ✅ resolved');
+      this.logger.debug('NxtTheme.setStyle resolved');
     } catch (e) {
-      console.error('[NxtThemeService] NxtTheme.setStyle FAILED ❌', e);
+      this.logger.error('NxtTheme.setStyle failed', e);
     }
   }
 

@@ -68,7 +68,7 @@ const SenderSchema = new Schema<IMessageSender>(
     role: {
       type: String,
       required: true,
-      enum: ['athlete', 'coach', 'recruiter', 'parent', 'admin'],
+      enum: ['athlete', 'coach', 'director', 'admin'],
     },
     isVerified: { type: Boolean },
     email: { type: String },

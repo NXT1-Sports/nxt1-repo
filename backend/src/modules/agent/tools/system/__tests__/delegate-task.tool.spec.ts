@@ -13,7 +13,7 @@ import { DelegateTaskTool } from '../delegate-task.tool.js';
 import {
   isAgentDelegation,
   AgentDelegationException,
-} from '../../../errors/agent-delegation.error.js';
+} from '../../../exceptions/agent-delegation.exception.js';
 
 describe('DelegateTaskTool', () => {
   const tool = new DelegateTaskTool();

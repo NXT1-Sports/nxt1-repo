@@ -33,10 +33,10 @@ vi.mock('firebase-admin/firestore', () => ({
   }),
 }));
 
-// ─── Mock elite-context ─────────────────────────────────────────────────────
+// ─── Mock context-builder ────────────────────────────────────────────────────
 
 const mockResolvePrimarySport = vi.fn<(...args: unknown[]) => string>();
-vi.mock('../../../services/elite-context.js', () => ({
+vi.mock('../../../memory/context-builder.js', () => ({
   resolvePrimarySport: (...args: unknown[]) => mockResolvePrimarySport(...args),
 }));
 
