@@ -181,6 +181,70 @@ describe('ScanTimelinePostsTool', () => {
       expect(mockVectorMemory.store).toHaveBeenCalledTimes(2);
     });
 
+    it('should pass teamId when storing a team-scoped memory', async () => {
+      const facts = [
+        {
+          content: 'Team won the regional championship.',
+          category: 'performance_data',
+          target: 'team',
+        },
+      ];
+      mockLlm.complete = vi.fn().mockResolvedValue({ content: JSON.stringify(facts) });
+      tool = new ScanTimelinePostsTool(mockDb, mockLlm as never, mockVectorMemory as never);
+
+      const result = await tool.execute({
+        userId: 'user_123',
+        scope: 'both',
+        teamId: 'team_xyz',
+      });
+      expect(result.success).toBe(true);
+      expect(mockVectorMemory.store).toHaveBeenCalledWith(
+        'user_123',
+        facts[0].content,
+        'performance_data',
+        { source: 'timeline_scan' },
+        { target: 'team', teamId: 'team_xyz' }
+      );
+    });
+
+    it('should fall back to "user" target when team-scoped but no teamId', async () => {
+      // This protects against the vectorMemory.store() throwing when teamId is absent
+      const facts = [{ content: 'Team fact.', category: 'goal', target: 'team' }];
+      mockLlm.complete = vi.fn().mockResolvedValue({ content: JSON.stringify(facts) });
+      tool = new ScanTimelinePostsTool(mockDb, mockLlm as never, mockVectorMemory as never);
+
+      // scope 'user' — no teamId provided
+      const result = await tool.execute({ userId: 'user_123', scope: 'user' });
+      expect(result.success).toBe(true);
+      // Should have been stored with target 'user', not 'team'
+      expect(mockVectorMemory.store).toHaveBeenCalledWith(
+        'user_123',
+        facts[0].content,
+        'goal',
+        { source: 'timeline_scan' },
+        { target: 'user' }
+      );
+    });
+
+    it('should fall back to "user" target when organization-scoped', async () => {
+      // organizationId is not in the tool input scope, so org facts always fall back to user
+      const facts = [
+        { content: 'Org fact.', category: 'recruiting_context', target: 'organization' },
+      ];
+      mockLlm.complete = vi.fn().mockResolvedValue({ content: JSON.stringify(facts) });
+      tool = new ScanTimelinePostsTool(mockDb, mockLlm as never, mockVectorMemory as never);
+
+      const result = await tool.execute({ userId: 'user_123' });
+      expect(result.success).toBe(true);
+      expect(mockVectorMemory.store).toHaveBeenCalledWith(
+        'user_123',
+        facts[0].content,
+        'recruiting_context',
+        { source: 'timeline_scan' },
+        { target: 'user' }
+      );
+    });
+
     it('should skip facts with invalid categories', async () => {
       const facts = [
         { content: 'Valid fact.', category: 'performance_data', target: 'user' },

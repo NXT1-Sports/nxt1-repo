@@ -13,6 +13,7 @@ export const FIREBASE_VIEW_NAMES = [
   'user_highlight_videos',
   'team_profile_snapshot',
   'team_roster_members',
+  'team_timeline_feed',
   'team_highlight_videos',
   'organization_profile_snapshot',
   'organization_roster_members',

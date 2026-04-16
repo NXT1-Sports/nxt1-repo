@@ -243,7 +243,7 @@ export class ScanTimelinePostsTool extends BaseTool {
       }
 
       context?.onProgress?.(`Storing ${facts.length} extracted facts to memory…`);
-      const stored = await this.storeFacts(facts, userId);
+      const stored = await this.storeFacts(facts, userId, teamId ?? undefined);
 
       logger.info('[ScanTimelinePostsTool] Scan complete', {
         userId,
@@ -376,7 +376,8 @@ export class ScanTimelinePostsTool extends BaseTool {
    */
   private async storeFacts(
     facts: Array<{ content: string; category: string; target?: string }>,
-    userId: string
+    userId: string,
+    teamId?: string
   ): Promise<number> {
     let stored = 0;
     for (const fact of facts) {
@@ -389,9 +390,15 @@ export class ScanTimelinePostsTool extends BaseTool {
         continue;
       }
 
-      const target: AgentMemoryTarget = VALID_TARGETS.includes(fact.target as AgentMemoryTarget)
+      // Resolve target — fall back to 'user' when required IDs are unavailable.
+      // VectorMemoryService.store() throws if target='team' without teamId, or
+      // target='organization' without organizationId; we defensively downgrade.
+      let target: AgentMemoryTarget = VALID_TARGETS.includes(fact.target as AgentMemoryTarget)
         ? (fact.target as AgentMemoryTarget)
         : 'user';
+
+      if (target === 'team' && !teamId) target = 'user';
+      if (target === 'organization') target = 'user'; // organizationId not in tool scope
 
       // Dedup guard: skip if an identical content+category already exists
       const existing = await AgentMemoryModel.findOne({
@@ -408,7 +415,7 @@ export class ScanTimelinePostsTool extends BaseTool {
           fact.content,
           fact.category as AgentMemoryCategory,
           { source: 'timeline_scan' },
-          { target }
+          { target, ...(target === 'team' ? { teamId } : {}) }
         );
         stored++;
       } catch (err) {
