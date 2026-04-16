@@ -3,7 +3,7 @@
  * @module @nxt1/functions/auth/onUserProfileCreated
  *
  * Triggered when a new user document is created in Firestore.
- * - Creates user_analytics document
+ * - Creates a lightweight user_analytics operational document
  * - Initializes notification preferences on the Users document itself
  */
 
@@ -30,12 +30,14 @@ export const onUserProfileCreatedV3 = onDocumentCreated('Users/{userId}', async 
   logger.info('User profile created', { userId, email: userData?.['email'] });
 
   try {
-    // Initialize analytics tracking
+    // Initialize lightweight live engagement counters.
+    // Historical analytics and reporting are stored in Mongo.
     await db.collection('user_analytics').doc(userId).set({
       userId,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       profileViews: 0,
       totalConnections: 0,
+      sportChanges: 0,
       lastActive: admin.firestore.FieldValue.serverTimestamp(),
     });
 

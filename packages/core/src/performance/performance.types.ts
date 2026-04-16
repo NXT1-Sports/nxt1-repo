@@ -286,7 +286,6 @@ export const TRACE_NAMES = {
   ONBOARDING_STEP_SAVE: 'onboarding_step_save',
   ONBOARDING_PROFILE_SAVE: 'onboarding_profile_save',
   ONBOARDING_COMPLETE: 'onboarding_complete',
-  ONBOARDING_PRELOAD_SCRAPE: 'onboarding_preload_scrape',
 
   // XP traces
   XP_PREVIEW_LOAD: 'xp_preview_load',

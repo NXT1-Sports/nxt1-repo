@@ -88,7 +88,7 @@ const inFlightRequests = new Map<string, Observable<HttpEvent<unknown>>>();
 
 /**
  * Default URL patterns with TTLs
- * Configured for Agent X, Activity, Explore, and other common endpoints.
+ * Configured for Agent X, Activity, and other common endpoints.
  *
  * TTL Strategy (2026 Best Practices):
  * - SHORT_TTL (1 min): Real-time data (activity, notifications, badges)
@@ -97,18 +97,10 @@ const inFlightRequests = new Map<string, Observable<HttpEvent<unknown>>>();
  * - EXTENDED_TTL (24 hr): Sports list, positions, rarely changing data
  */
 const DEFAULT_TTL_CONFIG: CacheTTLConfig[] = [
-  // Feed - Short TTL (high churn, infinite-scroll heavy)
-  { pattern: /\/feed(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
-
   // Activity - Short TTL (real-time notifications)
   { pattern: /\/activity\/feed/, ttl: CACHE_CONFIG.SHORT_TTL },
   { pattern: /\/activity\/badges/, ttl: 30_000 }, // 30 seconds for badges
   { pattern: /\/activity\/summary/, ttl: CACHE_CONFIG.SHORT_TTL },
-
-  // News / Pulse
-  { pattern: /\/news\/trending(?:\/|$)/, ttl: 30 * 60_000 },
-  { pattern: /\/news\/search(?:\/|$)/, ttl: 5 * 60_000 },
-  { pattern: /\/news(?:\/|$)/, ttl: 5 * 60_000 },
 
   // Usage - mixed TTL by data volatility
   { pattern: /\/usage\/overview(?:\/|$)/, ttl: CACHE_CONFIG.SHORT_TTL },
@@ -145,9 +137,7 @@ const DEFAULT_TTL_CONFIG: CacheTTLConfig[] = [
 const DEFAULT_INVALIDATION_CONFIG: readonly CacheInvalidationConfig[] = [
   { pattern: /\/auth\/profile|\/profile\//, invalidate: ['*auth/profile*', '*profile*'] },
   { pattern: /\/teams(?:\/|$)/, invalidate: ['*teams*'] },
-  { pattern: /\/feed|\/posts\//, invalidate: ['*feed*', '*posts*'] },
   { pattern: /\/activity\//, invalidate: ['*activity*'] },
-  { pattern: /\/news\//, invalidate: ['*news*'] },
   { pattern: /\/usage\//, invalidate: ['*usage*'] },
   { pattern: /\/billing\/budget/, invalidate: ['*billing/budget*', '*usage*'] },
   { pattern: /\/help-center\//, invalidate: ['*help-center*'] },

@@ -86,7 +86,11 @@ export interface TeamAnalytics {
 
 export interface Code {
   id?: string;
+  /** Legacy alias for id still returned by some auth/profile payloads. */
+  teamId?: string;
   teamCode: string;
+  /** Legacy alias for teamCode still returned by some older payloads. */
+  code?: string;
   teamName: string;
   /** Team type - uses TeamType from user.constants.ts */
   teamType: TeamType | TeamTypeApi;
@@ -214,9 +218,10 @@ export interface CreateTeamCodeInput {
 /**
  * Input for updating team code.
  *
- * Branding (logoUrl, colors, mascot) and location (city, state)
- * belong on the **Organization** document — not on the team.
- * Update those fields via the Organization API instead.
+ * The Manage Team surface still edits a legacy team-profile shape that stores
+ * branding, contact, and record metadata directly on the team document.
+ * These optional fields preserve compatibility with that experience while the
+ * broader organization model continues to evolve.
  */
 export interface UpdateTeamCodeInput {
   teamName?: string;
@@ -231,6 +236,22 @@ export interface UpdateTeamCodeInput {
   level?: string;
   division?: string;
   conference?: string;
+  mascot?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  wins?: number;
+  losses?: number;
+  ties?: number;
+  season?: string;
+  logoUrl?: string;
+  galleryImages?: readonly string[];
+  primaryColor?: string;
+  secondaryColor?: string;
+  accentColor?: string;
 }
 
 /**

@@ -103,11 +103,30 @@ const TAB_SCOPES: Readonly<Record<string, readonly VerificationScope[]>> = {
 };
 
 const INTEL_SIDE_TAB_SCOPES: Readonly<Record<string, readonly VerificationScope[]>> = {
+  // ── Legacy section IDs (kept for backwards-compat during transition) ──
+  overview: ['measurables'],
+  highlights: ['stats'],
+  recruiting: ['recruiting'],
+  media: ['measurables'],
   'player-profile': ['measurables'],
   'player-info': ['measurables'],
   'player-history': ['recruiting'],
   awards: ['stats'],
   academic: ['academics'],
+
+  // ── New Agent X dossier section IDs ──
+  agent_x_brief: ['measurables', 'stats'],
+  athletic_measurements: ['measurables'],
+  season_stats: ['stats'],
+  academic_profile: ['academics'],
+  recruiting_activity: ['recruiting'],
+  awards_honors: ['stats'],
+  // ── Team-specific section IDs ──
+  season_record: [],
+  team_stats: ['stats'],
+  season_history: [],
+  schedule: [],
+  recruiting_board: ['recruiting'],
 };
 
 const CONNECT_SIDE_TAB_SCOPES: Readonly<Record<string, readonly VerificationScope[]>> = {

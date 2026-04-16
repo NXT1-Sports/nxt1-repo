@@ -16,11 +16,20 @@ import { logger } from '../utils/logger.js';
 // ============================================
 
 /**
- * Standard API rate limit - 150 requests per minute
+ * Standard API rate limit - 150 requests per minute.
+ * Keys on authenticated userId when available (from auth middleware),
+ * falls back to IP so anonymous endpoints are still protected.
+ * This prevents one power user's rapid navigation from exhausting a shared
+ * IP quota (NAT, corporate WiFi, test sessions).
  */
 export const apiRateLimit = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 150, // Limit each IP to 150 requests per minute
+  max: 150, // Limit each key to 150 requests per minute
+  keyGenerator: (req: Request): string => {
+    // req.user is populated by authMiddleware when a valid token is present
+    const uid = (req as unknown as { user?: { uid?: string } }).user?.uid;
+    return uid ?? req.ip ?? 'anonymous';
+  },
   message: (req: Request): void => {
     logger.warn('[Rate Limit] API limit exceeded', {
       ip: req.ip,

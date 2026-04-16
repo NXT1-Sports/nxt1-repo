@@ -58,6 +58,7 @@ import {
   signal,
   computed,
   effect,
+  viewChild,
   ChangeDetectionStrategy,
   OnInit,
   OnDestroy,
@@ -71,7 +72,6 @@ import { filter } from 'rxjs/operators';
 import { IonRouterOutlet, NavController } from '@ionic/angular/standalone';
 
 import {
-  NxtMobileFooterComponent,
   NxtPlatformService,
   NxtSidenavComponent,
   NxtSidenavService,
@@ -132,7 +132,7 @@ import { EditProfileApiService } from '../services/api/edit-profile-api.service'
 @Component({
   selector: 'app-mobile-shell',
   standalone: true,
-  imports: [CommonModule, IonRouterOutlet, NxtMobileFooterComponent, NxtSidenavComponent],
+  imports: [CommonModule, IonRouterOutlet, NxtSidenavComponent],
   template: `
     <!-- Sidenav using Ionic ion-menu - attaches to main-content -->
     <nxt1-sidenav
@@ -161,17 +161,7 @@ import { EditProfileApiService } from '../services/api/edit-profile-api.service'
         <ion-router-outlet [swipeGesture]="!isOnMainPage()"></ion-router-outlet>
       </div>
 
-      <!-- Persistent Bottom Navigation -->
-      <nxt1-mobile-footer
-        [tabs]="tabs()"
-        [activeTabId]="activeTabId()"
-        [config]="footerConfig()"
-        [profileAvatarSrc]="sidenavUser()?.profileImg"
-        [profileAvatarName]="sidenavUser()?.name"
-        [profileAvatarIsTeam]="sidenavUser()?.isTeamRole ?? false"
-        (tabSelect)="onTabSelect($event)"
-        (scrollToTop)="onScrollToTop($event)"
-      />
+      <!-- Persistent Bottom Navigation removed -->
     </div>
   `,
   styles: [
@@ -197,10 +187,8 @@ import { EditProfileApiService } from '../services/api/edit-profile-api.service'
         overflow: hidden;
         position: relative;
 
-        /* Account for footer height + safe area + floating offset */
-        padding-bottom: calc(
-          var(--nxt1-footer-height, 80px) + env(safe-area-inset-bottom, 0px) + 24px
-        );
+        /* No footer — remove bottom padding */
+        padding-bottom: 0;
       }
 
       /* Ensure ion-router-outlet and its pages fill available space */
@@ -218,32 +206,7 @@ import { EditProfileApiService } from '../services/api/edit-profile-api.service'
         width: 100%;
       }
 
-      /* Position footer at bottom - uses component's CSS variables for customization */
-      nxt1-mobile-footer {
-        /* Footer component handles positioning via :host styles */
-        /* Override defaults if needed via CSS variables: */
-        --nxt1-footer-bottom: 20px;
-        --nxt1-footer-left: 16px;
-        --nxt1-footer-right: 16px;
-        --nxt1-z-index-footer: 1000;
-
-        /* Smooth transitions for scroll-hide behavior */
-        transition:
-          transform var(--nxt1-transition-normal, 300ms)
-            var(--nxt1-ease-out, cubic-bezier(0.33, 1, 0.68, 1)),
-          opacity var(--nxt1-transition-normal, 300ms)
-            var(--nxt1-ease-out, cubic-bezier(0.33, 1, 0.68, 1));
-        will-change: transform, opacity;
-      }
-
-      /* Hide tab bar when keyboard is open — it sits behind the keyboard anyway */
-      :host-context(.keyboard-open) nxt1-mobile-footer {
-        transform: translateY(100%);
-        opacity: 0;
-        pointer-events: none;
-      }
-
-      /* Remove bottom padding when keyboard is open (footer is hidden) */
+      /* Keyboard open: ensure no bottom padding */
       :host-context(.keyboard-open) .shell-content {
         padding-bottom: 0;
       }
@@ -277,6 +240,9 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   // ROUTE TRACKING (for sidenav gesture control)
   // ============================================
 
+  /** Reference to the main IonRouterOutlet — used to check canGoBack() after navigation. */
+  private readonly outlet = viewChild(IonRouterOutlet);
+
   /**
    * Current route - used to determine sidenav swipe gesture behavior.
    * Updated on navigation events.
@@ -284,13 +250,27 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   private readonly _currentRoute = signal<string>('');
 
   /**
-   * Whether current page is a main page where sidenav swipe should be enabled.
-   * On main pages (home, search, activity, agent), swipe-right opens sidenav.
-   * On sub-pages (profile, settings, etc.), swipe-right triggers native back navigation.
+   * Whether the Ionic outlet has navigation history that can be popped.
+   * Updated after every NavigationEnd via a microtask so Ionic's view stack
+   * is settled before we read canGoBack().
+   */
+  private readonly _canGoBack = signal(false);
+
+  /**
+   * Whether current page is a "main page" where sidenav swipe should be enabled.
+   *
+   * A page is a main page ONLY when:
+   *   1. Its route is in MAIN_PAGE_ROUTES (or a /team/* route for coaches), AND
+   *   2. There is NO navigation history to go back to.
+   *
+   * When there IS history (user navigated forward to this page), back-swipe must
+   * take priority — even if the URL matches a normally-main route like /activity.
    *
    * Professional pattern: Instagram, Twitter, TikTok all use this approach.
    */
-  readonly isOnMainPage = computed(() => isMainPageRoute(this._currentRoute()));
+  readonly isOnMainPage = computed(
+    () => isMainPageRoute(this._currentRoute()) && !this._canGoBack()
+  );
 
   // ============================================
   // FOOTER CONFIGURATION
@@ -306,7 +286,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    * during the window between auth resolution and full profile load.
    */
   readonly tabs = computed<FooterTabItem[]>(() => {
-    const profile = this.profileService.user() as UserDisplayInput | null;
+    const profile = this.profileService.userAsDisplayInput();
     const authUser = this.authFlow.user() as UserDisplayInput | null;
     const firebaseUser = this.authFlow.firebaseUser();
     const fallback: UserDisplayFallback | null = firebaseUser
@@ -392,7 +372,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    */
   readonly sidenavUser = computed<SidenavUserData | null>(() => {
     const rawProfile = this.profileService.user();
-    const profile = rawProfile as UserDisplayInput | null;
+    const profile = this.profileService.userAsDisplayInput();
     const rawAuthUser = this.authFlow.user();
     const authUser = rawAuthUser as UserDisplayInput | null;
     const firebaseUser = this.authFlow.firebaseUser();
@@ -427,12 +407,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    * Usage is always visible — the backend determines the correct billing
    * entity (individual vs organization) and the Usage page renders accordingly.
    */
-  readonly sidenavSections = computed<SidenavSection[]>(() => {
-    return DEFAULT_SIDENAV_ITEMS.map((section) => ({
-      ...section,
-      items: section.items.filter((item) => item.id !== 'connections'),
-    }));
-  });
+  readonly sidenavSections = computed<SidenavSection[]>(() => DEFAULT_SIDENAV_ITEMS);
 
   /** Social links for sidenav footer */
   readonly socialLinks: SocialLink[] = DEFAULT_SOCIAL_LINKS;
@@ -619,6 +594,13 @@ export class MobileShellComponent implements OnInit, OnDestroy {
         // Update current route for sidenav swipe gesture control
         this._currentRoute.set(event.urlAfterRedirects);
 
+        // Update canGoBack after Ionic's outlet has processed the navigation.
+        // A microtask ensures the outlet's internal view stack is settled before
+        // we read canGoBack(), avoiding a one-frame lag on the gesture state.
+        void Promise.resolve().then(() => {
+          this._canGoBack.set(this.outlet()?.canGoBack() ?? false);
+        });
+
         // Sync active tab highlight
         this.syncActiveTabFromRoute(event.urlAfterRedirects);
       });
@@ -701,21 +683,24 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Navigate to a tab with the specified animation direction
-   * Uses navigateForward for right movement, navigateBack for left movement
+   * Navigate to a tab with the specified animation direction.
+   *
+   * ⭐ Uses navigateRoot (not navigateForward/Back) so each tab tap clears
+   * the navigation stack. This is the standard pattern for tab-based apps
+   * (Instagram, Twitter, TikTok) and is critical for correct gesture behaviour:
+   *
+   * - navigateRoot → canGoBack() = false  → sidenav swipe enabled on tab root ✅
+   * - navigateForward inside a tab → canGoBack() = true → back-swipe enabled ✅
+   *
+   * Previously using navigateForward pushed tabs onto the stack, causing
+   * isOnMainPage() to incorrectly return false (back-swipe enabled) on pages
+   * like /activity and /profile even when they were the intended tab root.
    */
   private navigateToTab(route: string, direction: 'forward' | 'back'): void {
-    if (direction === 'forward') {
-      void this.navController.navigateForward(route, {
-        animated: true,
-        animationDirection: 'forward',
-      });
-    } else {
-      void this.navController.navigateBack(route, {
-        animated: true,
-        animationDirection: 'back',
-      });
-    }
+    void this.navController.navigateRoot(route, {
+      animated: true,
+      animationDirection: direction,
+    });
   }
 
   /**

@@ -43,7 +43,7 @@ const AGENT_IDS: readonly AgentIdentifier[] = [
 
 /**
  * Extended thread document with backend-only fields not exposed in the core type.
- * `memorySummarized` is used exclusively by the cron-based MemorySummarizationService.
+ * `memorySummarized` is used by the event-driven MemorySummarizationService and its cron safety net.
  */
 interface AgentThreadDocument extends AgentThread {
   memorySummarized?: boolean;
@@ -93,7 +93,7 @@ AgentThreadSchema.index({ userId: 1, archived: 1 });
 // TTL index — MongoDB automatically deletes threads once expiresAt is in the past.
 AgentThreadSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
-// Cron: find unsummarized threads with old lastMessageAt for memory extraction
+// Memory fallback: find unsummarized threads with old lastMessageAt for extraction
 AgentThreadSchema.index({ memorySummarized: 1, lastMessageAt: 1 });
 
 // Cron: find threads about to expire whose media hasn't been cleaned

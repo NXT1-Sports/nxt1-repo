@@ -156,6 +156,13 @@ export class AgentXService {
   private readonly _requestedSidePanel = signal<AutoOpenPanelInstruction | null>(null);
 
   /**
+   * Pending startup message queued by an external surface (e.g. profile timeline CTA).
+   * The Agent X web shell reads this via effect() after resetToDefaultDesktopSession()
+   * and immediately sends it as the opening message in a new desktop session.
+   */
+  private readonly _pendingStartupMessage = signal<string | null>(null);
+
+  /**
    * Pending thread request used by external surfaces (activity, push notifications)
    * to tell the Agent X shell to open a bottom sheet for a specific thread.
    */
@@ -247,6 +254,9 @@ export class AgentXService {
    * Pass this back to subsequent `sendMessage()` calls to continue the thread.
    */
   readonly currentThreadId = computed(() => this._currentThreadId());
+
+  /** Pending startup message for the Agent X web shell to pick up on init. */
+  readonly pendingStartupMessage = computed(() => this._pendingStartupMessage());
 
   /** Pending thread open request for the Agent X shell. */
   readonly pendingThread = computed(() => this._pendingThread());
@@ -536,6 +546,21 @@ export class AgentXService {
   // ============================================
   // PENDING THREAD COORDINATION
   // ============================================
+
+  /**
+   * Queue a startup message that the Agent X web shell will immediately send
+   * as the opening message when it loads. Called by external surfaces before
+   * navigating to /agent. The shell consumes and clears this via effect().
+   */
+  queueStartupMessage(message: string): void {
+    this._pendingStartupMessage.set(message);
+    this.logger.info('Queued startup message for Agent X shell');
+  }
+
+  /** Consumed by the shell after it fires the session. */
+  clearStartupMessage(): void {
+    this._pendingStartupMessage.set(null);
+  }
 
   /**
    * Request that the Agent X shell open a specific persisted thread in a bottom sheet.

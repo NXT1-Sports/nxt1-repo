@@ -155,6 +155,16 @@ export type LinkType =
   | 'payment'; // Payment processor pages
 
 /**
+ * Analytics surface where a click originated.
+ */
+export type TrackingSurface = 'email' | 'post' | 'profile' | 'message' | 'page' | 'unknown';
+
+/**
+ * Normalized analytics subject owner.
+ */
+export type TrackingSubjectType = 'user' | 'team' | 'organization';
+
+/**
  * Configuration for opening a semantic link
  */
 export interface OpenLinkOptions {
@@ -169,6 +179,15 @@ export interface OpenLinkOptions {
 
   /** Source of the link open (for analytics) */
   readonly source?: string;
+
+  /** Analytics surface where the click happened */
+  readonly surface?: TrackingSurface;
+
+  /** Subject owner of the clicked content */
+  readonly subjectType?: TrackingSubjectType;
+
+  /** Subject owner identifier */
+  readonly subjectId?: string;
 
   /** Additional metadata for analytics */
   readonly metadata?: Record<string, string | number | boolean>;

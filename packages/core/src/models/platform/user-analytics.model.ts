@@ -6,8 +6,9 @@
  * Profile views, video views, followers, watch time, etc.
  * 100% portable - no framework dependencies.
  *
- * NOTE: This is different from event/funnel tracking (see api/onboarding/).
- * This model defines data STORED about user engagement metrics.
+ * NOTE: This model is for lightweight operational engagement snapshots.
+ * Historical analytics, reporting, and intelligence now live in Mongo-backed
+ * analytics event and rollup collections.
  *
  * @author NXT1 Engineering
  * @version 2.0.0
@@ -70,13 +71,19 @@ export interface EngagementEvent extends AnalyticsEventBase {
   sharePlatform?: string;
 }
 
-export interface CampaignEvent extends AnalyticsEventBase {
+export interface CommunicationEvent extends AnalyticsEventBase {
   type: 'email_sent' | 'email_open' | 'email_click' | 'email_reply';
-  campaignId: string;
+  communicationType?: 'email';
+  messageId?: string;
+  threadId?: string;
   recipientHash?: string;
+  recipientId?: string;
   collegeId?: string;
   clickedUrl?: string;
 }
+
+/** @deprecated Use CommunicationEvent. Kept for backward compatibility. */
+export type CampaignEvent = CommunicationEvent;
 
 export interface AIUsageEvent extends AnalyticsEventBase {
   type: 'ai_task_start' | 'ai_task_complete';
@@ -422,9 +429,12 @@ export function isEngagementEvent(event: AnalyticsEvent): event is EngagementEve
   return ['share', 'reaction', 'comment', 'repost'].includes(event.type);
 }
 
-export function isCampaignEvent(event: AnalyticsEvent): event is CampaignEvent {
+export function isCommunicationEvent(event: AnalyticsEvent): event is CommunicationEvent {
   return ['email_sent', 'email_open', 'email_click', 'email_reply'].includes(event.type);
 }
+
+/** @deprecated Use isCommunicationEvent. Kept for backward compatibility. */
+export const isCampaignEvent = isCommunicationEvent;
 
 // ============================================
 // UTILITY TYPES

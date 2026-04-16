@@ -6,6 +6,7 @@
  */
 
 import mongoose from 'mongoose';
+import { getMongoDatabaseName, getRuntimeEnvironment } from './runtime-environment.js';
 import { logger } from '../utils/logger.js';
 
 let isConnected = false;
@@ -27,11 +28,16 @@ export async function connectToMongoDB(): Promise<void> {
   }
 
   try {
-    await mongoose.connect(mongoUri);
+    const environment = getRuntimeEnvironment();
+    const dbName = getMongoDatabaseName(mongoUri);
+
+    await mongoose.connect(mongoUri, { dbName });
     isConnected = true;
 
     const sanitizedUri = mongoUri.replace(/\/\/[^:]+:[^@]+@/, '//***:***@');
-    logger.info(`✅ MongoDB connected successfully to: ${sanitizedUri}`);
+    logger.info(
+      `✅ MongoDB connected successfully to: ${sanitizedUri} | db=${dbName} | env=${environment}`
+    );
   } catch (error) {
     logger.error('❌ MongoDB connection error:', { error });
     throw error;

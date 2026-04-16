@@ -47,6 +47,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getUserById, type UserData } from '../../../services/users.service.js';
 import { getCacheService, CACHE_TTL } from '../../../services/cache.service.js';
 import { TeamServiceAdapter } from '../../../services/team-adapter.service.js';
+import { getSyncDeltaEventService } from '../../../services/sync-delta-event.service.js';
 import { AgentMessageModel } from '../../../models/agent-message.model.js';
 import { AgentThreadModel } from '../../../models/agent-thread.model.js';
 import type { VectorMemoryService } from './vector.service.js';
@@ -59,7 +60,9 @@ export const AGENT_CONTEXT_PREFIX = 'agent:context:';
 const AGENT_CONTEXT_TTL = CACHE_TTL.PROFILES;
 
 const MEMORY_RECALL_TIMEOUT_MS = 1200;
+const RECENT_SYNC_TIMEOUT_MS = 800;
 const MEMORY_RESULTS_PER_TARGET = 3;
+const RECENT_SYNC_RESULTS_LIMIT = 4;
 
 const EMPTY_RETRIEVED_MEMORIES: AgentRetrievedMemories = {
   user: [],
@@ -101,6 +104,17 @@ function parseWeight(weight: string | undefined): number | undefined {
   if (!weight) return undefined;
   const num = parseInt(weight, 10);
   return isNaN(num) ? undefined : num;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter((item) => item.length > 0);
 }
 
 export class ContextBuilder {
@@ -201,9 +215,12 @@ export class ContextBuilder {
     firestore?: FirebaseFirestore.Firestore
   ): Promise<AgentPromptContext> {
     const profile = await this.buildContext(userId, firestore);
-    const memories = await this.retrieveMemories(profile, query);
+    const [memories, recentSyncSummaries] = await Promise.all([
+      this.retrieveMemories(profile, query),
+      this.retrieveRecentSyncSummaries(profile),
+    ]);
 
-    return { profile, memories };
+    return { profile, memories, recentSyncSummaries };
   }
 
   /**
@@ -232,7 +249,8 @@ export class ContextBuilder {
    */
   compressToPrompt(
     context: AgentUserContext,
-    memories: AgentRetrievedMemories = EMPTY_RETRIEVED_MEMORIES
+    memories: AgentRetrievedMemories = EMPTY_RETRIEVED_MEMORIES,
+    recentSyncSummaries: readonly string[] = []
   ): string {
     const lines: string[] = [];
 
@@ -298,10 +316,8 @@ export class ContextBuilder {
       if (accountParts.length) lines.push(`Connected: ${accountParts.join(', ')}`);
     }
 
-    if (context.profileCompletionPercent !== undefined) {
-      lines.push(
-        `Profile: ${context.profileCompletionPercent}% complete | Views: ${context.totalProfileViews ?? 0}`
-      );
+    if (recentSyncSummaries.length) {
+      lines.push(`Recent Sync Activity:\n- ${recentSyncSummaries.join('\n- ')}`);
     }
 
     if (memories.user.length) {
@@ -348,6 +364,30 @@ export class ContextBuilder {
     }
   }
 
+  private async retrieveRecentSyncSummaries(context: AgentUserContext): Promise<readonly string[]> {
+    try {
+      return await this.withTimeout(
+        getSyncDeltaEventService().listRecentSummaries({
+          userId: context.userId,
+          teamId: context.teamId,
+          organizationId: context.organizationId,
+          limit: RECENT_SYNC_RESULTS_LIMIT,
+        }),
+        RECENT_SYNC_TIMEOUT_MS,
+        `recent sync retrieval timed out for ${context.userId}`
+      );
+    } catch (err) {
+      logger.warn(
+        '[ContextBuilder] Recent sync retrieval failed, continuing without sync history',
+        {
+          userId: context.userId,
+          error: err instanceof Error ? err.message : String(err),
+        }
+      );
+      return [];
+    }
+  }
+
   private async withTimeout<T>(
     promise: Promise<T>,
     timeoutMs: number,
@@ -385,7 +425,7 @@ export class ContextBuilder {
   /**
    * Map a raw Firestore user document into a clean AgentUserContext.
    * Extracts active sport, physical attributes, location, coach data,
-   * connected accounts, and engagement metrics from the single user doc.
+   * connected accounts, and last-active platform data from the single user doc.
    */
   private mapUserToContext(userId: string, user: UserData): AgentUserContext {
     const role = (user['role'] as string) ?? 'athlete';
@@ -397,12 +437,28 @@ export class ContextBuilder {
       (user['displayName'] as string) ??
       ([firstName, lastName].filter(Boolean).join(' ') || 'Unknown User');
 
-    // ── Active sport profile ──────────────────────────────────────────────
+    // ── Active sport / role-aware context ────────────────────────────────
     const sports = user['sports'] as Array<Record<string, unknown>> | undefined;
     const activeSportIndex = (user['activeSportIndex'] as number) ?? 0;
     const activeSport = sports?.[activeSportIndex] ?? sports?.[0];
+    const coach = user['coach'] as Record<string, unknown> | undefined;
+    const director = user['director'] as Record<string, unknown> | undefined;
+    const recruiter = user['recruiter'] as Record<string, unknown> | undefined;
 
-    const sport = (activeSport?.['sport'] as string) ?? (user['primarySport'] as string);
+    const roleSports =
+      role === 'coach'
+        ? asStringArray(coach?.['coachingSports'])
+        : role === 'director'
+          ? asStringArray(director?.['overseeSports'])
+          : role === 'recruiter'
+            ? asStringArray(recruiter?.['sports'])
+            : [];
+
+    const sport =
+      asString(activeSport?.['sport']) ??
+      asString(user['primarySport']) ??
+      asString(user['sport']) ??
+      (roleSports.length > 0 ? roleSports.join(', ') : undefined);
     const positions = activeSport?.['positions'] as string[] | undefined;
     const position = positions?.[0];
 
@@ -441,34 +497,39 @@ export class ContextBuilder {
 
     // ── Team context (from active sport profile) ─────────────────────────
     const activeSportTeam = activeSport?.['team'] as Record<string, unknown> | undefined;
-    const teamId = activeSportTeam?.['teamId'] as string | undefined;
-    const organizationId = activeSportTeam?.['organizationId'] as string | undefined;
+    const teamHistory = Array.isArray(user['teamHistory'])
+      ? (user['teamHistory'] as Array<Record<string, unknown>>)
+      : [];
+    const currentTeamHistory =
+      teamHistory.find((entry) => entry?.['isCurrent'] === true) ?? teamHistory[0];
 
-    // V2-first: extract team name from sports[].team, fall back to legacy highSchool
+    const teamId =
+      asString(activeSportTeam?.['teamId']) ??
+      asString(currentTeamHistory?.['teamId']) ??
+      asString(user['teamId']);
+    const organizationId =
+      asString(activeSportTeam?.['organizationId']) ??
+      asString(currentTeamHistory?.['organizationId']) ??
+      asString(user['organizationId']);
+
+    // V2-first: extract team name from sports[].team, then roster/team history, then legacy school fields
     const school =
-      (activeSportTeam?.['name'] as string | undefined) ??
+      asString(activeSportTeam?.['name']) ??
+      asString(currentTeamHistory?.['name']) ??
       (user['highSchool'] as string | undefined) ??
       (athlete?.['highSchool'] as string | undefined);
 
-    // ── Coach-specific ────────────────────────────────────────────────────
-    const coach = user['coach'] as Record<string, unknown> | undefined;
-    // V2-first: prefer team name from sports[].team over legacy coach.organization
+    // ── Coach / director-specific ────────────────────────────────────────
     const coachProgram =
-      (activeSportTeam?.['name'] as string | undefined) ??
-      (coach?.['organization'] as string | undefined);
+      asString(activeSportTeam?.['name']) ??
+      asString(currentTeamHistory?.['name']) ??
+      asString(coach?.['organization']) ??
+      asString(director?.['organization']);
     const coachDivision = coach?.['division'] as string | undefined;
     const coachSport = role === 'coach' ? sport : undefined;
 
     // ── Connected accounts from social links & connected sources ──────────
     const connectedAccounts = this.extractConnectedAccounts(user);
-
-    // ── Engagement metrics from counters ──────────────────────────────────
-    const counters = user['_counters'] as Record<string, unknown> | undefined;
-    const totalProfileViews = counters?.['profileViews'] as number | undefined;
-
-    // Profile completion: check onboarding
-    const onboardingCompleted = user['onboardingCompleted'] as boolean | undefined;
-    const profileCompletionPercent = onboardingCompleted ? 100 : this.estimateCompletion(user);
 
     const lastActiveAt = (user['lastLoginAt'] as string) ?? (user['updatedAt'] as string);
 
@@ -497,9 +558,7 @@ export class ContextBuilder {
       recruitingStatus: recruitingData?.recruitingStatus,
       commitmentStatus: recruitingData?.commitmentStatus,
 
-      // Engagement
-      profileCompletionPercent,
-      totalProfileViews,
+      // Platform activity
       lastActiveAt,
 
       // Connected accounts
@@ -587,23 +646,6 @@ export class ContextBuilder {
       recruitingStatus: (athlete?.['recruitingStatus'] as string) ?? 'active',
       commitmentStatus: (athlete?.['commitmentStatus'] as string) ?? 'uncommitted',
     };
-  }
-
-  /**
-   * Estimate profile completion percentage based on key fields.
-   * Returns a rough percentage for profiles that haven't completed onboarding.
-   */
-  private estimateCompletion(user: UserData): number {
-    const checks = [
-      !!user['firstName'],
-      !!user['profileImgs'] && (user['profileImgs'] as string[]).length > 0,
-      !!(user['sports'] as unknown[] | undefined)?.length,
-      !!user['location'],
-      !!user['aboutMe'],
-      !!user['height'] || !!user['weight'],
-    ];
-    const completed = checks.filter(Boolean).length;
-    return Math.round((completed / checks.length) * 100);
   }
 
   // ─── Thread History (Parallel Conversation Memory) ─────────────────────

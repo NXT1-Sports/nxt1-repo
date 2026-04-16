@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { AgentSessionContext } from '@nxt1/core';
 import { DataCoordinatorAgent } from '../data-coordinator.agent.js';
 import { BrandMediaCoordinatorAgent } from '../brand-media-coordinator.agent.js';
+import { PerformanceCoordinatorAgent } from '../performance-coordinator.agent.js';
 
 function createMockContext(): AgentSessionContext {
   const now = new Date().toISOString();
@@ -48,5 +49,11 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('write_timeline_post');
     expect(prompt).toContain('call write_timeline_post after the asset is generated');
     expect(prompt).toContain('Do NOT publish automatically unless the user clearly asked');
+  });
+
+  it('exposes Intel persistence to the performance coordinator', () => {
+    const agent = new PerformanceCoordinatorAgent();
+
+    expect(agent.getAvailableTools()).toContain('write_intel');
   });
 });

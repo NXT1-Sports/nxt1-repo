@@ -100,7 +100,8 @@ export class AgentRouter {
       promptContext.profile,
       undefined,
       undefined,
-      promptContext.memories
+      promptContext.memories,
+      promptContext.recentSyncSummaries ?? []
     );
 
     const result = await this.planner.execute(enrichedIntent, context, []);
@@ -186,7 +187,8 @@ export class AgentRouter {
       userContext,
       payload.context,
       threadHistoryStr,
-      promptContext.memories
+      promptContext.memories,
+      promptContext.recentSyncSummaries ?? []
     );
 
     // ── Direct routing: skip planner when a specific agent is requested ───
@@ -759,7 +761,8 @@ export class AgentRouter {
       userContext,
       payload.context,
       undefined,
-      promptContext.memories
+      promptContext.memories,
+      promptContext.recentSyncSummaries ?? []
     );
     const approvalGate = firestore ? new ApprovalGateService(firestore) : undefined;
 
@@ -813,9 +816,14 @@ export class AgentRouter {
     userContext: AgentUserContext,
     jobContext?: Record<string, unknown>,
     threadHistory?: string,
-    memories: AgentRetrievedMemories = { user: [], team: [], organization: [] }
+    memories: AgentRetrievedMemories = { user: [], team: [], organization: [] },
+    recentSyncSummaries: readonly string[] = []
   ): string {
-    const contextStr = this.contextBuilder.compressToPrompt(userContext, memories);
+    const contextStr = this.contextBuilder.compressToPrompt(
+      userContext,
+      memories,
+      recentSyncSummaries
+    );
     let enriched = `[User Profile]\n${contextStr}`;
 
     // Inject structured job context so the LLM has URLs, platform names, etc.

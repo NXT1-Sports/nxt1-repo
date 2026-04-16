@@ -25,7 +25,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             let config = GIDConfiguration(clientID: clientID, serverClientID: serverClientID)
             GIDSignIn.sharedInstance.configuration = config
         }
-        
+
+        // Apply the NXT1 in-app theme to the UIWindow so all native iOS system
+        // sheets (share sheet, camera picker, date picker, etc.) render in the
+        // correct appearance regardless of the device's system-level setting.
+        applyNativeUIStyle()
+
         return true
     }
 
@@ -36,6 +41,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func applicationWillEnterForeground(_ application: UIApplication) {
+        // Re-apply in case UserDefaults was updated while the app was backgrounded
+        // (edge case: JS wrote the preference while app was suspended).
+        applyNativeUIStyle()
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
@@ -74,6 +82,51 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
+    }
+
+    // MARK: - Native UI Style
+
+    /// Reads the NXT1 in-app theme written by NxtThemeService via @capacitor/preferences
+    /// (UserDefaults key: "CapacitorStorage.nxt1-native-ui-style") and applies it to
+    /// every UIWindow AND the Capacitor root view controller chain so all native iOS
+    /// overlays (UIAlertController, system sheets) inherit the correct appearance.
+    private func applyNativeUIStyle() {
+        // @capacitor/preferences stores values in UserDefaults under "CapacitorStorage.<key>"
+        let storedStyle = UserDefaults.standard.string(forKey: "CapacitorStorage.nxt1-native-ui-style")
+
+        let style: UIUserInterfaceStyle
+        switch storedStyle {
+        case "light":
+            style = .light
+        case "dark":
+            style = .dark
+        default:
+            // No preference persisted yet (first launch or web-only): use system default
+            style = .unspecified
+        }
+
+        // Apply to all UIWindows (covers system sheets: share, camera, date picker)
+        let scenes = UIApplication.shared.connectedScenes
+        for scene in scenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            for w in windowScene.windows {
+                w.overrideUserInterfaceStyle = style
+            }
+        }
+
+        // Apply to root VC chain (covers UIAlertController from @capacitor/dialog
+        // which inherits appearance from its PRESENTING view controller, not the window)
+        func applyStyle(to vc: UIViewController?) {
+            var current = vc
+            while let c = current {
+                c.overrideUserInterfaceStyle = style
+                current = c.presentedViewController
+            }
+        }
+
+        if let rootVC = window?.rootViewController {
+            applyStyle(to: rootVC)
+        }
     }
 
 }

@@ -330,6 +330,7 @@ export class WebPushService {
     // auto-inject into Agent X chat. Data-driven: any push with imageUrl + agent deep link.
     const imageUrl = payload.data?.['imageUrl'];
     const pushDeepLink = payload.data?.['deepLink'];
+    const pushOrigin = payload.data?.['origin'];
     if (imageUrl && pushDeepLink?.includes('agent')) {
       const messageContent = body || 'Agent X completed your request.';
 
@@ -346,9 +347,15 @@ export class WebPushService {
         this.router.navigateByUrl('/agent-x');
       }
 
-      this.analytics?.trackEvent(APP_EVENTS.AGENT_MEDIA_VIEWED, {
-        source: 'foreground_push',
-      });
+      if (pushOrigin === 'registration') {
+        this.analytics?.trackEvent(APP_EVENTS.WELCOME_GRAPHIC_GENERATED, {
+          source: 'foreground_push',
+        });
+      } else {
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_MEDIA_VIEWED, {
+          source: 'foreground_push',
+        });
+      }
       return;
     }
 

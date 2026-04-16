@@ -19,14 +19,7 @@
  */
 
 import { Injectable, inject, signal, computed } from '@angular/core';
-import type {
-  EditProfileSectionId,
-  EditProfileSection,
-  EditProfileFormData,
-  ProfileCompletionData,
-  ProfileCompletionTier,
-} from '@nxt1/core';
-import { PROFILE_COMPLETION_TIERS, getNextTier } from '@nxt1/core';
+import type { EditProfileSectionId, EditProfileSection, EditProfileFormData } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
@@ -79,11 +72,10 @@ export class EditProfileService {
     }>;
     uploadPhoto: (
       userId: string,
-      type: 'profile' | 'banner',
       file: File | Blob
     ) => Promise<{
       success: boolean;
-      data?: { url: string; xpAwarded?: number };
+      data?: { url: string };
       error?: string;
     }>;
   };
@@ -103,7 +95,6 @@ export class EditProfileService {
   // ============================================
 
   private readonly _formData = signal<EditProfileFormData | null>(null);
-  private readonly _completion = signal<ProfileCompletionData | null>(null);
   private readonly _sections = signal<EditProfileSection[]>([]);
   private readonly _expandedSection = signal<EditProfileSectionId | null>(null);
   private readonly _isLoading = signal(false);
@@ -114,8 +105,6 @@ export class EditProfileService {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private readonly _rawUserData = signal<any>(null);
   private readonly _activeSportIndex = signal<number>(0);
-  private readonly _showCompletionCelebration = signal(false);
-  private readonly _lastUnlockedTier = signal<ProfileCompletionTier | null>(null);
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
@@ -123,9 +112,6 @@ export class EditProfileService {
 
   /** Current form data */
   readonly formData = computed(() => this._formData());
-
-  /** Profile completion data */
-  readonly completion = computed(() => this._completion());
 
   /** Edit profile sections with fields */
   readonly sections = computed(() => this._sections());
@@ -151,12 +137,6 @@ export class EditProfileService {
   /** Whether there are unsaved changes */
   readonly hasUnsavedChanges = computed(() => this._dirtyFields().size > 0);
 
-  /** Whether to show completion celebration */
-  readonly showCompletionCelebration = computed(() => this._showCompletionCelebration());
-
-  /** Last unlocked tier for celebration */
-  readonly lastUnlockedTier = computed(() => this._lastUnlockedTier());
-
   /** Raw user data with all sports */
   readonly rawUserData = computed(() => this._rawUserData());
 
@@ -165,69 +145,6 @@ export class EditProfileService {
 
   /** All sports from raw user data */
   readonly allSports = computed(() => this._rawUserData()?.sports ?? []);
-
-  // ============================================
-  // DERIVED COMPUTEDS
-  // ============================================
-
-  /** Completion percentage */
-  readonly completionPercent = computed(() => this._completion()?.percentage ?? 0);
-
-  /** Current tier */
-  readonly currentTier = computed(() => this._completion()?.tier ?? 'rookie');
-
-  /** Current tier config */
-  readonly currentTierConfig = computed(() => {
-    const tier = this.currentTier();
-    return PROFILE_COMPLETION_TIERS[tier];
-  });
-
-  /** Next tier config (if not at legend) */
-  readonly nextTierConfig = computed(() => {
-    const next = getNextTier(this.currentTier());
-    return next ? PROFILE_COMPLETION_TIERS[next] : null;
-  });
-
-  /** Progress to next tier (0-100) */
-  readonly progressToNextTier = computed(() => {
-    const completion = this._completion();
-    if (!completion || !completion.nextTier) return 100;
-
-    const currentMin = PROFILE_COMPLETION_TIERS[completion.tier].minPercent;
-    const nextMin = PROFILE_COMPLETION_TIERS[completion.nextTier].minPercent;
-    const range = nextMin - currentMin;
-    const progress = completion.percentage - currentMin;
-
-    return Math.min(100, Math.max(0, (progress / range) * 100));
-  });
-
-  /** XP earned / total */
-  readonly xpProgress = computed(() => {
-    const completion = this._completion();
-    return {
-      earned: completion?.xpEarned ?? 0,
-      total: completion?.xpTotal ?? 800,
-    };
-  });
-
-  /** Fields completed / total */
-  readonly fieldsProgress = computed(() => {
-    const completion = this._completion();
-    return {
-      completed: completion?.fieldsCompleted ?? 0,
-      total: completion?.fieldsTotal ?? 36,
-    };
-  });
-
-  /** Completed sections */
-  readonly completedSections = computed(() => {
-    return this._sections().filter((s) => s.completionPercent === 100);
-  });
-
-  /** Incomplete sections */
-  readonly incompleteSections = computed(() => {
-    return this._sections().filter((s) => s.completionPercent < 100);
-  });
 
   // ============================================
   // API SETTER (for platform-specific injection)
@@ -257,9 +174,8 @@ export class EditProfileService {
     ) => Promise<{ success: boolean; data?: any; error?: string }>;
     uploadPhoto: (
       userId: string,
-      type: 'profile' | 'banner',
       file: File | Blob
-    ) => Promise<{ success: boolean; data?: { url: string; xpAwarded?: number }; error?: string }>;
+    ) => Promise<{ success: boolean; data?: { url: string }; error?: string }>;
   }): void {
     this.api = api;
     this.logger.debug('API service configured');
@@ -320,12 +236,8 @@ export class EditProfileService {
           userId: effectiveUserId,
           requestedSportIndex: effectiveSportIndex,
           receivedSport: response.data.formData.sportsInfo.sport,
-          receivedJerseyNumber: response.data.formData.sportsInfo.jerseyNumber,
-          receivedPrimaryPosition: response.data.formData.sportsInfo.primaryPosition,
-          receivedSecondaryPositions: response.data.formData.sportsInfo.secondaryPositions,
           receivedActiveSportIndex: response.data.activeSportIndex,
           totalSports: response.data.rawUser?.sports?.length,
-          completion: response.data.completion.percentage,
         });
 
         // Store raw user data and active sport index for sport switching
@@ -337,13 +249,10 @@ export class EditProfileService {
         }
 
         this._formData.set(response.data.formData);
-        this._completion.set(response.data.completion);
         this._sections.set([]);
 
         this.logger.info('Profile loaded from API - formData updated', {
           sport: this._formData()?.sportsInfo?.sport,
-          jerseyNumber: this._formData()?.sportsInfo?.jerseyNumber,
-          primaryPosition: this._formData()?.sportsInfo?.primaryPosition,
         });
       } else {
         throw new Error(
@@ -429,32 +338,19 @@ export class EditProfileService {
       ...currentFormData,
       sportsInfo: {
         sport: targetSport.sport,
-        primaryPosition: targetSport.positions?.[0],
-        secondaryPositions: targetSport.positions?.slice(1),
-        jerseyNumber: targetSport.jerseyNumber,
-        yearsExperience: targetSport.yearsExperience,
         teamName: targetSport.team?.name,
         teamType: targetSport.team?.type,
-        teamLogoUrl: targetSport.team?.logoUrl,
         teamOrganizationId: targetSport.team?.organizationId,
       },
       academics: {
         ...currentFormData.academics,
-        school: targetSport.team?.name,
-        graduationDate: rawUser.classOf ? String(rawUser.classOf) : undefined,
       },
       physical: {
         height: measurables?.find((m) => m.field === 'height')?.value?.toString(),
         weight: measurables?.find((m) => m.field === 'weight')?.value?.toString(),
-        wingspan: targetSport.metrics?.['wingspan']
-          ? String(targetSport.metrics['wingspan'])
-          : undefined,
-        fortyYardDash: targetSport.metrics?.['40YardDash']
-          ? String(targetSport.metrics['40YardDash'])
-          : undefined,
-        verticalJump: targetSport.metrics?.['verticalJump']
-          ? String(targetSport.metrics['verticalJump'])
-          : undefined,
+        wingspan: targetSport.verifiedMetrics
+          ?.find((m: { field: string; value?: string | number | null }) => m.field === 'wingspan')
+          ?.value?.toString(),
       },
     };
 
@@ -463,8 +359,6 @@ export class EditProfileService {
     this.logger.debug('Sport switched successfully', {
       sportIndex,
       sport: targetSport.sport,
-      jerseyNumber: targetSport.jerseyNumber,
-      primaryPosition: targetSport.positions?.[0],
     });
   }
 
@@ -513,19 +407,14 @@ export class EditProfileService {
   /**
    * Upload photo to Firebase Storage
    * @param userId - User ID
-   * @param type - Photo type ('profile' | 'banner')
    * @param file - Image file to upload
    */
-  async uploadPhoto(
-    userId: string,
-    type: 'profile' | 'banner',
-    file: File | Blob
-  ): Promise<{ url: string; xpAwarded?: number }> {
+  async uploadPhoto(userId: string, file: File | Blob): Promise<{ url: string }> {
     if (!this.api) {
       throw new Error('API service not configured');
     }
 
-    const response = await this.api.uploadPhoto(userId, type, file);
+    const response = await this.api.uploadPhoto(userId, file);
 
     if (!response.success || !response.data) {
       throw new Error(response.error ?? 'Failed to upload photo');
@@ -662,14 +551,9 @@ export class EditProfileService {
 
       // Group dirty fields by section
       const dirtySections = this.getDirtySections();
-      const oldTier = this.currentTier();
 
       // Use real API
       if (this.api) {
-        let totalXpAwarded = 0;
-        let newTier = oldTier;
-        let newCompletionPercentage = this._completion()?.percentage ?? 0;
-
         // Update each dirty section via API
         for (const sectionId of dirtySections) {
           const sectionData = this.getSectionData(formData, sectionId);
@@ -686,43 +570,12 @@ export class EditProfileService {
           if (!response.success) {
             throw new Error(response.error ?? `Failed to update ${sectionId}`);
           }
-
-          // Accumulate XP and track tier changes
-          if (response.data) {
-            totalXpAwarded += response.data.xpAwarded ?? 0;
-            if (response.data.newTier) {
-              newTier = response.data.newTier;
-            }
-            if (response.data.newCompletionPercentage !== undefined) {
-              newCompletionPercentage = response.data.newCompletionPercentage;
-            }
-          }
         }
 
-        // Update completion data from API response without reloading formData
-        // This prevents losing data from other sports
-        const currentCompletion = this._completion();
-        if (currentCompletion) {
-          this._completion.set({
-            ...currentCompletion,
-            percentage: newCompletionPercentage,
-            tier: newTier,
-          });
-        }
-
-        // Check for tier upgrade celebration
-        if (newTier !== oldTier) {
-          this._lastUnlockedTier.set(newTier);
-          this._showCompletionCelebration.set(true);
-          await this.haptics.notification('success');
-        } else {
-          await this.haptics.impact('medium');
-        }
+        await this.haptics.impact('medium');
 
         this.logger.info('Profile saved via API', {
           sectionsUpdated: dirtySections.length,
-          xpAwarded: totalXpAwarded,
-          tierUpgrade: newTier !== oldTier ? newTier : null,
         });
       } else {
         throw new Error('Edit profile API is not configured');
@@ -756,14 +609,6 @@ export class EditProfileService {
   }
 
   /**
-   * Dismiss completion celebration.
-   */
-  dismissCelebration(): void {
-    this._showCompletionCelebration.set(false);
-    this._lastUnlockedTier.set(null);
-  }
-
-  /**
    * Set validation error for a field.
    */
   setValidationError(fieldId: string, error: string): void {
@@ -790,15 +635,13 @@ export class EditProfileService {
     fieldId: string,
     value: unknown
   ): EditProfileFormData {
-    const sectionMap: Record<EditProfileSectionId, keyof EditProfileFormData> = {
+    const sectionMap: Partial<Record<EditProfileSectionId, keyof EditProfileFormData>> = {
       'basic-info': 'basicInfo',
       photos: 'photos',
       'sports-info': 'sportsInfo',
       academics: 'academics',
       physical: 'physical',
-      'social-links': 'socialLinks',
       contact: 'contact',
-      preferences: 'contact', // Map to contact for now
     };
 
     const sectionKey = sectionMap[sectionId];
@@ -891,14 +734,6 @@ export class EditProfileService {
         dirtyFieldIds.forEach((fieldId) => {
           if (fieldId in formData.physical) {
             sectionData[fieldId] = formData.physical[fieldId as keyof typeof formData.physical];
-          }
-        });
-        break;
-      case 'social-links':
-        dirtyFieldIds.forEach((fieldId) => {
-          if (fieldId in formData.socialLinks) {
-            sectionData[fieldId] =
-              formData.socialLinks[fieldId as keyof typeof formData.socialLinks];
           }
         });
         break;

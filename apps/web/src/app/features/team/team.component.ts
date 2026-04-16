@@ -41,19 +41,26 @@ import { AuthModalService } from '@nxt1/ui/auth';
 import { QrCodeService } from '@nxt1/ui/qr-code';
 import { TeamProfileService } from '@nxt1/ui/team-profile';
 import { ManageTeamModalService } from '@nxt1/ui/manage-team';
+import { InviteBottomSheetService } from '@nxt1/ui/invite';
+import { NxtOverlayService } from '@nxt1/ui/components/overlay';
+import { IntelService } from '@nxt1/ui/intel';
 import {
-  NxtBottomSheetService,
-  SHEET_PRESETS,
-  type BottomSheetAction,
-} from '@nxt1/ui/components/bottom-sheet';
+  ShareActionsOverlayComponent,
+  type ShareAction,
+} from '../../core/components/share-actions-overlay.component';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import {
   buildCanonicalProfilePath,
   buildCanonicalTeamPath,
+  buildUTMShareUrl,
+  UTM_MEDIUM,
+  UTM_CAMPAIGN,
   type TeamProfileTabId,
   type TeamProfileRosterMember,
   type TeamProfilePost,
 } from '@nxt1/core';
+import { resolveCanonicalTeamRoute } from '@nxt1/core/helpers';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
 import { AuthFlowService } from '../../core/services/auth';
 import {
@@ -62,6 +69,7 @@ import {
   ShareService,
   ProfilePageActionsService,
 } from '../../core/services';
+import { environment } from '../../../environments/environment';
 
 const CTA_AVATARS: readonly CtaAvatarImage[] = [
   { src: `/${IMAGE_PATHS.athlete1}`, alt: 'High school athlete' },
@@ -80,12 +88,16 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
   template: `
     <nxt1-team-profile-shell-web
       [teamSlug]="teamSlug()"
+      [teamId]="routeTeamCode()"
       [isTeamAdmin]="isTeamAdmin()"
+      [skipInternalLoad]="true"
       (backClick)="onBackClick()"
       (tabChange)="onTabChange($event)"
       (shareClick)="onShare()"
+      (copyLinkClick)="onCopyLink()"
       (qrCodeClick)="onQrCode()"
       (manageTeamClick)="onManageTeam()"
+      (inviteRosterClick)="onInviteRoster()"
       (rosterMemberClick)="onRosterMemberClick($event)"
       (postClick)="onPostClick($event)"
     >
@@ -139,9 +151,11 @@ export class TeamComponent implements OnInit {
   private readonly analytics = inject(AnalyticsService);
   private readonly share = inject(ShareService);
   private readonly teamProfile = inject(TeamProfileService);
+  private readonly intelService = inject(IntelService);
   private readonly manageTeamModal = inject(ManageTeamModalService);
+  private readonly inviteModal = inject(InviteBottomSheetService);
   private readonly profilePageActions = inject(ProfilePageActionsService);
-  private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly overlay = inject(NxtOverlayService);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -160,7 +174,9 @@ export class TeamComponent implements OnInit {
     return this.routeParams().get('slug') || '';
   });
 
-  private readonly routeTeamCode = computed<string>(() => this.routeParams().get('teamCode') || '');
+  protected readonly routeTeamCode = computed<string>(
+    () => this.routeParams().get('teamCode') || ''
+  );
 
   /**
    * Whether the current user is an admin of this team.
@@ -218,6 +234,27 @@ export class TeamComponent implements OnInit {
       }
     });
 
+    let lastSyncedTeamIdentity = '';
+    effect(() => {
+      const team = this.teamProfile.team();
+      const isAdmin = this.isTeamAdmin();
+      const teamCode = team?.teamCode?.trim();
+      if (!team || !isAdmin || !teamCode) return;
+
+      const syncKey = `${team.id ?? ''}:${team.slug ?? ''}:${teamCode}`;
+      if (syncKey === lastSyncedTeamIdentity) return;
+      lastSyncedTeamIdentity = syncKey;
+
+      void this.authFlow.applyResolvedTeamIdentity({
+        teamCode,
+        teamId: team.id,
+        slug: team.slug || this.teamSlug(),
+        teamName: team.teamName,
+        sport: team.sport,
+        logoUrl: team.logoUrl,
+      });
+    });
+
     effect(() => {
       const team = this.teamProfile.team();
       const routeSlug = this.teamSlug();
@@ -242,25 +279,56 @@ export class TeamComponent implements OnInit {
 
   ngOnInit(): void {
     const slug = this.teamSlug();
+    const teamCode = this.routeTeamCode();
 
-    this.logger.info('Team component initialized', { teamSlug: slug });
+    this.logger.info('Team component initialized', { teamSlug: slug, teamCode });
 
     // Guard: a slug containing '.' is a static asset (e.g. team-profile-skeleton.component.css.map)
     // being requested relative to the current /team/* URL. Skip the API call.
-    if (!slug || slug.includes('.')) {
-      this.logger.warn('Invalid team slug (static asset request caught by router), skipping load', {
-        slug,
+    if ((!slug && !teamCode) || slug.includes('.')) {
+      this.logger.warn(
+        'Invalid team identifier (static asset request caught by router), skipping load',
+        {
+          slug,
+          teamCode,
+        }
+      );
+      return;
+    }
+
+    const canonicalOwnTeamPath = !teamCode ? this.resolveCanonicalOwnTeamPath() : null;
+    if (canonicalOwnTeamPath) {
+      this.logger.info('Repairing legacy slug-only own-team route', {
+        from: this.router.url,
+        to: canonicalOwnTeamPath,
       });
+      void this.router.navigateByUrl(canonicalOwnTeamPath, { replaceUrl: true });
       return;
     }
 
     // Set loading state immediately before async API call to prevent template flash
     this.teamProfile.startLoading();
 
-    // Load team data from API
-    this.teamProfile
-      .loadTeam(slug, this.isTeamAdmin())
+    // Load team data from API using the canonical route team code when available.
+    const loadPromise = teamCode
+      ? this.teamProfile.loadTeamById(teamCode, this.isTeamAdmin())
+      : this.teamProfile.loadTeam(slug, this.isTeamAdmin());
+
+    loadPromise
       .then(() => {
+        // SSR-deterministic SEO: updateSeo is also called from a constructor
+        // effect(), but effects may run after Angular serializes SSR HTML.
+        // Calling it here directly ensures meta tags are written synchronously
+        // when the HTTP response arrives, before serialization completes.
+        const loadedTeam = this.teamProfile.team();
+        if (loadedTeam) {
+          this.updateSeo(loadedTeam);
+        }
+
+        // Load intel eagerly so the intel tab renders instantly with no skeleton flash.
+        const teamId = this.teamProfile.team()?.id;
+        if (teamId) void this.intelService.loadTeamIntel(teamId);
+
         // Track page view after data loads — skip if user is an admin of this team
         if (!this.isTeamAdmin()) {
           const teamId = this.teamProfile.team()?.id;
@@ -268,7 +336,7 @@ export class TeamComponent implements OnInit {
         }
       })
       .catch((error) => {
-        this.logger.error('Failed to load team on init', { slug, error });
+        this.logger.error('Failed to load team on init', { slug, teamCode, error });
         this.toast.error('Failed to load team profile');
       });
   }
@@ -276,6 +344,59 @@ export class TeamComponent implements OnInit {
   // ============================================
   // SEO
   // ============================================
+
+  private resolveCanonicalOwnTeamPath(): string | null {
+    const user = this.authFlow.user() as {
+      readonly teamCode?:
+        | {
+            readonly teamCode?: string;
+            readonly teamId?: string;
+            readonly id?: string;
+            readonly code?: string;
+            readonly slug?: string;
+            readonly unicode?: string;
+            readonly teamName?: string;
+          }
+        | string
+        | null;
+      readonly managedTeamCodes?: readonly string[] | null;
+      readonly sports?: ReadonlyArray<{
+        readonly isPrimary?: boolean;
+        readonly order?: number;
+        readonly team?: {
+          readonly name?: string;
+          readonly teamId?: string;
+          readonly id?: string;
+          readonly teamCode?: string;
+          readonly code?: string;
+        };
+      }>;
+    } | null;
+
+    if (!user) return null;
+
+    const rawTeamCode = user.teamCode;
+    const teamCodeData = rawTeamCode && typeof rawTeamCode === 'object' ? rawTeamCode : null;
+    const rawTeamReference = typeof rawTeamCode === 'string' ? rawTeamCode.trim() : '';
+    const activeSport =
+      user.sports?.find((sport) => sport.isPrimary || sport.order === 0) ?? user.sports?.[0];
+
+    const resolvedTeamRoute = resolveCanonicalTeamRoute({
+      slug: this.teamSlug() || teamCodeData?.slug?.trim(),
+      teamName: teamCodeData?.teamName ?? activeSport?.team?.name,
+      teamCode:
+        teamCodeData?.teamCode?.trim() || activeSport?.team?.teamCode?.trim() || rawTeamReference,
+      code: teamCodeData?.code?.trim() || activeSport?.team?.code?.trim(),
+      teamId: teamCodeData?.teamId?.trim() || activeSport?.team?.teamId?.trim(),
+      id:
+        (typeof teamCodeData?.id === 'string' ? teamCodeData.id.trim() : '') ||
+        activeSport?.team?.id?.trim(),
+      unicode: teamCodeData?.unicode?.trim(),
+      managedTeamCodes: user.managedTeamCodes,
+    });
+
+    return resolvedTeamRoute?.teamIdentifier ? resolvedTeamRoute.path : null;
+  }
 
   private updateSeo(team: NonNullable<ReturnType<typeof this.teamProfile.team>>): void {
     this.seo.updateForTeam({
@@ -290,7 +411,7 @@ export class TeamComponent implements OnInit {
       record: this.teamProfile.recordDisplay() || undefined,
     });
 
-    this.analytics.trackEvent('team_viewed', {
+    this.analytics.trackEvent(APP_EVENTS.TEAM_PAGE_VIEWED, {
       team_id: team.id,
       team_slug: team.slug,
       team_name: team.teamName,
@@ -319,7 +440,7 @@ export class TeamComponent implements OnInit {
    * Handle tab changes for analytics.
    */
   protected onTabChange(tab: TeamProfileTabId): void {
-    this.analytics.trackEvent('tab_changed', {
+    this.analytics.trackEvent(APP_EVENTS.TAB_CHANGED, {
       tab,
       team_slug: this.teamSlug(),
       context: 'team_profile',
@@ -348,6 +469,32 @@ export class TeamComponent implements OnInit {
     });
   }
 
+  protected async onCopyLink(): Promise<void> {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    const team = this.teamProfile.team();
+    if (!team) return;
+
+    const teamPath = buildCanonicalTeamPath({
+      slug: team.slug,
+      teamName: team.teamName,
+      teamCode: team.teamCode,
+      id: team.id,
+    });
+    const shareBaseUrl = globalThis.location?.origin ?? environment.webUrl;
+    const teamUrl = buildUTMShareUrl(
+      `${shareBaseUrl}${teamPath}`,
+      UTM_MEDIUM.COPY_LINK,
+      UTM_CAMPAIGN.TEAM,
+      team.sport?.toLowerCase()
+    );
+
+    const copied = await this.share.copy(teamUrl);
+    if (copied) {
+      this.logger.info('Team link copied', { teamId: team.id, slug: team.slug });
+    }
+  }
+
   /**
    * Handle QR code display.
    */
@@ -362,9 +509,17 @@ export class TeamComponent implements OnInit {
       id: team.id,
     });
 
+    const shareBaseUrl = globalThis.location?.origin ?? environment.webUrl;
+    const qrUrl = buildUTMShareUrl(
+      `${shareBaseUrl}${teamPath}`,
+      UTM_MEDIUM.QR,
+      UTM_CAMPAIGN.TEAM,
+      team.sport?.toLowerCase()
+    );
+
     try {
       await this.qrCode.open({
-        url: `https://nxt1sports.com${teamPath}`,
+        url: qrUrl,
         displayName: team.teamName,
         profileImg: team.logoUrl || undefined,
         sport: team.sport || 'Sports',
@@ -398,6 +553,23 @@ export class TeamComponent implements OnInit {
         });
       }
     }
+  }
+
+  protected async onInviteRoster(): Promise<void> {
+    const team = this.teamProfile.team();
+    if (!team) return;
+
+    await this.inviteModal.open({
+      inviteType: 'team',
+      team: {
+        id: team.id,
+        name: team.teamName || 'Team',
+        sport: team.sport || 'Sports',
+        logoUrl: team.logoUrl ?? undefined,
+        memberCount: this.teamProfile.rosterCount(),
+        teamCode: team.teamCode ?? undefined,
+      },
+    });
   }
 
   /**
@@ -434,36 +606,42 @@ export class TeamComponent implements OnInit {
    */
   protected async onTeamMoreMenu(): Promise<void> {
     const isAdmin = this.isTeamAdmin();
-    const actions: BottomSheetAction[] = isAdmin
+    const actions: ShareAction[] = isAdmin
       ? [
-          { label: 'Manage Team', role: 'secondary', icon: 'settings' },
-          { label: 'Share Team', role: 'secondary', icon: 'share' },
-          { label: 'QR Code', role: 'secondary', icon: 'qrCode' },
-          { label: 'Copy Link', role: 'secondary', icon: 'link' },
+          { label: 'Manage Team', icon: 'settings' },
+          { label: 'Share Team', icon: 'share' },
+          { label: 'QR Code', icon: 'qrCode' },
+          { label: 'Copy Link', icon: 'link' },
         ]
       : [
-          { label: 'Share Team', role: 'secondary', icon: 'share' },
-          { label: 'Copy Link', role: 'secondary', icon: 'link' },
-          { label: 'Report', role: 'destructive', icon: 'flag' },
+          { label: 'Share Team', icon: 'share' },
+          { label: 'Copy Link', icon: 'link' },
+          { label: 'Report', icon: 'flag', destructive: true },
         ];
 
-    const result = await this.bottomSheet.show<BottomSheetAction>({
-      actions,
-      showClose: false,
+    const ref = this.overlay.open<ShareActionsOverlayComponent, { action: string } | null>({
+      component: ShareActionsOverlayComponent,
+      inputs: { title: 'Team Actions', actions },
+      size: 'sm',
       backdropDismiss: true,
-      ...SHEET_PRESETS.COMPACT,
+      escDismiss: true,
+      showCloseButton: false,
+      ariaLabel: 'Team Actions',
     });
 
-    const selected = result?.data as BottomSheetAction | undefined;
-    if (!selected) return;
+    const result = await ref.closed;
+    const action = result.data?.action;
+    if (!action) return;
 
-    switch (selected.label) {
+    switch (action) {
       case 'Manage Team':
         await this.onManageTeam();
         break;
       case 'Share Team':
-      case 'Copy Link':
         await this.onShare();
+        break;
+      case 'Copy Link':
+        await this.onCopyLink();
         break;
       case 'QR Code':
         await this.onQrCode();

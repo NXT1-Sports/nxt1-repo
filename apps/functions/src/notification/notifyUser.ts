@@ -62,7 +62,8 @@ export async function notifyUser(
 
   // Deterministic 5-minute dedup ID — prevents re-delivery on Cloud Function retries
   const timeBucket = Math.floor(Date.now() / (5 * 60 * 1000));
-  const rawKey = `${input.userId}_${input.type}_${timeBucket}`;
+  const entityPart = (input.data?.['entityId'] ?? input.data?.['teamId'] ?? '') as string;
+  const rawKey = `${input.userId}_${input.type}_${entityPart}_${timeBucket}`;
   const dedupId = rawKey.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100);
   const activityDedupId = `${dedupId}_a`;
 
@@ -96,7 +97,7 @@ export async function notifyUser(
   // 2. Activity feed doc — user-visible in the /activity inbox tab
   batch.set(activityRef, {
     type: mapToActivityType(input.type),
-    tab: 'inbox',
+    tab: 'alerts',
     priority: input.priority,
     title: input.title,
     body: input.body,

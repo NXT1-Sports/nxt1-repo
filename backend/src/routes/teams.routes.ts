@@ -41,6 +41,12 @@ import {
 } from '../services/cache.service.js';
 import { markCacheHit } from '../middleware/cache-status.middleware.js';
 import type { TeamProfilePageData } from '@nxt1/core/team-profile';
+import { SyncDiffService } from '../modules/agent/sync/index.js';
+import {
+  buildDistilledProfileFromTeamRecord,
+  buildPreviousStateFromTeamRecord,
+} from '../modules/agent/sync/manual-sync-state.helpers.js';
+import { onDailySyncComplete } from '../modules/agent/triggers/trigger.listeners.js';
 
 const router: ExpressRouter = Router();
 
@@ -76,6 +82,58 @@ function validateRole(role: string): void {
       },
     ]);
   }
+}
+
+interface TeamIntelPermissionMemberLike {
+  readonly id?: string;
+  readonly uid?: string;
+  readonly userId?: string;
+  readonly role?: string | null;
+}
+
+interface TeamIntelPermissionInput {
+  readonly userId: string;
+  readonly legacyMembers?: readonly TeamIntelPermissionMemberLike[];
+  readonly roster?: readonly TeamIntelPermissionMemberLike[];
+}
+
+const TEAM_INTEL_MANAGER_ROLES = new Set([
+  'administrative',
+  'admin',
+  'coach',
+  'director',
+  'owner',
+  'head-coach',
+  'assistant-coach',
+  'staff',
+  'program-director',
+]);
+
+function normalizeTeamIntelRole(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, '-');
+}
+
+export function canGenerateTeamIntelForUser({
+  userId,
+  legacyMembers = [],
+  roster = [],
+}: TeamIntelPermissionInput): boolean {
+  const hasLegacyPermission = legacyMembers.some((member) => {
+    const memberId = member.id ?? member.uid ?? member.userId;
+    const role = normalizeTeamIntelRole(member.role);
+    return memberId === userId && TEAM_INTEL_MANAGER_ROLES.has(role);
+  });
+
+  const hasRosterPermission = roster.some((entry) => {
+    const role = normalizeTeamIntelRole(entry.role);
+    return entry.userId === userId && TEAM_INTEL_MANAGER_ROLES.has(role);
+  });
+
+  return hasLegacyPermission || hasRosterPermission;
 }
 
 // ============================================
@@ -204,9 +262,18 @@ router.get(
 
     const teamAdapter = createTeamAdapter(db);
     let teamCode;
+
     try {
       teamCode = await teamAdapter.getTeamWithMembers(String(id));
     } catch {
+      teamCode = null;
+    }
+
+    if (!teamCode) {
+      teamCode = await teamAdapter.getTeamByCode(String(id).trim());
+    }
+
+    if (!teamCode) {
       res.status(404).json({ success: false, error: 'Team not found' });
       return;
     }
@@ -474,6 +541,22 @@ router.patch(
       unicode,
       division,
       conference,
+      mascot,
+      email,
+      phone,
+      website,
+      address,
+      city,
+      state,
+      wins,
+      losses,
+      ties,
+      season,
+      logoUrl,
+      galleryImages,
+      primaryColor,
+      secondaryColor,
+      accentColor,
     } = req.body;
 
     const userId = req.user!.uid;
@@ -481,21 +564,103 @@ router.patch(
 
     validateRequired(id, 'Team ID');
 
+    let previousTeam: Record<string, unknown> | null = null;
+    try {
+      const previousSnapshot = await teamCodeService.getTeamCodeById(db, String(id));
+      previousTeam = previousSnapshot.team as unknown as Record<string, unknown>;
+    } catch (err) {
+      logger.warn('[Teams API] Failed to load previous team snapshot for delta', {
+        teamId: id,
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     const team = await teamCodeService.updateTeamCode(db, String(id), userId, {
       teamName: teamName?.trim(),
       teamType,
       sport: sportName?.trim(),
-      athleteMember: athleteMember !== undefined ? parseInt(athleteMember, 10) : undefined,
-      panelMember: panelMember !== undefined ? parseInt(panelMember, 10) : undefined,
+      athleteMember: athleteMember !== undefined ? parseInt(String(athleteMember), 10) : undefined,
+      panelMember: panelMember !== undefined ? parseInt(String(panelMember), 10) : undefined,
       isActive,
       unicode: unicode?.trim(),
       division: division?.trim(),
       conference: conference?.trim(),
+      mascot: typeof mascot === 'string' ? mascot.trim() : undefined,
+      email: typeof email === 'string' ? email.trim() : undefined,
+      phone: typeof phone === 'string' ? phone.trim() : undefined,
+      website: typeof website === 'string' ? website.trim() : undefined,
+      address: typeof address === 'string' ? address.trim() : undefined,
+      city: typeof city === 'string' ? city.trim() : undefined,
+      state: typeof state === 'string' ? state.trim() : undefined,
+      wins: wins !== undefined ? parseInt(String(wins), 10) : undefined,
+      losses: losses !== undefined ? parseInt(String(losses), 10) : undefined,
+      ties: ties !== undefined ? parseInt(String(ties), 10) : undefined,
+      season: typeof season === 'string' ? season.trim() : undefined,
+      logoUrl: typeof logoUrl === 'string' ? logoUrl.trim() : undefined,
+      galleryImages: Array.isArray(galleryImages)
+        ? galleryImages
+            .filter((item): item is string => typeof item === 'string')
+            .map((item) => item.trim())
+            .filter(Boolean)
+        : undefined,
+      primaryColor: typeof primaryColor === 'string' ? primaryColor.trim() : undefined,
+      secondaryColor: typeof secondaryColor === 'string' ? secondaryColor.trim() : undefined,
+      accentColor: typeof accentColor === 'string' ? accentColor.trim() : undefined,
     });
 
     logger.info('[Teams API] TeamCode updated', { teamId: id, userId });
 
     void invalidateTeamProfileCache(String(id), team.slug ?? undefined, team.teamCode ?? undefined);
+
+    if (previousTeam) {
+      try {
+        const diffService = new SyncDiffService();
+        const deltaSport =
+          (typeof team.sport === 'string' && team.sport.trim()) ||
+          (typeof sportName === 'string' && sportName.trim()) ||
+          'general';
+        const scopedDelta = {
+          ...diffService.diff(
+            userId,
+            deltaSport,
+            'manual-team',
+            buildPreviousStateFromTeamRecord(previousTeam),
+            buildDistilledProfileFromTeamRecord(
+              team as unknown as Record<string, unknown>,
+              deltaSport
+            )
+          ),
+          teamId: String(id),
+          organizationId:
+            typeof (team as { organizationId?: unknown }).organizationId === 'string'
+              ? ((team as { organizationId?: string }).organizationId ?? undefined)
+              : undefined,
+        };
+
+        if (!scopedDelta.isEmpty) {
+          logger.info('[Teams API] Manual team delta detected, firing sync trigger', {
+            teamId: id,
+            userId,
+            sport: scopedDelta.sport,
+            totalChanges: scopedDelta.summary.totalChanges,
+          });
+          void onDailySyncComplete(scopedDelta).catch((err) => {
+            logger.warn('[Teams API] Manual team sync trigger dispatch failed', {
+              teamId: id,
+              userId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        }
+      } catch (err) {
+        logger.warn('[Teams API] Manual team delta computation failed', {
+          teamId: id,
+          userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
 
     sendSuccess(res, team);
   })
@@ -915,33 +1080,14 @@ router.post(
           members?: Array<{
             id?: string;
             uid?: string;
+            userId?: string;
             role?: string;
           }>;
         }
       ).members ?? [];
     const roster = teamWithMembers.roster ?? [];
-    const privilegedLegacyRoles = new Set([
-      'admin',
-      'coach',
-      'owner',
-      'head_coach',
-      'head-coach',
-      'assistant-coach',
-    ]);
-    const privilegedRosterRoles = new Set(['owner', 'head-coach', 'assistant-coach']);
 
-    const hasLegacyPermission = legacyMembers.some((member) => {
-      const memberId = member.id ?? member.uid;
-      const role = member.role?.toLowerCase();
-      return memberId === userId && !!role && privilegedLegacyRoles.has(role);
-    });
-
-    const hasRosterPermission = roster.some((entry) => {
-      const role = String(entry.role ?? '').toLowerCase();
-      return entry.userId === userId && privilegedRosterRoles.has(role);
-    });
-
-    if (!hasLegacyPermission && !hasRosterPermission) {
+    if (!canGenerateTeamIntelForUser({ userId, legacyMembers, roster })) {
       throw forbiddenError('permission');
     }
 
@@ -950,7 +1096,8 @@ router.post(
     const report = await intelService.generateTeamIntel(id, db);
 
     logger.info('[Teams] Intel generated', { teamId: id, userId });
-    sendSuccess(res, {
+    res.json({
+      success: true,
       status: 'ready',
       message: 'Team Intel report generated successfully',
       reportId: (report as Record<string, unknown>)['id'],

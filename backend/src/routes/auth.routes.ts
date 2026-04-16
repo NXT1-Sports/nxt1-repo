@@ -46,6 +46,7 @@ import { logger } from '../utils/logger.js';
 import { generateUnicodeForUser, getUserUnicode } from '../utils/unicode-generator.js';
 
 import { enqueueLinkedAccountScrape } from '../services/agent-scrape.service.js';
+import { enqueueWelcomeGraphicIfReady } from '../services/agent-welcome.service.js';
 import { validateBody } from '../middleware/validation.middleware.js';
 import {
   CreateUserDto,
@@ -1263,71 +1264,56 @@ router.post(
 
     logger.info('[POST /profile/onboarding] Success:', { userId, onboardingCompleted: true });
 
-    // Welcome graphic is NO LONGER generated at onboarding completion.
-    // It is deferred until the user first uploads a profile image (athletes)
-    // or team logo (coaches/directors) via the edit-profile section save flow.
-    // See edit-profile.routes.ts — "Deferred welcome graphic" section.
-
-    // Shared variables used by scrape enqueue below
+    // Shared variables used by welcome graphic and scrape enqueue below
     const primarySportName = getPrimarySport(userData?.sports);
     const agentEnv = req.isStaging ? 'staging' : 'production';
 
-    // Enqueue linked account scrape (skip if pre-fetched from Step 5)
+    // Attempt a welcome graphic at onboarding completion.
+    // For athletes: gate returns 'missing_image' until they upload a profile photo — no-op.
+    // For coaches/directors joining an existing team that already has a logo: gate passes and
+    // the graphic fires immediately, closing the dead zone where edit-profile is never visited.
+    // The service is fully idempotent (welcomeGraphicQueued dedup flag).
+    void enqueueWelcomeGraphicIfReady(db, { userId }, agentEnv).catch((err) =>
+      logger.error('[Auth] Failed to evaluate welcome graphic at onboarding', {
+        userId,
+        error: err,
+      })
+    );
+
+    // Enqueue linked account scrape
     let scrapeJobId: string | undefined;
-    const existingPreloadScrapeId =
-      typeof profileData['scrapeJobId'] === 'string' ? profileData['scrapeJobId'] : undefined;
 
     // Resolve first team/org from sportTeamMap (populated after team creation above)
     const firstTeamEntry = sportTeamMap.size > 0 ? sportTeamMap.values().next().value : undefined;
     const resolvedTeamId = firstTeamEntry?.teamId as string | undefined;
     const resolvedOrgId = firstTeamEntry?.organizationId as string | undefined;
-    const isCoachOrDirector = role === 'coach' || role === 'director';
 
-    if (existingPreloadScrapeId && !isCoachOrDirector) {
-      // Athletes: preload is fine — writes to user profile, not team doc
-      scrapeJobId = existingPreloadScrapeId;
-      logger.info('[Auth] Reusing pre-fetched scrape job from Step 5', {
-        userId,
-        scrapeJobId,
-      });
-    } else {
-      // Coaches/Directors: always enqueue fresh with teamId/orgId so the agent
-      // can write to the Team document (preload ran before team creation).
-      // Athletes without a preload also come through here.
-      if (existingPreloadScrapeId && isCoachOrDirector) {
-        logger.info('[Auth] Discarding coach preload scrape — re-enqueuing with teamId', {
-          userId,
-          preloadScrapeId: existingPreloadScrapeId,
-          resolvedTeamId,
-        });
-      }
-      // Combine user-level and team-level connected sources.
-      // For coaches/directors, links are stored on the Team doc (not User),
-      // so we must also include teamConnectedSources to trigger the scrape.
-      const userConnectedSources =
-        (userData?.connectedSources as ConnectedSourceRecord[] | undefined) ?? [];
-      const allConnectedSources = [...userConnectedSources, ...teamConnectedSources];
-      if (allConnectedSources.length > 0) {
-        try {
-          const scrapeResult = await enqueueLinkedAccountScrape(
-            db,
-            {
-              userId,
-              role: (userData?.role as UserRole) ?? 'athlete',
-              sport: primarySportName,
-              linkedAccounts: allConnectedSources.map((cs) => ({
-                platform: cs.platform,
-                profileUrl: cs.profileUrl,
-              })),
-              teamId: resolvedTeamId,
-              organizationId: resolvedOrgId,
-            },
-            agentEnv
-          );
-          scrapeJobId = scrapeResult?.operationId;
-        } catch (err) {
-          logger.error('[Auth] Failed to enqueue linked account scrape', { userId, error: err });
-        }
+    // Combine user-level and team-level connected sources.
+    // For coaches/directors, links are stored on the Team doc (not User),
+    // so we must also include teamConnectedSources to trigger the scrape.
+    const userConnectedSources =
+      (userData?.connectedSources as ConnectedSourceRecord[] | undefined) ?? [];
+    const allConnectedSources = [...userConnectedSources, ...teamConnectedSources];
+    if (allConnectedSources.length > 0) {
+      try {
+        const scrapeResult = await enqueueLinkedAccountScrape(
+          db,
+          {
+            userId,
+            role: (userData?.role as UserRole) ?? 'athlete',
+            sport: primarySportName,
+            linkedAccounts: allConnectedSources.map((cs) => ({
+              platform: cs.platform,
+              profileUrl: cs.profileUrl,
+            })),
+            teamId: resolvedTeamId,
+            organizationId: resolvedOrgId,
+          },
+          agentEnv
+        );
+        scrapeJobId = scrapeResult?.operationId;
+      } catch (err) {
+        logger.error('[Auth] Failed to enqueue linked account scrape', { userId, error: err });
       }
     }
 
@@ -1879,7 +1865,7 @@ router.post(
  * POST /auth/analytics/hear-about
  * Save referral source ("How did you hear about us")
  * Stores attribution data on the user document only.
- * Marketing aggregation should use Firebase Analytics / GA4 events.
+ * Marketing aggregation should use the backend analytics event stream and Mongo rollups.
  *
  * @body userId - User ID
  * @body source - Referral source (e.g., 'social-media', 'friend', 'coach')
@@ -2551,7 +2537,7 @@ router.get(
     const pathPrefix = req.isStaging ? '/api/v1/staging' : '/api/v1';
     const redirectUri = `${backendUrl}${pathPrefix}/auth/microsoft/callback`;
 
-    const oauthUrl = new URL('https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize');
+    const oauthUrl = new URL('https://login.microsoftonline.com/common/oauth2/v2.0/authorize');
     oauthUrl.searchParams.set('client_id', clientId);
     oauthUrl.searchParams.set('response_type', 'code');
     oauthUrl.searchParams.set('redirect_uri', redirectUri);
@@ -3425,32 +3411,6 @@ router.post(
     );
 
     res.json({ success: true, email: connectedEmail });
-  })
-);
-
-// ============================================
-// PRE-FETCH SCRAPE (Optimistic — fires during onboarding Step 5)
-// ============================================
-
-/**
- * POST /auth/profile/preload-scrape
- *
- * Called from the frontend at Step 5 (Link Data Sources) of onboarding.
- * Enqueues the scraping job early so data extraction begins while the user
- * finishes Step 6 ("Before We Begin"). The final onboarding completion
- * endpoint skips scrape enqueue if a job already exists.
- */
-router.post(
-  '/profile/preload-scrape',
-  asyncHandler(async (_req: Request, res: Response): Promise<void> => {
-    // PRELOAD DISABLED: All scrapes are now deferred to the final onboarding completion
-    // endpoint (/profile/onboarding) to ensure all core database documents (teams,
-    // organizations, etc.) are fully created before the AI agent attempts to read them.
-    res.json({
-      success: true,
-      skipped: true,
-      reason: 'Deferred until onboarding completion for all roles',
-    });
   })
 );
 

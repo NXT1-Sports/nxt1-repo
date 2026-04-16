@@ -138,7 +138,11 @@ export class AgentGenerationService {
     try {
       const builder = this.getOrCreateContextBuilder();
       const promptContext = await builder.buildPromptContext(uid, query, db);
-      return builder.compressToPrompt(promptContext.profile, promptContext.memories);
+      return builder.compressToPrompt(
+        promptContext.profile,
+        promptContext.memories,
+        promptContext.recentSyncSummaries ?? []
+      );
     } catch (err) {
       logger.warn('[AgentGenerationService] Failed to build vector-backed prompt context', {
         userId: uid,

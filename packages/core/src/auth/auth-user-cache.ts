@@ -53,6 +53,17 @@ export interface CachedSportData {
   readonly sport: string;
   readonly positions?: readonly string[];
   readonly isPrimary?: boolean;
+  readonly team?: {
+    readonly name?: string;
+    readonly logoUrl?: string | null;
+    readonly logo?: string | null;
+    readonly teamId?: string;
+    readonly id?: string;
+    readonly teamCode?: string;
+    readonly code?: string;
+    readonly slug?: string;
+    readonly unicode?: string;
+  };
 }
 
 /**

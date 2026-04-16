@@ -49,7 +49,7 @@ import { AgentXService } from '../agent-x.service';
 import type { ConfirmationActionEvent } from '../agent-x-confirmation-card.component';
 import type { DraftSubmittedEvent } from '../agent-x-draft-card.component';
 import { AgentXFabService } from './agent-x-fab.service';
-import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './agent-x-logo.constants';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 @Component({
   selector: 'nxt1-agent-x-fab-chat-panel',

@@ -96,12 +96,15 @@ import { HapticsService } from '../services/haptics/haptics.service';
           <nxt1-news-list
             [articles]="newsService.articles()"
             [isLoading]="newsService.isLoading()"
+            [isLoadingMore]="newsService.isLoadingMore()"
+            [isEmpty]="newsService.isEmpty()"
             [error]="newsService.error()"
             [hasMore]="newsService.hasMore()"
             [activeCategory]="newsService.activeCategory()"
             (articleClick)="onArticleClick($event)"
             (loadMore)="onLoadMore()"
             (retry)="onRetry()"
+            (emptyCta)="onRetry()"
           />
         </ion-content>
       </div>

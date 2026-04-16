@@ -39,18 +39,14 @@ const PUBLIC_ENDPOINTS = [
   '/auth/create-user', // Uses its own token from request body
   '/sitemap',
   '/rankings/public',
-  '/explore',
   '/college/search',
   '/college/list',
-  '/news',
-  '/feed',
   '/programs/search', // Onboarding program search — no auth on backend
 ];
 
 /**
  * Check if a URL is a public endpoint.
- * Strips the API base URL first so that e.g. "/feed" only matches
- * the social feed path, not "/activity/feed".
+ * Strips the API base URL first for accurate path matching.
  */
 function isPublicEndpoint(url: string): boolean {
   const baseIndex = url.indexOf(environment.apiURL);

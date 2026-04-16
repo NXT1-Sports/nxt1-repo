@@ -3,17 +3,12 @@
  *
  * @module @nxt1/web/core/services
  *
- * Analytics has been moved to @nxt1/core/analytics for cross-platform consistency.
+ * Analytics is handled through the shared analytics abstractions and the web
+ * backend relay service for cross-platform consistency.
  *
  * @example Analytics Usage
  * ```typescript
- * import { createAnalyticsSync, APP_EVENTS } from '@nxt1/core/analytics';
- * import { environment } from '../environments/environment';
- *
- * const analytics = createAnalyticsSync({
- *   firebaseConfig: environment.firebase,
- *   debug: !environment.production,
- * });
+ * import { APP_EVENTS } from '@nxt1/core/analytics';
  *
  * analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_IN, { method: 'google' });
  * ```
@@ -22,7 +17,7 @@
 // Re-export analytics constants for backward compatibility
 export { APP_EVENTS } from '@nxt1/core/analytics';
 
-// Core Analytics Service (Firebase Analytics wrapper)
+// Core Analytics Service (backend relay adapter)
 export { AnalyticsService } from './infrastructure/analytics.service';
 
 // SEO Service for dynamic meta tag management
@@ -37,7 +32,7 @@ export { NetworkService } from './infrastructure/network.service';
 // File Upload Service (backend-first pattern via @nxt1/core API)
 export { FileUploadService, type UploadStatus, type UploadState } from './web/file-upload.service';
 
-// Crashlytics Service for crash reporting (web uses GA4 fallback)
+// Crashlytics Service for crash telemetry (web uses backend relay fallback)
 export { CrashlyticsService } from './infrastructure/crashlytics.service';
 
 // Share Service for centralized web sharing + analytics
@@ -91,30 +86,13 @@ export { BadgeCountService } from './state/badge-count.service';
 export { provideBadgeBridge } from './state/badge-bridge.initializer';
 
 // ============================================
-// FEED API SERVICE
-// ============================================
-
-/**
- * Angular adapter for the pure TypeScript Feed API factory.
- * Wraps createFeedApi with HttpClient and Firebase Performance tracing.
- *
- * Wired at root via `{ provide: FEED_API, useExisting: FeedApiService }`
- * so the shared FeedService (from @nxt1/ui/feed) resolves it.
- *
- * @see {@link ./feed-api.service.ts}
- */
-export { FeedApiService, FEED_API_BASE_URL } from './api/feed-api.service';
-
-// ============================================
 // API ADAPTERS (consolidated from features/)
 // ============================================
 
-export { ExploreApiService, EXPLORE_API_BASE_URL } from './api/explore-api.service';
 export { ActivityApiService, ACTIVITY_API_BASE_URL } from './api/activity-api.service';
 export { ProfileService } from './api/profile-api.service';
 export { HelpCenterApiService } from './api/help-center-api.service';
 export { SettingsApiService } from './api/settings-api.service';
-export { PulseApiAdapterService } from './api/pulse-api-adapter.service';
 
 // ============================================
 // WEB SERVICES (consolidated from features/)

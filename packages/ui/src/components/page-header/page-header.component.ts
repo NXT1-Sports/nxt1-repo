@@ -384,11 +384,28 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
         --border-color: var(--nxt1-navigation-surface-glass-border);
       }
 
-      /* Transparent variant */
-      .header--transparent,
+      /* Transparent variant - fully transparent with no borders, shadows, or blur */
+      .header--transparent {
+        --background: transparent !important;
+        --ion-toolbar-background: transparent !important;
+        box-shadow: none !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+      }
+
       .header--transparent ion-toolbar {
-        --background: transparent;
-        --ion-toolbar-background: transparent;
+        --background: transparent !important;
+        --ion-toolbar-background: transparent !important;
+        --border-width: 0 !important;
+        --border-color: transparent !important;
+        --box-shadow: none !important;
+        box-shadow: none !important;
+      }
+
+      /* Suppress bordered bottom border when transparent */
+      .header--transparent.header--bordered ion-toolbar:last-of-type {
+        --border-width: 0 !important;
+        --border-color: transparent !important;
       }
 
       /* Blur variant (iOS style) - Uses glass tokens */

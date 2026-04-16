@@ -55,20 +55,6 @@ export const routes: Routes = [
         redirectTo: 'agent',
       },
 
-      // Home → Explore redirect (backward compatibility)
-      {
-        path: 'home',
-        redirectTo: 'explore',
-        pathMatch: 'full',
-      },
-
-      // Explore Tab - Unified Discovery & Feed Hub
-      {
-        path: 'explore',
-        loadChildren: () =>
-          import('./features/explore/explore.routes').then((m) => m.EXPLORE_ROUTES),
-      },
-
       // Agent X Tab - AI Assistant
       {
         path: 'agent',
@@ -88,12 +74,6 @@ export const routes: Routes = [
         path: 'activity',
         loadChildren: () =>
           import('./features/activity/activity.routes').then((m) => m.ACTIVITY_ROUTES),
-      },
-
-      // Pulse - Sports Recruiting Pulse Feed
-      {
-        path: 'pulse',
-        loadChildren: () => import('./features/pulse/pulse.routes').then((m) => m.PULSE_ROUTES),
       },
 
       // Messages - User Conversations & Direct Messages

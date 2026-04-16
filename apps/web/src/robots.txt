@@ -9,6 +9,7 @@ Allow: /
 
 # SEO-critical public pages (explicitly allowed)
 Allow: /profile/
+Allow: /team/
 Allow: /explore/
 Allow: /colleges/
 Allow: /news/

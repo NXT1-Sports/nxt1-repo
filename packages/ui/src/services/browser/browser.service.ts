@@ -51,6 +51,7 @@ import {
   BROWSER_COLORS,
   DEFAULT_BROWSER_OPTIONS,
   sanitizeUrl,
+  buildTrackedLinkUrl,
   detectLinkType,
   extractDomain,
   shouldOpenInExternalApp,
@@ -130,7 +131,7 @@ export class NxtBrowserService {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly ngZone = inject(NgZone);
   private readonly haptics = inject(HapticsService);
-  private readonly logger = inject(NxtLoggingService);
+  private readonly logger = inject(NxtLoggingService).child('NxtBrowserService');
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
 
   private readonly isBrowser = isPlatformBrowser(this.platformId);
@@ -255,6 +256,29 @@ export class NxtBrowserService {
   private handlePageLoaded(): void {
     const currentUrl = this._state().currentUrl;
     this.logger.debug('Browser page loaded', { url: currentUrl });
+  }
+
+  /**
+   * Build a backend-tracked click URL when the app is running on the web.
+   * Native platforms fall back to the original destination until a public
+   * tracking base URL is explicitly provided by the host app.
+   */
+  private buildTrackedUrl(options: OpenLinkOptions): string {
+    if (!this.isBrowser || this.isNativePlatform) {
+      return options.url;
+    }
+
+    const origin = globalThis.location?.origin;
+    if (!origin || !/^https?:\/\//i.test(origin)) {
+      return options.url;
+    }
+
+    return buildTrackedLinkUrl(origin, options.url, {
+      source: options.source,
+      surface: options.surface,
+      subjectType: options.subjectType,
+      subjectId: options.subjectId,
+    });
   }
 
   // ============================================
@@ -390,7 +414,10 @@ export class NxtBrowserService {
    * ```
    */
   async openLink(options: OpenLinkOptions): Promise<BrowserOpenResult> {
+    await this.initialize();
+
     const linkType = options.linkType ?? detectLinkType(options.url);
+    const trackedUrl = this.buildTrackedUrl(options);
 
     // Log analytics event
     if (this.config.enableAnalytics) {
@@ -398,12 +425,15 @@ export class NxtBrowserService {
         linkType,
         domain: extractDomain(options.url),
         source: options.source,
+        surface: options.surface,
+        subjectType: options.subjectType,
+        subjectId: options.subjectId,
         ...options.metadata,
       });
     }
 
     return this.open({
-      url: options.url,
+      url: trackedUrl,
       toolbarColor: options.toolbarColor,
     });
   }

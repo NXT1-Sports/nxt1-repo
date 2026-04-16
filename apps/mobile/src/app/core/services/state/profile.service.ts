@@ -45,6 +45,7 @@
 import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
 import { type User, type SportProfile, getPrimarySport } from '@nxt1/core/models';
 import { type UpdateProfileRequest } from '@nxt1/core/api';
+import { type UserDisplayInput } from '@nxt1/core';
 import { NxtLoggingService } from '@nxt1/ui';
 import { type ILogger } from '@nxt1/core/logging';
 import { ProfileApiService } from '../api/profile-api.service';
@@ -188,6 +189,23 @@ export class ProfileService implements OnDestroy, IProfileService {
    * User role
    */
   readonly role = computed(() => this._user()?.role ?? null);
+
+  /**
+   * User mapped to UserDisplayInput — the canonical shape consumed by
+   * `buildUserDisplayContext()` and footer/sidenav display surfaces.
+   *
+   * Flattens `coach.managedTeamCodes` to the top-level `managedTeamCodes`
+   * field that `resolveCanonicalTeamRoute` needs to pick the short team
+   * code over any Firestore document ID stored in `teamCode.teamCode`.
+   */
+  readonly userAsDisplayInput = computed<UserDisplayInput | null>(() => {
+    const user = this._user();
+    if (!user) return null;
+    return {
+      ...(user as unknown as UserDisplayInput),
+      managedTeamCodes: user.coach?.managedTeamCodes ?? null,
+    };
+  });
 
   // ============================================
   // LIFECYCLE

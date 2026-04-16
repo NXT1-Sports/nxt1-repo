@@ -11,6 +11,7 @@ import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.to
 import { sendEmailViaProvider } from '../../../../services/email-sync.service.js';
 import type { Firestore } from 'firebase-admin/firestore';
 import { db as defaultDb } from '../../../../utils/firebase.js';
+import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
 import { logger } from '../../../../utils/logger.js';
 
 type EmailProvider = 'gmail' | 'microsoft';
@@ -139,11 +140,39 @@ export class SendEmailTool extends BaseTool {
         provider,
         toEmail,
         messageId: result.externalMessageId,
+        threadId: result.externalThreadId,
       });
+
+      await getAnalyticsLoggerService().safeTrack({
+        subjectId: userId,
+        subjectType: 'user',
+        domain: 'communication',
+        eventType: 'email_sent',
+        source: 'agent',
+        actorUserId: context?.userId ?? userId,
+        sessionId: context?.sessionId ?? null,
+        threadId: context?.threadId ?? null,
+        tags: [provider, 'recruiting-email'],
+        payload: {
+          provider,
+          toEmail,
+          subject,
+          trackingId: result.trackingId,
+        },
+        metadata: {
+          toolName: this.name,
+          externalMessageId: result.externalMessageId ?? null,
+          externalThreadId: result.externalThreadId ?? null,
+          trackingId: result.trackingId,
+        },
+      });
+
       return {
         success: true,
         data: {
           messageId: result.externalMessageId ?? null,
+          threadId: result.externalThreadId ?? null,
+          trackingId: result.trackingId,
           provider,
           message: `Email successfully sent to ${toEmail} via ${provider}.`,
         },

@@ -55,6 +55,7 @@ import {
   GLOBAL_ERROR_LOGGER,
   GLOBAL_CRASHLYTICS,
   httpErrorInterceptor,
+  HTTP_ERROR_INTERCEPTOR_FIREBASE_AUTH,
 } from '@nxt1/ui/infrastructure';
 import {
   ANALYTICS_ADAPTER,
@@ -77,10 +78,6 @@ import { provideBadgeBridge } from './core/services';
 // Web push notifications: FCM token management + foreground message handling
 import { provideWebPush } from './core/services';
 
-// News API adapter — wired at root so the shared NewsService
-// (providedIn: 'root') can resolve the token when it's first injected.
-import { NEWS_API_BASE_URL, NEWS_API_ADAPTER, NEWS_SHARE_ADAPTER } from '@nxt1/ui/news';
-import { PulseApiAdapterService } from './core/services/api/pulse-api-adapter.service';
 import { TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui/team-profile';
 import { INTEL_API_BASE_URL } from '@nxt1/ui/intel';
 import { MANAGE_TEAM_API_BASE_URL } from '@nxt1/ui/manage-team';
@@ -101,9 +98,7 @@ import { USAGE_API_BASE_URL, STRIPE_PUBLISHABLE_KEY } from '@nxt1/ui/usage';
 // Help Center API adapter — wired at root so the shared HelpCenterService
 // (providedIn: 'root') can resolve the token when it's first injected.
 import { HELP_CENTER_API } from '@nxt1/ui/help-center';
-import { FEED_API } from '@nxt1/ui/feed';
 import { HelpCenterApiService } from './core/services/api/help-center-api.service';
-import { FeedApiService } from './core/services';
 import { ActivityApiService as WebActivityApiService } from './core/services/api/activity-api.service';
 
 // Firebase
@@ -115,7 +110,6 @@ import { ActivityApiService as WebActivityApiService } from './core/services/api
 // - Analytics/Performance: Lazy-loaded after LCP (see AppComponent)
 import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
 import { provideAuth, getAuth } from '@angular/fire/auth';
-import { provideAnalytics, getAnalytics } from '@angular/fire/analytics';
 import { providePerformance, getPerformance } from '@angular/fire/performance';
 import {
   provideFirestore,
@@ -271,7 +265,9 @@ export const appConfig: ApplicationConfig = {
 
     provideFirebaseApp(() => initializeApp(environment.firebase)),
     provideAuth(() => getAuth()),
-    provideAnalytics(() => getAnalytics()),
+    // Provide Firebase Auth instance to the HTTP error interceptor so it can
+    // attempt a token force-refresh on 401 before redirecting to /auth.
+    { provide: HTTP_ERROR_INTERCEPTOR_FIREBASE_AUTH, useFactory: () => getAuth() },
     providePerformance(() => getPerformance()),
     provideFirestore(() => getFirestore()),
     // NOTE: Storage is NOT provided in browser bundle —
@@ -323,17 +319,6 @@ export const appConfig: ApplicationConfig = {
 
     // FCM token registration, foreground message handling, background click routing
     provideWebPush(),
-
-    // News API base URL — uses the same environment.apiURL as other services.
-    // The news constants use /news/* paths (without /api/v1/ prefix),
-    // so baseUrl + path = e.g. http://localhost:3000/api/v1/staging/news
-    { provide: NEWS_API_BASE_URL, useFactory: () => environment.apiURL },
-
-    // News API adapter — root-level so shared NewsService resolves it
-    { provide: NEWS_API_ADAPTER, useExisting: PulseApiAdapterService },
-
-    // News share adapter — routes Pulse article sharing through the app ShareService
-    { provide: NEWS_SHARE_ADAPTER, useExisting: ShareService },
 
     // Team Profile API base URL
     { provide: TEAM_PROFILE_API_BASE_URL, useFactory: () => environment.apiURL },
@@ -400,9 +385,6 @@ export const appConfig: ApplicationConfig = {
 
     // Help Center API adapter — root-level so shared HelpCenterService resolves it
     { provide: HELP_CENTER_API, useExisting: HelpCenterApiService },
-
-    // Feed API adapter — root-level so shared FeedService resolves it
-    { provide: FEED_API, useExisting: FeedApiService },
 
     // ============================================
     // LOGGING & ERROR HANDLING

@@ -95,6 +95,7 @@ import type { CrashlyticsAdapter, CrashUser } from '@nxt1/core/crashlytics';
 import { GLOBAL_CRASHLYTICS } from '@nxt1/ui/infrastructure/error-handling';
 import { environment } from '../../../../environments/environment';
 import { clearHttpCache } from '../../infrastructure';
+import { mapBackendProfileToCachedUserProfile } from './auth-profile.mapper';
 
 /**
  * SSR-Safe Firebase Auth Access
@@ -280,17 +281,17 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   /**
    * Create appropriate analytics adapter based on platform
    *
-   * Note: Firebase Analytics via dynamic import has issues with Vite bundler.
-   * For now, use memory adapter which logs events in debug mode.
-   * The main Firebase Analytics is handled by @angular/fire/analytics
-   * which is properly configured in app.config.ts.
+   * Note: auth-specific analytics here use a lightweight adapter for local
+   * state coordination and debug logging.
+   * The primary web analytics pipeline now relays browser events to the
+   * backend-owned analytics endpoint for Mongo-backed rollups.
    *
    * This adapter is primarily for auth-specific tracking that supplements
-   * the global analytics.
+   * the global analytics service.
    */
   private createAnalyticsAdapter(): AnalyticsAdapter {
-    // Use memory adapter that logs in debug mode
-    // Main analytics is handled by @angular/fire/analytics globally
+    // Use a lightweight memory adapter for auth-local tracking and debug logging
+    // Primary analytics flow is handled by the shared backend relay service
     return createMemoryAnalyticsAdapter({
       enabled: this.platform.isBrowser(),
       debug: !environment.production,
@@ -491,48 +492,24 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               return;
             }
 
-            // User is signed in - sync profile
+            // User is signed in - sync profile (state only, no navigation side-effects)
             await this.syncUserProfile(firebaseUser);
             this.authManager.setLoading(false);
             this.authManager.setInitialized(true);
             this._isAuthReady.set(true);
 
-            // Check onboarding status AFTER sync
-            const completedOnboarding = this.hasCompletedOnboarding();
-            const currentUser = this.user();
-
-            this.logger.info('User authenticated', {
+            // State sync complete. Navigation is the responsibility of the explicit
+            // sign-in/OAuth methods (signInWithEmail, processGoogleAuthResult, etc.)
+            // which call navigateRoot/navigateForward after a successful auth flow.
+            // This listener must NEVER navigate — doing so causes spurious redirects
+            // when a 401 sends the user to /auth while their Firebase session is still valid:
+            //   401 → /auth → Firebase still valid → listener fires → isOnAuthPage=true → /agent
+            // This matches the mobile pattern (setupFirebaseAuthSync is a one-time check, not reactive).
+            this.logger.info('User authenticated (state synced)', {
               uid: firebaseUser.uid,
               email: firebaseUser.email,
-              hasDisplayName: !!currentUser?.displayName && currentUser.displayName !== 'User',
-              hasCompletedOnboarding: completedOnboarding,
-              currentUrl: this.router.url,
+              hasCompletedOnboarding: this.hasCompletedOnboarding(),
             });
-
-            // Navigate based on onboarding status
-            // IMPORTANT: Only redirect if on auth pages or root, don't interrupt user on other pages
-            const currentUrl = this.router.url;
-            const isCongratulationsPage = currentUrl.includes('congratulations');
-            const isOnAuthPage = currentUrl.includes(AUTH_ROUTES.ROOT) && !isCongratulationsPage;
-            const isOnRootPage = currentUrl === '/';
-            const isOnOnboardingPage = currentUrl.includes('/onboarding') && !isCongratulationsPage;
-
-            // Only redirect to onboarding if:
-            // 1. User hasn't completed onboarding AND
-            // 2. User is on auth pages or root (not already navigating somewhere else)
-            if (!completedOnboarding && !isOnOnboardingPage && (isOnAuthPage || isOnRootPage)) {
-              this.logger.info('⚠️ Onboarding not complete, redirecting to onboarding');
-              await this.navigateForward(AUTH_ROUTES.ONBOARDING);
-            }
-            // If completed and on auth/root page → redirect to home
-            else if (completedOnboarding && (isOnAuthPage || isOnRootPage)) {
-              this.logger.info('✅ Onboarding complete, redirecting to home');
-              await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
-            }
-            // Otherwise: stay on current page (e.g., /home, /profile, etc.)
-            else {
-              this.logger.info('ℹ️ Staying on current page', { currentUrl, completedOnboarding });
-            }
           } else {
             // Firebase emits null in two situations:
             // 1. Initial emission before it resolves the session from the cookie (not a real sign-out)
@@ -612,66 +589,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           const user = await this.authApi.getUserProfile(firebaseUser.uid, {
             noCache: forceFresh,
           });
-          return {
-            uid: user.id,
-            email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            profileImg: user.profileImgs?.[0] ?? null,
-            displayName: `${user.firstName} ${user.lastName}`.trim(),
-            role: user.role ?? null,
-            onboardingCompleted: user.onboardingCompleted,
-            // Team data — used by top-nav menu for coach/director → /team/:slug redirect
-            teamCode: user.teamCode
-              ? {
-                  slug: user.teamCode.slug,
-                  unicode: user.teamCode.unicode,
-                  teamName: user.teamCode.teamName,
-                  sport: user.teamCode.sport,
-                  logoUrl: user.teamCode.logoUrl ?? user.teamCode.teamLogoImg ?? null,
-                }
-              : (() => {
-                  // Legacy fallback: some Firestore docs store team info in
-                  // `sports[].team` or a top-level `team` field instead of `teamCode`.
-                  const sportsRaw = Array.isArray(user.sports)
-                    ? user.sports
-                    : user.sports
-                      ? (Object.values(user.sports) as typeof user.sports)
-                      : undefined;
-                  const sportTeam = sportsRaw?.find((s) => s.team?.name)?.team;
-                  const rawTopTeam = (user as unknown as Record<string, unknown>)['team'] as
-                    | { name?: string; logoUrl?: string; logo?: string | null }
-                    | undefined;
-                  const teamName = sportTeam?.name ?? rawTopTeam?.name;
-                  if (!teamName) return null;
-                  const slug = user.coach?.managedTeamCodes?.[0];
-                  return {
-                    slug,
-                    unicode: undefined as string | undefined,
-                    teamName,
-                    sport: sportsRaw?.find((s) => s.team?.name)?.sport,
-                    logoUrl: sportTeam?.logoUrl ?? sportTeam?.logo ?? rawTopTeam?.logoUrl ?? null,
-                  };
-                })(),
-            managedTeamCodes: user.coach?.managedTeamCodes ?? null,
-            // Normalise: Firestore dot-notation writes can convert sports array
-            // to a plain map {"0": {...}}. Convert back before array methods.
-            ...(() => {
-              const sportsArr = Array.isArray(user.sports)
-                ? user.sports
-                : user.sports
-                  ? (Object.values(user.sports) as typeof user.sports)
-                  : undefined;
-              return {
-                primarySport: sportsArr?.find((s) => s.order === 0)?.sport,
-                sports: sportsArr?.map((s) => ({
-                  sport: s.sport,
-                  positions: s.positions,
-                  isPrimary: s.order === 0,
-                })),
-              };
-            })(),
-          };
+          return mapBackendProfileToCachedUserProfile(user);
         });
         this.logger.debug('Backend profile fetched (cached)', {
           uid: firebaseUser.uid,
@@ -1786,6 +1704,64 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       role: patched.role,
       displayName: patched.displayName,
       hasCompletedOnboarding: patched.hasCompletedOnboarding,
+    });
+  }
+
+  async applyResolvedTeamIdentity(input: {
+    teamCode: string;
+    teamId?: string;
+    slug?: string;
+    teamName?: string;
+    sport?: string;
+    logoUrl?: string | null;
+  }): Promise<void> {
+    const current = this.user();
+    if (!current?.uid || !input.teamCode.trim()) {
+      return;
+    }
+
+    const existingTeamCode =
+      current.teamCode && typeof current.teamCode === 'object' ? current.teamCode : null;
+    const nextTeamCode = {
+      teamCode: input.teamCode.trim(),
+      teamId: input.teamId?.trim() || existingTeamCode?.teamId,
+      slug: input.slug?.trim() || existingTeamCode?.slug,
+      unicode: input.teamCode.trim(),
+      teamName: input.teamName?.trim() || existingTeamCode?.teamName,
+      sport: input.sport?.trim() || existingTeamCode?.sport || current.primarySport,
+      logoUrl: input.logoUrl ?? existingTeamCode?.logoUrl ?? current.profileImg ?? null,
+    };
+
+    const alreadySynced =
+      existingTeamCode?.teamCode === nextTeamCode.teamCode &&
+      existingTeamCode?.slug === nextTeamCode.slug &&
+      existingTeamCode?.teamName === nextTeamCode.teamName;
+    if (alreadySynced) {
+      return;
+    }
+
+    const mergedManagedTeamCodes = Array.from(
+      new Set(
+        [
+          nextTeamCode.teamCode,
+          ...(Array.isArray(current.managedTeamCodes) ? current.managedTeamCodes : []),
+        ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      )
+    );
+
+    const patched: AuthUser = {
+      ...current,
+      teamCode: nextTeamCode,
+      managedTeamCodes: mergedManagedTeamCodes,
+    };
+
+    await this.authManager.setUser(patched);
+    await globalAuthUserCache.set(current.uid, patched as unknown as CachedUserProfile);
+
+    this.logger.info('Applied resolved team identity to auth state', {
+      uid: current.uid,
+      teamCode: nextTeamCode.teamCode,
+      slug: nextTeamCode.slug,
     });
   }
 

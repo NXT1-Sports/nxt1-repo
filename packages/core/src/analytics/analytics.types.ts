@@ -1,6 +1,6 @@
 /**
  * @fileoverview Analytics Types
- * @module @nxt1/core/analytics-dashboard
+ * @module @nxt1/core/analytics
  *
  * Pure TypeScript types for the analytics feature.
  * Used by both the backend service and frontend display.

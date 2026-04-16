@@ -24,7 +24,6 @@ export type EditProfileSectionId =
   | 'sports-info'
   | 'academics'
   | 'physical'
-  | 'social-links'
   | 'contact'
   | 'preferences';
 
@@ -40,10 +39,6 @@ export interface EditProfileSection {
   readonly icon: string;
   /** Section description */
   readonly description: string;
-  /** Completion percentage (0-100) */
-  readonly completionPercent: number;
-  /** XP reward for completing section */
-  readonly xpReward: number;
   /** Whether section is expanded */
   readonly isExpanded?: boolean;
   /** Whether section is locked (requires previous section) */
@@ -98,10 +93,6 @@ export interface EditProfileField {
   readonly options?: readonly EditProfileFieldOption[];
   /** Validation rules */
   readonly validation?: EditProfileFieldValidation;
-  /** XP reward for completing this field */
-  readonly xpReward?: number;
-  /** Whether field affects completion score */
-  readonly countsTowardCompletion?: boolean;
   /** Order within section */
   readonly order?: number;
   /** Icon for the field */
@@ -128,66 +119,6 @@ export interface EditProfileFieldValidation {
   readonly max?: number;
   readonly pattern?: string;
   readonly patternMessage?: string;
-}
-
-// ============================================
-// PROFILE COMPLETION TYPES
-// ============================================
-
-/**
- * Profile completion tier based on percentage.
- */
-export type ProfileCompletionTier = 'rookie' | 'starter' | 'all-star' | 'mvp' | 'legend';
-
-/**
- * Profile completion data with gamified elements.
- */
-export interface ProfileCompletionData {
-  /** Overall completion percentage (0-100) */
-  readonly percentage: number;
-  /** Current tier based on completion */
-  readonly tier: ProfileCompletionTier;
-  /** XP earned from profile */
-  readonly xpEarned: number;
-  /** Total possible XP from profile */
-  readonly xpTotal: number;
-  /** Progress to next tier (0-100) */
-  readonly progressToNextTier: number;
-  /** Next tier to achieve */
-  readonly nextTier?: ProfileCompletionTier;
-  /** Fields completed count */
-  readonly fieldsCompleted: number;
-  /** Total fields count */
-  readonly fieldsTotal: number;
-  /** Sections with completion data */
-  readonly sections: readonly SectionCompletionData[];
-  /** Recent achievements unlocked */
-  readonly recentAchievements: readonly ProfileAchievement[];
-}
-
-/**
- * Completion data for a single section.
- */
-export interface SectionCompletionData {
-  readonly sectionId: EditProfileSectionId;
-  readonly percentage: number;
-  readonly fieldsCompleted: number;
-  readonly fieldsTotal: number;
-  readonly xpEarned: number;
-  readonly isComplete: boolean;
-}
-
-/**
- * Achievement unlocked through profile completion.
- */
-export interface ProfileAchievement {
-  readonly id: string;
-  readonly title: string;
-  readonly description: string;
-  readonly icon: string;
-  readonly xpReward: number;
-  readonly unlockedAt: string;
-  readonly tier: 'bronze' | 'silver' | 'gold' | 'platinum';
 }
 
 // ============================================
@@ -220,16 +151,12 @@ export interface EditProfilePhotos {
  */
 export interface EditProfileSportsInfo {
   readonly sport?: string;
-  readonly primaryPosition?: string;
-  readonly secondaryPositions?: readonly string[];
-  readonly jerseyNumber?: string;
-  readonly yearsExperience?: number;
+  /** Positions played in this sport (maps to sports[i].positions[]) */
+  readonly positions?: readonly string[];
   /** Team / program name (maps to sports[i].team.name) */
   readonly teamName?: string;
   /** Team type (maps to sports[i].team.type) */
   readonly teamType?: string;
-  /** Team logo URL (maps to sports[i].team.logoUrl) */
-  readonly teamLogoUrl?: string;
   /** Organization ID linking this team to a program (maps to sports[i].team.organizationId) */
   readonly teamOrganizationId?: string;
 }
@@ -238,12 +165,12 @@ export interface EditProfileSportsInfo {
  * Academic info form data.
  */
 export interface EditProfileAcademics {
-  readonly school?: string;
   readonly gpa?: string;
   readonly sat?: string;
   readonly act?: string;
   readonly intendedMajor?: string;
   readonly graduationDate?: string;
+  readonly school?: string;
 }
 
 /**
@@ -253,45 +180,6 @@ export interface EditProfilePhysical {
   readonly height?: string;
   readonly weight?: string;
   readonly wingspan?: string;
-  readonly fortyYardDash?: string;
-  readonly verticalJump?: string;
-}
-
-/**
- * A single social link entry for editing.
- * Agnostic — no hardcoded platforms. Mirrors ConnectedSource in user.model.ts.
- */
-export interface EditProfileSocialLinkEntry {
-  /** Platform identifier (e.g., "twitter", "instagram", "hudl", custom) */
-  readonly platform: string;
-  /** Full URL to the profile */
-  readonly url: string;
-  /** Optional display username/handle */
-  readonly username?: string;
-  /** Display order (0-based) */
-  readonly displayOrder?: number;
-  /** Scope type: 'global', 'sport', or 'team' */
-  readonly scopeType?: 'global' | 'sport' | 'team';
-  /** Scope identifier (e.g., sport name or team ID) */
-  readonly scopeId?: string;
-}
-
-/**
- * Social links form data.
- * Agnostic array — supports any platform, no hardcoded fields.
- *
- * @example
- * ```ts
- * const socialLinks: EditProfileSocialLinks = {
- *   links: [
- *     { platform: 'twitter', url: 'https://x.com/handle', username: '@handle', displayOrder: 0 },
- *     { platform: 'hudl', url: 'https://hudl.com/profile/123', displayOrder: 1 },
- *   ]
- * };
- * ```
- */
-export interface EditProfileSocialLinks {
-  readonly links: readonly EditProfileSocialLinkEntry[];
 }
 
 /**
@@ -300,10 +188,6 @@ export interface EditProfileSocialLinks {
 export interface EditProfileContact {
   readonly email?: string;
   readonly phone?: string;
-  readonly parentEmail?: string;
-  readonly parentPhone?: string;
-  readonly coachEmail?: string;
-  readonly preferredContactMethod?: 'email' | 'phone' | 'app';
 }
 
 /**
@@ -315,7 +199,6 @@ export interface EditProfileFormData {
   readonly sportsInfo: EditProfileSportsInfo;
   readonly academics: EditProfileAcademics;
   readonly physical: EditProfilePhysical;
-  readonly socialLinks: EditProfileSocialLinks;
   readonly contact: EditProfileContact;
 }
 
@@ -329,10 +212,6 @@ export interface EditProfileFormData {
 export interface EditProfileUpdateResponse {
   readonly success: boolean;
   readonly message?: string;
-  readonly xpAwarded?: number;
-  readonly achievementsUnlocked?: readonly ProfileAchievement[];
-  readonly newCompletionPercentage?: number;
-  readonly newTier?: ProfileCompletionTier;
 }
 
 /**
@@ -341,7 +220,6 @@ export interface EditProfileUpdateResponse {
 export interface EditProfileData {
   readonly uid: string;
   readonly formData: EditProfileFormData;
-  readonly completion: ProfileCompletionData;
   readonly lastUpdated: string;
   readonly rawUser?: Record<string, unknown>; // User type from @nxt1/core
   readonly activeSportIndex?: number;
@@ -357,8 +235,6 @@ export interface EditProfileData {
 export interface EditProfileState {
   /** Current form data */
   readonly formData: EditProfileFormData | null;
-  /** Completion data */
-  readonly completion: ProfileCompletionData | null;
   /** Currently expanded section */
   readonly expandedSection: EditProfileSectionId | null;
   /** Sections configuration */

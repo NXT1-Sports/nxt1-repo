@@ -7,8 +7,6 @@
  * These are portable and can be used anywhere.
  */
 
-import { AVATAR_INITIALS_COLORS } from './avatar.types';
-
 /**
  * Extract initials from a name string
  *
@@ -74,22 +72,10 @@ export function extractInitials(name: string | null | undefined): string {
  * @param str - String to hash (typically name or email)
  * @returns Hex color string from the palette
  */
-export function getInitialsColor(str: string | null | undefined): string {
-  if (!str) {
-    return AVATAR_INITIALS_COLORS[0];
-  }
-
-  // Simple hash function
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-
-  // Use absolute value and modulo to get index
-  const index = Math.abs(hash) % AVATAR_INITIALS_COLORS.length;
-  return AVATAR_INITIALS_COLORS[index];
+export function getInitialsColor(_str: string | null | undefined): string {
+  // Use a design token that resolves correctly in both dark and light themes.
+  // --nxt1-color-surface-300 = #222222 (dark) / #eeeeee (light)
+  return 'var(--nxt1-color-surface-300, #222222)';
 }
 
 /**
@@ -103,17 +89,31 @@ export function getInitialsColor(str: string | null | undefined): string {
  * @returns 'white' or 'rgba(0,0,0,0.87)' for text color
  */
 export function getContrastingTextColor(color: string): string {
-  let hexColor = color;
-
-  // Handle CSS custom property strings — extract fallback hex for contrast calc
+  // When the background is a CSS variable reference (e.g. from getInitialsColor),
+  // JS cannot resolve the current theme value at compute time. Return a CSS variable
+  // reference for the text color so the browser resolves it correctly at paint time
+  // based on the active [data-theme] attribute.
+  // --nxt1-color-text-primary = #ffffff (dark) / #212121 (light)
   if (color.startsWith('var(')) {
-    const match = color.match(/#[0-9a-fA-F]{6}/);
-    if (match) {
-      hexColor = match[0];
-    } else {
-      // No fallback hex found — default to dark text (safe for light/primary backgrounds)
-      return 'rgba(0, 0, 0, 0.87)';
+    return 'var(--nxt1-color-text-primary, #ffffff)';
+  }
+
+  const hexColor = color;
+
+  // rgba() strings — check opacity to determine effective luminance on a dark bg
+  if (color.startsWith('rgba(') || color.startsWith('rgb(')) {
+    const parts = color.match(/[\d.]+/g);
+    if (parts && parts.length >= 3) {
+      const r = parseFloat(parts[0]);
+      const g = parseFloat(parts[1]);
+      const b = parseFloat(parts[2]);
+      const a = parts.length >= 4 ? parseFloat(parts[3]) : 1;
+      // Blend over a dark background (#0a0a0a ≈ 10)
+      const blended = (c: number) => c * a + 10 * (1 - a);
+      const luminance = (0.299 * blended(r) + 0.587 * blended(g) + 0.114 * blended(b)) / 255;
+      return luminance > 0.5 ? 'rgba(0, 0, 0, 0.87)' : 'white';
     }
+    return 'white';
   }
 
   // Remove # if present

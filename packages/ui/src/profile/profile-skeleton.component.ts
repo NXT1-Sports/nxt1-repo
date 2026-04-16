@@ -50,25 +50,17 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
           <!-- Matches profile-shell.component (Ionic) mobile layout exactly:
                Mobile Hero → Top Tabs → Section Nav Pills → Content Sections -->
           <div class="sk-mobile" aria-hidden="true">
-            <!-- Halftone accent (same as real profile) -->
-            <div class="sk-halftone-mobile"></div>
-
-            <!-- ═══ MOBILE HERO: Carousel + Identity ═══ -->
-            <!-- mirrors: .madden-mobile-hero { grid: 148px minmax(0,1fr); gap:12px; margin:32px 12px 10px } -->
+            <!-- ═══ MOBILE HERO: Avatar ring + NxtEntityHero identity ═══ -->
+            <!-- mirrors: madden-mobile-hero — full-width block layout -->
             <div class="sk-hero">
-              <!-- Carousel image -->
-              <div class="sk-hero__carousel skeleton-animate"></div>
-              <!-- Identity column -->
+              <!-- entity-hero identity card -->
+              <!-- mirrors: nxt1-entity-hero — avatar-ring + name-row + badge-row + chips -->
               <div class="sk-hero__identity">
                 <div class="sk-hero__name skeleton-animate"></div>
-                <div class="sk-hero__meta skeleton-animate"></div>
-                <!-- Stats: Class, Height, Weight, Location -->
-                <div class="sk-hero__stats">
-                  @for (i of [1, 2, 3, 4]; track i) {
-                    <div class="sk-hero__stat-row">
-                      <div class="sk-hero__stat-key skeleton-animate"></div>
-                      <div class="sk-hero__stat-val skeleton-animate"></div>
-                    </div>
+                <div class="sk-hero__chip skeleton-animate"></div>
+                <div class="sk-hero__chips">
+                  @for (i of [1, 2, 3]; track i) {
+                    <div class="sk-hero__chip-item skeleton-animate"></div>
                   }
                 </div>
               </div>
@@ -81,64 +73,6 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
                 <div class="sk-tabs__pill skeleton-animate"></div>
               }
             </div>
-
-            <!-- ═══ SECTION NAV PILLS (Player Profile, Bio, History …) ═══ -->
-            <!-- mirrors: nxt1-section-nav-web mobile pill strip -->
-            <div class="sk-section-pills">
-              @for (i of [1, 2, 3, 4, 5]; track i) {
-                <div class="sk-section-pills__pill skeleton-animate"></div>
-              }
-            </div>
-
-            <!-- ═══ CONTENT SECTIONS ═══ -->
-            <div class="sk-content-mobile">
-              <!-- Team Cards (mirrors .ov-mobile-teams) -->
-              <div class="sk-teams">
-                <div class="sk-teams__title skeleton-animate"></div>
-                <div class="sk-teams__stack">
-                  @for (i of [1, 2]; track i) {
-                    <div class="sk-teams__card">
-                      <div class="sk-teams__logo skeleton-animate"></div>
-                      <div class="sk-teams__info">
-                        <div class="sk-teams__name skeleton-animate"></div>
-                        <div class="sk-teams__location skeleton-animate"></div>
-                      </div>
-                    </div>
-                  }
-                </div>
-              </div>
-
-              <!-- Player Archetypes (mirrors .ov-archetype-badges) -->
-              <div class="sk-archetypes">
-                <div class="sk-archetypes__title skeleton-animate"></div>
-                <div class="sk-archetypes__grid">
-                  @for (i of [1, 2, 3]; track i) {
-                    <div class="sk-archetypes__badge skeleton-animate"></div>
-                  }
-                </div>
-              </div>
-
-              <!-- Connected Accounts (mirrors .ov-connected-grid) -->
-              <div class="sk-connected">
-                <div class="sk-connected__title skeleton-animate"></div>
-                <div class="sk-connected__grid">
-                  @for (i of [1, 2, 3, 4, 5, 6]; track i) {
-                    <div class="sk-connected__chip skeleton-animate"></div>
-                  }
-                </div>
-                <div class="sk-connected__explainer skeleton-animate"></div>
-              </div>
-
-              <!-- XP Ring + Badges (mirrors .ov-mobile-xp-section) -->
-              <div class="sk-xp">
-                <div class="sk-xp__ring skeleton-animate"></div>
-                <div class="sk-xp__badges">
-                  @for (i of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; track i) {
-                    <div class="sk-xp__badge skeleton-animate"></div>
-                  }
-                </div>
-              </div>
-            </div>
           </div>
         }
 
@@ -146,9 +80,6 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
           <!-- ═══ DESKTOP: Madden Franchise split layout ═══ -->
           <div class="sk-web" aria-hidden="true">
             <div class="sk-stage">
-              <!-- Halftone dots (decorative, matches real profile) -->
-              <div class="sk-halftone"></div>
-
               <div class="sk-split">
                 <!-- ═══ LEFT COLUMN ═══ -->
                 <div class="sk-left">
@@ -171,21 +102,17 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
                   </div>
 
                   <!-- Mobile Hero (mobile only) -->
-                  <!-- mirrors: .madden-mobile-hero → grid(148px, 1fr) carousel | identity(name, meta, stats) -->
+                  <!-- mirrors: .madden-mobile-hero — full-width block layout -->
                   <div class="sk-mobile-hero">
-                    <!-- Left: Player image carousel -->
-                    <div class="sk-mh-carousel skeleton-animate"></div>
-                    <!-- Right: Identity -->
+                    <!-- Identity (mirrors nxt1-entity-hero) -->
                     <div class="sk-mh-identity">
                       <div class="sk-mh-name skeleton-animate"></div>
-                      <div class="sk-mh-meta skeleton-animate"></div>
-                      <!-- Stats rows: Class, Height, Weight, Location -->
-                      <div class="sk-mh-stats">
-                        @for (i of [1, 2, 3, 4]; track i) {
-                          <div class="sk-mh-stat-row">
-                            <div class="sk-mh-stat-key skeleton-animate"></div>
-                            <div class="sk-mh-stat-val skeleton-animate"></div>
-                          </div>
+                      <!-- position chip: mirrors .eh__position-chip { height:22px; border-radius:6px } -->
+                      <div class="sk-mh-chip skeleton-animate"></div>
+                      <!-- meta chips: mirrors .eh__chips .eh__chip { height:~26px; border-radius:99px } -->
+                      <div class="sk-mh-chips">
+                        @for (i of [1, 2, 3]; track i) {
+                          <div class="sk-mh-chip-item skeleton-animate"></div>
                         }
                       </div>
                     </div>
@@ -196,93 +123,6 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
                     @for (i of [1, 2, 3, 4, 5, 6, 7]; track i) {
                       <div class="sk-tab skeleton-animate"></div>
                     }
-                  </div>
-
-                  <!-- Content layer: Side nav column + main content scroll -->
-                  <!-- mirrors: .madden-content-layer → grid(180px, 1fr) -->
-                  <div class="sk-content-layer">
-                    <!-- Side Nav Column (desktop: vertical sticky, mobile: display:contents → horizontal pills) -->
-                    <!-- mirrors: .madden-side-nav-column → nxt1-section-nav-web -->
-                    <div class="sk-side-nav-column">
-                      <!-- Desktop: vertical nav items -->
-                      <div class="sk-side-nav">
-                        @for (i of [1, 2, 3, 4, 5, 6]; track i) {
-                          <div class="sk-side-item skeleton-animate"></div>
-                        }
-                      </div>
-                      <!-- Mobile: horizontal pill strip (mirrors section-nav mobile) -->
-                      <div class="sk-mobile-pills">
-                        @for (i of [1, 2, 3, 4, 5]; track i) {
-                          <div class="sk-mobile-pill skeleton-animate"></div>
-                        }
-                      </div>
-                    </div>
-
-                    <!-- Main Content Area (mirrors .madden-content-scroll) -->
-                    <div class="sk-content">
-                      <!-- Mobile Team Cards (mobile only, mirrors .ov-mobile-teams) -->
-                      <div class="sk-mobile-teams">
-                        <div class="sk-section-title skeleton-animate"></div>
-                        <div class="sk-team-stack">
-                          <div class="sk-team-card">
-                            <div class="sk-team-logo skeleton-animate"></div>
-                            <div class="sk-team-info">
-                              <div class="sk-team-name skeleton-animate"></div>
-                              <div class="sk-team-location skeleton-animate"></div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <!-- Section 1: Player Profile (key-value grid, desktop only) -->
-                      <div class="sk-section sk-section--profile">
-                        <div class="sk-section-title skeleton-animate"></div>
-                        <div class="sk-profile-grid">
-                          @for (i of [1, 2, 3, 4]; track i) {
-                            <div class="sk-profile-row">
-                              <div class="sk-profile-key skeleton-animate"></div>
-                              <div class="sk-profile-val skeleton-animate"></div>
-                            </div>
-                          }
-                        </div>
-                      </div>
-
-                      <!-- Section 2: Player Archetypes -->
-                      <div class="sk-section">
-                        <div class="sk-section-title skeleton-animate"></div>
-                        <div class="sk-archetype-grid">
-                          @for (i of [1, 2, 3]; track i) {
-                            <div class="sk-archetype skeleton-animate"></div>
-                          }
-                        </div>
-                      </div>
-
-                      <!-- Section 3: Connected Accounts -->
-                      <div class="sk-section">
-                        <div class="sk-section-title skeleton-animate"></div>
-                        <div class="sk-connected-grid">
-                          @for (i of [1, 2, 3, 4, 5, 6]; track i) {
-                            <div class="sk-connected-chip skeleton-animate"></div>
-                          }
-                        </div>
-                        <div class="sk-connected-explainer skeleton-animate"></div>
-                      </div>
-
-                      <!-- Section 4: XP + Badges (visible both, matches .ov-mobile-xp-section) -->
-                      <div class="sk-section sk-section--xp-badges">
-                        <div class="sk-xp-ring skeleton-animate"></div>
-                        <div class="sk-badge-grid">
-                          @for (i of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; track i) {
-                            <div class="sk-badge-orb skeleton-animate"></div>
-                          }
-                        </div>
-                      </div>
-
-                      <!-- Section 5: Last synced button -->
-                      <div class="sk-section">
-                        <div class="sk-sync-btn skeleton-animate"></div>
-                      </div>
-                    </div>
                   </div>
                 </div>
 
@@ -431,53 +271,63 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
          ============================================ */
 
       .sk-mobile {
-        position: relative;
         padding-bottom: 120px;
       }
 
-      /* Halftone accent (matches .halftone-bg in profile-shell) */
-      .sk-halftone-mobile {
+      /* ─── MOBILE HERO ─── */
+      /* mirrors: .madden-mobile-hero — full-width section with sporty background */
+      .sk-hero {
+        display: block;
+        margin: 0 0 10px;
+        position: relative;
+        isolation: isolate;
+        overflow: hidden;
+        padding: 14px 16px;
+      }
+
+      /* ── Sporty background (matches .madden-mobile-hero::before) ── */
+      .sk-hero::before {
+        content: '';
         position: absolute;
         inset: 0;
-        z-index: 0;
-        opacity: 0.015;
-        background-image: radial-gradient(circle, currentColor 1px, transparent 1px);
-        background-size: 24px 24px;
-        pointer-events: none;
+        z-index: -1;
+        background:
+          repeating-linear-gradient(
+            -52deg,
+            transparent 0 18px,
+            color-mix(in srgb, var(--nxt1-color-primary, #d4ff00) 7%, transparent) 18px 19.5px,
+            transparent 19.5px 44px
+          ),
+          radial-gradient(
+            ellipse 80% 60% at -4% -8%,
+            color-mix(in srgb, var(--nxt1-color-primary, #d4ff00) 22%, transparent) 0%,
+            color-mix(in srgb, var(--nxt1-color-primary, #d4ff00) 8%, transparent) 38%,
+            transparent 68%
+          ),
+          radial-gradient(
+            ellipse 110% 55% at 50% 108%,
+            color-mix(in srgb, var(--nxt1-color-primary, #d4ff00) 10%, transparent) 0%,
+            transparent 60%
+          ),
+          linear-gradient(
+            160deg,
+            var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.07)) 0%,
+            var(--nxt1-color-bg-primary, #0a0a0a) 100%
+          );
+        box-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
       }
 
-      .sk-mobile > *:not(.sk-halftone-mobile) {
-        position: relative;
-        z-index: 1;
-      }
-
-      /* ─── MOBILE HERO ─── */
-      /* mirrors: .madden-mobile-hero { display:grid; grid-template-columns:148px minmax(0,1fr); gap:12px; margin:32px 12px 10px } */
-      .sk-hero {
-        display: grid;
-        grid-template-columns: 148px minmax(0, 1fr);
-        gap: 12px;
-        align-items: start;
-        margin: 32px 12px 10px;
-      }
-
-      /* mirrors: .carousel-glow-wrap { height:228px; border-radius:14px } */
-      .sk-hero__carousel {
-        width: 148px;
-        height: 228px;
-        border-radius: 14px;
-      }
-
-      /* mirrors: .madden-mobile-hero__identity { display:flex; flex-direction:column; gap:5px; padding-top:2px } */
+      /* mirrors: .eh { display:flex; gap:14px; align-items:center; padding:6px 0 12px } */
       .sk-hero__identity {
         display: flex;
         flex-direction: column;
-        gap: 5px;
-        padding-top: 2px;
+        gap: 6px;
+        padding-top: 6px;
         min-width: 0;
+        align-self: center;
       }
 
-      /* mirrors: .madden-mobile-hero__name { font-size:22px; font-weight:800; line-height:1.12 } */
+      /* mirrors: .eh__name { font-size:1.5rem; font-weight:800; line-height:1.08 } */
       .sk-hero__name {
         height: 26px;
         width: 140px;
@@ -485,47 +335,34 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
         border-radius: 4px;
       }
 
-      /* mirrors: .madden-mobile-hero__meta { font-size:14px; font-weight:600 } */
-      .sk-hero__meta {
-        height: 18px;
+      /* mirrors: .eh__position-chip { height:22px; padding:0 9px; border-radius:6px } */
+      .sk-hero__chip {
+        height: 22px;
+        width: 52px;
+        border-radius: 6px;
+      }
+
+      /* mirrors: .eh__chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:2px } */
+      .sk-hero__chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 2px;
+      }
+
+      /* mirrors: .eh__chip { height approx 26px; padding:4px 10px 4px 8px; border-radius:99px } */
+      .sk-hero__chip-item {
+        height: 26px;
+        border-radius: 99px;
+      }
+      .sk-hero__chip-item:nth-child(1) {
+        width: 90px;
+      }
+      .sk-hero__chip-item:nth-child(2) {
+        width: 110px;
+      }
+      .sk-hero__chip-item:nth-child(3) {
         width: 100px;
-        max-width: 100%;
-        border-radius: 4px;
-      }
-
-      /* mirrors: .madden-mobile-hero__stats { display:flex; flex-direction:column; margin-top:8px } */
-      .sk-hero__stats {
-        display: flex;
-        flex-direction: column;
-        margin-top: 8px;
-      }
-
-      /* mirrors: .mobile-hero-stat { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom } */
-      .sk-hero__stat-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 6px 0;
-        border-bottom: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
-      }
-
-      .sk-hero__stat-row:last-child {
-        border-bottom: none;
-      }
-
-      /* mirrors: .mobile-hero-stat__key { font-size:13px; min-width:50px } */
-      .sk-hero__stat-key {
-        width: 50px;
-        height: 14px;
-        border-radius: 3px;
-        flex-shrink: 0;
-      }
-
-      /* mirrors: .mobile-hero-stat__val { font-size:14px; font-weight:700 } */
-      .sk-hero__stat-val {
-        width: 60px;
-        height: 16px;
-        border-radius: 3px;
       }
 
       /* ─── TOP TABS ─── */
@@ -789,17 +626,6 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
         min-height: calc(100vh - 64px);
         overflow: hidden;
         flex-shrink: 0;
-      }
-
-      /* Decorative halftone background (matches .stage-halftone-bg) */
-      .sk-halftone {
-        position: absolute;
-        inset: 0;
-        z-index: 1;
-        opacity: 0.015;
-        background-image: radial-gradient(circle, currentColor 1px, transparent 1px);
-        background-size: 24px 24px;
-        pointer-events: none;
       }
 
       /* ─────── SPLIT ─────── */
@@ -1328,32 +1154,57 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
         }
 
         /* ─── MOBILE HERO (shown on mobile) ─── */
-        /* mirrors: .madden-mobile-hero { display:grid; grid-template-columns:148px minmax(0,1fr); gap:12px; margin:32px 12px 10px } */
+        /* mirrors: .madden-mobile-hero — full-width section with sporty background */
         .sk-mobile-hero {
-          display: grid;
-          grid-template-columns: 148px minmax(0, 1fr);
-          gap: 12px;
-          align-items: start;
-          margin: 32px 12px 10px;
+          display: block;
+          margin: 0 0 10px;
+          position: relative;
+          isolation: isolate;
+          overflow: hidden;
+          padding: 14px 16px;
         }
 
-        /* mirrors: .madden-mobile-hero__carousel { width:148px } → .carousel-glow-wrap { height:220px; border-radius:14px } */
-        .sk-mh-carousel {
-          width: 148px;
-          height: 220px;
-          border-radius: 14px;
+        .sk-mobile-hero::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          z-index: -1;
+          background:
+            repeating-linear-gradient(
+              -52deg,
+              transparent 0 18px,
+              color-mix(in srgb, var(--nxt1-color-primary, #d4ff00) 7%, transparent) 18px 19.5px,
+              transparent 19.5px 44px
+            ),
+            radial-gradient(
+              ellipse 80% 60% at -4% -8%,
+              color-mix(in srgb, var(--nxt1-color-primary, #d4ff00) 22%, transparent) 0%,
+              color-mix(in srgb, var(--nxt1-color-primary, #d4ff00) 8%, transparent) 38%,
+              transparent 68%
+            ),
+            radial-gradient(
+              ellipse 110% 55% at 50% 108%,
+              color-mix(in srgb, var(--nxt1-color-primary, #d4ff00) 10%, transparent) 0%,
+              transparent 60%
+            ),
+            linear-gradient(
+              160deg,
+              var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.07)) 0%,
+              var(--nxt1-color-bg-primary, #0a0a0a) 100%
+            );
+          box-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
         }
 
-        /* mirrors: .madden-mobile-hero__identity { display:flex; flex-direction:column; gap:5px; padding-top:2px } */
+        /* mirrors: .eh { align-items:center; gap:14px; padding:6px 0 12px } */
         .sk-mh-identity {
           display: flex;
           flex-direction: column;
-          gap: 5px;
-          padding-top: 2px;
+          gap: 6px;
+          padding-top: 6px;
           min-width: 0;
+          align-self: center;
         }
 
-        /* mirrors: .madden-mobile-hero__name { font-size:22px; font-weight:800; line-height:1.12 } */
         .sk-mh-name {
           height: 26px;
           width: 140px;
@@ -1361,47 +1212,32 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
           border-radius: 4px;
         }
 
-        /* mirrors: .madden-mobile-hero__meta { font-size:14px; font-weight:600 } */
-        .sk-mh-meta {
-          height: 18px;
-          width: 80px;
-          max-width: 100%;
-          border-radius: 4px;
+        /* position chip */
+        .sk-mh-chip {
+          height: 22px;
+          width: 52px;
+          border-radius: 6px;
         }
 
-        /* mirrors: .madden-mobile-hero__stats { display:flex; flex-direction:column; margin-top:8px } */
-        .sk-mh-stats {
+        /* meta chips row */
+        .sk-mh-chips {
           display: flex;
-          flex-direction: column;
-          margin-top: 8px;
+          flex-wrap: wrap;
+          gap: 6px;
+          margin-top: 2px;
         }
-
-        /* mirrors: .mobile-hero-stat { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom } */
-        .sk-mh-stat-row {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          padding: 6px 0;
-          border-bottom: 1px solid var(--sk-border);
+        .sk-mh-chip-item {
+          height: 26px;
+          border-radius: 99px;
         }
-
-        .sk-mh-stat-row:last-child {
-          border-bottom: none;
+        .sk-mh-chip-item:nth-child(1) {
+          width: 90px;
         }
-
-        /* mirrors: .mobile-hero-stat__key { font-size:13px; min-width:50px } */
-        .sk-mh-stat-key {
-          width: 50px;
-          height: 14px;
-          border-radius: 3px;
-          flex-shrink: 0;
+        .sk-mh-chip-item:nth-child(2) {
+          width: 110px;
         }
-
-        /* mirrors: .mobile-hero-stat__val { font-size:14px; font-weight:700 } */
-        .sk-mh-stat-val {
-          width: 60px;
-          height: 16px;
-          border-radius: 3px;
+        .sk-mh-chip-item:nth-child(3) {
+          width: 100px;
         }
 
         /* Top tabs: reduce left padding + adjust margins (mirrors real profile mobile) */

@@ -52,34 +52,8 @@ export const routes: Routes = [
   },
 
   // ============================================
-  // PUBLIC PROFILE & EXPLORE (SEO-Critical)
+  // AUTHENTICATION (No layout wrapper)
   // ============================================
-
-  /**
-   * Public Profile Pages
-   * SEO-critical: Used for recruiting, social sharing
-   * Example: nxt1sports.com/profile/john-doe-2026
-   * NOTE: param name must be ':param' to match routeParam() in profile.component.ts
-   */
-  {
-    path: 'profile/:sport/:name/:unicode',
-    loadComponent: () =>
-      import('./features/profile/profile.component').then((m) => m.ProfileComponent),
-  },
-  {
-    path: 'profile/:param',
-    loadComponent: () =>
-      import('./features/profile/profile.component').then((m) => m.ProfileComponent),
-  },
-
-  // Team Pages — redirects to shell-wrapped route
-  // The actual team route lives inside WebShellComponent children
-  // so it gets the sidebar, top nav, and full app shell.
-  // This top-level redirect handles direct /team/:slug links.
-  // {
-  //   path: 'team/:slug',
-  //   redirectTo: 'team/:slug',  // handled by child route below
-  // },
 
   // Authentication Routes (Public - no layout wrapper)
   {
@@ -108,19 +82,6 @@ export const routes: Routes = [
         redirectTo: 'agent',
       },
 
-      // Home → Explore redirect (backward compatibility)
-      {
-        path: 'home',
-        redirectTo: 'explore',
-        pathMatch: 'full',
-      },
-
-      // Explore - Unified Discovery & Feed Hub
-      {
-        path: 'explore',
-        loadChildren: () => import('./features/explore/explore.routes'),
-      },
-
       // Messages - User Messages & Conversations
       {
         path: 'messages',
@@ -141,18 +102,6 @@ export const routes: Routes = [
       {
         path: 'activity',
         loadChildren: () => import('./features/activity/activity.routes'),
-      },
-
-      // Pulse - Sports Recruiting News Feed
-      {
-        path: 'pulse',
-        loadChildren: () => import('./features/pulse/pulse.routes'),
-      },
-
-      // Legacy /news redirect → /pulse
-      {
-        path: 'news',
-        redirectTo: 'pulse',
       },
 
       // Profile - User's own profile (authenticated view)

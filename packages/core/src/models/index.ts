@@ -321,6 +321,25 @@ export * from './platform/user-analytics.model';
 // Custom analytics model (flexible analytics event records)
 export type { CustomAnalyticsEvent } from './platform/custom-analytics.model';
 
+// Agent analytics event-sourcing ontology and rollups
+export {
+  ANALYTICS_DOMAINS,
+  ANALYTICS_SUBJECT_TYPES,
+  ANALYTICS_EVENT_TYPES,
+  ANALYTICS_SUMMARY_TIMEFRAMES,
+  getAnalyticsEventTypesForDomain,
+  getDefaultAnalyticsEventType,
+  isAnalyticsDomain,
+  isAnalyticsSubjectType,
+  isAnalyticsEventTypeForDomain,
+  type AnalyticsDomain,
+  type AnalyticsSubjectType,
+  type AnalyticsEventType,
+  type AnalyticsSummaryTimeframe,
+  type AnalyticsEventRecord,
+  type AnalyticsRollupRecord,
+} from './platform/analytics-event.model';
+
 // Notification model (push, email, SMS, in-app)
 export {
   NOTIFICATION_SCHEMA_VERSION,

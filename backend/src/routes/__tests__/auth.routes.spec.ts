@@ -327,32 +327,5 @@ describe('Auth Routes', () => {
         expect(userUpdate?.payload).not.toHaveProperty('primarySport');
       });
     });
-
-    describe('POST /api/v1/auth/profile/preload-scrape', () => {
-      it('should skip preload for all roles and defer to final completion', async () => {
-        // Send a request masquerading as an athlete, it should still be skipped
-        const response = await request(app)
-          .post('/api/v1/auth/profile/preload-scrape')
-          .send({
-            userId: 'user123',
-            role: 'athlete',
-            sport: 'Basketball',
-            linkedAccounts: [
-              {
-                platform: 'instagram',
-                profileUrl: 'https://instagram.com/test-player',
-              },
-            ],
-          });
-
-        expect(response.status).toBe(200);
-        expect(response.body).toMatchObject({
-          success: true,
-          skipped: true,
-          reason: 'Deferred until onboarding completion for all roles',
-        });
-        expect(response.body['scrapeJobId']).toBeUndefined();
-      });
-    });
   });
 });

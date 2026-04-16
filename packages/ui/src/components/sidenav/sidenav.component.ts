@@ -59,7 +59,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { isPlatformBrowser } from '@angular/common';
-import { Router, NavigationEnd, RouterLink } from '@angular/router';
+import { Router, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
 import {
   IonMenu,
@@ -71,10 +71,15 @@ import {
 } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../icon';
 import { NxtAvatarComponent } from '../avatar';
-import { NxtThemeSelectorComponent } from '../theme-selector';
 import { NxtPlatformService } from '../../services/platform';
 import { HapticsService } from '../../services/haptics';
 import { NxtSidenavService } from './sidenav.service';
+import { AgentXOperationsLogComponent } from '../../agent-x/agent-x-operations-log.component';
+import { AgentXOperationChatComponent } from '../../agent-x/agent-x-operation-chat.component';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../bottom-sheet';
+import { NxtFloatingActionBarComponent } from '../floating-action-bar';
+import type { FloatingActionBarConfig, FloatingBarFollowItem } from '../floating-action-bar';
+import type { OperationLogEntry } from '@nxt1/core';
 import type {
   SidenavSection,
   SidenavItem,
@@ -86,6 +91,7 @@ import type {
 import { DEFAULT_SOCIAL_LINKS, DEFAULT_SIDENAV_ITEMS, createSidenavConfig } from './sidenav.types';
 import type { SidenavItemSelectEvent } from './sidenav.types';
 import { formatSportDisplayName } from '@nxt1/core';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 @Component({
   selector: 'nxt1-sidenav',
@@ -97,12 +103,11 @@ import { formatSportDisplayName } from '@nxt1/core';
     IonToolbar,
     IonContent,
     IonMenuToggle,
-    // Angular Router
-    RouterLink,
     // Custom Components
     NxtIconComponent,
     NxtAvatarComponent,
-    NxtThemeSelectorComponent,
+    AgentXOperationsLogComponent,
+    NxtFloatingActionBarComponent,
   ],
   template: `
     <!-- Ionic Menu Component - provides native gestures and animations -->
@@ -185,11 +190,10 @@ import { formatSportDisplayName } from '@nxt1/core';
                         [attr.aria-label]="'Switch to ' + formatSportDisplay(profile.sport)"
                       >
                         <nxt1-avatar
-                          [src]="profile.profileImg"
-                          [name]="profile.sport"
+                          [src]="profile.profileImg || user()?.profileImg"
+                          [name]="user()?.name"
                           [isTeamRole]="user()!.isTeamRole ?? false"
-                          [initials]="user()!.isTeamRole ? '' : getSportInitials(profile.sport)"
-                          [defaultIcon]="user()!.isTeamRole ? 'shield' : 'athlete'"
+                          [defaultIcon]="user()!.isTeamRole ? 'shield' : ''"
                           [customSize]="28"
                           [showSkeleton]="false"
                         />
@@ -300,231 +304,211 @@ import { formatSportDisplayName } from '@nxt1/core';
                   section.collapsible && !isSectionExpanded(section)
                 "
               >
-                @for (item of section.items; track item.id) {
-                  @if (!item.hidden) {
-                    <!-- Divider -->
-                    @if (item.divider) {
-                      <div class="nxt1-sidenav-divider"></div>
+                @if (section.layout === 'grid') {
+                  <!-- ─── GRID LAYOUT: compact icon+label tiles in a single row ─── -->
+                  <div class="nxt1-sidenav-grid" role="menu">
+                    @for (item of section.items; track item.id) {
+                      @if (!item.hidden) {
+                        <ion-menu-toggle [autoHide]="false">
+                          <button
+                            type="button"
+                            class="nxt1-sidenav-grid__item"
+                            [class.nxt1-sidenav-grid__item--active]="isItemActive(item)"
+                            [class.nxt1-sidenav-grid__item--disabled]="item.disabled"
+                            [disabled]="item.disabled"
+                            [attr.aria-current]="isItemActive(item) ? 'page' : null"
+                            [attr.aria-label]="item.ariaLabel ?? item.label"
+                            role="menuitem"
+                            (click)="onItemClick(item, section.id, $event)"
+                          >
+                            <span class="nxt1-sidenav-grid__icon-wrap">
+                              <nxt1-icon [name]="item.icon ?? 'help'" [size]="20" />
+                            </span>
+                            <span class="nxt1-sidenav-grid__label">
+                              {{ item.shortLabel ?? item.label }}
+                            </span>
+                          </button>
+                        </ion-menu-toggle>
+                      }
                     }
+                  </div>
+                } @else {
+                  @for (item of section.items; track item.id) {
+                    @if (!item.hidden) {
+                      <!-- Divider -->
+                      @if (item.divider) {
+                        <div class="nxt1-sidenav-divider"></div>
+                      }
 
-                    <!-- Section Header Item -->
-                    @if (item.isSection) {
-                      <div class="nxt1-sidenav-item nxt1-sidenav-item--section">
-                        <span>{{ item.label }}</span>
-                      </div>
-                    } @else {
-                      <!-- Regular Menu Item - wrapped in IonMenuToggle for auto-close -->
-                      <ion-menu-toggle [autoHide]="false">
-                        <button
-                          class="nxt1-sidenav-item"
-                          [class.nxt1-sidenav-item--active]="isItemActive(item)"
-                          [class.nxt1-sidenav-item--disabled]="item.disabled"
-                          [class.nxt1-sidenav-item--danger]="item.variant === 'danger'"
-                          [class.nxt1-sidenav-item--premium]="item.variant === 'premium'"
-                          [class.nxt1-sidenav-item--has-children]="
-                            item.children && item.children.length > 0
-                          "
-                          [disabled]="item.disabled"
-                          (click)="onItemClick(item, section.id, $event)"
-                          [attr.aria-current]="isItemActive(item) ? 'page' : null"
-                        >
-                          @if (item.icon) {
-                            <div
-                              class="nxt1-sidenav-item__icon"
-                              [class.nxt1-sidenav-item__icon--agent-x]="isAgentXIcon(item.icon)"
-                            >
-                              @if (isAgentXIcon(item.icon)) {
-                                <!-- Agent X Logo SVG - Theme-aware via currentColor (same as footer) -->
-                                <svg
-                                  class="agent-x-logo"
-                                  viewBox="0 0 612 792"
-                                  width="40"
-                                  height="40"
-                                  fill="currentColor"
-                                  stroke="currentColor"
-                                  stroke-width="12"
-                                  stroke-linejoin="round"
-                                  aria-hidden="true"
-                                >
-                                  <path
-                                    d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                                  />
-                                  <polygon
-                                    points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
-                                  />
-                                </svg>
-                              } @else {
-                                <nxt1-icon [name]="item.icon" [size]="22" />
+                      <!-- Section Header Item -->
+                      @if (item.isSection) {
+                        <div class="nxt1-sidenav-item nxt1-sidenav-item--section">
+                          <span>{{ item.label }}</span>
+                        </div>
+                      } @else {
+                        <!-- Regular Menu Item - wrapped in IonMenuToggle for auto-close -->
+                        <ion-menu-toggle [autoHide]="false">
+                          <button
+                            class="nxt1-sidenav-item"
+                            [class.nxt1-sidenav-item--active]="isItemActive(item)"
+                            [class.nxt1-sidenav-item--disabled]="item.disabled"
+                            [class.nxt1-sidenav-item--danger]="item.variant === 'danger'"
+                            [class.nxt1-sidenav-item--premium]="item.variant === 'premium'"
+                            [class.nxt1-sidenav-item--has-children]="
+                              item.children && item.children.length > 0
+                            "
+                            [disabled]="item.disabled"
+                            (click)="onItemClick(item, section.id, $event)"
+                            [attr.aria-current]="isItemActive(item) ? 'page' : null"
+                          >
+                            @if (item.icon) {
+                              <div
+                                class="nxt1-sidenav-item__icon"
+                                [class.nxt1-sidenav-item__icon--agent-x]="isAgentXIcon(item.icon)"
+                              >
+                                @if (isAgentXIcon(item.icon)) {
+                                  <!-- Agent X Logo SVG - Theme-aware via currentColor (same as footer) -->
+                                  <svg
+                                    class="agent-x-logo"
+                                    viewBox="0 0 612 792"
+                                    width="40"
+                                    height="40"
+                                    fill="currentColor"
+                                    stroke="currentColor"
+                                    stroke-width="12"
+                                    stroke-linejoin="round"
+                                    aria-hidden="true"
+                                  >
+                                    <path [attr.d]="agentXLogoPath" />
+                                    <polygon [attr.points]="agentXLogoPolygon" />
+                                  </svg>
+                                } @else {
+                                  <nxt1-icon [name]="item.icon" [size]="22" />
+                                }
+                              </div>
+                            }
+
+                            <div class="nxt1-sidenav-item__content">
+                              <span class="nxt1-sidenav-item__label">{{ item.label }}</span>
+                              @if (item.description) {
+                                <span class="nxt1-sidenav-item__description">{{
+                                  item.description
+                                }}</span>
                               }
                             </div>
-                          }
 
-                          <div class="nxt1-sidenav-item__content">
-                            <span class="nxt1-sidenav-item__label">{{ item.label }}</span>
-                            @if (item.description) {
-                              <span class="nxt1-sidenav-item__description">{{
-                                item.description
-                              }}</span>
+                            @if (item.badge && item.badge > 0) {
+                              <span
+                                class="nxt1-sidenav-item__badge"
+                                [class.nxt1-sidenav-item__badge--danger]="
+                                  item.badgeVariant === 'danger'
+                                "
+                                [class.nxt1-sidenav-item__badge--warning]="
+                                  item.badgeVariant === 'warning'
+                                "
+                                [class.nxt1-sidenav-item__badge--primary]="
+                                  item.badgeVariant === 'primary'
+                                "
+                              >
+                                {{ item.badge > 99 ? '99+' : item.badge }}
+                              </span>
+                            }
+
+                            @if (item.children && item.children.length > 0) {
+                              <nxt1-icon
+                                name="chevronRight"
+                                [size]="16"
+                                class="nxt1-sidenav-item__arrow"
+                              />
+                            }
+                          </button>
+                        </ion-menu-toggle>
+
+                        <!-- Child Items -->
+                        @if (item.children && item.children.length > 0 && item.expanded) {
+                          <div class="nxt1-sidenav-children">
+                            @for (child of item.children; track child.id) {
+                              @if (!child.hidden) {
+                                <ion-menu-toggle [autoHide]="false">
+                                  <button
+                                    class="nxt1-sidenav-item nxt1-sidenav-item--child"
+                                    [class.nxt1-sidenav-item--active]="isItemActive(child)"
+                                    [class.nxt1-sidenav-item--disabled]="child.disabled"
+                                    [disabled]="child.disabled"
+                                    (click)="onItemClick(child, section.id, $event, item.id)"
+                                  >
+                                    @if (child.icon) {
+                                      <div
+                                        class="nxt1-sidenav-item__icon"
+                                        [class.nxt1-sidenav-item__icon--agent-x]="
+                                          isAgentXIcon(child.icon)
+                                        "
+                                      >
+                                        @if (isAgentXIcon(child.icon)) {
+                                          <!-- Agent X Logo SVG - Theme-aware (same as footer) -->
+                                          <svg
+                                            class="agent-x-logo"
+                                            viewBox="0 0 612 792"
+                                            width="35"
+                                            height="35"
+                                            fill="currentColor"
+                                            stroke="currentColor"
+                                            stroke-width="12"
+                                            stroke-linejoin="round"
+                                            aria-hidden="true"
+                                          >
+                                            <path [attr.d]="agentXLogoPath" />
+                                            <polygon [attr.points]="agentXLogoPolygon" />
+                                          </svg>
+                                        } @else {
+                                          <nxt1-icon [name]="child.icon" [size]="18" />
+                                        }
+                                      </div>
+                                    }
+                                    <span class="nxt1-sidenav-item__label">{{ child.label }}</span>
+                                    @if (child.badge && child.badge > 0) {
+                                      <span class="nxt1-sidenav-item__badge">
+                                        {{ child.badge > 99 ? '99+' : child.badge }}
+                                      </span>
+                                    }
+                                  </button>
+                                </ion-menu-toggle>
+                              }
                             }
                           </div>
-
-                          @if (item.badge && item.badge > 0) {
-                            <span
-                              class="nxt1-sidenav-item__badge"
-                              [class.nxt1-sidenav-item__badge--danger]="
-                                item.badgeVariant === 'danger'
-                              "
-                              [class.nxt1-sidenav-item__badge--warning]="
-                                item.badgeVariant === 'warning'
-                              "
-                              [class.nxt1-sidenav-item__badge--primary]="
-                                item.badgeVariant === 'primary'
-                              "
-                            >
-                              {{ item.badge > 99 ? '99+' : item.badge }}
-                            </span>
-                          }
-
-                          @if (item.children && item.children.length > 0) {
-                            <nxt1-icon
-                              name="chevronRight"
-                              [size]="16"
-                              class="nxt1-sidenav-item__arrow"
-                            />
-                          }
-                        </button>
-                      </ion-menu-toggle>
-
-                      <!-- Child Items -->
-                      @if (item.children && item.children.length > 0 && item.expanded) {
-                        <div class="nxt1-sidenav-children">
-                          @for (child of item.children; track child.id) {
-                            @if (!child.hidden) {
-                              <ion-menu-toggle [autoHide]="false">
-                                <button
-                                  class="nxt1-sidenav-item nxt1-sidenav-item--child"
-                                  [class.nxt1-sidenav-item--active]="isItemActive(child)"
-                                  [class.nxt1-sidenav-item--disabled]="child.disabled"
-                                  [disabled]="child.disabled"
-                                  (click)="onItemClick(child, section.id, $event, item.id)"
-                                >
-                                  @if (child.icon) {
-                                    <div
-                                      class="nxt1-sidenav-item__icon"
-                                      [class.nxt1-sidenav-item__icon--agent-x]="
-                                        isAgentXIcon(child.icon)
-                                      "
-                                    >
-                                      @if (isAgentXIcon(child.icon)) {
-                                        <!-- Agent X Logo SVG - Theme-aware (same as footer) -->
-                                        <svg
-                                          class="agent-x-logo"
-                                          viewBox="0 0 612 792"
-                                          width="35"
-                                          height="35"
-                                          fill="currentColor"
-                                          stroke="currentColor"
-                                          stroke-width="12"
-                                          stroke-linejoin="round"
-                                          aria-hidden="true"
-                                        >
-                                          <path
-                                            d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                                          />
-                                          <polygon
-                                            points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
-                                          />
-                                        </svg>
-                                      } @else {
-                                        <nxt1-icon [name]="child.icon" [size]="18" />
-                                      }
-                                    </div>
-                                  }
-                                  <span class="nxt1-sidenav-item__label">{{ child.label }}</span>
-                                  @if (child.badge && child.badge > 0) {
-                                    <span class="nxt1-sidenav-item__badge">
-                                      {{ child.badge > 99 ? '99+' : child.badge }}
-                                    </span>
-                                  }
-                                </button>
-                              </ion-menu-toggle>
-                            }
-                          }
-                        </div>
+                        }
                       }
                     }
                   }
                 }
+                <!-- end @else list layout -->
               </div>
             </div>
           }
         </nav>
 
-        <!-- Footer Section with Theme & Social Links (inside content for single-scroll UX) -->
-        @if (config().showSocialLinks && socialLinks().length > 0) {
-          <div class="nxt1-sidenav-footer">
-            <!-- Theme Selector -->
-            @if (config().showThemeSelector !== false) {
-              <div
-                class="nxt1-sidenav-theme"
-                (touchstart)="onThemeInteractionStart($event)"
-                (touchmove)="onThemeInteractionMove($event)"
-                (touchend)="onThemeInteractionEnd()"
-                (touchcancel)="onThemeInteractionEnd()"
-                (pointerdown)="onThemeInteractionStart($event)"
-                (pointerup)="onThemeInteractionEnd()"
-                (pointercancel)="onThemeInteractionEnd()"
-              >
-                <h3 class="nxt1-sidenav-theme__title">
-                  <nxt1-icon name="contrast" [size]="16" class="nxt1-sidenav-theme__icon" />
-                  Themes
-                </h3>
-                <nxt1-theme-selector
-                  variant="compact"
-                  [showLabels]="true"
-                  [showSportThemes]="true"
-                  [singleRow]="true"
-                />
+        <!-- Sessions Panel (Agent X) -->
+        <div class="nxt1-sidenav-sessions">
+          <div class="nxt1-sidenav-sessions__header">
+            <div class="nxt1-sidenav-sessions__title-row">
+              <div class="nxt1-sidenav-sessions__title-group">
+                <h3 class="nxt1-sidenav-sessions__title">Sessions</h3>
+                <p class="nxt1-sidenav-sessions__subtitle">Recent agent runs</p>
               </div>
-            }
-
-            <div class="nxt1-sidenav-social">
-              <span class="nxt1-sidenav-social__label">Follow Us</span>
-              <div class="nxt1-sidenav-social__links">
-                @for (social of socialLinks(); track social.id) {
-                  <a
-                    [href]="social.url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="nxt1-sidenav-social__link"
-                    [attr.aria-label]="social.ariaLabel ?? 'Follow us on ' + social.label"
-                    (click)="onSocialClick(social, $event)"
-                  >
-                    <nxt1-icon [name]="social.icon" [size]="20" />
-                  </a>
-                }
-              </div>
-            </div>
-
-            <nav class="nxt1-sidenav-footer__legal" aria-label="Legal">
-              <ion-menu-toggle [autoHide]="false">
-                <a routerLink="/terms" class="nxt1-sidenav-footer__legal-link">Terms of Service</a>
-              </ion-menu-toggle>
-              <span class="nxt1-sidenav-footer__legal-sep" aria-hidden="true">·</span>
-              <ion-menu-toggle [autoHide]="false">
-                <a routerLink="/privacy" class="nxt1-sidenav-footer__legal-link">Privacy Policy</a>
-              </ion-menu-toggle>
-            </nav>
-
-            <div class="nxt1-sidenav-footer__meta">
-              <span class="nxt1-sidenav-footer__copyright"
-                >© 2026 NXT1 Sports. All rights reserved.</span
-              >
-              <span class="nxt1-sidenav-footer__signature">Made With ❤️ By John Keller</span>
             </div>
           </div>
-        }
+          <nxt1-agent-x-operations-log [embedded]="true" (entryTap)="onLogEntryTap($event)" />
+        </div>
       </ion-content>
+
+      <!-- FAB overlay — spans full menu height so the slide-up panel is never clipped -->
+      <div class="nxt1-sidenav-fab-footer">
+        <nxt1-floating-action-bar
+          [config]="floatingBarConfig()"
+          [followItems]="fabFollowItems()"
+          (ctaAction)="onNewSession()"
+        />
+      </div>
     </ion-menu>
   `,
   styles: [
@@ -1023,14 +1007,91 @@ import { formatSportDisplayName } from '@nxt1/core';
       }
 
       /* ============================================
+         GRID LAYOUT (compact icon+label tiles)
+         Matches web app mobile sidebar grid style
+         ============================================ */
+      .nxt1-sidenav-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 4px;
+        padding: 10px 4px 4px;
+      }
+
+      .nxt1-sidenav-grid__item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 10px 4px;
+        border: none;
+        background: transparent;
+        border-radius: var(--nxt1-sidenav-item-radius);
+        color: var(--nxt1-sidenav-text-secondary);
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          transform 0.1s ease;
+        -webkit-tap-highlight-color: transparent;
+        min-width: 0;
+      }
+
+      .nxt1-sidenav-grid__item:active:not(:disabled) {
+        transform: scale(0.93);
+      }
+
+      .nxt1-sidenav-grid__item--active .nxt1-sidenav-grid__icon-wrap {
+        background: var(--nxt1-sidenav-accent);
+      }
+
+      .nxt1-sidenav-grid__item--active .nxt1-sidenav-grid__icon-wrap nxt1-icon {
+        color: #000;
+      }
+
+      .nxt1-sidenav-grid__item--active .nxt1-sidenav-grid__label {
+        color: var(--nxt1-sidenav-text-primary);
+        font-weight: 600;
+      }
+
+      .nxt1-sidenav-grid__item--disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .nxt1-sidenav-grid__icon-wrap {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: var(--nxt1-sidenav-item-hover);
+        transition: background 0.15s ease;
+        flex-shrink: 0;
+        color: var(--nxt1-sidenav-text-secondary);
+      }
+
+      .nxt1-sidenav-grid__label {
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--nxt1-sidenav-text-secondary);
+        text-align: center;
+        line-height: 1.25;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+      }
+
+      /* ============================================
          MENU ITEM STYLES
          ============================================ */
       .nxt1-sidenav-item {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 14px;
         width: 100%;
-        padding: 12px 12px;
+        padding: 10px 12px;
         border: none;
         background: transparent;
         border-radius: var(--nxt1-sidenav-item-radius);
@@ -1108,8 +1169,7 @@ import { formatSportDisplayName } from '@nxt1/core';
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 24px;
-        height: 24px;
+        width: 22px;
         flex-shrink: 0;
         color: inherit;
         transition: color 0.15s ease;
@@ -1145,7 +1205,7 @@ import { formatSportDisplayName } from '@nxt1/core';
         min-width: 0;
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: 1px;
       }
 
       .nxt1-sidenav-item__label {
@@ -1222,134 +1282,43 @@ import { formatSportDisplayName } from '@nxt1/core';
       }
 
       /* ============================================
-         FOOTER SECTION
+         FAB FOOTER (floating action bar)
          ============================================ */
-      .nxt1-sidenav-footer {
-        background: var(--nxt1-sidenav-header-bg);
-        border-top: 1px solid var(--nxt1-sidenav-border);
-        margin-top: 16px;
-        padding: 16px;
+
+      /*
+       * Full-height absolute overlay so the FAB's slide-up panel is never clipped.
+       * The FAB component uses position:absolute internally (fab__wrap anchored to
+       * bottom:0, fab__panel anchored above it). By giving it a containing block that
+       * spans the entire menu height, the panel can slide up freely without overflow.
+       * pointer-events:none lets scroll/tap events pass through to ion-content behind;
+       * nxt1-floating-action-bar re-enables pointer events for its own interactive areas.
+       */
+      .nxt1-sidenav-fab-footer {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        pointer-events: none;
+        z-index: 50;
+        /* nxt1-floating-action-bar has display:contents, so its children
+           are positioned directly inside this overlay box */
       }
 
-      /* Theme Selector Section */
-      .nxt1-sidenav-theme {
-        margin-bottom: 20px;
-        padding-bottom: 16px;
-        border-bottom: 1px solid var(--nxt1-sidenav-border);
-        overscroll-behavior-x: contain;
-        -webkit-overflow-scrolling: touch;
+      /* Ensure ion-menu container is the containing block for the FAB overlay */
+      ion-menu.nxt1-sidenav-menu::part(container) {
+        position: relative;
       }
 
-      .nxt1-sidenav-theme__title {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        margin: 0 0 10px 0;
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        color: var(--nxt1-sidenav-text-tertiary);
-      }
+      /* Re-enable pointer events for the FAB bar + panel
+         (also handled by pointer-events:auto on nxt1-floating-action-bar :host) */
 
-      .nxt1-sidenav-theme__icon {
-        color: var(--nxt1-sidenav-text-tertiary);
-      }
-
-      .nxt1-sidenav-social {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-      }
-
-      .nxt1-sidenav-social__label {
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        color: var(--nxt1-sidenav-text-tertiary);
-      }
-
-      .nxt1-sidenav-social__links {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-      }
-
-      .nxt1-sidenav-social__link {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        color: var(--nxt1-sidenav-text-secondary);
-        background: transparent;
-        transition:
-          background 0.15s ease,
-          color 0.15s ease,
-          transform 0.1s ease;
-        -webkit-tap-highlight-color: transparent;
-        text-decoration: none;
-      }
-
-      .nxt1-sidenav-social__link:hover {
-        background: var(--nxt1-sidenav-item-hover);
-        color: var(--nxt1-sidenav-text-primary);
-      }
-
-      .nxt1-sidenav-social__link:active {
-        transform: scale(0.92);
-      }
-
-      .nxt1-sidenav-footer__legal {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        gap: 6px;
-        margin-top: 12px;
-        padding-top: 12px;
-        border-top: 1px solid var(--nxt1-sidenav-border);
-        flex-wrap: wrap;
-      }
-
-      .nxt1-sidenav-footer__legal-link {
-        font-size: 11px;
-        color: var(--nxt1-sidenav-text-tertiary);
-        text-decoration: none;
-        transition: color 0.2s ease;
-      }
-
-      .nxt1-sidenav-footer__legal-link:hover,
-      .nxt1-sidenav-footer__legal-link:focus-visible {
-        color: var(--nxt1-color-primary, #a3e635);
-        text-decoration: underline;
-        outline: none;
-      }
-
-      .nxt1-sidenav-footer__legal-sep {
-        font-size: 11px;
-        color: var(--nxt1-sidenav-text-tertiary);
-        opacity: 0.5;
-        line-height: 1;
-      }
-
-      .nxt1-sidenav-footer__meta {
-        margin-top: 12px;
-      }
-
-      .nxt1-sidenav-footer__copyright {
-        font-size: 11px;
-        color: var(--nxt1-sidenav-text-tertiary);
-      }
-
-      .nxt1-sidenav-footer__signature {
-        display: block;
-        margin-top: 10px;
-        padding-top: 4px;
-        font-size: var(--nxt1-fontSize-sm, 0.875rem);
-        color: var(--nxt1-sidenav-text-tertiary);
-        text-align: center;
+      /* Push ion-content scroll bottom padding so cards don't hide behind the bar */
+      .nxt1-sidenav-content {
+        --padding-bottom: calc(
+          52px + var(--nxt1-spacing-2, 0.5rem) + var(--nxt1-spacing-3, 0.75rem) +
+            var(--nxt1-spacing-3, 0.75rem) + env(safe-area-inset-bottom, 0px)
+        );
       }
 
       /* ============================================
@@ -1387,6 +1356,48 @@ import { formatSportDisplayName } from '@nxt1/core';
       }
 
       /* ============================================
+         SESSIONS PANEL (Agent X)
+         ============================================ */
+      .nxt1-sidenav-sessions {
+        margin: 4px 0;
+        padding: 12px 4px 4px;
+        border-top: 1px solid var(--nxt1-sidenav-border);
+        /* Zero out the operations log's internal horizontal scroll padding
+           so cards stretch edge-to-edge within the sessions panel */
+        --log-scroll-padding-inline: 0;
+      }
+
+      .nxt1-sidenav-sessions__header {
+        padding: 0 8px 8px;
+      }
+
+      .nxt1-sidenav-sessions__title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .nxt1-sidenav-sessions__title-group {
+        min-width: 0;
+      }
+
+      .nxt1-sidenav-sessions__title {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--nxt1-sidenav-text-primary);
+        line-height: 1.3;
+      }
+
+      .nxt1-sidenav-sessions__subtitle {
+        margin: 2px 0 0;
+        font-size: 11px;
+        color: var(--nxt1-sidenav-text-tertiary);
+        line-height: 1.3;
+      }
+
+      /* ============================================
          REDUCED MOTION
          ============================================ */
       @media (prefers-reduced-motion: reduce) {
@@ -1401,6 +1412,8 @@ import { formatSportDisplayName } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtSidenavComponent {
+  protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
+  protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
   private readonly platformId = inject(PLATFORM_ID);
   private readonly router = inject(Router);
   private readonly platform = inject(NxtPlatformService);
@@ -1408,6 +1421,7 @@ export class NxtSidenavComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly menuController = inject(MenuController);
   readonly sidenavService = inject(NxtSidenavService);
+  private readonly bottomSheet = inject(NxtBottomSheetService);
 
   // ============================================
   // INPUTS (Signal-based - 2026 Best Practice)
@@ -1461,16 +1475,10 @@ export class NxtSidenavComponent {
   private readonly expandedSections = signal<Set<string>>(new Set());
 
   /** Whether sport profiles dropdown is expanded */
-  readonly sportsExpanded = signal(true);
+  readonly sportsExpanded = signal(false);
 
   /** Active route for highlighting */
   private readonly activeRoute = signal<string>('');
-
-  /** Temporarily disables swipe-to-close while interacting with theme options. */
-  private readonly isThemeInteractionActive = signal(false);
-
-  /** Timer used to release interaction lock shortly after touch/pointer end. */
-  private themeInteractionResetTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Whether component is in browser */
   private readonly isBrowser = isPlatformBrowser(this.platformId);
@@ -1482,10 +1490,29 @@ export class NxtSidenavComponent {
   /** Platform detection */
   readonly isIos = computed(() => this.platform.isIOS());
 
-  /** Keep swipe gestures enabled except while user is actively scrolling theme options. */
-  readonly menuSwipeGestureEnabled = computed(
-    () => this.config().swipeGesture !== false && !this.isThemeInteractionActive()
+  /** Keep swipe gestures enabled (theme scrolling is now inside FAB, no conflict). */
+  readonly menuSwipeGestureEnabled = computed(() => this.config().swipeGesture !== false);
+
+  /** Follow items shaped for NxtFloatingActionBarComponent */
+  readonly fabFollowItems = computed<readonly FloatingBarFollowItem[]>(() =>
+    this.socialLinks().map((s) => ({
+      id: s.id,
+      label: s.label,
+      icon: s.icon,
+      href: s.url,
+      ariaLabel: s.ariaLabel,
+    }))
   );
+
+  /** Config passed to NxtFloatingActionBarComponent */
+  readonly floatingBarConfig = computed<FloatingActionBarConfig>(() => ({
+    appButtonLabel: 'New Session',
+    appButtonIcon: 'plusCircle',
+    appButtonAction: true,
+    showThemeToggle: this.config().showThemeSelector !== false,
+    followUsLabel: 'Follow Us',
+    showLegal: true,
+  }));
 
   // ============================================
   // HOST BINDINGS
@@ -1509,13 +1536,6 @@ export class NxtSidenavComponent {
       this.initExpandedSections();
       this.initRouteListener();
       this.detectInitialRoute();
-    });
-
-    this.destroyRef.onDestroy(() => {
-      if (this.themeInteractionResetTimer) {
-        clearTimeout(this.themeInteractionResetTimer);
-        this.themeInteractionResetTimer = null;
-      }
     });
   }
 
@@ -1558,7 +1578,6 @@ export class NxtSidenavComponent {
   onMenuDidClose(): void {
     this.sidenavService.setAnimating(false);
     this.sidenavService.setState(false);
-    this.isThemeInteractionActive.set(false);
 
     const event: SidenavToggleEvent = {
       isOpen: false,
@@ -1778,47 +1797,6 @@ export class NxtSidenavComponent {
   }
 
   /**
-   * Keep Ionic menu swipe-close disabled while user starts dragging inside theme selector.
-   */
-  onThemeInteractionStart(event: Event): void {
-    event.stopPropagation();
-
-    if (this.themeInteractionResetTimer) {
-      clearTimeout(this.themeInteractionResetTimer);
-      this.themeInteractionResetTimer = null;
-    }
-
-    this.isThemeInteractionActive.set(true);
-  }
-
-  /**
-   * Continue consuming move events so horizontal theme scrolling doesn't close the menu.
-   */
-  onThemeInteractionMove(event: Event): void {
-    event.stopPropagation();
-    this.isThemeInteractionActive.set(true);
-  }
-
-  /**
-   * Release gesture lock shortly after interaction end to avoid edge-case flick closes.
-   */
-  onThemeInteractionEnd(): void {
-    if (!this.isBrowser) {
-      this.isThemeInteractionActive.set(false);
-      return;
-    }
-
-    if (this.themeInteractionResetTimer) {
-      clearTimeout(this.themeInteractionResetTimer);
-    }
-
-    this.themeInteractionResetTimer = setTimeout(() => {
-      this.isThemeInteractionActive.set(false);
-      this.themeInteractionResetTimer = null;
-    }, 120);
-  }
-
-  /**
    * Resolve the current sport label shown under the user's name.
    * Uses active sport profile first and never shows an email address.
    */
@@ -1905,6 +1883,38 @@ export class NxtSidenavComponent {
     event.stopPropagation();
     await this.triggerHaptic('light');
     this.sportsExpanded.update((v) => !v);
+  }
+
+  /**
+   * Navigate to Agent X and start a fresh session.
+   */
+  async onNewSession(): Promise<void> {
+    await this.close();
+    void this.router.navigate(['/agent-x']);
+  }
+
+  /**
+   * Open an existing Agent X session from the operations log.
+   * Awaits the Ionic menu close animation before opening the sheet —
+   * no setTimeout needed because menuController.close() resolves on animation complete.
+   */
+  async onLogEntryTap(entry: OperationLogEntry): Promise<void> {
+    await this.close();
+    void this.bottomSheet.openSheet({
+      component: AgentXOperationChatComponent,
+      componentProps: {
+        contextId: entry.id,
+        contextTitle: entry.title,
+        contextIcon: entry.icon,
+        contextType: 'operation',
+        ...(entry.threadId ? { threadId: entry.threadId } : {}),
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'agent-x-operation-sheet',
+    });
   }
 
   /**

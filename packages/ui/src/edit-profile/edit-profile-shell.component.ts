@@ -23,9 +23,8 @@ import {
   viewChild,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { IonContent, IonSpinner, ModalController } from '@ionic/angular/standalone';
+import { IonSpinner, ModalController } from '@ionic/angular/standalone';
 import { NxtModalService } from '../services/modal';
-import { NxtPickerService } from '../components/picker';
 import {
   BrowserGeolocationAdapter,
   CachedGeocodingAdapter,
@@ -62,10 +61,10 @@ import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service'
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import {
-  getPositionGroupsForSport,
   TEAM_TYPE_CONFIGS,
   titleCase,
   type InboxEmailProvider,
+  type UserSocialLink,
 } from '@nxt1/core';
 import { NxtSearchBarComponent } from '../components/search-bar';
 import { HapticButtonDirective } from '../services/haptics';
@@ -122,7 +121,6 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
   selector: 'nxt1-edit-profile-shell',
   standalone: true,
   imports: [
-    IonContent,
     IonSpinner,
     EditProfileSkeletonComponent,
     NxtSheetHeaderComponent,
@@ -185,7 +183,7 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
       }
     }
 
-    <ion-content class="nxt1-edit-content">
+    <div class="nxt1-edit-content">
       @if (profile.isLoading()) {
         <nxt1-edit-profile-skeleton />
       } @else if (profile.error()) {
@@ -247,7 +245,7 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
                 <span
                   class="nxt1-list-value nxt1-list-bio"
                   [class.nxt1-list-placeholder]="!form.basicInfo.bio"
-                  >{{ form.basicInfo.bio || 'Tell coaches about yourself' }}</span
+                  >{{ form.basicInfo.bio || 'Tell Agent X about yourself' }}</span
                 >
               </nxt1-list-row>
               <nxt1-list-row label="Location" (tap)="editLocation()">
@@ -277,20 +275,6 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
             <div class="nxt1-ep-sections" [class.nxt1-ep-right-col]="webLayout">
               <!-- Sports info -->
               <nxt1-list-section header="Sports info">
-                <nxt1-list-row label="Position" (tap)="editPosition()">
-                  <span
-                    class="nxt1-list-value capitalize"
-                    [class.nxt1-list-placeholder]="selectedPositions().length === 0"
-                    >{{ positionDisplay() || 'Select position' }}</span
-                  >
-                </nxt1-list-row>
-                <nxt1-list-row label="Jersey" (tap)="editJersey()">
-                  <span
-                    class="nxt1-list-value"
-                    [class.nxt1-list-placeholder]="!form.sportsInfo.jerseyNumber"
-                    >{{ form.sportsInfo.jerseyNumber || 'Add jersey number' }}</span
-                  >
-                </nxt1-list-row>
                 <nxt1-list-row label="Program" (tap)="toggleProgramSearch()">
                   <span
                     class="nxt1-list-value"
@@ -305,18 +289,9 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
                     <!-- Currently selected team -->
                     @if (form.sportsInfo.teamName) {
                       <div class="nxt1-program-selected">
-                        @if (form.sportsInfo.teamLogoUrl) {
-                          <img
-                            [src]="form.sportsInfo.teamLogoUrl"
-                            [alt]="form.sportsInfo.teamName"
-                            class="nxt1-program-logo"
-                            loading="lazy"
-                          />
-                        } @else {
-                          <div class="nxt1-program-logo-placeholder">
-                            {{ getTeamInitial(form.sportsInfo.teamName) }}
-                          </div>
-                        }
+                        <div class="nxt1-program-logo-placeholder">
+                          {{ getTeamInitial(form.sportsInfo.teamName) }}
+                        </div>
                         <div class="nxt1-program-selected-info">
                           <span class="nxt1-program-selected-name">{{
                             form.sportsInfo.teamName
@@ -503,7 +478,7 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
           </div>
         </div>
       }
-    </ion-content>
+    </div>
   `,
   styles: [
     `
@@ -594,7 +569,11 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
          CONTENT AREA
          ============================================ */
       .nxt1-edit-content {
-        flex: 1;
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
       }
 
       .nxt1-edit-body {
@@ -992,7 +971,6 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
 
   protected readonly imageInputRef = viewChild<ElementRef<HTMLInputElement>>('imageInput');
   private readonly nxtModal = inject(NxtModalService);
-  private readonly picker = inject(NxtPickerService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
 
@@ -1018,89 +996,11 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       this.logger.info('📊 [Edit Profile] FormData changed', {
         hasData: !!data,
         sport: data?.sportsInfo?.sport,
-        jerseyNumber: data?.sportsInfo?.jerseyNumber,
-        primaryPosition: data?.sportsInfo?.primaryPosition,
-        secondaryPositions: data?.sportsInfo?.secondaryPositions,
         activeSportIndex,
         allSportsCount: allSports?.length,
-        allSportsData: allSports?.map(
-          (s: { sport: string; jerseyNumber?: string; positions?: string[] }, i: number) => ({
-            index: i,
-            sport: s.sport,
-            jerseyNumber: s.jerseyNumber,
-            positions: s.positions,
-          })
-        ),
       });
     });
   }
-
-  /**
-   * Position options for the selected sport.
-   * Dynamically computed based on the primary sport in the form data.
-   */
-  protected readonly positionOptions = computed<readonly string[]>(() => {
-    const data = this.profile.formData();
-    const activeSportIndex = this.profile.activeSportIndex();
-    const allSports = this.profile.allSports();
-
-    // Try to get sport from formData first (when loaded)
-    let sport = data?.sportsInfo?.sport;
-
-    // Fallback: Get sport from rawUserData if formData not ready yet
-    if (!sport && allSports && allSports[activeSportIndex]) {
-      sport = allSports[activeSportIndex].sport;
-    }
-
-    this.logger.info('🔍 Computing position options', {
-      hasData: !!data,
-      rawSport: sport,
-      activeSportIndex,
-      totalSports: allSports?.length,
-      allSportsNames: allSports?.map((s: { sport: string }) => s.sport),
-      jerseyNumber: data?.sportsInfo?.jerseyNumber,
-      primaryPosition: data?.sportsInfo?.primaryPosition,
-      sportsInfoFull: data?.sportsInfo,
-      fallbackSport: !data ? allSports?.[activeSportIndex]?.sport : null,
-    });
-
-    // Fallback to Football if no sport is set (temporary for debugging)
-    const sportToUse = sport || 'Football';
-
-    if (!sport) {
-      this.logger.warn('⚠️ No sport found - defaulting to Football', {
-        hasFormData: !!data,
-        hasRawUser: !!allSports?.length,
-        activeSportIndex,
-      });
-    }
-
-    const positionGroups = getPositionGroupsForSport(sportToUse);
-    const positions = positionGroups.flatMap((group) => group.positions);
-
-    this.logger.info('✅ Position groups loaded', {
-      rawSport: sport,
-      sportToUse,
-      normalizedSport: sportToUse.toLowerCase().replace(/\s+/g, '_'),
-      groupCount: positionGroups.length,
-      totalPositions: positions.length,
-      firstFewPositions: positions.slice(0, 5),
-      allGroups: positionGroups.map((g) => ({
-        category: g.category,
-        count: g.positions.length,
-      })),
-    });
-
-    if (positions.length === 0) {
-      this.logger.error('❌ No positions found for sport', {
-        sport,
-        sportToUse,
-        positionGroups,
-      });
-    }
-
-    return positions;
-  });
 
   /** Fields whose values originate from a verified external source (e.g. MaxPreps, Rivals). */
   protected readonly verifiedFields = computed<ReadonlySet<string>>(() => {
@@ -1132,24 +1032,10 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     return (data.photos.profileImgs ?? []).filter((image): image is string => !!image);
   });
 
-  protected readonly selectedPositions = computed<readonly string[]>(() => {
-    const data = this.profile.formData();
-    if (!data) return [];
-
-    return [data.sportsInfo.primaryPosition, ...(data.sportsInfo.secondaryPositions ?? [])].filter(
-      (value): value is string => !!value
-    );
-  });
-
   protected readonly displayName = computed(() => {
     const data = this.profile.formData();
     if (!data) return '';
     return [data.basicInfo.firstName, data.basicInfo.lastName].filter(Boolean).join(' ');
-  });
-
-  protected readonly positionDisplay = computed(() => {
-    const positions = this.selectedPositions();
-    return positions.length > 0 ? positions.join(', ') : '';
   });
 
   protected readonly programDisplay = computed(() => {
@@ -1169,7 +1055,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
 
   protected readonly connectedSources = computed<readonly ConnectedSource[]>(() => {
     const data = this.profile.formData();
-    const links = data?.socialLinks?.links ?? [];
+    const links = (this.profile.rawUserData()?.social ?? []) as UserSocialLink[];
 
     // Use PLATFORM_REGISTRY to show all available platforms (global scope)
     const globalPlatforms = PLATFORM_REGISTRY.filter((p) => p.scope === 'global');
@@ -1205,7 +1091,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   >(() => {
     const data = this.profile.formData();
     const rawUser = this.profile.rawUserData();
-    const links = data?.socialLinks?.links ?? [];
+    const links = (rawUser?.social ?? []) as UserSocialLink[];
     const sport = data?.sportsInfo?.sport;
     const userType = rawUser?.userType; // 'athlete' | 'coach' | 'director' | 'fan'
 
@@ -1289,7 +1175,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   });
 
   protected readonly connectedCount = computed(() => {
-    const socialCount = (this.profile.formData()?.socialLinks?.links ?? []).filter(
+    const socialCount = ((this.profile.rawUserData()?.social ?? []) as UserSocialLink[]).filter(
       (l) => !!l.url || !!l.username
     ).length;
     const emailCount = (this.profile.rawUserData()?.connectedEmails ?? []).filter(
@@ -1408,7 +1294,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     const rawUser = this.profile.rawUserData();
 
     // Convert existing social links → LinkSourcesFormData
-    const existingLinks = data?.socialLinks?.links ?? [];
+    const existingLinks = (rawUser?.social ?? []) as UserSocialLink[];
     const linkSourcesData: LinkSourcesFormData | null = existingLinks.length
       ? {
           links: existingLinks.map((l) => ({
@@ -1434,7 +1320,6 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     });
 
     if (result.saved && result.updatedLinks) {
-      this.profile.updateField('social-links', 'links', result.updatedLinks);
       this.logger.info('Connected accounts updated', {
         count: result.updatedLinks.length,
       });
@@ -1442,6 +1327,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
         source: 'connected-accounts-modal',
         action: 'bulk-update',
       });
+      void this.loadProfile();
     }
   }
 
@@ -1477,7 +1363,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
 
     const result = await this.nxtModal.prompt({
       title: 'Bio',
-      placeholder: 'Tell coaches about yourself',
+      placeholder: 'Tell Agent X about yourself',
       defaultValue: form.basicInfo.bio ?? '',
       submitText: 'Done',
       multiline: true,
@@ -1504,23 +1390,6 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     });
     if (result.selected && result.data) {
       this.profile.updateField('basic-info', 'classYear', result.data as string);
-    }
-  }
-
-  protected async editJersey(): Promise<void> {
-    const form = this.profile.formData();
-    if (!form) return;
-
-    const result = await this.nxtModal.prompt({
-      title: 'Jersey Number',
-      placeholder: 'Jersey number',
-      defaultValue: form.sportsInfo.jerseyNumber ?? '',
-      inputType: 'number',
-      submitText: 'Done',
-      preferNative: 'native',
-    });
-    if (result.confirmed) {
-      this.profile.updateField('sports-info', 'jerseyNumber', result.value.trim());
     }
   }
 
@@ -1563,7 +1432,6 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   protected selectTeam(team: TeamSearchResult): void {
     this.profile.updateField('sports-info', 'teamName', team.name);
     this.profile.updateField('sports-info', 'teamType', team.teamType ?? '');
-    this.profile.updateField('sports-info', 'teamLogoUrl', team.logoUrl ?? '');
     this.profile.updateField('sports-info', 'teamOrganizationId', team.organizationId ?? '');
 
     // Keep academics.school in sync
@@ -1588,7 +1456,6 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   protected clearTeam(): void {
     this.profile.updateField('sports-info', 'teamName', '');
     this.profile.updateField('sports-info', 'teamType', '');
-    this.profile.updateField('sports-info', 'teamLogoUrl', '');
     this.profile.updateField('sports-info', 'teamOrganizationId', '');
     this.profile.updateField('academics', 'school', '');
 
@@ -1609,7 +1476,6 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
 
     this.profile.updateField('sports-info', 'teamName', normalizedName);
     this.profile.updateField('sports-info', 'teamType', programType);
-    this.profile.updateField('sports-info', 'teamLogoUrl', '');
     this.profile.updateField('sports-info', 'teamOrganizationId', '');
     this.profile.updateField('academics', 'school', normalizedName);
 
@@ -1843,36 +1709,6 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     }
   }
 
-  protected async editPosition(): Promise<void> {
-    const form = this.profile.formData();
-    if (!form) return;
-    const selected = this.selectedPositions();
-    const sport = form.sportsInfo.sport || 'Football';
-    const positionGroups = getPositionGroupsForSport(sport);
-    const activeSportIndex = this.profile.activeSportIndex();
-    const allSports = this.profile.allSports();
-
-    this.logger.info('🎯 Opening position picker', {
-      sport,
-      activeSportIndex,
-      allSportsCount: allSports?.length,
-      currentPositions: selected,
-      groupCount: positionGroups.length,
-    });
-
-    const result = await this.picker.openPositionPicker({
-      sport,
-      selectedPositions: [...selected],
-      positionGroups,
-      maxPositions: 5,
-    });
-
-    if (result.confirmed) {
-      this.profile.updateField('sports-info', 'primaryPosition', result.positions[0] ?? '');
-      this.profile.updateField('sports-info', 'secondaryPositions', result.positions.slice(1));
-    }
-  }
-
   protected editLocation(): void {
     void this.detectLocation();
   }
@@ -1944,7 +1780,7 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
 
       try {
         // Upload to Firebase Storage and get permanent URL
-        const result = await this.profile.uploadPhoto(userId, 'profile', file);
+        const result = await this.profile.uploadPhoto(userId, file);
         uploadedUrls.push(result.url);
 
         // Replace the blob preview URL with the real Firebase Storage URL

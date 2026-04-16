@@ -140,7 +140,8 @@ export class QrCodeService {
 
   /**
    * Determines if bottom sheet should be used.
-   * Same logic as ExploreFilterModalService.
+   * Native apps always use the bottom sheet.
+   * Web (browser) always uses the overlay modal regardless of viewport size.
    */
   private shouldUseBottomSheet(): boolean {
     // Native apps always use bottom sheet
@@ -148,24 +149,7 @@ export class QrCodeService {
       return true;
     }
 
-    // SSR: no bottom sheet
-    if (!this.platform.isBrowser()) {
-      return false;
-    }
-
-    // Mobile viewport: bottom sheet
-    const viewportWidth = this.platform.viewport().width;
-    if (viewportWidth < 768) {
-      return true;
-    }
-
-    // Touch device under 1024px: bottom sheet
-    const hasTouch = this.platform.hasTouch();
-    if (hasTouch && viewportWidth < 1024) {
-      return true;
-    }
-
-    // Desktop: overlay
+    // Web (browser) always uses overlay modal — including mobile viewports
     return false;
   }
 }

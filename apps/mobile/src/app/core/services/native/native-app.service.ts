@@ -298,24 +298,26 @@ export class NativeAppService {
    * `:host-context(.keyboard-open)` to shift their footer above the keyboard.
    */
   private setupKeyboardListeners(): void {
-    // ionKeyboardDidShow is dispatched by Ionic on `window`
+    // ionKeyboardWillShow fires at the START of the keyboard animation so our
+    // CSS transition runs in sync with the native keyboard — no visible lag.
     // event.detail.keyboardHeight contains the height in CSS pixels.
-    window.addEventListener('ionKeyboardDidShow', ((
+    window.addEventListener('ionKeyboardWillShow', ((
       ev: CustomEvent<{ keyboardHeight: number }>
     ) => {
       this.ngZone.run(() => {
         const height = ev.detail.keyboardHeight;
         document.documentElement.style.setProperty('--keyboard-height', `${height}px`);
         document.documentElement.classList.add('keyboard-open');
-        this.logger.debug('Keyboard shown', { height });
+        this.logger.debug('Keyboard will show', { height });
       });
     }) as EventListener);
 
-    window.addEventListener('ionKeyboardDidHide', () => {
+    // ionKeyboardWillHide fires at the START of the dismiss animation.
+    window.addEventListener('ionKeyboardWillHide', () => {
       this.ngZone.run(() => {
         document.documentElement.style.setProperty('--keyboard-height', '0px');
         document.documentElement.classList.remove('keyboard-open');
-        this.logger.debug('Keyboard hidden');
+        this.logger.debug('Keyboard will hide');
       });
     });
 

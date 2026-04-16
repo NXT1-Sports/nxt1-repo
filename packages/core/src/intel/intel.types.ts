@@ -3,6 +3,7 @@
  * @module @nxt1/core/intel
  *
  * AI-generated intelligence reports for athlete and team profiles.
+ * Agent X is the athlete's advocate — it tells their story, not their score.
  * Pre-generated on-demand via Agent X and stored in Firestore.
  *
  * 100% portable — NO platform dependencies.
@@ -33,6 +34,8 @@ export interface IntelCitation {
   readonly label: string;
   readonly url?: string;
   readonly lastSyncedAt?: string;
+  /** True when the source is a verified third-party platform (not self-reported). */
+  readonly verified?: boolean;
 }
 
 /** Lifecycle status of an intel report. */
@@ -70,67 +73,48 @@ export interface IntelQuickCommand {
 }
 
 // ============================================
-// ATHLETE INTEL REPORT
+// DOSSIER SECTION TYPES
 // ============================================
 
-/** AI-generated four-pillar scout ratings (0–99 scale). */
-export interface IntelScoutRatings {
-  readonly physical: number;
-  readonly technical: number;
-  readonly mental: number;
-  readonly potential: number;
-}
-
-/** Prospect tier classification. */
-export type IntelTierClassification = 'Elite' | 'Premium' | 'Rising' | 'Developing' | 'On Radar';
-
-/** Percentile-based rankings vs peers. */
-export interface IntelPercentileRankings {
-  readonly overall: number;
-  readonly position: number;
-  readonly state: number;
-  readonly measurableFit: number;
-}
-
-/** Level projection probabilities (0-100). */
-export interface IntelLevelProjections {
-  readonly d1: number;
-  readonly d2: number;
-  readonly d3: number;
-  readonly naia: number;
-  readonly juco: number;
-}
-
-/** A single highlighted measurable from the report. */
-export interface IntelMeasurableHighlight {
+/**
+ * A single key data point within a dossier section.
+ * Used for structured grids (measurements, stats, academic info, etc.)
+ */
+export interface IntelBriefItem {
   readonly label: string;
   readonly value: string;
   readonly unit?: string;
-  readonly percentile?: number;
-  readonly source: IntelDataSource;
-  readonly trend?: 'up' | 'down' | 'stable';
+  /** Which source/platform provided this data point. */
+  readonly source?: IntelDataSource;
+  /** True when the data point comes from a verified third-party platform. */
+  readonly verified?: boolean;
+  readonly date?: string;
+  readonly sublabel?: string;
 }
 
-/** A single season stat highlight from the report. */
-export interface IntelStatHighlight {
-  readonly label: string;
-  readonly value: string;
-  readonly season: string;
-  readonly category: string;
-  readonly source: IntelDataSource;
+/**
+ * A named section within an Agent X dossier report.
+ * Each section has a markdown narrative (`content`) and optional structured
+ * key-value items (`items`). Agent X renders one section per side-tab.
+ */
+export interface IntelBriefSection {
+  /** Canonical section identifier (e.g. 'agent_x_brief', 'season_stats'). */
+  readonly id: string;
+  readonly title: string;
+  readonly icon: string;
+  /** Primary narrative content — markdown prose from Agent X. */
+  readonly content: string;
+  /** Optional structured data items shown as a grid below the narrative. */
+  readonly items?: readonly IntelBriefItem[];
+  /** Citations specific to this section. */
+  readonly sources?: readonly IntelCitation[];
 }
 
-/** A recruiting activity summary item. */
-export interface IntelRecruitingSummary {
-  readonly totalOffers: number;
-  readonly totalVisits: number;
-  readonly totalCamps: number;
-  readonly topDivision: string;
-  readonly topPrograms: string[];
-  readonly narrative: string;
-}
+// ============================================
+// ATHLETE INTEL REPORT
+// ============================================
 
-/** The complete athlete Intel report stored in Firestore. */
+/** The complete athlete Intel dossier stored in Firestore. */
 export interface AthleteIntelReport {
   readonly id: string;
   readonly userId: string;
@@ -138,24 +122,10 @@ export interface AthleteIntelReport {
   readonly primaryPosition: string;
   readonly status: IntelReportStatus;
 
-  // ── AI-Generated Content ──
-  readonly overallScore: number;
-  readonly tierClassification: IntelTierClassification;
-  readonly ratings: IntelScoutRatings;
-  readonly percentileRankings: IntelPercentileRankings;
-  readonly levelProjections: IntelLevelProjections;
-
-  readonly aiBrief: string;
-  readonly strengths: readonly string[];
-  readonly areasForImprovement: readonly string[];
-
-  // ── Highlighted Data ──
-  readonly measurableHighlights: readonly IntelMeasurableHighlight[];
-  readonly statHighlights: readonly IntelStatHighlight[];
-  readonly recruitingSummary: IntelRecruitingSummary | null;
+  // ── Dossier Sections (Agent X narrative + structured data) ──
+  readonly sections: readonly IntelBriefSection[];
 
   // ── Provenance ──
-  readonly dataAvailability: IntelDataAvailability;
   readonly citations: readonly IntelCitation[];
   readonly missingDataPrompts: readonly IntelMissingDataPrompt[];
 
@@ -166,32 +136,15 @@ export interface AthleteIntelReport {
   readonly generatedAt: string;
   readonly generatedBy: 'agent-x';
   readonly modelUsed?: string;
+  /** ISO timestamp after which the report should prompt regeneration (30-day TTL). */
+  readonly staleAt?: string;
 }
 
 // ============================================
 // TEAM INTEL REPORT
 // ============================================
 
-/** A highlighted prospect on the team roster. */
-export interface IntelRosterProspect {
-  readonly userId: string;
-  readonly name: string;
-  readonly position: string;
-  readonly classYear: string;
-  readonly overallScore: number;
-  readonly tierClassification: IntelTierClassification;
-  readonly profileCode?: string;
-}
-
-/** Historical season summary for the team. */
-export interface IntelSeasonSummary {
-  readonly season: string;
-  readonly record: string;
-  readonly highlights: readonly string[];
-  readonly conference?: string;
-}
-
-/** The complete team Intel report stored in Firestore. */
+/** The complete team Intel dossier stored in Firestore. */
 export interface TeamIntelReport {
   readonly id: string;
   readonly teamId: string;
@@ -199,25 +152,8 @@ export interface TeamIntelReport {
   readonly sport: string;
   readonly status: IntelReportStatus;
 
-  // ── AI-Generated Content ──
-  readonly seasonOutlook: string;
-  readonly teamIdentity: string;
-  readonly strengths: readonly string[];
-  readonly areasForImprovement: readonly string[];
-
-  // ── Roster Intelligence ──
-  readonly topProspects: readonly IntelRosterProspect[];
-  readonly rosterDepthSummary: string;
-  readonly classBreakdown: Record<string, number>;
-
-  // ── Historical Performance ──
-  readonly seasonHistory: readonly IntelSeasonSummary[];
-  readonly overallRecord: string;
-  readonly historicalNarrative: string;
-
-  // ── Program Info ──
-  readonly recruitingPipeline: string;
-  readonly competitiveAnalysis: string;
+  // ── Dossier Sections (Agent X narrative + structured data) ──
+  readonly sections: readonly IntelBriefSection[];
 
   // ── Provenance ──
   readonly citations: readonly IntelCitation[];
@@ -230,6 +166,8 @@ export interface TeamIntelReport {
   readonly generatedAt: string;
   readonly generatedBy: 'agent-x';
   readonly modelUsed?: string;
+  /** ISO timestamp after which the report should prompt regeneration (30-day TTL). */
+  readonly staleAt?: string;
 }
 
 // ============================================

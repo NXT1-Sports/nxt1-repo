@@ -2,19 +2,21 @@
  * @fileoverview Analytics Service
  * @module @nxt1/backend/services/analytics
  *
- * Aggregates analytics data from Firestore for the Analytics Dashboard.
- * Uses MongoDB-style aggregation where possible, Firestore queries elsewhere.
+ * Builds analytics from the hybrid data model.
+ * Mongo rollups are the source of truth for historical analytics and reporting,
+ * while Firestore is read for live profile and content context where needed.
  *
  * Data sources:
- * - Users/{uid}          — profile stats
- * - Videos               — videos created by user (views, likes, createdAt)
- * - Posts                — posts created by user (stats.views, stats.likes)
- * - users/{uid}/activity — activity feed items (profile view events)
- * - Teams (via roster)   — team members for coach analytics
+ * - Users/{uid}        — profile stats and live counters
+ * - Videos             — videos created by user (views, likes, createdAt)
+ * - Posts              — posts created by user (stats.views, stats.likes)
+ * - Teams (via roster) — team members for coach analytics
  */
 
-import type { Firestore } from 'firebase-admin/firestore';
-import { Timestamp } from 'firebase-admin/firestore';
+import { Timestamp, type Firestore } from 'firebase-admin/firestore';
+import { getAnalyticsLoggerService } from './analytics-logger.service.js';
+import { AnalyticsEventModel } from '../models/analytics-event.model.js';
+import { getRuntimeEnvironment } from '../config/runtime-environment.js';
 import { logger } from '../utils/logger.js';
 import type {
   AnalyticsPeriod,
@@ -36,6 +38,7 @@ import type {
   AnalyticsInsight,
   AnalyticsRecommendation,
 } from '@nxt1/core';
+import type { AnalyticsSummaryTimeframe } from '@nxt1/core/models';
 
 // ============================================
 // COLLECTION NAMES
@@ -44,6 +47,30 @@ import type {
 const USERS_COLLECTION = 'Users';
 const POSTS_COLLECTION = 'Posts';
 const ACTIVITY_COLLECTION = 'activity';
+
+const SOURCE_LABELS: Record<string, string> = {
+  email: 'Email',
+  profile: 'Profile',
+  post: 'Post',
+  message: 'Message',
+  page: 'Page',
+  search: 'Search',
+  social: 'Social',
+  direct: 'Direct',
+  referral: 'Referral',
+  other: 'Other',
+  unknown: 'Unknown',
+};
+
+interface AthleteRollupSnapshot {
+  readonly profileViews: number;
+  readonly coachViews: number;
+  readonly followerCount: number;
+  readonly emailOpens: number;
+  readonly linkClicks: number;
+  readonly viewsBySource: readonly ViewsBySource[];
+  readonly viewerTypes: readonly AnalyticsViewerBreakdown[];
+}
 
 // ============================================
 // HELPERS
@@ -104,6 +131,258 @@ function formatValue(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
   return String(value);
+}
+
+export function getSummaryTimeframeForPeriod(period: AnalyticsPeriod): AnalyticsSummaryTimeframe {
+  switch (period) {
+    case 'day':
+      return '24h';
+    case 'week':
+      return '7d';
+    case 'month':
+      return '30d';
+    case 'quarter':
+      return '90d';
+    case 'year':
+    case 'all-time':
+    default:
+      return 'all';
+  }
+}
+
+export function buildViewsBySourceFromSurfaceCounts(
+  counts: Readonly<Record<string, number>>
+): readonly ViewsBySource[] {
+  const entries = Object.entries(counts)
+    .map(([source, rawValue]) => [source, Number(rawValue) || 0] as const)
+    .filter(([, value]) => value > 0)
+    .sort((a, b) => b[1] - a[1]);
+
+  const total = entries.reduce((sum, [, value]) => sum + value, 0);
+
+  if (total === 0) {
+    return ['direct', 'email', 'profile', 'post'].map((source) => ({
+      source,
+      label: SOURCE_LABELS[source] ?? source,
+      views: 0,
+      percentage: 0,
+    }));
+  }
+
+  return entries.map(([source, value]) => ({
+    source,
+    label: SOURCE_LABELS[source] ?? source,
+    views: value,
+    percentage: Math.round((value / total) * 1000) / 10,
+  }));
+}
+
+export function buildViewerBreakdownFromRoleCounts(
+  counts: Readonly<Record<string, number>>
+): readonly AnalyticsViewerBreakdown[] {
+  const roleOrder = ['coach', 'athlete', 'recruiter', 'parent', 'other'];
+  const roleLabels: Record<string, string> = {
+    coach: 'Coaches',
+    athlete: 'Athletes',
+    recruiter: 'Recruiters',
+    parent: 'Parents',
+    other: 'Other',
+    anonymous: 'Anonymous',
+  };
+
+  const normalizedCounts = roleOrder.map((role) => ({
+    role,
+    count: Number(counts[role] ?? 0),
+  }));
+  const total = normalizedCounts.reduce((sum, row) => sum + row.count, 0);
+
+  return normalizedCounts.map((row) => ({
+    type: row.role,
+    label: roleLabels[row.role] ?? row.role,
+    count: row.count,
+    percentage: total > 0 ? Math.round((row.count / total) * 1000) / 10 : 0,
+  }));
+}
+
+async function fetchAthleteRollupSnapshot(
+  uid: string,
+  period: AnalyticsPeriod
+): Promise<AthleteRollupSnapshot> {
+  const analytics = getAnalyticsLoggerService();
+  const timeframe = getSummaryTimeframeForPeriod(period);
+  const environment = getRuntimeEnvironment();
+  const since = timeframe === 'all' ? null : new Date(getPeriodDateRange(period).start);
+
+  try {
+    const matchBase: Record<string, unknown> = {
+      environment,
+      subjectId: uid,
+      subjectType: 'user',
+    };
+
+    if (since) {
+      matchBase['occurredAt'] = { $gte: since };
+    }
+
+    const [engagementSummary, communicationSummary, eventTypeRows, viewerRoleRows, sourceRows] =
+      await Promise.all([
+        analytics.getSummary({
+          subjectId: uid,
+          subjectType: 'user',
+          domain: 'engagement',
+          timeframe,
+        }),
+        analytics.getSummary({
+          subjectId: uid,
+          subjectType: 'user',
+          domain: 'communication',
+          timeframe,
+        }),
+        AnalyticsEventModel.aggregate<{
+          _id: { domain: string; eventType: string };
+          count: number;
+        }>([
+          {
+            $match: {
+              ...matchBase,
+              domain: { $in: ['engagement', 'communication'] },
+            },
+          },
+          {
+            $group: {
+              _id: {
+                domain: '$domain',
+                eventType: '$eventType',
+              },
+              count: { $sum: 1 },
+            },
+          },
+        ]),
+        AnalyticsEventModel.aggregate<{ _id: string; count: number }>([
+          {
+            $match: {
+              ...matchBase,
+              domain: 'engagement',
+              eventType: 'profile_viewed',
+            },
+          },
+          {
+            $group: {
+              _id: { $ifNull: ['$payload.viewerRole', 'other'] },
+              count: { $sum: 1 },
+            },
+          },
+        ]),
+        AnalyticsEventModel.aggregate<{ _id: string; count: number }>([
+          {
+            $match: {
+              ...matchBase,
+              eventType: 'link_clicked',
+            },
+          },
+          {
+            $group: {
+              _id: { $ifNull: ['$payload.surface', 'unknown'] },
+              count: { $sum: 1 },
+            },
+          },
+        ]),
+      ]);
+
+    const viewerCounts = Object.fromEntries(
+      viewerRoleRows.map((row) => [String(row._id || 'other').toLowerCase(), row.count])
+    );
+    const surfaceCounts = Object.fromEntries(
+      sourceRows.map((row) => [String(row._id || 'unknown').toLowerCase(), row.count])
+    );
+    const groupedEventCounts = Object.fromEntries(
+      eventTypeRows.map((row) => [`${row._id.domain}:${row._id.eventType}`, row.count])
+    );
+
+    return {
+      profileViews:
+        Number(groupedEventCounts['engagement:profile_viewed'] ?? 0) ||
+        Number(engagementSummary.countsByEventType['profile_viewed'] ?? 0),
+      coachViews: Number(viewerCounts['coach'] ?? 0),
+      followerCount: 0,
+      emailOpens:
+        Number(groupedEventCounts['communication:email_opened'] ?? 0) ||
+        Number(communicationSummary.countsByEventType['email_opened'] ?? 0),
+      linkClicks:
+        Number(groupedEventCounts['engagement:link_clicked'] ?? 0) +
+          Number(groupedEventCounts['communication:link_clicked'] ?? 0) ||
+        Number(engagementSummary.countsByEventType['link_clicked'] ?? 0) +
+          Number(communicationSummary.countsByEventType['link_clicked'] ?? 0),
+      viewsBySource: buildViewsBySourceFromSurfaceCounts(surfaceCounts),
+      viewerTypes: buildViewerBreakdownFromRoleCounts(viewerCounts),
+    };
+  } catch (error) {
+    logger.warn('Failed to fetch athlete analytics rollup snapshot', {
+      uid,
+      period,
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    return {
+      profileViews: 0,
+      coachViews: 0,
+      followerCount: 0,
+      emailOpens: 0,
+      linkClicks: 0,
+      viewsBySource: buildViewsBySourceFromSurfaceCounts({}),
+      viewerTypes: buildViewerBreakdownFromRoleCounts({}),
+    };
+  }
+}
+
+async function fetchRosterEngagementCounts(
+  athleteIds: readonly string[],
+  period: AnalyticsPeriod
+): Promise<Map<string, { profileViews: number }>> {
+  const counts = new Map<string, { profileViews: number }>();
+  if (athleteIds.length === 0) {
+    return counts;
+  }
+
+  const environment = getRuntimeEnvironment();
+  const timeframe = getSummaryTimeframeForPeriod(period);
+  const since = timeframe === 'all' ? null : new Date(getPeriodDateRange(period).start);
+  const match: Record<string, unknown> = {
+    environment,
+    subjectType: 'user',
+    subjectId: { $in: [...athleteIds] },
+    domain: 'engagement',
+  };
+
+  if (since) {
+    match['occurredAt'] = { $gte: since };
+  }
+
+  const rows = await AnalyticsEventModel.aggregate<{
+    _id: { subjectId: string; eventType: string };
+    count: number;
+  }>([
+    { $match: match },
+    {
+      $group: {
+        _id: {
+          subjectId: '$subjectId',
+          eventType: '$eventType',
+        },
+        count: { $sum: 1 },
+      },
+    },
+  ]);
+
+  for (const row of rows) {
+    const existing = counts.get(row._id.subjectId) ?? { profileViews: 0 };
+    if (row._id.eventType === 'profile_viewed') {
+      existing.profileViews = row.count;
+    }
+    counts.set(row._id.subjectId, existing);
+  }
+
+  return counts;
 }
 
 /**
@@ -193,16 +472,20 @@ async function fetchActivityItems(
 // OVERVIEW CARDS BUILDERS
 // ============================================
 
-function buildAthleteOverviewCards(
+export function buildAthleteOverviewCards(
   profile: Record<string, unknown>,
   videos: Array<Record<string, unknown>>,
-  activityItems: Array<Record<string, unknown>>
+  activityItems: Array<Record<string, unknown>>,
+  rollupSnapshot?: Partial<AthleteRollupSnapshot>
 ): AthleteAnalyticsReport['overview'] {
   const totalVideoViews = videos.reduce((acc, v) => acc + (Number(v['views']) || 0), 0);
-  const profileViews = activityItems.filter((i) => i['type'] === 'profile_view').length;
-  const coachViews = activityItems.filter(
+  const legacyProfileViews = activityItems.filter((i) => i['type'] === 'profile_view').length;
+  const legacyCoachViews = activityItems.filter(
     (i) => i['type'] === 'profile_view' && i['viewerRole'] === 'coach'
   ).length;
+  const profileViews = Math.max(Number(rollupSnapshot?.profileViews ?? 0), legacyProfileViews);
+  const coachViews = Math.max(Number(rollupSnapshot?.coachViews ?? 0), legacyCoachViews);
+  const followers = Math.max(Number(rollupSnapshot?.followerCount ?? 0), 0);
 
   // Engagement rate = (likes + comments) / views * 100
   const totalLikes = videos.reduce((acc, v) => acc + (Number(v['likes']) || 0), 0);
@@ -258,10 +541,10 @@ function buildAthleteOverviewCards(
     followers: {
       id: 'followers',
       label: 'Followers',
-      value: 0,
-      displayValue: formatValue(0),
+      value: followers,
+      displayValue: formatValue(followers),
       icon: 'people-outline',
-      variant: 'default',
+      variant: followers > 0 ? 'highlight' : 'default',
     },
   };
 }
@@ -295,16 +578,6 @@ function computeProfileScore(profile: Record<string, unknown>): number {
 // ============================================
 // ENGAGEMENT DATA BUILDERS
 // ============================================
-
-function buildViewsBySource(): readonly ViewsBySource[] {
-  // Placeholder breakdown — real data would need source tracking in profile view events
-  return [
-    { source: 'search', label: 'Search', views: 0, percentage: 0 },
-    { source: 'social', label: 'Social', views: 0, percentage: 0 },
-    { source: 'direct', label: 'Direct', views: 0, percentage: 0 },
-    { source: 'referral', label: 'Referral', views: 0, percentage: 0 },
-  ];
-}
 
 function buildEngagementByTime(): readonly EngagementByTime[] {
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -355,16 +628,6 @@ function buildViewsOverTimeChart(
     showLegend: false,
     showGrid: true,
   };
-}
-
-function buildViewerBreakdown(): readonly AnalyticsViewerBreakdown[] {
-  return [
-    { type: 'athlete', label: 'Athletes', count: 0, percentage: 0 },
-    { type: 'coach', label: 'Coaches', count: 0, percentage: 0 },
-    { type: 'recruiter', label: 'Recruiters', count: 0, percentage: 0 },
-    { type: 'parent', label: 'Parents', count: 0, percentage: 0 },
-    { type: 'other', label: 'Other', count: 0, percentage: 0 },
-  ];
 }
 
 function buildGeoDistribution(): readonly GeoDistribution[] {
@@ -476,9 +739,23 @@ function buildRecruitingMilestones(
 function buildAthleteInsights(
   _profile: Record<string, unknown>,
   videos: Array<Record<string, unknown>>,
-  profileScore: number
+  profileScore: number,
+  rollupSnapshot?: Partial<AthleteRollupSnapshot>
 ): readonly AnalyticsInsight[] {
   const insights: AnalyticsInsight[] = [];
+
+  if ((rollupSnapshot?.emailOpens ?? 0) > 0 || (rollupSnapshot?.linkClicks ?? 0) > 0) {
+    insights.push({
+      id: 'active-outreach-signal',
+      title: 'Your Outreach Is Generating Interest',
+      description: `${formatValue(Number(rollupSnapshot?.emailOpens ?? 0))} email open${Number(rollupSnapshot?.emailOpens ?? 0) === 1 ? '' : 's'} and ${formatValue(Number(rollupSnapshot?.linkClicks ?? 0))} tracked link click${Number(rollupSnapshot?.linkClicks ?? 0) === 1 ? '' : 's'} were recorded for this period.`,
+      category: 'recruiting',
+      priority: 'medium',
+      icon: 'mail-open-outline',
+      metricValue:
+        Number(rollupSnapshot?.emailOpens ?? 0) + Number(rollupSnapshot?.linkClicks ?? 0),
+    });
+  }
 
   // Low profile score insight
   if (profileScore < 60) {
@@ -515,9 +792,24 @@ function buildAthleteInsights(
 
 function buildAthleteRecommendations(
   profile: Record<string, unknown>,
-  videos: Array<Record<string, unknown>>
+  videos: Array<Record<string, unknown>>,
+  rollupSnapshot?: Partial<AthleteRollupSnapshot>
 ): readonly AnalyticsRecommendation[] {
   const recs: AnalyticsRecommendation[] = [];
+
+  if ((rollupSnapshot?.profileViews ?? 0) === 0 && videos.length > 0) {
+    recs.push({
+      id: 'share-profile-more-often',
+      title: 'Share Your Profile More Often',
+      description:
+        'You have content ready, but there were no tracked profile views in this period. Share your public link in emails, posts, and coach outreach.',
+      impact: 'Increases recruiting visibility with measurable click tracking',
+      priority: 'high',
+      category: 'distribution',
+      actionLabel: 'Share Profile',
+      actionRoute: '/profile',
+    });
+  }
 
   if (!profile['aboutMe']) {
     recs.push({
@@ -567,11 +859,12 @@ export async function buildAthleteReport(
   // Fetch all-time videos, posts in period, and supporting data in parallel.
   // Videos are fetched once (all-time) and filtered in memory for the period view
   // to avoid a second Firestore round-trip.
-  const [profile, allVideos, posts, activityItems] = await Promise.all([
+  const [profile, allVideos, posts, activityItems, rollupSnapshot] = await Promise.all([
     fetchUserProfile(db, uid),
     fetchUserVideos(db, uid),
     fetchUserPosts(db, uid, since),
     fetchActivityItems(db, uid),
+    fetchAthleteRollupSnapshot(uid, period),
   ]);
 
   // Filter videos to the selected period in memory (no extra query)
@@ -582,12 +875,13 @@ export async function buildAthleteReport(
 
   const safeProfile = profile ?? {};
   const profileScore = computeProfileScore(safeProfile);
-  const hasViews = activityItems.some((i) => i['type'] === 'profile_view');
-  const hasCoachView = activityItems.some(
-    (i) => i['type'] === 'profile_view' && i['viewerRole'] === 'coach'
-  );
+  const hasViews =
+    rollupSnapshot.profileViews > 0 || activityItems.some((i) => i['type'] === 'profile_view');
+  const hasCoachView =
+    rollupSnapshot.coachViews > 0 ||
+    activityItems.some((i) => i['type'] === 'profile_view' && i['viewerRole'] === 'coach');
 
-  const overview = buildAthleteOverviewCards(safeProfile, allVideos, activityItems);
+  const overview = buildAthleteOverviewCards(safeProfile, allVideos, activityItems, rollupSnapshot);
   const viewsChart = buildViewsOverTimeChart(videosInPeriod, dateRange);
 
   return {
@@ -597,9 +891,9 @@ export async function buildAthleteReport(
     dateRange,
     overview,
     engagement: {
-      viewsBySource: buildViewsBySource(),
+      viewsBySource: rollupSnapshot.viewsBySource,
       viewsByTime: buildEngagementByTime(),
-      viewerTypes: buildViewerBreakdown(),
+      viewerTypes: rollupSnapshot.viewerTypes,
       geoDistribution: buildGeoDistribution(),
       viewsOverTime: viewsChart,
     },
@@ -617,8 +911,8 @@ export async function buildAthleteReport(
       campAttendance: 0,
       collegeVisits: 0,
     },
-    insights: buildAthleteInsights(safeProfile, allVideos, profileScore),
-    recommendations: buildAthleteRecommendations(safeProfile, allVideos),
+    insights: buildAthleteInsights(safeProfile, allVideos, profileScore, rollupSnapshot),
+    recommendations: buildAthleteRecommendations(safeProfile, allVideos, rollupSnapshot),
   };
 }
 
@@ -637,7 +931,7 @@ export async function buildCoachReport(
   const rosterEntries = await fetchCoachRoster(db, uid);
 
   // Fetch each athlete's basic stats
-  const athleteStats = await fetchRosterAthleteStats(db, rosterEntries, since);
+  const athleteStats = await fetchRosterAthleteStats(db, rosterEntries, since, period);
 
   const totalProfileViews = athleteStats.reduce((acc, a) => acc + a.profileViews, 0);
   const totalVideoViews = athleteStats.reduce((acc, a) => acc + a.videoViews, 0);
@@ -700,11 +994,13 @@ async function fetchCoachRoster(db: Firestore, uid: string): Promise<string[]> {
 async function fetchRosterAthleteStats(
   db: Firestore,
   athleteIds: string[],
-  since: Date
+  since: Date,
+  period: AnalyticsPeriod
 ): Promise<readonly AthleteRosterAnalytics[]> {
   if (athleteIds.length === 0) return [];
 
   const results: AthleteRosterAnalytics[] = [];
+  const engagementCounts = await fetchRosterEngagementCounts(athleteIds, period);
 
   // Fetch in batches of 10 (Firestore 'in' limit)
   const chunks: string[][] = [];
@@ -727,7 +1023,7 @@ async function fetchRosterAthleteStats(
           const d = toDate(v['createdAt']);
           return d && d >= since;
         });
-        const profileViews = 0; // Would need profile view tracking
+        const profileViews = engagementCounts.get(doc.id)?.profileViews ?? 0;
         const videoViews = videos.reduce((acc, v) => acc + (Number(v['views']) || 0), 0);
         const totalEngagement = profileViews + videoViews;
         const completeness = computeProfileScore(p as Record<string, unknown>);
@@ -924,13 +1220,14 @@ export async function buildOverviewMetrics(
     };
   }
 
-  const [profile, videos, activityItems] = await Promise.all([
+  const [profile, videos, activityItems, rollupSnapshot] = await Promise.all([
     fetchUserProfile(db, uid),
     fetchUserVideos(db, uid),
     fetchActivityItems(db, uid),
+    fetchAthleteRollupSnapshot(uid, period),
   ]);
 
-  const overview = buildAthleteOverviewCards(profile ?? {}, videos, activityItems);
+  const overview = buildAthleteOverviewCards(profile ?? {}, videos, activityItems, rollupSnapshot);
   return {
     metrics: Object.values(overview),
     lastUpdated: new Date().toISOString(),
@@ -942,23 +1239,33 @@ export async function buildOverviewMetrics(
 // ============================================
 
 /**
- * Record a profile view event in Firestore.
- * Writes to both: the viewed user's analytics subcollection and their activity feed.
+ * Record a profile view event.
+ * Mongo analytics is the sole write path here; no Firestore analytics docs or
+ * activity items are mutated by this tracker.
  */
 export async function recordProfileView(
-  db: Firestore,
+  _db: Firestore,
   viewedUserId: string,
   viewerUserId: string | null,
   viewerRole?: string
 ): Promise<void> {
   try {
-    const analyticsRef = db.collection('Users').doc(viewedUserId).collection('profileViews').doc();
-
-    await analyticsRef.set({
-      viewedAt: Timestamp.now(),
-      viewerUserId: viewerUserId ?? null,
-      viewerRole: viewerRole ?? null,
-      type: 'profile_view',
+    await getAnalyticsLoggerService().safeTrack({
+      subjectId: viewedUserId,
+      subjectType: 'user',
+      domain: 'engagement',
+      eventType: 'profile_viewed',
+      source: viewerUserId ? 'user' : 'system',
+      actorUserId: viewerUserId,
+      tags: viewerRole ? [viewerRole] : [],
+      payload: {
+        viewerUserId,
+        viewerRole,
+      },
+      metadata: {
+        trackedBy: 'recordProfileView',
+        persistence: 'mongo-only',
+      },
     });
   } catch (err) {
     logger.warn('Failed to record profile view', { viewedUserId, viewerUserId, error: err });

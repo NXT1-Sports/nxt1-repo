@@ -42,6 +42,8 @@ import { ProfileService } from '../../core/services/state/profile.service';
     <ion-content [fullscreen]="true">
       <nxt1-activity-shell
         [user]="userInfo()"
+        [showBack]="true"
+        (back)="onBack()"
         (avatarClick)="onAvatarClick()"
         (itemNavigate)="onItemNavigate($event)"
         (connectProviderRequest)="onConnectProvider($event)"
@@ -103,6 +105,13 @@ export class ActivityComponent {
       uid: user.uid,
     };
   });
+
+  /**
+   * Handle back navigation.
+   */
+  protected onBack(): void {
+    void this.navController.back();
+  }
 
   /**
    * Handle avatar click - open sidenav (Twitter/X pattern).

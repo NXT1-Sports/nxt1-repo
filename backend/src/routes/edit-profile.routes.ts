@@ -14,8 +14,8 @@ import { appGuard } from '../middleware/auth.middleware.js';
 import { logger } from '../utils/logger.js';
 import { asyncHandler } from '@nxt1/core/errors/express';
 import { notFoundError, forbiddenError, fieldError } from '@nxt1/core/errors';
-import type { User, SportProfile, TeamType, UserRole } from '@nxt1/core';
-import { formatFileSize, TEAM_TYPES } from '@nxt1/core';
+import type { User, SportProfile, TeamType, UserRole, VerifiedMetric } from '@nxt1/core';
+import { formatFileSize, TEAM_TYPES, SPORT_POSITIONS, normalizeSportKey } from '@nxt1/core';
 import { invalidateProfileCaches } from './profile.routes.js';
 import { enqueueWelcomeGraphicIfReady } from '../services/agent-welcome.service.js';
 import { createRosterEntryService } from '../services/roster-entry.service.js';
@@ -27,9 +27,6 @@ import {
 import type {
   EditProfileData,
   EditProfileFormData,
-  ProfileCompletionData,
-  SectionCompletionData,
-  ProfileCompletionTier,
   EditProfileSectionId,
   EditProfileUpdateResponse,
   EditProfileBasicInfo,
@@ -37,9 +34,14 @@ import type {
   EditProfileSportsInfo,
   EditProfileAcademics,
   EditProfilePhysical,
-  EditProfileSocialLinks,
   EditProfileContact,
 } from '@nxt1/core/edit-profile';
+import { SyncDiffService } from '../modules/agent/sync/index.js';
+import {
+  buildDistilledProfileFromUserRecord,
+  buildPreviousStateFromUserRecord,
+} from '../modules/agent/sync/manual-sync-state.helpers.js';
+import { onDailySyncComplete } from '../modules/agent/triggers/trigger.listeners.js';
 
 const router: ExpressRouter = Router();
 
@@ -116,17 +118,11 @@ async function uploadToStorage(
 }
 
 /**
- * Build storage path for profile/banner photo
+ * Build storage path for profile photo
  */
-function buildPhotoStoragePath(userId: string, type: 'profile' | 'banner'): string {
+function buildPhotoStoragePath(userId: string): string {
   const timestamp = Date.now();
-  const extension = 'jpg';
-
-  if (type === 'profile') {
-    return `${USERS_COLLECTION}/${userId}/profile/avatar_${timestamp}.${extension}`;
-  } else {
-    return `${USERS_COLLECTION}/${userId}/cover/cover_${timestamp}.${extension}`;
-  }
+  return `Profiles/ProfileImages/${userId}/avatar_${timestamp}.jpg`;
 }
 
 function getRequiredRouteParam(value: string | string[] | undefined, name: string): string {
@@ -203,16 +199,9 @@ function buildDelegatedFormData(formData: EditProfileFormData): EditProfileFormD
       bannerImg: undefined,
       profileImgs: undefined,
     },
-    socialLinks: {
-      links: [],
-    },
     contact: {
       email: undefined,
       phone: undefined,
-      parentEmail: undefined,
-      parentPhone: undefined,
-      coachEmail: undefined,
-      preferredContactMethod: undefined,
     },
   };
 }
@@ -246,19 +235,8 @@ async function deleteFromStorage(
  * Map User document to EditProfileFormData
  * @param user - User document
  * @param sportIndex - Optional sport index to load (defaults to activeSportIndex)
- * @param connectedSourcesOverride - Optional connected sources to use instead of user's (e.g. team sources for coaches)
  */
-function userToEditProfileFormData(
-  user: User,
-  sportIndex?: number,
-  connectedSourcesOverride?: Array<{
-    platform: string;
-    profileUrl: string;
-    displayOrder?: number;
-    scopeType?: string;
-    scopeId?: string;
-  }>
-): EditProfileFormData {
+function userToEditProfileFormData(user: User, sportIndex?: number): EditProfileFormData {
   // Get sport data - use provided sportIndex or fall back to activeSportIndex
   const targetIndex = sportIndex ?? user.activeSportIndex ?? 0;
   const activeSport = user.sports?.[targetIndex] ?? user.sports?.[0];
@@ -283,46 +261,37 @@ function userToEditProfileFormData(
       classYear: user.classOf ? String(user.classOf) : undefined,
     },
     photos: {
+      bannerImg: user.bannerImg ?? undefined,
       profileImgs: user.profileImgs ?? undefined,
     },
     sportsInfo: {
       sport: activeSport?.sport,
-      primaryPosition: activeSport?.positions?.[0],
-      secondaryPositions: activeSport?.positions?.slice(1),
-      jerseyNumber: activeSport?.jerseyNumber,
-      yearsExperience: activeSport?.yearsExperience,
+      positions: activeSport?.positions ?? [],
+      teamName: activeSport?.team?.name,
+      teamType: activeSport?.team?.type,
+      teamOrganizationId: activeSport?.team?.organizationId,
     },
     academics: {
       gpa:
-        user.academics?.gpa != null
-          ? Number.isInteger(user.academics.gpa)
-            ? user.academics.gpa.toFixed(1)
-            : String(user.academics.gpa)
+        user.athlete?.academics?.gpa != null
+          ? Number.isInteger(user.athlete.academics.gpa)
+            ? user.athlete.academics.gpa.toFixed(1)
+            : String(user.athlete.academics.gpa)
           : undefined,
-      sat: user.academics?.satScore ? String(user.academics.satScore) : undefined,
-      act: user.academics?.actScore ? String(user.academics.actScore) : undefined,
-      intendedMajor: user.academics?.intendedMajor,
-      graduationDate: user.classOf ? String(user.classOf) : undefined,
+      sat: user.athlete?.academics?.satScore ? String(user.athlete.academics.satScore) : undefined,
+      act: user.athlete?.academics?.actScore ? String(user.athlete.academics.actScore) : undefined,
+      intendedMajor: user.athlete?.academics?.intendedMajor,
     },
     physical: {
       height: user.measurables?.find((m) => m.field === 'height')?.value?.toString(),
       weight: user.measurables?.find((m) => m.field === 'weight')?.value?.toString(),
-    },
-    socialLinks: {
-      links: (connectedSourcesOverride ?? user.connectedSources ?? []).map((cs) => ({
-        platform: cs.platform,
-        url: cs.profileUrl,
-        username: undefined, // connectedSources uses profileUrl only
-        displayOrder: cs.displayOrder ?? 0,
-        scopeType: cs.scopeType as 'global' | 'sport' | 'team' | undefined,
-        scopeId: cs.scopeId,
-      })),
+      wingspan: activeSport?.verifiedMetrics
+        ?.find((m) => m.field === 'wingspan')
+        ?.value?.toString(),
     },
     contact: {
       email: user.email,
       phone: user.contact?.phone ?? undefined,
-      coachEmail: activeSport?.coach?.email,
-      preferredContactMethod: user.preferredContactMethod ?? 'email',
     },
   };
 }
@@ -370,6 +339,7 @@ function sectionToFirestoreUpdate(
 
     case 'photos': {
       const data = sectionData as EditProfilePhotos;
+      if (data.bannerImg !== undefined) updates['bannerImg'] = data.bannerImg || null;
       if (data.profileImgs !== undefined) updates['profileImgs'] = data.profileImgs || [];
       break;
     }
@@ -422,42 +392,36 @@ function sectionToFirestoreUpdate(
       });
 
       // ⚠️ IMPORTANT: Clone the entire sports array to avoid mutations
-      // We update the whole array to prevent Firestore from corrupting array structure
       const updatedSports = JSON.parse(JSON.stringify(user.sports)) as SportProfile[];
       const targetSport = updatedSports[targetIndex];
 
       // Note: Sport type (data.sport) is read-only - cannot be changed via edit profile
-      // Users must use profile settings to change their sport
-
-      // Update fields on the cloned sport object
-      if (data.primaryPosition !== undefined || data.secondaryPositions !== undefined) {
-        const positions: string[] = [];
-        if (data.primaryPosition) positions.push(data.primaryPosition);
-        if (data.secondaryPositions) positions.push(...data.secondaryPositions);
-        targetSport.positions = positions.length > 0 ? positions : [];
-
-        logger.debug('[EditProfile] Updating positions', {
-          primaryPosition: data.primaryPosition,
-          secondaryPositions: data.secondaryPositions,
-          finalPositions: targetSport.positions,
-        });
-      }
-
-      if (data.jerseyNumber !== undefined) {
-        targetSport.jerseyNumber = data.jerseyNumber || undefined;
-      }
-
-      if (data.yearsExperience !== undefined) {
-        targetSport.yearsExperience = data.yearsExperience || undefined;
-      }
 
       // Team / program name and type
       if (
+        data.positions !== undefined ||
         data.teamName !== undefined ||
         data.teamType !== undefined ||
-        data.teamLogoUrl !== undefined ||
         data.teamOrganizationId !== undefined
       ) {
+        // Positions — normalize to Title Case against SPORT_POSITIONS canonical list
+        if (data.positions !== undefined) {
+          const sportName = targetSport.sport ?? '';
+          const sportKey = normalizeSportKey(sportName);
+          const canonical = SPORT_POSITIONS[sportKey] ?? [];
+          const canonicalMap = new Map<string, string>();
+          for (const p of canonical) {
+            canonicalMap.set(p.toLowerCase(), p);
+          }
+          const normalized = new Set<string>();
+          for (const p of data.positions) {
+            const trimmed = p.trim();
+            if (!trimmed) continue;
+            const match = canonicalMap.get(trimmed.toLowerCase());
+            normalized.add(match ?? trimmed.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()));
+          }
+          targetSport.positions = Array.from(normalized);
+        }
         if (!targetSport.team) {
           targetSport.team = { type: TEAM_TYPES.HIGH_SCHOOL, name: '' };
         }
@@ -471,9 +435,6 @@ function sectionToFirestoreUpdate(
             ? (incoming as TeamType)
             : TEAM_TYPES.HIGH_SCHOOL;
         }
-        if (data.teamLogoUrl !== undefined) {
-          targetSport.team.logoUrl = data.teamLogoUrl || undefined;
-        }
         if (data.teamOrganizationId !== undefined) {
           targetSport.team.organizationId = data.teamOrganizationId || undefined;
         }
@@ -481,7 +442,6 @@ function sectionToFirestoreUpdate(
         logger.debug('[EditProfile] Updating team info', {
           teamName: targetSport.team.name,
           teamType: targetSport.team.type,
-          teamLogoUrl: targetSport.team.logoUrl,
           organizationId: targetSport.team.organizationId,
         });
       }
@@ -500,20 +460,6 @@ function sectionToFirestoreUpdate(
 
     case 'academics': {
       const data = sectionData as EditProfileAcademics;
-
-      // School goes to team.name for the sport being edited
-      const targetIndex = sportIndex ?? user.activeSportIndex ?? 0;
-      if (data.school !== undefined && user.sports && user.sports[targetIndex]) {
-        const updatedSports = JSON.parse(JSON.stringify(user.sports)) as SportProfile[];
-        if (!updatedSports[targetIndex].team) {
-          updatedSports[targetIndex].team = {
-            type: 'high-school',
-            name: '',
-          };
-        }
-        updatedSports[targetIndex].team.name = data.school || '';
-        updates['sports'] = updatedSports;
-      }
 
       // Academic info
       if (data.gpa !== undefined) {
@@ -538,11 +484,6 @@ function sectionToFirestoreUpdate(
         const majorVal = data.intendedMajor || null;
         updates['athlete.academics.intendedMajor'] = majorVal;
         updates['academics.intendedMajor'] = majorVal;
-      }
-
-      // Graduation date goes to classOf
-      if (data.graduationDate !== undefined) {
-        updates['classOf'] = data.graduationDate ? parseInt(data.graduationDate, 10) : null;
       }
       break;
     }
@@ -598,54 +539,41 @@ function sectionToFirestoreUpdate(
         updates['measurables'] = existing;
       }
 
-      // Sport-specific physical metrics go to the sport being edited
+      // Sport-specific physical metrics go to sports[i].verifiedMetrics[] (2026 canonical)
       const targetIndex = sportIndex ?? user.activeSportIndex ?? 0;
-      const hasMetricsToUpdate =
-        data.wingspan !== undefined ||
-        data.fortyYardDash !== undefined ||
-        data.verticalJump !== undefined;
 
-      if (hasMetricsToUpdate && user.sports && user.sports[targetIndex]) {
-        // Re-use the clone from the invalidation branch if it exists; otherwise deep-clone.
+      if (data.wingspan !== undefined && user.sports && user.sports[targetIndex]) {
         const updatedSports =
           (updates['sports'] as SportProfile[] | undefined) ??
           (JSON.parse(JSON.stringify(user.sports)) as SportProfile[]);
-        if (!updatedSports[targetIndex].metrics) {
-          updatedSports[targetIndex].metrics = {};
+
+        const existingVerifiedMetrics: VerifiedMetric[] = updatedSports[targetIndex].verifiedMetrics
+          ? (JSON.parse(
+              JSON.stringify(updatedSports[targetIndex].verifiedMetrics)
+            ) as VerifiedMetric[])
+          : [];
+
+        const idx = existingVerifiedMetrics.findIndex((m) => m.field === 'wingspan');
+        if (data.wingspan) {
+          const entry: VerifiedMetric = {
+            id: 'wingspan',
+            field: 'wingspan',
+            label: 'Wingspan',
+            value: data.wingspan,
+            unit: 'ft',
+            category: 'physical',
+            source: 'self_reported',
+            verified: false,
+            updatedAt: new Date().toISOString(),
+          };
+          if (idx >= 0) existingVerifiedMetrics[idx] = entry;
+          else existingVerifiedMetrics.push(entry);
+        } else if (idx >= 0) {
+          existingVerifiedMetrics.splice(idx, 1);
         }
 
-        if (data.wingspan !== undefined) {
-          updatedSports[targetIndex].metrics!['wingspan'] = data.wingspan
-            ? parseFloat(data.wingspan)
-            : undefined;
-        }
-        if (data.fortyYardDash !== undefined) {
-          updatedSports[targetIndex].metrics!['40YardDash'] = data.fortyYardDash
-            ? parseFloat(data.fortyYardDash)
-            : undefined;
-        }
-        if (data.verticalJump !== undefined) {
-          updatedSports[targetIndex].metrics!['verticalJump'] = data.verticalJump
-            ? parseFloat(data.verticalJump)
-            : undefined;
-        }
-
+        updatedSports[targetIndex].verifiedMetrics = existingVerifiedMetrics;
         updates['sports'] = updatedSports;
-      }
-      break;
-    }
-
-    case 'social-links': {
-      const data = sectionData as EditProfileSocialLinks;
-      if (data.links !== undefined) {
-        updates['connectedSources'] = data.links.map((link, index) => ({
-          platform: link.platform,
-          profileUrl: link.url,
-          syncStatus: 'idle' as const,
-          displayOrder: link.displayOrder ?? index,
-          ...(link.scopeType && { scopeType: link.scopeType }),
-          ...(link.scopeId && { scopeId: link.scopeId }),
-        }));
       }
       break;
     }
@@ -656,26 +584,6 @@ function sectionToFirestoreUpdate(
       if (data.email !== undefined) updates['email'] = data.email;
       if (data.phone !== undefined) {
         updates['contact.phone'] = data.phone || null;
-      }
-      if (data.parentEmail !== undefined) {
-        updates['athlete.parentInfo.email'] = data.parentEmail || null;
-      }
-      if (data.parentPhone !== undefined) {
-        updates['athlete.parentInfo.phone'] = data.parentPhone || null;
-      }
-      if (data.coachEmail !== undefined && user.sports) {
-        const targetIndex = sportIndex ?? user.activeSportIndex ?? 0;
-        if (user.sports[targetIndex]) {
-          const updatedSports = JSON.parse(JSON.stringify(user.sports)) as SportProfile[];
-          if (!updatedSports[targetIndex].coach) {
-            updatedSports[targetIndex].coach = { firstName: '', lastName: '', email: '' };
-          }
-          updatedSports[targetIndex].coach!.email = data.coachEmail || '';
-          updates['sports'] = updatedSports;
-        }
-      }
-      if (data.preferredContactMethod !== undefined) {
-        updates['preferredContactMethod'] = data.preferredContactMethod;
       }
       break;
     }
@@ -688,189 +596,6 @@ function sectionToFirestoreUpdate(
   updates['updatedAt'] = new Date();
 
   return updates;
-}
-
-/**
- * Calculate profile completion percentage and tier
- */
-function calculateProfileCompletion(form: EditProfileFormData): ProfileCompletionData {
-  const sections: SectionCompletionData[] = [];
-  let totalFields = 0;
-  let completedFields = 0;
-  let totalXP = 0;
-  let earnedXP = 0;
-
-  // Basic Info Section (6 fields, 100 XP)
-  const basicInfoFields = [
-    form.basicInfo.firstName,
-    form.basicInfo.lastName,
-    form.basicInfo.bio,
-    form.basicInfo.location,
-    form.basicInfo.classYear,
-    form.basicInfo.displayName,
-  ];
-  const basicInfoCompleted = basicInfoFields.filter(Boolean).length;
-  sections.push({
-    sectionId: 'basic-info',
-    percentage: Math.round((basicInfoCompleted / 6) * 100),
-    fieldsCompleted: basicInfoCompleted,
-    fieldsTotal: 6,
-    xpEarned: Math.round((basicInfoCompleted / 6) * 100),
-    isComplete: basicInfoCompleted === 6,
-  });
-  totalFields += 6;
-  completedFields += basicInfoCompleted;
-  totalXP += 100;
-  earnedXP += Math.round((basicInfoCompleted / 6) * 100);
-
-  // Photos Section (2 fields, 75 XP)
-  const photosFields = [form.photos.profileImgs?.length ? 1 : 0, form.photos.bannerImg ? 1 : 0];
-  const photosCompleted = photosFields.filter(Boolean).length;
-  sections.push({
-    sectionId: 'photos',
-    percentage: Math.round((photosCompleted / 2) * 100),
-    fieldsCompleted: photosCompleted,
-    fieldsTotal: 2,
-    xpEarned: Math.round((photosCompleted / 2) * 75),
-    isComplete: photosCompleted === 2,
-  });
-  totalFields += 2;
-  completedFields += photosCompleted;
-  totalXP += 75;
-  earnedXP += Math.round((photosCompleted / 2) * 75);
-
-  // Sports Info Section (4 fields, 100 XP)
-  const sportsFields = [
-    form.sportsInfo.sport,
-    form.sportsInfo.primaryPosition,
-    form.sportsInfo.jerseyNumber,
-    form.sportsInfo.secondaryPositions?.length ? 1 : 0,
-  ];
-  const sportsCompleted = sportsFields.filter(Boolean).length;
-  sections.push({
-    sectionId: 'sports-info',
-    percentage: Math.round((sportsCompleted / 4) * 100),
-    fieldsCompleted: sportsCompleted,
-    fieldsTotal: 4,
-    xpEarned: Math.round((sportsCompleted / 4) * 100),
-    isComplete: sportsCompleted === 4,
-  });
-  totalFields += 4;
-  completedFields += sportsCompleted;
-  totalXP += 100;
-  earnedXP += Math.round((sportsCompleted / 4) * 100);
-
-  // Academics Section (6 fields, 100 XP)
-  const academicsFields = [
-    form.academics.school,
-    form.academics.gpa,
-    form.academics.sat,
-    form.academics.act,
-    form.academics.intendedMajor,
-    form.academics.graduationDate,
-  ];
-  const academicsCompleted = academicsFields.filter(Boolean).length;
-  sections.push({
-    sectionId: 'academics',
-    percentage: Math.round((academicsCompleted / 6) * 100),
-    fieldsCompleted: academicsCompleted,
-    fieldsTotal: 6,
-    xpEarned: Math.round((academicsCompleted / 6) * 100),
-    isComplete: academicsCompleted === 6,
-  });
-  totalFields += 6;
-  completedFields += academicsCompleted;
-  totalXP += 100;
-  earnedXP += Math.round((academicsCompleted / 6) * 100);
-
-  // Physical Section (5 fields, 100 XP)
-  const physicalFields = [
-    form.physical.height,
-    form.physical.weight,
-    form.physical.wingspan,
-    form.physical.fortyYardDash,
-    form.physical.verticalJump,
-  ];
-  const physicalCompleted = physicalFields.filter(Boolean).length;
-  sections.push({
-    sectionId: 'physical',
-    percentage: Math.round((physicalCompleted / 5) * 100),
-    fieldsCompleted: physicalCompleted,
-    fieldsTotal: 5,
-    xpEarned: Math.round((physicalCompleted / 5) * 100),
-    isComplete: physicalCompleted === 5,
-  });
-  totalFields += 5;
-  completedFields += physicalCompleted;
-  totalXP += 100;
-  earnedXP += Math.round((physicalCompleted / 5) * 100);
-
-  // Social Links Section (min 3 links, 75 XP)
-  const socialLinksCount = Math.min(form.socialLinks.links.length, 5);
-  sections.push({
-    sectionId: 'social-links',
-    percentage: Math.round((socialLinksCount / 5) * 100),
-    fieldsCompleted: socialLinksCount,
-    fieldsTotal: 5,
-    xpEarned: Math.round((socialLinksCount / 5) * 75),
-    isComplete: socialLinksCount >= 3,
-  });
-  totalFields += 5;
-  completedFields += socialLinksCount;
-  totalXP += 75;
-  earnedXP += Math.round((socialLinksCount / 5) * 75);
-
-  // Contact Section (5 fields, 50 XP)
-  const contactFields = [
-    form.contact.email,
-    form.contact.phone,
-    form.contact.parentEmail,
-    form.contact.parentPhone,
-    form.contact.coachEmail,
-  ];
-  const contactCompleted = contactFields.filter(Boolean).length;
-  sections.push({
-    sectionId: 'contact',
-    percentage: Math.round((contactCompleted / 5) * 100),
-    fieldsCompleted: contactCompleted,
-    fieldsTotal: 5,
-    xpEarned: Math.round((contactCompleted / 5) * 50),
-    isComplete: contactCompleted === 5,
-  });
-  totalFields += 5;
-  completedFields += contactCompleted;
-  totalXP += 50;
-  earnedXP += Math.round((contactCompleted / 5) * 50);
-
-  // Calculate overall percentage
-  const overallPercentage = Math.round((completedFields / totalFields) * 100);
-
-  // Determine tier
-  let tier: ProfileCompletionTier = 'rookie';
-  if (overallPercentage >= 95) tier = 'legend';
-  else if (overallPercentage >= 75) tier = 'mvp';
-  else if (overallPercentage >= 50) tier = 'all-star';
-  else if (overallPercentage >= 25) tier = 'starter';
-
-  // Determine next tier
-  let nextTier: ProfileCompletionTier | undefined;
-  if (tier === 'rookie') nextTier = 'starter';
-  else if (tier === 'starter') nextTier = 'all-star';
-  else if (tier === 'all-star') nextTier = 'mvp';
-  else if (tier === 'mvp') nextTier = 'legend';
-
-  return {
-    percentage: overallPercentage,
-    tier,
-    xpEarned: earnedXP,
-    xpTotal: totalXP,
-    progressToNextTier: nextTier ? overallPercentage : 100,
-    nextTier,
-    fieldsCompleted: completedFields,
-    fieldsTotal: totalFields,
-    sections,
-    recentAchievements: [],
-  };
 }
 
 // ============================================
@@ -905,39 +630,9 @@ router.get(
       sportIndexParam !== undefined ? parseInt(sportIndexParam, 10) : undefined;
     const sportIndex = resolveEditableSportIndex(user, requestedSportIndex, accessGrant);
 
-    // For coach/director roles, connected sources live on the Team doc (not User doc)
-    const isTeamRole = user.role === 'coach' || user.role === 'director';
-    const activeSportData =
-      user.sports?.[sportIndex ?? user.activeSportIndex ?? 0] ?? user.sports?.[0];
-    const teamId = (user.teamCode as any)?.teamId ?? activeSportData?.team?.teamId;
-    let teamConnectedSources:
-      | Array<{
-          platform: string;
-          profileUrl: string;
-          displayOrder?: number;
-          scopeType?: string;
-          scopeId?: string;
-        }>
-      | undefined;
-
-    if (isTeamRole && teamId) {
-      try {
-        const teamDoc = await db.collection('Teams').doc(teamId).get();
-        if (teamDoc.exists) {
-          const teamData = teamDoc.data();
-          if (Array.isArray(teamData?.['connectedSources'])) {
-            teamConnectedSources = teamData['connectedSources'];
-          }
-        }
-      } catch (err) {
-        logger.warn('[EditProfile] Failed to fetch team connected sources', { uid, teamId, err });
-      }
-    }
-
     const formData = accessGrant.isSelfWrite
-      ? userToEditProfileFormData(user, sportIndex, teamConnectedSources)
-      : buildDelegatedFormData(userToEditProfileFormData(user, sportIndex, teamConnectedSources));
-    const completion = calculateProfileCompletion(formData);
+      ? userToEditProfileFormData(user, sportIndex)
+      : buildDelegatedFormData(userToEditProfileFormData(user, sportIndex));
 
     // Determine which sport index is being edited
     const editingSportIndex = sportIndex ?? user.activeSportIndex ?? 0;
@@ -945,7 +640,6 @@ router.get(
     const response: EditProfileData = {
       uid: user.id,
       formData,
-      completion,
       lastUpdated:
         typeof user.updatedAt === 'string'
           ? user.updatedAt
@@ -962,15 +656,6 @@ router.get(
       activeSportIndex: user.activeSportIndex,
       totalSports: user.sports?.length,
       loadedSport: formData.sportsInfo.sport,
-      loadedJerseyNumber: formData.sportsInfo.jerseyNumber,
-      loadedPrimaryPosition: formData.sportsInfo.primaryPosition,
-      allSports: user.sports?.map((s, i) => ({
-        index: i,
-        sport: s.sport,
-        jerseyNumber: s.jerseyNumber,
-        positions: s.positions,
-      })),
-      completion: completion.percentage,
     });
 
     res.json({ success: true, data: response });
@@ -1004,7 +689,6 @@ router.put(
       'sports-info',
       'academics',
       'physical',
-      'social-links',
       'contact',
     ];
 
@@ -1055,11 +739,6 @@ router.put(
         hasTeam: !!s.team,
       })),
     });
-
-    // Get previous completion for XP calculation
-    const previousFormData = userToEditProfileFormData(user);
-    const previousCompletion = calculateProfileCompletion(previousFormData);
-    const previousSectionData = previousCompletion.sections.find((s) => s.sectionId === sectionId);
 
     // Parse sportIndex from query param (used for sports-related sections)
     const requestedSportIndex =
@@ -1173,8 +852,6 @@ router.put(
           if (orgId) {
             const orgUpdates: Record<string, unknown> = { updatedAt: new Date() };
             if (sportsData.teamName !== undefined) orgUpdates['name'] = sportsData.teamName || '';
-            if (sportsData.teamLogoUrl !== undefined)
-              orgUpdates['logoUrl'] = sportsData.teamLogoUrl || null;
 
             if (Object.keys(orgUpdates).length > 1) {
               await db.collection('Organizations').doc(orgId).update(orgUpdates);
@@ -1223,7 +900,61 @@ router.put(
 
     // Fetch updated user
     const updatedDoc = await userRef.get();
-    const updatedUser = { id: updatedDoc.id, ...updatedDoc.data() } as User;
+    const updatedUserData = (updatedDoc.data() ?? {}) as Record<string, unknown>;
+    const updatedUser = { id: updatedDoc.id, ...updatedUserData } as User;
+
+    try {
+      const diffService = new SyncDiffService();
+      const activeSportRecord =
+        updatedUser.sports?.[sportIndex ?? updatedUser.activeSportIndex ?? 0] ??
+        updatedUser.sports?.[0];
+      const deltaSport =
+        (typeof activeSportRecord?.sport === 'string' && activeSportRecord.sport.trim()) ||
+        (typeof sectionData?.['sport'] === 'string' && sectionData['sport'].trim()) ||
+        'general';
+
+      const scopedDelta = {
+        ...diffService.diff(
+          uid,
+          deltaSport,
+          'manual-profile',
+          buildPreviousStateFromUserRecord(user as unknown as Record<string, unknown>, sportIndex),
+          buildDistilledProfileFromUserRecord(updatedUserData, sportIndex)
+        ),
+        teamId:
+          typeof activeSportRecord?.team?.teamId === 'string'
+            ? activeSportRecord.team.teamId
+            : undefined,
+        organizationId:
+          typeof activeSportRecord?.team?.organizationId === 'string'
+            ? activeSportRecord.team.organizationId
+            : undefined,
+      };
+
+      if (!scopedDelta.isEmpty) {
+        logger.info('[EditProfile] Manual delta detected, firing sync trigger', {
+          uid,
+          sectionId,
+          sport: scopedDelta.sport,
+          totalChanges: scopedDelta.summary.totalChanges,
+          teamId: scopedDelta.teamId,
+          organizationId: scopedDelta.organizationId,
+        });
+        void onDailySyncComplete(scopedDelta).catch((err) => {
+          logger.warn('[EditProfile] Manual sync trigger dispatch failed', {
+            uid,
+            sectionId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+    } catch (err) {
+      logger.warn('[EditProfile] Manual delta computation failed', {
+        uid,
+        sectionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     const rosterEntryService = createRosterEntryService(db);
     await rosterEntryService.syncUserProfileToRosterEntries(
@@ -1367,95 +1098,17 @@ router.put(
       activeSport: updatedUser.sports?.[updatedUser.activeSportIndex ?? 0],
     });
 
-    // Calculate new completion
-    const updatedFormData = userToEditProfileFormData(updatedUser, sportIndex);
-    const newCompletion = calculateProfileCompletion(updatedFormData);
-    const newSectionData = newCompletion.sections.find((s) => s.sectionId === sectionId);
-
-    // Calculate XP awarded (section level)
-    const xpAwarded = (newSectionData?.xpEarned ?? 0) - (previousSectionData?.xpEarned ?? 0);
-
-    // Check for tier upgrades (achievements)
-    const achievementsUnlocked: Array<{
-      id: string;
-      title: string;
-      description: string;
-      icon: string;
-      xpReward: number;
-      unlockedAt: string;
-      tier: 'bronze' | 'silver' | 'gold' | 'platinum';
-    }> = [];
-
-    if (newCompletion.tier !== previousCompletion.tier) {
-      achievementsUnlocked.push({
-        id: `tier-${newCompletion.tier}`,
-        title: `${newCompletion.tier.toUpperCase()} Status Achieved!`,
-        description: `You've reached ${newCompletion.tier} tier with ${newCompletion.percentage}% profile completion`,
-        icon: 'trophy',
-        xpReward: 50,
-        unlockedAt: new Date().toISOString(),
-        tier:
-          newCompletion.tier === 'legend'
-            ? 'platinum'
-            : newCompletion.tier === 'mvp'
-              ? 'gold'
-              : newCompletion.tier === 'all-star'
-                ? 'silver'
-                : 'bronze',
-      });
-    }
-
     const response: EditProfileUpdateResponse = {
       success: true,
       message: 'Profile updated successfully',
-      xpAwarded,
-      achievementsUnlocked,
-      newCompletionPercentage: newCompletion.percentage,
-      newTier: newCompletion.tier,
     };
 
     logger.info('[EditProfile] Section updated', {
       uid,
       sectionId,
-      previousCompletion: previousCompletion.percentage,
-      newCompletion: newCompletion.percentage,
-      xpAwarded,
-      tierUpgrade: newCompletion.tier !== previousCompletion.tier ? newCompletion.tier : null,
     });
 
     res.json({ success: true, data: response });
-  })
-);
-
-/**
- * Get profile completion data
- * GET /api/v1/profile/:uid/completion
- */
-router.get(
-  '/:uid/completion',
-  appGuard,
-  asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const uid = getRequiredRouteParam(req.params['uid'], 'uid');
-    const currentUserId = req.user!.uid;
-
-    const db = req.firebase!.db;
-    const accessGrant = await createProfileWriteAccessService(db).assertCanManageProfileTarget({
-      actorUserId: currentUserId,
-      targetUserId: uid,
-      action: 'edit-profile:get-completion',
-    });
-    const user = { id: uid, ...accessGrant.targetUserData } as User;
-    const sportIndex = resolveEditableSportIndex(user, undefined, accessGrant);
-    const formData = userToEditProfileFormData(user, sportIndex);
-    const completion = calculateProfileCompletion(formData);
-
-    logger.debug('[EditProfile] Completion calculated', {
-      uid,
-      percentage: completion.percentage,
-      tier: completion.tier,
-    });
-
-    res.json({ success: true, data: completion });
   })
 );
 
@@ -1465,7 +1118,6 @@ router.get(
  *
  * Request: multipart/form-data
  * - file: image file
- * - type: 'profile' | 'banner'
  *
  * Response: { success: true, data: { url: string } }
  */
@@ -1476,16 +1128,11 @@ router.post(
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const uid = getRequiredRouteParam(req.params['uid'], 'uid');
     const currentUserId = req.user!.uid;
-    const { type } = req.body;
     const file = req.file;
 
     // Validate required fields
     if (!file) {
       throw fieldError('file', 'File is required', 'required');
-    }
-
-    if (!type || (type !== 'profile' && type !== 'banner')) {
-      throw fieldError('type', 'Type must be "profile" or "banner"', 'invalid');
     }
 
     // Authorization: user can only upload their own photos
@@ -1495,15 +1142,14 @@ router.post(
 
     logger.info('Processing photo upload', {
       userId: uid,
-      type,
       originalSize: formatFileSize(file.size),
       mimeType: file.mimetype,
     });
 
-    // Optimize image (convert to JPEG)
+    // Optimize image (convert to JPEG, fixed 800×800)
     const jpegBuffer = await sharp(file.buffer)
       .rotate()
-      .resize(type === 'profile' ? 800 : 1200, type === 'profile' ? 800 : 400, {
+      .resize(800, 800, {
         fit: 'cover',
         withoutEnlargement: true,
       })
@@ -1511,14 +1157,13 @@ router.post(
       .toBuffer();
 
     // Build storage path
-    const storagePath = buildPhotoStoragePath(uid, type);
+    const storagePath = buildPhotoStoragePath(uid);
 
     // Upload to Firebase Storage (uses correct bucket from middleware)
     const url = await uploadToStorage(jpegBuffer, storagePath, 'image/jpeg', req.firebase!.storage);
 
     logger.info('Photo upload complete', {
       userId: uid,
-      type,
       url,
       optimizedSize: formatFileSize(jpegBuffer.length),
       compressionRatio: `${Math.round((1 - jpegBuffer.length / file.size) * 100)}%`,
@@ -1535,7 +1180,6 @@ router.post(
  * Delete profile/banner photo
  * DELETE /api/v1/profile/:uid/photo/:type
  *
- * type='banner'  — deletes bannerImg from Storage + clears field
  * type='profile' — deletes all profileImgs from Storage + clears gallery
  */
 router.delete(
@@ -1546,8 +1190,8 @@ router.delete(
     const type = getRequiredRouteParam(req.params['type'], 'type');
     const currentUserId = req.user!.uid;
 
-    if (type !== 'profile' && type !== 'banner') {
-      throw fieldError('type', 'Type must be "profile" or "banner"', 'invalid');
+    if (type !== 'profile') {
+      throw fieldError('type', 'Type must be "profile"', 'invalid');
     }
 
     if (uid !== currentUserId) {
@@ -1569,21 +1213,13 @@ router.delete(
 
     const updates: Record<string, unknown> = {};
 
-    if (type === 'banner') {
-      const bannerImg = (userData['bannerImg'] as string | undefined) ?? null;
-      if (bannerImg) {
-        await deleteFromStorage(bannerImg, req.firebase!.storage);
-      }
-      updates['bannerImg'] = null;
-    } else {
-      // Delete all profile gallery images
-      const profileImgs: string[] = (userData['profileImgs'] as string[] | undefined) ?? [];
-      await Promise.allSettled(
-        profileImgs.map((url) => deleteFromStorage(url, req.firebase!.storage))
-      );
-      updates['profileImgs'] = [];
-      updates['profileImg'] = null;
-    }
+    // Delete all profile gallery images
+    const profileImgs: string[] = (userData['profileImgs'] as string[] | undefined) ?? [];
+    await Promise.allSettled(
+      profileImgs.map((url) => deleteFromStorage(url, req.firebase!.storage))
+    );
+    updates['profileImgs'] = [];
+    updates['profileImg'] = null;
 
     await userRef.update(updates);
 

@@ -226,16 +226,30 @@ function mapTeamCodeToTeam(
   const teamName = teamCode.teamName ?? '';
   buildTeamDisplayName(org?.name, teamName); // computed for future use
 
-  const socialLinks = teamCode.socialLinks as Record<string, string> | null | undefined;
-  const social: TeamProfileSocialLink[] = socialLinks
-    ? Object.entries(socialLinks)
-        .filter(([, url]) => Boolean(url))
-        .map(([platform, url]) => ({
-          platform,
-          url,
-          handle: extractHandle(url),
-        }))
+  const connectedSources = Array.isArray(teamCode.connectedSources)
+    ? teamCode.connectedSources
     : [];
+  const socialLinks = teamCode.socialLinks as Record<string, string> | null | undefined;
+
+  const social: TeamProfileSocialLink[] = connectedSources.length
+    ? connectedSources
+        .filter((src) => Boolean(src?.platform) && Boolean(src?.profileUrl))
+        .map((src) => ({
+          platform: src.platform,
+          url: src.profileUrl,
+          username: extractHandle(src.profileUrl),
+          displayOrder: src.displayOrder,
+          verified: src.syncStatus === 'success',
+        }))
+    : socialLinks
+      ? Object.entries(socialLinks)
+          .filter(([, url]) => Boolean(url))
+          .map(([platform, url]) => ({
+            platform,
+            url,
+            username: extractHandle(url),
+          }))
+      : [];
 
   const links = teamCode.teamLinks
     ? {
@@ -497,7 +511,6 @@ async function fetchTeamPosts(teamId: string, db: Firestore): Promise<TeamProfil
           mediaUrl: data['mediaUrl'] as string | undefined,
           externalLink: data['externalLink'] as string | undefined,
           likeCount: (data['likeCount'] as number) ?? 0,
-          commentCount: (data['commentCount'] as number) ?? 0,
           shareCount: (data['shareCount'] as number) ?? 0,
           viewCount: data['viewCount'] as number | undefined,
           isPinned: Boolean(data['isPinned']),
@@ -646,8 +659,6 @@ export async function mapTeamCodeToProfile(
           roster.push(mapRosterEntryToRosterMember(entry, userDataMap));
         } else {
           staff.push(mapRosterEntryToStaffMember(entry, userDataMap));
-          // Staff are also roster members (for member checks)
-          roster.push(mapRosterEntryToRosterMember(entry, userDataMap));
         }
       }
     } else if (teamCode.memberIds && teamCode.memberIds.length > 0) {
@@ -695,20 +706,6 @@ export async function mapTeamCodeToProfile(
               phone: member.phoneNumber,
             });
           }
-          // Staff count as roster members too
-          const user2 = legacyUserMap.get(member.id);
-          roster.push(
-            user2
-              ? mapUserToRoster(member.id, user2, member as unknown as Record<string, unknown>)
-              : {
-                  id: member.id,
-                  firstName: member.firstName,
-                  lastName: member.lastName,
-                  role: 'athlete',
-                  isVerified: member.isVerify,
-                  joinedAt: toSafeISOString(member.joinTime),
-                }
-          );
         }
       }
 
@@ -717,7 +714,11 @@ export async function mapTeamCodeToProfile(
         if (processedIds.has(uid)) continue;
         const user = legacyUserMap.get(uid);
         if (user) {
-          roster.push(mapUserToRoster(uid, user));
+          if (isAthleteRole(String(user.role ?? ''))) {
+            roster.push(mapUserToRoster(uid, user));
+          } else {
+            staff.push(mapUserToStaff(uid, user));
+          }
         } else {
           roster.push({ id: uid, firstName: '', lastName: '', role: 'athlete' });
         }

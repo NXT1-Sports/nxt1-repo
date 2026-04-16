@@ -51,8 +51,10 @@ export interface ProfileTab {
 
 /**
  * User role types in the platform.
+ * Alias of the canonical UserRole — 3 core roles only.
  */
-export type ProfileUserRole = 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent' | 'team';
+import type { UserRole } from '../constants/user.constants';
+export type ProfileUserRole = UserRole;
 
 /**
  * Verification status for profiles.
@@ -547,8 +549,6 @@ export interface ProfilePost {
   readonly externalLink?: string;
   /** Like count */
   readonly likeCount: number;
-  /** Comment count */
-  readonly commentCount: number;
   /** Share count */
   readonly shareCount: number;
   /** View count (for videos) */

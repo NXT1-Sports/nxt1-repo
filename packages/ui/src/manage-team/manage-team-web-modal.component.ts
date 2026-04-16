@@ -13,7 +13,7 @@
  *   so the overlay captures both paths.
  * - Adds unsaved-changes confirmation on close.
  *
- * ⭐ WEB DESKTOP ONLY — Mobile uses ManageTeamBottomSheetService ⭐
+ * ⭐ WEB BROWSER MODAL — Desktop + mobile web; native app uses ManageTeamBottomSheetService ⭐
  */
 
 import {
@@ -25,11 +25,13 @@ import {
   output,
   viewChild,
 } from '@angular/core';
+import type { ManageTeamSectionId } from '@nxt1/core';
 import { ManageTeamShellComponent } from './manage-team-shell.component';
 import { ManageTeamService } from './manage-team.service';
 import { NxtModalService } from '../services/modal';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtModalHeaderComponent } from '../components/overlay/modal-header.component';
+import { NxtPlatformService } from '../services/platform';
 
 @Component({
   selector: 'nxt1-manage-team-web-modal',
@@ -62,11 +64,12 @@ import { NxtModalHeaderComponent } from '../components/overlay/modal-header.comp
         </button>
       </nxt1-modal-header>
 
-      <!-- Shell renders body only — header suppressed via headless=true, 2-col grid via webLayout=true -->
+      <!-- Shell renders body only — header suppressed via headless=true; wide layouts only on roomy browser widths -->
       <nxt1-manage-team-shell
         [headless]="true"
-        [webLayout]="true"
+        [webLayout]="useWideLayout()"
         [teamId]="teamId()"
+        [initialSection]="initialSection()"
         (close)="onShellClose()"
         (save)="onShellSave()"
       />
@@ -78,6 +81,7 @@ import { NxtModalHeaderComponent } from '../components/overlay/modal-header.comp
         display: block;
         width: 100%;
         height: 100%;
+        min-height: 0;
       }
 
       .nxt1-mt-web-modal {
@@ -85,7 +89,14 @@ import { NxtModalHeaderComponent } from '../components/overlay/modal-header.comp
         flex-direction: column;
         width: 100%;
         height: 100%;
+        min-height: 0;
         overflow: hidden;
+      }
+
+      nxt1-manage-team-shell {
+        flex: 1 1 auto;
+        min-height: 0;
+        min-width: 0;
       }
 
       /* Save button in the modal header action slot */
@@ -178,6 +189,7 @@ import { NxtModalHeaderComponent } from '../components/overlay/modal-header.comp
 })
 export class ManageTeamWebModalComponent {
   readonly teamId = input<string | null>(null);
+  readonly initialSection = input<ManageTeamSectionId | null>(null);
 
   /**
    * NxtOverlayService auto-subscribes to `close` output.
@@ -190,15 +202,18 @@ export class ManageTeamWebModalComponent {
 
   private readonly modal = inject(NxtModalService);
   private readonly logger = inject(NxtLoggingService).child('ManageTeamWebModal');
+  private readonly platform = inject(NxtPlatformService);
 
   /** Exposed to template for save-button state bindings. */
   protected readonly manageTeamService = inject(ManageTeamService);
 
-  /** Dynamic modal title based on team name. */
-  protected readonly modalTitle = computed(() => {
-    const name = this.manageTeamService.teamName();
-    return name ? `Manage ${name}` : 'Manage Team';
+  /** Use the roomy two-column layout only when the browser viewport can support it. */
+  protected readonly useWideLayout = computed(() => {
+    return this.platform.isBrowser() && this.platform.viewport().width >= 768;
   });
+
+  /** Keep the web modal title short and consistent on all screen sizes. */
+  protected readonly modalTitle = computed(() => 'Manage Team');
 
   /**
    * Header action button handler.

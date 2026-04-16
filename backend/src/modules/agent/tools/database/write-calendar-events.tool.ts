@@ -22,6 +22,7 @@ import {
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
 import { SyncDiffService, type PreviousScheduleEntry } from '../../sync/index.js';
+import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 import { logger } from '../../../../utils/logger.js';
 import { normalizeOpponentName } from './dedup-utils.js';
@@ -296,6 +297,7 @@ export class WriteCalendarEventsTool extends BaseTool {
                 const ev = e as Record<string, unknown>;
                 return {
                   date: String(ev['date'] ?? ''),
+                  eventType: typeof ev['eventType'] === 'string' ? ev['eventType'] : undefined,
                   opponent: typeof ev['opponent'] === 'string' ? ev['opponent'] : undefined,
                   location: typeof ev['location'] === 'string' ? ev['location'] : undefined,
                   result: typeof ev['result'] === 'string' ? ev['result'] : undefined,
@@ -332,6 +334,28 @@ export class WriteCalendarEventsTool extends BaseTool {
             error: err instanceof Error ? err.message : String(err),
           });
         }
+      }
+
+      if (written > 0) {
+        await getAnalyticsLoggerService().safeTrack({
+          subjectId: userId,
+          subjectType: 'user',
+          domain: 'system',
+          eventType: 'tool_write_completed',
+          source: accessGrant.isSelfWrite ? 'user' : 'agent',
+          actorUserId: context.userId,
+          value: written,
+          tags: ['schedule', sportId, source],
+          payload: {
+            toolName: this.name,
+            sportId,
+            eventsWritten: written,
+            eventsSkipped: skipped,
+          },
+          metadata: {
+            initiatedBy: 'write-calendar-events',
+          },
+        });
       }
 
       return {

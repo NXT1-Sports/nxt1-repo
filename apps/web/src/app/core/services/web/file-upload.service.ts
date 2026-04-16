@@ -171,17 +171,6 @@ export class FileUploadService {
   }
 
   /**
-   * Upload cover photo
-   *
-   * @param userId - User's Firebase UID
-   * @param file - Image file to upload
-   * @returns Upload result with URL, or null on failure
-   */
-  async uploadCoverPhoto(userId: string, file: File): Promise<FileUploadResult | null> {
-    return this.uploadFile(userId, file, 'cover-photo');
-  }
-
-  /**
    * Upload document (PDF, transcript, etc.)
    *
    * @param userId - User's Firebase UID
@@ -371,7 +360,7 @@ export class FileUploadService {
   } {
     const rules = FILE_UPLOAD_RULES[category];
     return {
-      maxSize: formatFileSize(rules.maxSize),
+      maxSize: 'maxSize' in rules ? formatFileSize((rules as { maxSize: number }).maxSize) : '',
       allowedTypes: rules.allowedTypes,
     };
   }
@@ -444,9 +433,6 @@ export class FileUploadService {
             file.type,
             onProgress
           );
-          break;
-        case 'cover-photo':
-          result = await this.api.uploadCoverPhoto(userId, file, file.name, file.type, onProgress);
           break;
         case 'document':
           result = await this.api.uploadDocument(userId, file, file.name, file.type, onProgress);

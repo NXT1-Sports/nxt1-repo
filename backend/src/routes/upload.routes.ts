@@ -252,22 +252,12 @@ async function uploadToStorage(
 }
 
 /**
- * Build storage path for file - Extension-Compatible Format
- *
- * Uses paths that trigger the Firebase Resize Images extension:
- * - Profile photos: users/{userId}/profile/avatar_{timestamp}.jpg
- * - Cover photos: users/{userId}/cover/cover_{timestamp}.jpg
- * - Team logos: teams/{teamId}/logo/logo_{timestamp}.jpg
- *
- * Extension will auto-generate thumbnails in:
- * - users/{userId}/profile/thumbs/avatar_{timestamp}_200x200.webp
- * - users/{userId}/profile/thumbs/avatar_{timestamp}_400x400.webp
- * - users/{userId}/profile/thumbs/avatar_{timestamp}_800x800.webp
+ * Build storage path for file
  *
  * @param userId - User ID
  * @param category - File category
  * @param fileName - Original filename (optional, used for extension)
- * @returns Storage path compatible with Firebase extension
+ * @returns Storage path
  */
 function buildExtensionCompatiblePath(
   userId: string,
@@ -275,16 +265,11 @@ function buildExtensionCompatiblePath(
   fileName?: string
 ): string {
   const timestamp = Date.now();
-  const extension = 'jpg'; // Use jpg for broad compatibility with extension
+  const extension = 'jpg';
 
   switch (category) {
     case 'profile-photo':
-      // Extension path: users/{userId}/profile/avatar_{timestamp}.jpg
-      return `users/${userId}/profile/avatar_${timestamp}.${extension}`;
-
-    case 'cover-photo':
-      // Extension path: users/{userId}/cover/cover_{timestamp}.jpg
-      return `users/${userId}/cover/cover_${timestamp}.${extension}`;
+      return `Profiles/ProfileImages/${userId}/avatar_${timestamp}.${extension}`;
 
     case 'document': {
       // Documents don't go through extension - keep original format
@@ -427,13 +412,17 @@ function buildThumbnailUrls(
 /**
  * Build storage path for file
  *
- * @deprecated Use buildExtensionCompatiblePath() instead for extension support
+ * @deprecated Use buildExtensionCompatiblePath() instead
  */
 function buildStoragePath(userId: string, category: FileCategory, fileName: string): string {
   const timestamp = Date.now();
   const sanitizedName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
-  const extension = category === 'profile-photo' ? 'webp' : sanitizedName.split('.').pop() || 'bin';
 
+  if (category === 'profile-photo') {
+    return `Profiles/ProfileImages/${userId}/avatar_${timestamp}.jpg`;
+  }
+
+  const extension = sanitizedName.split('.').pop() || 'bin';
   return `users/${userId}/${category}/${timestamp}_${sanitizedName.split('.')[0]}.${extension}`;
 }
 
@@ -1251,16 +1240,13 @@ router.post(
       throw fieldError('file', 'File is required', 'required');
     }
 
-    // Validate file size per category rules
+    // Validate file size per category rules (profile-photo has no maxSize — sharp normalizes before upload)
     const category: FileCategory = 'profile-photo';
     const rules = FILE_UPLOAD_RULES[category];
 
-    if (file.size > rules.maxSize) {
-      throw fieldError(
-        'file',
-        `File must be smaller than ${formatFileSize(rules.maxSize)}`,
-        'maxSize'
-      );
+    const maxSize = 'maxSize' in rules ? (rules as { maxSize: number }).maxSize : null;
+    if (maxSize !== null && file.size > maxSize) {
+      throw fieldError('file', `File must be smaller than ${formatFileSize(maxSize)}`, 'maxSize');
     }
 
     logger.info('Processing profile photo upload', {
@@ -1323,20 +1309,6 @@ router.post(
       success: true,
       data: result,
     });
-  })
-);
-
-/**
- * POST /upload/banner-photo
- *
- * Upload banner/cover photo with optimization.
- * Alias for cover-photo to match core API expectations.
- */
-router.post(
-  '/banner-photo',
-  upload.single('file'),
-  asyncHandler(async (req: Request, res: Response) => {
-    await handleCoverPhotoUpload(req, res);
   })
 );
 
@@ -1441,7 +1413,7 @@ router.post(
   '/highlight-video/confirm',
   asyncHandler(async (req: Request, res: Response) => {
     const userId = req.user!.uid;
-    const { storagePath, mimeType, fileSize } = req.body;
+    const { storagePath } = req.body;
 
     if (!storagePath) {
       throw fieldError('storagePath', 'Storage path is required', 'required');
@@ -1464,110 +1436,16 @@ router.post(
     await file.makePublic();
     const publicUrl = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
 
-    // Generate a unique job ID for idempotent processing
-    const jobId = `vid_${userId}_${Date.now()}`;
-
-    // Publish video processing job to Pub/Sub
-    const { publishVideoProcessingJob } = await import('../workers/video-processing-worker.js');
-    const environment = (process.env['NODE_ENV'] === 'production' ? 'production' : 'staging') as
-      | 'staging'
-      | 'production';
-
-    const messageId = await publishVideoProcessingJob({
-      jobId,
-      userId,
-      storagePath,
-      mimeType: mimeType || 'video/mp4',
-      fileSize: fileSize ? Number(fileSize) : undefined,
-      environment,
-    });
-
-    logger.info('Video upload confirmed, processing enqueued', {
-      userId,
-      storagePath,
-      jobId,
-      messageId,
-    });
+    logger.info('Video upload confirmed', { userId, storagePath });
 
     res.json({
       success: true,
       data: {
-        jobId,
         publicUrl,
         storagePath,
-        status: 'pending',
-        message: 'Video upload confirmed. Processing has been enqueued.',
+        message: 'Video upload confirmed.',
       },
     });
-  })
-);
-
-/**
- * POST /upload/cover-photo
- *
- * Upload cover photo with optimization.
- * Note: Cover photos don't use the resize extension (not in monitored path).
- */
-async function handleCoverPhotoUpload(req: Request, res: Response): Promise<void> {
-  const userId = req.user!.uid;
-  const { fileName } = req.body;
-  const file = req.file;
-
-  if (!file) {
-    throw fieldError('file', 'File is required', 'required');
-  }
-
-  const category: FileCategory = 'cover-photo';
-  const rules = FILE_UPLOAD_RULES[category];
-
-  if (file.size > rules.maxSize) {
-    throw fieldError(
-      'file',
-      `File must be smaller than ${formatFileSize(rules.maxSize)}`,
-      'maxSize'
-    );
-  }
-
-  logger.info('Processing cover photo upload', {
-    userId,
-    originalSize: formatFileSize(file.size),
-  });
-
-  const bucket = req.firebase?.storage?.bucket() || getStorage().bucket();
-  const optimized = await optimizeImage(file.buffer, category, file.mimetype);
-
-  const originalFileName = fileName || file.originalname;
-  const timestamp = Date.now();
-  const sanitizedName = originalFileName.replace(/[^a-zA-Z0-9.-]/g, '_').split('.')[0];
-  const mainPath = `users/${userId}/cover-photo/cover_${timestamp}_${sanitizedName}.webp`;
-
-  const mainUrl = await uploadToStorage(optimized.buffer, mainPath, optimized.mimeType, bucket);
-
-  const result: FileUploadResult = {
-    url: mainUrl,
-    storagePath: mainPath,
-    size: optimized.buffer.length,
-    mimeType: optimized.mimeType,
-    dimensions: optimized.dimensions,
-  };
-
-  logger.info('Cover photo upload complete', {
-    userId,
-    url: mainUrl,
-    optimizedSize: formatFileSize(optimized.buffer.length),
-  });
-
-  res.json({
-    success: true,
-    data: result,
-  });
-}
-
-router.post(
-  '/cover-photo',
-  upload.single('file'),
-  asyncHandler(async (req: Request, res: Response) => {
-    await handleCoverPhotoUpload(req, res);
   })
 );
 

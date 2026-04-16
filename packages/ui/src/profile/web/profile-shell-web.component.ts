@@ -27,6 +27,7 @@ import {
   output,
   computed,
   signal,
+  effect,
   OnInit,
   AfterViewInit,
   OnDestroy,
@@ -38,7 +39,6 @@ import {
   type ProfileTab,
   PROFILE_EMPTY_STATES,
   getProfileTabsForUser,
-  getOverviewSectionLabels,
   type ProfileRecruitingActivity,
   type ProfileEvent,
   type ProfileTeamAffiliation,
@@ -69,6 +69,7 @@ import {
   type SectionNavChangeEvent,
 } from '../../components/section-nav-web';
 import { NxtImageCarouselComponent } from '../../components/image-carousel';
+import { NxtStateViewComponent } from '../../components/state-view';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { NxtHeaderPortalService } from '../../services/header-portal';
@@ -79,10 +80,15 @@ import {
   SHEET_PRESETS,
   type BottomSheetAction,
 } from '../../components/bottom-sheet';
+import { Router } from '@angular/router';
+import { NxtPlatformService } from '../../services/platform';
+import { AgentXService } from '../../agent-x/agent-x.service';
+import { AgentXOperationChatComponent } from '../../agent-x';
 
 import { ProfileTimelineComponent } from '../profile-timeline.component';
 import { ProfileSkeletonComponent } from '../profile-skeleton.component';
 import { AthleteIntelComponent } from '../../intel/athlete-intel.component';
+import { IntelService } from '../../intel/intel.service';
 import { ProfileMobileHeroComponent } from '../components/profile-mobile-hero.component';
 import { ProfileVerificationBannerComponent } from '../components/profile-verification-banner.component';
 import { ProfileContactComponent } from '../components/profile-contact.component';
@@ -122,6 +128,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
     NxtOptionScrollerComponent,
     NxtSectionNavWebComponent,
     NxtImageCarouselComponent,
+    NxtStateViewComponent,
     ProfileTimelineComponent,
     ProfileSkeletonComponent,
     AthleteIntelComponent,
@@ -236,33 +243,19 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
 
       <!-- Error State -->
       @else if (profile.error()) {
-        <section class="madden-error">
-          <div class="madden-error-icon" aria-hidden="true">⚠️</div>
-          <h2 class="madden-error-title">Failed to load profile</h2>
-          <p class="madden-error-msg">{{ profile.error() }}</p>
-          <button type="button" class="madden-error-btn" (click)="onRetry()">Try Again</button>
-        </section>
+        <nxt1-state-view
+          variant="error"
+          title="Failed to load profile"
+          [message]="profile.error() || 'We could not load this profile right now.'"
+          actionLabel="Try Again"
+          actionIcon="refresh"
+          (action)="onRetry()"
+        />
       }
 
       <!-- ═══ MADDEN FRANCHISE MODE — SPLIT LAYOUT ═══ -->
       @else if (profile.user()) {
         <div class="madden-stage" [style.--team-accent]="teamAccentColor()">
-          <!-- Background variant: modern clean gradient (default) -->
-          @if (bgVariant === 'modern') {
-            <div class="stage-modern-bg" aria-hidden="true">
-              <div class="stage-modern-base"></div>
-              <div class="stage-modern-lanes"></div>
-              <div class="stage-modern-glow"></div>
-              <div class="stage-modern-vignette"></div>
-            </div>
-          } @else {
-            <!-- Background variant: legacy halftone dots (recruiting card aesthetic) -->
-            <div class="stage-halftone-bg" aria-hidden="true">
-              <div class="stage-halftone-dots"></div>
-              <div class="stage-halftone-fade"></div>
-            </div>
-          }
-
           <!-- ═══ SPLIT: LEFT CONTENT | RIGHT PLAYER IMAGE ═══ -->
           <div class="madden-split">
             <!-- LEFT SIDE: Header + Tabs + Content -->
@@ -357,11 +350,47 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                     />
                   }
 
+                  @if (
+                    profile.isOwnProfile() &&
+                    profile.activeTab() === 'timeline' &&
+                    !platform.isMobile()
+                  ) {
+                    <div class="desktop-intel-action-bar">
+                      <button
+                        type="button"
+                        class="desktop-intel-action-bar__btn"
+                        (click)="onAddUpdate()"
+                      >
+                        <nxt1-icon name="create-outline" [size]="16" />
+                        Add Update
+                      </button>
+                    </div>
+                  }
+
+                  @if (
+                    profile.isOwnProfile() &&
+                    profile.activeTab() === 'intel' &&
+                    !platform.isMobile()
+                  ) {
+                    <div class="desktop-intel-action-bar">
+                      <button
+                        type="button"
+                        class="desktop-intel-action-bar__btn"
+                        (click)="onGenerateIntel()"
+                      >
+                        <nxt1-icon name="flash-outline" [size]="16" />
+                        {{ footerButtonLabel() }}
+                      </button>
+                    </div>
+                  }
+
                   @switch (profile.activeTab()) {
                     @case ('intel') {
                       <nxt1-athlete-intel
                         [userId]="profile.user()!.uid"
                         [isOwnProfile]="profile.isOwnProfile()"
+                        [activeSection]="activeSideTab()"
+                        (generateClick)="onGenerateIntel()"
                         (missingDataAction)="editProfileClick.emit()"
                       />
                     }
@@ -380,7 +409,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                         [emptyIcon]="emptyState().icon"
                         [emptyTitle]="emptyState().title"
                         [emptyMessage]="emptyState().message"
-                        [emptyCta]="profile.isOwnProfile() ? (emptyState().ctaLabel ?? null) : null"
+                        [emptyCta]="null"
                         (postClick)="onPostClick($event)"
                         (reactClick)="onLikePost($event)"
                         (repostClick)="onCommentPost($event)"
@@ -391,7 +420,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                     }
 
                     @case ('connect') {
-                      <nxt1-profile-contact />
+                      <nxt1-profile-contact [activeSection]="activeSideTab()" />
                     }
                   }
                 </section>
@@ -401,6 +430,52 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
             <!-- RIGHT SIDE: Player image + Team info -->
             <div class="madden-split-right">
               <div class="madden-right-stack">
+                @if (primaryRailTeam(); as primaryTeam) {
+                  <div class="madden-team-stack">
+                    <div
+                      class="madden-team-block"
+                      [class.madden-team-block--clickable]="!!primaryTeam.teamCode"
+                      [attr.role]="primaryTeam.teamCode ? 'button' : null"
+                      [attr.tabindex]="primaryTeam.teamCode ? '0' : null"
+                      (click)="primaryTeam.teamCode ? onTeamClick(primaryTeam) : null"
+                      (keydown.enter)="primaryTeam.teamCode ? onTeamClick(primaryTeam) : null"
+                      (keydown.space)="
+                        primaryTeam.teamCode && onTeamClick(primaryTeam); $event.preventDefault()
+                      "
+                    >
+                      @if (primaryTeam.logoUrl) {
+                        <nxt1-image
+                          class="madden-team-logo"
+                          [src]="primaryTeam.logoUrl"
+                          [alt]="primaryTeam.name"
+                          [width]="32"
+                          [height]="32"
+                          variant="avatar"
+                          fit="contain"
+                          [priority]="true"
+                          [showPlaceholder]="false"
+                        />
+                      } @else {
+                        <div class="madden-team-logo-placeholder">
+                          <nxt1-icon [name]="teamIconName(primaryTeam.type)" [size]="22" />
+                        </div>
+                      }
+                      <div class="madden-team-info">
+                        <div class="madden-team-headline">
+                          <span class="madden-team-name">{{ primaryTeam.name }}</span>
+                        </div>
+                        @if (primaryTeam.location) {
+                          <span class="madden-team-location">{{ primaryTeam.location }}</span>
+                        } @else if (!primaryTeam.teamCode && isOwnProfile()) {
+                          <span class="madden-team-location"
+                            >Add your organization in Edit Profile</span
+                          >
+                        }
+                      </div>
+                    </div>
+                  </div>
+                }
+
                 @if (profile.profileImgs().length > 0) {
                   <div class="carousel-glow-wrap">
                     <div class="carousel-glow-border" aria-hidden="true"></div>
@@ -427,7 +502,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                     }
                   </div>
                 }
-                <!-- Team affiliations (school/club/juco/etc.) -->
+
                 @if (teamAffiliations().length > 0) {
                   <div class="madden-team-stack">
                     @for (
@@ -478,6 +553,39 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
 
         <!-- Projected content (e.g. CTA banner for logged-out users) -->
         <ng-content />
+      }
+
+      @if (
+        profile.isOwnProfile() &&
+        (profile.activeTab() === 'intel' || profile.activeTab() === 'timeline') &&
+        platform.isMobile()
+      ) {
+        <div class="mobile-intel-footer">
+          @if (profile.activeTab() === 'timeline') {
+            <button
+              type="button"
+              class="mobile-intel-footer__btn mobile-intel-footer__btn--primary mobile-intel-footer__btn--full"
+              (click)="onAddUpdate()"
+            >
+              Add Update
+            </button>
+          } @else {
+            <button
+              type="button"
+              class="mobile-intel-footer__btn mobile-intel-footer__btn--secondary"
+              (click)="onAddUpdate()"
+            >
+              Add Update
+            </button>
+            <button
+              type="button"
+              class="mobile-intel-footer__btn mobile-intel-footer__btn--primary"
+              (click)="onGenerateIntel()"
+            >
+              {{ footerButtonLabel() }}
+            </button>
+          }
+        </div>
       }
     </main>
   `,
@@ -565,168 +673,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         flex-shrink: 0;
       }
 
-      /* ─── SPORTY CLEAN BACKGROUND (default variant) ─── */
-      .stage-modern-bg {
-        position: absolute;
-        inset: 0;
-        z-index: 1;
-        pointer-events: none;
-        overflow: hidden;
-      }
-
-      .stage-modern-base {
-        position: absolute;
-        inset: 0;
-        background:
-          linear-gradient(
-            180deg,
-            color-mix(in srgb, var(--m-accent) 8%, rgba(255, 255, 255, 0.01)) 0%,
-            rgba(255, 255, 255, 0.01) 16%,
-            transparent 44%
-          ),
-          linear-gradient(
-            120deg,
-            transparent 0%,
-            color-mix(in srgb, var(--m-accent) 4%, transparent) 58%,
-            transparent 100%
-          );
-        opacity: 0.95;
-      }
-
-      .stage-modern-lanes {
-        position: absolute;
-        inset: -12% -8% 10% 34%;
-        background: repeating-linear-gradient(
-          -62deg,
-          transparent 0 22px,
-          color-mix(in srgb, var(--m-accent) 18%, transparent) 22px 24px,
-          transparent 24px 56px
-        );
-        clip-path: polygon(16% 0%, 100% 0%, 100% 100%, 0% 100%);
-        mask-image: linear-gradient(
-          to left,
-          rgba(0, 0, 0, 1) 0%,
-          rgba(0, 0, 0, 0.82) 18%,
-          rgba(0, 0, 0, 0.34) 54%,
-          transparent 100%
-        );
-        -webkit-mask-image: linear-gradient(
-          to left,
-          rgba(0, 0, 0, 1) 0%,
-          rgba(0, 0, 0, 0.82) 18%,
-          rgba(0, 0, 0, 0.34) 54%,
-          transparent 100%
-        );
-        opacity: 0.82;
-        transform: skewX(-14deg);
-        transform-origin: right center;
-      }
-
-      .stage-modern-glow {
-        position: absolute;
-        inset: 0;
-        background:
-          radial-gradient(
-            ellipse 56% 64% at 84% 22%,
-            color-mix(in srgb, var(--m-accent) 20%, transparent) 0%,
-            color-mix(in srgb, var(--m-accent) 10%, transparent) 36%,
-            transparent 74%
-          ),
-          linear-gradient(
-            100deg,
-            transparent 16%,
-            color-mix(in srgb, var(--m-accent) 7%, transparent) 62%,
-            transparent 100%
-          );
-        opacity: 0.95;
-      }
-
-      .stage-modern-vignette {
-        position: absolute;
-        inset: 0;
-        background:
-          linear-gradient(
-            180deg,
-            rgba(6, 8, 12, 0.18) 0%,
-            transparent 20%,
-            transparent 74%,
-            rgba(6, 8, 12, 0.18) 100%
-          ),
-          linear-gradient(
-            90deg,
-            rgba(6, 8, 12, 0.08) 0%,
-            transparent 24%,
-            transparent 72%,
-            rgba(6, 8, 12, 0.16) 100%
-          );
-      }
-
-      /* Respect motion preferences */
-      @media (prefers-reduced-motion: reduce) {
-        .stage-modern-lanes,
-        .stage-modern-glow,
-        .stage-modern-vignette {
-          opacity: 0.5;
-        }
-      }
-
-      /* ─── HALFTONE FADED BACKGROUND (legacy variant) ─── */
-      .stage-halftone-bg {
-        position: absolute;
-        inset: 0;
-        z-index: 1;
-        pointer-events: none;
-        overflow: hidden;
-      }
-
-      /* Halftone dot pattern — radial dots that give a newsprint/recruiting card texture */
-      .stage-halftone-dots {
-        position: absolute;
-        inset: 0;
-        background-image: radial-gradient(
-          circle,
-          color-mix(in srgb, var(--m-accent) 28%, transparent) 1.2px,
-          transparent 1.2px
-        );
-        background-size: 11px 11px;
-        /* Fade from right to left with generous spread */
-        mask-image: radial-gradient(
-          ellipse 130% 110% at 85% 50%,
-          black 0%,
-          rgba(0, 0, 0, 0.7) 20%,
-          rgba(0, 0, 0, 0.35) 45%,
-          transparent 68%
-        );
-        -webkit-mask-image: radial-gradient(
-          ellipse 130% 110% at 85% 50%,
-          black 0%,
-          rgba(0, 0, 0, 0.7) 20%,
-          rgba(0, 0, 0, 0.35) 45%,
-          transparent 68%
-        );
-        opacity: 1;
-      }
-
-      /* Soft colour wash that glows behind the right panel */
-      .stage-halftone-fade {
-        position: absolute;
-        inset: 0;
-        background: radial-gradient(
-          ellipse 75% 100% at 88% 50%,
-          color-mix(in srgb, var(--m-accent) 16%, transparent) 0%,
-          color-mix(in srgb, var(--m-accent) 8%, transparent) 30%,
-          transparent 62%
-        );
-      }
-
-      /* Respect motion preferences */
-      @media (prefers-reduced-motion: reduce) {
-        .stage-halftone-dots,
-        .stage-halftone-fade {
-          opacity: 0.5;
-        }
-      }
-
+      /* ─── SPLIT LAYOUT: Left content | Right player ─── */
       /* ─── SPLIT LAYOUT: Left content | Right player ─── */
       .madden-split {
         position: relative;
@@ -1369,118 +1316,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
           overflow-y: visible;
           max-width: 100vw;
         }
-        /* Mobile-only modern background tweak — center the glow for portrait */
-        .stage-modern-bg {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100vw;
-          height: 100vh;
-          height: 100dvh;
-          z-index: 0;
-        }
-        .stage-modern-base {
-          background:
-            linear-gradient(
-              180deg,
-              color-mix(in srgb, var(--m-accent) 10%, rgba(255, 255, 255, 0.01)) 0%,
-              transparent 40%
-            ),
-            linear-gradient(
-              135deg,
-              transparent 0%,
-              color-mix(in srgb, var(--m-accent) 5%, transparent) 60%,
-              transparent 100%
-            );
-        }
-        .stage-modern-lanes {
-          inset: -10% -28% 40% -8%;
-          clip-path: polygon(0% 0%, 100% 0%, 82% 100%, 0% 100%);
-          transform: none;
-          background: repeating-linear-gradient(
-            -58deg,
-            transparent 0 18px,
-            color-mix(in srgb, var(--m-accent) 16%, transparent) 18px 20px,
-            transparent 20px 42px
-          );
-          mask-image: linear-gradient(
-            180deg,
-            rgba(0, 0, 0, 0.96) 0%,
-            rgba(0, 0, 0, 0.72) 44%,
-            transparent 100%
-          );
-          -webkit-mask-image: linear-gradient(
-            180deg,
-            rgba(0, 0, 0, 0.96) 0%,
-            rgba(0, 0, 0, 0.72) 44%,
-            transparent 100%
-          );
-          opacity: 0.76;
-        }
-        .stage-modern-glow {
-          background:
-            radial-gradient(
-              ellipse 88% 58% at 50% 10%,
-              color-mix(in srgb, var(--m-accent) 18%, transparent) 0%,
-              color-mix(in srgb, var(--m-accent) 8%, transparent) 40%,
-              transparent 76%
-            ),
-            linear-gradient(
-              180deg,
-              color-mix(in srgb, var(--m-accent) 5%, transparent) 0%,
-              transparent 42%
-            );
-        }
-        .stage-modern-vignette {
-          background:
-            linear-gradient(
-              180deg,
-              rgba(6, 8, 12, 0.12) 0%,
-              transparent 22%,
-              transparent 78%,
-              rgba(6, 8, 12, 0.18) 100%
-            ),
-            linear-gradient(
-              90deg,
-              rgba(6, 8, 12, 0.04) 0%,
-              transparent 18%,
-              transparent 82%,
-              rgba(6, 8, 12, 0.1) 100%
-            );
-        }
-        /* Mobile-only background optimization: lighter, sleeker halftone treatment */
-        .stage-halftone-dots {
-          background-image: radial-gradient(
-            circle,
-            color-mix(in srgb, var(--m-accent) 34%, transparent) 1.05px,
-            transparent 0.9px
-          );
-          background-size: 14px 14px;
-          mask-image: radial-gradient(
-            ellipse 122% 78% at 50% 10%,
-            rgba(0, 0, 0, 0.9) 0%,
-            rgba(0, 0, 0, 0.68) 30%,
-            rgba(0, 0, 0, 0.36) 56%,
-            transparent 80%
-          );
-          -webkit-mask-image: radial-gradient(
-            ellipse 122% 78% at 50% 10%,
-            rgba(0, 0, 0, 0.9) 0%,
-            rgba(0, 0, 0, 0.68) 30%,
-            rgba(0, 0, 0, 0.36) 56%,
-            transparent 80%
-          );
-          opacity: 0.95;
-        }
-        .stage-halftone-fade {
-          background: radial-gradient(
-            ellipse 86% 72% at 50% 8%,
-            color-mix(in srgb, var(--m-accent) 26%, transparent) 0%,
-            color-mix(in srgb, var(--m-accent) 13%, transparent) 42%,
-            transparent 78%
-          );
-          opacity: 0.98;
-        }
         .profile-main {
           height: auto;
           overflow-x: hidden;
@@ -1494,16 +1329,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
           overflow-x: hidden;
           overflow-y: visible;
           flex-shrink: 1;
-        }
-        /* Pin halftone background to viewport height so it never shifts between tabs */
-        .stage-halftone-bg {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100vw;
-          height: 100vh;
-          height: 100dvh;
-          z-index: 0;
         }
         .madden-split {
           height: auto;
@@ -1609,6 +1434,78 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
           font-size: 11px;
         }
       }
+
+      /* ─── Desktop Intel Action Bar ─── */
+      .desktop-intel-action-bar {
+        display: flex;
+        justify-content: flex-end;
+        padding: 0 0 12px;
+      }
+      .desktop-intel-action-bar__btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 18px;
+        border-radius: 8px;
+        border: none;
+        cursor: pointer;
+        font-size: 0.875rem;
+        font-weight: 700;
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        letter-spacing: 0.02em;
+        background: var(--nxt1-color-primary, #d4ff00);
+        color: var(--nxt1-color-text-onPrimary, #000);
+        transition:
+          filter 150ms ease,
+          transform 150ms ease;
+      }
+      .desktop-intel-action-bar__btn:hover {
+        filter: brightness(1.08);
+        transform: translateY(-1px);
+      }
+
+      /* ─── Mobile VP Intel Footer ─── */
+      .mobile-intel-footer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 100;
+        display: flex;
+        gap: 8px;
+        padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+        background: var(--nxt1-color-bg-primary, #0a0a0a);
+        border-top: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
+      }
+      .mobile-intel-footer__btn {
+        flex: 1;
+        padding: 11px 12px;
+        border-radius: 8px;
+        border: none;
+        cursor: pointer;
+        font-size: 0.875rem;
+        font-weight: 700;
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        letter-spacing: 0.02em;
+        transition:
+          filter 150ms ease,
+          transform 150ms ease;
+      }
+      .mobile-intel-footer__btn:active {
+        transform: scale(0.97);
+      }
+      .mobile-intel-footer__btn--full {
+        flex: 1 1 100%;
+      }
+      .mobile-intel-footer__btn--secondary {
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .mobile-intel-footer__btn--primary {
+        background: var(--nxt1-color-primary, #d4ff00);
+        color: var(--nxt1-color-text-onPrimary, #000);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -1618,8 +1515,13 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileShellWeb');
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly router = inject(Router);
+  protected readonly platform = inject(NxtPlatformService);
+  private readonly agentX = inject(AgentXService);
   protected readonly generation = inject(ProfileGenerationStateService);
+
   private readonly headerPortal = inject(NxtHeaderPortalService);
+  private readonly intel = inject(IntelService);
   protected readonly formatSportDisplayName = formatSportDisplayName;
 
   // Template refs for portal content
@@ -1660,6 +1562,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   readonly editProfileClick = output<void>();
   readonly teamClick = output<ProfileTeamAffiliation>();
   readonly shareClick = output<void>();
+  readonly copyLinkClick = output<void>();
   readonly menuClick = output<void>();
   readonly qrCodeClick = output<void>();
   readonly aiSummaryClick = output<void>();
@@ -1675,7 +1578,6 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
    * - 'modern'   — clean team-color gradient (current default)
    * - 'halftone' — legacy recruiting-card halftone dots
    */
-  protected readonly bgVariant: 'modern' | 'halftone' = 'modern';
 
   /** Organisation accent color resolved from the athlete's primary team affiliation */
   protected readonly teamAccentColor = computed(() => {
@@ -1771,17 +1673,24 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     return PROFILE_EMPTY_STATES[tab] || PROFILE_EMPTY_STATES['timeline'];
   });
 
+  protected readonly showActionFooter = computed(
+    () =>
+      this.profile.isOwnProfile() &&
+      (this.profile.activeTab() === 'intel' || this.profile.activeTab() === 'timeline')
+  );
+
+  protected readonly footerButtonLabel = computed(() =>
+    this.intel.athleteReport() ? 'Update Intel' : 'Generate Intel'
+  );
+
   /** Section nav items — contextual to active top tab */
   protected readonly sideTabItems = computed((): SectionNavItem[] => {
     const tab = this.profile.activeTab();
-    const user = this.profile.user();
-    const labels = getOverviewSectionLabels(user);
     const sections: Record<string, SectionNavItem[]> = {
-      intel: [
-        { id: 'player-profile', label: labels.profile },
-        { id: 'player-history', label: labels.history },
-        { id: 'awards', label: 'Awards', badge: this.profile.awards().length || undefined },
-      ],
+      intel:
+        this.intel.athleteSections().length > 0
+          ? this.intel.athleteSections().map((s) => ({ id: s.id, label: s.title }))
+          : [{ id: 'agent_x_brief', label: 'Overview' }],
       timeline: [
         {
           id: 'pinned',
@@ -1810,8 +1719,8 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
         },
       ],
       connect: [
-        { id: 'info', label: 'Contact Info' },
-        { id: 'social', label: 'Social Media' },
+        { id: 'connected', label: 'Accounts' },
+        { id: 'contact', label: 'Contact' },
       ],
     };
     return sections[tab] ?? sections['intel'];
@@ -1825,6 +1734,16 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     if (current && items.some((i) => i.id === current)) return current;
     return items[0]?.id ?? '';
   });
+
+  constructor() {
+    effect(() => {
+      const activeTab = this.profile.activeTab();
+      const userId = this.profile.user()?.uid;
+      if (activeTab === 'intel' && userId) {
+        void this.intel.loadAthleteIntel(userId);
+      }
+    });
+  }
 
   protected onSectionNavChange(event: SectionNavChangeEvent): void {
     this._activeSideTab.set(event.id);
@@ -1996,6 +1915,66 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     this.profile.loadMorePosts();
   }
 
+  protected async onCreatePostWithAgent(): Promise<void> {
+    const message = 'I want to create a post for my timeline.';
+    if (this.platform.isMobile()) {
+      await this.bottomSheet.openSheet({
+        component: AgentXOperationChatComponent,
+        componentProps: {
+          contextId: 'profile-timeline-post',
+          contextTitle: 'Create a Post',
+          contextIcon: 'create-outline',
+          contextType: 'command',
+          initialMessage: message,
+        },
+        ...SHEET_PRESETS.FULL,
+        showHandle: true,
+        handleBehavior: 'cycle',
+        backdropDismiss: true,
+        cssClass: 'agent-x-operation-sheet',
+      });
+    } else {
+      this.agentX.queueStartupMessage(message);
+      void this.router.navigate(['/agent']);
+    }
+  }
+
+  protected onAddUpdate(): void {
+    void this.onCreatePostWithAgent();
+  }
+
+  protected async onGenerateIntel(): Promise<void> {
+    const hasReport = !!this.intel.athleteReport();
+    const userId = this.profile.user()?.uid ?? '';
+    const initialMessage = hasReport
+      ? `Update my Agent X Intel dossier for athlete ${userId}.`
+      : `Generate an Agent X Intel dossier for athlete ${userId}.`;
+    if (this.platform.isMobile()) {
+      this.intel.startPendingGeneration();
+      await this.bottomSheet.openSheet({
+        component: AgentXOperationChatComponent,
+        componentProps: {
+          contextId: 'profile-intel-generate',
+          contextTitle: hasReport ? 'Update Intel' : 'Generate Intel',
+          contextIcon: 'flash-outline',
+          contextType: 'command',
+          initialMessage,
+        },
+        ...SHEET_PRESETS.FULL,
+        showHandle: true,
+        handleBehavior: 'cycle',
+        backdropDismiss: true,
+        cssClass: 'agent-x-operation-sheet',
+      });
+      if (!this.intel.isAnythingGenerating()) {
+        await this.intel.generateAthleteIntel(userId);
+      }
+    } else {
+      this.agentX.queueStartupMessage(initialMessage);
+      void this.router.navigate(['/agent']);
+    }
+  }
+
   protected onUploadVideo(): void {
     this.logger.debug('Upload video');
   }
@@ -2077,7 +2056,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
         this.qrCodeClick.emit();
         break;
       case 'Copy Link':
-        this.menuClick.emit();
+        this.copyLinkClick.emit();
         break;
       default:
         this.menuClick.emit();
@@ -2178,6 +2157,40 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     }
 
     return normalized.slice(0, 2);
+  });
+
+  protected readonly primaryRailTeam = computed((): ProfileTeamAffiliation | null => {
+    const existing = this.teamAffiliations()[0];
+    if (existing) return existing;
+
+    const user = this.profile.user();
+    if (!user) return null;
+
+    const schoolName = user.school?.name?.trim() || user.collegeTeamName?.trim();
+    if (schoolName) {
+      return {
+        name: schoolName,
+        type: this.normalizeTeamType(user.school?.type) || 'other',
+        logoUrl: user.school?.logoUrl,
+        teamCode: user.school?.teamCode,
+        location: user.school?.location,
+      };
+    }
+
+    const sportName = this.profile.activeSport()?.name?.trim();
+    if (sportName) {
+      return {
+        name: `${formatSportDisplayName(sportName)} Organization`,
+        type: 'other',
+        location: user.classYear ? `Class of ${user.classYear}` : undefined,
+      };
+    }
+
+    return {
+      name: 'Organization',
+      type: 'other',
+      location: user.classYear ? `Class of ${user.classYear}` : undefined,
+    };
   });
 
   protected teamTypeLabel(type?: ProfileTeamType): string {

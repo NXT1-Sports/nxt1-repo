@@ -56,7 +56,6 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
   template: `
     <article
       class="feed-shell"
-      [class.feed-shell--featured]="item().isFeatured"
       [class.feed-shell--pinned]="item().isPinned"
       [class.feed-shell--compact]="compact()"
       role="article"
@@ -170,7 +169,7 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
         <div class="feed-shell__stat" [attr.data-testid]="testIds.SHELL_STAT_REPOST">
           <nxt1-icon name="repeat" [size]="14" />
           <span class="feed-shell__stat-count">{{
-            formatCount(item().engagement.repostCount)
+            formatCount(item().engagement.shareCount)
           }}</span>
         </div>
         <div class="feed-shell__stat" [attr.data-testid]="testIds.SHELL_STAT_SHARES">
@@ -186,14 +185,16 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
       </div>
 
       <!-- View Profile CTA -->
-      <button
-        type="button"
-        class="feed-shell__view-profile"
-        (click)="handleAuthorClick($event)"
-        [attr.data-testid]="testIds.SHELL_VIEW_PROFILE_BTN"
-      >
-        View Profile
-      </button>
+      @if (!hideAuthor()) {
+        <button
+          type="button"
+          class="feed-shell__view-profile"
+          (click)="handleAuthorClick($event)"
+          [attr.data-testid]="testIds.SHELL_VIEW_PROFILE_BTN"
+        >
+          View Profile
+        </button>
+      }
     </article>
   `,
   styles: [

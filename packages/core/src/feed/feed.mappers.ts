@@ -133,18 +133,15 @@ export function profilePostToFeedPost(post: ProfilePost, author: FeedAuthor): Fe
   return {
     id: post.id,
     type: PROFILE_TO_FEED_TYPE[post.type] ?? 'text',
-    visibility: 'public',
     author,
     content: post.body,
     media: buildMediaFromProfilePost(post),
     title: post.title,
     engagement: {
       likeCount: post.likeCount,
-      commentCount: post.commentCount,
       shareCount: post.shareCount,
       viewCount: post.viewCount ?? 0,
       reactionCount: post.likeCount,
-      repostCount: 0,
     },
     userEngagement: {
       isLiked: post.isLiked ?? false,
@@ -154,8 +151,6 @@ export function profilePostToFeedPost(post: ProfilePost, author: FeedAuthor): Fe
       reactionType: post.isLiked ? 'like' : null,
     },
     isPinned: post.isPinned ?? false,
-    isFeatured: false,
-    commentsDisabled: false,
     createdAt: post.createdAt,
     updatedAt: post.createdAt,
   };
@@ -226,7 +221,6 @@ export function profileOfferToFeedPost(offer: ProfileOffer, author: FeedAuthor):
   return {
     id: `activity-offer-${offer.id}`,
     type: 'offer',
-    visibility: 'public',
     author,
     title,
     content,
@@ -246,11 +240,9 @@ export function profileOfferToFeedPost(offer: ProfileOffer, author: FeedAuthor):
     },
     engagement: {
       likeCount: 0,
-      commentCount: 0,
       shareCount: 0,
       viewCount: 0,
       reactionCount: 0,
-      repostCount: 0,
     },
     userEngagement: {
       isLiked: false,
@@ -260,8 +252,6 @@ export function profileOfferToFeedPost(offer: ProfileOffer, author: FeedAuthor):
       reactionType: null,
     },
     isPinned: false,
-    isFeatured: false,
-    commentsDisabled: false,
     createdAt: offer.date,
     updatedAt: offer.date,
   };
@@ -332,7 +322,6 @@ export function profileEventToFeedPost(event: ProfileEvent, author: FeedAuthor):
   return {
     id: `activity-event-${event.id}`,
     type: feedPostType,
-    visibility: 'public',
     author,
     title: event.name,
     content: event.description,
@@ -342,11 +331,9 @@ export function profileEventToFeedPost(event: ProfileEvent, author: FeedAuthor):
     location: event.location,
     engagement: {
       likeCount: 0,
-      commentCount: 0,
       shareCount: 0,
       viewCount: 0,
       reactionCount: 0,
-      repostCount: 0,
     },
     userEngagement: {
       isLiked: false,
@@ -356,8 +343,6 @@ export function profileEventToFeedPost(event: ProfileEvent, author: FeedAuthor):
       reactionType: null,
     },
     isPinned: false,
-    isFeatured: false,
-    commentsDisabled: false,
     createdAt: event.startDate,
     updatedAt: event.startDate,
   };
@@ -501,18 +486,15 @@ export function teamPostToFeedPost(post: TeamProfilePost, author: FeedAuthor): F
   return {
     id: post.id,
     type: TEAM_TO_FEED_TYPE[post.type] ?? 'text',
-    visibility: 'public',
     author,
     content: post.body,
     media: buildMediaFromTeamPost(post),
     title: post.title,
     engagement: {
       likeCount: post.likeCount,
-      commentCount: post.commentCount,
       shareCount: post.shareCount,
       viewCount: post.viewCount ?? 0,
       reactionCount: post.likeCount,
-      repostCount: 0,
     },
     userEngagement: {
       isLiked: post.isLiked ?? false,
@@ -522,8 +504,6 @@ export function teamPostToFeedPost(post: TeamProfilePost, author: FeedAuthor): F
       reactionType: post.isLiked ? 'like' : null,
     },
     isPinned: post.isPinned ?? false,
-    isFeatured: false,
-    commentsDisabled: false,
     createdAt: post.createdAt,
     updatedAt: post.createdAt,
   };
@@ -554,8 +534,6 @@ export function teamPostsToFeedPosts(
 const EMPTY_ENGAGEMENT: FeedEngagement = {
   reactionCount: 0,
   likeCount: 0,
-  commentCount: 0,
-  repostCount: 0,
   shareCount: 0,
   viewCount: 0,
   bookmarkCount: 0,
@@ -583,7 +561,6 @@ function buildFeedItemBase(
     engagement?: Partial<FeedEngagement>;
     userEngagement?: Partial<FeedUserEngagement>;
     isPinned?: boolean;
-    isFeatured?: boolean;
   }
 ): Omit<FeedItemBase, 'feedType'> {
   return {
@@ -592,7 +569,6 @@ function buildFeedItemBase(
     engagement: { ...EMPTY_ENGAGEMENT, ...overrides?.engagement },
     userEngagement: { ...EMPTY_USER_ENGAGEMENT, ...overrides?.userEngagement },
     isPinned: overrides?.isPinned ?? false,
-    isFeatured: overrides?.isFeatured ?? false,
     createdAt,
     updatedAt: createdAt,
   };
@@ -608,20 +584,15 @@ export function feedPostToFeedItem(post: FeedPost): FeedItemPost {
       engagement: post.engagement,
       userEngagement: post.userEngagement,
       isPinned: post.isPinned,
-      isFeatured: post.isFeatured,
     }),
     feedType: 'POST',
     postType: post.type,
-    visibility: post.visibility,
     title: post.title,
     content: post.content,
-    richContent: post.richContent,
     media: post.media,
-    hashtags: post.hashtags,
     mentions: post.mentions,
     location: post.location,
     externalSource: post.externalSource,
-    commentsDisabled: post.commentsDisabled,
     postTags: post.postTags,
     repostData: post.repostData,
     updatedAt: post.updatedAt,
@@ -987,12 +958,10 @@ export function videoDocToFeedItemPost(
     ...buildFeedItemBase(`video-${docId}`, author, data.createdAt, { engagement }),
     feedType: 'POST',
     postType: 'highlight',
-    visibility: 'public',
     title: data.title,
     content: data.title,
     media,
     externalSource,
-    commentsDisabled: false,
     updatedAt: data.createdAt,
   };
 }

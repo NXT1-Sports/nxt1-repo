@@ -97,6 +97,9 @@ function mapConnectedSource(
         ? src.lastSyncedAt.toISOString()
         : (src.lastSyncedAt ?? undefined),
     syncStatus: src.syncStatus,
+    displayOrder: src.displayOrder,
+    scopeType: src.scopeType,
+    scopeId: src.scopeId,
   };
 }
 
@@ -231,9 +234,13 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     : undefined;
 
   // ── Contact (from User.contact) ───────────────────────────────────────────
-  const contact: ProfileContact | undefined = user.contact?.email
-    ? { email: user.contact.email, phone: user.contact.phone ?? undefined }
-    : undefined;
+  const contact: ProfileContact | undefined =
+    user.contact?.email || user.contact?.phone
+      ? {
+          email: user.contact?.email ?? undefined,
+          phone: user.contact?.phone ?? undefined,
+        }
+      : undefined;
 
   // ── Coach contact (from active sport's coach field) ────────────────────────
   // User.sports[n].coach: CoachContact → ProfileCoachContact

@@ -460,7 +460,7 @@ export class OnboardingService {
 
       for (const file of normalizedFiles) {
         try {
-          const result = await this.editProfileApi.uploadPhoto(user.uid, 'profile', file);
+          const result = await this.editProfileApi.uploadPhoto(user.uid, file);
           if (result.success && result.data) {
             uploadedUrls.push(result.data.url);
           } else {

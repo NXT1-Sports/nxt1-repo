@@ -90,9 +90,11 @@ import {
   type OperationLogEntry,
   type AgentYieldState,
 } from '@nxt1/core/ai';
-import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../fab/agent-x-logo.constants';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import type { OnboardingUserType } from '@nxt1/core';
+import { buildTrackedLinkUrl } from '@nxt1/core';
 import { TEST_IDS } from '@nxt1/core/testing';
+import { NxtBrowserService } from '../../services/browser';
 
 /**
  * Content descriptor for the expanded side panel.
@@ -3225,6 +3227,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly controlPanelState = inject(AgentXControlPanelStateService);
   private readonly logger = inject(NxtLoggingService).child('AgentXShellWeb');
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly browser = inject(NxtBrowserService);
   private readonly overlay = inject(NxtOverlayService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
   private readonly headerPortal = inject(NxtHeaderPortalService);
@@ -3741,6 +3744,23 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       });
     });
 
+    // React to startup messages queued by external surfaces (e.g. profile timeline CTA).
+    // Fires after resetToDefaultDesktopSession() because effects run post-construction.
+    effect(() => {
+      const message = this.agentX.pendingStartupMessage();
+      if (!message) return;
+
+      this.agentX.clearStartupMessage();
+      this.setDesktopSession({
+        contextId: 'agent-x-chat',
+        contextTitle: 'Agent X',
+        contextIcon: 'bolt',
+        contextType: 'command',
+        initialMessage: message,
+        quickActions: this.commandQuickActions(),
+      });
+    });
+
     // React to agent-requested side panel (autoOpenPanel from backend)
     effect(() => {
       const panel = this.agentX.requestedSidePanel();
@@ -4098,11 +4118,21 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
   // ── Expanded Side Panel methods ────────────────────────────────────
 
+  private buildTrackedPanelUrl(url: string): string {
+    const origin = globalThis.location?.origin;
+    if (!origin) return url;
+
+    return buildTrackedLinkUrl(origin, url, {
+      source: 'agent_x_panel',
+      surface: 'message',
+    });
+  }
+
   /** Copies the expanded panel URL to clipboard */
   protected async copyExpandedPanelUrl(url: string): Promise<void> {
     await this.haptics.impact('light');
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(this.buildTrackedPanelUrl(url));
       this.toast.success('Link copied to clipboard');
     } catch {
       this.toast.error('Failed to copy link');
@@ -4165,10 +4195,18 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         try {
           iframe.contentWindow.print();
         } catch {
-          window.open(panel.url, '_blank');
+          void this.browser.openLink({
+            url: panel.url,
+            source: 'agent_x_panel_download',
+            surface: 'message',
+          });
         }
       } else {
-        window.open(panel.url, '_blank');
+        void this.browser.openLink({
+          url: panel.url,
+          source: 'agent_x_panel_download',
+          surface: 'message',
+        });
       }
       return;
     }
@@ -4186,8 +4224,12 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       a.remove();
       this.toast.success('Download started');
     } catch {
-      // Fallback: open in new tab
-      window.open(panel.url, '_blank');
+      // Fallback: open in tracked browser flow
+      void this.browser.openLink({
+        url: panel.url,
+        source: 'agent_x_panel_download',
+        surface: 'message',
+      });
     }
   }
 

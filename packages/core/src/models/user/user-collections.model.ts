@@ -90,12 +90,9 @@ export interface PostDoc extends UserFirestoreDoc {
   /** Duration in seconds (for video posts). */
   durationSeconds?: number;
   mentions: string[];
-  hashtags: string[];
   isPinned: boolean;
-  commentsDisabled: boolean;
   stats: {
     likes: number;
-    comments: number;
     shares: number;
     views: number;
   };

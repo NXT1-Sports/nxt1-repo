@@ -37,42 +37,43 @@ import {
   viewChild,
   ElementRef,
 } from '@angular/core';
+import { Capacitor } from '@capacitor/core';
 import { CommonModule } from '@angular/common';
 import { Location } from '@angular/common';
+import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { IonContent, IonFooter } from '@ionic/angular/standalone';
+import { IonContent } from '@ionic/angular/standalone';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import { NxtIconComponent } from '../components/icon';
 import { AgentXService } from './agent-x.service';
 import { AgentXControlPanelComponent } from './agent-x-control-panel.component';
+import { AgentXInputBarComponent } from './agent-x-input-bar.component';
 import {
   AGENT_X_GOAL_OPTIONS,
   AgentXControlPanelStateService,
   type AgentXControlPanelKind,
 } from './agent-x-control-panel-state.service';
 
-import { AgentXPromptInputComponent } from './agent-x-prompt-input.component';
 import { AGENT_X_ALLOWED_MIME_TYPES } from '@nxt1/core/ai';
 import {
   AgentXOperationChatComponent,
   type OperationQuickAction,
 } from './agent-x-operation-chat.component';
 import { AgentXDashboardSkeletonComponent } from './agent-x-dashboard-skeleton.component';
-import { AgentXOperationsLogComponent } from './agent-x-operations-log.component';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
-import { UsageBottomSheetService } from '../usage/usage-bottom-sheet.service';
 import { UsageService } from '../usage/usage.service';
 import {
   type ShellWeeklyPlaybookItem,
   type AgentDashboardGoal,
   type AgentYieldState,
 } from '@nxt1/core/ai';
-import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './fab/agent-x-logo.constants';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import { NxtStateViewComponent } from '../components/state-view';
 import { ConnectedAccountsModalService } from '../components/connected-sources';
+import { ActivityService } from '../activity/activity.service';
 import type { OnboardingUserType } from '@nxt1/core';
 
 // ============================================
@@ -134,16 +135,14 @@ export interface WeeklyPlaybookItem {
   selector: 'nxt1-agent-x-shell',
   standalone: true,
   imports: [
-    CommonModule,
     FormsModule,
     IonContent,
-    IonFooter,
     NxtPageHeaderComponent,
     NxtRefresherComponent,
     NxtIconComponent,
     NxtStateViewComponent,
     AgentXDashboardSkeletonComponent,
-    AgentXPromptInputComponent,
+    AgentXInputBarComponent,
   ],
   template: `
     <!-- ═══ PAGE HEADER — Agent X Logo Centered ═══ -->
@@ -163,12 +162,8 @@ export interface WeeklyPlaybookItem {
             stroke-linejoin="round"
             aria-hidden="true"
           >
-            <path
-              d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-            />
-            <polygon
-              points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
-            />
+            <path [attr.d]="agentXLogoPath" />
+            <polygon [attr.points]="agentXLogoPolygon" />
           </svg>
         </div>
 
@@ -186,10 +181,15 @@ export interface WeeklyPlaybookItem {
           <button
             type="button"
             class="agent-header-action"
-            aria-label="Agent Sessions"
+            aria-label="Activity"
             (click)="onActivityLogClick()"
           >
-            <nxt1-icon name="time" [size]="22" className="agent-header-icon" />
+            <div class="agent-header-icon-wrapper">
+              <nxt1-icon name="bell" [size]="22" className="agent-header-icon" />
+              @if (activityUnreadCount() > 0) {
+                <span class="badge-dot" aria-label="Unread notifications"></span>
+              }
+            </div>
           </button>
         </div>
       </nxt1-page-header>
@@ -304,9 +304,7 @@ export interface WeeklyPlaybookItem {
                   <div class="generating-hero">
                     <div class="generating-logo-ring">
                       <svg viewBox="0 0 612 792" class="generating-x-mark" aria-hidden="true">
-                        <path
-                          d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                        />
+                        <path [attr.d]="agentXLogoPath" />
                       </svg>
                     </div>
                     <p class="generating-status">
@@ -354,9 +352,7 @@ export interface WeeklyPlaybookItem {
                     <div class="card-coordinator">
                       <div class="coordinator-avatar" aria-hidden="true">
                         <svg viewBox="0 0 612 792" class="coordinator-mark">
-                          <path
-                            d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                          />
+                          <path [attr.d]="agentXLogoPath" />
                         </svg>
                       </div>
                       <div class="coordinator-copy">
@@ -456,56 +452,31 @@ export interface WeeklyPlaybookItem {
       </div>
     </ion-content>
 
-    <!-- ═══ FOOTER — Coordinators + Input (sibling of ion-content for native keyboard push) ═══ -->
-    <ion-footer class="ion-no-border agent-x-footer">
-      <section
-        class="floating-coordinators"
-        [class.has-files]="agentX.hasPendingFiles()"
-        aria-label="Coordinators"
-      >
-        <div class="floating-coordinators-scroll" role="list">
-          @for (cat of commandCategories(); track cat.id) {
-            <button
-              type="button"
-              role="listitem"
-              class="floating-coordinator-pill"
-              [attr.data-coordinator]="cat.id"
-              (click)="onCategoryTap(cat)"
-            >
-              {{ cat.label }}
-            </button>
-          }
-        </div>
-      </section>
+    <!-- ═══ FOOTER — Coordinators + Claude-style input box ═══ -->
+    <nxt1-agent-x-input-bar
+      [userMessage]="agentX.userMessage()"
+      [isLoading]="agentX.isLoading()"
+      [uploading]="agentX.uploading()"
+      [canSend]="agentX.canSend()"
+      [pendingFiles]="agentX.pendingFiles()"
+      [selectedTask]="agentX.selectedTask()?.title ?? null"
+      (messageChange)="onInputChange($event)"
+      (send)="onSendMessage()"
+      (stop)="agentX.cancelStream()"
+      (toggleAttachments)="onToggleAttachments()"
+      (removeFile)="agentX.removeFile($event)"
+      (removeTask)="agentX.clearTask()"
+    />
 
-      <!-- ═══ INPUT BAR ═══ -->
-      <nxt1-agent-x-prompt-input
-        class="embedded"
-        [hasMessages]="false"
-        [selectedTask]="agentX.selectedTask()"
-        [isLoading]="agentX.isLoading()"
-        [canSend]="agentX.canSend()"
-        [userMessage]="agentX.getUserMessage()"
-        [placeholder]="'Message A Coordinator'"
-        [pendingFiles]="agentX.pendingFiles()"
-        [uploading]="agentX.uploading()"
-        (messageChange)="agentX.setUserMessage($event)"
-        (send)="onSendMessage()"
-        (stop)="agentX.cancelStream()"
-        (removeTask)="agentX.clearTask()"
-        (toggleTasks)="onToggleTasks()"
-        (filesAdded)="agentX.addFiles($event)"
-        (fileRemoved)="agentX.removeFile($event)"
-      />
-      <input
-        #fileInput
-        class="file-input-hidden"
-        type="file"
-        [accept]="acceptedFileTypes"
-        multiple
-        (change)="onFileSelected($event)"
-      />
-    </ion-footer>
+    <!-- Hidden file input -->
+    <input
+      #fileInput
+      class="file-input-hidden"
+      type="file"
+      [accept]="acceptedFileTypes"
+      multiple
+      (change)="onFileSelected($event)"
+    />
   `,
   styles: [
     `
@@ -535,6 +506,7 @@ export interface WeeklyPlaybookItem {
         --agent-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
         --agent-glass-bg: var(--nxt1-glass-bg, rgba(18, 18, 18, 0.8));
         --agent-glass-border: var(--nxt1-glass-border, rgba(255, 255, 255, 0.1));
+        /* Header is transparent — no background override needed */
       }
 
       :host-context(.light),
@@ -547,21 +519,6 @@ export interface WeeklyPlaybookItem {
         --agent-text-secondary: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.7));
         --agent-text-muted: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.5));
         --agent-glass-bg: var(--nxt1-glass-bg, rgba(255, 255, 255, 0.8));
-      }
-
-      ion-footer.agent-x-footer {
-        --background: transparent;
-        --border-width: 0;
-
-        padding-bottom: calc(var(--nxt1-footer-bottom, 28px) + var(--nxt1-pill-height, 48px) + 8px);
-      }
-
-      :host-context(.keyboard-open) {
-        padding-bottom: var(--keyboard-height, 0px);
-      }
-
-      :host-context(.keyboard-open) ion-footer.agent-x-footer {
-        padding-bottom: 0;
       }
 
       .header-logo {
@@ -614,6 +571,44 @@ export interface WeeklyPlaybookItem {
 
       .agent-header-icon {
         display: block;
+      }
+
+      /* Bell icon wrapper — relative positioning anchors the badge dot */
+      .agent-header-icon-wrapper {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* Red dot badge — identical to footer.component.ts .badge-dot */
+      .badge-dot {
+        position: absolute;
+        top: -2px;
+        right: -4px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--nxt1-color-badge-background, var(--nxt1-color-error, #ef4444));
+        box-shadow: 0 0 4px var(--nxt1-color-badge-shadow, rgba(239, 68, 68, 0.5));
+        border: 1.5px solid var(--nxt1-color-background-primary, #0a0a0a);
+        animation: badge-dot-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        z-index: 10;
+      }
+
+      @keyframes badge-dot-pop {
+        0% {
+          transform: scale(0);
+          opacity: 0;
+        }
+        50% {
+          transform: scale(1.3);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(1);
+          opacity: 1;
+        }
       }
 
       .agent-x-content {
@@ -1580,15 +1575,20 @@ export interface WeeklyPlaybookItem {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentXShellComponent {
+  private readonly el = inject(ElementRef<HTMLElement>);
   protected readonly agentX = inject(AgentXService);
   protected readonly controlPanelState = inject(AgentXControlPanelStateService);
   protected readonly usageService = inject(UsageService);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
-  private readonly usageBottomSheet = inject(UsageBottomSheetService);
   private readonly location = inject(Location);
+  private readonly router = inject(Router);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
+  private readonly activityService = inject(ActivityService);
+
+  /** Unread activity count — drives the red dot on the bell icon. */
+  protected readonly activityUnreadCount = computed(() => this.activityService.totalUnread());
 
   /** Agent X SVG logo path data for inline icon rendering. */
   protected readonly agentXLogoPath: string = AGENT_X_LOGO_PATH;
@@ -1724,6 +1724,30 @@ export class AgentXShellComponent {
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
       void this.usageService.ensureBillingAccessContext();
+
+      // Keyboard lift: manually raise the footer above the keyboard.
+      // ion-content/ion-footer are nested inside this custom element so
+      // Ionic's built-in resize: "ionic" cannot reach them. We drive
+      // --keyboard-height on the host and CSS translateY does the rest.
+      if (Capacitor.isNativePlatform()) {
+        import('@capacitor/keyboard')
+          .then(({ Keyboard }) => {
+            void Keyboard.addListener('keyboardWillShow', (info) => {
+              // Subtract 10px so the footer doesn't overshoot above the keyboard
+              const offset = Math.max(0, info.keyboardHeight - 10);
+              this.el.nativeElement.style.setProperty('--keyboard-height', `${offset}px`);
+              // Remove safe-area-inset-bottom padding — keyboard covers the home bar
+              this.el.nativeElement.style.setProperty('--footer-safe-area', '0px');
+            });
+            void Keyboard.addListener('keyboardWillHide', () => {
+              this.el.nativeElement.style.setProperty('--keyboard-height', '0px');
+              this.el.nativeElement.style.removeProperty('--footer-safe-area');
+            });
+          })
+          .catch(() => {
+            // @capacitor/keyboard not available — silently ignore
+          });
+      }
     });
 
     effect(() => {
@@ -1752,28 +1776,12 @@ export class AgentXShellComponent {
 
   protected async onActivityLogClick(): Promise<void> {
     await this.haptics.impact('light');
-    await this.bottomSheet.openSheet({
-      component: AgentXOperationsLogComponent,
-      ...SHEET_PRESETS.FULL,
-      showHandle: true,
-      handleBehavior: 'cycle',
-      backdropDismiss: true,
-      cssClass: 'agent-x-operations-log-sheet',
-    });
+    await this.router.navigate(['/activity']);
   }
 
   protected async onBillingActionClick(): Promise<void> {
     await this.haptics.impact('light');
-
-    if (this.usageService.isPersonal()) {
-      const amountCents = await this.usageBottomSheet.showBuyCreditsOptions();
-      if (amountCents !== null) {
-        await this.usageService.buyCredits(amountCents);
-      }
-      return;
-    }
-
-    await this.openControlPanel('budget');
+    await this.router.navigate(['/usage']);
   }
 
   /**
@@ -2046,10 +2054,13 @@ export class AgentXShellComponent {
   /** Accepted MIME types for file attachments. */
   protected readonly acceptedFileTypes = AGENT_X_ALLOWED_MIME_TYPES.join(',');
 
-  /**
-   * Handle + button tap — opens native file picker for attachments.
-   */
-  protected async onToggleTasks(): Promise<void> {
+  /** Input change — update service and the keyboard-height CSS var is handled by the component. */
+  protected onInputChange(value: string): void {
+    this.agentX.setUserMessage(value);
+  }
+
+  /** + button — open native file picker. */
+  protected async onToggleAttachments(): Promise<void> {
     await this.haptics.impact('light');
     this.fileInput()?.nativeElement.click();
   }

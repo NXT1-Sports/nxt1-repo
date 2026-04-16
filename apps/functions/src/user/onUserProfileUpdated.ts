@@ -40,7 +40,7 @@ export const onUserProfileUpdatedV3 = onDocumentUpdated('Users/{userId}', async 
     logger.info('Profile completeness updated', { userId, completeness });
   }
 
-  // Update analytics on sport change
+  // Update lightweight live engagement counters on sport change
   const beforeSport = getPrimarySportName(beforeData);
   const afterSport = getPrimarySportName(afterData);
 

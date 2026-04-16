@@ -14,19 +14,12 @@ export type {
   EditProfileField,
   EditProfileFieldOption,
   EditProfileFieldValidation,
-  // Completion types
-  ProfileCompletionTier,
-  ProfileCompletionData,
-  SectionCompletionData,
-  ProfileAchievement,
   // Form data types
   EditProfileBasicInfo,
   EditProfilePhotos,
   EditProfileSportsInfo,
   EditProfileAcademics,
   EditProfilePhysical,
-  EditProfileSocialLinks,
-  EditProfileSocialLinkEntry,
   EditProfileContact,
   EditProfileFormData,
   // API types
@@ -38,12 +31,8 @@ export type {
 
 // Constants
 export {
-  PROFILE_COMPLETION_TIERS,
-  getCompletionTier,
-  getNextTier,
   EDIT_PROFILE_SECTIONS,
   getEditProfileSection,
-  EDIT_PROFILE_XP_REWARDS,
   EDIT_PROFILE_VALIDATION,
 } from './edit-profile.constants';
 

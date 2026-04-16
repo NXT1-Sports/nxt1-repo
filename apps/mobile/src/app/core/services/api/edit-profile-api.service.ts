@@ -12,7 +12,6 @@ import type {
   EditProfileData,
   EditProfileFormData,
   EditProfileUpdateResponse,
-  ProfileCompletionData,
 } from '@nxt1/core/edit-profile';
 import { CapacitorHttpAdapter } from '../../infrastructure';
 import { environment } from '../../../../environments/environment';
@@ -114,26 +113,6 @@ export class EditProfileApiService {
   }
 
   /**
-   * Get profile completion data
-   * @param userId - User ID to fetch
-   */
-  async getCompletion(userId: string): Promise<{
-    success: boolean;
-    data?: ProfileCompletionData;
-    error?: string;
-  }> {
-    try {
-      const data = await this.api.getCompletion(userId);
-      return { success: true, data };
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : 'Failed to load completion data',
-      };
-    }
-  }
-
-  /**
    * Update active sport index
    * @param userId - User ID to update
    * @param activeSportIndex - Index of the sport to make active
@@ -160,20 +139,18 @@ export class EditProfileApiService {
   /**
    * Upload photo to Firebase Storage
    * @param userId - User ID
-   * @param type - Photo type ('profile' | 'banner')
    * @param file - Image file to upload
    */
   async uploadPhoto(
     userId: string,
-    type: 'profile' | 'banner',
     file: File | Blob
   ): Promise<{
     success: boolean;
-    data?: { url: string; xpAwarded?: number };
+    data?: { url: string };
     error?: string;
   }> {
     try {
-      const data = await this.api.uploadPhoto(userId, type, file);
+      const data = await this.api.uploadPhoto(userId, file);
       return { success: true, data };
     } catch (err) {
       return {

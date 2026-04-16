@@ -121,6 +121,64 @@ export class AgentWorker {
     return getFirestore();
   }
 
+  private async processThreadSummarizationJob(
+    job: Job<AgentQueueJobData, AgentQueueJobResult>
+  ): Promise<AgentQueueJobResult> {
+    if (job.data.kind !== 'thread_summarization') {
+      throw new Error('Invalid thread summarization job payload');
+    }
+
+    if (!this.llmService) {
+      throw new Error('LLM service not initialized for thread summarization');
+    }
+
+    const startMs = Date.now();
+    await job.updateProgress({
+      status: 'thinking',
+      message: 'Summarizing idle thread memory',
+      percent: 10,
+      currentStep: 1,
+      totalSteps: 1,
+      updatedAt: new Date().toISOString(),
+    });
+
+    const { VectorMemoryService } = await import('../memory/vector.service.js');
+    const { MemorySummarizationService } =
+      await import('../memory/memory-summarization.service.js');
+
+    const vectorMemory = new VectorMemoryService(this.llmService);
+    const summarizer = new MemorySummarizationService(this.llmService, vectorMemory);
+    const memoriesCreated = await summarizer.processSingleThread(
+      job.data.threadId,
+      job.data.userId
+    );
+
+    await job.updateProgress({
+      status: 'completed',
+      message: 'Idle thread summarization complete',
+      percent: 100,
+      currentStep: 1,
+      totalSteps: 1,
+      updatedAt: new Date().toISOString(),
+    });
+
+    return {
+      result: {
+        summary:
+          memoriesCreated > 0
+            ? `Created ${memoriesCreated} durable memory entries from the idle chat.`
+            : 'No new durable facts were extracted from the idle chat.',
+        data: {
+          threadId: job.data.threadId,
+          memoriesCreated,
+        },
+        suggestions: [],
+      },
+      durationMs: Date.now() - startMs,
+      completedAt: new Date().toISOString(),
+    };
+  }
+
   // ─── Job Processor ──────────────────────────────────────────────────────
 
   /**
@@ -133,6 +191,16 @@ export class AgentWorker {
   private async processJob(
     job: Job<AgentQueueJobData, AgentQueueJobResult>
   ): Promise<AgentQueueJobResult> {
+    if (job.data.kind === 'thread_summarization') {
+      return this.processThreadSummarizationJob(job);
+    }
+
+    if (job.data.kind !== 'agent') {
+      throw new Error(
+        `Unsupported queue job kind: ${String((job.data as { kind?: unknown }).kind)}`
+      );
+    }
+
     const { payload } = job.data;
     const startMs = Date.now();
     const repo = this.getJobRepo(job);
@@ -700,18 +768,28 @@ export class AgentWorker {
     this.worker.on('completed', (job) => {
       if (job) {
         const duration = job.returnvalue?.durationMs ?? 0;
-        logger.info('Agent job completed', {
+        const operationId =
+          'payload' in job.data ? job.data.payload.operationId : `summarize:${job.data.threadId}`;
+
+        logger.info('Agent queue job completed', {
           jobId: job.id,
-          operationId: job.data.payload.operationId,
+          operationId,
           durationMs: duration,
         });
       }
     });
 
     this.worker.on('failed', (job, err) => {
-      logger.error('Agent job failed', {
+      const operationId =
+        job && 'payload' in job.data
+          ? job.data.payload.operationId
+          : job?.data.kind === 'thread_summarization'
+            ? `summarize:${job.data.threadId}`
+            : undefined;
+
+      logger.error('Agent queue job failed', {
         jobId: job?.id,
-        operationId: job?.data.payload.operationId,
+        operationId,
         error: err.message,
         stack: err.stack,
       });

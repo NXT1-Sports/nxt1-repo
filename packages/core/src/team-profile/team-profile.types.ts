@@ -168,8 +168,6 @@ export interface TeamProfileTeam {
   readonly conference?: string;
   /** Season-by-season history entries (most recent first) */
   readonly seasonHistory?: readonly TeamProfileSeasonHistory[];
-  /** Founded year */
-  readonly foundedYear?: number;
   /** Home venue/stadium */
   readonly homeVenue?: string;
   /** Verification status */
@@ -414,7 +412,6 @@ export interface TeamProfilePost {
   readonly mediaUrl?: string;
   readonly externalLink?: string;
   readonly likeCount: number;
-  readonly commentCount: number;
   readonly shareCount: number;
   readonly viewCount?: number;
   readonly duration?: number;

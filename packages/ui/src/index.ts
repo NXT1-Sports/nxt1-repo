@@ -372,6 +372,11 @@ export { NxtTeamLogoPickerComponent } from './components/team-logo-picker';
 export { NxtColorPickerComponent } from './components/color-picker';
 
 // ============================================
+// ENTITY HERO (Shared identity card above option scroller)
+// ============================================
+export { NxtEntityHeroComponent, type EntityHeroMetaItem } from './components/entity-hero';
+
+// ============================================
 // BOTTOM SHEET (2026 Native-Style Modal)
 // ============================================
 export {
@@ -402,6 +407,8 @@ export {
 export {
   // Component
   NxtMobileFooterComponent,
+  NxtActionFooterComponent,
+  type ActionFooterButton,
   // Types (from @nxt1/core)
   type NavIconName,
   type FooterTabItem,
@@ -621,11 +628,9 @@ export {
   ProfileTimelineComponent,
   ProfileOffersComponent,
   ProfileSkeletonComponent,
-  RelatedAthletesComponent,
   // Types
   type ProfileShellUser,
   type ProfileSkeletonVariant,
-  type RelatedAthlete,
   type RankingSource,
   // Profile Generation (Agent X Onboarding Scrape)
   ProfileGenerationStateService,
@@ -739,6 +744,16 @@ export {
   // Factory
   createMobileHeaderConfig,
 } from './components/mobile-header';
+
+// ============================================
+// FLOATING ACTION BAR
+// ============================================
+export {
+  NxtFloatingActionBarComponent,
+  type FloatingActionBarConfig,
+  type FloatingBarFollowItem,
+  DEFAULT_FLOATING_ACTION_BAR_CONFIG,
+} from './components/floating-action-bar';
 
 // ============================================
 // MOBILE SIDEBAR (2026 YouTube-Style Slide-Out Drawer)
@@ -1191,8 +1206,6 @@ export {
 export {
   // Components
   EditProfileShellComponent,
-  EditProfileProgressComponent,
-  EditProfileSectionComponent,
   EditProfileSkeletonComponent,
   // Services
   EditProfileService,

@@ -29,6 +29,10 @@ import {
   buildArticleShareDescription,
   truncateDescription,
   sanitizeMetaText,
+  appendUTMParams,
+  buildUTMShareUrl,
+  UTM_MEDIUM,
+  UTM_CAMPAIGN,
   type ShareableArticle,
   type ShareableProfile,
   type ShareableTeam,
@@ -135,6 +139,11 @@ describe('buildShareUrl', () => {
   it('should build team URL with slug', () => {
     const url = buildShareUrl(mockTeam);
     expect(url).toBe('https://nxt1sports.com/team/lincoln-high-football/FBN123');
+  });
+
+  it('should support a custom base URL for local and staging share links', () => {
+    const url = buildShareUrl(mockProfile, 'http://localhost:4200');
+    expect(url).toBe('http://localhost:4200/profile/football/john-smith/123456');
   });
 
   it('should build video URL with slug', () => {
@@ -602,5 +611,100 @@ describe('SEO Config Integration', () => {
     };
     const config = buildProfileSeoConfig(minimalProfile);
     expect(config.page.title).not.toContain('undefined');
+  });
+});
+
+// ============================================
+// UTM TRACKING TESTS
+// ============================================
+
+describe('appendUTMParams', () => {
+  it('should append all provided UTM params', () => {
+    const result = appendUTMParams('https://nxt1sports.com/profile/football/john-doe/123456', {
+      source: 'nxt1',
+      medium: 'share',
+      campaign: 'profile',
+      content: 'football',
+    });
+    expect(result).toBe(
+      'https://nxt1sports.com/profile/football/john-doe/123456?utm_source=nxt1&utm_medium=share&utm_campaign=profile&utm_content=football'
+    );
+  });
+
+  it('should append only required params when optional ones are omitted', () => {
+    const result = appendUTMParams('https://nxt1sports.com/team/lincoln-high/ABC123', {
+      medium: 'qr',
+      campaign: 'team',
+    });
+    expect(result).toContain('utm_medium=qr');
+    expect(result).toContain('utm_campaign=team');
+    expect(result).not.toContain('utm_source');
+    expect(result).not.toContain('utm_content');
+  });
+
+  it('should NOT overwrite existing UTM params (first-write wins)', () => {
+    const urlWithExistingUTM =
+      'https://nxt1sports.com/profile/football/john-doe/123?utm_medium=email&utm_campaign=outreach';
+    const result = appendUTMParams(urlWithExistingUTM, {
+      source: 'nxt1',
+      medium: 'share',
+      campaign: 'profile',
+    });
+    // Existing medium=email must NOT be overwritten
+    expect(result).toContain('utm_medium=email');
+    expect(result).not.toContain('utm_medium=share');
+    // New source is added since it did not exist
+    expect(result).toContain('utm_source=nxt1');
+  });
+
+  it('should return the original string unchanged for empty input', () => {
+    expect(appendUTMParams('', { medium: 'share', campaign: 'profile' })).toBe('');
+  });
+
+  it('should return the original string unchanged for relative paths', () => {
+    const rel = '/profile/football/john-doe/123456';
+    expect(appendUTMParams(rel, { medium: 'share', campaign: 'profile' })).toBe(rel);
+  });
+});
+
+describe('buildUTMShareUrl', () => {
+  it('should build a UTM-tagged profile share URL', () => {
+    const base = 'https://nxt1sports.com/profile/football/john-smith/123456';
+    const result = buildUTMShareUrl(base, UTM_MEDIUM.SHARE, UTM_CAMPAIGN.PROFILE, 'football');
+    expect(result).toBe(
+      'https://nxt1sports.com/profile/football/john-smith/123456?utm_source=nxt1&utm_medium=share&utm_campaign=profile&utm_content=football'
+    );
+  });
+
+  it('should build a UTM-tagged team QR URL without content', () => {
+    const base = 'https://nxt1sports.com/team/lincoln-high-football/ABC123';
+    const result = buildUTMShareUrl(base, UTM_MEDIUM.QR, UTM_CAMPAIGN.TEAM);
+    expect(result).toBe(
+      'https://nxt1sports.com/team/lincoln-high-football/ABC123?utm_source=nxt1&utm_medium=qr&utm_campaign=team'
+    );
+  });
+
+  it('should build a copy_link URL for article', () => {
+    const base = 'https://nxt1sports.com/explore/pulse/article-123';
+    const result = buildUTMShareUrl(base, UTM_MEDIUM.COPY_LINK, UTM_CAMPAIGN.ARTICLE);
+    expect(result).toContain('utm_medium=copy_link');
+    expect(result).toContain('utm_campaign=article');
+    expect(result).toContain('utm_source=nxt1');
+  });
+
+  it('should work with localhost base for development', () => {
+    const base = 'http://localhost:4200/profile/football/john-doe/123456';
+    const result = buildUTMShareUrl(base, UTM_MEDIUM.SHARE, UTM_CAMPAIGN.PROFILE);
+    expect(result).toContain('utm_source=nxt1');
+    expect(result).toContain('utm_medium=share');
+    expect(result).toContain('utm_campaign=profile');
+    expect(result).toMatch(/^http:\/\/localhost:4200/);
+  });
+
+  it('SEO canonical URL should NOT contain UTM params', () => {
+    // buildProfileSeoConfig always calls buildShareUrl without UTM — verify this isolation
+    const config = buildProfileSeoConfig(mockProfile);
+    expect(config.page.canonicalUrl).not.toContain('utm_');
+    expect(config.openGraph?.url).not.toContain('utm_');
   });
 });

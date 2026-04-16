@@ -26,10 +26,8 @@
  * Use these to ensure consistency and extension compatibility.
  */
 export const STORAGE_PATHS = {
-  /** Profile photos - extension-monitored path */
-  PROFILE_PHOTO: 'users/{userId}/profile',
-  /** Cover photos - not monitored by extension */
-  COVER_PHOTO: 'users/{userId}/cover-photo',
+  /** Profile photos */
+  PROFILE_PHOTO: 'Profiles/ProfileImages/{userId}',
   /** Team logos */
   TEAM_LOGO: 'teams/{teamId}/logo',
   /** Team banners */

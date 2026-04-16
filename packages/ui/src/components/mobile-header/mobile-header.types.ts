@@ -74,6 +74,13 @@ export interface MobileHeaderConfig {
 
   /** Whether to show the budget/settings icon button for org users (e.g. on Billing page) */
   readonly showBudget?: boolean;
+
+  /**
+   * Whether to show the hamburger menu button on the left.
+   * Defaults to true. Set to false to hide it on pages that don't need a sidebar (e.g. Settings).
+   * When false and showBack is also false, no left icon is rendered.
+   */
+  readonly showMenu?: boolean;
 }
 
 /**
@@ -102,6 +109,7 @@ export interface MobileHeaderUserData {
  */
 export const DEFAULT_MOBILE_HEADER_CONFIG: MobileHeaderConfig = {
   showBack: false,
+  showMenu: true,
   showLogo: true,
   showSearch: true,
   showMore: false,

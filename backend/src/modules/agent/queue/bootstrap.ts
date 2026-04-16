@@ -51,11 +51,14 @@ import {
   WriteRecruitingActivityTool,
   WriteCalendarEventsTool,
   WriteAthleteVideosTool,
+  WriteIntelTool,
   SearchNxt1PlatformTool,
   QueryNxt1PlatformDataTool,
   SearchMemoryTool,
   SearchCollegesTool,
   SearchCollegeCoachesTool,
+  TrackAnalyticsEventTool,
+  GetAnalyticsSummaryTool,
   SaveMemoryTool,
   DeleteMemoryTool,
 } from '../tools/database/index.js';
@@ -289,8 +292,11 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteRecruitingActivityTool(stagingDb));
   toolRegistry.register(new WriteCalendarEventsTool(stagingDb));
   toolRegistry.register(new WriteAthleteVideosTool(stagingDb));
+  toolRegistry.register(new WriteIntelTool(stagingDb));
   toolRegistry.register(new SearchNxt1PlatformTool());
   toolRegistry.register(new QueryNxt1PlatformDataTool());
+  toolRegistry.register(new TrackAnalyticsEventTool());
+  toolRegistry.register(new GetAnalyticsSummaryTool());
   toolRegistry.register(new SearchCollegesTool());
   toolRegistry.register(new SearchCollegeCoachesTool());
   toolRegistry.register(new GenerateGraphicTool(llm));
@@ -414,7 +420,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   const queueService = new AgentQueueService();
   const jobRepository = new AgentJobRepository(); // production Firestore
   const stagingJobRepository = new AgentJobRepository(stagingDb); // staging Firestore
-  const agentChatService = new AgentChatService();
+  const agentChatService = new AgentChatService(queueService);
 
   // ── 3a. Automation tools (require queueService + Firestore for durable metadata) ──
   toolRegistry.register(new ScheduleRecurringTaskTool(queueService, stagingDb));

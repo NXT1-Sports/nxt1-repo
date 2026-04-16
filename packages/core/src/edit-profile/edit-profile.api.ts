@@ -12,7 +12,6 @@ import type {
   EditProfileData,
   EditProfileFormData,
   EditProfileUpdateResponse,
-  ProfileCompletionData,
 } from './edit-profile.types';
 
 // ============================================
@@ -100,34 +99,16 @@ export function createEditProfileApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Get profile completion data.
-     */
-    async getCompletion(userId: string): Promise<ProfileCompletionData> {
-      const response = await http.get<ApiResponse<ProfileCompletionData>>(
-        `${endpoint}/${userId}/completion`
-      );
-      if (!response.success || !response.data) {
-        throw new Error(response.error ?? 'Failed to load completion data');
-      }
-      return response.data;
-    },
-
-    /**
      * Upload profile photo.
      */
-    async uploadPhoto(
-      userId: string,
-      type: 'profile' | 'banner',
-      file: File | Blob
-    ): Promise<{ url: string; xpAwarded?: number }> {
+    async uploadPhoto(userId: string, file: File | Blob): Promise<{ url: string }> {
       const formData = new FormData();
 
       // Append file with explicit filename (important for multer detection)
-      const filename = file instanceof File ? file.name : `${type}_photo.jpg`;
+      const filename = file instanceof File ? file.name : 'profile_photo.jpg';
       formData.append('file', file, filename);
-      formData.append('type', type);
 
-      const response = await http.post<ApiResponse<{ url: string; xpAwarded?: number }>>(
+      const response = await http.post<ApiResponse<{ url: string }>>(
         `${endpoint}/${userId}/photo`,
         formData
       );

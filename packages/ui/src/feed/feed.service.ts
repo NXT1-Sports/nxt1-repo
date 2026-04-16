@@ -33,6 +33,9 @@ import {
   type FeedAuthor,
   type FeedPagination,
   FEED_PAGINATION_DEFAULTS,
+  buildUTMShareUrl,
+  UTM_MEDIUM,
+  UTM_CAMPAIGN,
 } from '@nxt1/core';
 import { APP_EVENTS, FIREBASE_EVENTS, type AnalyticsAdapter } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
@@ -331,13 +334,21 @@ export class FeedService {
   async sharePost(post: FeedPost): Promise<void> {
     await this.haptics.impact('medium');
 
+    const destinationUrl = `https://nxt1sports.com/post/${post.id}`;
+    const shareUrl = buildUTMShareUrl(
+      destinationUrl,
+      UTM_MEDIUM.SHARE,
+      UTM_CAMPAIGN.POST,
+      post.author.uid
+    );
+
     // Use Web Share API if available (SSR-safe platform check)
     if (isPlatformBrowser(this.platformId) && navigator.share) {
       try {
         await navigator.share({
           title: `${post.author.displayName} on NXT1`,
           text: post.content?.substring(0, 100) ?? 'Check out this post',
-          url: `https://nxt1sports.com/post/${post.id}`,
+          url: shareUrl,
         });
 
         this.logger.info('Post shared via native share', { postId: post.id });
@@ -348,7 +359,6 @@ export class FeedService {
       }
     } else if (isPlatformBrowser(this.platformId)) {
       // Fallback: copy link
-      const shareUrl = `https://nxt1sports.com/post/${post.id}`;
       try {
         if (navigator.clipboard?.writeText) {
           await navigator.clipboard.writeText(shareUrl);

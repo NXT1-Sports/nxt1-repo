@@ -250,7 +250,7 @@ export const TEAM_PROFILE_EMPTY_STATES: Record<
   },
   roster: {
     title: 'No roster members',
-    message: 'Athletes and staff will appear here when they join the team.',
+    message: 'Athletes will appear here when they join the team.',
     icon: 'people',
     ctaLabel: 'Invite Athletes',
   },

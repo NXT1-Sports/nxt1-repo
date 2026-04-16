@@ -27,6 +27,8 @@ export type {
   BrowserPageLoadedEvent,
   BrowserAdapter,
   LinkType,
+  TrackingSurface,
+  TrackingSubjectType,
   OpenLinkOptions,
 } from './browser.types';
 
@@ -38,6 +40,7 @@ export {
   isValidUrl,
   ensureProtocol,
   sanitizeUrl,
+  buildTrackedLinkUrl,
   detectLinkType,
   extractDomain,
   shouldOpenInExternalApp,

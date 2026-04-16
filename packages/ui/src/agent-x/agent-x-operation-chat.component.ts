@@ -76,7 +76,7 @@ import { NxtToastService } from '../services/toast/toast.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AGENT_X_OPERATION_CHAT_TEST_IDS } from '@nxt1/core/testing';
-import { AgentXPromptInputComponent } from './agent-x-prompt-input.component';
+import { AgentXInputBarComponent } from './agent-x-input-bar.component';
 import {
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
@@ -85,6 +85,7 @@ import {
 import { AgentXStreamRegistryService } from './agent-x-stream-registry.service';
 import { AgentXOperationEventService } from './agent-x-operation-event.service';
 import { AgentXService } from './agent-x.service';
+import { IntelService } from '../intel/intel.service';
 import { NxtMediaViewerService } from '../components/media-viewer/media-viewer.service';
 import type { MediaViewerItem } from '../components/media-viewer/media-viewer.types';
 import { NxtDragDropDirective } from '../services/gesture';
@@ -97,7 +98,7 @@ import type { BillingActionResolvedEvent } from './agent-x-billing-action-card.c
 import type { ConfirmationActionEvent } from './agent-x-confirmation-card.component';
 import type { DraftSubmittedEvent } from './agent-x-draft-card.component';
 import type { AgentYieldState } from '@nxt1/core';
-import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './fab/agent-x-logo.constants';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import type { AgentXPendingFile } from './agent-x-pending-file';
 
 // ============================================
@@ -156,7 +157,7 @@ interface OperationMessage {
     NxtChatBubbleComponent,
     NxtIconComponent,
     NxtDragDropDirective,
-    AgentXPromptInputComponent,
+    AgentXInputBarComponent,
     AgentXActionCardComponent,
   ],
   template: `
@@ -456,21 +457,18 @@ interface OperationMessage {
       </div>
 
       <!-- ═══ INPUT ═══ -->
-      <nxt1-agent-x-prompt-input
-        class="embedded"
-        [hasMessages]="messages().length > 0"
-        [selectedTask]="null"
+      <nxt1-agent-x-input-bar
+        [userMessage]="inputValue()"
         [isLoading]="_loading()"
         [canSend]="canSend()"
-        [userMessage]="inputValue()"
-        [placeholder]="'Message A Coordinator'"
         [pendingFiles]="promptInputPendingFiles()"
-        [plusButtonAriaLabel]="'Add attachments'"
+        [selectedTask]="null"
+        placeholder="Message A Coordinator"
         (messageChange)="inputValue.set($event)"
         (send)="send()"
         (stop)="cancelStream()"
-        (toggleTasks)="onUploadClick()"
-        (fileRemoved)="removePendingFile($event)"
+        (toggleAttachments)="onUploadClick()"
+        (removeFile)="removePendingFile($event)"
       />
       <input
         #fileInput
@@ -1361,6 +1359,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private readonly streamRegistry = inject(AgentXStreamRegistryService);
   private readonly operationEventService = inject(AgentXOperationEventService);
   private readonly agentXService = inject(AgentXService);
+  private readonly intelService = inject(IntelService, { optional: true });
 
   /** Pure API factory — used for SSE streaming. */
   private readonly api: AgentXApi = createAgentXApi(
@@ -2614,6 +2613,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             };
             const tid = this._resolvedThreadId();
             if (tid) this.streamRegistry.upsertStep(tid, step);
+
+            // Bridge write_intel tool steps to IntelService so the Intel tab
+            // shows the generating animation exactly when the agent is writing.
+            this.intelService?.notifyToolStep(evt.id, evt.label, evt.status, evt.detail);
 
             // Build interleaved parts: upsert into last tool-steps group or start new one
             const lastPart = parts[parts.length - 1];

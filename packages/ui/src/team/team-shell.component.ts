@@ -36,16 +36,11 @@ import {
 import { CommonModule } from '@angular/common';
 import { IonContent, IonIcon, IonSkeletonText } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import {
-  trophyOutline,
-  locationOutline,
-  peopleOutline,
-  statsChartOutline,
-  shareOutline,
-} from 'ionicons/icons';
+import { peopleOutline, shareOutline } from 'ionicons/icons';
 import { NxtPageHeaderComponent, type PageHeaderAction } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import { NxtStateViewComponent } from '../components/state-view';
+import { NxtEntityHeroComponent, type EntityHeroMetaItem } from '../components/entity-hero';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { formatSportDisplayName } from '@nxt1/core';
@@ -59,12 +54,11 @@ export interface TeamData {
   slug: string;
   teamName: string;
   sport?: string;
+  teamType?: string;
   location?: string;
   logoUrl?: string;
-  imageUrl?: string;
   record?: string;
   description?: string;
-  foundedYear?: number;
   coachName?: string;
   homeVenue?: string;
   rosterCount?: number;
@@ -81,6 +75,7 @@ export interface TeamData {
     NxtPageHeaderComponent,
     NxtRefresherComponent,
     NxtStateViewComponent,
+    NxtEntityHeroComponent,
   ],
   template: `
     <!-- Top Navigation Header -->
@@ -125,34 +120,15 @@ export interface TeamData {
 
         <!-- Team Content -->
         @else if (team(); as teamData) {
-          <!-- Team Header -->
-          <div class="team-header">
-            @if (teamData.logoUrl || teamData.imageUrl) {
-              <div class="team-logo">
-                <img [src]="teamData.logoUrl || teamData.imageUrl" [alt]="teamData.teamName" />
-              </div>
-            }
-            <div class="team-info">
-              <h1 class="team-name">{{ teamData.teamName }}</h1>
-              @if (teamData.sport) {
-                <div class="team-sport">
-                  <ion-icon name="trophy-outline"></ion-icon>
-                  <span>{{ formatSportDisplayName(teamData.sport) }}</span>
-                </div>
-              }
-              @if (teamData.location) {
-                <div class="team-location">
-                  <ion-icon name="location-outline"></ion-icon>
-                  <span>{{ teamData.location }}</span>
-                </div>
-              }
-              @if (teamData.record) {
-                <div class="team-record">
-                  <ion-icon name="stats-chart-outline"></ion-icon>
-                  <span>Record: {{ teamData.record }}</span>
-                </div>
-              }
-            </div>
+          <!-- Team Header — shared entity hero card (same design as /profile) -->
+          <div class="team-hero-wrap">
+            <nxt1-entity-hero
+              [name]="teamData.teamName"
+              [subtitle]="heroSubtitle(teamData)"
+              [logoSrc]="teamData.logoUrl ?? null"
+              [metaItems]="teamMetaItems()"
+              (actionClick)="shareClick.emit()"
+            />
           </div>
 
           <!-- Team Stats Bar -->
@@ -162,12 +138,6 @@ export interface TeamData {
                 <ion-icon name="people-outline"></ion-icon>
                 <span class="stat-value">{{ teamData.rosterCount }}</span>
                 <span class="stat-label">Athletes</span>
-              </div>
-            }
-            @if (teamData.foundedYear) {
-              <div class="stat-item">
-                <span class="stat-value">{{ teamData.foundedYear }}</span>
-                <span class="stat-label">Founded</span>
               </div>
             }
           </div>
@@ -264,54 +234,11 @@ export interface TeamData {
         border-radius: 8px;
       }
 
-      /* Team Header */
-      .team-header {
-        display: flex;
-        gap: 20px;
-        padding: 20px;
-        background: var(--ion-color-light, #f5f5f5);
-        border-radius: 12px;
-        margin-bottom: 24px;
-      }
-
-      .team-logo {
-        flex-shrink: 0;
-      }
-
-      .team-logo img {
-        width: 100px;
-        height: 100px;
-        object-fit: contain;
-        border-radius: 12px;
-        background: white;
-        padding: 8px;
-      }
-
-      .team-info {
-        flex: 1;
-      }
-
-      .team-name {
-        font-size: 28px;
-        font-weight: 700;
-        margin: 0 0 12px 0;
-        color: var(--ion-text-color);
-      }
-
-      .team-sport,
-      .team-location,
-      .team-record {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 8px;
-        color: var(--ion-color-medium);
-      }
-
-      .team-sport ion-icon,
-      .team-location ion-icon,
-      .team-record ion-icon {
-        font-size: 18px;
+      /* ── Entity hero wrapper ── */
+      .team-hero-wrap {
+        /* No horizontal padding — team-container already provides 16px sides */
+        margin-top: 36px;
+        margin-bottom: 0;
       }
 
       /* Team Stats */
@@ -412,16 +339,6 @@ export interface TeamData {
 
       /* Responsive */
       @media (max-width: 640px) {
-        .team-header {
-          flex-direction: column;
-          align-items: center;
-          text-align: center;
-        }
-
-        .team-name {
-          font-size: 24px;
-        }
-
         .team-stats {
           flex-wrap: wrap;
         }
@@ -481,16 +398,36 @@ export class TeamShellComponent {
     ];
   });
 
+  /** Hero subtitle: "High School Football", "Club Basketball", etc. */
+  protected heroSubtitle(t: TeamData): string {
+    const typeLabel = t.teamType
+      ? t.teamType
+          .split('-')
+          .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+          .join(' ')
+      : '';
+    const sportLabel = t.sport?.trim() ?? '';
+    return `${typeLabel} ${sportLabel}`.trim();
+  }
+
+  /** Meta rows for the shared entity hero (Location, Record, Coach) */
+  protected readonly teamMetaItems = computed<EntityHeroMetaItem[]>(() => {
+    const t = this.team();
+    if (!t) return [];
+    const items: EntityHeroMetaItem[] = [];
+    if (t.location) items.push({ key: 'Location', value: t.location });
+    if (t.record) items.push({ key: 'Record', value: t.record });
+    if (t.coachName) items.push({ key: 'Coach', value: t.coachName });
+    return items;
+  });
+
   // ============================================
   // LIFECYCLE
   // ============================================
 
   constructor() {
     addIcons({
-      trophyOutline,
-      locationOutline,
       peopleOutline,
-      statsChartOutline,
       shareOutline,
     });
     // Log component initialization

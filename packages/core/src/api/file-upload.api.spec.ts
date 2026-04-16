@@ -145,19 +145,11 @@ describe('File Upload API', () => {
     it('should have correct profile-photo rules', () => {
       const rules = FILE_UPLOAD_RULES['profile-photo'];
 
-      expect(rules.maxSize).toBe(5 * 1024 * 1024); // 5MB
+      // maxSize is absent — TypeScript enforces this at compile time; no maxSize check at runtime
       expect(rules.allowedTypes).toContain('image/jpeg');
       expect(rules.allowedTypes).toContain('image/png');
       expect(rules.allowedTypes).toContain('image/webp');
       expect(rules.allowedTypes).toContain('image/gif');
-    });
-
-    it('should have correct cover-photo rules', () => {
-      const rules = FILE_UPLOAD_RULES['cover-photo'];
-
-      expect(rules.maxSize).toBe(10 * 1024 * 1024); // 10MB
-      expect(rules.allowedTypes).toContain('image/jpeg');
-      expect(rules.allowedTypes).not.toContain('image/gif'); // No GIFs for cover
     });
 
     it('should have correct document rules', () => {

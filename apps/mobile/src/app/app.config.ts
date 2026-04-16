@@ -55,29 +55,22 @@ import {
   INVITE_API_BASE_URL,
   MESSAGES_API_BASE_URL,
   USAGE_API_BASE_URL,
-  NEWS_API_BASE_URL,
-  NEWS_API_ADAPTER,
-  NEWS_SHARE_ADAPTER,
   PERFORMANCE_ADAPTER,
   INTEL_API_BASE_URL,
 } from '@nxt1/ui';
-import { FEED_API } from '@nxt1/ui/feed';
 // Mobile-specific Activity API adapter (uses CapacitorHttpAdapter + auth)
-// News API adapter — wraps shared NewsApiService for NEWS_API_ADAPTER token
 // Settings persistence adapter (connects SettingsService → backend API)
 // Email connection service (OAuth connect flow for linked accounts in settings)
 // Edit Profile API configuration
 import { EditProfileService } from '@nxt1/ui/edit-profile';
 import {
   ActivityApiService as MobileActivityApiService,
-  PulseApiAdapterService,
   SettingsApiService,
   MobileEmailConnectionService,
   EditProfileApiService,
   CrashlyticsService,
   AnalyticsService,
   PerformanceService,
-  FeedApiService,
   ShareService,
 } from './core/services';
 
@@ -104,8 +97,7 @@ function configureEditProfileApi(
         apiService.updateSection(userId, sectionId, data, sportIndex),
       updateActiveSportIndex: (userId, activeSportIndex) =>
         apiService.updateActiveSportIndex(userId, activeSportIndex),
-      uploadPhoto: (userId: string, type: 'profile' | 'banner', file: File | Blob) =>
-        apiService.uploadPhoto(userId, type, file),
+      uploadPhoto: (userId: string, file: File | Blob) => apiService.uploadPhoto(userId, file),
     });
   };
 }
@@ -207,7 +199,7 @@ export const appConfig: ApplicationConfig = {
     // Global error handler (shared with web)
     { provide: ErrorHandler, useClass: GlobalErrorHandler },
 
-    // Analytics adapter (used by @nxt1/ui shared services like FeedService)
+    // Analytics adapter (used by @nxt1/ui shared services)
     { provide: ANALYTICS_ADAPTER, useExisting: AnalyticsService },
 
     // Performance adapter (used by @nxt1/ui shared services like ActivityService)
@@ -252,18 +244,6 @@ export const appConfig: ApplicationConfig = {
 
     // Activity API adapter — use the mobile Capacitor adapter (auth headers, native SSL)
     { provide: ACTIVITY_API_ADAPTER, useExisting: MobileActivityApiService },
-
-    // News API base URL
-    { provide: NEWS_API_BASE_URL, useFactory: () => environment.apiUrl },
-
-    // News API adapter — root-level so shared NewsService (providedIn: 'root') resolves it
-    { provide: NEWS_API_ADAPTER, useExisting: PulseApiAdapterService },
-
-    // News share adapter — routes Pulse article sharing through the mobile ShareService
-    { provide: NEWS_SHARE_ADAPTER, useExisting: ShareService },
-
-    // Feed API adapter — root-level so shared FeedService (providedIn: 'root') resolves it
-    { provide: FEED_API, useExisting: FeedApiService },
 
     // Invite API base URL
     { provide: INVITE_API_BASE_URL, useFactory: () => environment.apiUrl },

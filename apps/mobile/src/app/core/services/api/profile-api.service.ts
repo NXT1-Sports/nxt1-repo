@@ -20,14 +20,7 @@ import {
 } from '@nxt1/core/api';
 import { PROFILE_CACHE_KEYS } from '@nxt1/core/profile';
 import { type ProfilePost, type ProfileSeasonGameLog } from '@nxt1/core/profile';
-import {
-  type User,
-  type SportProfile,
-  type VerifiedStat,
-  type VerifiedMetric,
-} from '@nxt1/core/models';
-import { type ScoutReport } from '@nxt1/core/scout-reports';
-import { type NewsArticle } from '@nxt1/core/news';
+import { type User, type SportProfile, type VerifiedMetric } from '@nxt1/core/models';
 import { CACHE_CONFIG } from '@nxt1/core/cache';
 import { CapacitorHttpAdapter } from '../../infrastructure';
 import { environment } from '../../../../environments/environment';
@@ -75,6 +68,23 @@ export class ProfileApiService {
   /** Service-level in-memory cache — keyed by PROFILE_CACHE_KEYS prefix + id */
   private readonly profileCache = new Map<string, ProfileCacheEntry>();
 
+  /** Sub-collection cache (timeline, game-logs, metrics) — keyed by "userId:subcollection[:sportId]" */
+  private readonly subCache = new Map<string, { data: unknown; expiresAt: number }>();
+
+  private getSubCache<T>(key: string): T | null {
+    const entry = this.subCache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      this.subCache.delete(key);
+      return null;
+    }
+    return entry.data as T;
+  }
+
+  private setSubCache(key: string, data: unknown): void {
+    this.subCache.set(key, { data, expiresAt: Date.now() + CACHE_CONFIG.MEDIUM_TTL });
+  }
+
   private cacheKey(prefix: string, id: string): string {
     return `${prefix}${id}`;
   }
@@ -99,9 +109,13 @@ export class ProfileApiService {
   /**
    * Invalidate cached data for a specific user id.
    * Call after profile updates so the next fetch reflects changes.
+   * Also clears all sub-collection cache entries for that user.
    */
   invalidateCache(userId: string): void {
     this.profileCache.delete(this.cacheKey(PROFILE_CACHE_KEYS.BY_ID, userId));
+    for (const key of this.subCache.keys()) {
+      if (key.startsWith(`${userId}:`)) this.subCache.delete(key);
+    }
   }
 
   // ============================================
@@ -198,7 +212,6 @@ export class ProfileApiService {
       thumbnailUrl: raw['thumbnailUrl'] as string | undefined,
       mediaUrl: raw['mediaUrl'] as string | undefined,
       likeCount: stats['likes'] ?? 0,
-      commentCount: stats['comments'] ?? 0,
       shareCount: stats['shares'] ?? 0,
       viewCount: stats['views'],
       duration: raw['duration'] as number | undefined,
@@ -207,116 +220,56 @@ export class ProfileApiService {
     };
   }
 
-  /** GET /auth/profile/:userId/schedule?sportId=football */
-  async getProfileSchedule(
-    userId: string,
-    sportId?: string
-  ): Promise<{ success: boolean; data: Record<string, unknown>[] }> {
-    try {
-      const queryParams = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
-      return await this.http.get<{ success: boolean; data: Record<string, unknown>[] }>(
-        `${environment.apiUrl}/auth/profile/${userId}/schedule${queryParams}`
-      );
-    } catch {
-      return { success: false, data: [] };
-    }
-  }
-
-  /** GET /auth/profile/:userId/timeline */
+  /** GET /auth/profile/:userId/timeline — cached MEDIUM_TTL */
   async getProfileTimeline(userId: string): Promise<{ success: boolean; data: ProfilePost[] }> {
+    const key = `${userId}:timeline`;
+    const cached = this.getSubCache<ProfilePost[]>(key);
+    if (cached) return { success: true, data: cached };
     try {
       const resp = await this.http.get<{ success: boolean; data: Record<string, unknown>[] }>(
         `${environment.apiUrl}/auth/profile/${userId}/timeline`
       );
-      return { success: resp.success, data: (resp.data ?? []).map((d) => this.mapTimelineDoc(d)) };
+      const data = (resp.data ?? []).map((d) => this.mapTimelineDoc(d));
+      if (resp.success) this.setSubCache(key, data);
+      return { success: resp.success, data };
     } catch {
       return { success: false, data: [] };
     }
   }
 
-  /** GET /auth/profile/:userId/rankings */
-  async getProfileRankings(
-    userId: string
-  ): Promise<{ success: boolean; data: Record<string, unknown>[] }> {
-    try {
-      return await this.http.get<{ success: boolean; data: Record<string, unknown>[] }>(
-        `${environment.apiUrl}/auth/profile/${userId}/rankings`
-      );
-    } catch {
-      return { success: false, data: [] };
-    }
-  }
-
-  /** GET /auth/profile/:userId/scout-reports */
-  async getProfileScoutReports(userId: string): Promise<{ success: boolean; data: ScoutReport[] }> {
-    try {
-      return await this.http.get<{ success: boolean; data: ScoutReport[] }>(
-        `${environment.apiUrl}/auth/profile/${userId}/scout-reports`
-      );
-    } catch {
-      return { success: false, data: [] };
-    }
-  }
-
-  /** GET /auth/profile/:userId/videos */
-  async getProfileVideos(userId: string): Promise<{ success: boolean; data: ProfilePost[] }> {
-    try {
-      const resp = await this.http.get<{ success: boolean; data: Record<string, unknown>[] }>(
-        `${environment.apiUrl}/auth/profile/${userId}/videos`
-      );
-      return { success: resp.success, data: (resp.data ?? []).map((d) => this.mapTimelineDoc(d)) };
-    } catch {
-      return { success: false, data: [] };
-    }
-  }
-
-  /** GET /auth/profile/:userId/news */
-  async getProfileNews(userId: string): Promise<{ success: boolean; data: NewsArticle[] }> {
-    try {
-      const resp = await this.http.get<{ success: boolean; data: NewsArticle[] }>(
-        `${environment.apiUrl}/auth/profile/${userId}/news`
-      );
-      return { success: resp.success, data: resp.data ?? [] };
-    } catch {
-      return { success: false, data: [] };
-    }
-  }
-
-  async getProfileStats(
-    userId: string,
-    sportId: string
-  ): Promise<{ success: boolean; data: VerifiedStat[] }> {
-    try {
-      return await this.http.get<{ success: boolean; data: VerifiedStat[] }>(
-        `${environment.apiUrl}/auth/profile/${userId}/sports/${encodeURIComponent(sportId)}/stats`
-      );
-    } catch {
-      return { success: false, data: [] };
-    }
-  }
-
+  /** GET /auth/profile/:userId/sports/:sportId/metrics — cached MEDIUM_TTL */
   async getProfileMetrics(
     userId: string,
     sportId: string
   ): Promise<{ success: boolean; data: VerifiedMetric[] }> {
+    const key = `${userId}:metrics:${sportId}`;
+    const cached = this.getSubCache<VerifiedMetric[]>(key);
+    if (cached) return { success: true, data: cached };
     try {
-      return await this.http.get<{ success: boolean; data: VerifiedMetric[] }>(
+      const resp = await this.http.get<{ success: boolean; data: VerifiedMetric[] }>(
         `${environment.apiUrl}/auth/profile/${userId}/sports/${encodeURIComponent(sportId)}/metrics`
       );
+      if (resp.success) this.setSubCache(key, resp.data ?? []);
+      return resp;
     } catch {
       return { success: false, data: [] };
     }
   }
 
-  /** GET /auth/profile/:userId/sports/:sportId/game-logs */
+  /** GET /auth/profile/:userId/sports/:sportId/game-logs — cached MEDIUM_TTL */
   async getProfileGameLogs(
     userId: string,
     sportId: string
   ): Promise<{ success: boolean; data: ProfileSeasonGameLog[] }> {
+    const key = `${userId}:gamelogs:${sportId}`;
+    const cached = this.getSubCache<ProfileSeasonGameLog[]>(key);
+    if (cached) return { success: true, data: cached };
     try {
-      return await this.http.get<{ success: boolean; data: ProfileSeasonGameLog[] }>(
+      const resp = await this.http.get<{ success: boolean; data: ProfileSeasonGameLog[] }>(
         `${environment.apiUrl}/auth/profile/${userId}/sports/${encodeURIComponent(sportId)}/game-logs`
       );
+      if (resp.success) this.setSubCache(key, resp.data ?? []);
+      return resp;
     } catch {
       return { success: false, data: [] };
     }

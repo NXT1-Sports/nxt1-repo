@@ -55,15 +55,13 @@ export interface PostSeedDoc {
   visibility: string;
   images: string[];
   mentions: string[];
-  hashtags: string[];
   isPinned: boolean;
-  commentsDisabled: boolean;
   mediaUrl?: string;
   thumbnailUrl?: string;
   duration?: number;
   createdAt: ReturnType<typeof Timestamp.now>;
   updatedAt: ReturnType<typeof Timestamp.now>;
-  stats: { likes: number; comments: number; shares: number; views: number };
+  stats: { likes: number; shares: number; views: number };
 }
 
 export interface RankingSeedDoc {
@@ -1070,12 +1068,10 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       visibility: PUBLIC,
       images: [],
       mentions: [],
-      hashtags: ['Recruiting', 'D1', '2026'],
       isPinned: true,
-      commentsDisabled: false,
       createdAt: ts(30),
       updatedAt: ts(30),
-      stats: { likes: 124, comments: 35, shares: 18, views: 890 },
+      stats: { likes: 124, shares: 18, views: 890 },
     },
     // Highlight reel
     {
@@ -1089,15 +1085,13 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       visibility: PUBLIC,
       images: [],
       mentions: [],
-      hashtags: ['NXT1', 'QB', 'Football'],
       isPinned: false,
-      commentsDisabled: false,
       thumbnailUrl: 'https://placehold.co/640x360/1a1a2e/00ff88?text=Week+9+Highlights',
       mediaUrl: 'https://www.w3schools.com/html/mov_bbb.mp4',
       duration: 142,
       createdAt: ts(7),
       updatedAt: ts(7),
-      stats: { likes: 48, comments: 12, shares: 6, views: 1320 },
+      stats: { likes: 48, shares: 6, views: 1320 },
     },
     // Stat update
     {
@@ -1111,12 +1105,10 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       visibility: PUBLIC,
       images: [],
       mentions: [],
-      hashtags: ['Stats', 'QBLife'],
       isPinned: false,
-      commentsDisabled: false,
       createdAt: ts(5),
       updatedAt: ts(5),
-      stats: { likes: 67, comments: 8, shares: 11, views: 540 },
+      stats: { likes: 67, shares: 11, views: 540 },
     },
     // Text update
     {
@@ -1130,12 +1122,10 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       visibility: PUBLIC,
       images: [],
       mentions: [],
-      hashtags: ['QBLife', 'FilmRoom'],
       isPinned: false,
-      commentsDisabled: false,
       createdAt: ts(3),
       updatedAt: ts(3),
-      stats: { likes: 22, comments: 4, shares: 2, views: 155 },
+      stats: { likes: 22, shares: 2, views: 155 },
     },
     // Image post — training
     {
@@ -1150,12 +1140,10 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       images: ['https://placehold.co/640x480/0d1b2a/00ff88?text=Morning+Training'],
       thumbnailUrl: 'https://placehold.co/640x480/0d1b2a/00ff88?text=Morning+Training',
       mentions: [],
-      hashtags: ['Training', 'Athlete'],
       isPinned: false,
-      commentsDisabled: false,
       createdAt: ts(14),
       updatedAt: ts(14),
-      stats: { likes: 89, comments: 21, shares: 7, views: 620 },
+      stats: { likes: 89, shares: 7, views: 620 },
     },
     // Video post
     {
@@ -1169,15 +1157,13 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       visibility: PUBLIC,
       images: [],
       mentions: [],
-      hashtags: ['QB', 'Mechanics'],
       isPinned: false,
-      commentsDisabled: false,
       thumbnailUrl: 'https://placehold.co/640x360/1a1a2e/00ff88?text=QB+Mechanics',
       mediaUrl: 'https://www.w3schools.com/html/mov_bbb.mp4',
       duration: 87,
       createdAt: ts(21),
       updatedAt: ts(21),
-      stats: { likes: 103, comments: 18, shares: 14, views: 2100 },
+      stats: { likes: 103, shares: 14, views: 2100 },
     },
     // Award post
     {
@@ -1191,12 +1177,10 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       visibility: PUBLIC,
       images: [],
       mentions: [],
-      hashtags: ['AllDistrict', 'Football'],
       isPinned: false,
-      commentsDisabled: false,
       createdAt: ts(45),
       updatedAt: ts(45),
-      stats: { likes: 201, comments: 47, shares: 33, views: 3200 },
+      stats: { likes: 201, shares: 33, views: 3200 },
     },
     // ── BASKETBALL posts ────────────────────────────────────────────────────
     // Highlight
@@ -1211,15 +1195,13 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       visibility: PUBLIC,
       images: [],
       mentions: [],
-      hashtags: ['Basketball', 'PointGuard', 'NXT1'],
       isPinned: true,
-      commentsDisabled: false,
       thumbnailUrl: 'https://placehold.co/640x360/0d1b2a/ff6b35?text=Triple+Double',
       mediaUrl: 'https://www.w3schools.com/html/mov_bbb.mp4',
       duration: 98,
       createdAt: ts(10),
       updatedAt: ts(10),
-      stats: { likes: 156, comments: 42, shares: 28, views: 2400 },
+      stats: { likes: 156, shares: 28, views: 2400 },
     },
     // Stat update
     {
@@ -1233,12 +1215,10 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       visibility: PUBLIC,
       images: [],
       mentions: [],
-      hashtags: ['Basketball', 'PG'],
       isPinned: false,
-      commentsDisabled: false,
       createdAt: ts(4),
       updatedAt: ts(4),
-      stats: { likes: 44, comments: 9, shares: 5, views: 380 },
+      stats: { likes: 44, shares: 5, views: 380 },
     },
   ];
 }
@@ -1280,7 +1260,6 @@ export function buildNewsArticles(uid: string): object[] {
       shareCount: 33,
       likeCount: 201,
       sportContext: { sport: 'football', players: [] },
-      isFeatured: true,
       type: 'user',
       createdAt: daysAgo(45),
       updatedAt: now,
@@ -1315,7 +1294,6 @@ export function buildNewsArticles(uid: string): object[] {
       shareCount: 6,
       likeCount: 48,
       sportContext: { sport: 'football', colleges: ['Pacific University', 'Harbor University'] },
-      isFeatured: false,
       type: 'user',
       createdAt: daysAgo(7),
       updatedAt: now,
@@ -1350,7 +1328,6 @@ export function buildNewsArticles(uid: string): object[] {
       shareCount: 18,
       likeCount: 124,
       sportContext: { sport: 'football', colleges: ['Pacific University'] },
-      isFeatured: true,
       isBreaking: true,
       type: 'user',
       createdAt: daysAgo(30),
@@ -1397,7 +1374,6 @@ export function buildTeamNewsArticles(teamId: string): object[] {
       shareCount: 88,
       likeCount: 312,
       sportContext: { sport: 'basketball' },
-      isFeatured: true,
       createdAt: daysAgo(28),
       updatedAt: now,
     },
@@ -1424,7 +1400,6 @@ export function buildTeamNewsArticles(teamId: string): object[] {
       shareCount: 44,
       likeCount: 178,
       sportContext: { sport: 'basketball' },
-      isFeatured: false,
       createdAt: daysAgo(14),
       updatedAt: now,
     },
@@ -1452,7 +1427,6 @@ export function buildTeamNewsArticles(teamId: string): object[] {
       shareCount: 22,
       likeCount: 89,
       sportContext: { sport: 'basketball' },
-      isFeatured: false,
       isBreaking: false,
       createdAt: daysAgo(5),
       updatedAt: now,

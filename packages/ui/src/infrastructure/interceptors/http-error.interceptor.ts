@@ -16,7 +16,7 @@
  * @version 1.1.0
  */
 
-import { inject, PLATFORM_ID } from '@angular/core';
+import { inject, PLATFORM_ID, InjectionToken } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Router } from '@angular/router';
 import {
@@ -25,7 +25,7 @@ import {
   HttpRequest,
   HttpHandlerFn,
 } from '@angular/common/http';
-import { catchError, retry, throwError, timer } from 'rxjs';
+import { catchError, from, retry, switchMap, throwError, timer } from 'rxjs';
 import {
   parseApiError,
   API_ERROR_CODES,
@@ -36,6 +36,28 @@ import {
 import { NxtToastService } from '../../services/toast';
 import { NxtLoggingService } from '../../services/logging';
 import type { ILogger } from '@nxt1/core/logging';
+import type { Auth as FirebaseAuth } from '@angular/fire/auth';
+
+/**
+ * Optional injection token for a Firebase Auth instance.
+ *
+ * Provide this in your app.config.ts so the HTTP error interceptor can
+ * attempt a token force-refresh on 401 before redirecting to /auth:
+ *
+ * ```typescript
+ * import { getAuth } from '@angular/fire/auth';
+ * import { HTTP_ERROR_INTERCEPTOR_FIREBASE_AUTH } from '@nxt1/ui/infrastructure';
+ *
+ * { provide: HTTP_ERROR_INTERCEPTOR_FIREBASE_AUTH, useFactory: () => getAuth() }
+ * ```
+ *
+ * When not provided the interceptor falls back to the original behaviour
+ * (immediate /auth redirect) — making it safe for mobile or any app that
+ * does not use @angular/fire.
+ */
+export const HTTP_ERROR_INTERCEPTOR_FIREBASE_AUTH = new InjectionToken<FirebaseAuth>(
+  'HTTP_ERROR_INTERCEPTOR_FIREBASE_AUTH'
+);
 
 /**
  * HTTP Error Interceptor Configuration
@@ -85,6 +107,9 @@ export function httpErrorInterceptor(options: HttpErrorInterceptorOptions = {}):
     const platformId = inject(PLATFORM_ID);
     const toast = inject(NxtToastService);
     const logger = inject(NxtLoggingService).child('HttpErrorInterceptor');
+    // Optional: only available when the app provides HTTP_ERROR_INTERCEPTOR_FIREBASE_AUTH.
+    // The shared interceptor must not hard-depend on Firebase at runtime.
+    const firebaseAuth = inject(HTTP_ERROR_INTERCEPTOR_FIREBASE_AUTH, { optional: true });
 
     // Check if request should be skipped
     const shouldSkip = config.skipPatterns.some((pattern) => pattern.test(req.url));
@@ -133,9 +158,35 @@ export function httpErrorInterceptor(options: HttpErrorInterceptorOptions = {}):
         // Log error for debugging
         logHttpError(req, error, apiError, logger);
 
-        // Handle 401 Unauthorized
+        // Handle 401 Unauthorized:
+        // Before redirecting to /auth, attempt a Firebase token force-refresh.
+        // Firebase silently refreshes tokens every ~55 min, but the interceptor
+        // may fire in the brief window between the old token expiring and the
+        // automatic refresh completing. A forced refresh avoids a needless
+        // /auth redirect that the auth-state listener would then undo (causing
+        // the spurious /agent bounce). Only redirect when the refresh itself fails.
         if (error.status === 401 && config.redirectOnUnauthorized) {
-          handleUnauthorized(router, platformId, config.unauthorizedRedirectPath);
+          const currentUser = firebaseAuth?.currentUser;
+          if (currentUser && isPlatformBrowser(platformId)) {
+            // Token force-refresh path: retry the request with a fresh token.
+            return from(currentUser.getIdToken(/* forceRefresh */ true)).pipe(
+              switchMap((freshToken) => {
+                logger.info('401 recovered via token force-refresh, retrying request');
+                const retried = req.clone({
+                  setHeaders: { Authorization: `Bearer ${freshToken}` },
+                });
+                return next(retried);
+              }),
+              catchError((refreshError) => {
+                // Force-refresh also failed — the session is genuinely expired.
+                logger.warn('Token force-refresh failed, redirecting to login', refreshError);
+                handleUnauthorized(router, platformId, config.unauthorizedRedirectPath, logger);
+                return throwError(() => apiError);
+              })
+            );
+          }
+          // No Firebase user available (e.g., SSR or mobile without AngularFire).
+          handleUnauthorized(router, platformId, config.unauthorizedRedirectPath, logger);
         }
 
         // Handle 429 Rate Limit
@@ -198,16 +249,24 @@ function logHttpError(
 }
 
 /**
- * Handle 401 Unauthorized - redirect to login
+ * Handle 401 Unauthorized - redirect to login.
+ * Only called after a token force-refresh has already been attempted and failed.
  */
-function handleUnauthorized(router: Router, platformId: object, redirectPath: string): void {
+function handleUnauthorized(
+  router: Router,
+  platformId: object,
+  redirectPath: string,
+  logger: ILogger
+): void {
   if (!isPlatformBrowser(platformId)) return;
 
-  // Store current URL for redirect after login
+  // Store current URL so the auth page can return the user after sign-in
   const currentUrl = window.location.pathname + window.location.search;
   if (currentUrl !== redirectPath && !currentUrl.startsWith('/auth')) {
     sessionStorage.setItem('redirectAfterLogin', currentUrl);
   }
+
+  logger.info('Session expired, redirecting to login', { currentUrl, redirectPath });
 
   // Navigate to login
   router.navigate([redirectPath], {

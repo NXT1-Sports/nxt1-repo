@@ -54,6 +54,10 @@ describe('SyncMemoryExtractorService', () => {
     store: vi.fn().mockResolvedValue({ id: 'memory-1' }),
   };
 
+  const llm = {
+    complete: vi.fn(),
+  };
+
   const contextBuilder = {
     buildContext: vi.fn().mockResolvedValue({
       userId: 'user-1',
@@ -67,7 +71,77 @@ describe('SyncMemoryExtractorService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    llm.complete.mockReset();
     service = new SyncMemoryExtractorService(vectorMemory as never, contextBuilder as never);
+  });
+
+  it('uses AI extraction to write cleaner scoped sync memories when an LLM is available', async () => {
+    llm.complete.mockResolvedValue({
+      content: JSON.stringify([
+        {
+          content: 'The athlete opened the football season with strong passing production.',
+          category: 'performance_data',
+          target: 'user',
+        },
+        {
+          content: 'The football program added a new recruiting milestone.',
+          category: 'recruiting_context',
+          target: 'organization',
+        },
+      ]),
+    });
+
+    vi.spyOn(AgentMemoryModel, 'findOne').mockImplementation(
+      () => ({ lean: vi.fn().mockResolvedValue(null) }) as never
+    );
+
+    const aiService = new SyncMemoryExtractorService(
+      vectorMemory as never,
+      contextBuilder as never,
+      llm as never
+    );
+
+    const stored = await aiService.storeDeltaMemories(
+      createDelta({
+        statChanges: [
+          {
+            category: 'Passing',
+            key: 'yards',
+            label: 'Passing Yards',
+            oldValue: null,
+            newValue: 2410,
+            delta: 2410,
+          },
+        ],
+        newRecruitingActivities: [{ type: 'offer', school: 'State University' }],
+      })
+    );
+
+    expect(stored).toBe(2);
+    expect(llm.complete).toHaveBeenCalledOnce();
+    expect(vectorMemory.store).toHaveBeenNthCalledWith(
+      1,
+      'user-1',
+      'The athlete opened the football season with strong passing production.',
+      'performance_data',
+      expect.any(Object),
+      {
+        target: 'user',
+        teamId: 'team-7',
+        organizationId: 'org-7',
+      }
+    );
+    expect(vectorMemory.store).toHaveBeenNthCalledWith(
+      2,
+      'user-1',
+      'The football program added a new recruiting milestone.',
+      'recruiting_context',
+      expect.any(Object),
+      {
+        target: 'organization',
+        organizationId: 'org-7',
+      }
+    );
   });
 
   it('stores organization-scoped memories for profile, recruiting, award, schedule, and video deltas', async () => {
@@ -92,7 +166,7 @@ describe('SyncMemoryExtractorService', () => {
       (call) => call[4]?.target === 'organization'
     );
 
-    expect(stored).toBe(12);
+    expect(stored).toBe(16);
     expect(orgStores).toHaveLength(6);
     expect(orgStores.map((call) => call[1])).toEqual(
       expect.arrayContaining([
@@ -143,5 +217,29 @@ describe('SyncMemoryExtractorService', () => {
         organizationId: 'org-7',
       }
     );
+  });
+
+  it('fans out coach and athlete profile facts into user, team, and organization scopes', async () => {
+    vi.spyOn(AgentMemoryModel, 'findOne').mockImplementation(
+      () => ({ lean: vi.fn().mockResolvedValue(null) }) as never
+    );
+
+    const stored = await service.storeDeltaMemories(
+      createDelta({
+        identityChanges: [
+          { field: 'team.conference', oldValue: 'District 10', newValue: 'District 12' },
+        ],
+        newAwards: [{ title: 'Regional Coach of the Year' }],
+        newRecruitingActivities: [{ type: 'offer', school: 'State University' }],
+        newVideos: [{ src: 'https://hudl.com/2', provider: 'Hudl', title: 'Spring Practice' }],
+      })
+    );
+
+    const targets = vectorMemory.store.mock.calls.map((call) => call[4]?.target);
+
+    expect(stored).toBeGreaterThanOrEqual(8);
+    expect(targets).toContain('user');
+    expect(targets).toContain('team');
+    expect(targets).toContain('organization');
   });
 });

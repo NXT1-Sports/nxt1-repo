@@ -25,9 +25,11 @@
       "presentationOptions": ["badge", "sound", "alert"]
     },
     "Keyboard": {
-      "resize": "ionic",
+      "resize": "none",
       "resizeOnFullScreen": true,
-      "style": "DEFAULT"
+      "style": "DEFAULT",
+      "scrollAssist": false,
+      "hideFormAccessoryBar": false
     },
     "StatusBar": {
       "style": "DARK",

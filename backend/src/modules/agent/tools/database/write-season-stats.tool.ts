@@ -25,6 +25,7 @@ import {
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
+import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
 import {
   SyncDiffService,
   type PreviousProfileState,
@@ -323,6 +324,29 @@ export class WriteSeasonStatsTool extends BaseTool {
         logger.warn('[WriteSeasonStats] Delta computation failed', {
           userId,
           error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      if (playerStatsWritten > 0) {
+        await getAnalyticsLoggerService().safeTrack({
+          subjectId: userId,
+          subjectType: 'user',
+          domain: 'performance',
+          eventType: 'metric_recorded',
+          source: accessGrant.isSelfWrite ? 'user' : 'agent',
+          actorUserId: context.userId,
+          value: playerStatsWritten,
+          tags: ['season-stats', sportId, source],
+          payload: {
+            toolName: this.name,
+            sportId,
+            source,
+            seasonsProcessed: allSeasons.size,
+            gameLogCategories: gameLogs.length,
+          },
+          metadata: {
+            initiatedBy: 'write-season-stats',
+          },
         });
       }
 

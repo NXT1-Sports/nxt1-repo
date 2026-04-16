@@ -75,6 +75,13 @@ export interface DesktopSidebarSection {
 
   /** Whether section is initially expanded */
   readonly expanded?: boolean;
+
+  /**
+   * Layout mode for this section.
+   * 'list' (default) renders full-width rows. 'grid' renders a 2-column
+   * icon+label grid — used by the mobile sidebar for quick-action items.
+   */
+  readonly layout?: 'list' | 'grid';
 }
 
 /**

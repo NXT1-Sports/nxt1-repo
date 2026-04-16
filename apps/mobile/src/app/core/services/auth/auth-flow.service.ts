@@ -994,8 +994,13 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       // Clear crashlytics user context
       await this.crashlytics.clearUser();
 
-      // Unregister FCM token (non-blocking)
-      void this.fcmRegistration.unregisterToken();
+      // Unregister FCM token BEFORE signing out — the Cloud Function requires
+      // a valid auth token, so this must complete while the user is still authenticated.
+      try {
+        await this.fcmRegistration.unregisterToken();
+      } catch (fcmError) {
+        this.logger.warn('FCM unregister failed during sign out, continuing', { error: fcmError });
+      }
 
       // Clear cached password
       this._cachedPassword = null;

@@ -23,6 +23,7 @@ import { ContextBuilder } from '../memory/context-builder.js';
 import { SyncMemoryExtractorService } from '../memory/sync-memory-extractor.service.js';
 import { VectorMemoryService } from '../memory/vector.service.js';
 import { logger } from '../../../utils/logger.js';
+import { getSyncDeltaEventService } from '../../../services/sync-delta-event.service.js';
 
 /** Lazy singleton — avoids eager Firestore access at module load time. */
 let _triggerService: AgentTriggerService | null = null;
@@ -45,7 +46,8 @@ function getSyncMemoryExtractor(): SyncMemoryExtractorService {
     const vectorMemory = new VectorMemoryService(llm);
     _syncMemoryExtractor = new SyncMemoryExtractorService(
       vectorMemory,
-      new ContextBuilder(vectorMemory)
+      new ContextBuilder(vectorMemory),
+      llm
     );
   }
   return _syncMemoryExtractor;
@@ -139,6 +141,19 @@ export async function onDailySyncComplete(delta: SyncDeltaReport): Promise<void>
     source: delta.source,
     totalChanges: delta.summary.totalChanges,
   });
+
+  try {
+    const persisted = await getSyncDeltaEventService().record(delta);
+    logger.info('[TriggerListener] Sync delta persisted for context + analytics', {
+      userId: delta.userId,
+      eventId: persisted.eventId,
+    });
+  } catch (persistErr) {
+    logger.warn('[TriggerListener] Sync delta persistence failed', {
+      userId: delta.userId,
+      error: persistErr instanceof Error ? persistErr.message : String(persistErr),
+    });
+  }
 
   try {
     const memoriesCreated = await getSyncMemoryExtractor().storeDeltaMemories(delta);

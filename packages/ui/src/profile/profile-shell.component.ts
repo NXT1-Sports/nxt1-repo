@@ -52,7 +52,6 @@ import {
   type ProfileTeamAffiliation,
   PROFILE_EMPTY_STATES,
   getProfileTabsForUser,
-  getOverviewSectionLabels,
   type ProfileRecruitingActivity,
   type ProfileEvent,
   type ProfilePost,
@@ -67,6 +66,7 @@ import {
 } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtIconComponent } from '../components/icon';
+import { NxtStateViewComponent } from '../components/state-view';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import {
   NxtOptionScrollerComponent,
@@ -82,6 +82,8 @@ import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import type { BottomSheetAction } from '../components/bottom-sheet/bottom-sheet.types';
+import { AgentXService } from '../agent-x/agent-x.service';
+import { AgentXOperationChatComponent } from '../agent-x';
 import { ProfileService } from './profile.service';
 import { ProfileTimelineComponent } from './profile-timeline.component';
 import { ProfileSkeletonComponent } from './profile-skeleton.component';
@@ -91,8 +93,10 @@ import {
   ProfileVerificationBannerComponent,
 } from './components';
 import { AthleteIntelComponent } from '../intel/athlete-intel.component';
+import { IntelService } from '../intel/intel.service';
 import { ProfileGenerationBannerComponent } from './profile-generation-banner.component';
 import { ProfileGenerationStateService } from './profile-generation-state.service';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 /**
  * User info passed from parent (web / mobile wrapper).
@@ -110,6 +114,7 @@ export interface ProfileShellUser {
     IonContent,
     NxtPageHeaderComponent,
     NxtIconComponent,
+    NxtStateViewComponent,
     NxtRefresherComponent,
     NxtOptionScrollerComponent,
     NxtSectionNavWebComponent,
@@ -141,12 +146,8 @@ export interface ProfileShellUser {
           stroke-linejoin="round"
           aria-hidden="true"
         >
-          <path
-            d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-          />
-          <polygon
-            points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
-          />
+          <path [attr.d]="agentXLogoPath" />
+          <polygon [attr.points]="agentXLogoPolygon" />
         </svg>
       </div>
 
@@ -184,33 +185,18 @@ export interface ProfileShellUser {
 
         <!-- Error State -->
         @else if (profile.error()) {
-          <div class="profile-error">
-            <div class="error-icon" aria-hidden="true">⚠️</div>
-            <h3>Failed to load profile</h3>
-            <p>{{ profile.error() }}</p>
-            <button type="button" class="retry-btn" (click)="onRetry()">Try Again</button>
-          </div>
+          <nxt1-state-view
+            variant="error"
+            title="Failed to load profile"
+            [message]="profile.error() || 'We could not load this profile right now.'"
+            actionLabel="Try Again"
+            actionIcon="refresh"
+            (action)="onRetry()"
+          />
         }
 
         <!-- ═══ PROFILE CONTENT ═══ -->
         @else if (profile.user()) {
-          <div class="profile-container__bg" [style.--team-accent]="teamAccentColor()">
-            @if (bgVariant === 'modern') {
-              <div class="modern-bg" aria-hidden="true">
-                <div class="modern-base"></div>
-                <div class="modern-lanes"></div>
-                <div class="modern-glow"></div>
-                <div class="modern-vignette"></div>
-              </div>
-            } @else {
-              <!-- Halftone accent background (legacy variant) -->
-              <div class="halftone-bg" aria-hidden="true">
-                <div class="halftone-dots"></div>
-                <div class="halftone-fade"></div>
-              </div>
-            }
-          </div>
-
           <!-- Mobile Hero: Carousel + Identity + Stats -->
           <nxt1-profile-mobile-hero
             [isOwnProfile]="profile.isOwnProfile()"
@@ -256,6 +242,8 @@ export interface ProfileShellUser {
                 <nxt1-athlete-intel
                   [userId]="profile.user()!.uid"
                   [isOwnProfile]="profile.isOwnProfile()"
+                  [activeSection]="activeSideTab()"
+                  (generateClick)="onGenerateIntel()"
                   (missingDataAction)="editProfileClick.emit()"
                 />
               }
@@ -275,7 +263,7 @@ export interface ProfileShellUser {
                   [emptyIcon]="emptyState().icon"
                   [emptyTitle]="emptyState().title"
                   [emptyMessage]="emptyState().message"
-                  [emptyCta]="profile.isOwnProfile() ? (emptyState().ctaLabel ?? null) : null"
+                  [emptyCta]="null"
                   (postClick)="onPostClick($event)"
                   (reactClick)="onLikePost($event)"
                   (repostClick)="onCommentPost($event)"
@@ -286,7 +274,7 @@ export interface ProfileShellUser {
               }
 
               @case ('connect') {
-                <nxt1-profile-contact />
+                <nxt1-profile-contact [activeSection]="activeSideTab()" />
               }
             }
           </section>
@@ -394,162 +382,6 @@ export interface ProfileShellUser {
         pointer-events: none;
       }
 
-      /* ─── SPORTY CLEAN BACKGROUND (default variant) ─── */
-
-      .modern-bg {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        height: 100dvh;
-        z-index: 0;
-        pointer-events: none;
-        overflow: hidden;
-      }
-
-      .modern-base {
-        position: absolute;
-        inset: 0;
-        background:
-          linear-gradient(
-            180deg,
-            color-mix(in srgb, var(--m-accent) 10%, rgba(255, 255, 255, 0.01)) 0%,
-            transparent 40%
-          ),
-          linear-gradient(
-            135deg,
-            transparent 0%,
-            color-mix(in srgb, var(--m-accent) 5%, transparent) 60%,
-            transparent 100%
-          );
-        opacity: 0.96;
-      }
-
-      .modern-lanes {
-        position: absolute;
-        inset: -10% -28% 40% -8%;
-        background: repeating-linear-gradient(
-          -58deg,
-          transparent 0 18px,
-          color-mix(in srgb, var(--m-accent) 16%, transparent) 18px 20px,
-          transparent 20px 42px
-        );
-        clip-path: polygon(0% 0%, 100% 0%, 82% 100%, 0% 100%);
-        mask-image: linear-gradient(
-          180deg,
-          rgba(0, 0, 0, 0.96) 0%,
-          rgba(0, 0, 0, 0.72) 44%,
-          transparent 100%
-        );
-        -webkit-mask-image: linear-gradient(
-          180deg,
-          rgba(0, 0, 0, 0.96) 0%,
-          rgba(0, 0, 0, 0.72) 44%,
-          transparent 100%
-        );
-        opacity: 0.76;
-      }
-
-      .modern-glow {
-        position: absolute;
-        inset: 0;
-        background:
-          radial-gradient(
-            ellipse 88% 58% at 50% 10%,
-            color-mix(in srgb, var(--m-accent) 18%, transparent) 0%,
-            color-mix(in srgb, var(--m-accent) 8%, transparent) 40%,
-            transparent 76%
-          ),
-          linear-gradient(
-            180deg,
-            color-mix(in srgb, var(--m-accent) 5%, transparent) 0%,
-            transparent 42%
-          );
-      }
-
-      .modern-vignette {
-        position: absolute;
-        inset: 0;
-        background:
-          linear-gradient(
-            180deg,
-            rgba(6, 8, 12, 0.12) 0%,
-            transparent 22%,
-            transparent 78%,
-            rgba(6, 8, 12, 0.18) 100%
-          ),
-          linear-gradient(
-            90deg,
-            rgba(6, 8, 12, 0.04) 0%,
-            transparent 18%,
-            transparent 82%,
-            rgba(6, 8, 12, 0.1) 100%
-          );
-      }
-
-      /* ─── HALFTONE ACCENT BACKGROUND (legacy variant) ─── */
-
-      .halftone-bg {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        height: 100dvh;
-        z-index: 0;
-        pointer-events: none;
-        overflow: hidden;
-      }
-
-      .halftone-dots {
-        position: absolute;
-        inset: 0;
-        background-image: radial-gradient(
-          circle,
-          color-mix(in srgb, var(--m-accent) 34%, transparent) 1.05px,
-          transparent 0.9px
-        );
-        background-size: 14px 14px;
-        mask-image: radial-gradient(
-          ellipse 122% 78% at 50% 10%,
-          rgba(0, 0, 0, 0.9) 0%,
-          rgba(0, 0, 0, 0.68) 30%,
-          rgba(0, 0, 0, 0.36) 56%,
-          transparent 80%
-        );
-        -webkit-mask-image: radial-gradient(
-          ellipse 122% 78% at 50% 10%,
-          rgba(0, 0, 0, 0.9) 0%,
-          rgba(0, 0, 0, 0.68) 30%,
-          rgba(0, 0, 0, 0.36) 56%,
-          transparent 80%
-        );
-        opacity: 0.95;
-      }
-
-      .halftone-fade {
-        position: absolute;
-        inset: 0;
-        background: radial-gradient(
-          ellipse 86% 72% at 50% 8%,
-          color-mix(in srgb, var(--m-accent) 26%, transparent) 0%,
-          color-mix(in srgb, var(--m-accent) 13%, transparent) 42%,
-          transparent 78%
-        );
-        opacity: 0.98;
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        .modern-lanes,
-        .modern-glow,
-        .modern-vignette,
-        .halftone-dots,
-        .halftone-fade {
-          opacity: 0.5;
-        }
-      }
-
       /* ─── ERROR STATE ─── */
 
       .profile-error {
@@ -602,7 +434,7 @@ export interface ProfileShellUser {
       .top-tabs {
         position: relative;
         z-index: 1;
-        padding: 8px 8px 12px;
+        padding: 4px 8px 12px;
         background: transparent;
       }
 
@@ -629,8 +461,7 @@ export interface ProfileShellUser {
         z-index: 1;
         width: calc(100% - 24px);
         margin-inline: 12px;
-        margin-top: 24px;
-        margin-bottom: 8px;
+        margin-top: 0;
         margin-bottom: 8px;
       }
 
@@ -673,18 +504,61 @@ export interface ProfileShellUser {
         min-height: 300px;
         padding: 24px 12px 48px;
       }
+
+      /* ─── Intel Action Footer ─── */
+      .profile-footer {
+        --background: var(--m-bg);
+        border-top: 1px solid var(--m-border);
+      }
+      .profile-action-footer {
+        display: flex;
+        gap: 8px;
+        padding: 10px 16px;
+      }
+      .profile-action-footer__btn {
+        flex: 1;
+        padding: 11px 12px;
+        border-radius: 8px;
+        border: none;
+        cursor: pointer;
+        font-size: 0.875rem;
+        font-weight: 700;
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        letter-spacing: 0.02em;
+        transition:
+          filter 150ms ease,
+          transform 150ms ease;
+      }
+      .profile-action-footer__btn:active {
+        transform: scale(0.97);
+      }
+      .profile-action-footer__btn--full {
+        flex: 1 1 100%;
+      }
+      .profile-action-footer__btn--secondary {
+        background: var(--m-surface-2);
+        color: var(--m-text-2);
+        border: 1px solid var(--m-border);
+      }
+      .profile-action-footer__btn--primary {
+        background: var(--m-accent);
+        color: var(--nxt1-color-text-onPrimary, #000);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ProfileShellComponent implements OnInit {
+  protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
+  protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
   protected readonly profile = inject(ProfileService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileShell');
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly agentX = inject(AgentXService);
+  private readonly intel = inject(IntelService);
   protected readonly generation = inject(ProfileGenerationStateService);
 
-  protected readonly bgVariant: 'modern' | 'halftone' = 'modern';
   protected readonly teamAccentColor = computed(() => {
     const user = this.profile.user();
     return user?.school?.primaryColor ?? 'var(--nxt1-color-primary, #d4ff00)';
@@ -702,6 +576,17 @@ export class ProfileShellComponent implements OnInit {
 
   /** Whether viewing own profile */
   readonly isOwnProfile = input(false);
+
+  /**
+   * Explicit override for the back-arrow visibility in the page header.
+   * When provided, takes precedence over the data-derived `shouldShowBack` computed
+   * so the back arrow is shown immediately (before the API resolves) when the parent
+   * already knows from the route whether this is another user's profile.
+   * Pass `true` for other-user profiles (non-empty route param),
+   * `false` for own profile (empty/absent route param).
+   * Omit to fall back to the API-driven signal logic.
+   */
+  readonly showBack = input<boolean | undefined>(undefined);
 
   /**
    * When true, the shell skips its internal profile.loadProfile() call in ngOnInit.
@@ -748,8 +633,27 @@ export class ProfileShellComponent implements OnInit {
     return PROFILE_EMPTY_STATES[tab] || PROFILE_EMPTY_STATES['timeline'];
   });
 
-  /** Root /profile (own) uses hamburger; nested /profile/:unicode (others) keeps back arrow */
+  protected readonly showActionFooter = computed(
+    () =>
+      this.profile.isOwnProfile() &&
+      (this.profile.activeTab() === 'intel' || this.profile.activeTab() === 'timeline')
+  );
+
+  protected readonly footerButtonLabel = computed(() =>
+    this.intel.athleteReport() ? 'Update Intel' : 'Generate Intel'
+  );
+
+  /**
+   * Whether to show the back arrow in the page header.
+   * Prefers the explicit `showBack` input (available immediately from route param)
+   * over the data-derived check, eliminating the hamburger → back-arrow flash
+   * during skeleton loading on other users' profiles.
+   * Falls back to: non-empty profileUnicode AND service says not own profile.
+   */
   protected readonly shouldShowBack = computed(() => {
+    const explicit = this.showBack();
+    if (explicit !== undefined) return explicit;
+    // Fallback: data-driven (may flip after API resolves)
     return this.profileUnicode().trim().length > 0 && !this.profile.isOwnProfile();
   });
 
@@ -760,18 +664,11 @@ export class ProfileShellComponent implements OnInit {
   /** Section nav items — contextual to active top tab (mirrors web shell exactly) */
   protected readonly sideTabItems = computed((): SectionNavItem[] => {
     const tab = this.profile.activeTab();
-    const user = this.profile.user();
-    const labels = getOverviewSectionLabels(user);
     const sections: Record<string, SectionNavItem[]> = {
-      intel: [
-        { id: 'player-profile', label: labels.profile },
-        { id: 'player-history', label: labels.history },
-        {
-          id: 'awards',
-          label: 'Awards',
-          badge: this.profile.awards().length || undefined,
-        },
-      ],
+      intel:
+        this.intel.athleteSections().length > 0
+          ? this.intel.athleteSections().map((s) => ({ id: s.id, label: s.title }))
+          : [{ id: 'agent_x_brief', label: 'Overview' }],
       timeline: [
         {
           id: 'pinned',
@@ -800,8 +697,8 @@ export class ProfileShellComponent implements OnInit {
         },
       ],
       connect: [
-        { id: 'info', label: 'Contact Info' },
-        { id: 'social', label: 'Social Media' },
+        { id: 'connected', label: 'Accounts' },
+        { id: 'contact', label: 'Contact' },
       ],
     };
     return sections[tab] ?? sections['intel'];
@@ -948,6 +845,54 @@ export class ProfileShellComponent implements OnInit {
 
   protected onLoadMore(): void {
     this.profile.loadMorePosts();
+  }
+
+  protected async onCreatePostWithAgent(): Promise<void> {
+    await this.bottomSheet.openSheet({
+      component: AgentXOperationChatComponent,
+      componentProps: {
+        contextId: 'profile-timeline-post',
+        contextTitle: 'Create a Post',
+        contextIcon: 'create-outline',
+        contextType: 'command',
+        initialMessage: 'I want to create a post for my timeline.',
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'agent-x-operation-sheet',
+    });
+  }
+
+  protected onAddUpdate(): void {
+    void this.onCreatePostWithAgent();
+  }
+
+  protected async onGenerateIntel(): Promise<void> {
+    const hasReport = !!this.intel.athleteReport();
+    const userId = this.profile.user()?.uid ?? '';
+    this.intel.startPendingGeneration();
+    await this.bottomSheet.openSheet({
+      component: AgentXOperationChatComponent,
+      componentProps: {
+        contextId: 'profile-intel-generate',
+        contextTitle: hasReport ? 'Update Intel' : 'Generate Intel',
+        contextIcon: 'flash-outline',
+        contextType: 'command',
+        initialMessage: hasReport
+          ? `Update my Agent X Intel dossier for athlete ${userId}.`
+          : `Generate an Agent X Intel dossier for athlete ${userId}.`,
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'agent-x-operation-sheet',
+    });
+    // AgentXOperationChatComponent handles generation internally via the stream.
+    // Do NOT call generateAthleteIntel() here — it would double-fire the OpenRouter request
+    // (especially after a 429 dismissal when _isGenerating resets to false).
   }
 
   protected onUploadVideo(): void {

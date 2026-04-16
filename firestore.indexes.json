@@ -216,6 +216,30 @@
       ]
     },
     {
+      "collectionGroup": "PlayerMetrics",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "dateRecorded", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "Recruiting",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "TeamStats",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "teamId", "order": "ASCENDING" },
+        { "fieldPath": "season", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "Posts",
       "queryScope": "COLLECTION",
       "fields": [

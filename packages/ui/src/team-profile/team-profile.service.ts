@@ -74,19 +74,23 @@ export class TeamProfileService {
   /** Quick stats/analytics */
   readonly quickStats = computed(() => this._teamData()?.quickStats ?? null);
 
-  /** Roster members */
-  readonly roster = computed<readonly TeamProfileRosterMember[]>(
-    () => this._teamData()?.roster ?? []
+  /** Roster members — athlete roles only. Coaches/directors belong in staff, not roster. */
+  readonly roster = computed<readonly TeamProfileRosterMember[]>(() =>
+    (this._teamData()?.roster ?? []).filter((member) => {
+      const role = String(member.role ?? '').toLowerCase();
+      return role === USER_ROLES.ATHLETE || role === 'player';
+    })
   );
 
   /** Athletes-only roster */
-  readonly athletes = computed<readonly TeamProfileRosterMember[]>(() =>
-    this.roster().filter((m) => m.role === USER_ROLES.ATHLETE)
-  );
+  readonly athletes = computed<readonly TeamProfileRosterMember[]>(() => this.roster());
 
   /** Coaches on the roster */
   readonly coaches = computed<readonly TeamProfileRosterMember[]>(() =>
-    this.roster().filter((m) => m.role === USER_ROLES.COACH)
+    (this._teamData()?.roster ?? []).filter((member) => {
+      const role = String(member.role ?? '').toLowerCase();
+      return role === USER_ROLES.COACH;
+    })
   );
 
   /** Roster count */

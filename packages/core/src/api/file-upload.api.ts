@@ -43,12 +43,7 @@ import type { ApiResponse } from '../profile/profile.api';
  * Supported file categories for uploads
  * Backend enforces different rules per category
  */
-export type FileCategory =
-  | 'profile-photo'
-  | 'cover-photo'
-  | 'document'
-  | 'video-thumbnail'
-  | 'highlight-video';
+export type FileCategory = 'profile-photo' | 'document' | 'video-thumbnail' | 'highlight-video';
 
 /**
  * File metadata for upload
@@ -247,14 +242,8 @@ function buildTusUploadMetadataHeader(metadata: Record<string, string>): string 
  */
 export const FILE_UPLOAD_RULES = {
   'profile-photo': {
-    maxSize: 5 * 1024 * 1024, // 5MB
     allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
     maxDimensions: { width: 2048, height: 2048 },
-  },
-  'cover-photo': {
-    maxSize: 10 * 1024 * 1024, // 10MB
-    allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
-    maxDimensions: { width: 4096, height: 2048 },
   },
   document: {
     maxSize: 25 * 1024 * 1024, // 25MB
@@ -309,7 +298,7 @@ export function validateFileForUpload(file: FileUploadMetadata): FileValidationE
     };
   }
 
-  if (file.size > rules.maxSize) {
+  if ('maxSize' in rules && file.size > rules.maxSize) {
     const maxSizeMB = Math.round(rules.maxSize / (1024 * 1024));
     return {
       code: 'FILE_TOO_LARGE',
@@ -436,44 +425,6 @@ export function createFileUploadApi(http: FileUploadHttpAdapter, baseUrl: string
 
       if (!response.success || !response.data) {
         throw new Error(response.error ?? 'Failed to upload profile photo');
-      }
-
-      return response.data;
-    },
-
-    /**
-     * Upload cover photo
-     * Backend optimizes and generates responsive sizes
-     */
-    async uploadCoverPhoto(
-      userId: string,
-      file: Blob | string,
-      fileName: string,
-      mimeType: string,
-      onProgress?: UploadProgressCallback
-    ): Promise<FileUploadResult> {
-      const metadata: FileUploadRequest & FileUploadMetadata = {
-        userId,
-        category: 'cover-photo',
-        fileName,
-        mimeType,
-        size: typeof file === 'string' ? file.length : file.size,
-      };
-
-      const validationError = validateFileForUpload(metadata);
-      if (validationError) {
-        throw new Error(validationError.message);
-      }
-
-      const response = await http.uploadFile<ApiResponse<FileUploadResult>>(
-        `${endpoint}/cover-photo`,
-        file,
-        metadata,
-        onProgress
-      );
-
-      if (!response.success || !response.data) {
-        throw new Error(response.error ?? 'Failed to upload cover photo');
       }
 
       return response.data;

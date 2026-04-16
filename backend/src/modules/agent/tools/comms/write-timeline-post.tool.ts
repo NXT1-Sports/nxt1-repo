@@ -20,7 +20,7 @@ import {
   POST_LIMITS,
   POSTS_CACHE_PREFIX,
 } from '@nxt1/core/constants';
-import { sanitizeContent, extractHashtags, extractMentions } from '@nxt1/core/validation';
+import { sanitizeContent, extractMentions } from '@nxt1/core/validation';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { ScraperMediaService } from '../integrations/scraper-media.service.js';
 import { getCacheService } from '../../../../services/cache.service.js';
@@ -195,7 +195,6 @@ export class WriteTimelinePostTool extends BaseTool {
     try {
       context?.onProgress?.('Preparing post content…');
       const sanitized = sanitizeContent(content);
-      const hashtags = extractHashtags(content);
       const mentions = extractMentions(content);
 
       const visibilityMap: Record<ValidVisibility, PostVisibility> = {
@@ -251,15 +250,12 @@ export class WriteTimelinePostTool extends BaseTool {
         videoUrl: promotedVideoUrl ?? undefined,
         externalLinks: [],
         mentions,
-        hashtags,
         location: teamId ?? undefined,
         isPinned: false,
-        commentsDisabled: false,
         createdAt: now,
         updatedAt: now,
         stats: {
           likes: 0,
-          comments: 0,
           shares: 0,
           views: 0,
         },
@@ -277,13 +273,12 @@ export class WriteTimelinePostTool extends BaseTool {
         visibility,
         imageCount: images.urls.length,
         hasVideo: !!videoUrl,
-        hashtagCount: hashtags.length,
         mentionCount: mentions.length,
       });
 
       // ── Cache invalidation ─────────────────────────────────────────────
       context?.onProgress?.('Invalidating feed caches…');
-      await this.invalidateFeedCaches(postVisibility, teamId ?? undefined);
+      await this.invalidateFeedCaches(postVisibility, userId, teamId ?? undefined);
 
       return {
         success: true,
@@ -294,7 +289,6 @@ export class WriteTimelinePostTool extends BaseTool {
           visibility,
           imageCount: images.urls.length,
           videoUrl: videoUrl ?? null,
-          hashtags,
           mentions,
           createdAt: now.toDate().toISOString(),
         },
@@ -399,7 +393,11 @@ export class WriteTimelinePostTool extends BaseTool {
    * Invalidate feed caches after creating a post.
    * Mirrors the invalidation logic in posts.routes.ts.
    */
-  private async invalidateFeedCaches(visibility: PostVisibility, teamId?: string): Promise<void> {
+  private async invalidateFeedCaches(
+    visibility: PostVisibility,
+    userId: string,
+    teamId?: string
+  ): Promise<void> {
     try {
       const cache = getCacheService();
       const patterns = [
@@ -410,6 +408,10 @@ export class WriteTimelinePostTool extends BaseTool {
       for (const pattern of patterns) {
         await cache.del(pattern);
       }
+
+      // Invalidate the user's profile timeline cache so the new post
+      // appears immediately on profile and team pages.
+      await cache.delByPrefix(`profile:sub:timeline:v2:${userId}`);
     } catch (err) {
       // Cache invalidation failure is non-fatal — feed will refresh on TTL expiry
       logger.warn('[WriteTimelinePostTool] Feed cache invalidation failed (non-fatal)', {

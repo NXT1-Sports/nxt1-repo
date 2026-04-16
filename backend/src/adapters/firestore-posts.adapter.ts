@@ -14,7 +14,6 @@ import type {
   FeedAuthor,
   FeedCommentAuthor,
   FeedPostType,
-  FeedPostVisibility,
   FeedAuthorRole,
   FeedVerificationStatus,
 } from '@nxt1/core/feed';
@@ -48,7 +47,6 @@ export interface FirestorePostDoc {
   };
   externalLinks?: string[];
   mentions?: string[];
-  hashtags?: string[];
   location?: string;
   poll?: {
     question: string;
@@ -59,13 +57,11 @@ export interface FirestorePostDoc {
   };
   scheduledFor?: Timestamp;
   isPinned?: boolean;
-  commentsDisabled?: boolean;
   createdAt: Timestamp;
   updatedAt: Timestamp;
   deletedAt?: Timestamp;
   stats: {
     likes: number;
-    comments: number;
     shares: number;
     views: number;
   };
@@ -232,15 +228,12 @@ export function firestorePostToFeedPost(
   return {
     id,
     type: mapPostTypeToFeedType(doc.type),
-    visibility: mapPostVisibilityToFeedVisibility(doc.visibility),
     author,
     content: doc.content,
     media,
     engagement: {
       reactionCount: doc.stats?.likes || 0,
       likeCount: doc.stats?.likes || 0,
-      commentCount: doc.stats?.comments || 0,
-      repostCount: 0,
       shareCount: doc.stats?.shares || 0,
       viewCount: doc.stats?.views || 0,
     },
@@ -252,11 +245,8 @@ export function firestorePostToFeedPost(
       isReposted: userEngagement?.isReposted || false,
     },
     mentions: doc.mentions,
-    hashtags: doc.hashtags,
     location: doc.location,
     isPinned: doc.isPinned || false,
-    isFeatured: false,
-    commentsDisabled: doc.commentsDisabled || false,
     createdAt: timestampToISO(doc.createdAt),
     updatedAt: timestampToISO(doc.updatedAt),
   };
@@ -304,14 +294,6 @@ function mapPostTypeToFeedType(type: PostType): FeedPostType {
 /**
  * Map backend PostVisibility to FeedPostVisibility
  */
-function mapPostVisibilityToFeedVisibility(visibility: PostVisibility): FeedPostVisibility {
-  const mapping: Record<string, FeedPostVisibility> = {
-    PUBLIC: 'public',
-    TEAM: 'team',
-    PRIVATE: 'private',
-  };
-  return mapping[visibility] || 'public';
-}
 
 // ============================================
 // BATCH CONVERSION UTILITIES

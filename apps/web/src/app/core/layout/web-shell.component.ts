@@ -108,8 +108,6 @@ import {
 import { AuthModalService } from '@nxt1/ui/auth';
 // ── Activity (for mark-all-read on /activity route) ──
 import { ActivityService } from '@nxt1/ui/activity';
-// ── Explore (for global search dropdown + mobile filter) ──
-import { ExploreService, ExploreFilterModalService } from '@nxt1/ui/explore';
 import type { TopNavSearchSubmitEvent } from '@nxt1/ui/components/top-nav';
 // ── Usage (for mobile billing actions) ──
 import { UsageService, UsageHelpContentComponent } from '@nxt1/ui/usage';
@@ -204,13 +202,6 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
     items: [
       { id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent' },
       {
-        id: 'explore',
-        label: 'Explore',
-        icon: 'compass',
-        activeIcon: 'compassFilled',
-        route: '/explore',
-      },
-      {
         id: 'invite-team',
         label: 'Invite team',
         icon: 'plusCircle',
@@ -244,16 +235,7 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
 const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   {
     id: 'main',
-    items: [
-      { id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent' },
-      {
-        id: 'explore',
-        label: 'Explore',
-        icon: 'compass',
-        activeIcon: 'compassFilled',
-        route: '/explore',
-      },
-    ],
+    items: [{ id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent' }],
   },
   {
     id: 'follow-us',
@@ -460,6 +442,7 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
           [searchTrendingSearches]="headerTrendingSearches()"
           (navigate)="onHeaderNavigate($event)"
           (userMenuAction)="onUserMenuAction($event)"
+          (userClick)="onHeaderUserClick($event)"
           (addSportClick)="onAddSportClick()"
           (notificationsClick)="onNotificationsClick()"
           (createClick)="onCreateClick()"
@@ -661,6 +644,10 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
         /* No top gap on mobile — mobile nav bar provides the top boundary */
         :host {
           --shell-content-padding-top: 0px;
+          /* Footer removed: pull input bar + coordinator pills to the bottom edge.
+             Negative value cancels the built-in pill-height + gap offsets so
+             the input lands ~16px from the bottom instead of ~60px. */
+          --nxt1-footer-bottom: -40px;
         }
 
         /* Footer padding when footer is present */
@@ -719,11 +706,8 @@ export class WebShellComponent {
   private readonly activityService = inject(ActivityService);
   private readonly authModal = inject(AuthModalService);
   private readonly elementRef = inject(ElementRef);
-  private readonly exploreService = inject(ExploreService);
-  private readonly exploreFilterModal = inject(ExploreFilterModalService);
   private readonly usageService = inject(UsageService);
 
-  /** Debounce timer for search input */
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ============================================
@@ -882,17 +866,17 @@ export class WebShellComponent {
   // HEADER SEARCH RESULTS (Global Search Dropdown)
   // ============================================
 
-  /** Search results for the header dropdown (from shared ExploreService) */
-  readonly headerSearchResults = computed(() => this.exploreService.items());
+  /** Search results for the header dropdown — disabled while Explore is parked */
+  readonly headerSearchResults = computed(() => []);
 
   /** Whether the header search is loading */
-  readonly headerSearchLoading = computed(() => this.exploreService.isLoading());
+  readonly headerSearchLoading = computed(() => false);
 
   /** Recent searches for the header dropdown */
-  readonly headerRecentSearches = computed(() => this.exploreService.recentSearches());
+  readonly headerRecentSearches = computed(() => []);
 
   /** Trending searches for the header dropdown */
-  readonly headerTrendingSearches = computed(() => this.exploreService.trendingSearches());
+  readonly headerTrendingSearches = computed(() => []);
 
   // ============================================
   // MOBILE FOOTER CONFIGURATION
@@ -919,6 +903,31 @@ export class WebShellComponent {
     return this._userDisplayContext()?.profileRoute ?? '/profile';
   });
 
+  private async navigateToOwnIdentity(): Promise<void> {
+    const ctx = this._userDisplayContext();
+    const route = ctx?.profileRoute ?? '/profile';
+
+    if (!ctx?.isTeamRole) {
+      await this.router.navigateByUrl(route);
+      return;
+    }
+
+    if (route && route !== '/profile') {
+      await this.router.navigateByUrl(route);
+      return;
+    }
+
+    await this.authFlow.refreshUserProfile();
+    const refreshedRoute = this._userDisplayContext()?.profileRoute;
+
+    if (refreshedRoute && refreshedRoute !== '/profile') {
+      await this.router.navigateByUrl(refreshedRoute);
+      return;
+    }
+
+    this.logger.warn('Team route unavailable for coach/director avatar navigation');
+  }
+
   /** Mobile footer configuration */
   readonly footerConfig = computed<FooterConfig>(() =>
     createFooterConfig({
@@ -930,21 +939,17 @@ export class WebShellComponent {
   // MOBILE HEADER CONFIGURATION (YouTube-style top bar)
   // ============================================
 
-  /** Whether the current route should show a back arrow instead of hamburger */
+  /** Only /agent gets a hamburger on mobile — all other top-level pages have no left icon */
+  private readonly _showMobileMenu = computed(() => this._currentRoute().startsWith('/agent'));
+
+  /** Whether the current route should show a back arrow.
+   * All authenticated non-agent routes get a back arrow — /agent uses the hamburger. */
   private readonly _showMobileBack = computed(() => {
     const route = this._currentRoute();
-    // Own team page → hamburger (same pattern as own profile)
-    if (route.startsWith('/team/') && this.profileActions.isOwnPage()) {
-      return false;
-    }
-    // Back arrow for other people's profiles, team pages, and legal/info pages
-    return (
-      route.startsWith('/profile/') ||
-      route.startsWith('/team/') ||
-      route.startsWith('/terms') ||
-      route.startsWith('/privacy') ||
-      route.startsWith('/about')
-    );
+    if (!this.isAuthenticated()) return false;
+    // /agent uses the hamburger sidebar — no back arrow
+    if (route.startsWith('/agent')) return false;
+    return true;
   });
 
   /** Whether the current route is any profile page (hides search/bell) */
@@ -962,11 +967,6 @@ export class WebShellComponent {
     return this._currentRoute().startsWith('/activity');
   });
 
-  /** Whether the current route is the explore page */
-  private readonly _isOnExplorePage = computed(() => {
-    return this._currentRoute().startsWith('/explore');
-  });
-
   /** Whether the current route is the usage/billing page */
   private readonly _isOnUsagePage = computed(() => {
     return this._currentRoute().startsWith('/usage');
@@ -978,19 +978,10 @@ export class WebShellComponent {
    */
   private readonly _mobilePageTitle = computed((): string => {
     const route = this._currentRoute();
-    const userData = this.sidebarUserData();
-
-    // Own profile — show user's first name for a personal touch
-    if (route === '/profile' || route.startsWith('/profile?')) {
-      return userData?.name?.split(' ')[0] ?? 'Profile';
-    }
 
     const MAP: ReadonlyArray<[string, string]> = [
-      ['/profile/', 'Profile'],
+      ['/profile', 'Profile'],
       ['/agent', 'Agent X'],
-      ['/explore', 'Explore'],
-      ['/home', 'Home'],
-      ['/feed', 'Home'],
       ['/activity', 'Activity'],
       ['/messages', 'Messages'],
       ['/settings', 'Settings'],
@@ -999,8 +990,7 @@ export class WebShellComponent {
       ['/analytics', 'Analytics'],
       ['/invite', 'Invite Friends'],
       ['/manage-team', 'My Team'],
-      ['/team/', 'Team'],
-      ['/pulse', 'Pulse'],
+      ['/team', 'Team'],
       ['/rankings', 'Rankings'],
       ['/colleges', 'Colleges'],
       ['/terms', 'Terms of Use'],
@@ -1026,6 +1016,7 @@ export class WebShellComponent {
 
     return createMobileHeaderConfig({
       showBack: this._showMobileBack(),
+      showMenu: this._showMobileMenu(),
       // Logged-out: show brand logo. Logged-in: show page title instead.
       showLogo: !isLoggedIn,
       title: isLoggedIn ? this._mobilePageTitle() : undefined,
@@ -1037,11 +1028,9 @@ export class WebShellComponent {
       showMore: onProfilePage || onTeamPage,
       showEdit: isOwnProfilePage || this.profileActions.showEditButton(),
       showMarkAllRead: onActivityPage && this.activityService.totalUnread() > 0,
-      // Filter icon: visible on /explore for authenticated users (desktop sidebar handles desktop)
-      showFilter: isLoggedIn && this._isOnExplorePage(),
-      filterActiveCount: this._isOnExplorePage()
-        ? this.exploreService.getActiveFilterCount(this.exploreService.activeTab())
-        : 0,
+      // Filter icon: not shown (Explore is parked)
+      showFilter: false,
+      filterActiveCount: 0,
       // Help + Budget icons: visible on /usage (desktop nav portal handles desktop)
       showHelp: isLoggedIn && this._isOnUsagePage(),
       showBudget: isLoggedIn && this._isOnUsagePage() && this.usageService.isOrg(),
@@ -1076,9 +1065,9 @@ export class WebShellComponent {
   // ============================================
 
   /**
-   * Mobile sidebar sections — auth-aware, same as desktop but
-   * filtered to remove the "follow-us" section and extended with
-   * Help Center and Settings after Usage.
+   * Mobile sidebar sections — auth-aware. The 4 utility items (Invite Team,
+   * Usage, Help Center, Settings) are placed in a dedicated single-row grid
+   * section so they render as compact icon+label tiles instead of full-width rows.
    */
   readonly mobileSidebarSections = computed(() => {
     const isAuthenticated = this.authFlow.isAuthenticated();
@@ -1089,19 +1078,41 @@ export class WebShellComponent {
         return {
           ...s,
           items: [
-            // Agent X and Explore are in the mobile footer — omit here
-            ...s.items.filter((item) => item.id !== 'agent' && item.id !== 'explore'),
+            // Agent X and Explore are in the mobile footer.
+            // Invite Team, Usage, Help Center, Settings go into the grid section below.
+            ...s.items.filter(
+              (item) => item.id !== 'agent' && item.id !== 'explore' && item.id !== 'invite-team'
+            ),
             ...(!isAuthenticated ? LOGGED_OUT_MOBILE_SIDEBAR_ITEMS : []),
-            { id: 'usage', label: 'Billing & Usage', icon: 'creditCard', route: '/usage' },
-            { id: 'help-center', label: 'Help Center', icon: 'help', route: '/help-center' },
-            { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
           ],
         };
       });
 
+    // Quick-action grid — Invite Team (auth only), Usage, Help Center, Settings
+    const quickActionItems: DesktopSidebarItem[] = [
+      ...(isAuthenticated
+        ? [
+            {
+              id: 'invite-team',
+              label: 'Invite',
+              icon: 'plusCircle',
+              action: 'invite-team' as const,
+            },
+          ]
+        : []),
+      { id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' },
+      { id: 'help-center', label: 'Help', icon: 'help', route: '/help-center' },
+      { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
+    ];
+
     // Follow Us — always shown for all users, matching native mobile app sidenav
     return [
       ...baseSections,
+      {
+        id: 'quick-actions',
+        layout: 'grid' as const,
+        items: quickActionItems,
+      },
       {
         id: 'follow-us',
         label: 'Follow Us',
@@ -1162,7 +1173,7 @@ export class WebShellComponent {
    * authenticated when __session cookie exists (via SSR auth state transfer).
    * The @if guard won't cause hydration mismatch.
    */
-  readonly showMobileFooter = computed(() => this.isAuthenticated());
+  readonly showMobileFooter = computed(() => false);
 
   // ============================================
   // LIFECYCLE
@@ -1229,8 +1240,7 @@ export class WebShellComponent {
    * Handle sidebar user section click
    */
   onSidebarUserClick(_event: Event): void {
-    // Could open user menu or navigate to profile
-    this.router.navigate(['/settings/account']);
+    void this.navigateToOwnIdentity();
   }
 
   /**
@@ -1272,7 +1282,7 @@ export class WebShellComponent {
    * Navigate to explore page on mobile.
    */
   onMobileSearchClick(): void {
-    this.router.navigate(['/explore']);
+    this.router.navigate(['/agent']);
   }
 
   /**
@@ -1280,7 +1290,7 @@ export class WebShellComponent {
    * Navigate to settings/account page.
    */
   onMobileUserClick(): void {
-    this.router.navigate(['/settings/account']);
+    void this.navigateToOwnIdentity();
   }
 
   /**
@@ -1306,15 +1316,8 @@ export class WebShellComponent {
     this.activityService.markAllRead();
   }
 
-  async onMobileExploreFilterClick(): Promise<void> {
-    const tab = this.exploreService.activeTab();
-    const currentFilters = this.exploreService.getFiltersForTab(tab);
-    const result = await this.exploreFilterModal.open({ tab, currentFilters });
-    if (result.applied) {
-      this.exploreService.setFiltersForTab(tab, result.filters);
-      await this.exploreService.refresh();
-    }
-  }
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  async onMobileExploreFilterClick(): Promise<void> {}
 
   /**
    * Handle mobile top-nav help click on the billing/usage page.
@@ -1390,7 +1393,7 @@ export class WebShellComponent {
    * Handle mobile sidebar user section click
    */
   onMobileSidebarUserClick(_event: Event): void {
-    this.router.navigateByUrl(this._ownIdentityRoute());
+    void this.navigateToOwnIdentity();
   }
 
   /**
@@ -1401,7 +1404,7 @@ export class WebShellComponent {
     event: import('@nxt1/ui/components/mobile-sidebar').MobileSidebarSportSelectEvent
   ): void {
     this.logger.debug('Sport profile selected', { sport: event.profile.sport });
-    this.router.navigateByUrl(this._ownIdentityRoute());
+    void this.navigateToOwnIdentity();
   }
 
   /**
@@ -1417,6 +1420,10 @@ export class WebShellComponent {
   // HEADER HANDLERS (Desktop)
   // ============================================
 
+  onHeaderUserClick(_event: Event): void {
+    void this.navigateToOwnIdentity();
+  }
+
   /**
    * Handle header nav item selection
    */
@@ -1427,55 +1434,20 @@ export class WebShellComponent {
     }
   }
 
-  /**
-   * Handle header search input — debounced instant search.
-   * Calls ExploreService.search() after 300ms of no typing.
-   */
-  onHeaderSearchInput(query: string): void {
-    // Clear previous debounce
-    if (this.searchDebounceTimer) {
-      clearTimeout(this.searchDebounceTimer);
-    }
+  onHeaderSearchInput(_query: string): void {}
 
-    const trimmed = query.trim();
-
-    if (trimmed.length < 2) {
-      // Clear results when query is too short
-      this.exploreService.clearSearch();
-      return;
-    }
-
-    // Debounce search requests (300ms)
-    this.searchDebounceTimer = setTimeout(() => {
-      void this.exploreService.search(trimmed);
-    }, 300);
-  }
-
-  /**
-   * Handle header search submit (Enter key).
-   * Navigate to /explore with query param.
-   */
   onHeaderSearchSubmit(event: TopNavSearchSubmitEvent): void {
     const query = event.query.trim();
     if (query) {
-      void this.router.navigate(['/explore'], { queryParams: { q: query } });
+      void this.router.navigate(['/agent'], { queryParams: { q: query } });
     }
   }
 
-  /**
-   * Handle "See all results" click from search dropdown.
-   * Navigate to /explore with query param.
-   */
   onHeaderSeeAllResults(query: string): void {
-    void this.router.navigate(['/explore'], { queryParams: { q: query } });
+    void this.router.navigate(['/agent'], { queryParams: { q: query } });
   }
 
-  /**
-   * Clear recent searches in ExploreService.
-   */
-  onClearRecentSearches(): void {
-    this.exploreService.clearRecentSearches();
-  }
+  onClearRecentSearches(): void {}
 
   /**
    * Handle mobile tab selection

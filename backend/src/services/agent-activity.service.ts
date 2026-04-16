@@ -78,6 +78,7 @@ export async function logAgentTaskCompletion(
       ...(threadId ? { threadId } : {}),
       ...(imageUrl ? { imageUrl } : {}),
       ...(videoUrl ? { videoUrl } : {}),
+      ...(job.context?.['origin'] ? { origin: String(job.context['origin']) } : {}),
     },
     source: { userName: 'Agent X' },
     metadata: {

@@ -3,6 +3,7 @@
  * @module @nxt1/core/intel
  *
  * AI-generated intelligence reports for athlete and team profiles.
+ * Agent X is the athlete's advocate — it tells their story, not their score.
  * 100% portable — NO platform dependencies.
  */
 
@@ -17,18 +18,12 @@ export {
   type IntelDataAvailability,
   type IntelMissingDataPrompt,
   type IntelQuickCommand,
+  // Dossier section types
+  type IntelBriefItem,
+  type IntelBriefSection,
   // Athlete types
-  type IntelScoutRatings,
-  type IntelTierClassification,
-  type IntelPercentileRankings,
-  type IntelLevelProjections,
-  type IntelMeasurableHighlight,
-  type IntelStatHighlight,
-  type IntelRecruitingSummary,
   type AthleteIntelReport,
   // Team types
-  type IntelRosterProspect,
-  type IntelSeasonSummary,
   type TeamIntelReport,
   // API response types
   type IntelReportResponse,

@@ -457,10 +457,6 @@ export type FeedReactionType = 'like' | 'love' | 'celebrate' | 'support' | 'insi
 export interface FeedEngagement {
   /** Number of reactions (fire/emoji) */
   readonly reactionCount: number;
-  /** Number of comments */
-  readonly commentCount: number;
-  /** Number of reposts */
-  readonly repostCount: number;
   /** Number of shares */
   readonly shareCount: number;
   /** Number of views */
@@ -499,16 +495,12 @@ export interface FeedPost {
   readonly id: string;
   /** Post content type */
   readonly type: FeedPostType;
-  /** Post visibility */
-  readonly visibility: FeedPostVisibility;
   /** Post author */
   readonly author: FeedAuthor;
   /** Post title (bold heading) */
   readonly title?: string;
   /** Post text content / description */
   readonly content?: string;
-  /** Rich text content (markdown or HTML) */
-  readonly richContent?: string;
   /** Media attachments */
   readonly media: readonly FeedMedia[];
   /** Offer data (for offer posts) */
@@ -545,18 +537,12 @@ export interface FeedPost {
   readonly userEngagement: FeedUserEngagement;
   /** Attached profile data tags (stat chips, award chips, etc.) */
   readonly postTags?: readonly FeedPostTag[];
-  /** Hashtag strings in the post */
-  readonly hashtags?: readonly string[];
   /** Mention strings */
   readonly mentions?: readonly string[];
   /** Location tag */
   readonly location?: string;
   /** Whether post is pinned to top */
   readonly isPinned: boolean;
-  /** Whether post is featured */
-  readonly isFeatured: boolean;
-  /** Whether comments are disabled */
-  readonly commentsDisabled: boolean;
   /** Created timestamp (ISO string) */
   readonly createdAt: string;
   /** Last updated timestamp (ISO string) */
@@ -822,8 +808,6 @@ export interface FeedItemBase {
   readonly userEngagement: FeedUserEngagement;
   /** Whether item is pinned to top of timeline */
   readonly isPinned: boolean;
-  /** Whether item is featured / promoted */
-  readonly isFeatured: boolean;
   /** Created timestamp (ISO 8601) */
   readonly createdAt: string;
   /** Updated timestamp (ISO 8601) */
@@ -837,28 +821,20 @@ export interface FeedItemBase {
  */
 export interface FeedItemPost extends FeedItemBase {
   readonly feedType: 'POST';
-  /** Post visibility */
-  readonly visibility: FeedPostVisibility;
   /** Granular content type for the post (text, image, video, etc.) */
   readonly postType: FeedPostType;
   /** Post title */
   readonly title?: string;
   /** Text body */
   readonly content?: string;
-  /** Rich content (markdown/HTML) */
-  readonly richContent?: string;
   /** Media attachments */
   readonly media: readonly FeedMedia[];
-  /** Hashtags */
-  readonly hashtags?: readonly string[];
   /** Mentions */
   readonly mentions?: readonly string[];
   /** Location tag */
   readonly location?: string;
   /** External source annotation (e.g. synced from Hudl) */
   readonly externalSource?: FeedExternalSource;
-  /** Whether comments are disabled */
-  readonly commentsDisabled: boolean;
   /** Attached profile data tags (stat chips, award chips) */
   readonly postTags?: readonly FeedPostTag[];
   /** Repost metadata */

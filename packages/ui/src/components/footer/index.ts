@@ -10,8 +10,12 @@
  * - Angular component in @nxt1/ui
  */
 
-// Component
-export { NxtMobileFooterComponent } from './footer.component';
+// Components
+export {
+  NxtMobileFooterComponent,
+  NxtActionFooterComponent,
+  type ActionFooterButton,
+} from './footer.component';
 
 // Types (re-exported from @nxt1/core for convenience)
 export type {

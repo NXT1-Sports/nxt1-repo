@@ -158,19 +158,18 @@ import { FeedNewsCardComponent } from '../feed/feed-news-card.component';
 
       <!-- Filtered Empty State -->
       @else if (isFilteredEmpty()) {
-        <nxt1-state-view
-          variant="empty"
-          [icon]="resolvedEmptyIcon()"
-          [title]="resolvedEmptyTitle()"
-          [message]="resolvedEmptyMessage()"
-          [actionLabel]="
-            isOwnProfile() && (!showFilters() || activeFilter() === 'all') && emptyCta()
-              ? emptyCta()!
-              : ''
-          "
-          (action)="emptyCtaClick.emit()"
-          [attr.data-testid]="timelineTestIds.EMPTY"
-        />
+        <div class="madden-empty" [attr.data-testid]="timelineTestIds.EMPTY">
+          <div class="madden-empty__icon" aria-hidden="true">
+            <nxt1-icon [name]="resolvedEmptyIcon()" [size]="40" />
+          </div>
+          <h3>{{ resolvedEmptyTitle() }}</h3>
+          <p>{{ resolvedEmptyMessage() }}</p>
+          @if (isOwnProfile() && (!showFilters() || activeFilter() === 'all') && emptyCta()) {
+            <button type="button" class="madden-cta-btn" (click)="emptyCtaClick.emit()">
+              {{ emptyCta() }}
+            </button>
+          }
+        </div>
       }
 
       <!-- Posts List — Polymorphic Smart Shell + Atomic Cards -->
@@ -387,6 +386,55 @@ import { FeedNewsCardComponent } from '../feed/feed-news-card.component';
         display: flex;
         flex-direction: column;
         gap: 12px;
+      }
+
+      /* ─── EMPTY STATE (madden-empty — matches intel/connect tabs) ─── */
+      .madden-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 48px 24px;
+        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
+      }
+      .madden-empty h3 {
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--m-text, #ffffff);
+        margin: 16px 0 8px;
+      }
+      .madden-empty__icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 4px;
+        color: var(--m-text-2, rgba(255, 255, 255, 0.4));
+      }
+      .madden-empty p {
+        font-size: 14px;
+        color: var(--m-text-2, rgba(255, 255, 255, 0.6));
+        margin: 0 0 20px;
+        max-width: 280px;
+      }
+      .madden-cta-btn {
+        background: var(--m-accent, #d4ff00);
+        color: #000;
+        border: none;
+        border-radius: 999px;
+        padding: 10px 24px;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: filter 0.15s;
+        &:hover {
+          filter: brightness(1.1);
+        }
       }
     `,
   ],

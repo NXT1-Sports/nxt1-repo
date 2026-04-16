@@ -1361,6 +1361,19 @@ export const UI_ICONS = {
     ],
   },
 
+  /** Pulse news icon - custom NXT1 token for local and state sports updates */
+  pulseNews: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M19 6H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a1 1 0 0 0-1-1z' },
+      { d: 'M8 10h4' },
+      { d: 'M8 14h2.5l1.4-2 1.8 4 1.2-2H18' },
+      { d: 'M16.8 3.8l.5 1.1 1.1.5-1.1.5-.5 1.1-.5-1.1-1.1-.5 1.1-.5.5-1.1z' },
+    ],
+  },
+
   /** Repeat/Repost icon - for repost/loop actions */
   repeat: {
     viewBox: '0 0 24 24',
@@ -2025,6 +2038,8 @@ export const ALIAS_ICONS = {
 
   // ---- Sports / Themes ----
   'sparkles-outline': UI_ICONS.sparkles,
+  'pulse-news': UI_ICONS.pulseNews,
+  'pulse-news-outline': UI_ICONS.pulseNews,
   'football-outline': UI_ICONS.football,
   'barbell-outline': UI_ICONS.barbell,
   'hardware-chip-outline': UI_ICONS.hardwareChip,
@@ -2072,6 +2087,8 @@ export const ALIAS_ICONS = {
   sports: ROLE_ICONS.athlete,
   /** People icon → users UI icon (for avatar badges) */
   people: UI_ICONS.users,
+  /** Pulse icon semantic alias */
+  pulse: UI_ICONS.pulseNews,
   /** Analytics icon → barChart UI icon */
   analytics: UI_ICONS.barChart,
   /** Flash icon → bolt UI icon */

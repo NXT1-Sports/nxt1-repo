@@ -109,7 +109,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
   selector: 'nxt1-agent-x-operations-log',
   imports: [NxtIconComponent, NxtSheetHeaderComponent],
   template: `
-    @if (!embedded()) {
+    @if (!embedded() && !hideHeader()) {
       <!-- ═══ HEADER ═══ -->
       <nxt1-sheet-header
         title="Agent Sessions"
@@ -402,7 +402,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
         flex: 1;
         overflow-y: auto;
         overflow-x: hidden;
-        padding: 0 var(--nxt1-spacing-4, 16px);
+        padding: 0 var(--log-scroll-padding-inline, var(--nxt1-spacing-4, 16px));
         padding-bottom: calc(var(--nxt1-spacing-6, 24px) + env(safe-area-inset-bottom, 0px));
         -webkit-overflow-scrolling: touch;
       }
@@ -756,6 +756,9 @@ export class AgentXOperationsLogComponent {
 
   /** When true, hides the sheet header and filters (used when embedded in sidebar). */
   readonly embedded = input(false);
+
+  /** When true, hides the header/filters without delegating tap handling (sidebar use-case). */
+  readonly hideHeader = input(false);
 
   /** Test IDs for template binding. */
   protected readonly testIds = OPERATIONS_LOG_TEST_IDS;

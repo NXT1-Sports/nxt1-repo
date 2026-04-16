@@ -469,11 +469,14 @@ export interface SyncDeltaReport {
   readonly sport: string;
   readonly source: string;
   readonly syncedAt: string;
+  /** Optional scope hints from the writer that triggered the sync. */
+  readonly teamId?: string;
+  readonly organizationId?: string;
 
   /** True if nothing changed since the last sync — Agent X stays asleep. */
   readonly isEmpty: boolean;
 
-  /** Identity fields that changed (e.g. school name, class year, city). */
+  /** Identity fields that changed (e.g. profile info, class year, location). */
   readonly identityChanges: ReadonlyArray<{
     readonly field: string;
     readonly oldValue: unknown;
@@ -742,9 +745,7 @@ export interface AgentUserContext {
   readonly recruitingStatus?: string;
   readonly commitmentStatus?: string;
 
-  // ── Engagement & Platform Data ────────────────────────────────
-  readonly profileCompletionPercent?: number;
-  readonly totalProfileViews?: number;
+  // ── Platform Data ─────────────────────────────────────────────
   readonly lastActiveAt?: string;
 
   // ── Connected Accounts ────────────────────────────────────────
@@ -764,6 +765,8 @@ export interface AgentUserContext {
 export interface AgentPromptContext {
   readonly profile: AgentUserContext;
   readonly memories: AgentRetrievedMemories;
+  /** Exact recent sync-change summaries pulled from short-lived Mongo diff events. */
+  readonly recentSyncSummaries?: readonly string[];
 }
 
 /** A third-party account the user has connected (Gmail, Twitter, Hudl, etc.). */

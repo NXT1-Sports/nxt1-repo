@@ -9,19 +9,25 @@
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TestBed, getTestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed, getTestBed } from '@angular/core/testing';
 import {
   BrowserDynamicTestingModule,
   platformBrowserDynamicTesting,
 } from '@angular/platform-browser-dynamic/testing';
 import { PLATFORM_ID } from '@angular/core';
-import { NewsService, NEWS_API_ADAPTER, type INewsApiAdapter } from '@nxt1/ui/news';
+import {
+  NewsContentComponent,
+  NewsService,
+  NEWS_API_ADAPTER,
+  type INewsApiAdapter,
+} from '@nxt1/ui';
 import { HapticsService } from '@nxt1/ui/services/haptics';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import type { NewsArticle, NewsPagination } from '@nxt1/core';
+import { TEST_IDS } from '@nxt1/core/testing';
 
 // ============================================
 // MOCK FACTORIES
@@ -631,5 +637,46 @@ describe('NewsService', () => {
 
       expect(service.hasMore()).toBe(true);
     });
+  });
+});
+
+describe('NewsContentComponent', () => {
+  let fixture: ComponentFixture<NewsContentComponent>;
+
+  const newsServiceMock = {
+    articles: vi.fn(() => []),
+    isLoading: vi.fn(() => false),
+    isLoadingMore: vi.fn(() => false),
+    isEmpty: vi.fn(() => true),
+    error: vi.fn(() => null),
+    hasMore: vi.fn(() => false),
+    activeCategory: vi.fn(() => 'for-you'),
+    loadFeed: vi.fn().mockResolvedValue(undefined),
+    loadMore: vi.fn().mockResolvedValue(undefined),
+    refresh: vi.fn().mockResolvedValue(undefined),
+    selectArticle: vi.fn().mockResolvedValue(undefined),
+  };
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+
+    await TestBed.configureTestingModule({
+      imports: [NewsContentComponent],
+      providers: [
+        { provide: NewsService, useValue: newsServiceMock },
+        { provide: HapticsService, useValue: createHapticsMock() },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(NewsContentComponent);
+    fixture.detectChanges();
+  });
+
+  it('renders the empty state when pulse has no articles', () => {
+    const emptyState = fixture.nativeElement.querySelector(
+      `[data-testid="${TEST_IDS.NEWS.EMPTY_STATE}"]`
+    );
+
+    expect(emptyState).toBeTruthy();
   });
 });

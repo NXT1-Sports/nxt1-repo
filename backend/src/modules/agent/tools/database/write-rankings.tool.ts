@@ -18,7 +18,7 @@ import {
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
-import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
+import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
 import { logger } from '../../../../utils/logger.js';
 
 const RANKINGS_COLLECTION = 'Rankings';
@@ -264,58 +264,37 @@ export class WriteRankingsTool extends BaseTool {
         // Best-effort
       }
 
-      if (written > 0) {
-        try {
-          const delta = {
-            userId,
-            sport: sportId,
-            source,
-            syncedAt: new Date().toISOString(),
-            isEmpty: false,
-            identityChanges: [],
-            newCategories: [],
-            statChanges: [],
-            newRecruitingActivities: [],
-            newAwards: rankings
-              .filter((entry): entry is Record<string, unknown> =>
-                Boolean(entry && typeof entry === 'object')
-              )
-              .map((entry) => ({
-                title: this.str(entry, 'name') ?? 'Ranking Update',
-                category: 'Ranking',
-                sport: this.str(entry, 'sport') ?? sportId,
-                season: this.num(entry, 'classOf')?.toString(),
-                issuer: this.str(entry, 'name') ?? source,
-                date: this.str(entry, 'rankedAt') ?? this.str(entry, 'date') ?? undefined,
-              })),
-            newScheduleEvents: [],
-            newVideos: [],
-            summary: {
-              identityFieldsChanged: 0,
-              newCategoriesAdded: 0,
-              statsUpdated: 0,
-              newRecruitingActivities: 0,
-              newAwards: written,
-              newScheduleEvents: 0,
-              newVideos: 0,
-              totalChanges: written,
-            },
-          } as const;
+      // Rankings are stored as historical snapshots but intentionally excluded
+      // from the sync-delta memory trigger path until they have a dedicated
+      // ranking-aware diff model.
 
-          onDailySyncComplete(delta).catch((err) =>
-            logger.error('[WriteRankings] Trigger failed', {
+      if (written > 0) {
+        void getAnalyticsLoggerService()
+          .safeTrack({
+            subjectId: userId,
+            subjectType: 'user',
+            domain: 'performance',
+            eventType: 'milestone_recorded',
+            source: accessGrant?.isSelfWrite ? 'user' : 'agent',
+            actorUserId: context.userId,
+            value: written,
+            tags: ['rankings', sportId, source],
+            payload: {
+              toolName: this.name,
+              sportId,
+              rankingSnapshotsWritten: written,
+              rankingSnapshotsSkipped: skipped,
+            },
+            metadata: {
+              initiatedBy: 'write-rankings',
+            },
+          })
+          .catch((error) => {
+            logger.warn('[WriteRankings] Analytics tracking failed', {
               userId,
-              sport: sportId,
-              error: err instanceof Error ? err.message : String(err),
-            })
-          );
-        } catch (err) {
-          logger.error('[WriteRankings] Delta trigger failed', {
-            userId,
-            sport: sportId,
-            error: err instanceof Error ? err.message : String(err),
+              error: error instanceof Error ? error.message : String(error),
+            });
           });
-        }
       }
 
       return {

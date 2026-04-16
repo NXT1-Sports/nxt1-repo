@@ -2,12 +2,10 @@
  * @fileoverview User Analytics Constants
  * @module @nxt1/core/constants
  *
- * Constants for the USER ANALYTICS system - stored engagement data
+ * Constants for the lightweight USER ANALYTICS operational snapshot
  * (profile views, video views, traffic sources, viewer breakdowns).
- * These constants are used by user-analytics.model.ts types.
- *
- * For APP ANALYTICS (event tracking sent to Mixpanel/Firebase),
- * see: models/app-analytics.model.ts
+ * These constants support the Firestore-side live counters model.
+ * Historical reporting and intelligence are handled by the Mongo analytics layer.
  *
  * 100% portable - no framework dependencies.
  *

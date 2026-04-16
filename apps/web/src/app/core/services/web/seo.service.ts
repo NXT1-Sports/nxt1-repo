@@ -139,10 +139,16 @@ export class SeoService {
       sport: profile.sport,
       location: profile.location,
       imageUrl: profile.imageUrl,
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+      username: profile.username,
     };
 
     const config = buildProfileSeoConfig(shareableProfile);
     this.applySeoConfig(config);
+    this.meta.updateTag({ property: 'og:profile:first_name', content: profile.firstName ?? '' });
+    this.meta.updateTag({ property: 'og:profile:last_name', content: profile.lastName ?? '' });
+    this.meta.updateTag({ property: 'og:profile:username', content: profile.username ?? '' });
   }
 
   /**

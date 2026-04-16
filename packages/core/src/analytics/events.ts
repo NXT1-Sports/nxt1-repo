@@ -470,18 +470,28 @@ export const APP_EVENTS = {
   QUESTIONNAIRE_COMPLETED: 'questionnaire_completed',
 
   // ============================================
-  // CAMPAIGN (EMAIL) EVENTS
+  // COMMUNICATION (EMAIL + LINKS) EVENTS
   // ============================================
-  /** Email campaign created */
-  CAMPAIGN_CREATED: 'campaign_created',
-  /** Email campaign sent */
-  CAMPAIGN_SENT: 'campaign_sent',
-  /** Email campaign opened */
-  CAMPAIGN_OPENED: 'campaign_opened',
-  /** Email campaign link clicked */
-  CAMPAIGN_CLICKED: 'campaign_clicked',
-  /** Email campaign replied */
-  CAMPAIGN_REPLIED: 'campaign_replied',
+  /** Email draft created */
+  EMAIL_CREATED: 'email_created',
+  /** Email sent */
+  EMAIL_SENT: 'email_sent',
+  /** Email opened */
+  EMAIL_OPENED: 'email_opened',
+  /** Any tracked outbound link clicked from email, post, profile, or page */
+  LINK_CLICKED: 'link_clicked',
+  /** Email replied */
+  EMAIL_REPLIED: 'email_replied',
+  /** @deprecated Use EMAIL_CREATED */
+  CAMPAIGN_CREATED: 'email_created',
+  /** @deprecated Use EMAIL_SENT */
+  CAMPAIGN_SENT: 'email_sent',
+  /** @deprecated Use EMAIL_OPENED */
+  CAMPAIGN_OPENED: 'email_opened',
+  /** @deprecated Use LINK_CLICKED */
+  CAMPAIGN_CLICKED: 'link_clicked',
+  /** @deprecated Use EMAIL_REPLIED */
+  CAMPAIGN_REPLIED: 'email_replied',
 
   // ============================================
   // TEAM CODE EVENTS
@@ -1048,7 +1058,7 @@ export const EVENT_CATEGORIES = {
   ENGAGEMENT: 'engagement',
   SEARCH: 'search',
   RECRUITING: 'recruiting',
-  CAMPAIGN: 'campaign',
+  COMMUNICATION: 'communication',
   TEAM: 'team',
   AI: 'ai',
   NAVIGATION: 'navigation',
@@ -1189,7 +1199,14 @@ export function getEventCategory(eventName: string): EventCategory {
   ) {
     return EVENT_CATEGORIES.RECRUITING;
   }
-  if (eventName.startsWith('campaign_')) return EVENT_CATEGORIES.CAMPAIGN;
+  if (
+    eventName.startsWith('email_') ||
+    eventName.startsWith('message_') ||
+    eventName.startsWith('link_') ||
+    eventName.startsWith('campaign_')
+  ) {
+    return EVENT_CATEGORIES.COMMUNICATION;
+  }
   if (eventName.startsWith('team_')) return EVENT_CATEGORIES.TEAM;
   if (eventName.startsWith('credits_')) return EVENT_CATEGORIES.ECOMMERCE;
   if (eventName.startsWith('ai_')) return EVENT_CATEGORIES.AI;

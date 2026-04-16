@@ -5,10 +5,33 @@
  * Shared profile section component used by both web and mobile shells.
  * Displays contact info, social media links, and coach contact card.
  */
-import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, computed, input } from '@angular/core';
+import { getPlatformFaviconUrl } from '@nxt1/core/onboarding';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtPlatformIconComponent } from '../../components/platform-icon';
 import { ProfileService } from '../profile.service';
+import { ConnectedAccountsModalService } from '../../components/connected-sources';
+
+function deriveConnectedHandle(profileUrl: string, fallback: string, prefix = ''): string {
+  try {
+    const parsed = new URL(profileUrl);
+    const segment = parsed.pathname
+      .split('/')
+      .filter(Boolean)
+      .map((item) => decodeURIComponent(item))
+      .slice(-1)[0];
+
+    if (!segment) return fallback;
+
+    const normalized = segment.replace(/^@/, '').trim();
+    if (!normalized) return fallback;
+
+    const needsPrefix = prefix.length > 0 && !segment.startsWith(prefix);
+    return needsPrefix ? `${prefix}${normalized}` : segment;
+  } catch {
+    return fallback;
+  }
+}
 
 @Component({
   selector: 'nxt1-profile-contact',
@@ -18,25 +41,38 @@ import { ProfileService } from '../profile.service';
   template: `
     <section class="madden-tab-section" aria-labelledby="contact-heading">
       <h2 id="contact-heading" class="sr-only">Contact Information</h2>
-      @if (
-        !profile.user()?.contact?.email &&
-        !profile.user()?.contact?.phone &&
-        !profile.user()?.connectedSources &&
-        !profile.user()?.coachContact
-      ) {
+      @if (!hasCurrentSectionContent()) {
         <div class="madden-empty">
           <div class="madden-empty__icon" aria-hidden="true">
-            <nxt1-icon name="mail-outline" [size]="40" />
+            <nxt1-icon
+              [name]="activeSection() === 'connected' ? 'link' : 'mail-outline'"
+              [size]="40"
+            />
           </div>
-          <h3>Contact info not set</h3>
+          <h3>
+            {{
+              activeSection() === 'connected' ? 'No connected accounts yet' : 'Contact info not set'
+            }}
+          </h3>
           <p>
-            @if (profile.isOwnProfile()) {
+            @if (activeSection() === 'connected') {
+              @if (profile.isOwnProfile()) {
+                Connect your verified platforms and accounts so your profile feels complete.
+              } @else {
+                This athlete hasn't connected any sources yet.
+              }
+            } @else if (profile.isOwnProfile()) {
               Add your contact information so coaches can reach you.
             } @else {
               This athlete hasn't added contact information yet.
             }
           </p>
-          @if (profile.isOwnProfile()) {
+          @if (profile.isOwnProfile() && activeSection() === 'connected') {
+            <button type="button" class="madden-cta-btn" (click)="onConnectAccounts()">
+              Connect Accounts
+            </button>
+          }
+          @if (profile.isOwnProfile() && activeSection() === 'contact') {
             <button type="button" class="madden-cta-btn" (click)="onEditContact()">
               Edit Contact
             </button>
@@ -46,7 +82,10 @@ import { ProfileService } from '../profile.service';
         <div class="contact-social-row">
           <!-- LEFT: Contact + Social Media -->
           <div class="contact-social-col">
-            @if (profile.user()?.contact?.email || profile.user()?.contact?.phone) {
+            @if (
+              activeSection() === 'contact' &&
+              (profile.user()?.contact?.email || profile.user()?.contact?.phone)
+            ) {
               <h3 class="contact-section-title">Contact</h3>
               <div class="contact-info-list">
                 @if (profile.user()?.contact?.email) {
@@ -74,8 +113,8 @@ import { ProfileService } from '../profile.service';
               </div>
             }
 
-            @if (connectedAccountsList().length > 0) {
-              <h3 class="contact-section-title" style="margin-top: 24px;">Social Media</h3>
+            @if (activeSection() === 'connected' && connectedAccountsList().length > 0) {
+              <h3 class="contact-section-title">Connected</h3>
               <div class="contact-social-chips">
                 @for (acct of connectedAccountsList(); track acct.key) {
                   <a
@@ -100,7 +139,7 @@ import { ProfileService } from '../profile.service';
           </div>
 
           <!-- RIGHT: Coach Contact -->
-          @if (profile.user()?.coachContact; as coach) {
+          @if (activeSection() === 'contact' && profile.user()?.coachContact; as coach) {
             <div class="contact-social-col">
               <h3 class="contact-section-title">Coach Contact</h3>
               <div class="coach-card">
@@ -404,22 +443,72 @@ import { ProfileService } from '../profile.service';
 })
 export class ProfileContactComponent {
   protected readonly profile = inject(ProfileService);
+  private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
+  readonly activeSection = input<string>('contact');
 
   // ── Connected Accounts ──
 
   private static readonly PLATFORM_META: Readonly<
-    Record<string, { label: string; icon: string; color: string; handlePrefix: string }>
+    Record<
+      string,
+      { label: string; icon: string; color: string; handlePrefix: string; showHandle: boolean }
+    >
   > = {
-    twitter: { label: 'X', icon: 'twitter', color: 'currentColor', handlePrefix: '@' },
-    instagram: { label: 'Instagram', icon: 'instagram', color: '#E1306C', handlePrefix: '@' },
-    youtube: { label: 'YouTube', icon: 'youtube', color: '#FF0000', handlePrefix: '' },
-    hudl: { label: 'Hudl', icon: 'link', color: '#FF6600', handlePrefix: '' },
-    maxpreps: { label: 'MaxPreps', icon: 'link', color: '#003DA5', handlePrefix: '' },
-    on3: { label: 'On3', icon: 'link', color: '#000000', handlePrefix: '' },
-    rivals: { label: 'Rivals', icon: 'link', color: '#F47B20', handlePrefix: '' },
-    espn: { label: 'ESPN', icon: 'link', color: '#CC0000', handlePrefix: '' },
-    tiktok: { label: 'TikTok', icon: 'link', color: '#000000', handlePrefix: '@' },
+    twitter: {
+      label: 'X',
+      icon: 'twitter',
+      color: 'currentColor',
+      handlePrefix: '@',
+      showHandle: true,
+    },
+    instagram: {
+      label: 'Instagram',
+      icon: 'instagram',
+      color: '#E1306C',
+      handlePrefix: '@',
+      showHandle: true,
+    },
+    youtube: {
+      label: 'YouTube',
+      icon: 'youtube',
+      color: '#FF0000',
+      handlePrefix: '@',
+      showHandle: true,
+    },
+    hudl: { label: 'Hudl', icon: 'link', color: '#FF6600', handlePrefix: '', showHandle: false },
+    maxpreps: {
+      label: 'MaxPreps',
+      icon: 'link',
+      color: '#003DA5',
+      handlePrefix: '',
+      showHandle: false,
+    },
+    on3: { label: 'On3', icon: 'link', color: '#000000', handlePrefix: '', showHandle: false },
+    rivals: {
+      label: 'Rivals',
+      icon: 'link',
+      color: '#F47B20',
+      handlePrefix: '',
+      showHandle: false,
+    },
+    espn: { label: 'ESPN', icon: 'link', color: '#CC0000', handlePrefix: '', showHandle: false },
+    tiktok: {
+      label: 'TikTok',
+      icon: 'link',
+      color: '#000000',
+      handlePrefix: '@',
+      showHandle: true,
+    },
   };
+
+  protected readonly hasCurrentSectionContent = computed(() => {
+    if (this.activeSection() === 'connected') {
+      return this.connectedAccountsList().length > 0;
+    }
+
+    const user = this.profile.user();
+    return !!user?.contact?.email || !!user?.contact?.phone || !!user?.coachContact;
+  });
 
   protected readonly connectedAccountsList = computed(
     (): ReadonlyArray<{
@@ -433,7 +522,13 @@ export class ProfileContactComponent {
     }> => {
       const connectedSources = this.profile.user()?.connectedSources ?? [];
 
-      const defaultMeta = { label: '', icon: 'link', color: 'currentColor', handlePrefix: '' };
+      const defaultMeta = {
+        label: '',
+        icon: 'link',
+        color: 'currentColor',
+        handlePrefix: '',
+        showHandle: false,
+      };
 
       if (connectedSources.length === 0) return [];
 
@@ -448,7 +543,10 @@ export class ProfileContactComponent {
         .map((cs) => {
           const meta =
             ProfileContactComponent.PLATFORM_META[cs.platform.toLowerCase()] ?? defaultMeta;
-          const handle = meta.label || cs.platform;
+          const fallback = meta.label || cs.platform;
+          const handle = meta.showHandle
+            ? deriveConnectedHandle(cs.profileUrl, fallback, meta.handlePrefix)
+            : fallback;
           return {
             key: cs.platform,
             label: meta.label || cs.platform,
@@ -456,7 +554,7 @@ export class ProfileContactComponent {
             icon: meta.icon,
             color: meta.color,
             url: cs.profileUrl,
-            faviconUrl: cs.faviconUrl ?? null,
+            faviconUrl: cs.faviconUrl ?? getPlatformFaviconUrl(cs.platform.toLowerCase()) ?? null,
           };
         });
     }
@@ -464,5 +562,14 @@ export class ProfileContactComponent {
 
   protected onEditContact(): void {
     // No-op — parent handles
+  }
+
+  protected async onConnectAccounts(): Promise<void> {
+    const user = this.profile.user();
+    const role = user?.role ?? null;
+    await this.connectedAccountsModal.open({
+      role,
+      scope: role === 'coach' || role === 'director' ? 'team' : 'athlete',
+    });
   }
 }
