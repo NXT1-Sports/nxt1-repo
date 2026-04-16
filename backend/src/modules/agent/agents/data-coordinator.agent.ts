@@ -365,6 +365,7 @@ export class DataCoordinatorAgent extends BaseAgent {
 
       // ── Communication ──
       'ask_user',
+      'scan_timeline_posts',
     ];
   }
 

@@ -78,6 +78,7 @@ export class GeneralAgent extends BaseAgent {
       'read_live_view',
       'close_live_view',
       'ask_user',
+      'scan_timeline_posts',
     ];
   }
 
