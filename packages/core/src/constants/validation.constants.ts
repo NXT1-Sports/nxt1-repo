@@ -99,7 +99,6 @@ export const FIELD_LENGTHS = {
 
   // Content
   POST_TEXT: { min: 1, max: 2000 },
-  COMMENT: { min: 1, max: 500 },
   VIDEO_TITLE: { min: 1, max: 100 },
   VIDEO_DESCRIPTION: { min: 0, max: 1000 },
 

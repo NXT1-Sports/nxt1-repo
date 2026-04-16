@@ -21,7 +21,7 @@ import {
   resolveAuthorizedTargetSportSelection,
 } from '../../../../services/profile-write-access.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
-import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
+import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { SyncDiffService, type PreviousVideoEntry } from '../../sync/index.js';
 import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
@@ -249,7 +249,7 @@ export class WriteAthleteVideosTool extends BaseTool {
           source, // Scrape source slug
           isPublic: true, // Backwards compat
           tags: [], // Empty by default
-          stats: { views: 0, likes: 0, shares: 0, comments: 0 },
+          stats: { views: 0, likes: 0, shares: 0 },
           // Data lineage
           extractedAt: now,
           createdAt: now,

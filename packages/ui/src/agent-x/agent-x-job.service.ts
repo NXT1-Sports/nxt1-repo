@@ -99,7 +99,6 @@ export class AgentXJobService {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly controlPanelState = inject(AgentXControlPanelStateService);
-  private readonly tokenFactory = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
 
   private readonly baseUrl = `${inject(AGENT_X_API_BASE_URL)}/agent-x`;
 

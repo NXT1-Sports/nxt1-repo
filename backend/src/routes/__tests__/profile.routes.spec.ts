@@ -11,7 +11,7 @@ describe('Profile Routes', () => {
   let router: unknown;
 
   beforeAll(async () => {
-    const module = await import('../../routes/profile.routes.js');
+    const module = await import('../../routes/profile/index.js');
     router = module.default;
   }, 15_000);
 

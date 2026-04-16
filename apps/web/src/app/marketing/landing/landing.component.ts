@@ -70,25 +70,15 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
     ariaLabel: 'Learn about NXT1 for high schools and club teams',
   },
   {
-    id: 'scouts',
-    title: 'For Recruiters',
+    id: 'directors',
+    title: 'For Directors',
     description:
-      'Discover top talent, build watch lists, and let AI coordinators streamline your evaluation process.',
+      'Oversee your entire program, manage coaches, and let AI coordinators handle evaluation and discovery.',
     icon: 'scout',
-    route: '/auth?role=recruiter',
-    cta: 'Find Elite Talent',
+    route: '/auth?role=director',
+    cta: 'Manage Your Program',
     gradientClass: 'hero-card--scouts',
-    ariaLabel: 'Learn about NXT1 for college recruiters and scouts',
-  },
-  {
-    id: 'fans',
-    title: 'For Parents',
-    description: "Support your athlete's journey, track progress, and stay connected with coaches.",
-    icon: 'fan',
-    route: '/auth?role=parent',
-    cta: 'Support Your Athlete',
-    gradientClass: 'hero-card--fans',
-    ariaLabel: 'Learn about NXT1 for sports parents',
+    ariaLabel: 'Learn about NXT1 for athletic directors and program administrators',
   },
 ] as const;
 

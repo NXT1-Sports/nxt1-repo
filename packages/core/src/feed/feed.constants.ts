@@ -145,7 +145,7 @@ export const FEED_MAX_VISIBLE_TAGS = 3;
 /**
  * Engagement action types.
  */
-export type FeedEngagementAction = 'like' | 'comment' | 'share' | 'bookmark' | 'report';
+export type FeedEngagementAction = 'like' | 'share' | 'bookmark' | 'report';
 
 /**
  * Icons for engagement actions.
@@ -155,7 +155,6 @@ export const FEED_ENGAGEMENT_ICONS: Record<
   { outline: string; filled: string }
 > = {
   like: { outline: 'heart', filled: 'heartFilled' },
-  comment: { outline: 'chatBubble', filled: 'chatBubble' },
   share: { outline: 'share', filled: 'share' },
   bookmark: { outline: 'bookmark', filled: 'bookmarkFilled' },
   report: { outline: 'flag', filled: 'flagFilled' },
@@ -197,8 +196,6 @@ export const FEED_CACHE_KEYS = {
   FEED: 'feed:',
   /** Single post cache prefix */
   POST: 'feed:post:',
-  /** Comments cache prefix */
-  COMMENTS: 'feed:comments:',
   /** User engagement state */
   USER_ENGAGEMENT: 'feed:engagement:',
 } as const;
@@ -211,8 +208,6 @@ export const FEED_CACHE_TTLS = {
   FEED: 60_000, // 1 minute
   /** Single post cache */
   POST: 300_000, // 5 minutes
-  /** Comments cache */
-  COMMENTS: 120_000, // 2 minutes
   /** User engagement state */
   USER_ENGAGEMENT: 60_000, // 1 minute
 } as const;

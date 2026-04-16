@@ -1012,6 +1012,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       await this.firebaseAuth.signOut();
       this.httpAdapter.setTokenProvider(null);
       await this.authManager.reset();
+      // Prevent biometric auto-trigger on the auth page after an explicit sign-out
+      const { Preferences: PrefsSignOut } = await import('@capacitor/preferences');
+      await PrefsSignOut.set({ key: 'nxt1_explicit_signout', value: 'true' });
       await this.navigateRoot(AUTH_ROUTES.ROOT);
     } catch (err) {
       const message = getAuthErrorMessage(err);

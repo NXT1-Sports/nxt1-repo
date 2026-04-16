@@ -450,14 +450,21 @@ export class AuthPage implements OnInit {
       });
 
       // AUTO-TRIGGER: If enrolled, immediately attempt biometric login
+      // Skip if the user just explicitly signed out (prevent re-login on logout)
       if (this.biometricService.isReadyForLogin() && this.mode() === 'login') {
-        this.logger.debug('Auto-triggering biometric authentication');
+        const { value: explicitSignout } = await Preferences.get({ key: 'nxt1_explicit_signout' });
+        if (explicitSignout === 'true') {
+          await Preferences.remove({ key: 'nxt1_explicit_signout' });
+          this.logger.debug('Skipping biometric auto-trigger — user explicitly signed out');
+        } else {
+          this.logger.debug('Auto-triggering biometric authentication');
 
-        // Small delay for page to render first
-        await new Promise((resolve) => setTimeout(resolve, 300));
+          // Small delay for page to render first
+          await new Promise((resolve) => setTimeout(resolve, 300));
 
-        // Trigger biometric authentication automatically
-        await this.performBiometricLogin();
+          // Trigger biometric authentication automatically
+          await this.performBiometricLogin();
+        }
       }
     } catch (error) {
       this.logger.error('Biometric initialization failed', error);

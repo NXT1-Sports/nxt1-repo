@@ -159,6 +159,8 @@ export interface EditProfileSportsInfo {
   readonly teamType?: string;
   /** Organization ID linking this team to a program (maps to sports[i].team.organizationId) */
   readonly teamOrganizationId?: string;
+  /** Jersey number for this sport */
+  readonly jerseyNumber?: string;
 }
 
 /**

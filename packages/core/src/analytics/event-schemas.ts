@@ -172,13 +172,6 @@ export interface ReactionAddedEvent extends BaseEventProperties {
   reaction_type: string;
 }
 
-export interface CommentAddedEvent extends BaseEventProperties {
-  content_id: string;
-  content_type: ContentType;
-  comment_length?: number;
-  is_reply?: boolean;
-}
-
 // ============================================
 // SEARCH EVENTS
 // ============================================
@@ -296,7 +289,6 @@ export interface EventPayloadMap {
 
   // Engagement
   reaction_added: ReactionAddedEvent;
-  comment_added: CommentAddedEvent;
 
   // Search
   search_performed: SearchPerformedEvent;

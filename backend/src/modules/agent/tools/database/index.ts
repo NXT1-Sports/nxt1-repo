@@ -20,6 +20,7 @@ export { WriteRecruitingActivityTool } from './write-recruiting-activity.tool.js
 export { WriteCalendarEventsTool } from './write-calendar-events.tool.js';
 export { WriteAthleteVideosTool } from './write-athlete-videos.tool.js';
 export { WriteIntelTool } from './write-intel.tool.js';
+export { UpdateIntelTool } from './update-intel.tool.js';
 export { SearchNxt1PlatformTool } from './search-nxt1-platform.tool.js';
 export { QueryNxt1PlatformDataTool } from './query-nxt1-platform-data.tool.js';
 export { SearchMemoryTool } from './search-memory.tool.js';

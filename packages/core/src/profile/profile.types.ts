@@ -15,7 +15,7 @@
 // ============================================
 
 /**
- * Profile tab identifiers for the 3-tab Intelligence Dossier layout.
+ * Profile tab identifiers for the 3-tab Intelligence Intel Report layout.
  * - 'intel'    — AI-generated overview (Agent X brief, key data)
  * - 'timeline' — Unified chronological feed (posts, videos, news, events)
  * - 'connect'  — Contact, offers, schedule, and recruiting actions

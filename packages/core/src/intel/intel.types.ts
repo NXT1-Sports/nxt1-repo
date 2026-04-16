@@ -73,11 +73,11 @@ export interface IntelQuickCommand {
 }
 
 // ============================================
-// DOSSIER SECTION TYPES
+// INTEL REPORT SECTION TYPES
 // ============================================
 
 /**
- * A single key data point within a dossier section.
+ * A single key data point within a Intel report section.
  * Used for structured grids (measurements, stats, academic info, etc.)
  */
 export interface IntelBriefItem {
@@ -93,7 +93,7 @@ export interface IntelBriefItem {
 }
 
 /**
- * A named section within an Agent X dossier report.
+ * A named section within an Agent X Intel report report.
  * Each section has a markdown narrative (`content`) and optional structured
  * key-value items (`items`). Agent X renders one section per side-tab.
  */
@@ -114,7 +114,7 @@ export interface IntelBriefSection {
 // ATHLETE INTEL REPORT
 // ============================================
 
-/** The complete athlete Intel dossier stored in Firestore. */
+/** The complete athlete Intel Intel report stored in Firestore. */
 export interface AthleteIntelReport {
   readonly id: string;
   readonly userId: string;
@@ -122,7 +122,7 @@ export interface AthleteIntelReport {
   readonly primaryPosition: string;
   readonly status: IntelReportStatus;
 
-  // ── Dossier Sections (Agent X narrative + structured data) ──
+  // ── Intel Report Sections (Agent X narrative + structured data) ──
   readonly sections: readonly IntelBriefSection[];
 
   // ── Provenance ──
@@ -144,7 +144,7 @@ export interface AthleteIntelReport {
 // TEAM INTEL REPORT
 // ============================================
 
-/** The complete team Intel dossier stored in Firestore. */
+/** The complete team Intel Intel report stored in Firestore. */
 export interface TeamIntelReport {
   readonly id: string;
   readonly teamId: string;
@@ -152,7 +152,7 @@ export interface TeamIntelReport {
   readonly sport: string;
   readonly status: IntelReportStatus;
 
-  // ── Dossier Sections (Agent X narrative + structured data) ──
+  // ── Intel Report Sections (Agent X narrative + structured data) ──
   readonly sections: readonly IntelBriefSection[];
 
   // ── Provenance ──

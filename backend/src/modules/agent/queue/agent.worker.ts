@@ -48,7 +48,7 @@ import type { StreamEvent } from './event-writer.js';
 import { AgentPubSubService } from './pubsub.service.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
-import { isAgentYield } from '../errors/agent-yield.error.js';
+import { isAgentYield } from '../exceptions/agent-yield.exception.js';
 import { notifyYield } from '../services/yield-notifier.service.js';
 import { estimateChargeAmountSync } from '../../billing/pricing.service.js';
 import {
@@ -62,6 +62,7 @@ import {
   logAgentTaskCompletion,
   logAgentTaskFailure,
 } from '../../../services/agent-activity.service.js';
+import { getAgentAnalyticsGate } from '../services/agent-analytics-gate.js';
 import { logger } from '../../../utils/logger.js';
 
 // ─── Worker ─────────────────────────────────────────────────────────────────
@@ -454,6 +455,19 @@ export class AgentWorker {
         });
       }
 
+      // Track job failure in user's analytics record (fire-and-forget)
+      getAgentAnalyticsGate().trackJobFailed({
+        userId: payload.userId,
+        agentId: typeof payload.agent === 'string' ? payload.agent : 'unknown',
+        operationId: payload.operationId,
+        error: message,
+        durationMs: Date.now() - startMs,
+        threadId:
+          typeof (payload.context as Record<string, unknown> | undefined)?.['threadId'] === 'string'
+            ? ((payload.context as Record<string, unknown>)['threadId'] as string)
+            : undefined,
+      });
+
       // Release any IAP hold — job failed, funds should not stay locked
       if (iapHoldId) {
         releaseWalletHold(billingDb, iapHoldId).catch((e: unknown) => {
@@ -604,6 +618,15 @@ export class AgentWorker {
       typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
         ? ((contextObj as Record<string, unknown>)['threadId'] as string)
         : undefined;
+
+    // Track job completion in user's analytics record (fire-and-forget)
+    getAgentAnalyticsGate().trackJobCompleted({
+      userId: payload.userId,
+      agentId: typeof payload.agent === 'string' ? payload.agent : 'unknown',
+      operationId: payload.operationId,
+      durationMs: Date.now() - startMs,
+      threadId,
+    });
     if (threadId && this.chatService) {
       try {
         // Extract agentId with runtime type check

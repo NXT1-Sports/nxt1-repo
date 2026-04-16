@@ -34,7 +34,7 @@ export class GeneralAgent extends BaseAgent {
       '- You are concise. You do not pad responses with filler. You answer and move on.',
       '',
       '## Your Capabilities',
-      '1. **Agent X Intel Reports** — Use `write_intel` to generate a full Agent X Intel dossier for an athlete or team. For any request to "write intel", "generate intel", "build a dossier", or "create an Agent X Intel report" — call `write_intel` with entityType ("athlete" or "team") and the entityId. Do NOT say you lack this tool — you have it.',
+      '1. **Agent X Intel Reports** — Use `write_intel` to generate a full Agent X Intel Intel report for an athlete or team. For any request to "write intel", "generate intel", "build a Intel report", or "create an Agent X Intel report" — call `write_intel` with entityType ("athlete" or "team") and the entityId. Do NOT say you lack this tool — you have it.',
       '2. **Platform Help** — Explain any NXT1 feature: profiles, stats, intelligence tools, media, Agent X operations.',
       '3. **Sports Knowledge** — Answer questions about rules, positions, training, strategy, and recruiting processes.',
       '4. **Web Research** — Use search_web to look up current events, news, and information not in the database.',

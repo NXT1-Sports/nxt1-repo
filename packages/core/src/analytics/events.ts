@@ -422,11 +422,6 @@ export const APP_EVENTS = {
   REACTION_ADDED: 'reaction_added',
   /** Reaction removed */
   REACTION_REMOVED: 'reaction_removed',
-  /** Comment added */
-  COMMENT_ADDED: 'comment_added',
-  /** Comment deleted */
-  COMMENT_DELETED: 'comment_deleted',
-
   // ============================================
   // SEARCH & DISCOVERY EVENTS (Extended)
   // ============================================
@@ -943,7 +938,7 @@ export const USER_PROPERTIES = {
   // ============================================
   // USER TYPE & ROLE
   // ============================================
-  /** User role: athlete, coach, director, recruiter, parent */
+  /** User role: athlete, coach, director */
   USER_TYPE: 'user_type',
   /** Whether user is verified */
   IS_VERIFIED: 'is_verified',
@@ -1090,7 +1085,7 @@ export type TrafficSource =
   | 'unknown';
 
 /** User role type */
-export type UserRole = 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent' | 'anonymous';
+export type UserRole = 'athlete' | 'coach' | 'director' | 'anonymous';
 
 /** Viewer type (alias for UserRole for analytics compatibility) */
 export type ViewerType = UserRole;
@@ -1177,11 +1172,7 @@ export function getEventCategory(eventName: string): EventCategory {
   if (eventName.startsWith('video_')) return EVENT_CATEGORIES.VIDEO;
   if (eventName.startsWith('post_')) return EVENT_CATEGORIES.POST;
   if (eventName.startsWith('card_')) return EVENT_CATEGORIES.CARD;
-  if (
-    eventName.startsWith('user_') ||
-    eventName.startsWith('reaction_') ||
-    eventName.startsWith('comment_')
-  ) {
+  if (eventName.startsWith('user_') || eventName.startsWith('reaction_')) {
     return EVENT_CATEGORIES.ENGAGEMENT;
   }
   if (

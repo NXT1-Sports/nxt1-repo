@@ -38,6 +38,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import type { AgentApprovalRequest, AgentApprovalStatus, AgentApprovalPolicy } from '@nxt1/core';
 import { AGENT_APPROVAL_POLICIES, NOTIFICATION_TYPES } from '@nxt1/core';
 import { dispatch } from '../../../services/notification.service.js';
+import { getAgentAnalyticsGate } from './agent-analytics-gate.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Firestore collection for approval request documents. */
@@ -183,6 +184,14 @@ export class ApprovalGateService {
       userId: params.userId,
     });
 
+    // Track the approval-pending event in the user's analytics record (fire-and-forget)
+    getAgentAnalyticsGate().trackApprovalRequested({
+      userId: params.userId,
+      operationId: params.operationId,
+      toolName: params.toolName,
+      threadId: params.threadId,
+    });
+
     // Send push notification via unified NotificationService
     try {
       await dispatch(this.db, {
@@ -265,6 +274,14 @@ export class ApprovalGateService {
         decision,
         resolvedBy,
         operationId: request.operationId,
+      });
+
+      // Track the approval decision in the user's analytics record (fire-and-forget)
+      getAgentAnalyticsGate().trackApprovalResolved({
+        userId: request.userId,
+        operationId: request.operationId,
+        toolName: request.toolName,
+        decision,
       });
 
       return {

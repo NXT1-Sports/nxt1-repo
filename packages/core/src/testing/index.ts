@@ -1018,7 +1018,7 @@ export const INTEL_TEST_IDS = {
   SEASON_HISTORY_CARD: 'intel-season-history-card',
   /** Recruiting pipeline card */
   RECRUITING_PIPELINE_CARD: 'intel-recruiting-pipeline-card',
-  /** Active dossier section card (sections-based view) */
+  /** Active Intel report section card (sections-based view) */
   ACTIVE_SECTION_CARD: 'intel-active-section-card',
 } as const;
 

@@ -13,9 +13,9 @@ export { ScraperService } from './scraping/index.js';
 export { SearchCollegesTool, SearchCollegeCoachesTool } from './database/index.js';
 
 // Integration tools
-export { SendEmailTool } from './integrations/send-email.tool.js';
-export { ScrapeTwitterTool } from './integrations/scrape-twitter.tool.js';
-export { ApifyService } from './integrations/apify.service.js';
+export { SendEmailTool } from './integrations/email/send-email.tool.js';
+export { ScrapeTwitterTool } from './integrations/social/scrape-twitter.tool.js';
+export { ApifyService } from './integrations/apify/apify.service.js';
 
 // MCP-bridged Apify tools (2026 architecture)
 export {

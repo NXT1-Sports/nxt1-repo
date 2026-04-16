@@ -49,7 +49,6 @@ import {
   EXPLORE_TABS,
   EXPLORE_SEARCH_CONFIG,
 } from '@nxt1/core';
-import type { FeedPost, FeedAuthor } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { type SearchBarSubmitEvent } from '../components/search-bar';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
@@ -67,8 +66,7 @@ import { ExploreListComponent } from './explore-list.component';
 import { ExploreSkeletonComponent } from './explore-skeleton.component';
 import { ScoutReportsContentComponent } from '../scout-reports/scout-reports-content.component';
 import { NewsContentComponent } from '../news/news-content.component';
-import { FeedListComponent } from '../feed/feed-list.component';
-import { FeedService } from '../feed/feed.service';
+
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 // Register icons for search suggestions
@@ -96,7 +94,6 @@ export interface ExploreUser {
     ExploreSkeletonComponent,
     ScoutReportsContentComponent,
     NewsContentComponent,
-    FeedListComponent,
   ],
   template: `
     <!-- Professional Page Header with shared Top Nav search styling -->
@@ -200,24 +197,7 @@ export interface ExploreUser {
         <!-- Main Content -->
         @if (!explore.isSearchFocused() || explore.hasQuery()) {
           <!-- Discover Tab: Personalized posts feed -->
-          @if (explore.activeTab() === 'feed' && !explore.hasQuery()) {
-            <nxt1-feed-list
-              [polymorphicFeed]="feedService.polymorphicFeed()"
-              [posts]="feedService.posts()"
-              [isLoading]="feedService.isLoading()"
-              [isLoadingMore]="feedService.isLoadingMore()"
-              [isEmpty]="feedService.isEmpty()"
-              [error]="feedService.error()"
-              [hasMore]="feedService.hasMore()"
-              (postClick)="onPostSelect($event)"
-              (authorClick)="onAuthorSelect($event)"
-              (reactClick)="onLikeClick($event)"
-              (repostClick)="onCommentClick($event)"
-              (shareClick)="onShareClick($event)"
-              (loadMore)="onFeedLoadMore()"
-              (retry)="onFeedRetry()"
-            />
-          } @else if (explore.activeTab() === 'news' && !explore.hasQuery()) {
+          @if (explore.activeTab() === 'news' && !explore.hasQuery()) {
             <!-- News Tab: Sports recruiting news -->
             <nxt1-news-content (articleSelect)="onNewsArticleSelect($event)" />
           } @else if (explore.activeTab() === 'scout-reports' && !explore.hasQuery()) {
@@ -479,7 +459,6 @@ export class ExploreShellComponent implements OnInit {
   }
 
   protected readonly explore = inject(ExploreService);
-  protected readonly feedService = inject(FeedService);
   private readonly haptics = inject(HapticsService);
   private readonly logger = inject(NxtLoggingService).child('ExploreShell');
   private readonly filterModal = inject(ExploreFilterModalService);
@@ -496,8 +475,6 @@ export class ExploreShellComponent implements OnInit {
   readonly itemClick = output<ExploreItem>();
   readonly scoutReportSelect = output<ScoutReport>();
   readonly scoutReportFiltersOpen = output<void>();
-  readonly postSelect = output<FeedPost>();
-  readonly authorSelect = output<FeedAuthor>();
   readonly newsArticleSelect = output<{ id: string; title: string }>();
   readonly detectLocation = output<void>();
 
@@ -526,14 +503,14 @@ export class ExploreShellComponent implements OnInit {
   protected readonly displayName = computed(() => this.user()?.displayName ?? 'User');
   protected readonly tabOptions = computed((): OptionScrollerItem[] => {
     const counts = this.explore.tabCounts();
-    const visibleTabIds: ExploreTabId[] = ['feed', 'news'];
+    const visibleTabIds: ExploreTabId[] = ['news'];
 
     return visibleTabIds
       .map((tabId) => EXPLORE_TABS.find((tab) => tab.id === tabId))
       .filter((tab): tab is (typeof EXPLORE_TABS)[number] => tab !== undefined)
       .map((tab) => ({
         id: tab.id,
-        label: tab.id === 'news' ? 'Pulse' : tab.id === 'feed' ? 'Feed' : tab.label,
+        label: tab.id === 'news' ? 'Pulse' : tab.label,
         badge: counts[tab.id] > 0 ? counts[tab.id] : undefined,
       }));
   });
@@ -541,11 +518,9 @@ export class ExploreShellComponent implements OnInit {
   ngOnInit(): void {
     this.logger.info('Explore shell initialized');
     const activeTab = this.explore.activeTab();
-    const isAllowedTab = activeTab === 'feed' || activeTab === 'news';
-    if (!isAllowedTab) {
-      void this.explore.switchTab('feed');
+    if (activeTab !== 'news') {
+      void this.explore.switchTab('news');
     }
-    void this.ensureFeedLoadedForTab(this.explore.activeTab());
   }
 
   protected onAvatarClick(): void {
@@ -642,7 +617,6 @@ export class ExploreShellComponent implements OnInit {
     await this.haptics.impact('light');
     const tabId = event.option.id as ExploreTabId;
     await this.explore.switchTab(tabId);
-    await this.ensureFeedLoadedForTab(tabId);
     this.tabChange.emit(tabId);
 
     // Scroll to top when switching tabs
@@ -655,19 +629,12 @@ export class ExploreShellComponent implements OnInit {
    */
   protected async onForYouCategorySelect(tab: ExploreTabId): Promise<void> {
     await this.explore.switchTab(tab);
-    await this.ensureFeedLoadedForTab(tab);
     this.tabChange.emit(tab);
   }
 
   protected async handleRefresh(event: RefreshEvent): Promise<void> {
     try {
-      const tab = this.explore.activeTab();
-
-      if (tab === 'feed') {
-        await this.feedService.refresh();
-      } else {
-        await this.explore.refresh();
-      }
+      await this.explore.refresh();
     } finally {
       event.complete();
     }
@@ -701,51 +668,6 @@ export class ExploreShellComponent implements OnInit {
   protected onScoutReportFiltersOpen(): void {
     this.logger.debug('Scout report filters opened');
     this.scoutReportFiltersOpen.emit();
-  }
-
-  // ── Feed / Following / News Handlers ──
-
-  protected onPostSelect(post: FeedPost): void {
-    this.logger.debug('Post selected', { id: post.id, type: post.type });
-    this.postSelect.emit(post);
-  }
-
-  protected onAuthorSelect(author: FeedAuthor): void {
-    this.logger.debug('Author selected', { uid: author.uid, profileCode: author.profileCode });
-    this.authorSelect.emit(author);
-  }
-
-  protected async onLikeClick(post: FeedPost): Promise<void> {
-    await this.haptics.impact('light');
-    await this.feedService.toggleLike(post);
-  }
-
-  protected async onCommentClick(post: FeedPost): Promise<void> {
-    await this.haptics.impact('light');
-    this.postSelect.emit(post);
-  }
-
-  protected async onShareClick(post: FeedPost): Promise<void> {
-    await this.haptics.impact('medium');
-    await this.feedService.sharePost(post);
-  }
-
-  protected async onFeedLoadMore(): Promise<void> {
-    await this.feedService.loadMore();
-  }
-
-  protected async onFeedRetry(): Promise<void> {
-    const tab = this.explore.activeTab();
-    if (tab !== 'feed') return;
-    await this.feedService.loadFeed();
-  }
-
-  private async ensureFeedLoadedForTab(tab: ExploreTabId): Promise<void> {
-    if (tab !== 'feed') return;
-
-    if (this.feedService.posts().length === 0) {
-      await this.feedService.loadFeed();
-    }
   }
 
   protected onNewsArticleSelect(article: { id: string; title: string }): void {

@@ -411,9 +411,14 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
                     }
                   </div>
                 }
+                <nxt1-list-row label="Jersey #" (tap)="editJerseyNumber()">
+                  <span
+                    class="nxt1-list-value"
+                    [class.nxt1-list-placeholder]="!form.sportsInfo.jerseyNumber"
+                    >{{ form.sportsInfo.jerseyNumber || 'Add jersey number' }}</span
+                  >
+                </nxt1-list-row>
               </nxt1-list-section>
-
-              <!-- Physical -->
               <nxt1-list-section header="Physical">
                 <nxt1-list-row
                   label="Height"
@@ -1054,7 +1059,6 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   });
 
   protected readonly connectedSources = computed<readonly ConnectedSource[]>(() => {
-    const data = this.profile.formData();
     const links = (this.profile.rawUserData()?.social ?? []) as UserSocialLink[];
 
     // Use PLATFORM_REGISTRY to show all available platforms (global scope)
@@ -1343,7 +1347,6 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       preferNative: 'native',
     });
     if (!first.confirmed) return;
-    this.profile.updateField('basic-info', 'firstName', first.value.trim());
 
     const last = await this.nxtModal.prompt({
       title: 'Last Name',
@@ -1352,8 +1355,19 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
       submitText: 'Done',
       preferNative: 'native',
     });
+
+    const newFirst = first.value.trim();
+    const newLast = last.confirmed ? last.value.trim() : (form.basicInfo.lastName ?? '');
+
+    this.profile.updateField('basic-info', 'firstName', newFirst);
     if (last.confirmed) {
-      this.profile.updateField('basic-info', 'lastName', last.value.trim());
+      this.profile.updateField('basic-info', 'lastName', newLast);
+    }
+
+    // Always sync displayName when name is explicitly edited.
+    const derived = [newFirst, newLast].filter(Boolean).join(' ');
+    if (derived) {
+      this.profile.updateField('basic-info', 'displayName', derived);
     }
   }
 
@@ -1605,6 +1619,23 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     });
     if (result.confirmed) {
       this.profile.updateField('physical', 'weight', result.value.trim());
+    }
+  }
+
+  protected async editJerseyNumber(): Promise<void> {
+    const form = this.profile.formData();
+    if (!form) return;
+
+    const result = await this.nxtModal.prompt({
+      title: 'Jersey Number',
+      placeholder: 'e.g. 23',
+      defaultValue: form.sportsInfo.jerseyNumber ?? '',
+      inputType: 'text',
+      submitText: 'Done',
+      preferNative: 'native',
+    });
+    if (result.confirmed) {
+      this.profile.updateField('sports-info', 'jerseyNumber', result.value.trim());
     }
   }
 

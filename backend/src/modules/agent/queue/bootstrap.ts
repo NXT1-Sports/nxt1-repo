@@ -52,6 +52,7 @@ import {
   WriteCalendarEventsTool,
   WriteAthleteVideosTool,
   WriteIntelTool,
+  UpdateIntelTool,
   SearchNxt1PlatformTool,
   QueryNxt1PlatformDataTool,
   SearchMemoryTool,
@@ -71,17 +72,17 @@ import {
   RunwayCheckTaskTool,
 } from '../tools/media/index.js';
 import { DynamicExportTool } from '../tools/data/index.js';
-import { WebSearchTool } from '../tools/integrations/web-search.tool.js';
-import { SendEmailTool } from '../tools/integrations/send-email.tool.js';
-import { ScrapeTwitterTool } from '../tools/integrations/scrape-twitter.tool.js';
-import { ScrapeInstagramTool } from '../tools/integrations/scrape-instagram.tool.js';
-import { ApifyService } from '../tools/integrations/apify.service.js';
-import { ScraperMediaService } from '../tools/integrations/scraper-media.service.js';
-import { ApifyMcpBridgeService } from '../tools/integrations/apify-mcp-bridge.service.js';
-import { SearchApifyActorsTool } from '../tools/integrations/search-apify-actors.tool.js';
-import { GetApifyActorDetailsTool } from '../tools/integrations/get-apify-actor-details.tool.js';
-import { CallApifyActorTool } from '../tools/integrations/call-apify-actor.tool.js';
-import { GetApifyActorOutputTool } from '../tools/integrations/get-apify-actor-output.tool.js';
+import { WebSearchTool } from '../tools/integrations/web/web-search.tool.js';
+import { SendEmailTool } from '../tools/integrations/email/send-email.tool.js';
+import { ScrapeTwitterTool } from '../tools/integrations/social/scrape-twitter.tool.js';
+import { ScrapeInstagramTool } from '../tools/integrations/social/scrape-instagram.tool.js';
+import { ApifyService } from '../tools/integrations/apify/apify.service.js';
+import { ScraperMediaService } from '../tools/integrations/social/scraper-media.service.js';
+import { ApifyMcpBridgeService } from '../tools/integrations/apify/apify-mcp-bridge.service.js';
+import { SearchApifyActorsTool } from '../tools/integrations/apify/search-apify-actors.tool.js';
+import { GetApifyActorDetailsTool } from '../tools/integrations/apify/get-apify-actor-details.tool.js';
+import { CallApifyActorTool } from '../tools/integrations/apify/call-apify-actor.tool.js';
+import { GetApifyActorOutputTool } from '../tools/integrations/apify/get-apify-actor-output.tool.js';
 import {
   FirecrawlMcpBridgeService,
   FirebaseMcpBridgeService,
@@ -134,7 +135,7 @@ import {
   ComplianceCoordinatorAgent,
   GeneralAgent,
 } from '../agents/index.js';
-import { setAgentDependencies } from '../../../routes/agent-x.routes.js';
+import { setAgentDependencies } from '../../../routes/agent-x/shared.js';
 import { setWelcomeDependencies } from '../../../services/agent-welcome.service.js';
 import { setScrapeDependencies } from '../../../services/agent-scrape.service.js';
 import { stagingDb } from '../../../utils/firebase-staging.js';
@@ -293,6 +294,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteCalendarEventsTool(stagingDb));
   toolRegistry.register(new WriteAthleteVideosTool(stagingDb));
   toolRegistry.register(new WriteIntelTool(stagingDb));
+  toolRegistry.register(new UpdateIntelTool(stagingDb));
   toolRegistry.register(new SearchNxt1PlatformTool());
   toolRegistry.register(new QueryNxt1PlatformDataTool());
   toolRegistry.register(new TrackAnalyticsEventTool());

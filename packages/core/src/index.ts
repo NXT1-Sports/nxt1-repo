@@ -1054,10 +1054,6 @@ export {
   type FeedResponse,
   type FeedPostResponse,
   type FeedActionResponse,
-  // Comment types
-  type FeedCommentAuthor,
-  type FeedComment,
-  type FeedCommentsResponse,
   // Polymorphic feed item types (2026 standard)
   type FeedItemType,
   type FeedItemBase,

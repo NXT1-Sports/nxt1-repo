@@ -75,7 +75,7 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
     id: 'performance_coordinator',
     name: 'Performance Coordinator',
     description:
-      'Evaluates players, analyzes film, generates Agent X Intel reports/dossiers, creates scouting reports, compares prospects, tracks athletic progression, and provides biometric analysis. Use for any request to "write intel", "generate intel", "build a dossier", or "create an Agent X Intel report" for an athlete or team.',
+      'Evaluates players, analyzes film, generates Agent X Intel reports/Intel reports, creates scouting reports, compares prospects, tracks athletic progression, and provides biometric analysis. Use for any request to "write intel", "generate intel", "build a Intel report", or "create an Agent X Intel report" for an athlete or team.',
     capabilities: [
       'scouting_report',
       'film_analysis',
@@ -86,7 +86,7 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
       'opponent_scouting',
       'intel_report',
       'agent_x_intel',
-      'athlete_dossier',
+      'athlete_intel_report',
     ],
   },
   compliance_coordinator: {

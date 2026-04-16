@@ -18,7 +18,7 @@ export class WriteIntelTool extends BaseTool {
   readonly name = 'write_intel';
 
   readonly description =
-    'Generates and saves a full Agent X Intel dossier for an athlete or team. ' +
+    'Generates and saves a full Agent X Intel report for an athlete or team. ' +
     'Handles all data gathering, narrative generation, and Firestore persistence automatically. ' +
     'Call this once you have confirmed the entityType and entityId with the user.';
 

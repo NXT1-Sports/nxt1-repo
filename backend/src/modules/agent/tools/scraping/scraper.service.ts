@@ -97,7 +97,7 @@ import type {
 } from './scraper.types.js';
 import { MAX_SCRAPE_CONTENT_LENGTH, SCRAPE_TIMEOUT_MS } from './scraper.types.js';
 import { extractPageData, mergeLinks } from './page-data-extractor.js';
-import type { FirecrawlMcpBridgeService } from '../integrations/firecrawl-mcp-bridge.service.js';
+import type { FirecrawlMcpBridgeService } from '../integrations/firecrawl/firecrawl-mcp-bridge.service.js';
 import { validateUrl } from './url-validator.js';
 import { logger } from '../../../../utils/logger.js';
 

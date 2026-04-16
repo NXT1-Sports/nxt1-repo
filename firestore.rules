@@ -115,7 +115,7 @@ service cloud.firestore {
       
       // User recruiting data
       match /recruiting/{dataId} {
-        allow read: if isOwner(userId) || hasAnyRole(['coach', 'recruiter']);
+        allow read: if isOwner(userId) || hasAnyRole(['coach', 'director']);
         allow write: if isOwner(userId);
       }
       
@@ -231,7 +231,7 @@ service cloud.firestore {
       // College contacts
       match /contacts/{contactId} {
         allow read: if isAuthenticated();
-        allow write: if isAdmin() || hasRole('recruiter');
+        allow write: if isAdmin() || hasAnyRole(['coach', 'director']);
       }
     }
     

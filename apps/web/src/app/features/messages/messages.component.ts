@@ -57,7 +57,7 @@ export class MessagesComponent implements OnInit {
     this.seo.updatePage({
       title: 'Messages',
       description:
-        'View and manage your conversations with coaches, recruiters, and teammates on NXT1.',
+        'View and manage your conversations with coaches, directors, and teammates on NXT1.',
       keywords: ['messages', 'chat', 'conversations', 'recruiting', 'coaches'],
       noIndex: true,
       canonicalUrl: '/messages',

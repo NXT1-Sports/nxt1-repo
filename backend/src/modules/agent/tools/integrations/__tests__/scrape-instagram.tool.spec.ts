@@ -8,14 +8,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ScrapeInstagramTool } from '../scrape-instagram.tool.js';
+import { ScrapeInstagramTool } from '../social/scrape-instagram.tool.js';
 import type {
   ApifyService,
   ApifyRunResult,
   InstagramPost,
   InstagramProfile,
-} from '../apify.service.js';
-import type { ScraperMediaService } from '../scraper-media.service.js';
+} from '../apify/apify.service.js';
+import type { ScraperMediaService } from '../social/scraper-media.service.js';
 
 // ─── Mock Factories ─────────────────────────────────────────────────────────
 

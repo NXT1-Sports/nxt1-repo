@@ -58,13 +58,7 @@ export {
   type FeedPostWithMetadata,
   // Query types
   type GetFeedQuery,
-  type GetCommentsQuery,
   type FeedCursor,
-  type CommentsCursor,
-  // Comment types
-  type FeedCommentAuthor,
-  type FeedComment,
-  type FeedCommentsResponse,
   // Polymorphic feed item types (2026 standard)
   type FeedItemType,
   type FeedItemBase,

@@ -15,7 +15,6 @@
 import type {
   User,
   UserAward,
-  TeamHistoryEntry,
   DataVerification,
   ProfilePageData,
   ProfileUser,
@@ -34,13 +33,7 @@ import type {
   RecruitingActivity,
   ProfileSeasonGameLog,
 } from '@nxt1/core';
-import {
-  isTeamRole,
-  isAthleteRole,
-  USER_ROLES,
-  buildTeamSlug,
-  getPositionAbbreviation,
-} from '@nxt1/core';
+import { isTeamRole, isAthleteRole, USER_ROLES, getPositionAbbreviation } from '@nxt1/core';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 /** Map a UserAward (User model) → ProfileAward (UI model). */
@@ -51,36 +44,6 @@ function mapAward(award: UserAward, index: number): ProfileAward {
     issuer: award.issuer,
     season: award.season,
     sport: award.sport,
-  };
-}
-
-/** Map a TeamHistoryEntry (User model) → ProfileTeamAffiliation (UI model). */
-function mapTeamHistory(entry: TeamHistoryEntry): ProfileTeamAffiliation {
-  const location =
-    typeof entry.location === 'string'
-      ? entry.location
-      : entry.location
-        ? [entry.location.city, entry.location.state].filter(Boolean).join(', ')
-        : undefined;
-
-  const seasonRecord =
-    entry.record?.wins !== undefined && entry.record?.losses !== undefined
-      ? entry.record.ties
-        ? `${entry.record.wins}-${entry.record.losses}-${entry.record.ties}`
-        : `${entry.record.wins}-${entry.record.losses}`
-      : undefined;
-
-  return {
-    name: entry.name,
-    type: (entry.type as ProfileTeamType | undefined) ?? 'other',
-    logoUrl: entry.logoUrl,
-    teamCode: buildTeamSlug(entry.name) || undefined,
-    location,
-    seasonRecord,
-    wins: entry.record?.wins,
-    losses: entry.record?.losses,
-    ties: entry.record?.ties,
-    sport: entry.sport,
   };
 }
 
@@ -219,13 +182,17 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
       }
     : undefined;
 
-  // ── Team affiliations (from User.teamHistory) ─────────────────────────────
-  const legacySportHistory = (
-    activeSport as unknown as { teamHistory?: TeamHistoryEntry[] } | undefined
-  )?.teamHistory;
-  const teamHistory = user.teamHistory?.length ? user.teamHistory : legacySportHistory;
-  const teamAffiliations: readonly ProfileTeamAffiliation[] | undefined = teamHistory?.length
-    ? teamHistory.map(mapTeamHistory)
+  // ── Team affiliations (from sports[n].team) ──────────────────────────────
+  const teamAffiliations: readonly ProfileTeamAffiliation[] | undefined = user.sports?.length
+    ? user.sports
+        .filter((s) => s.team?.name)
+        .map((s) => ({
+          name: s.team!.name as string,
+          type: (s.team!.type as ProfileTeamType | undefined) ?? 'high-school',
+          logoUrl: s.team!.logoUrl ?? undefined,
+          organizationId: (s.team as unknown as { organizationId?: string })?.organizationId,
+          sport: s.sport ?? undefined,
+        }))
     : undefined;
 
   // ── Awards (from User.awards) ─────────────────────────────────────────────

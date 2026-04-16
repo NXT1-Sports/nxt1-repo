@@ -8,7 +8,7 @@
  */
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
-import type { RunwayMcpBridgeService } from '../integrations/runway-mcp-bridge.service.js';
+import type { RunwayMcpBridgeService } from '../integrations/runway/runway-mcp-bridge.service.js';
 
 export class RunwayUpscaleVideoTool extends BaseTool {
   readonly name = 'runway_upscale_video';

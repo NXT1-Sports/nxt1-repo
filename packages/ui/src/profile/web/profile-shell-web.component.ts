@@ -1693,14 +1693,14 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
           : [{ id: 'agent_x_brief', label: 'Overview' }],
       timeline: [
         {
-          id: 'pinned',
-          label: 'Pinned',
-          badge: this.profile.pinnedPosts().length || undefined,
-        },
-        {
           id: 'all-posts',
           label: 'All Posts',
           badge: this.profile.allPosts().length || undefined,
+        },
+        {
+          id: 'pinned',
+          label: 'Pinned',
+          badge: this.profile.pinnedPosts().length || undefined,
         },
         {
           id: 'media',
@@ -1946,9 +1946,23 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   protected async onGenerateIntel(): Promise<void> {
     const hasReport = !!this.intel.athleteReport();
     const userId = this.profile.user()?.uid ?? '';
-    const initialMessage = hasReport
-      ? `Update my Agent X Intel dossier for athlete ${userId}.`
-      : `Generate an Agent X Intel dossier for athlete ${userId}.`;
+    const activeSection = this.activeSideTab();
+
+    const isAthleteSection = [
+      'agent_x_brief',
+      'athletic_measurements',
+      'season_stats',
+      'recruiting_activity',
+      'academic_profile',
+      'awards_honors',
+    ].includes(activeSection);
+
+    const initialMessage =
+      hasReport && isAthleteSection
+        ? `Update the ${activeSection} section of my Agent X Intel report for athlete ${userId}.`
+        : hasReport
+          ? `Update my Agent X Intel report for athlete ${userId}.`
+          : `Generate an Agent X Intel report for athlete ${userId}.`;
     if (this.platform.isMobile()) {
       this.intel.startPendingGeneration();
       await this.bottomSheet.openSheet({

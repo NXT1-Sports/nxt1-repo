@@ -270,9 +270,6 @@ export interface Post {
   /** Breakdown by reaction type */
   reactionCounts?: Partial<Record<Exclude<UserReaction, null>, number>>;
 
-  /** Comment count */
-  commentCount: number;
-
   // =========== REPOST ===========
   /** Is this a repost */
   isRepost: boolean;
@@ -320,32 +317,6 @@ export interface PostReactionRecord {
   postId: string;
   reaction: UserReaction;
   createdAt: Date | string;
-}
-
-/**
- * Post comment
- * Stored at: Posts/{postId}/comments/{commentId}
- */
-export interface PostComment {
-  id: string;
-  postId: string;
-  userId: string;
-  content: string;
-
-  /** Parent comment ID for replies */
-  parentId?: string;
-
-  /** Nested reply count */
-  replyCount: number;
-
-  /** Reactions on this comment */
-  reactions: number;
-
-  /** Is hidden by moderation */
-  isHidden: boolean;
-
-  createdAt: Date | string;
-  updatedAt: Date | string;
 }
 
 // ============================================
@@ -407,7 +378,6 @@ export function createDefaultPost(userId: string, type: PostType): Partial<Post>
     views: 0,
     shares: 0,
     reactions: 0,
-    commentCount: 0,
     isRepost: false,
     isHidden: false,
     createdAt: now,

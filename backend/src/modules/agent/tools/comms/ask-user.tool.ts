@@ -17,7 +17,7 @@
  */
 
 import { BaseTool, type ToolResult } from '../base.tool.js';
-import { AgentYieldException } from '../../errors/agent-yield.error.js';
+import { AgentYieldException } from '../../exceptions/agent-yield.exception.js';
 import type { AgentToolCategory, AgentIdentifier } from '@nxt1/core';
 import type { LLMMessage } from '../../llm/llm.types.js';
 

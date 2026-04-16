@@ -38,7 +38,6 @@ import {
   ElementRef,
 } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
-import { CommonModule } from '@angular/common';
 import { Location } from '@angular/common';
 import { Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';

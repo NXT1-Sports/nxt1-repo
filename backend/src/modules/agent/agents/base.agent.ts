@@ -30,14 +30,18 @@ import type { LLMMessage, LLMToolSchema, LLMToolCall } from '../llm/llm.types.js
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import type { OnStreamEvent } from '../queue/event-writer.js';
 import { GlobalKnowledgeSkill } from '../skills/knowledge/global-knowledge.skill.js';
-import { AgentYieldException, isAgentYield } from '../errors/agent-yield.error.js';
-import { isAgentDelegation, AgentDelegationException } from '../errors/agent-delegation.error.js';
+import { AgentYieldException, isAgentYield } from '../exceptions/agent-yield.exception.js';
+import {
+  isAgentDelegation,
+  AgentDelegationException,
+} from '../exceptions/agent-delegation.exception.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/comms/ask-user.tool.js';
 import {
   sanitizeAgentOutputText,
   sanitizeAgentPayload,
 } from '../utils/platform-identifier-sanitizer.js';
+import { getAgentAnalyticsGate } from '../services/agent-analytics-gate.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
@@ -820,6 +824,19 @@ export abstract class BaseAgent {
       const result = await registry.execute(toolName, input, toolExecContext);
       const sanitizedData =
         result.data !== undefined ? sanitizeAgentPayload(result.data) : undefined;
+      // Fire-and-forget: track this tool execution in the user's analytics record.
+      // Self-tracking tools (send_email, write_recruiting_activity, etc.) are
+      // skipped inside the gate to prevent double-counting.
+      if (result.success) {
+        getAgentAnalyticsGate().trackToolExecution({
+          userId,
+          agentId: this.id,
+          toolName,
+          sessionId: sessionContext?.sessionId,
+          threadId: sessionContext?.threadId,
+          operationId: sessionContext?.operationId,
+        });
+      }
       return JSON.stringify(
         result.success
           ? { success: true, ...(sanitizedData !== undefined ? { data: sanitizedData } : {}) }

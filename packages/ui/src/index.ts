@@ -1128,14 +1128,12 @@ export {
 export { NxtActivityCardComponent } from './components/activity-card';
 
 // ============================================
-// FEED (Home Feed - Shared Web & Mobile)
+// POST CARDS (Profile & Team Timeline)
 // ============================================
 export {
   // Components
   FeedSkeletonComponent,
   FeedEmptyStateComponent,
-  FeedListComponent,
-  FeedShellComponent,
   // Polymorphic Smart Shell + Atomic Cards
   FeedCardShellComponent,
   FeedPostContentComponent,
@@ -1144,12 +1142,9 @@ export {
   FeedMetricsCardComponent,
   FeedAwardCardComponent,
   FeedNewsCardComponent,
-  // Services
-  FeedService,
   // Types
   type FeedSkeletonVariant,
-  // Mock Data (Development Only)
-} from './feed';
+} from './post-cards';
 
 // ============================================
 // NEWS (Sports Recruiting News - Shared Web & Mobile)

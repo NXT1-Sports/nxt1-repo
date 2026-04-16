@@ -8,7 +8,7 @@
  *
  * Features:
  * - Social feed posts (text, media, video)
- * - Engagement actions (like, comment, share)
+ * - Engagement actions (like, share)
  * - Feed filtering and pagination
  * - Author attribution with verification
  */
@@ -50,7 +50,7 @@ export type FeedPostVisibility = 'public' | 'followers' | 'team' | 'private';
 /**
  * User role for post attribution.
  */
-export type FeedAuthorRole = 'athlete' | 'coach' | 'team' | 'recruiter' | 'parent' | 'official';
+export type FeedAuthorRole = 'athlete' | 'coach' | 'director' | 'team' | 'official';
 
 /**
  * Verification status for post authors.
@@ -672,16 +672,6 @@ export interface GetFeedQuery {
 }
 
 /**
- * Comments query parameters
- */
-export interface GetCommentsQuery {
-  /** Items per page */
-  readonly limit?: string | number;
-  /** Pagination cursor */
-  readonly cursor?: string;
-}
-
-/**
  * Feed pagination cursor data
  */
 export interface FeedCursor {
@@ -689,74 +679,6 @@ export interface FeedCursor {
   readonly lastCreatedAt: string;
   /** Last post ID */
   readonly lastPostId: string;
-}
-
-/**
- * Comments pagination cursor data
- */
-export interface CommentsCursor {
-  /** Last comment created timestamp (ISO string) */
-  readonly lastCreatedAt: string;
-  /** Last comment ID */
-  readonly lastCommentId: string;
-}
-
-// ============================================
-// COMMENT TYPES
-// ============================================
-
-/**
- * Comment author info.
- */
-export interface FeedCommentAuthor {
-  /** User ID */
-  readonly uid: string;
-  /** Profile code */
-  readonly profileCode: string;
-  /** Display name */
-  readonly displayName: string;
-  /** Avatar URL */
-  readonly avatarUrl?: string;
-  /** Whether verified */
-  readonly isVerified: boolean;
-}
-
-/**
- * Post comment data.
- */
-export interface FeedComment {
-  /** Comment ID */
-  readonly id: string;
-  /** Post ID this comment belongs to */
-  readonly postId: string;
-  /** Comment author */
-  readonly author: FeedCommentAuthor;
-  /** Comment text */
-  readonly content: string;
-  /** Like count */
-  readonly likeCount: number;
-  /** Whether current user liked */
-  readonly isLiked: boolean;
-  /** Reply count */
-  readonly replyCount: number;
-  /** Parent comment ID (for replies) */
-  readonly parentId?: string;
-  /** Created timestamp */
-  readonly createdAt: string;
-}
-
-/**
- * Comments response.
- */
-export interface FeedCommentsResponse {
-  /** Success status */
-  readonly success: boolean;
-  /** Comments */
-  readonly data: readonly FeedComment[];
-  /** Pagination info */
-  readonly pagination: FeedPagination;
-  /** Error message */
-  readonly error?: string;
 }
 
 // ============================================

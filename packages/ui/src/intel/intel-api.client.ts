@@ -2,7 +2,7 @@
  * @fileoverview Intel API Client
  * @module @nxt1/ui/intel/api
  *
- * HTTP client for Intel dossier report endpoints (athlete + team).
+ * HTTP client for Intel report endpoints (athlete + team).
  * Normalizes raw API responses into typed `AthleteIntelReport` / `TeamIntelReport` shapes.
  * Uses direct HttpClient injection matching the dominant pattern in packages/ui.
  */
@@ -306,6 +306,36 @@ export class IntelApiClient {
     }
   }
 
+  async updateAthleteIntelSection(userId: string, sectionId: string): Promise<AthleteIntelReport> {
+    this.logger.info('Updating athlete Intel section', { userId, sectionId });
+
+    try {
+      const url = `${this.baseUrl}/auth/profile/${encodeURIComponent(userId)}/intel/section/${encodeURIComponent(sectionId)}`;
+      const response = await firstValueFrom(
+        this.http.patch<IntelGenerateResponse<AthleteIntelReport>>(url, {})
+      );
+
+      const responseData = response.data as unknown;
+      const payload =
+        responseData &&
+        typeof responseData === 'object' &&
+        'data' in (responseData as Record<string, unknown>)
+          ? ((responseData as Record<string, unknown>)['data'] as AthleteIntelReport | undefined)
+          : (responseData as AthleteIntelReport | undefined);
+
+      if (!response.success || !payload) {
+        throw new Error(response.error ?? 'Failed to update Intel section');
+      }
+
+      const report = normalizeAthleteIntelReport(payload);
+      this.logger.info('Athlete Intel section updated', { userId, sectionId });
+      return report;
+    } catch (error) {
+      this.logger.error('Failed to update athlete Intel section', error, { userId, sectionId });
+      throw error;
+    }
+  }
+
   // ── Team Intel ─────────────────────────────────────────────────────────
 
   async getTeamIntel(teamId: string): Promise<TeamIntelReport | null> {
@@ -356,6 +386,36 @@ export class IntelApiClient {
       return report;
     } catch (error) {
       this.logger.error('Failed to generate team Intel', error, { teamId });
+      throw error;
+    }
+  }
+
+  async updateTeamIntelSection(teamId: string, sectionId: string): Promise<TeamIntelReport> {
+    this.logger.info('Updating team Intel section', { teamId, sectionId });
+
+    try {
+      const url = `${this.baseUrl}/teams/${encodeURIComponent(teamId)}/intel/section/${encodeURIComponent(sectionId)}`;
+      const response = await firstValueFrom(
+        this.http.patch<IntelGenerateResponse<TeamIntelReport>>(url, {})
+      );
+
+      const responseData = response.data as unknown;
+      const payload =
+        responseData &&
+        typeof responseData === 'object' &&
+        'data' in (responseData as Record<string, unknown>)
+          ? ((responseData as Record<string, unknown>)['data'] as TeamIntelReport | undefined)
+          : (responseData as TeamIntelReport | undefined);
+
+      if (!response.success || !payload) {
+        throw new Error(response.error ?? 'Failed to update team Intel section');
+      }
+
+      const report = normalizeTeamIntelReport(payload);
+      this.logger.info('Team Intel section updated', { teamId, sectionId });
+      return report;
+    } catch (error) {
+      this.logger.error('Failed to update team Intel section', error, { teamId, sectionId });
       throw error;
     }
   }

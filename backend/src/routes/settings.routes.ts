@@ -16,7 +16,7 @@ import { RosterEntryService } from '../services/roster-entry.service.js';
 import { logger } from '../utils/logger.js';
 import type { UserPreferences, NotificationPreferences } from '@nxt1/core';
 import { auth as prodAuth } from '../utils/firebase.js';
-import { invalidateProfileCaches } from './profile.routes.js';
+import { invalidateProfileCaches } from './profile/shared.js';
 
 const router: ExpressRouter = Router();
 

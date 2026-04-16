@@ -369,7 +369,7 @@ export interface UserSportDoc extends UserFirestoreDoc {
   season?: string;
   /** Display order / priority (0 = primary sport). */
   order: number;
-  accountType: 'athlete' | 'coach' | 'parent' | 'recruiter' | 'director';
+  accountType: 'athlete' | 'coach' | 'director';
   positions?: string[];
   classOf?: number;
   state?: string;

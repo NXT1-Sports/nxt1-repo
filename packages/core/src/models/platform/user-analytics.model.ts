@@ -64,7 +64,7 @@ export interface ViewEvent extends AnalyticsEventBase {
 }
 
 export interface EngagementEvent extends AnalyticsEventBase {
-  type: 'share' | 'reaction' | 'comment' | 'repost';
+  type: 'share' | 'reaction' | 'repost';
   actorId: string;
   contentId?: string;
   reactionType?: string;
@@ -161,7 +161,6 @@ export interface DailyAnalyticsDoc {
   cardViews: number;
   shares: number;
   reactions: number;
-  comments: number;
   reposts: number;
   emailsSent: number;
   emailOpens: number;
@@ -376,7 +375,6 @@ export function createEmptyDailyAnalytics(userId: string, date: string): DailyAn
     cardViews: 0,
     shares: 0,
     reactions: 0,
-    comments: 0,
     reposts: 0,
     emailsSent: 0,
     emailOpens: 0,

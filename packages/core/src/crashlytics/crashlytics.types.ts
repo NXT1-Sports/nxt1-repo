@@ -56,7 +56,7 @@ export type CrashCategory =
  * Values must be strings, numbers, or booleans.
  */
 export interface CrashCustomKeys {
-  /** Current user role (athlete, coach, parent, etc.) */
+  /** Current user role (athlete, coach, director) */
   user_role?: string;
 
   /** Current user subscription tier */

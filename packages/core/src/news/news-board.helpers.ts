@@ -49,7 +49,6 @@ function mapArticleToBoardItem(article: NewsArticle): NewsBoardItem {
     category: 'news',
     publishedAt: article.publishedAt,
     viewCount: article.viewCount,
-    commentCount: undefined,
     ctaLabel: 'Read Article',
   };
 }

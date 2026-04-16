@@ -2,7 +2,7 @@
  * @fileoverview Add Sport / Add Team Routes
  * @module @nxt1/web/features/add-sport
  *
- * Post-onboarding wizard for adding a new sport (athletes/parents/recruiters)
+ * Post-onboarding wizard for adding a new sport (athletes)
  * or team (coaches/directors) to an already-onboarded user's profile.
  *
  *   /add-sport  → AddSportComponent (full-page, outside shell)

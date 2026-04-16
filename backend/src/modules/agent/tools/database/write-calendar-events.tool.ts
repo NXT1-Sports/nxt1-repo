@@ -20,7 +20,7 @@ import {
   resolveAuthorizedTargetSportSelection,
 } from '../../../../services/profile-write-access.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
-import { invalidateProfileCaches } from '../../../../routes/profile.routes.js';
+import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { SyncDiffService, type PreviousScheduleEntry } from '../../sync/index.js';
 import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';

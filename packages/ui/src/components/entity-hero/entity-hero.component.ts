@@ -96,6 +96,9 @@ export interface EntityHeroMetaItem {
           @if (subtitle()) {
             <span class="eh__position-chip">{{ subtitle() }}</span>
           }
+          @if (subtitleExtra()) {
+            <span class="eh__position-chip">{{ subtitleExtra() }}</span>
+          }
           @if (actionLabel()) {
             <button
               type="button"
@@ -299,6 +302,9 @@ export class NxtEntityHeroComponent {
 
   /** Secondary line: position + jersey (profile) or sport (team) */
   readonly subtitle = input<string>('');
+
+  /** Extra badge shown beside subtitle (e.g. class year) in its own chip */
+  readonly subtitleExtra = input<string>('');
 
   /** Profile avatar image URL (shown as circle when no logoSrc) */
   readonly avatarSrc = input<string | null | undefined>(undefined);

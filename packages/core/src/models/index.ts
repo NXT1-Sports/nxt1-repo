@@ -225,7 +225,6 @@ export {
   type PostMention,
   type PostAttachment,
   type PostReactionRecord,
-  type PostComment,
   isProfileCard,
   isVideoMedia,
   isMediaReady,

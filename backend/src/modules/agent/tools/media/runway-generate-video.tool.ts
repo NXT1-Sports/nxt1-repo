@@ -11,7 +11,7 @@ import type {
   RunwayMcpBridgeService,
   RunwayGenerateVideoOptions,
   RunwayTextToVideoOptions,
-} from '../integrations/runway-mcp-bridge.service.js';
+} from '../integrations/runway/runway-mcp-bridge.service.js';
 
 const IMAGE_TO_VIDEO_MODELS = ['gen4_turbo', 'gen4.5', 'veo3.1'] as const;
 const TEXT_TO_VIDEO_MODELS = ['gen3a_turbo', 'gen4.5', 'veo3', 'veo3.1', 'veo3.1_fast'] as const;

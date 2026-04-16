@@ -11,16 +11,17 @@ import app, {
   __seedMockFirestoreDocument,
 } from '../../test-app.js';
 import { expectExpressRouter } from './route-test.utils.js';
-import { AgentYieldException } from '../../modules/agent/errors/agent-yield.error.js';
+import { AgentYieldException } from '../../modules/agent/exceptions/agent-yield.exception.js';
 
 describe('Agent X Routes', () => {
   let router: unknown;
-  let setAgentDependencies: typeof import('../../routes/agent-x.routes.js').setAgentDependencies;
+  let setAgentDependencies: typeof import('../../routes/agent-x/shared.js').setAgentDependencies;
 
   beforeAll(async () => {
-    const module = await import('../../routes/agent-x.routes.js');
+    const module = await import('../../routes/agent-x/index.js');
     router = module.default;
-    setAgentDependencies = module.setAgentDependencies;
+    const shared = await import('../../routes/agent-x/shared.js');
+    setAgentDependencies = shared.setAgentDependencies;
   }, 15_000);
 
   beforeEach(() => {
