@@ -25,7 +25,7 @@
  * → Returns confirmation and offers to run a full data sync.
  */
 
-import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { isTeamRole } from '@nxt1/core';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { logger } from '../../../../utils/logger.js';
@@ -270,7 +270,7 @@ export class WriteConnectedSourceTool extends BaseTool {
     now: string,
     userData: Record<string, unknown>,
     faviconUrl: string | undefined,
-    context?: ToolExecutionContext
+    _context?: ToolExecutionContext
   ): Promise<ToolResult> {
     const existing = Array.isArray(userData['connectedSources'])
       ? (userData['connectedSources'] as Record<string, unknown>[])
@@ -337,7 +337,7 @@ export class WriteConnectedSourceTool extends BaseTool {
     userData: Record<string, unknown>,
     explicitTeamId: string | null,
     faviconUrl: string | undefined,
-    context?: ToolExecutionContext
+    _context?: ToolExecutionContext
   ): Promise<ToolResult> {
     // Resolve teamId: explicit param → user doc field
     const teamId =
