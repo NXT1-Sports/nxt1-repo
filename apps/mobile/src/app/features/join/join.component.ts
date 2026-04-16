@@ -3,14 +3,15 @@
  * @module @nxt1/mobile/features/join
  *
  * Handles incoming invite deep links on mobile:
- *   /join/:code?ref=<uid>&type=<general|team|...>&teamCode=<code>&teamName=<name>
+ *   /join/:code
  *
  * Flow (unauthenticated):
- * 1. Extracts code + query params from URL
- * 2. Stores invite data in native storage with default role='Athlete'
- * 3. Navigates to /auth?mode=signup&invite=CODE
- * 4. During onboarding, user can select role (Athlete or Coach only for team invites)
- * 5. After signup, AuthFlowService reads storage and calls POST /invite/accept
+ * 1. Extracts invite code from URL path
+ * 2. Calls POST /invite/validate to resolve invite type, inviter, and team metadata
+ * 3. Stores invite data in native storage with default role='Athlete'
+ * 4. Navigates to /auth?mode=signup&invite=CODE
+ * 5. During onboarding, user can select role (Athlete or Coach only for team invites)
+ * 6. After signup, AuthFlowService reads storage and calls POST /invite/accept
  *
  * Flow (already authenticated + team invite):
  * 1. Shows confirmation screen: "TeamName invited you to join"
@@ -201,11 +202,6 @@ export class JoinMobileComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     const code = this.route.snapshot.paramMap.get('code')?.trim().toUpperCase() ?? '';
-    const ref = this.route.snapshot.queryParamMap.get('ref') ?? '';
-    const type = this.route.snapshot.queryParamMap.get('type') ?? 'general';
-    let teamCode: string | undefined;
-    let teamName: string | undefined;
-    let sport: string | undefined;
 
     if (!code) {
       this.logger.warn('Join link missing required code');
@@ -213,17 +209,35 @@ export class JoinMobileComponent implements OnInit {
       return;
     }
 
-    let inviterUid = ref;
-    if (!inviterUid) {
-      inviterUid = 'unknown';
+    // Resolve all invite metadata server-side — no query params needed
+    let inviterUid = 'unknown';
+    let type = 'general';
+    let teamCode: string | undefined;
+    let teamName: string | undefined;
+    let sport: string | undefined;
+
+    try {
+      const validateResult = await this.inviteApi.validateCode(code);
+      this.logger.debug('Invite validate response', { code, valid: validateResult.valid });
+
+      if (!validateResult.valid) {
+        this.logger.warn('Invalid invite code', { code });
+        void this.navController.navigateRoot('/auth', { queryParams: { mode: 'signup' } });
+        return;
+      }
+
+      inviterUid = validateResult.inviterUid ?? 'unknown';
+      type = validateResult.type ?? 'general';
+      teamCode = validateResult.teamCode;
+      teamName = validateResult.teamName;
+      sport = validateResult.sport;
+    } catch (err) {
+      this.logger.warn('Invite validate failed — proceeding as general invite', { error: err });
     }
 
-    // For team invites, fetch full team data from backend
+    // For team invites, fetch full team data (teamId, teamType) via validateTeamCode
     let teamData: ValidatedTeamInfo | undefined;
-    if (type === 'team') {
-      // The path code IS the teamCode
-      teamCode = code;
-
+    if (type === 'team' && teamCode) {
       try {
         const result = await this.authApi.validateTeamCode(teamCode);
         if (result.valid && result.teamCode) {

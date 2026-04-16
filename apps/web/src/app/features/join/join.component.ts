@@ -3,19 +3,20 @@
  * @module @nxt1/web/features/join
  *
  * Handles incoming invite links:
- *   /join/:code?ref=<uid>&type=<general|team|...>&team=<firestoreId>&teamCode=<code>&teamName=<name>
+ *   /join/:code
  *
  * Flow (unauthenticated):
- * 1. Extracts referral params from URL (route param + query params)
- * 2. Stores invite data in sessionStorage with default role='Athlete'
- * 3. Redirects to /auth?mode=signup&invite=CODE
- * 4. During onboarding, user can select role (Athlete or Coach only for team invites)
- * 5. After signup, AuthFlowService reads sessionStorage and calls POST /invite/accept
+ * 1. Extracts invite code from URL path
+ * 2. Calls POST /invite/validate to resolve invite type, inviter, and team metadata
+ * 3. Stores invite data in sessionStorage with default role='Athlete'
+ * 4. Redirects to /auth?mode=signup&invite=CODE
+ * 5. During onboarding, user can select role (Athlete or Coach only for team invites)
+ * 6. After signup, AuthFlowService reads sessionStorage and calls POST /invite/accept
  *
  * Flow (already authenticated + team invite):
  * 1. Shows confirmation modal: "TeamName invited you to join"
- * 2. User clicks Accept → POST /invite/accept → navigate to /home
- * 3. User clicks Decline → navigate to /home
+ * 2. User clicks Accept → POST /invite/accept → navigate to /agent
+ * 3. User clicks Decline → navigate to /agent
  *
  * On SSR this component is a no-op; redirect logic only runs in browser.
  */
@@ -168,29 +169,41 @@ export class JoinComponent implements OnInit {
 
     if (!isPlatformBrowser(this.platformId)) return;
 
-    const ref = this.route.snapshot.queryParamMap.get('ref') ?? '';
-    const type = this.route.snapshot.queryParamMap.get('type') ?? 'general';
-    let teamCode: string | undefined;
-    let teamName: string | undefined;
-    let sport: string | undefined;
-
     if (!code) {
-      this.logger.warn('Join link missing required code', { code: !!code });
+      this.logger.warn('Join link missing required code');
       this.router.navigate(['/auth'], { queryParams: { mode: 'signup' }, replaceUrl: true });
       return;
     }
 
-    let inviterUid = ref;
-    if (!inviterUid) {
-      inviterUid = 'unknown';
+    // Resolve all invite metadata server-side — no query params needed
+    let inviterUid = 'unknown';
+    let type = 'general';
+    let teamCode: string | undefined;
+    let teamName: string | undefined;
+    let sport: string | undefined;
+
+    try {
+      const validateResult = await this.inviteApi.validateCode(code);
+      this.logger.debug('Invite validate response', { code, valid: validateResult.valid });
+
+      if (!validateResult.valid) {
+        this.logger.warn('Invalid invite code', { code });
+        this.router.navigate(['/auth'], { queryParams: { mode: 'signup' }, replaceUrl: true });
+        return;
+      }
+
+      inviterUid = validateResult.inviterUid ?? 'unknown';
+      type = validateResult.type ?? 'general';
+      teamCode = validateResult.teamCode;
+      teamName = validateResult.teamName;
+      sport = validateResult.sport;
+    } catch (err) {
+      this.logger.warn('Invite validate failed — proceeding as general invite', { error: err });
     }
 
-    // For team invites, fetch full team data from backend
+    // For team invites, fetch full team data (teamId, teamType) via validateTeamCode
     let teamData: ValidatedTeamInfo | undefined;
-    if (type === 'team') {
-      // The path code IS the teamCode
-      teamCode = code;
-
+    if (type === 'team' && teamCode) {
       this.logger.info('Validating team code via API...', { teamCode });
 
       try {

@@ -54,6 +54,7 @@ import {
 import { AuthFlowService, AuthApiService, BiometricService } from '../../../../core/services/auth';
 import { AuthNavigationService } from '@nxt1/ui/services';
 import { HapticsService } from '@nxt1/ui';
+import { InviteApiService } from '@nxt1/ui/invite';
 import { isValidTeamCode } from '@nxt1/core';
 import type { ValidatedTeamInfo } from '@nxt1/core';
 import { AUTH_PAGE_TEST_IDS } from '@nxt1/core/testing';
@@ -206,6 +207,7 @@ export class AuthPage implements OnInit {
   // ============================================
   readonly authFlow = inject(AuthFlowService);
   private readonly authApi = inject(AuthApiService);
+  private readonly inviteApi = inject(InviteApiService);
   private readonly haptics = inject(HapticsService);
   private readonly router = inject(Router);
   private readonly location = inject(Location);
@@ -329,56 +331,98 @@ export class AuthPage implements OnInit {
             teamName: referral.teamName,
             sport: referral.sport,
           });
+
+          // If this is a team invite, populate validatedTeam so the UI shows
+          // the team banner and teamCode is passed to signUp correctly.
+          if (referral.teamCode && !this.validatedTeam()) {
+            this.authApi
+              .validateTeamCode(referral.teamCode)
+              .then((result) => {
+                if (result.valid && result.teamCode) {
+                  this.validatedTeam.set(result.teamCode);
+                }
+              })
+              .catch(() => {
+                // Non-fatal — UI just won't show the team banner
+              });
+          }
           return;
         } else {
           await Preferences.remove({ key: PENDING_REFERRAL_KEY });
         }
       }
 
-      const inviteCode = params.get('invite') || params.get('ref'); // Support both
+      // Support ?invite=NXT-CPEKC0 (new format from join page) or legacy ?ref=
+      const inviteCode = params.get('invite') || params.get('ref');
       if (!inviteCode) return;
       this.logger.info('Processing invite from URL param', { inviteCode });
-      let teamData: ValidatedTeamInfo | undefined;
+
+      // Use /invite/validate to resolve full metadata (type, inviterUid, teamCode, etc.)
+      let resolvedTeamCode: string | undefined;
+      let inviterUid = '';
+      let inviteType = 'general';
+      let resolvedTeamName: string | undefined;
+      let resolvedSport: string | undefined;
       try {
-        const result = await this.authApi.validateTeamCode(inviteCode);
-        if (result.valid && result.teamCode) {
-          teamData = result.teamCode;
-          this.logger.info('Fetched team data from invite code', {
-            teamId: teamData.id,
-            teamName: teamData.teamName,
-            sport: teamData.sport,
-          });
+        const validateResult = await this.inviteApi.validateCode(inviteCode);
+        if (!validateResult.valid) {
+          this.logger.warn('Invalid invite code from URL param', { inviteCode });
+          return;
         }
+        inviterUid = validateResult.inviterUid ?? '';
+        inviteType = validateResult.type ?? 'general';
+        resolvedTeamCode = validateResult.teamCode;
+        resolvedTeamName = validateResult.teamName;
+        resolvedSport = validateResult.sport;
       } catch (err) {
-        this.logger.warn('Failed to fetch team data from invite code', { error: err });
+        this.logger.warn('Failed to validate invite code from URL param', { error: err });
         return;
       }
 
-      if (!teamData) return;
+      let teamData: ValidatedTeamInfo | undefined;
+      if (inviteType === 'team' && resolvedTeamCode) {
+        try {
+          const result = await this.authApi.validateTeamCode(resolvedTeamCode);
+          if (result.valid && result.teamCode) {
+            teamData = result.teamCode;
+            resolvedTeamName = teamData.teamName;
+            resolvedSport = teamData.sport;
+            this.validatedTeam.set(teamData);
+            this.logger.info('Fetched team data from invite code', {
+              teamId: teamData.id,
+              teamName: teamData.teamName,
+              sport: teamData.sport,
+            });
+          }
+        } catch (err) {
+          this.logger.warn('Failed to fetch team data from invite code', { error: err });
+        }
+      }
+
       const pendingReferral: PendingReferral = {
         code: inviteCode,
-        inviterUid: '',
-        type: 'team',
-        teamId: teamData.id,
-        teamCode: inviteCode,
-        teamName: teamData.teamName,
-        sport: teamData.sport,
-        teamType: teamData.teamType,
+        inviterUid,
+        type: inviteType,
+        teamId: teamData?.id,
+        teamCode: resolvedTeamCode,
+        teamName: resolvedTeamName,
+        sport: resolvedSport,
+        teamType: teamData?.teamType,
         role: params.get('role') || undefined,
         timestamp: Date.now(),
       };
       const jsonData = JSON.stringify(pendingReferral);
       await Preferences.set({ key: PENDING_REFERRAL_KEY, value: jsonData });
       sessionStorage.setItem(PENDING_REFERRAL_KEY, jsonData);
-      if (teamData.sport) {
+      if (teamData?.sport) {
         await Preferences.set({ key: INVITE_SPORT_KEY, value: teamData.sport });
         sessionStorage.setItem(INVITE_SPORT_KEY, teamData.sport);
       }
 
       this.logger.info('Restored and stored invite data from URL', {
         code: inviteCode,
-        teamName: teamData.teamName,
-        sport: teamData.sport,
+        teamName: teamData?.teamName,
+        sport: teamData?.sport,
       });
     } catch (err) {
       this.logger.error('Failed to restore invite data', { error: err });

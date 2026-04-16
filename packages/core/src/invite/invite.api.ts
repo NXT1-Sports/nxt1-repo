@@ -263,6 +263,50 @@ export function createInviteApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
+     * Validate an invite/referral code and return all invite metadata.
+     * Works for both general invites (user referral codes) and team invites.
+     *
+     * @param code - Invite or referral code (e.g. NXT-XXXXXX)
+     * @returns Validation result with inviter info and optional team context
+     */
+    async validateCode(code: string): Promise<{
+      valid: boolean;
+      inviterUid?: string;
+      inviterName?: string;
+      inviterAvatar?: string | null;
+      type?: string;
+      teamCode?: string;
+      teamName?: string;
+      sport?: string;
+    }> {
+      try {
+        const url = buildUrl(INVITE_API_ENDPOINTS.VALIDATE_CODE);
+        const response = await http.post<{
+          success: boolean;
+          data: {
+            valid: boolean;
+            inviterUid?: string;
+            inviterName?: string;
+            inviterAvatar?: string | null;
+            type?: string;
+            teamCode?: string;
+            teamName?: string;
+            sport?: string;
+          };
+          error?: string;
+        }>(url, { code });
+
+        if (!response.success || !response.data) {
+          return { valid: false };
+        }
+
+        return response.data;
+      } catch {
+        return { valid: false };
+      }
+    },
+
+    /**
      * Accept an invite (for recipient).
      *
      * @param code - Referral/invite code

@@ -310,6 +310,20 @@ export class AuthComponent implements OnInit {
           const maxAge = 24 * 60 * 60 * 1000;
           if (Date.now() - referral.timestamp < maxAge && referral.code) {
             this.pendingReferral = referral;
+            // If this is a team invite, populate validatedTeam so the UI shows
+            // the team banner and teamCode is passed to signUp correctly.
+            if (referral.teamCode && !this.validatedTeam()) {
+              this.authApi
+                .validateTeamCode(referral.teamCode)
+                .then((result) => {
+                  if (result.valid && result.teamCode) {
+                    this.validatedTeam.set(result.teamCode);
+                  }
+                })
+                .catch(() => {
+                  // Non-fatal — UI just won't show the team banner
+                });
+            }
           } else {
             sessionStorage.removeItem(PENDING_REFERRAL_KEY);
           }

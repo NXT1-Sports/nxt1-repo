@@ -2240,8 +2240,32 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
 // REFERRAL REWARDS
 // ============================================
 
-/** Amount credited to the referrer's wallet when a new user signs up (in cents). */
+/**
+ * Default amount credited to the referrer's wallet when a new user signs up (in cents).
+ * The live value is read from `AppConfig/referralReward` in Firestore so it can be
+ * adjusted without a deployment. This constant is the fallback only.
+ */
 export const REFERRAL_REWARD_CENTS = 500; // $5.00
+
+/** Firestore collection that holds global app configuration knobs. */
+const APP_CONFIG_COLLECTION = 'AppConfig';
+
+/**
+ * Read the current referral reward amount from Firestore.
+ * Document path: `AppConfig/referralReward` → `{ amountCents: number }`.
+ * Falls back to REFERRAL_REWARD_CENTS if the doc is missing or has no valid value.
+ */
+async function getReferralRewardCents(db: Firestore): Promise<number> {
+  try {
+    const snap = await db.collection(APP_CONFIG_COLLECTION).doc('referralReward').get();
+    const data = snap.data();
+    const amount = data?.['amountCents'];
+    if (typeof amount === 'number' && amount > 0) return amount;
+  } catch {
+    // Non-fatal — fall through to default
+  }
+  return REFERRAL_REWARD_CENTS;
+}
 
 export interface WalletTopUpResult {
   success: boolean;
@@ -2258,17 +2282,19 @@ export interface WalletTopUpResult {
  * Writes to `BillingContexts.walletBalanceCents` (the single source of truth)
  * via `addWalletTopUp`.
  *
+ * The reward amount is read live from `AppConfig/referralReward` in Firestore so
+ * it can be updated without a deployment. Falls back to REFERRAL_REWARD_CENTS.
+ *
  * @param db        Firestore instance
  * @param referrerId  The UID of the user who sent the invite
  * @param newUserId   The UID of the newly signed-up user
- * @param amountCents Reward amount in cents (defaults to REFERRAL_REWARD_CENTS)
  */
 export async function creditReferralReward(
   db: Firestore,
   referrerId: string,
-  newUserId: string,
-  amountCents: number = REFERRAL_REWARD_CENTS
+  newUserId: string
 ): Promise<WalletTopUpResult> {
+  const amountCents = await getReferralRewardCents(db);
   if (amountCents <= 0) {
     return { success: false, newBalanceCents: 0, error: 'Amount must be positive' };
   }

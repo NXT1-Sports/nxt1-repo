@@ -284,6 +284,11 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
               }
             );
             resolvedTeamId = sportTeamId;
+            // teamCode, teamName, sport are already stored on the user's sports entry —
+            // use them directly to avoid an extra Firestore read below.
+            teamCode = activeSport?.['team']?.['teamCode'] ?? undefined;
+            teamName = activeSport?.['team']?.['name'] ?? undefined;
+            teamSport = activeSport?.['sport'] ?? undefined;
           }
         }
 
@@ -314,9 +319,11 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
       if (resolvedTeamId) {
         const teamDoc = await db.collection(TEAMS_COLLECTION).doc(resolvedTeamId).get();
         const teamData = teamDoc.data() as TeamDoc | undefined;
-        teamCode = teamData?.teamCode ?? undefined;
-        teamName = teamData?.teamName ?? teamData?.name ?? undefined;
-        teamSport = teamData?.sport ?? undefined;
+        // Authoritative values from the Teams doc override any stale user-data copies.
+        // Fall back to what we already read from sports[activeSportIndex].team if missing.
+        teamCode = teamData?.teamCode ?? teamCode;
+        teamName = teamData?.teamName ?? teamData?.name ?? teamName;
+        teamSport = teamData?.sport ?? teamSport;
 
         logger.info('[POST /invite/link] Resolved team', {
           resolvedTeamId,
@@ -331,18 +338,39 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
     }
 
     // Build the invite URL.
-    // For team invites, use teamCode in path; for others, use user's referralCode.
     const params = new URLSearchParams();
     let pathCode: string;
 
+    // Calculate expiration (used for both team invite doc and response)
+    const expiresAt = new Date(
+      Date.now() + INVITE_UI_CONFIG.linkExpirationDays * 24 * 60 * 60 * 1000
+    ).toISOString();
+    const now = new Date().toISOString();
+
     if (type === 'team' && teamCode) {
-      // Team invite: /join/{teamCode}?type=team&ref={userId}
-      // The join page calls validateTeamCode(code) to fetch teamName, sport, and Firestore ID,
-      // so those fields are intentionally excluded from the URL to keep it minimal.
-      pathCode = teamCode;
-      params.set('type', 'team');
-      // Include inviter UID so join page can pass it to /invite/accept for $5 credit
-      params.set('ref', userId);
+      // Team invite: use the team's own code as the URL token so the link is
+      // stable and human-readable.  URL: /join/NXT-{teamCode}
+      pathCode = `NXT-${teamCode}`;
+
+      // Upsert invite doc keyed by (userId, teamCode) — regenerating the link replaces the old one
+      // Store `code` WITHOUT the NXT- prefix so /validate can match after stripping the prefix.
+      await db
+        .collection(INVITES_COLLECTION)
+        .doc(`team-link-${userId}-${teamCode}`)
+        .set(
+          {
+            code: teamCode,
+            type: 'team',
+            inviterUid: userId,
+            teamCode,
+            teamName: teamName ?? '',
+            sport: teamSport ?? '',
+            expiresAt,
+            createdAt: now,
+            updatedAt: now,
+          },
+          { merge: true }
+        );
     } else {
       // General/profile invite: /join/{referralCode}?type=...
       pathCode = referralCode;
@@ -353,11 +381,6 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
     const query = params.toString();
     const url = `${baseUrl}${path}${query ? `?${query}` : ''}`;
     const shortUrl = url;
-
-    // Calculate expiration
-    const expiresAt = new Date(
-      Date.now() + INVITE_UI_CONFIG.linkExpirationDays * 24 * 60 * 60 * 1000
-    ).toISOString();
 
     logger.info('[POST /invite/link] Generated invite link', {
       userId,
@@ -728,14 +751,64 @@ router.post('/validate', validateBody(ValidateInviteDto), async (req: Request, r
       return res.status(400).json({ success: false, error: 'Missing referral code' });
     }
 
-    // Find user with this referral code
+    // Normalize: strip leading "NXT-" prefix for team invite doc lookup.
+    const normalizedCode = code.toUpperCase().replace(/^NXT-/, '');
+    // Personal referral codes are stored WITH the "NXT-" prefix in Users.referralCode.
+    const codeUpper = code.toUpperCase();
+    const codeWithPrefix = codeUpper.startsWith('NXT-') ? codeUpper : `NXT-${codeUpper}`;
+
+    // Find user with this referral code (personal invite — stored as "NXT-XXXXXX")
     const usersSnapshot = await db
       .collection(USERS_COLLECTION)
-      .where('referralCode', '==', code.toUpperCase())
+      .where('referralCode', '==', codeWithPrefix)
       .limit(1)
       .get();
 
     if (usersSnapshot.empty) {
+      // Check the Invites collection for a team invite doc with this code.
+      // Try both the bare code ("CPEKC0") and the legacy prefixed form ("NXT-CPEKC0")
+      // so old docs created before the prefix-stripping fix still resolve.
+      const [newSnap, legacySnap] = await Promise.all([
+        db
+          .collection(INVITES_COLLECTION)
+          .where('code', '==', normalizedCode)
+          .where('type', '==', 'team')
+          .limit(1)
+          .get(),
+        db
+          .collection(INVITES_COLLECTION)
+          .where('code', '==', `NXT-${normalizedCode}`)
+          .where('type', '==', 'team')
+          .limit(1)
+          .get(),
+      ]);
+      const teamInviteSnap = !newSnap.empty ? newSnap : legacySnap;
+
+      if (!teamInviteSnap.empty) {
+        const inviteData = teamInviteSnap.docs[0].data();
+        const inviterDoc = await db
+          .collection(USERS_COLLECTION)
+          .doc(inviteData['inviterUid'] as string)
+          .get();
+        const inviterData = inviterDoc.data() as UserDoc | undefined;
+
+        return res.json({
+          success: true,
+          data: {
+            valid: true,
+            inviterUid: inviteData['inviterUid'] as string,
+            inviterName:
+              `${inviterData?.firstName ?? ''} ${inviterData?.lastName ?? ''}`.trim() ||
+              'NXT1 User',
+            inviterAvatar: inviterData?.profileImgs?.[0] ?? null,
+            type: 'team',
+            teamCode: inviteData['teamCode'] as string,
+            teamName: inviteData['teamName'] as string,
+            sport: inviteData['sport'] as string,
+          },
+        });
+      }
+
       return res.json({ success: true, data: { valid: false } });
     }
 
@@ -788,18 +861,24 @@ router.post(
         isNewUser?: boolean;
       };
 
-      const normalizedCode = code.toUpperCase();
+      // Normalize codes:
+      //   normalizedCode — strip prefix for team invite doc lookup (stored without prefix)
+      //   codeWithPrefix — keep/add prefix for personal referral code lookup (stored as "NXT-XXXXXX")
+      const normalizedCode = code.toUpperCase().replace(/^NXT-/, '');
+      const codeWithPrefix = code.toUpperCase().startsWith('NXT-')
+        ? code.toUpperCase()
+        : `NXT-${code.toUpperCase()}`;
       const now = new Date().toISOString();
       let inviterId: string | undefined;
       let teamJoined: string | undefined;
       let joinedAsPending = false;
 
       // ── Resolve inviter ──
-      // Case A: code is a user referral code (NXT-XXXXXX) — look up from Users collection
-      // Case B: code is teamCode (team invite) — inviterUid passed from join page
+      // Case A: code is a personal referral code (stored as "NXT-XXXXXX" in Users.referralCode)
+      // Case B: code is a team invite token (stored without prefix in Invites.code)
       const usersSnapshot = await db
         .collection(USERS_COLLECTION)
-        .where('referralCode', '==', normalizedCode)
+        .where('referralCode', '==', codeWithPrefix)
         .limit(1)
         .get();
 
@@ -819,16 +898,25 @@ router.post(
       // If teamCode is provided but no inviter found, proceed (join team without tracking)
 
       // ── Check if already accepted (only when we have an inviter) ──
+      // Team invite docs use field `code`; sent-invite docs use `referralCode`.
       if (inviterId) {
-        const existingAccept = await db
-          .collection(INVITES_COLLECTION)
-          .where('referralCode', '==', normalizedCode)
-          .where('recipient.id', '==', userId)
-          .where('status', '==', 'accepted')
-          .limit(1)
-          .get();
+        const [existingByReferral, existingByCode] = await Promise.all([
+          db
+            .collection(INVITES_COLLECTION)
+            .where('referralCode', '==', codeWithPrefix)
+            .where('recipient.id', '==', userId)
+            .where('status', '==', 'accepted')
+            .limit(1)
+            .get(),
+          db
+            .collection(INVITES_COLLECTION)
+            .where('code', '==', normalizedCode)
+            .where('status', '==', 'accepted')
+            .limit(1)
+            .get(),
+        ]);
 
-        if (!existingAccept.empty) {
+        if (!existingByReferral.empty || !existingByCode.empty) {
           return res.status(409).json({ success: false, error: 'Invite already accepted' });
         }
       }
@@ -836,18 +924,32 @@ router.post(
       const batch = db.batch();
 
       // ── Update invite doc & track referral on the new user ──
+      // Sent-invite docs use `referralCode`; team invite docs use `code`.
       if (inviterId) {
-        const pendingInvites = await db
-          .collection(INVITES_COLLECTION)
-          .where('referralCode', '==', normalizedCode)
-          .where('status', '==', 'pending')
-          .limit(1)
-          .get();
+        const [pendingByReferral, pendingByCode] = await Promise.all([
+          db
+            .collection(INVITES_COLLECTION)
+            .where('referralCode', '==', codeWithPrefix)
+            .where('status', '==', 'pending')
+            .limit(1)
+            .get(),
+          db
+            .collection(INVITES_COLLECTION)
+            .where('code', '==', normalizedCode)
+            .where('status', '!=', 'accepted')
+            .limit(1)
+            .get(),
+        ]);
 
-        if (!pendingInvites.empty) {
-          const inviteRef = pendingInvites.docs[0].ref;
-          const inviteData = pendingInvites.docs[0].data() as InviteDoc;
-          batch.update(inviteRef, { status: 'accepted', updatedAt: now });
+        const pendingDoc = !pendingByReferral.empty
+          ? pendingByReferral.docs[0]
+          : !pendingByCode.empty
+            ? pendingByCode.docs[0]
+            : null;
+
+        if (pendingDoc) {
+          const inviteData = pendingDoc.data() as InviteDoc;
+          batch.update(pendingDoc.ref, { status: 'accepted', updatedAt: now });
           teamJoined = inviteData.teamName ?? undefined;
         }
 
@@ -862,16 +964,18 @@ router.post(
       await batch.commit();
 
       // ── Credit referral reward to the inviter's Agent X wallet ──
-      // Only credit when the invitee is a brand-new user completing onboarding (Flow B).
-      // Existing users who simply join a team via invite (Flow A) do NOT earn the inviter $5.
-      if (inviterId && isNewUser === true) {
+      // Rules:
+      //   1. Only when the invitee is a brand-new user completing onboarding (isNewUser = true).
+      //   2. Only for INDIVIDUAL referral invites (no teamCode in body).
+      //      Coach/Director team invites are a program-management action, not a referral.
+      //   3. Amount is read live from AppConfig/referralReward in Firestore (adjustable without deploy).
+      if (inviterId && isNewUser === true && !teamCode) {
         try {
           const rewardResult = await creditReferralReward(db, inviterId, userId);
           if (rewardResult.success) {
             logger.info('[POST /invite/accept] Referral reward credited', {
               referrerId: inviterId,
               newUserId: userId,
-              amountCents: 500,
               newBalanceCents: rewardResult.newBalanceCents,
             });
           }
@@ -884,6 +988,15 @@ router.post(
             error: rewardErr instanceof Error ? rewardErr.message : String(rewardErr),
           });
         }
+      } else if (inviterId && isNewUser === true && teamCode) {
+        logger.debug(
+          '[POST /invite/accept] Skipping referral reward — team invite (coach/director flow)',
+          {
+            referrerId: inviterId,
+            userId,
+            teamCode,
+          }
+        );
       } else if (inviterId && !isNewUser) {
         logger.debug('[POST /invite/accept] Skipping referral reward — existing user join', {
           referrerId: inviterId,

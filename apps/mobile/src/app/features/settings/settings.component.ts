@@ -212,7 +212,7 @@ export class SettingsComponent {
    * Handle back navigation using Ionic's navigation stack.
    */
   protected onBack(): void {
-    this.navController.back();
+    this.navController.navigateBack('/');
   }
 
   /**
