@@ -45,7 +45,7 @@ const router: RouterType = Router();
 // ============================================================================
 router.post(
   '/profile/onboarding',
-  validateBody(BulkOnboardingDto),
+  validateBody(BulkOnboardingDto, { forbidNonWhitelisted: false }),
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { db } = req.firebase!;
     const { userId, ...profileData } = req.body;
