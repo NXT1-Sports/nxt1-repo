@@ -22,6 +22,10 @@ vi.mock('../../../services/intel.service.js', () => ({
   },
 }));
 
+vi.mock('../../../../../services/analytics-logger.service.js', () => ({
+  getAnalyticsLoggerService: () => ({ safeTrack: vi.fn().mockResolvedValue(undefined) }),
+}));
+
 vi.mock('../../../../../utils/logger.js', () => ({
   logger: {
     info: vi.fn(),

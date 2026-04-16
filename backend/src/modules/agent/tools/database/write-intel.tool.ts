@@ -10,6 +10,7 @@
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
 import { IntelGenerationService } from '../../services/intel.service.js';
+import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
 import { logger } from '../../../../utils/logger.js';
 
 type IntelEntityType = 'athlete' | 'team';
@@ -79,6 +80,25 @@ export class WriteIntelTool extends BaseTool {
           reportId,
         });
 
+        await getAnalyticsLoggerService().safeTrack({
+          subjectId: entityId,
+          subjectType: 'user',
+          domain: 'system',
+          eventType: 'tool_write_completed',
+          source: context?.userId && context.userId !== entityId ? 'agent' : 'user',
+          actorUserId: context?.userId ?? entityId,
+          sessionId: context?.sessionId ?? null,
+          threadId: context?.threadId ?? null,
+          tags: ['intel', 'athlete'],
+          payload: {
+            toolName: this.name,
+            entityType,
+            entityId,
+            reportId,
+          },
+          metadata: { initiatedBy: 'write-intel' },
+        });
+
         return {
           success: true,
           data: {
@@ -101,6 +121,25 @@ export class WriteIntelTool extends BaseTool {
       logger.info('[WriteIntelTool] Team Intel generated and saved', {
         teamId: entityId,
         reportId,
+      });
+
+      await getAnalyticsLoggerService().safeTrack({
+        subjectId: entityId,
+        subjectType: 'team',
+        domain: 'system',
+        eventType: 'tool_write_completed',
+        source: 'agent',
+        actorUserId: context?.userId ?? null,
+        sessionId: context?.sessionId ?? null,
+        threadId: context?.threadId ?? null,
+        tags: ['intel', 'team'],
+        payload: {
+          toolName: this.name,
+          entityType,
+          entityId,
+          reportId,
+        },
+        metadata: { initiatedBy: 'write-intel' },
       });
 
       return {

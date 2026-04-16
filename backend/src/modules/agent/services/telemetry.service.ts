@@ -41,6 +41,9 @@ import type {
   AgentUsageLimits,
 } from '@nxt1/core';
 import { AGENT_USAGE_LIMITS, AGENT_MODEL_PRICING } from '@nxt1/core';
+import { LLMCallModel } from '../../../models/llm-call.model.js';
+import { getRuntimeEnvironment } from '../../../config/runtime-environment.js';
+import { logger } from '../../../utils/logger.js';
 
 export class TelemetryService {
   /**
@@ -133,8 +136,28 @@ export class TelemetryService {
       timestamp: new Date().toISOString(),
     };
 
-    // TODO: Store in MongoDB/Firestore
-    // await LLMCallModel.create(record);
+    try {
+      await LLMCallModel.create({
+        environment: getRuntimeEnvironment(),
+        operationId: record.operationId,
+        userId: record.userId,
+        agentId: record.agentId,
+        model: record.model,
+        inputTokens: record.inputTokens,
+        outputTokens: record.outputTokens,
+        totalTokens: record.totalTokens,
+        costUsd: record.costUsd,
+        latencyMs: record.latencyMs,
+        hadToolCall: record.hadToolCall,
+        timestamp: new Date(record.timestamp),
+      });
+    } catch (err) {
+      logger.warn('[TelemetryService] Failed to persist LLM call record', {
+        operationId: record.operationId,
+        userId: record.userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     return record;
   }
@@ -148,23 +171,80 @@ export class TelemetryService {
     periodStart: string,
     periodEnd: string
   ): Promise<AgentUsageSummary> {
-    // TODO: Aggregate from MongoDB/Firestore
-    // const calls = await LLMCallModel.find({
-    //   userId,
-    //   timestamp: { $gte: periodStart, $lte: periodEnd },
-    // }).lean();
+    try {
+      const environment = getRuntimeEnvironment();
+      const calls = await LLMCallModel.find({
+        environment,
+        userId,
+        timestamp: { $gte: new Date(periodStart), $lte: new Date(periodEnd) },
+      }).lean();
 
-    return {
-      userId,
-      periodStart,
-      periodEnd,
-      totalCalls: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalCostUsd: 0,
-      byModel: [],
-      byAgent: [],
-    };
+      const totalCalls = calls.length;
+      const totalInputTokens = calls.reduce((sum, c) => sum + c.inputTokens, 0);
+      const totalOutputTokens = calls.reduce((sum, c) => sum + c.outputTokens, 0);
+      const totalCostUsd = Number(calls.reduce((sum, c) => sum + c.costUsd, 0).toFixed(6));
+
+      const modelMap = new Map<
+        string,
+        { calls: number; inputTokens: number; outputTokens: number; costUsd: number }
+      >();
+      const agentMap = new Map<string, { calls: number; totalTokens: number; costUsd: number }>();
+
+      for (const call of calls) {
+        const modelEntry = modelMap.get(call.model) ?? {
+          calls: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          costUsd: 0,
+        };
+        modelEntry.calls += 1;
+        modelEntry.inputTokens += call.inputTokens;
+        modelEntry.outputTokens += call.outputTokens;
+        modelEntry.costUsd = Number((modelEntry.costUsd + call.costUsd).toFixed(6));
+        modelMap.set(call.model, modelEntry);
+
+        const agentEntry = agentMap.get(call.agentId) ?? {
+          calls: 0,
+          totalTokens: 0,
+          costUsd: 0,
+        };
+        agentEntry.calls += 1;
+        agentEntry.totalTokens += call.totalTokens;
+        agentEntry.costUsd = Number((agentEntry.costUsd + call.costUsd).toFixed(6));
+        agentMap.set(call.agentId, agentEntry);
+      }
+
+      return {
+        userId,
+        periodStart,
+        periodEnd,
+        totalCalls,
+        totalInputTokens,
+        totalOutputTokens,
+        totalCostUsd,
+        byModel: [...modelMap.entries()].map(([model, stats]) => ({ model, ...stats })),
+        byAgent: [...agentMap.entries()].map(([agentId, stats]) => ({
+          agentId: agentId as AgentIdentifier,
+          ...stats,
+        })),
+      };
+    } catch (err) {
+      logger.warn('[TelemetryService] Failed to query usage summary', {
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return {
+        userId,
+        periodStart,
+        periodEnd,
+        totalCalls: 0,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalCostUsd: 0,
+        byModel: [],
+        byAgent: [],
+      };
+    }
   }
 
   // ─── Internal Helpers ───────────────────────────────────────────────────
@@ -187,21 +267,32 @@ export class TelemetryService {
    * Get today's aggregated usage for a user (for limit checking).
    */
   private async getTodayUsage(
-    _userId: string
+    userId: string
   ): Promise<{ totalCalls: number; totalTokens: number; totalCostUsd: number }> {
-    // TODO: Query today's records from MongoDB/Firestore
-    // const today = new Date().toISOString().split('T')[0];
-    // const calls = await LLMCallModel.find({
-    //   userId: _userId,
-    //   timestamp: { $gte: `${today}T00:00:00Z` },
-    // }).lean();
-    //
-    // return {
-    //   totalCalls: calls.length,
-    //   totalTokens: calls.reduce((sum, c) => sum + c.totalTokens, 0),
-    //   totalCostUsd: calls.reduce((sum, c) => sum + c.costUsd, 0),
-    // };
+    try {
+      const environment = getRuntimeEnvironment();
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
 
-    return { totalCalls: 0, totalTokens: 0, totalCostUsd: 0 };
+      const calls = await LLMCallModel.find({
+        environment,
+        userId,
+        timestamp: { $gte: today },
+      })
+        .select('totalTokens costUsd')
+        .lean();
+
+      return {
+        totalCalls: calls.length,
+        totalTokens: calls.reduce((sum, c) => sum + c.totalTokens, 0),
+        totalCostUsd: calls.reduce((sum, c) => sum + c.costUsd, 0),
+      };
+    } catch (err) {
+      logger.warn('[TelemetryService] Failed to query today usage', {
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { totalCalls: 0, totalTokens: 0, totalCostUsd: 0 };
+    }
   }
 }

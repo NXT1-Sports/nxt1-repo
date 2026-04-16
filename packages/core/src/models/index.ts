@@ -336,6 +336,7 @@ export {
   type AnalyticsSubjectType,
   type AnalyticsEventType,
   type AnalyticsSummaryTimeframe,
+  type AnalyticsRuntimeEnvironment,
   type AnalyticsEventRecord,
   type AnalyticsRollupRecord,
 } from './platform/analytics-event.model';
