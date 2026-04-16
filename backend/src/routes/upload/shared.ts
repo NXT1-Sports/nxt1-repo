@@ -219,11 +219,11 @@ export function buildExtensionCompatiblePath(
     case 'document': {
       const docExtension = fileName?.split('.').pop() || 'pdf';
       const sanitizedName = (fileName || 'document').replace(/[^a-zA-Z0-9.-]/g, '_').split('.')[0];
-      return `users/${userId}/documents/${timestamp}_${sanitizedName}.${docExtension}`;
+      return `Users/${userId}/documents/${timestamp}_${sanitizedName}.${docExtension}`;
     }
 
     default:
-      return `users/${userId}/uploads/${timestamp}.${extension}`;
+      return `Users/${userId}/uploads/${timestamp}.${extension}`;
   }
 }
 
@@ -330,7 +330,7 @@ export function buildStoragePath(userId: string, category: FileCategory, fileNam
   }
 
   const extension = sanitizedName.split('.').pop() || 'bin';
-  return `users/${userId}/${category}/${timestamp}_${sanitizedName.split('.')[0]}.${extension}`;
+  return `Users/${userId}/${category}/${timestamp}_${sanitizedName.split('.')[0]}.${extension}`;
 }
 
 // ============================================

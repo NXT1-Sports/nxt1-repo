@@ -275,7 +275,7 @@ router.delete(
     }
 
     const pathString = String(storagePath);
-    if (!pathString.startsWith(`users/${userId}/`)) {
+    if (!pathString.startsWith(`Users/${userId}/`)) {
       throw forbiddenError('owner');
     }
 

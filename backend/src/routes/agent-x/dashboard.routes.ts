@@ -352,7 +352,7 @@ router.post(
       const bucket = getStorage().bucket();
       const timestamp = Date.now();
       const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const storagePath = `agent-x/${user.uid}/${timestamp}_${sanitizedName}`;
+      const storagePath = `AgentX/${user.uid}/${timestamp}_${sanitizedName}`;
       const storageFile = bucket.file(storagePath);
 
       await storageFile.save(file.buffer, {

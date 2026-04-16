@@ -276,7 +276,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
     }
 
     const { db } = req.firebase!;
-    const approvalRef = db.collection('agentApprovalRequests').doc(approvalId);
+    const approvalRef = db.collection('AgentApprovalRequests').doc(approvalId);
 
     const transactionResult = await db.runTransaction(async (txn) => {
       const approvalSnap = await txn.get(approvalRef);
