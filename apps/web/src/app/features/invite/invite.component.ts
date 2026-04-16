@@ -16,8 +16,15 @@
  * - Bottom sheet on mobile via NxtBottomSheetService
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
-import { Router } from '@angular/router';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  computed,
+  OnInit,
+  signal,
+} from '@angular/core';
+import { Router, ActivatedRoute } from '@angular/router';
 import { InviteShellComponent, InviteService, type InviteUser } from '@nxt1/ui/invite';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { InviteType } from '@nxt1/core';
@@ -37,13 +44,12 @@ export class InviteComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly inviteService = inject(InviteService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly logger = inject(NxtLoggingService).child('InviteComponent');
   private readonly seo = inject(SeoService);
 
-  /**
-   * Default invite type - can be overridden via route data or query params.
-   */
-  protected readonly inviteType = computed<InviteType>(() => 'referral');
+  private readonly _inviteType = signal<InviteType>('referral');
+  protected readonly inviteType = this._inviteType.asReadonly();
 
   /**
    * Transform auth user to InviteUser interface.
@@ -60,6 +66,10 @@ export class InviteComponent implements OnInit {
   });
 
   async ngOnInit(): Promise<void> {
+    // Read inviteType from route data (e.g. /invite/team/:teamId sets inviteType='team')
+    const routeType = this.route.snapshot.data['inviteType'] as InviteType | undefined;
+    if (routeType) this._inviteType.set(routeType);
+
     this.logger.debug('Invite feature initialized');
     this.seo.updatePage({
       title: 'Invite Friends',
@@ -90,8 +100,8 @@ export class InviteComponent implements OnInit {
    * This is a fallback - backend should generate and store this.
    */
   private generateReferralCode(userId: string): string {
-    // Simple hash-based code - backend should handle this properly
-    const hash = userId.substring(0, 8).toUpperCase();
-    return `NXT1-${hash}`;
+    // Fallback only — backend generates and persists the real code (NXT-XXXXXX)
+    const hash = userId.substring(0, 6).toUpperCase();
+    return `NXT-${hash}`;
   }
 }

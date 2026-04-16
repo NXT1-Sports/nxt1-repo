@@ -14,8 +14,8 @@
  *
  * Flow (already authenticated + team invite):
  * 1. Shows confirmation screen: "TeamName invited you to join"
- * 2. User taps Accept → POST /invite/accept using their actual role → navigate to /home
- * 3. User taps Decline → navigate to /home
+ * 2. User taps Accept → POST /invite/accept using their actual role → navigate to /agent
+ * 3. User taps Decline → navigate to /agent
  *
  * Mirrors apps/web/src/app/features/join/join.component.ts
  */
@@ -192,21 +192,20 @@ export class JoinMobileComponent implements OnInit {
     } finally {
       this.isAccepting.set(false);
     }
-    void this.navController.navigateRoot('/home');
+    void this.navController.navigateRoot('/agent');
   }
 
   protected declineInvite(): void {
-    void this.navController.navigateRoot('/home');
+    void this.navController.navigateRoot('/agent');
   }
 
   async ngOnInit(): Promise<void> {
     const code = this.route.snapshot.paramMap.get('code')?.trim().toUpperCase() ?? '';
     const ref = this.route.snapshot.queryParamMap.get('ref') ?? '';
     const type = this.route.snapshot.queryParamMap.get('type') ?? 'general';
-    const teamId = this.route.snapshot.queryParamMap.get('team') ?? undefined;
-    let teamCode = this.route.snapshot.queryParamMap.get('teamCode') ?? undefined;
-    let teamName = this.route.snapshot.queryParamMap.get('teamName') ?? undefined;
-    let sport = this.route.snapshot.queryParamMap.get('sport') ?? undefined;
+    let teamCode: string | undefined;
+    let teamName: string | undefined;
+    let sport: string | undefined;
 
     if (!code) {
       this.logger.warn('Join link missing required code');
@@ -222,17 +221,15 @@ export class JoinMobileComponent implements OnInit {
     // For team invites, fetch full team data from backend
     let teamData: ValidatedTeamInfo | undefined;
     if (type === 'team') {
-      // Use the code from path as teamCode if not provided in query params
-      if (!teamCode) {
-        teamCode = code;
-      }
+      // The path code IS the teamCode
+      teamCode = code;
 
       try {
         const result = await this.authApi.validateTeamCode(teamCode);
         if (result.valid && result.teamCode) {
           teamData = result.teamCode;
-          teamName = teamData?.teamName || teamName;
-          sport = teamData?.sport || sport;
+          teamName = teamData?.teamName;
+          sport = teamData?.sport;
           this.logger.info('Fetched full team data', {
             teamId: teamData.id,
             teamName: teamData.teamName,
@@ -275,7 +272,7 @@ export class JoinMobileComponent implements OnInit {
       code,
       inviterUid,
       type,
-      teamId: teamData?.id || teamId,
+      teamId: teamData?.id,
       teamCode,
       teamName,
       sport,
@@ -284,7 +281,7 @@ export class JoinMobileComponent implements OnInit {
       timestamp: Date.now(),
     };
 
-    this.storeAndRedirect(pending);
+    void this.storeAndRedirect(pending);
   }
 
   private async storeAndRedirect(pending: PendingReferral): Promise<void> {

@@ -261,7 +261,6 @@ function userToEditProfileFormData(user: User, sportIndex?: number): EditProfile
       classYear: user.classOf ? String(user.classOf) : undefined,
     },
     photos: {
-      bannerImg: user.bannerImg ?? undefined,
       profileImgs: user.profileImgs ?? undefined,
     },
     sportsInfo: {

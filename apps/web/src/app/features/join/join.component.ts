@@ -147,11 +147,11 @@ export class JoinComponent implements OnInit {
     } finally {
       this.isAccepting.set(false);
     }
-    this.router.navigate(['/home'], { replaceUrl: true });
+    this.router.navigate(['/agent'], { replaceUrl: true });
   }
 
   protected declineInvite(): void {
-    this.router.navigate(['/home'], { replaceUrl: true });
+    this.router.navigate(['/agent'], { replaceUrl: true });
   }
 
   async ngOnInit(): Promise<void> {
@@ -170,10 +170,9 @@ export class JoinComponent implements OnInit {
 
     const ref = this.route.snapshot.queryParamMap.get('ref') ?? '';
     const type = this.route.snapshot.queryParamMap.get('type') ?? 'general';
-    const teamId = this.route.snapshot.queryParamMap.get('team') ?? undefined;
-    let teamCode = this.route.snapshot.queryParamMap.get('teamCode') ?? undefined;
-    let teamName = this.route.snapshot.queryParamMap.get('teamName') ?? undefined;
-    let sport = this.route.snapshot.queryParamMap.get('sport') ?? undefined;
+    let teamCode: string | undefined;
+    let teamName: string | undefined;
+    let sport: string | undefined;
 
     if (!code) {
       this.logger.warn('Join link missing required code', { code: !!code });
@@ -189,10 +188,8 @@ export class JoinComponent implements OnInit {
     // For team invites, fetch full team data from backend
     let teamData: ValidatedTeamInfo | undefined;
     if (type === 'team') {
-      // Use the code from path as teamCode if not provided in query params
-      if (!teamCode) {
-        teamCode = code;
-      }
+      // The path code IS the teamCode
+      teamCode = code;
 
       this.logger.info('Validating team code via API...', { teamCode });
 
@@ -258,7 +255,7 @@ export class JoinComponent implements OnInit {
       code,
       inviterUid,
       type,
-      teamId: teamData?.id || teamId,
+      teamId: teamData?.id,
       teamCode,
       teamName,
       sport,

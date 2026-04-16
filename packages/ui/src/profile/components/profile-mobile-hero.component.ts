@@ -11,7 +11,6 @@
  */
 import { Component, ChangeDetectionStrategy, inject, input, output, computed } from '@angular/core';
 
-import { NxtIconComponent } from '../../components/icon';
 import { NxtEntityHeroComponent, type EntityHeroMetaItem } from '../../components/entity-hero';
 import { ProfileService } from '../profile.service';
 import { isFemaleGender } from '@nxt1/core';
@@ -19,7 +18,7 @@ import { isFemaleGender } from '@nxt1/core';
 @Component({
   selector: 'nxt1-profile-mobile-hero',
   standalone: true,
-  imports: [NxtIconComponent, NxtEntityHeroComponent],
+  imports: [NxtEntityHeroComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section

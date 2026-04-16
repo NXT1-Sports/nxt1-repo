@@ -905,7 +905,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         referral.code,
         referral.teamCode,
         roleOverride ?? referral.role,
-        referral.inviterUid
+        referral.inviterUid,
+        true // isNewUser — credit $5 reward only for new-user onboarding (Flow B)
       );
 
       this.logger.info('Invite accepted successfully', {

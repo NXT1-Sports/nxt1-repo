@@ -538,21 +538,10 @@ export async function joinTeam(db: Firestore, input: JoinTeamInput): Promise<Tea
     return team;
   }
 
-  // V2: Check capacity via RosterEntry count (source of truth)
-  const rosterCountSnap = await db
-    .collection('RosterEntries')
-    .where('teamId', '==', team.id)
-    .where('status', 'in', [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING])
-    .count()
-    .get();
-  const currentMemberCount = rosterCountSnap.data().count;
-  const maxMembers = team.athleteMember + team.panelMember;
-
-  if (currentMemberCount >= maxMembers) {
-    throw validationError([
-      { field: 'teamCode', message: 'Team has reached maximum member capacity', rule: 'capacity' },
-    ]);
-  }
+  // NOTE: athleteMember and panelMember on the Team doc are running COUNTERS
+  // (incremented via FieldValue.increment on each join), NOT capacity limits.
+  // There is no hard cap on team size in the current data model, so the
+  // capacity check has been intentionally removed.
 
   const role = input.role ?? ROLE.athlete;
 

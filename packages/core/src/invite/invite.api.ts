@@ -275,7 +275,8 @@ export function createInviteApi(http: HttpAdapter, baseUrl: string) {
       code: string,
       teamCode?: string,
       role?: string,
-      inviterUid?: string
+      inviterUid?: string,
+      isNewUser?: boolean
     ): Promise<{
       success: boolean;
       teamJoined?: string;
@@ -297,7 +298,7 @@ export function createInviteApi(http: HttpAdapter, baseUrl: string) {
           teamJoined?: string;
           joinedAsPending?: boolean;
           error?: string;
-        }>(url, { code, teamCode, role: normalizedRole, inviterUid });
+        }>(url, { code, teamCode, role: normalizedRole, inviterUid, isNewUser });
 
         if (!response.success) {
           throw createApiError('SRV_INTERNAL_ERROR', {

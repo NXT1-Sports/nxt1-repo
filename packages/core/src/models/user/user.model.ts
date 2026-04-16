@@ -38,7 +38,13 @@ import type {
   AcademicInfo,
 } from './user-base.model';
 import type { SportProfile, VerifiedMetric } from './user-sport.model';
-import type { CoachData, RecruiterData, DirectorData, ParentData } from './user-role-data.model';
+import type {
+  CoachData,
+  RecruiterData,
+  DirectorData,
+  ParentData,
+  AthleteData,
+} from './user-role-data.model';
 
 // Re-export for convenience
 export { USER_SCHEMA_VERSION } from './user-base.model';
@@ -250,6 +256,8 @@ export interface User {
   // Note: 'athlete' nested object has been removed — athlete data lives at
   // top-level fields (academics, measurables, classOf, sports[]).
   // ============================================
+  athlete?: AthleteData;
+
   /** HS/Club coach-specific data - role: 'coach' */
   coach?: CoachData;
   /** Athletic/Program director data - role: 'director' */

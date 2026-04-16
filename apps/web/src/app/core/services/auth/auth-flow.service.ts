@@ -964,11 +964,13 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         inviterUid: referral.inviterUid,
       });
       // Pass inviterUid so backend can track referral even for team invites
+      // isNewUser=true signals backend to credit the $5 referral reward (Flow B only)
       await this.inviteApi.acceptInvite(
         referral.code,
         referral.teamCode,
         roleOverride ?? referral.role,
-        referral.inviterUid
+        referral.inviterUid,
+        true
       );
       this.logger.info('Invite accepted successfully', { code: referral.code });
 

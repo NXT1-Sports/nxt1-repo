@@ -336,13 +336,13 @@ router.post('/link', appGuard, async (req: Request, res: Response) => {
     let pathCode: string;
 
     if (type === 'team' && teamCode) {
-      // Team invite: /join/{teamCode}?type=team&sport={sport}&ref={userId}&teamName={name}
+      // Team invite: /join/{teamCode}?type=team&ref={userId}
+      // The join page calls validateTeamCode(code) to fetch teamName, sport, and Firestore ID,
+      // so those fields are intentionally excluded from the URL to keep it minimal.
       pathCode = teamCode;
       params.set('type', 'team');
-      if (teamSport) params.set('sport', teamSport);
       // Include inviter UID so join page can pass it to /invite/accept for $5 credit
       params.set('ref', userId);
-      if (teamName) params.set('teamName', encodeURIComponent(teamName));
     } else {
       // General/profile invite: /join/{referralCode}?type=...
       pathCode = referralCode;
@@ -779,11 +779,13 @@ router.post(
         teamCode,
         role,
         inviterUid: passedInviterUid,
+        isNewUser,
       } = req.body as {
         code: string;
         teamCode?: string;
         role?: TeamMemberRole;
         inviterUid?: string;
+        isNewUser?: boolean;
       };
 
       const normalizedCode = code.toUpperCase();
@@ -860,7 +862,9 @@ router.post(
       await batch.commit();
 
       // ── Credit referral reward to the inviter's Agent X wallet ──
-      if (inviterId) {
+      // Only credit when the invitee is a brand-new user completing onboarding (Flow B).
+      // Existing users who simply join a team via invite (Flow A) do NOT earn the inviter $5.
+      if (inviterId && isNewUser === true) {
         try {
           const rewardResult = await creditReferralReward(db, inviterId, userId);
           if (rewardResult.success) {
@@ -880,6 +884,11 @@ router.post(
             error: rewardErr instanceof Error ? rewardErr.message : String(rewardErr),
           });
         }
+      } else if (inviterId && !isNewUser) {
+        logger.debug('[POST /invite/accept] Skipping referral reward — existing user join', {
+          referrerId: inviterId,
+          userId,
+        });
       }
 
       // ── Team join (outside the batch; uses its own Firestore operations) ──
