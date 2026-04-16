@@ -135,7 +135,8 @@ function getAppBaseUrl(isStaging: boolean, origin?: string): string {
   }
 
   return isStaging
-    ? (process.env['STAGING_APP_URL'] ?? 'https://staging.nxt1sports.com')
+    ? (process.env['STAGING_APP_URL'] ??
+        'https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app')
     : 'https://nxt1sports.com';
 }
 

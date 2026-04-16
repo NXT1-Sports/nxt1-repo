@@ -1,13 +1,13 @@
 /**
  * Staging Environment Configuration
  *
- * Used for staging builds deployed to staging.nxt1sports.com
+ * Used for staging builds deployed to https://nxt-1-staging-v2.web.app
  */
 export const environment = {
   production: false,
   appVersion: '1.0.0-staging',
   version: '1.0.0-staging',
-  webUrl: 'https://staging.nxt1sports.com',
+  webUrl: 'https://nxt-1-staging-v2.web.app',
 
   // Backend API URLs (Staging)
   apiURL: 'https://api.nxt1sports.com/api/v1/staging',
