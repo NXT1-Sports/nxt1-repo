@@ -106,6 +106,7 @@ import {
 } from '../tools/integrations/index.js';
 import { AskUserTool } from '../tools/comms/ask-user.tool.js';
 import { WriteTimelinePostTool } from '../tools/comms/write-timeline-post.tool.js';
+import { ScanTimelinePostsTool } from '../tools/comms/scan-timeline-posts.tool.js';
 import { DelegateTaskTool } from '../tools/system/index.js';
 import {
   ScheduleRecurringTaskTool,
@@ -318,6 +319,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteConnectedSourceTool(stagingDb));
   toolRegistry.register(new AskUserTool());
   toolRegistry.register(new WriteTimelinePostTool(stagingDb));
+  toolRegistry.register(new ScanTimelinePostsTool(stagingDb, llm, vectorMemory));
   toolRegistry.register(new SendEmailTool(stagingDb));
 
   // ── 1b. Twitter/X & Instagram scraping (Apify-hosted actors) ─────────

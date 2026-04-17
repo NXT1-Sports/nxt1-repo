@@ -61,6 +61,7 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
       'close_live_view',
       'send_email',
       'ask_user',
+      'scan_timeline_posts',
     ];
   }
 

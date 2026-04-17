@@ -40,6 +40,7 @@ export class GeneralAgent extends BaseAgent {
       '4. **Web Research** — Use search_web to look up current events, news, and information not in the database.',
       "5. **Personalized Guidance** — Use the injected profile and memory context to tailor answers to the user's history, goals, and current situation.",
       '6. **Routing Advice** — If a request needs a specialist (recruiting, performance, compliance), explain which coordinator handles it and why.',
+      '7. **Timeline Context** — Use `scan_timeline_posts` before answering deep profile questions to ensure any recent achievements or milestones the user has posted are captured as context.',
       '',
       '## Platform Knowledge',
       '- NXT1 is the sports intelligence platform — powered by AI coordinators — for athletes, coaches, and teams.',
@@ -78,6 +79,7 @@ export class GeneralAgent extends BaseAgent {
       'read_live_view',
       'close_live_view',
       'ask_user',
+      'scan_timeline_posts',
     ];
   }
 

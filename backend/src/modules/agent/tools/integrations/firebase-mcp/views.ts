@@ -907,6 +907,85 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
       };
     },
   },
+  team_timeline_feed: {
+    metadata: {
+      name: 'team_timeline_feed',
+      title: 'Team Timeline Feed',
+      description:
+        "Read timeline posts associated with the authenticated viewer's accessible teams. Useful for reviewing team announcements, highlight posts, stat updates, and published team content.",
+      filterHelp: [
+        'Supported filters: teamId, type, visibility, sportId.',
+        'Omit teamId to search across all accessible teams.',
+        'Use cursor to paginate older posts returned in descending createdAt order.',
+      ],
+      defaultLimit: DEFAULT_FIREBASE_VIEW_LIMIT,
+      maxLimit: MAX_FIREBASE_VIEW_LIMIT,
+    },
+    async resolve(db, scope, input) {
+      const limit = limitFor(input, this.metadata);
+      const teamIds = resolveTeamIds(scope, input);
+      if (teamIds.length === 0) {
+        return {
+          view: 'team_timeline_feed',
+          count: 0,
+          items: [],
+          appliedFilters: input.filters,
+        };
+      }
+
+      const type = parseStringFilter(input, 'type');
+      const visibility = parseStringFilter(input, 'visibility');
+      const sportId = parseStringFilter(input, 'sportId');
+      const cursor = parseTimestampCursor(input);
+
+      const posts = await queryAcrossIds(
+        teamIds,
+        (teamId) => {
+          let query: Query = db.collection(POSTS_COLLECTION).where('teamId', '==', teamId);
+          if (type) query = query.where('type', '==', type);
+          if (visibility) query = query.where('visibility', '==', visibility);
+          if (sportId) query = query.where('sportId', '==', sportId);
+          query = query.orderBy('createdAt', 'desc');
+          if (cursor) query = query.where('createdAt', '<', cursor);
+          return query;
+        },
+        limit,
+        'createdAt'
+      );
+
+      const redactedItems = posts.map((item) =>
+        sanitizeRecord({
+          ...pickFields(item, [
+            'id',
+            'userId',
+            'teamId',
+            'content',
+            'type',
+            'visibility',
+            'sportId',
+            'images',
+            'videoUrl',
+            'hashtags',
+            'mentions',
+            'stats',
+            'title',
+            'createdAt',
+            'updatedAt',
+          ]),
+          videoUrl: item['videoUrl'] ?? item['mediaUrl'],
+        })
+      );
+
+      return {
+        view: 'team_timeline_feed',
+        count: redactedItems.length,
+        items: redactedItems,
+        nextCursor:
+          redactedItems.length === limit ? createdAtCursor(redactedItems, 'createdAt') : undefined,
+        appliedFilters: input.filters,
+      };
+    },
+  },
   team_highlight_videos: {
     metadata: {
       name: 'team_highlight_videos',

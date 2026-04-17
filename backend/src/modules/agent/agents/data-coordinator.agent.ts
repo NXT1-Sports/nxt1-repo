@@ -255,6 +255,7 @@ export class DataCoordinatorAgent extends BaseAgent {
       '- Use `write_timeline_post` ONLY when the user explicitly wants content published to the timeline/feed, or when the task is to turn scraped or generated media into a social post.',
       '- Do NOT call `write_timeline_post` automatically after every extraction. Avoid duplicate posts when `write_athlete_videos` already persisted highlight content unless the user explicitly asked for a public feed post.',
       '- When you do publish to the feed, keep the caption factual, concise, and tied to the scraped source. Attach media URLs when available.',
+      '- Use `scan_timeline_posts` at the START of any profile enrichment task to extract durable context (achievements, milestones, recruiting updates) from the user\'s feed into long-term memory BEFORE scraping external sources. Pass scope: "both" and the teamId when available.',
       '',
       '### Social Media Routing (CRITICAL)',
       '- **Twitter/X**: NEVER use `scrape_webpage` or `scrape_and_index_profile` for twitter.com or x.com URLs — they are blocked by the SSRF validator.',
@@ -365,6 +366,7 @@ export class DataCoordinatorAgent extends BaseAgent {
 
       // ── Communication ──
       'ask_user',
+      'scan_timeline_posts',
     ];
   }
 
