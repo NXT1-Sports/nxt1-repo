@@ -352,8 +352,7 @@ export class WriteConnectedSourceTool extends BaseTool {
       };
     }
 
-    // eslint-disable-next-line no-useless-assignment
-    let teamDocData: Record<string, unknown> = {};
+    let existingTeamData: Record<string, unknown> = {};
     try {
       const teamDoc = await this.db.collection(TEAMS_COLLECTION).doc(teamId).get();
       if (!teamDoc.exists) {
@@ -362,7 +361,7 @@ export class WriteConnectedSourceTool extends BaseTool {
           error: `Team document "${teamId}" not found.`,
         };
       }
-      teamDocData = teamDoc.data() ?? {};
+      existingTeamData = teamDoc.data() ?? {};
     } catch (err) {
       logger.error('[WriteConnectedSource] Failed to fetch team doc', {
         userId,
@@ -375,8 +374,8 @@ export class WriteConnectedSourceTool extends BaseTool {
       };
     }
 
-    const existing = Array.isArray(teamDocData['connectedSources'])
-      ? (teamDocData['connectedSources'] as Record<string, unknown>[])
+    const existing = Array.isArray(existingTeamData['connectedSources'])
+      ? (existingTeamData['connectedSources'] as Record<string, unknown>[])
       : [];
 
     const updated = this.upsertConnectedSource(existing, platform, url, scopeId, now, faviconUrl);
