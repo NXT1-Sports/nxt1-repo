@@ -162,11 +162,6 @@ export class ScoutReportsService {
     }));
   });
 
-  /** Bookmarked reports */
-  readonly bookmarkedReports = computed(() => {
-    return this._reports().filter((report) => report.isBookmarked);
-  });
-
   /** Verified reports */
   readonly verifiedReports = computed(() => {
     return this._reports().filter((report) => report.isVerified);
@@ -285,53 +280,6 @@ export class ScoutReportsService {
       await this.haptics.notification('success');
     } finally {
       this._isRefreshing.set(false);
-    }
-  }
-
-  /**
-   * Toggle bookmark on a report.
-   * Uses optimistic update with rollback on failure.
-   *
-   * @param reportId - Report ID to toggle bookmark
-   */
-  async toggleBookmark(reportId: string): Promise<void> {
-    const report = this._reports().find((r) => r.id === reportId);
-    if (!report) return;
-
-    const wasBookmarked = report.isBookmarked;
-    const previousReports = this._reports();
-
-    // Optimistic update
-    this._reports.update((reports) =>
-      reports.map((r) =>
-        r.id === reportId
-          ? {
-              ...r,
-              isBookmarked: !r.isBookmarked,
-              bookmarkCount: r.isBookmarked ? r.bookmarkCount - 1 : r.bookmarkCount + 1,
-            }
-          : r
-      )
-    );
-
-    // Haptic feedback
-    await this.haptics.impact(wasBookmarked ? 'light' : 'medium');
-
-    try {
-      // ⚠️ TEMPORARY: Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
-      // Show success toast with XP info
-      if (!wasBookmarked) {
-        this.toast.success('Report saved! +15 XP');
-      } else {
-        this.toast.info('Report removed from saved');
-      }
-    } catch (err) {
-      // Rollback on failure
-      this._reports.set(previousReports);
-      this.toast.error('Failed to update bookmark');
-      this.logger.error('Failed to toggle bookmark', err, { reportId });
     }
   }
 

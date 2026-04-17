@@ -17,15 +17,15 @@ import type { ModelTier, AgentIdentifier } from '@nxt1/core';
  */
 export const MODEL_CATALOGUE: Record<ModelTier, string> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
-  routing: 'anthropic/claude-sonnet-4',
+  routing: 'anthropic/claude-sonnet-4-5',
   extraction: 'anthropic/claude-haiku-4-5',
   data_heavy: 'qwen/qwen3.6-plus',
   evaluator: 'minimax/minimax-m2.7',
   compliance: 'openai/gpt-4o',
-  copywriting: 'anthropic/claude-sonnet-4',
-  prompt_engineering: 'anthropic/claude-sonnet-4',
+  copywriting: 'anthropic/claude-sonnet-4-5',
+  prompt_engineering: 'anthropic/claude-sonnet-4-5',
   chat: 'anthropic/claude-haiku-4-5',
-  task_automation: 'anthropic/claude-sonnet-4',
+  task_automation: 'anthropic/claude-sonnet-4-5',
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: 'google/gemini-3-pro-image-preview',

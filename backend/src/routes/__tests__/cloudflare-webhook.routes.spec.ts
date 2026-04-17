@@ -17,11 +17,11 @@ describe('Cloudflare Webhook Routes', () => {
     vi.unstubAllEnvs();
   });
 
-  it('POST /api/v1/cloudflare-webhook should reconcile a ready event into an existing highlight post', async () => {
+  it('POST /api/v1/cloudflare-webhook should reconcile a ready event into an existing video post', async () => {
     __seedMockFirestoreDocument('Posts/cf-stream-video-123', {
       id: 'cf-stream-video-123',
       userId: 'test-user',
-      type: 'highlight',
+      type: 'video',
       mediaUrl: 'https://customer-123.cloudflarestream.com/video-123/iframe',
       videoUrl: 'https://customer-123.cloudflarestream.com/video-123/manifest/video.m3u8',
       readyToStream: false,
@@ -64,11 +64,11 @@ describe('Cloudflare Webhook Routes', () => {
     });
   });
 
-  it('POST /api/v1/cloudflare-webhook should reconcile an error event into an existing highlight post', async () => {
+  it('POST /api/v1/cloudflare-webhook should reconcile an error event into an existing video post', async () => {
     __seedMockFirestoreDocument('Posts/cf-stream-video-456', {
       id: 'cf-stream-video-456',
       userId: 'test-user',
-      type: 'highlight',
+      type: 'video',
       readyToStream: false,
       cloudflareStatus: 'inprogress',
     });

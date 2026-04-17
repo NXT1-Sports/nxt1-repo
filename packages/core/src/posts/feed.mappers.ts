@@ -1,6 +1,6 @@
 /**
  * @fileoverview Feed Data Mappers
- * @module @nxt1/core/feed
+ * @module @nxt1/core/posts
  * @version 1.0.0
  *
  * Pure TypeScript mapper functions for converting between different
@@ -14,6 +14,7 @@ import type {
   FeedItem,
   FeedItemPost,
   FeedItemEvent,
+  FeedItemSchedule,
   FeedItemStat,
   FeedItemMetric,
   FeedItemOffer,
@@ -21,9 +22,9 @@ import type {
   FeedItemVisit,
   FeedItemCamp,
   FeedItemAward,
+  FeedItemNews,
   FeedItemBase,
   FeedEngagement,
-  FeedUserEngagement,
   FeedScheduleData,
   FeedExternalSource,
 } from './feed.types';
@@ -44,7 +45,6 @@ const PROFILE_TO_FEED_TYPE: Readonly<Record<ProfilePostType, FeedPostType>> = {
   video: 'video',
   image: 'image',
   text: 'text',
-  highlight: 'highlight',
   news: 'article',
   stat: 'text',
   offer: 'offer',
@@ -74,14 +74,6 @@ export function profileUserToFeedAuthor(user: ProfileUser): FeedAuthor {
     firstName: user.firstName,
     lastName: user.lastName,
     avatarUrl: user.profileImg ?? undefined,
-    role: user.role as FeedAuthor['role'],
-    verificationStatus: user.verificationStatus,
-    isVerified: user.verificationStatus === 'verified' || user.verificationStatus === 'premium',
-    sport: user.primarySport?.name,
-    position: user.primarySport?.position,
-    schoolName: user.school?.name,
-    schoolLogoUrl: user.school?.logoUrl,
-    classYear: user.classYear,
   };
 }
 
@@ -96,17 +88,25 @@ export function profileUserToFeedAuthor(user: ProfileUser): FeedAuthor {
 function buildMediaFromProfilePost(post: ProfilePost): readonly FeedMedia[] {
   if (!post.thumbnailUrl && !post.mediaUrl) return [];
 
-  const mediaType: FeedMedia['type'] =
-    post.type === 'video' || post.type === 'highlight' ? 'video' : 'image';
+  const mediaType: FeedMedia['type'] = post.type === 'video' ? 'video' : 'image';
+
+  const isVideo = mediaType === 'video';
+  const cfStatus = post.cloudflareStatus as FeedMedia['processingStatus'] | undefined;
 
   return [
     {
       id: `${post.id}-media-0`,
       type: mediaType,
-      url: post.mediaUrl ?? post.thumbnailUrl!,
+      // For CF videos prefer iframeUrl; fall back to mediaUrl (which backend already set to iframeUrl)
+      url: (isVideo ? (post.iframeUrl ?? post.mediaUrl) : post.mediaUrl) ?? post.thumbnailUrl!,
       thumbnailUrl: post.thumbnailUrl,
       duration: post.duration,
       altText: post.title ?? 'Post media',
+      ...(isVideo && post.cloudflareVideoId ? { cloudflareVideoId: post.cloudflareVideoId } : {}),
+      ...(isVideo && post.iframeUrl ? { iframeUrl: post.iframeUrl } : {}),
+      ...(isVideo && post.hlsUrl ? { hlsUrl: post.hlsUrl } : {}),
+      ...(isVideo && post.dashUrl ? { dashUrl: post.dashUrl } : {}),
+      ...(isVideo && cfStatus ? { processingStatus: cfStatus } : {}),
     },
   ];
 }
@@ -138,17 +138,8 @@ export function profilePostToFeedPost(post: ProfilePost, author: FeedAuthor): Fe
     media: buildMediaFromProfilePost(post),
     title: post.title,
     engagement: {
-      likeCount: post.likeCount,
       shareCount: post.shareCount,
       viewCount: post.viewCount ?? 0,
-      reactionCount: post.likeCount,
-    },
-    userEngagement: {
-      isLiked: post.isLiked ?? false,
-      isBookmarked: false,
-      isReposted: false,
-      isReacted: post.isLiked ?? false,
-      reactionType: post.isLiked ? 'like' : null,
     },
     isPinned: post.isPinned ?? false,
     createdAt: post.createdAt,
@@ -239,17 +230,8 @@ export function profileOfferToFeedPost(offer: ProfileOffer, author: FeedAuthor):
       conference: offer.conference,
     },
     engagement: {
-      likeCount: 0,
       shareCount: 0,
       viewCount: 0,
-      reactionCount: 0,
-    },
-    userEngagement: {
-      isLiked: false,
-      isBookmarked: false,
-      isReposted: false,
-      isReacted: false,
-      reactionType: null,
     },
     isPinned: false,
     createdAt: offer.date,
@@ -330,17 +312,8 @@ export function profileEventToFeedPost(event: ProfileEvent, author: FeedAuthor):
     campData,
     location: event.location,
     engagement: {
-      likeCount: 0,
       shareCount: 0,
       viewCount: 0,
-      reactionCount: 0,
-    },
-    userEngagement: {
-      isLiked: false,
-      isBookmarked: false,
-      isReposted: false,
-      isReacted: false,
-      reactionType: null,
     },
     isPinned: false,
     createdAt: event.startDate,
@@ -407,7 +380,6 @@ const TEAM_TO_FEED_TYPE: Readonly<Record<TeamProfilePostType, FeedPostType>> = {
   video: 'video',
   image: 'image',
   text: 'text',
-  highlight: 'highlight',
   news: 'article',
   announcement: 'text',
 };
@@ -433,12 +405,6 @@ export function teamToFeedAuthor(team: TeamProfileTeam): FeedAuthor {
     firstName: team.teamName,
     lastName: '',
     avatarUrl: team.logoUrl,
-    role: 'team' as FeedAuthor['role'],
-    verificationStatus: team.verificationStatus,
-    isVerified: team.verificationStatus === 'verified' || team.verificationStatus === 'premium',
-    sport: team.sport,
-    schoolName: team.teamName,
-    schoolLogoUrl: team.logoUrl,
   };
 }
 
@@ -449,8 +415,7 @@ export function teamToFeedAuthor(team: TeamProfileTeam): FeedAuthor {
 function buildMediaFromTeamPost(post: TeamProfilePost): readonly FeedMedia[] {
   if (!post.thumbnailUrl && !post.mediaUrl) return [];
 
-  const mediaType: FeedMedia['type'] =
-    post.type === 'video' || post.type === 'highlight' ? 'video' : 'image';
+  const mediaType: FeedMedia['type'] = post.type === 'video' ? 'video' : 'image';
 
   return [
     {
@@ -491,17 +456,8 @@ export function teamPostToFeedPost(post: TeamProfilePost, author: FeedAuthor): F
     media: buildMediaFromTeamPost(post),
     title: post.title,
     engagement: {
-      likeCount: post.likeCount,
       shareCount: post.shareCount,
       viewCount: post.viewCount ?? 0,
-      reactionCount: post.likeCount,
-    },
-    userEngagement: {
-      isLiked: post.isLiked ?? false,
-      isBookmarked: false,
-      isReposted: false,
-      isReacted: post.isLiked ?? false,
-      reactionType: post.isLiked ? 'like' : null,
     },
     isPinned: post.isPinned ?? false,
     createdAt: post.createdAt,
@@ -532,22 +488,8 @@ export function teamPostsToFeedPosts(
  * Default empty engagement counters for newly assembled feed items.
  */
 const EMPTY_ENGAGEMENT: FeedEngagement = {
-  reactionCount: 0,
-  likeCount: 0,
   shareCount: 0,
   viewCount: 0,
-  bookmarkCount: 0,
-};
-
-/**
- * Default user engagement state (no interactions).
- */
-const EMPTY_USER_ENGAGEMENT: FeedUserEngagement = {
-  isReacted: false,
-  reactionType: null,
-  isLiked: false,
-  isBookmarked: false,
-  isReposted: false,
 };
 
 /**
@@ -559,7 +501,6 @@ function buildFeedItemBase(
   createdAt: string,
   overrides?: {
     engagement?: Partial<FeedEngagement>;
-    userEngagement?: Partial<FeedUserEngagement>;
     isPinned?: boolean;
   }
 ): Omit<FeedItemBase, 'feedType'> {
@@ -567,7 +508,6 @@ function buildFeedItemBase(
     id,
     author,
     engagement: { ...EMPTY_ENGAGEMENT, ...overrides?.engagement },
-    userEngagement: { ...EMPTY_USER_ENGAGEMENT, ...overrides?.userEngagement },
     isPinned: overrides?.isPinned ?? false,
     createdAt,
     updatedAt: createdAt,
@@ -582,7 +522,6 @@ export function feedPostToFeedItem(post: FeedPost): FeedItemPost {
   return {
     ...buildFeedItemBase(post.id, post.author, post.createdAt, {
       engagement: post.engagement,
-      userEngagement: post.userEngagement,
       isPinned: post.isPinned,
     }),
     feedType: 'POST',
@@ -590,11 +529,9 @@ export function feedPostToFeedItem(post: FeedPost): FeedItemPost {
     title: post.title,
     content: post.content,
     media: post.media,
-    mentions: post.mentions,
     location: post.location,
     externalSource: post.externalSource,
     postTags: post.postTags,
-    repostData: post.repostData,
     updatedAt: post.updatedAt,
   };
 }
@@ -627,6 +564,51 @@ export function eventDocToFeedItemEvent(
     ...buildFeedItemBase(`event-${docId}`, author, data.date),
     feedType: 'EVENT',
     referenceId: docId,
+    eventData: {
+      eventTitle: data.opponent ? `vs ${data.opponent}` : 'Game',
+      opponent: data.opponent,
+      opponentLogoUrl: data.opponentLogoUrl,
+      venue: data.location,
+      dateTime: data.date,
+      isHome: data.isHome,
+      result: resultStr,
+      status: (data.status as FeedScheduleData['status']) ?? 'final',
+    },
+  };
+}
+
+/**
+ * Convert a Firestore Schedule document into a FeedItemSchedule.
+ * Used for competitive events: games, scrimmages, practices, playoffs.
+ * Produces feedType: 'SCHEDULE' — distinct from exposure Events (feedType: 'EVENT').
+ * Called by the backend timeline assembler.
+ */
+export function scheduleDocToFeedItemSchedule(
+  docId: string,
+  data: {
+    date: string;
+    opponent?: string;
+    opponentLogoUrl?: string;
+    location?: string;
+    isHome?: boolean;
+    status?: string;
+    scheduleType?: string;
+    result?: { teamScore?: number; opponentScore?: number; outcome?: string; overtime?: boolean };
+    sport?: string;
+    teamId?: string;
+  },
+  author: FeedAuthor
+): FeedItemSchedule {
+  const resultStr =
+    data.result && data.status === 'final'
+      ? `${data.result.outcome === 'win' ? 'W' : data.result.outcome === 'loss' ? 'L' : 'T'} ${data.result.teamScore ?? 0}-${data.result.opponentScore ?? 0}`
+      : undefined;
+
+  return {
+    ...buildFeedItemBase(`schedule-${docId}`, author, data.date),
+    feedType: 'SCHEDULE',
+    referenceId: docId,
+    scheduleType: data.scheduleType ?? 'game',
     eventData: {
       eventTitle: data.opponent ? `vs ${data.opponent}` : 'Game',
       opponent: data.opponent,
@@ -927,7 +909,7 @@ export function videoDocToFeedItemPost(
     platform?: string;
     source?: string;
     createdAt: string;
-    stats?: { views?: number; likes?: number; shares?: number };
+    stats?: { views?: number; shares?: number };
   },
   author: FeedAuthor
 ): FeedItemPost {
@@ -942,7 +924,6 @@ export function videoDocToFeedItemPost(
 
   const engagement: Partial<FeedEngagement> = {
     viewCount: data.stats?.views ?? 0,
-    likeCount: data.stats?.likes ?? 0,
     shareCount: data.stats?.shares ?? 0,
   };
 
@@ -957,7 +938,7 @@ export function videoDocToFeedItemPost(
   return {
     ...buildFeedItemBase(`video-${docId}`, author, data.createdAt, { engagement }),
     feedType: 'POST',
-    postType: 'highlight',
+    postType: 'video',
     title: data.title,
     content: data.title,
     media,
@@ -1079,6 +1060,91 @@ export function profileEventToFeedItemVariant(
       venue: event.location,
       dateTime: event.startDate,
       status: 'final',
+    },
+  };
+}
+
+/**
+ * Convert a News collection document into a FeedItemNews.
+ *
+ * Used by the backend team/profile timeline assemblers to surface
+ * AI-generated or syndicated news articles.
+ */
+export function newsArticleToFeedItemNews(
+  docId: string,
+  data: {
+    headline: string;
+    source: string;
+    sourceLogoUrl?: string;
+    excerpt?: string;
+    articleUrl?: string;
+    imageUrl?: string;
+    publishedAt: string;
+    category?: string;
+  },
+  author: FeedAuthor
+): FeedItemNews {
+  return {
+    ...buildFeedItemBase(`news-${docId}`, author, data.publishedAt),
+    feedType: 'NEWS',
+    referenceId: docId,
+    newsData: {
+      headline: data.headline,
+      source: data.source,
+      sourceLogoUrl: data.sourceLogoUrl,
+      excerpt: data.excerpt,
+      articleUrl: data.articleUrl,
+      imageUrl: data.imageUrl,
+      publishedAt: data.publishedAt,
+      category: data.category,
+    },
+  };
+}
+
+/**
+ * Convert a TeamStats document into a FeedItemStat.
+ *
+ * TeamStats docs store flat sport-agnostic stat entries:
+ *   { field, label, value, unit?, category, trend?, trendValue? }
+ *
+ * The doc is rendered as a stat-line card in the team timeline.
+ */
+export function teamStatDocToFeedItemStat(
+  docId: string,
+  data: {
+    createdAt: string;
+    season?: string;
+    sportId?: string;
+    source?: string;
+    stats: readonly {
+      label: string;
+      value: string | number;
+      unit?: string;
+      category?: string;
+      trend?: string;
+      trendValue?: number;
+      isHighlight?: boolean;
+    }[];
+  },
+  author: FeedAuthor
+): FeedItemStat {
+  const context = data.season
+    ? `${data.season}${data.sportId ? ` ${data.sportId}` : ''} Team Stats`.trim()
+    : 'Team Stats';
+
+  return {
+    ...buildFeedItemBase(`teamstat-${docId}`, author, data.createdAt),
+    feedType: 'STAT',
+    referenceId: docId,
+    statData: {
+      context,
+      gameDate: data.createdAt,
+      stats: data.stats.map((s) => ({
+        label: s.label,
+        value: s.value,
+        unit: s.unit,
+        isHighlight: s.isHighlight,
+      })),
     },
   };
 }

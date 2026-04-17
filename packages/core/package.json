@@ -97,10 +97,10 @@
       "import": "./dist/performance/index.js",
       "require": "./dist/performance/index.cjs"
     },
-    "./feed": {
-      "types": "./dist/feed/index.d.ts",
-      "import": "./dist/feed/index.js",
-      "require": "./dist/feed/index.cjs"
+    "./posts": {
+      "types": "./dist/posts/index.d.ts",
+      "import": "./dist/posts/index.js",
+      "require": "./dist/posts/index.cjs"
     },
     "./create-post": {
       "types": "./dist/create-post/index.d.ts",

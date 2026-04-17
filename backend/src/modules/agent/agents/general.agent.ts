@@ -19,9 +19,13 @@ export class GeneralAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'general';
   readonly name = 'General Agent';
 
-  getSystemPrompt(_context: AgentSessionContext): string {
+  getSystemPrompt(context: AgentSessionContext): string {
     // User role/sport context is injected into the intent string by the AgentRouter
     // via ContextBuilder.compressToPrompt() — no need to read it from the session context here.
+    // context.mode is set by the SSE chat client (e.g. 'scout', 'athlete', 'recruiting').
+    const modeHint = context.mode
+      ? `\n- The user is currently in "${context.mode}" mode — tailor your response accordingly.`
+      : '';
     return [
       'You are Agent X — the AI at the heart of NXT1 Sports, "The Ultimate AI Sports Coordinators."',
       'User profile context (name, role, sport) is provided in the task description.',
@@ -61,7 +65,10 @@ export class GeneralAgent extends BaseAgent {
       '- For platform-wide questions about posts, organizations, recruiting, stats, roster entries, events, or any full athlete record spanning multiple collections, use query_nxt1_platform_data and answer from totalCount or bundle totals.',
       '- If you cannot answer a question confidently, use search_web to look it up.',
       '- Always be respectful and supportive — sports is hard, and users deserve genuine help.',
-    ].join('\n');
+      modeHint,
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 
   getAvailableTools(): readonly string[] {

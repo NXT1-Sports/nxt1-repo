@@ -1,9 +1,9 @@
 /**
- * @fileoverview Write Athlete Videos Tool — Atomic writer for highlight/profile videos
+ * @fileoverview Write Athlete Videos Tool — Atomic writer for athlete video posts
  * @module @nxt1/backend/modules/agent/tools/database
  *
- * Writes distilled video links (Hudl highlights, YouTube, Vimeo, etc.) to the
- * top-level `Posts` collection with `type: 'highlight'`.
+ * Writes distilled video links (Hudl, YouTube, Vimeo, etc.) to the
+ * top-level `Posts` collection with `type: 'video'`.
  *
  * Each document follows the Posts schema: userId, type, visibility, sportId,
  * url, mediaUrl, thumbnailUrl, platform, stats, organizationId, teamId, etc.
@@ -42,8 +42,8 @@ export class WriteAthleteVideosTool extends BaseTool {
   readonly name = 'write_athlete_videos';
 
   readonly description =
-    'Writes athlete highlight and profile videos (Hudl, YouTube, Vimeo, etc.) to the Posts collection ' +
-    'as highlight posts.\n\n' +
+    'Writes athlete videos (Hudl, YouTube, Vimeo, etc.) to the Posts collection ' +
+    'as video posts.\n\n' +
     'Call this after reading the "videos" section via read_distilled_section.\n\n' +
     'Parameters:\n' +
     '- userId (required): Firebase UID.\n' +
@@ -144,11 +144,11 @@ export class WriteAthleteVideosTool extends BaseTool {
 
       context?.onProgress?.('Checking for duplicate videos…');
 
-      // Fetch existing highlight posts for dedup
+      // Fetch existing video posts for dedup
       const existingSnap = await this.db
         .collection(POSTS_COLLECTION)
         .where('userId', '==', userId)
-        .where('type', '==', 'highlight')
+        .where('type', '==', 'video')
         .where('sportId', '==', sportId)
         .get();
 
@@ -242,8 +242,8 @@ export class WriteAthleteVideosTool extends BaseTool {
           url: trimmedSrc, // VideoDoc canonical field
           mediaUrl: trimmedSrc, // Frontend mapTimelineDoc reads this
           src: trimmedSrc, // Legacy/internal reference
-          type: 'highlight', // PostType — scraped videos are highlights
-          visibility: PostVisibility.PUBLIC, // Scraped highlights are public
+          type: 'video', // PostType
+          visibility: PostVisibility.PUBLIC, // Video posts are public
           platform: provider, // hudl, youtube, etc.
           provider, // Legacy/internal reference
           source, // Scrape source slug

@@ -156,8 +156,6 @@ export interface ExploreVideoItem extends ExploreItemBase {
   readonly duration: number;
   /** View count */
   readonly views: number;
-  /** Like count */
-  readonly likes: number;
   /** Creator info */
   readonly creator: {
     readonly id: string;

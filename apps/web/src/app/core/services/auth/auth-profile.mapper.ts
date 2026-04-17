@@ -9,7 +9,7 @@
  * especially for coach/director avatar and sidebar navigation.
  */
 
-import { buildTeamSlug } from '@nxt1/core';
+import { buildTeamSlug, type ConnectedSource } from '@nxt1/core';
 import { resolveCanonicalTeamRoute } from '@nxt1/core/helpers';
 import type { CachedUserProfile } from '@nxt1/core/auth';
 
@@ -54,6 +54,7 @@ export interface BackendProfileLike {
   readonly completeSignUp?: boolean;
   readonly isCollegeCoach?: boolean | null;
   readonly isRecruit?: boolean | null;
+  readonly connectedSources?: readonly ConnectedSource[];
   readonly teamCode?: BackendTeamCodeLike | string | null;
   readonly sports?: readonly BackendSportLike[] | Record<string, BackendSportLike>;
   readonly coach?: {
@@ -176,6 +177,7 @@ export function mapBackendProfileToCachedUserProfile(user: BackendProfileLike): 
       isPrimary: sport.order === 0,
       team: sport.team,
     })),
+    connectedSources: Array.isArray(user.connectedSources) ? [...user.connectedSources] : undefined,
   };
 }
 

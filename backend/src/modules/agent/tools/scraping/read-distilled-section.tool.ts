@@ -27,7 +27,7 @@ export class ReadDistilledSectionTool extends BaseTool {
     'seasonStats, schedule, recruiting, awards.\n\n' +
     'After reading a section, call the appropriate write tool:\n' +
     '- identity + academics + sportInfo + team + coach → write_core_identity\n' +
-    '- awards → write_core_identity for honors, and write_rankings when the items represent ranking snapshots\n' +
+    '- awards → write_awards (root Awards collection — NOT write_core_identity)\n' +
     '- metrics → write_combine_metrics\n' +
     '- seasonStats → write_season_stats\n' +
     '- schedule → write_calendar_events\n' +

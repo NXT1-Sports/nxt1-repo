@@ -37,6 +37,10 @@ import {
   AgentXBillingActionCardComponent,
   type BillingActionResolvedEvent,
 } from '../../agent-x/agent-x-billing-action-card.component';
+import {
+  AgentXAskUserCardComponent,
+  type AskUserReplyEvent,
+} from '../../agent-x/agent-x-ask-user-card.component';
 import { NxtMarkdownComponent } from '../markdown/markdown.component';
 
 /** Visual variant controlling sizing, colors, and border‑radius. */
@@ -56,6 +60,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
     AgentXProfileCardComponent,
     AgentXFilmTimelineCardComponent,
     AgentXBillingActionCardComponent,
+    AgentXAskUserCardComponent,
     NxtMarkdownComponent,
   ],
   host: {
@@ -144,6 +149,11 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
               <nxt1-agent-x-billing-action-card
                 [card]="part.card"
                 (actionResolved)="billingActionResolved.emit($event)"
+              />
+            } @else if (part.card.type === 'ask_user') {
+              <nxt1-agent-x-ask-user-card
+                [card]="part.card"
+                (replySubmitted)="askUserReply.emit($event)"
               />
             } @else {
               <div class="card-fallback">
@@ -244,6 +254,8 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
             [card]="card"
             (actionResolved)="billingActionResolved.emit($event)"
           />
+        } @else if (card.type === 'ask_user') {
+          <nxt1-agent-x-ask-user-card [card]="card" (replySubmitted)="askUserReply.emit($event)" />
         } @else {
           <div class="card-fallback">
             <span class="card-fallback__icon">⚠️</span>
@@ -648,4 +660,7 @@ export class NxtChatBubbleComponent {
 
   /** Emitted when a billing action card CTA is resolved. */
   readonly billingActionResolved = output<BillingActionResolvedEvent>();
+
+  /** Emitted when the user submits a reply to an ask_user card. */
+  readonly askUserReply = output<AskUserReplyEvent>();
 }

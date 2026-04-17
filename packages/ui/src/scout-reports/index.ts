@@ -40,7 +40,6 @@ export {
   ScoutReportQuickStatsComponent,
   type QuickStatItem,
 } from './scout-report-quick-stats.component';
-export { ScoutReportBookmarkButtonComponent } from './scout-report-bookmark-button.component';
 
 // ============================================
 // SERVICES

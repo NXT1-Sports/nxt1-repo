@@ -926,12 +926,20 @@ router.put(
         (typeof sectionData?.['sport'] === 'string' && sectionData['sport'].trim()) ||
         'general';
 
+      // Fetch awards from root collection (source of truth)
+      const previousAwardsSnap = await db.collection('Awards').where('userId', '==', uid).get();
+      const previousAwardDocs = previousAwardsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
       const scopedDelta = {
         ...diffService.diff(
           uid,
           deltaSport,
           'manual-profile',
-          buildPreviousStateFromUserRecord(user as unknown as Record<string, unknown>, sportIndex),
+          buildPreviousStateFromUserRecord(
+            user as unknown as Record<string, unknown>,
+            sportIndex,
+            previousAwardDocs
+          ),
           buildDistilledProfileFromUserRecord(updatedUserData, sportIndex)
         ),
         teamId:

@@ -31,6 +31,7 @@ import {
   profileUserToFeedAuthor,
   buildUnifiedActivityFeed,
 } from '@nxt1/core';
+import { type FeedItem } from '@nxt1/core/posts';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { type RankingSource } from './rankings/profile-rankings.component';
@@ -79,11 +80,15 @@ export class ProfileService {
   private readonly _rankings = signal<RankingSource[]>([]);
   private readonly _scoutReports = signal<readonly ScoutReport[]>([]);
   private readonly _newsArticles = signal<readonly NewsArticle[]>([]);
-  private readonly _activityFeedItems = signal<readonly FeedPost[]>([]);
   /** Timeline posts loaded from the user’s timeline sub-collection */
-  private readonly _timelinePosts = signal<readonly ProfilePost[]>([]);
-  /** Videos loaded from the user’s videos sub-collection */
-  private readonly _videoPosts = signal<readonly ProfilePost[]>([]); /**
+  private readonly _timelinePosts = signal<readonly ProfilePost[]>(
+    []
+  ); /** Polymorphic timeline feed — all FeedItem types from the backend TimelineService */
+  private readonly _polymorphicTimeline = signal<readonly FeedItem[]>([]);
+  /** Whether the backend reported more pages available */
+  private readonly _timelineHasMore = signal(false);
+  /** Cursor for the next page of timeline results */
+  private readonly _timelineCursor = signal<string | undefined>(undefined); /**
    * Schedule events fetched from the API sub-collection.
    * `null` = not yet fetched (fall back to embedded sports[].upcomingEvents).
    * Non-null (even []) = authoritative API result; overrides embedded data.
@@ -155,6 +160,13 @@ export class ProfileService {
   readonly pinnedVideo = computed(() => this._profileData()?.pinnedVideo ?? null);
 
   /** All posts — sourced from the user's timeline sub-collection */
+  /** Polymorphic timeline feed — preferred data source for the timeline tab */
+  readonly polymorphicTimeline = computed(() => this._polymorphicTimeline());
+  /** Whether the backend has more timeline pages to load */
+  readonly timelineHasMore = computed(() => this._timelineHasMore());
+  /** Cursor to pass with the next load-more request */
+  readonly timelineCursor = computed(() => this._timelineCursor());
+
   readonly allPosts = computed(() => this._timelinePosts());
 
   /**
@@ -180,18 +192,12 @@ export class ProfileService {
     });
   });
 
-  /** Videos from the dedicated videos sub-collection (falls back to timeline video-type posts) */
+  /** Videos — posts of type 'video' from the timeline, optionally filtered by active sport */
   readonly videoPosts = computed<readonly ProfilePost[]>(() => {
-    const dedicated = this._videoPosts();
     const sportFilter = this._activeSportFilter();
 
-    let videos =
-      dedicated.length > 0
-        ? dedicated
-        : this.allPosts().filter((p: ProfilePost) => p.type === 'video' || p.type === 'highlight');
+    let videos = this.allPosts().filter((p: ProfilePost) => p.type === 'video');
 
-    // Only filter when user has explicitly selected a sport (via sport switcher).
-    // Videos without a sport tag are shown for all sports.
     if (sportFilter) {
       videos = videos.filter((v) => {
         const videoSport =
@@ -387,13 +393,10 @@ export class ProfileService {
   readonly playerCard = computed(() => this._profileData()?.playerCard ?? null);
 
   /**
-   * Unified activity timeline feed.
-   * Merges all profile sections (posts, offers, events) + extra activity items
-   * (stat updates, metrics, awards, news, schedule, external syncs)
-   * into a single chronologically sorted FeedPost array.
-   *
-   * This powers the unified Timeline tab, showing EVERY update across
-   * the entire profile in one seamless feed.
+   * Unified activity timeline feed (legacy bridge).
+   * Merges posts + embedded offers/events from the main profile doc.
+   * @deprecated Pass [polymorphicFeed] to ProfileTimelineComponent instead.
+   * Kept so mobile shell can fall back gracefully during the transition period.
    */
   readonly unifiedTimeline = computed<readonly FeedPost[]>(() => {
     const data = this._profileData();
@@ -402,8 +405,6 @@ export class ProfileService {
     const author = profileUserToFeedAuthor(data.user);
     const sportFilter = this._activeSportFilter();
 
-    // Apply sport filter when user has explicitly selected a sport profile.
-    // Posts without a sport tag are always included (general content).
     let posts = this._timelinePosts();
     if (sportFilter) {
       posts = posts.filter((p) => {
@@ -417,18 +418,7 @@ export class ProfileService {
 
     const offers = data.offers ?? [];
     const events = data.events ?? [];
-
-    // Build unified feed from posts + offers + events
-    const baseFeed = buildUnifiedActivityFeed(posts, offers, events, author);
-
-    // Merge in extra activity items (stat updates, metrics, awards, news, etc.)
-    const extraItems = this._activityFeedItems();
-    if (extraItems.length === 0) return baseFeed;
-
-    // Combine and re-sort chronologically (newest first)
-    const combined = [...baseFeed, ...extraItems];
-    combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    return combined;
+    return buildUnifiedActivityFeed(posts, offers, events, author);
   });
 
   /**
@@ -507,13 +497,12 @@ export class ProfileService {
    * Based on allPosts (unfiltered) so sport-filter doesn't hide the "Create" CTA.
    * For sport-filtered empty state, ProfileTimelineComponent.isFilteredEmpty handles it.
    */
-  readonly isEmpty = computed(() => this.allPosts().length === 0);
+  readonly isEmpty = computed(
+    () => this.allPosts().length === 0 && this._polymorphicTimeline().length === 0
+  );
 
-  /** Whether there are more posts to load */
-  readonly hasMore = computed(() => {
-    // TODO: Implement proper pagination
-    return this.allPosts().length >= 20;
-  });
+  /** Whether there are more posts to load (driven by backend cursor response) */
+  readonly hasMore = computed(() => this._timelineHasMore());
 
   /** Quick stats formatted for display */
   readonly quickStatsDisplay = computed<ProfileStatItem[]>(() => {
@@ -628,7 +617,9 @@ export class ProfileService {
     this._profileData.set(null);
     // Clear stale sub-collection data from previous profile (singleton service).
     this._timelinePosts.set([]);
-    this._videoPosts.set([]);
+    this._polymorphicTimeline.set([]);
+    this._timelineHasMore.set(false);
+    this._timelineCursor.set(undefined);
     this._rankings.set([]);
     this._scoutReports.set([]);
     this._scheduleEvents.set(null);
@@ -654,14 +645,6 @@ export class ProfileService {
   }
 
   /**
-   * Push videos loaded from the user’s videos sub-collection.
-   * Called by the platform wrapper after fetching GET /auth/profile/:userId/videos.
-   */
-  setVideoPosts(videos: readonly ProfilePost[]): void {
-    this._videoPosts.set(videos);
-  }
-
-  /**
    * Set active season filter.
    * Pass null to clear the filter and show all seasons.
    */
@@ -678,8 +661,35 @@ export class ProfileService {
   }
 
   /**
-   * Push timeline posts loaded from the user’s timeline sub-collection.
+   * Push the full polymorphic timeline feed from the backend TimelineService.
    * Called by the platform wrapper after fetching GET /auth/profile/:userId/timeline.
+   * This is the primary setter — replaces the full feed on initial load or tab refresh.
+   */
+  setPolymorphicTimeline(
+    items: readonly FeedItem[],
+    meta?: { hasMore: boolean; nextCursor?: string }
+  ): void {
+    this._polymorphicTimeline.set(items);
+    this._timelineHasMore.set(meta?.hasMore ?? false);
+    this._timelineCursor.set(meta?.nextCursor);
+  }
+
+  /**
+   * Append the next page of timeline items (load more / infinite scroll).
+   * Preserves existing items and appends new ones, updating cursor state.
+   */
+  appendPolymorphicTimeline(
+    items: readonly FeedItem[],
+    meta: { hasMore: boolean; nextCursor?: string }
+  ): void {
+    this._polymorphicTimeline.update((existing) => [...existing, ...items]);
+    this._timelineHasMore.set(meta.hasMore);
+    this._timelineCursor.set(meta.nextCursor);
+  }
+
+  /**
+   * Push timeline posts loaded from the user's timeline sub-collection.
+   * @deprecated Use setPolymorphicTimeline() instead — kept for backward compatibility.
    */
   setTimelinePosts(posts: readonly ProfilePost[]): void {
     this._timelinePosts.set(posts);
@@ -868,13 +878,34 @@ export class ProfileService {
   }
 
   /**
+   * Register a platform-specific load-more handler.
+   * The web/mobile feature components call this during init to provide
+   * the actual cursor-based API fetch logic.
+   */
+  private _loadMoreHandler?: () => Promise<void>;
+
+  registerLoadMoreHandler(handler: () => Promise<void>): void {
+    this._loadMoreHandler = handler;
+  }
+
+  /** Set loading-more state (used by platform handlers). */
+  setLoadingMore(loading: boolean): void {
+    this._isLoadingMore.set(loading);
+  }
+
+  /**
    * Load more posts for infinite scroll.
+   * Platform shells wire `(loadMore)` output from ProfileTimelineComponent
+   * to this method. Calls the registered platform load-more handler if present.
    */
   async loadMorePosts(): Promise<void> {
     if (this._isLoadingMore()) return;
-    this.logger.warn(
-      'loadMorePosts() called — platform shell should implement pagination via the API service.'
-    );
+    if (!this._timelineHasMore()) return;
+    if (this._loadMoreHandler) {
+      await this._loadMoreHandler();
+    } else {
+      this.logger.warn('loadMorePosts() called \u2014 no load-more handler registered.');
+    }
   }
 
   /**
@@ -960,11 +991,9 @@ export class ProfileService {
     this._activeTab.set(PROFILE_DEFAULT_TAB);
     this._profileData.set(null);
     this._rawUser.set(null);
-    this._activityFeedItems.set([]);
     this._isEditMode.set(false);
     this._editSection.set(null);
     this._activeSportIndex.set(0);
-    this._videoPosts.set([]);
     this._athleticStatsOverride.set(null);
     this._metricsOverride.set(null);
     this._gameLogOverride.set(null);

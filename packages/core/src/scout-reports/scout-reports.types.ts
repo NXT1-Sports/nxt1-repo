@@ -248,14 +248,8 @@ export interface ScoutReport {
   /** Whether report is from verified scout */
   readonly isVerified: boolean;
 
-  /** Whether current user has bookmarked */
-  readonly isBookmarked: boolean;
-
   /** Total view count */
   readonly viewCount: number;
-
-  /** Total bookmark count */
-  readonly bookmarkCount: number;
 
   /** Publication timestamp (ISO string) */
   readonly publishedAt: string;
@@ -360,17 +354,6 @@ export interface ScoutReportDetailResponse {
 }
 
 /**
- * Response for bookmark action.
- */
-export interface ScoutReportBookmarkResponse {
-  readonly success: boolean;
-  readonly isBookmarked?: boolean;
-  readonly bookmarkCount?: number;
-  readonly xpEarned?: number;
-  readonly error?: string;
-}
-
-/**
  * Response for view tracking.
  */
 export interface ScoutReportViewResponse {
@@ -390,8 +373,6 @@ export interface ScoutReportSummary {
   readonly bySport: Record<AthleteSport, number>;
   /** Reports by graduation year */
   readonly byGradYear: Record<number, number>;
-  /** Total saved reports */
-  readonly savedCount: number;
   /** New reports today */
   readonly newToday: number;
 }
@@ -435,7 +416,7 @@ export interface ScoutReportState {
  */
 export interface ScoutReportXpReward {
   /** Action type */
-  readonly action: 'view' | 'bookmark' | 'share' | 'complete-category' | 'milestone';
+  readonly action: 'view' | 'share' | 'complete-category' | 'milestone';
   /** XP amount */
   readonly xp: number;
   /** Description */

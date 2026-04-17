@@ -509,7 +509,7 @@ export const MOCK_TEAM_RECRUITING: readonly TeamProfileRecruitingActivity[] = [
 export const MOCK_TEAM_POSTS: readonly TeamProfilePost[] = [
   {
     id: 'tp1',
-    type: 'highlight',
+    type: 'video',
     title: 'Season Opener Highlights | Lincoln vs Westside',
     body: 'Check out the top plays from our dominant 28-14 victory over Westside in the season opener.',
     thumbnailUrl: '/assets/images/posts/game-highlight-1.jpg',

@@ -36,8 +36,10 @@ import {
   type TeamProfileTab,
   type TeamProfilePost,
   type TeamProfileRosterMember,
+  type TeamTimelineFilterId,
   TEAM_PROFILE_TABS,
   TEAM_PROFILE_EMPTY_STATES,
+  TEAM_TIMELINE_FILTERS,
   type NewsArticle,
   getSeasonForDate,
 } from '@nxt1/core';
@@ -78,6 +80,7 @@ import { TeamTimelineWebComponent } from './team-timeline-web.component';
 import { TeamContactWebComponent } from './team-contact-web.component';
 import { ProfileVerificationBannerComponent } from '../../profile/components/profile-verification-banner.component';
 import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component';
+import { ProfileScheduleComponent } from '../../profile/components/profile-schedule.component';
 
 @Component({
   selector: 'nxt1-team-profile-shell-web',
@@ -98,6 +101,7 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
     TeamContactWebComponent,
     ProfileVerificationBannerComponent,
     TeamProfileSkeletonComponent,
+    ProfileScheduleComponent,
   ],
   template: `
     <!-- Portal: center — Team name + subtitle teleported into top nav -->
@@ -309,8 +313,26 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
                     }
 
                     @case ('timeline') {
+                      <!-- Filter chips: all | media | stats | games | schedule | recruiting | news -->
+                      <div class="timeline-filter-bar" data-testid="team-timeline-filter-bar">
+                        @for (filter of timelineFilters; track filter.id) {
+                          <button
+                            type="button"
+                            class="timeline-filter-chip"
+                            [class.timeline-filter-chip--active]="
+                              teamProfile.activeTimelineFilter() === filter.id
+                            "
+                            [attr.data-testid]="'team-timeline-filter-chip-' + filter.id"
+                            (click)="onTimelineFilterChange(filter.id)"
+                          >
+                            {{ filter.label }}
+                          </button>
+                        }
+                      </div>
+
                       <nxt1-team-timeline-web
                         [activeSection]="activeSideTab()"
+                        [polymorphicFeed]="teamProfile.timeline()"
                         (postClick)="onPostClick($event)"
                         (manageTeam)="manageTeamClick.emit()"
                       />
@@ -329,6 +351,14 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
                       <nxt1-team-contact-web
                         [activeSection]="activeSideTab()"
                         (manageTeam)="manageTeamClick.emit()"
+                      />
+                    }
+
+                    @case ('schedule') {
+                      <nxt1-profile-schedule
+                        [rows]="teamScheduleRows()"
+                        [activeSideTab]="activeSideTab()"
+                        emptyMessage="No games scheduled yet."
                       />
                     }
                   }
@@ -425,6 +455,51 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
         display: flex;
         align-items: center;
         gap: var(--nxt1-spacing-1, 4px);
+      }
+
+      /* ─── Timeline filter chips ─── */
+      .timeline-filter-bar {
+        display: flex;
+        gap: 8px;
+        padding: 12px 16px 0;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+        &::-webkit-scrollbar {
+          display: none;
+        }
+      }
+
+      .timeline-filter-chip {
+        flex: 0 0 auto;
+        padding: 6px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.1));
+        background: transparent;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease,
+          border-color 0.15s ease;
+
+        &:hover {
+          background: var(--m-surface, rgba(255, 255, 255, 0.04));
+        }
+
+        &:focus-visible {
+          outline: 2px solid var(--nxt1-color-primary, #d4ff00);
+          outline-offset: 2px;
+        }
+
+        &.timeline-filter-chip--active {
+          background: var(--nxt1-color-primary, #d4ff00);
+          color: #000;
+          border-color: transparent;
+          font-weight: 700;
+        }
       }
 
       .header-action-btn {
@@ -1170,6 +1245,8 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
 })
 export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDestroy {
   protected readonly teamProfile = inject(TeamProfileService);
+  /** Timeline filter chips — stable reference, doesn't need to be computed */
+  protected readonly timelineFilters = TEAM_TIMELINE_FILTERS;
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('TeamProfileShellWeb');
   private readonly bottomSheet = inject(NxtBottomSheetService);
@@ -1481,7 +1558,6 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
                 (post) =>
                   post.type === 'image' ||
                   post.type === 'video' ||
-                  post.type === 'highlight' ||
                   !!post.thumbnailUrl ||
                   !!post.mediaUrl
               ).length || undefined,
@@ -1497,6 +1573,17 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
       connect: [
         { id: 'connected', label: 'Accounts' },
         { id: 'contact', label: 'Contact' },
+      ],
+      schedule: [
+        {
+          id: 'all-games',
+          label: 'All Games',
+          badge: this.teamProfile.schedule().length || undefined,
+        },
+        ...this.scheduleSeasons().map((season) => ({
+          id: `season-${season}`,
+          label: season,
+        })),
       ],
     };
 
@@ -1546,6 +1633,13 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     }
   }
 
+  protected onTimelineFilterChange(filterId: string): void {
+    const teamCode = this.teamProfile.team()?.slug ?? this.teamSlug();
+    if (!teamCode) return;
+    // Cast is safe — filterId originates exclusively from TEAM_TIMELINE_FILTERS
+    this.teamProfile.setTimelineFilter(teamCode, filterId as TeamTimelineFilterId);
+  }
+
   ngAfterViewInit(): void {
     const centerTpl = this.teamPortalContent();
     if (centerTpl) this.headerPortal.setCenterContent(centerTpl);
@@ -1566,6 +1660,14 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     this.teamProfile.setActiveTab(tabId);
     this._activeSideTab.set('');
     this.tabChange.emit(tabId);
+
+    // Load timeline on first switch — data is lazy-fetched, not pre-loaded
+    if (tabId === 'timeline') {
+      const teamCode = this.teamProfile.team()?.slug ?? this.teamSlug();
+      if (teamCode && this.teamProfile.timeline().length === 0) {
+        this.teamProfile.loadTimeline(teamCode);
+      }
+    }
   }
 
   protected onSectionNavChange(event: SectionNavChangeEvent): void {

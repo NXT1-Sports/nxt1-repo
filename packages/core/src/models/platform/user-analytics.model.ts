@@ -146,7 +146,6 @@ export interface DailyContentPerformance {
   views: number;
   watchTimeSeconds?: number;
   shares: number;
-  reactions: number;
 }
 
 export interface DailyAnalyticsDoc {
@@ -160,8 +159,6 @@ export interface DailyAnalyticsDoc {
   postViews: number;
   cardViews: number;
   shares: number;
-  reactions: number;
-  reposts: number;
   emailsSent: number;
   emailOpens: number;
   emailClicks: number;
@@ -200,8 +197,6 @@ export interface PeriodAnalytics {
   postViews: number;
   cardViews: number;
   shares: number;
-  reactions: number;
-  comments: number;
   emailsSent: number;
   emailOpens: number;
   emailClicks: number;
@@ -374,8 +369,6 @@ export function createEmptyDailyAnalytics(userId: string, date: string): DailyAn
     postViews: 0,
     cardViews: 0,
     shares: 0,
-    reactions: 0,
-    reposts: 0,
     emailsSent: 0,
     emailOpens: 0,
     emailClicks: 0,

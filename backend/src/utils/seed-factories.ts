@@ -61,7 +61,7 @@ export interface PostSeedDoc {
   duration?: number;
   createdAt: ReturnType<typeof Timestamp.now>;
   updatedAt: ReturnType<typeof Timestamp.now>;
-  stats: { likes: number; shares: number; views: number };
+  stats: { shares: number; views: number };
 }
 
 export interface RankingSeedDoc {
@@ -126,7 +126,7 @@ export function buildScheduleEvents(uid: string): ScheduleEvent[] {
     // Upcoming camp & visit
     {
       id: `seed_${uid}_camp_01`,
-      eventType: 'camp',
+      eventType: 'other',
       title: 'NXT1 Elite QB Camp',
       date: daysFromNow(21),
       endDate: daysFromNow(22),
@@ -138,7 +138,7 @@ export function buildScheduleEvents(uid: string): ScheduleEvent[] {
     },
     {
       id: `seed_${uid}_camp_02`,
-      eventType: 'camp',
+      eventType: 'other',
       title: 'West Coast Football Academy Summer Camp',
       date: daysFromNow(35),
       endDate: daysFromNow(38),
@@ -150,7 +150,7 @@ export function buildScheduleEvents(uid: string): ScheduleEvent[] {
     },
     {
       id: `seed_${uid}_camp_03`,
-      eventType: 'camp',
+      eventType: 'other',
       title: 'West Coast QB Skills Camp',
       date: daysFromNow(50),
       endDate: daysFromNow(51),
@@ -161,7 +161,7 @@ export function buildScheduleEvents(uid: string): ScheduleEvent[] {
     },
     {
       id: `seed_${uid}_camp_past_01`,
-      eventType: 'camp',
+      eventType: 'other',
       title: 'Nike Football Training Camp',
       date: daysAgo(45),
       endDate: daysAgo(43),
@@ -173,7 +173,7 @@ export function buildScheduleEvents(uid: string): ScheduleEvent[] {
     },
     {
       id: `seed_${uid}_visit_01`,
-      eventType: 'visit',
+      eventType: 'other',
       title: 'Official Visit — Pacific University',
       date: daysFromNow(30),
       endDate: daysFromNow(31),
@@ -184,7 +184,7 @@ export function buildScheduleEvents(uid: string): ScheduleEvent[] {
     },
     {
       id: `seed_${uid}_visit_02`,
-      eventType: 'visit',
+      eventType: 'other',
       title: 'Unofficial Visit — Westside College',
       date: daysFromNow(18),
       location: 'Westside College Campus, CA',
@@ -194,7 +194,7 @@ export function buildScheduleEvents(uid: string): ScheduleEvent[] {
     },
     {
       id: `seed_${uid}_visit_03`,
-      eventType: 'visit',
+      eventType: 'other',
       title: 'Official Visit — Harbor University',
       date: daysFromNow(40),
       endDate: daysFromNow(41),
@@ -205,7 +205,7 @@ export function buildScheduleEvents(uid: string): ScheduleEvent[] {
     },
     {
       id: `seed_${uid}_visit_past_01`,
-      eventType: 'visit',
+      eventType: 'other',
       title: 'Campus Tour — Riverside State University',
       date: daysAgo(20),
       location: 'Riverside State University Campus, CA',
@@ -252,7 +252,7 @@ export function buildScheduleEvents(uid: string): ScheduleEvent[] {
     },
     {
       id: `seed_${uid}_combine_01`,
-      eventType: 'combine',
+      eventType: 'other',
       title: 'NXT1 Spring QB Combine',
       date: daysFromNow(25),
       location: 'Riverside National Stadium',
@@ -262,7 +262,7 @@ export function buildScheduleEvents(uid: string): ScheduleEvent[] {
     },
     {
       id: `seed_${uid}_combine_02`,
-      eventType: 'combine',
+      eventType: 'other',
       title: 'West Coast Elite Athlete Combine',
       date: daysAgo(40),
       location: 'Riverside Sports Complex, Field A',
@@ -884,7 +884,7 @@ export function buildBasketballScheduleEvents(uid: string): ScheduleEvent[] {
     },
     {
       id: `seed_${uid}_bb_tournament_01`,
-      eventType: 'camp',
+      eventType: 'other',
       title: '3-on-3 AAU Tournament',
       date: daysFromNow(20),
       endDate: daysFromNow(21),
@@ -895,7 +895,7 @@ export function buildBasketballScheduleEvents(uid: string): ScheduleEvent[] {
     },
     {
       id: `seed_${uid}_bb_camp_01`,
-      eventType: 'camp',
+      eventType: 'other',
       title: 'NXT1 Elite Guard Camp',
       date: daysFromNow(35),
       endDate: daysFromNow(36),
@@ -907,7 +907,7 @@ export function buildBasketballScheduleEvents(uid: string): ScheduleEvent[] {
     },
     {
       id: `seed_${uid}_bb_visit_01`,
-      eventType: 'visit',
+      eventType: 'other',
       title: 'Official Visit — Pacific University Basketball',
       date: daysFromNow(48),
       endDate: daysFromNow(49),
@@ -941,7 +941,7 @@ export function buildBasketballScheduleEvents(uid: string): ScheduleEvent[] {
     },
     {
       id: `seed_${uid}_bb_combine_01`,
-      eventType: 'combine',
+      eventType: 'other',
       title: 'NXT1 Elite Guard Combine',
       date: daysFromNow(28),
       location: 'Riverside Sports Complex, Hall B',
@@ -1071,7 +1071,7 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       isPinned: true,
       createdAt: ts(30),
       updatedAt: ts(30),
-      stats: { likes: 124, shares: 18, views: 890 },
+      stats: { shares: 18, views: 890 },
     },
     // Highlight reel
     {
@@ -1081,7 +1081,7 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       title: 'Week 9 Highlights — 312yd / 3 TD',
       content:
         '🏈 Big W tonight — 35-14 vs Riverside HS. Threw for 312 yards and 3 TDs. Full highlight reel below. #NXT1 #QB #Football',
-      type: 'highlight',
+      type: 'video',
       visibility: PUBLIC,
       images: [],
       mentions: [],
@@ -1091,7 +1091,7 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       duration: 142,
       createdAt: ts(7),
       updatedAt: ts(7),
-      stats: { likes: 48, shares: 6, views: 1320 },
+      stats: { shares: 6, views: 1320 },
     },
     // Stat update
     {
@@ -1108,7 +1108,7 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       isPinned: false,
       createdAt: ts(5),
       updatedAt: ts(5),
-      stats: { likes: 67, shares: 11, views: 540 },
+      stats: { shares: 11, views: 540 },
     },
     // Text update
     {
@@ -1125,7 +1125,7 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       isPinned: false,
       createdAt: ts(3),
       updatedAt: ts(3),
-      stats: { likes: 22, shares: 2, views: 155 },
+      stats: { shares: 2, views: 155 },
     },
     // Image post — training
     {
@@ -1143,7 +1143,7 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       isPinned: false,
       createdAt: ts(14),
       updatedAt: ts(14),
-      stats: { likes: 89, shares: 7, views: 620 },
+      stats: { shares: 7, views: 620 },
     },
     // Video post
     {
@@ -1163,7 +1163,7 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       duration: 87,
       createdAt: ts(21),
       updatedAt: ts(21),
-      stats: { likes: 103, shares: 14, views: 2100 },
+      stats: { shares: 14, views: 2100 },
     },
     // Award post
     {
@@ -1180,7 +1180,7 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       isPinned: false,
       createdAt: ts(45),
       updatedAt: ts(45),
-      stats: { likes: 201, shares: 33, views: 3200 },
+      stats: { shares: 33, views: 3200 },
     },
     // ── BASKETBALL posts ────────────────────────────────────────────────────
     // Highlight
@@ -1191,7 +1191,7 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       title: 'Triple-Double Night 🏀',
       content:
         '18 pts, 11 reb, 10 ast tonight. First triple-double of the season! Team W 72-58. #Basketball #PointGuard #NXT1',
-      type: 'highlight',
+      type: 'video',
       visibility: PUBLIC,
       images: [],
       mentions: [],
@@ -1201,7 +1201,7 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       duration: 98,
       createdAt: ts(10),
       updatedAt: ts(10),
-      stats: { likes: 156, shares: 28, views: 2400 },
+      stats: { shares: 28, views: 2400 },
     },
     // Stat update
     {
@@ -1218,7 +1218,7 @@ export function buildPosts(uid: string): PostSeedDoc[] {
       isPinned: false,
       createdAt: ts(4),
       updatedAt: ts(4),
-      stats: { likes: 44, shares: 5, views: 380 },
+      stats: { shares: 5, views: 380 },
     },
   ];
 }
@@ -1253,7 +1253,6 @@ export function buildNewsArticles(uid: string): object[] {
       thumbnailUrl: 'https://placehold.co/400x200/1a1a2e/00ff88?text=All-District+Award',
       readingTimeMinutes: 2,
       publishedAt: daysAgo(45),
-      isBookmarked: false,
       isRead: false,
       xpReward: 15,
       viewCount: 3200,
@@ -1287,7 +1286,6 @@ export function buildNewsArticles(uid: string): object[] {
       thumbnailUrl: 'https://placehold.co/400x200/1a1a2e/00ff88?text=Week+9+Highlights',
       readingTimeMinutes: 3,
       publishedAt: daysAgo(7),
-      isBookmarked: false,
       isRead: false,
       xpReward: 20,
       viewCount: 1320,
@@ -1321,7 +1319,6 @@ export function buildNewsArticles(uid: string): object[] {
       thumbnailUrl: 'https://placehold.co/400x200/0d1b2a/00ff88?text=Official+Visit+Offer',
       readingTimeMinutes: 2,
       publishedAt: daysAgo(30),
-      isBookmarked: false,
       isRead: false,
       xpReward: 25,
       viewCount: 890,
@@ -1367,7 +1364,6 @@ export function buildTeamNewsArticles(teamId: string): object[] {
       thumbnailUrl: 'https://placehold.co/400x200/1a1a2e/d4ff00?text=Conference+Champions',
       readingTimeMinutes: 3,
       publishedAt: daysAgo(28),
-      isBookmarked: false,
       isRead: false,
       xpReward: 20,
       viewCount: 5400,
@@ -1393,7 +1389,6 @@ export function buildTeamNewsArticles(teamId: string): object[] {
       thumbnailUrl: 'https://placehold.co/400x200/0d1b2a/d4ff00?text=All-Conference+Award',
       readingTimeMinutes: 2,
       publishedAt: daysAgo(14),
-      isBookmarked: false,
       isRead: false,
       xpReward: 15,
       viewCount: 2880,
@@ -1420,7 +1415,6 @@ export function buildTeamNewsArticles(teamId: string): object[] {
       thumbnailUrl: 'https://placehold.co/400x200/1a1a2e/d4ff00?text=Spring+Tryouts',
       readingTimeMinutes: 2,
       publishedAt: daysAgo(5),
-      isBookmarked: false,
       isRead: false,
       xpReward: 10,
       viewCount: 1240,
@@ -1699,9 +1693,7 @@ export function buildScoutReports(uid: string): object[] {
         credentials: ['D1 Scout', 'Former College Coach'],
       },
       isVerified: true,
-      isBookmarked: false,
       viewCount: 1842,
-      bookmarkCount: 47,
       publishedAt: dAgo(14),
       updatedAt: dAgo(14),
       xpReward: 25,
@@ -1750,9 +1742,7 @@ export function buildScoutReports(uid: string): object[] {
         credentials: ['Certified Evaluator', 'AFCA Member'],
       },
       isVerified: true,
-      isBookmarked: false,
       viewCount: 724,
-      bookmarkCount: 19,
       publishedAt: dAgo(30),
       updatedAt: dAgo(30),
       xpReward: 50,
@@ -1783,9 +1773,9 @@ export function buildVideos(uid: string): object[] {
       mediaUrl: 'https://www.w3schools.com/html/mov_bbb.mp4',
       thumbnailUrl: 'https://placehold.co/800x450/1a1a2e/00ff88?text=Week+9+Highlights',
       duration: 187,
-      type: 'highlight',
+      type: 'video',
       tags: ['Football', 'QB', 'Highlights', 'Week9'],
-      stats: { views: 3200, likes: 201, shares: 33 },
+      stats: { shares: 33, views: 3200 },
       isPinned: true,
       createdAt: dAgo(7),
       updatedAt: dAgo(7),
@@ -1802,7 +1792,7 @@ export function buildVideos(uid: string): object[] {
       duration: 342,
       type: 'video',
       tags: ['Football', 'QB', 'Mixtape', '2024Season'],
-      stats: { views: 1540, likes: 87, shares: 12 },
+      stats: { shares: 12, views: 3200 },
       isPinned: false,
       createdAt: dAgo(45),
       updatedAt: dAgo(45),
@@ -1817,9 +1807,9 @@ export function buildVideos(uid: string): object[] {
       mediaUrl: 'https://www.w3schools.com/html/mov_bbb.mp4',
       thumbnailUrl: 'https://placehold.co/800x450/1a1a2e/ffcc00?text=State+Championship',
       duration: 248,
-      type: 'highlight',
+      type: 'video',
       tags: ['Football', 'QB', 'StateChampionship', 'Clutch'],
-      stats: { views: 5100, likes: 324, shares: 78 },
+      stats: { shares: 78, views: 3200 },
       isPinned: false,
       createdAt: dAgo(90),
       updatedAt: dAgo(90),
@@ -1835,9 +1825,9 @@ export function buildVideos(uid: string): object[] {
       mediaUrl: 'https://www.w3schools.com/html/mov_bbb.mp4',
       thumbnailUrl: 'https://placehold.co/800x450/0d1b2a/ff6b35?text=Triple+Double',
       duration: 134,
-      type: 'highlight',
+      type: 'video',
       tags: ['Basketball', 'PointGuard', 'TripleDouble'],
-      stats: { views: 2400, likes: 156, shares: 28 },
+      stats: { shares: 28, views: 3200 },
       isPinned: true,
       createdAt: dAgo(10),
       updatedAt: dAgo(10),

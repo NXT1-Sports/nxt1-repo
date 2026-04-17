@@ -36,7 +36,6 @@ const USER_ID_QUERY_COLLECTIONS = [
   'Videos',
   'Offers',
   'ScoutReports',
-  'Interactions',
   'PlayerStats',
   'GameStats',
   'RankingEntries',

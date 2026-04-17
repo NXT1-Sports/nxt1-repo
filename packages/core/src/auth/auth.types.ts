@@ -9,7 +9,7 @@
  */
 
 import type { UserRole } from '../constants/user.constants';
-import { ConnectedEmail } from '../models';
+import { ConnectedEmail, type ConnectedSource } from '../models';
 
 // Re-export UserRole from single source of truth
 export type { UserRole } from '../constants/user.constants';
@@ -78,6 +78,8 @@ export interface AuthUser {
   updatedAt: string;
 
   connectedEmails?: ConnectedEmail[];
+  /** Connected data sources (Hudl, MaxPreps, etc.) */
+  connectedSources?: ConnectedSource[];
 }
 
 /**

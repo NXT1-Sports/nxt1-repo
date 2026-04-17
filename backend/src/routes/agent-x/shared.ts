@@ -40,6 +40,7 @@ export let toolRegistryRef: ToolRegistry | null = null;
 export let pubsubService:
   | import('../../modules/agent/queue/pubsub.service.js').AgentPubSubService
   | null = null;
+export let agentRouterRef: import('../../modules/agent/agent.router.js').AgentRouter | null = null;
 
 /**
  * Called once at server startup to inject the queue + repo singletons.
@@ -53,6 +54,7 @@ export function setAgentDependencies(deps: {
   llmService: OpenRouterService;
   toolRegistry?: ToolRegistry;
   pubsub?: import('../../modules/agent/queue/pubsub.service.js').AgentPubSubService;
+  agentRouter?: import('../../modules/agent/agent.router.js').AgentRouter;
 }): void {
   queueService = deps.queueService;
   jobRepository = deps.jobRepository;
@@ -61,6 +63,7 @@ export function setAgentDependencies(deps: {
   llmService = deps.llmService;
   if (deps.toolRegistry) toolRegistryRef = deps.toolRegistry;
   if (deps.pubsub) pubsubService = deps.pubsub;
+  if (deps.agentRouter) agentRouterRef = deps.agentRouter;
 
   // Reset generation service cache when dependencies change
   _generationService = null;
@@ -290,6 +293,28 @@ export function replayJobEventsAsSSE(
         break;
     }
   }
+}
+
+/**
+ * Build an inline ask_user card for the SSE `card` event.
+ * The frontend renders this as a question prompt with a text input.
+ * The user submits their answer as a normal chat message via POST /chat
+ * with the same threadId — thread history handles the resume naturally.
+ */
+export function buildInlineAskUserCard(params: {
+  question: string;
+  context?: string;
+  threadId?: string;
+}): { type: 'ask_user'; title: string; payload: Record<string, unknown> } {
+  return {
+    type: 'ask_user',
+    title: 'Agent X has a question',
+    payload: {
+      question: params.question,
+      context: params.context ?? '',
+      ...(params.threadId ? { threadId: params.threadId } : {}),
+    },
+  };
 }
 
 /**

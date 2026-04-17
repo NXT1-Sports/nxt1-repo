@@ -57,7 +57,6 @@ export {
   type CoachAuthorityQuote,
 } from './coach-authority-validation';
 export { NxtGraphicFactoryHeroComponent } from './graphic-factory-hero';
-export { NxtCoSignCollaborationSectionComponent } from './co-sign-collaboration-section';
 export { NxtCoverageGapPainPointComponent, type CoverageGapLayer } from './coverage-gap-pain-point';
 export { NxtNewsletterFeatureSectionComponent } from './newsletter-feature-section';
 export { NxtContentFactoryLandingComponent } from './content-factory';

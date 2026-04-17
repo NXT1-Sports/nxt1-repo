@@ -15,7 +15,6 @@
  */
 export const POSTS_COLLECTIONS = {
   POSTS: 'Posts',
-  POST_LIKES: 'PostLikes',
   POST_BOOKMARKS: 'PostBookmarks',
   POST_SHARES: 'PostShares',
   POST_REPORTS: 'PostReports',

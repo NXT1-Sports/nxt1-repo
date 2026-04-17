@@ -423,7 +423,7 @@ describe('Upload Routes', () => {
       expect(__getMockFirestoreDocument('Posts/cf-stream-video-123')).toMatchObject({
         id: 'cf-stream-video-123',
         userId: 'test-user',
-        type: 'highlight',
+        type: 'video',
         title: 'Junior Season Highlights',
         content: 'Week 9 tape',
         sportId: 'football',

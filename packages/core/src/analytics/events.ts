@@ -400,8 +400,6 @@ export const APP_EVENTS = {
   POST_DELETED: 'post_deleted',
   /** Post shared */
   POST_SHARED: 'post_shared',
-  /** Post reposted */
-  POST_REPOSTED: 'post_reposted',
 
   // ============================================
   // CARD/GRAPHIC EVENTS
@@ -497,6 +495,10 @@ export const APP_EVENTS = {
   TEAM_CODE_LEFT: 'team_code_left',
   /** Team page viewed */
   TEAM_PAGE_VIEWED: 'team_page_viewed',
+  /** Team timeline tab viewed */
+  TEAM_TIMELINE_VIEWED: 'team_timeline_viewed',
+  /** Team timeline filter chip applied */
+  TEAM_TIMELINE_FILTER_APPLIED: 'team_timeline_filter_applied',
   /** Team management opened (modal/sheet) */
   TEAM_MANAGED: 'team_managed',
 
@@ -612,10 +614,6 @@ export const APP_EVENTS = {
   HOME_FEED_REFRESHED: 'home_feed_refreshed',
   /** Home feed load more (infinite scroll) */
   HOME_FEED_LOAD_MORE: 'home_feed_load_more',
-  /** Home feed post liked */
-  HOME_FEED_POST_LIKED: 'home_feed_post_liked',
-  /** Home feed post bookmarked */
-  HOME_FEED_POST_BOOKMARKED: 'home_feed_post_bookmarked',
   /** Home feed error occurred */
   HOME_FEED_ERROR: 'home_feed_error',
 

@@ -48,6 +48,7 @@ import { NxtToastService } from '../../services/toast/toast.service';
 import { AgentXService } from '../agent-x.service';
 import type { ConfirmationActionEvent } from '../agent-x-confirmation-card.component';
 import type { DraftSubmittedEvent } from '../agent-x-draft-card.component';
+import type { AskUserReplyEvent } from '../agent-x-ask-user-card.component';
 import { AgentXFabService } from './agent-x-fab.service';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
@@ -211,6 +212,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
                   [parts]="message.parts ?? []"
                   (confirmationAction)="onConfirmationAction($event)"
                   (draftSubmitted)="onDraftSubmitted($event)"
+                  (askUserReply)="onAskUserReply($event)"
                 />
               </div>
             }
@@ -995,16 +997,20 @@ export class AgentXFabChatPanelComponent {
     this.toast.error('This draft can no longer be sent directly. Refresh and try again.');
   }
 
-  protected async onConfirmationAction(event: ConfirmationActionEvent): Promise<void> {
-    if (!event.approvalId) return;
+  /** Route an ask_user card reply into the chat as a user message. */
+  protected async onAskUserReply(event: AskUserReplyEvent): Promise<void> {
+    this.agentX.setUserMessage(event.answer);
+    await this.agentX.sendMessage();
+  }
 
+  protected async onConfirmationAction(event: ConfirmationActionEvent): Promise<void> {
     const decision =
       event.actionId === 'approve' ? 'approved' : event.actionId === 'reject' ? 'rejected' : null;
 
     if (!decision) return;
 
     await this.agentX.resolveInlineApproval({
-      approvalId: event.approvalId,
+      approvalId: event.approvalId ?? '',
       decision,
       successMessage:
         decision === 'approved' ? 'Approved — Agent X is resuming' : 'Request rejected',

@@ -69,6 +69,7 @@ import {
   type AuthState as CoreAuthState,
   type AuthStateManager,
   type AuthUser,
+  type ConnectedSource,
   USER_ROLES,
   createAuthStateManager,
   createBrowserStorageAdapter,
@@ -679,6 +680,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         emailVerified: firebaseUser.emailVerified,
         createdAt: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        connectedSources: Array.isArray(backendProfile?.['connectedSources'])
+          ? [...(backendProfile['connectedSources'] as ConnectedSource[])]
+          : undefined,
       };
 
       await this.authManager.setUser(authUser);

@@ -28,6 +28,7 @@ import type {
   FeedItem,
   FeedItemPost,
   FeedItemEvent,
+  FeedItemSchedule,
   FeedItemStat,
   FeedItemMetric,
   FeedItemOffer,
@@ -108,11 +109,11 @@ import { FeedNewsCardComponent } from '../post-cards/feed-news-card.component';
                     >{{ pinnedCount() }}</span
                   >
                 }
-                @if (filter.id === 'offers' && filterBadgeCounts().offers > 0) {
+                @if (filter.id === 'recruiting' && filterBadgeCounts().recruiting > 0) {
                   <span
                     class="timeline-filter__badge"
                     [attr.data-testid]="timelineTestIds.FILTER_BADGE"
-                    >{{ filterBadgeCounts().offers }}</span
+                    >{{ filterBadgeCounts().recruiting }}</span
                   >
                 }
                 @if (filter.id === 'events' && filterBadgeCounts().events > 0) {
@@ -187,6 +188,8 @@ import { FeedNewsCardComponent } from '../post-cards/feed-news-card.component';
               [showMenu]="showMenu()"
               (contentClick)="handlePolyPostClick(idx)"
               (menuClick)="handlePolyMenuClick(idx)"
+              (pinClick)="handlePolyPinClick(idx)"
+              (deleteClick)="handlePolyDeleteClick(idx)"
             >
               @switch (item.feedType) {
                 @case ('POST') {
@@ -194,6 +197,10 @@ import { FeedNewsCardComponent } from '../post-cards/feed-news-card.component';
                 }
                 @case ('EVENT') {
                   <nxt1-feed-event-card [data]="asEvent(item).eventData" />
+                }
+                @case ('SCHEDULE') {
+                  <!-- Competitive game/practice — same card as Event -->
+                  <nxt1-feed-event-card [data]="asSchedule(item).eventData" />
                 }
                 @case ('STAT') {
                   <nxt1-feed-stat-card [data]="asStat(item).statData" />
@@ -494,10 +501,10 @@ export class ProfileTimelineComponent {
   // ============================================
 
   readonly postClick = output<ProfilePost>();
-  readonly reactClick = output<ProfilePost>();
-  readonly repostClick = output<ProfilePost>();
   readonly shareClick = output<ProfilePost>();
   readonly menuClick = output<ProfilePost>();
+  readonly pinClick = output<ProfilePost>();
+  readonly deleteClick = output<ProfilePost>();
   readonly loadMore = output<void>();
   readonly retry = output<void>();
   readonly emptyCtaClick = output<void>();
@@ -540,8 +547,9 @@ export class ProfileTimelineComponent {
   protected readonly filterBadgeCounts = computed(() => {
     const feed = this.effectiveFeed();
     return {
-      offers: feed.filter((item) => item.feedType === 'OFFER' || item.feedType === 'COMMITMENT')
+      recruiting: feed.filter((item) => item.feedType === 'OFFER' || item.feedType === 'COMMITMENT')
         .length,
+      // Exposure events only (camps, combines, visits) — Schedule items excluded intentionally
       events: feed.filter(
         (item) => item.feedType === 'EVENT' || item.feedType === 'VISIT' || item.feedType === 'CAMP'
       ).length,
@@ -606,9 +614,10 @@ export class ProfileTimelineComponent {
         return feed.filter(
           (item) => item.feedType === 'POST' && (item as FeedItemPost).media.length > 0
         );
-      case 'offers':
+      case 'recruiting':
         return feed.filter((item) => item.feedType === 'OFFER' || item.feedType === 'COMMITMENT');
       case 'events':
+        // Exposure events only: camps, combines, showcases, visits — NOT competitive schedule items
         return feed.filter(
           (item) =>
             item.feedType === 'EVENT' || item.feedType === 'VISIT' || item.feedType === 'CAMP'
@@ -616,7 +625,11 @@ export class ProfileTimelineComponent {
       case 'awards':
         return feed.filter((item) => item.feedType === 'AWARD');
       case 'stats':
-        return feed.filter((item) => item.feedType === 'STAT' || item.feedType === 'METRIC');
+        return feed.filter((item) => item.feedType === 'STAT');
+      case 'metrics':
+        return feed.filter((item) => item.feedType === 'METRIC');
+      case 'schedule':
+        return feed.filter((item) => item.feedType === 'SCHEDULE');
       case 'news':
         return feed.filter((item) => item.feedType === 'NEWS' || item.feedType === 'SCOUT_REPORT');
       default:
@@ -653,6 +666,20 @@ export class ProfileTimelineComponent {
     if (post) this.menuClick.emit(post);
   }
 
+  protected handlePolyPinClick(index: number): void {
+    const item = this.filteredPolyFeed()[index];
+    if (!item) return;
+    const post = this.posts().find((p) => p.id === item.id);
+    if (post) this.pinClick.emit(post);
+  }
+
+  protected handlePolyDeleteClick(index: number): void {
+    const item = this.filteredPolyFeed()[index];
+    if (!item) return;
+    const post = this.posts().find((p) => p.id === item.id);
+    if (post) this.deleteClick.emit(post);
+  }
+
   // ============================================
   // POLYMORPHIC → ContentCardItem CONVERTERS
   // ============================================
@@ -685,6 +712,11 @@ export class ProfileTimelineComponent {
 
   protected asEvent(item: FeedItem): FeedItemEvent {
     return item as FeedItemEvent;
+  }
+
+  /** Cast to FeedItemSchedule — safe within @case ('SCHEDULE') */
+  protected asSchedule(item: FeedItem): FeedItemSchedule {
+    return item as FeedItemSchedule;
   }
 
   protected asStat(item: FeedItem): FeedItemStat {

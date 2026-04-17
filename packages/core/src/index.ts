@@ -809,6 +809,13 @@ export {
   type TeamProfilePost,
   type TeamProfileHeaderAction,
   type TeamProfilePageData,
+  // Timeline
+  type TeamTimelineFilterId,
+  type TeamTimelineFilter,
+  type TeamTimelineParams,
+  type TeamTimelineResponse,
+  TEAM_TIMELINE_FILTERS,
+  TEAM_TIMELINE_DEFAULT_FILTER,
   // Constants
   TEAM_PROFILE_TABS,
   TEAM_PROFILE_DEFAULT_TAB,
@@ -1014,9 +1021,6 @@ export * from './scout-reports';
 export {
   // Post types
   type FeedPostType,
-  type FeedPostVisibility,
-  type FeedAuthorRole,
-  type FeedVerificationStatus,
   // Author types
   type FeedAuthor,
   // Media types
@@ -1038,13 +1042,9 @@ export {
   type FeedAcademicData,
   // Engagement types
   type FeedEngagement,
-  type FeedUserEngagement,
-  type FeedReactionType,
   // Tag types
   type FeedPostTagType,
   type FeedPostTag,
-  // Repost types
-  type FeedRepostData,
   // Main post type
   type FeedPost,
   // Filter types
@@ -1059,6 +1059,7 @@ export {
   type FeedItemBase,
   type FeedItemPost,
   type FeedItemEvent,
+  type FeedItemSchedule,
   type FeedItemStat,
   type FeedItemMetric,
   type FeedItemOffer,
@@ -1073,6 +1074,7 @@ export {
   type FeedItem,
   isFeedItemPost,
   isFeedItemEvent,
+  isFeedItemSchedule,
   isFeedItemStat,
   isFeedItemSharedReference,
   type FeedItemResponse,
@@ -1106,6 +1108,7 @@ export {
   // Polymorphic mappers (2026 standard)
   feedPostToFeedItem,
   eventDocToFeedItemEvent,
+  scheduleDocToFeedItemSchedule,
   statDocToFeedItemStat,
   recruitingDocToFeedItemVariant,
   metricGroupToFeedItemMetric,
@@ -1113,7 +1116,7 @@ export {
   profileOfferToFeedItemOffer,
   profileEventToFeedItemVariant,
   buildPolymorphicActivityFeed,
-} from './feed';
+} from './posts';
 
 // ============================================
 // NEWS (Sports Recruiting News)

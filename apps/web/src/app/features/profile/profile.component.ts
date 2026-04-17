@@ -410,6 +410,9 @@ export class ProfileComponent implements OnInit, OnDestroy {
       updateActiveSportIndex: (userId: string, activeSportIndex: number) =>
         this.editProfileApiService.updateActiveSportIndex(userId, activeSportIndex),
     });
+    // Register the cursor-based load-more handler so the timeline shell's
+    // "Load More" button fetches the next page via the real API.
+    this.profileService.registerLoadMoreHandler(() => this.loadMoreTimeline());
 
     // Auto-invalidate profile cache when user returns to tab/window.
     // This ensures fresh data after editing profile in another tab or coming back from edit page.
@@ -677,7 +680,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
       timeline: this.apiProfileService.getProfileTimeline(profile.id).pipe(
         catchError((err) => {
           this.logger.warn('Failed to load timeline posts', { err });
-          return of({ success: false as const, data: [] });
+          return of({ success: false as const, data: [], hasMore: false } as const);
         })
       ),
     })
@@ -686,7 +689,11 @@ export class ProfileComponent implements OnInit, OnDestroy {
         if (stats.success) this.profileService.setAthleticStatsFromRaw(stats.data);
         if (gameLogs.success) this.profileService.setGameLogs(gameLogs.data);
         if (metrics.success) this.profileService.setMetricsFromRaw(metrics.data);
-        if (timeline.success) this.profileService.setTimelinePosts(timeline.data);
+        if (timeline.success)
+          this.profileService.setPolymorphicTimeline(timeline.data, {
+            hasMore: timeline.hasMore,
+            nextCursor: timeline.nextCursor,
+          });
 
         // Load intel eagerly alongside timeline so the intel tab renders instantly
         // (data or empty state) with no skeleton flash on tab switch.
@@ -785,11 +792,45 @@ export class ProfileComponent implements OnInit, OnDestroy {
           .pipe(first())
           .subscribe({
             next: (resp) => {
-              if (resp.success) this.profileService.setTimelinePosts(resp.data);
+              if (resp.success)
+                this.profileService.setPolymorphicTimeline(resp.data, {
+                  hasMore: resp.hasMore,
+                  nextCursor: resp.nextCursor,
+                });
             },
             error: (err) => this.logger.warn('Failed to refresh timeline posts', { err }),
           });
       }
+    }
+  }
+
+  /**
+   * Override base loadMorePosts — fetch the next page of timeline items using
+   * the cursor stored in ProfileService and append them to the polymorphic feed.
+   */
+  protected async loadMoreTimeline(): Promise<void> {
+    if (this.profileService.isLoadingMore()) return;
+    if (!this.profileService.timelineHasMore()) return;
+
+    const userId = this.fetchedProfile()?.id;
+    if (!userId) return;
+
+    this.profileService.setLoadingMore(true);
+    try {
+      const cursor = this.profileService.timelineCursor();
+      const resp = await firstValueFrom(
+        this.apiProfileService.getProfileTimeline(userId, undefined, cursor)
+      );
+      if (resp.success) {
+        this.profileService.appendPolymorphicTimeline(resp.data, {
+          hasMore: resp.hasMore,
+          nextCursor: resp.nextCursor,
+        });
+      }
+    } catch (err) {
+      this.logger.warn('Failed to load more timeline posts', { err });
+    } finally {
+      this.profileService.setLoadingMore(false);
     }
   }
 
@@ -854,6 +895,13 @@ export class ProfileComponent implements OnInit, OnDestroy {
     }
 
     this.logger.info('Edit profile saved, refreshing profile data', { userId });
+
+    // Refresh auth state so the top-nav avatar (profileImg) reflects the new profileImgs[0]
+    try {
+      await this.authService.refreshUserProfile();
+    } catch (err) {
+      this.logger.warn('Failed to refresh auth state after profile edit', { err });
+    }
 
     // Clear ALL service cache entries (by_id + by_unicode) and HTTP LRU cache
     this.apiProfileService.invalidateAllProfileCache();

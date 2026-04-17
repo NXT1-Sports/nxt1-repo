@@ -14,7 +14,6 @@ import type {
   IntelGenerateResponse,
   IntelCitation,
   IntelDataAvailability,
-  IntelDataSource,
   IntelMissingDataPrompt,
   IntelQuickCommand,
   IntelBriefItem,
@@ -25,22 +24,7 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { NxtLoggingService } from '../services/logging/logging.service';
 
-// ── Data source validation ──────────────────────────────────────────────────
-
-const INTEL_DATA_SOURCES = [
-  'self-reported',
-  'coach-verified',
-  'maxpreps',
-  'hudl',
-  '247sports',
-  'rivals',
-  'on3',
-  'perfect-game',
-  'prep-baseball',
-  'ncsa',
-  'usa-football',
-  'agent-x',
-] as const satisfies readonly IntelDataSource[];
+// ── Data availability keys validation ──────────────────────────────────────
 
 const INTEL_DATA_AVAILABILITY_KEYS = [
   'hasMetrics',
@@ -53,10 +37,8 @@ const INTEL_DATA_AVAILABILITY_KEYS = [
   'hasAwards',
 ] as const satisfies readonly (keyof IntelDataAvailability)[];
 
-function normalizeDataSource(value: unknown): IntelDataSource {
-  return typeof value === 'string' && INTEL_DATA_SOURCES.includes(value as IntelDataSource)
-    ? (value as IntelDataSource)
-    : 'agent-x';
+function normalizeDataSource(value: unknown): string {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : 'agent-x';
 }
 
 function normalizeMissingDataCategory(value: unknown): keyof IntelDataAvailability {
@@ -79,6 +61,7 @@ function normalizeCitations(value: unknown): readonly IntelCitation[] {
       url: typeof item['url'] === 'string' ? item['url'] : undefined,
       lastSyncedAt: typeof item['lastSyncedAt'] === 'string' ? item['lastSyncedAt'] : undefined,
       verified: typeof item['verified'] === 'boolean' ? item['verified'] : undefined,
+      faviconUrl: typeof item['faviconUrl'] === 'string' ? item['faviconUrl'] : undefined,
     })) satisfies readonly IntelCitation[];
 }
 
@@ -121,6 +104,7 @@ function normalizeBriefItems(value: unknown): readonly IntelBriefItem[] | undefi
       unit: typeof item['unit'] === 'string' ? item['unit'] : undefined,
       source: typeof item['source'] === 'string' ? normalizeDataSource(item['source']) : undefined,
       verified: typeof item['verified'] === 'boolean' ? item['verified'] : undefined,
+      faviconUrl: typeof item['faviconUrl'] === 'string' ? item['faviconUrl'] : undefined,
       date: typeof item['date'] === 'string' ? item['date'] : undefined,
       sublabel: typeof item['sublabel'] === 'string' ? item['sublabel'] : undefined,
     })) satisfies readonly IntelBriefItem[];

@@ -2171,7 +2171,7 @@ export const PLATFORM_FAVICON_DOMAINS: Readonly<Record<string, string>> = {
  */
 export function getPlatformFaviconUrl(platformId: string): string | null {
   const domain = (PLATFORM_FAVICON_DOMAINS as Record<string, string>)[platformId];
-  return domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : null;
+  return domain ? `https://icons.duckduckgo.com/ip3/${domain}.ico` : null;
 }
 
 /**

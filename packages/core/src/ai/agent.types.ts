@@ -258,6 +258,22 @@ export interface AgentSessionContext {
   readonly operationId?: string;
   /** The MongoDB thread ID for the current conversation. Used by tools for thread-scoped storage. */
   readonly threadId?: string;
+  /**
+   * UI mode hint passed from the SSE chat client (e.g. 'scout', 'athlete', 'recruiting').
+   * Sub-agents may use this to tailor their system prompt.
+   */
+  readonly mode?: string;
+  /**
+   * File attachments forwarded from the chat client (images, PDFs, etc.).
+   * When present, base.agent.ts builds a multipart LLM user message instead of plain text.
+   */
+  readonly attachments?: readonly { readonly url: string; readonly mimeType: string }[];
+  /**
+   * Abort signal propagated from the SSE connection.
+   * When the client disconnects, this signal is triggered and cancels in-flight LLM calls.
+   * Note: AbortSignal is not serialisable — never persist this field.
+   */
+  readonly signal?: AbortSignal;
 }
 
 /** A single message within a session (lighter than the full AgentXMessage). */
@@ -740,8 +756,6 @@ export interface AgentUserContext {
   readonly state?: string;
 
   // ── Recruiting Context ────────────────────────────────────────
-  readonly targetDivisions?: readonly string[];
-  readonly targetColleges?: readonly string[];
   readonly recruitingStatus?: string;
   readonly commitmentStatus?: string;
 

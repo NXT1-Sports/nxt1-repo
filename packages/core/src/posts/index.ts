@@ -1,6 +1,6 @@
 /**
  * @fileoverview Feed Module Barrel Export
- * @module @nxt1/core/feed
+ * @module @nxt1/core/posts
  *
  * Feed-related pure TypeScript code.
  * 100% portable - NO platform dependencies.
@@ -14,13 +14,11 @@
 export {
   // Post types
   type FeedPostType,
-  type FeedPostVisibility,
-  type FeedAuthorRole,
-  type FeedVerificationStatus,
   // Author types
   type FeedAuthor,
   // Media types
   type FeedMedia,
+  type FeedVideoProcessingStatus,
   type FeedOfferData,
   type FeedCommitmentData,
   type FeedMilestoneData,
@@ -37,14 +35,10 @@ export {
   type FeedExternalSource,
   type FeedAcademicData,
   // Engagement types
-  type FeedReactionType,
   type FeedEngagement,
-  type FeedUserEngagement,
   // Tag/chip types
   type FeedPostTagType,
   type FeedPostTag,
-  // Repost types
-  type FeedRepostData,
   // Main post type
   type FeedPost,
   // Filter types
@@ -64,6 +58,7 @@ export {
   type FeedItemBase,
   type FeedItemPost,
   type FeedItemEvent,
+  type FeedItemSchedule,
   type FeedItemStat,
   type FeedItemMetric,
   type FeedItemOffer,
@@ -79,6 +74,7 @@ export {
   // Type guards
   isFeedItemPost,
   isFeedItemEvent,
+  isFeedItemSchedule,
   isFeedItemStat,
   isFeedItemSharedReference,
   // Polymorphic response types
@@ -132,6 +128,7 @@ export {
   // Polymorphic mappers (2026 standard)
   feedPostToFeedItem,
   eventDocToFeedItemEvent,
+  scheduleDocToFeedItemSchedule,
   statDocToFeedItemStat,
   recruitingDocToFeedItemVariant,
   metricGroupToFeedItemMetric,
@@ -140,4 +137,7 @@ export {
   profileOfferToFeedItemOffer,
   profileEventToFeedItemVariant,
   buildPolymorphicActivityFeed,
+  // Team timeline mappers (2026)
+  newsArticleToFeedItemNews,
+  teamStatDocToFeedItemStat,
 } from './feed.mappers';

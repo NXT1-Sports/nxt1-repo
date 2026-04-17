@@ -95,6 +95,7 @@ import { AthleteIntelComponent } from '../intel/athlete-intel.component';
 import { IntelService } from '../intel/intel.service';
 import { ProfileGenerationBannerComponent } from './profile-generation-banner.component';
 import { ProfileGenerationStateService } from './profile-generation-state.service';
+import { ProfileScheduleComponent } from './components/profile-schedule.component';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 /**
@@ -124,6 +125,7 @@ export interface ProfileShellUser {
     ProfileContactComponent,
     ProfileVerificationBannerComponent,
     ProfileGenerationBannerComponent,
+    ProfileScheduleComponent,
   ],
   template: `
     <!-- ═══ TOP NAVIGATION HEADER ═══ -->
@@ -243,33 +245,37 @@ export interface ProfileShellUser {
                   [isOwnProfile]="profile.isOwnProfile()"
                   [activeSection]="activeSideTab()"
                   (generateClick)="onGenerateIntel()"
+                  (resyncClick)="onResyncIntel()"
                   (missingDataAction)="editProfileClick.emit()"
                 />
               }
 
               @case ('timeline') {
-                <nxt1-profile-timeline
-                  [posts]="profile.filteredPosts()"
-                  [unifiedFeed]="profile.unifiedTimeline()"
-                  [isLoading]="false"
-                  [isLoadingMore]="profile.isLoadingMore()"
-                  [isEmpty]="profile.isEmpty()"
-                  [hasMore]="profile.hasMore()"
-                  [isOwnProfile]="profile.isOwnProfile()"
-                  [showMenu]="profile.isOwnProfile()"
-                  [showFilters]="false"
-                  [filter]="timelineFilter()"
-                  [emptyIcon]="emptyState().icon"
-                  [emptyTitle]="emptyState().title"
-                  [emptyMessage]="emptyState().message"
-                  [emptyCta]="null"
-                  (postClick)="onPostClick($event)"
-                  (reactClick)="onLikePost($event)"
-                  (repostClick)="onCommentPost($event)"
-                  (shareClick)="onSharePost($event)"
-                  (menuClick)="onPostMenu($event)"
-                  (loadMore)="onLoadMore()"
-                />
+                @if (activeSideTab() === 'schedule') {
+                  <!-- Schedule Board: rich game/practice grid view -->
+                  <nxt1-profile-schedule [activeSideTab]="activeSideTab()" />
+                } @else {
+                  <nxt1-profile-timeline
+                    [posts]="profile.filteredPosts()"
+                    [polymorphicFeed]="profile.polymorphicTimeline()"
+                    [isLoading]="false"
+                    [isLoadingMore]="profile.isLoadingMore()"
+                    [isEmpty]="profile.isEmpty()"
+                    [hasMore]="profile.hasMore()"
+                    [isOwnProfile]="profile.isOwnProfile()"
+                    [showMenu]="profile.isOwnProfile()"
+                    [showFilters]="false"
+                    [filter]="timelineFilter()"
+                    [emptyIcon]="emptyState().icon"
+                    [emptyTitle]="emptyState().title"
+                    [emptyMessage]="emptyState().message"
+                    [emptyCta]="null"
+                    (postClick)="onPostClick($event)"
+                    (shareClick)="onSharePost($event)"
+                    (menuClick)="onPostMenu($event)"
+                    (loadMore)="onLoadMore()"
+                  />
+                }
               }
 
               @case ('connect') {
@@ -641,13 +647,7 @@ export class ProfileShellComponent implements OnInit {
   });
 
   protected readonly showActionFooter = computed(
-    () =>
-      this.profile.isOwnProfile() &&
-      (this.profile.activeTab() === 'intel' || this.profile.activeTab() === 'timeline')
-  );
-
-  protected readonly footerButtonLabel = computed(() =>
-    this.intel.athleteReport() ? 'Update Intel' : 'Generate Intel'
+    () => this.profile.isOwnProfile() && this.profile.activeTab() === 'timeline'
   );
 
   /**
@@ -672,10 +672,7 @@ export class ProfileShellComponent implements OnInit {
   protected readonly sideTabItems = computed((): SectionNavItem[] => {
     const tab = this.profile.activeTab();
     const sections: Record<string, SectionNavItem[]> = {
-      intel:
-        this.intel.athleteSections().length > 0
-          ? this.intel.athleteSections().map((s) => ({ id: s.id, label: s.title }))
-          : [{ id: 'agent_x_brief', label: 'Overview' }],
+      intel: this.intel.athleteSections().map((s) => ({ id: s.id, label: s.title })),
       timeline: [
         {
           id: 'all-posts',
@@ -697,10 +694,63 @@ export class ProfileShellComponent implements OnInit {
                 (post) =>
                   post.type === 'image' ||
                   post.type === 'video' ||
-                  post.type === 'highlight' ||
                   !!post.thumbnailUrl ||
                   !!post.mediaUrl
               ).length || undefined,
+        },
+        {
+          id: 'metrics',
+          label: 'Metrics',
+          badge:
+            this.profile.polymorphicTimeline().filter((i) => i.feedType === 'METRIC').length ||
+            undefined,
+        },
+        {
+          id: 'stats',
+          label: 'Stats',
+          badge:
+            this.profile.polymorphicTimeline().filter((i) => i.feedType === 'STAT').length ||
+            undefined,
+        },
+        {
+          id: 'awards',
+          label: 'Awards',
+          badge:
+            this.profile.polymorphicTimeline().filter((i) => i.feedType === 'AWARD').length ||
+            undefined,
+        },
+        {
+          id: 'recruiting',
+          label: 'Recruiting',
+          badge:
+            this.profile
+              .polymorphicTimeline()
+              .filter((i) => i.feedType === 'OFFER' || i.feedType === 'COMMITMENT').length ||
+            undefined,
+        },
+        {
+          id: 'schedule',
+          label: 'Schedule',
+          badge:
+            this.profile.polymorphicTimeline().filter((i) => i.feedType === 'SCHEDULE').length ||
+            undefined,
+        },
+        {
+          id: 'events',
+          label: 'Events',
+          badge:
+            this.profile
+              .polymorphicTimeline()
+              .filter(
+                (i) => i.feedType === 'EVENT' || i.feedType === 'VISIT' || i.feedType === 'CAMP'
+              ).length || undefined,
+        },
+        {
+          id: 'news',
+          label: 'News',
+          badge:
+            this.profile.polymorphicTimeline().filter((i) => i.feedType === 'NEWS').length ||
+            undefined,
         },
       ],
       connect: [
@@ -725,9 +775,17 @@ export class ProfileShellComponent implements OnInit {
   protected readonly timelineFilter = computed<ProfileTimelineFilterId>(() => {
     const sideTab = this.activeSideTab();
     const map: Record<string, ProfileTimelineFilterId> = {
-      pinned: 'pinned',
       'all-posts': 'all',
+      pinned: 'pinned',
       media: 'media',
+      metrics: 'metrics',
+      stats: 'stats',
+      awards: 'awards',
+      news: 'news',
+      recruiting: 'recruiting',
+      // 'schedule' is handled by nxt1-profile-schedule board, timeline shows 'all' as fallback
+      schedule: 'all',
+      events: 'events',
     };
     return map[sideTab] ?? 'all';
   });
@@ -834,14 +892,6 @@ export class ProfileShellComponent implements OnInit {
     });
   }
 
-  protected onLikePost(post: ProfilePost): void {
-    this.logger.debug('Like post', { postId: post.id });
-  }
-
-  protected onCommentPost(post: ProfilePost): void {
-    this.logger.debug('Comment post', { postId: post.id });
-  }
-
   protected onSharePost(post: ProfilePost): void {
     this.logger.debug('Share post', { postId: post.id });
   }
@@ -855,6 +905,10 @@ export class ProfileShellComponent implements OnInit {
   }
 
   protected async onCreatePostWithAgent(): Promise<void> {
+    const hasReport = !!this.intel.athleteReport();
+    const message = hasReport
+      ? 'I want to create a post for my timeline. After creating the post, automatically review it and update any relevant sections of my Agent X Intel report with new stats, achievements, or information from the post.'
+      : 'I want to create a post for my timeline.';
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
       componentProps: {
@@ -862,7 +916,7 @@ export class ProfileShellComponent implements OnInit {
         contextTitle: 'Create a Post',
         contextIcon: 'create-outline',
         contextType: 'command',
-        initialMessage: 'I want to create a post for my timeline.',
+        initialMessage: message,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,
@@ -874,6 +928,29 @@ export class ProfileShellComponent implements OnInit {
 
   protected onAddUpdate(): void {
     void this.onCreatePostWithAgent();
+  }
+
+  protected async onResyncIntel(): Promise<void> {
+    const userId = this.profile.user()?.uid ?? '';
+    const message = `Do a full resync of my Agent X Intel report for athlete ${userId}. Gather all current data and regenerate the entire report from scratch.`;
+    this.intel.startPendingGeneration();
+    await this.bottomSheet.openSheet({
+      component: AgentXOperationChatComponent,
+      componentProps: {
+        contextId: 'profile-intel-resync',
+        contextTitle: 'Resync Intel',
+        contextIcon: 'refresh-outline',
+        contextType: 'command',
+        initialMessage: message,
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'agent-x-operation-sheet',
+    });
+    // AgentXOperationChatComponent handles generation internally via the stream.
+    // Do NOT call generateAthleteIntel() here — it would double-fire the OpenRouter request.
   }
 
   protected async onGenerateIntel(): Promise<void> {

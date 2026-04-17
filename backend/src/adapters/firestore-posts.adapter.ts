@@ -7,14 +7,7 @@
  */
 
 import type { Timestamp } from 'firebase-admin/firestore';
-import type {
-  FeedPost,
-  FeedMedia,
-  FeedAuthor,
-  FeedPostType,
-  FeedAuthorRole,
-  FeedVerificationStatus,
-} from '@nxt1/core/feed';
+import type { FeedPost, FeedMedia, FeedAuthor, FeedPostType } from '@nxt1/core/posts';
 import type { PostVisibility } from '@nxt1/core/constants';
 
 type PostType = string;
@@ -43,6 +36,12 @@ export interface FirestorePostDoc {
     dashUrl?: string;
     iframeUrl?: string;
   };
+  /** Cloudflare Stream video UID (set by upload route) */
+  cloudflareVideoId?: string;
+  /** Cloudflare processing state (set/updated by webhook) */
+  cloudflareStatus?: string;
+  /** True once Cloudflare has finished transcoding */
+  readyToStream?: boolean;
   externalLinks?: string[];
   mentions?: string[];
   location?: string;
@@ -59,7 +58,6 @@ export interface FirestorePostDoc {
   updatedAt: Timestamp;
   deletedAt?: Timestamp;
   stats: {
-    likes: number;
     shares: number;
     views: number;
   };
@@ -103,46 +101,6 @@ export function timestampToISO(timestamp: Timestamp | undefined): string {
  * Convert user profile to FeedAuthor
  */
 export function userProfileToFeedAuthor(profile: UserProfile): FeedAuthor {
-  const validRoles: readonly FeedAuthorRole[] = [
-    'athlete',
-    'coach',
-    'director',
-    'team',
-    'official',
-  ];
-
-  // Normalize legacy role strings to current FeedAuthorRole values
-  let profileRole = profile.role as string;
-  const legacyRoleMap: Record<string, FeedAuthorRole> = {
-    college_coach: 'coach',
-    'college-coach': 'coach',
-    'recruiting-service': 'coach',
-    recruiter: 'coach',
-    scout: 'coach',
-    media: 'coach',
-    parent: 'athlete',
-    fan: 'athlete',
-  };
-  if (legacyRoleMap[profileRole]) {
-    profileRole = legacyRoleMap[profileRole];
-  }
-
-  const validStatuses: readonly FeedVerificationStatus[] = [
-    'unverified',
-    'pending',
-    'verified',
-    'premium',
-  ];
-
-  const role: FeedAuthorRole = validRoles.includes(profileRole as FeedAuthorRole)
-    ? (profileRole as FeedAuthorRole)
-    : 'athlete';
-  const verificationStatus: FeedVerificationStatus = validStatuses.includes(
-    profile.verificationStatus as FeedVerificationStatus
-  )
-    ? (profile.verificationStatus as FeedVerificationStatus)
-    : 'unverified';
-
   return {
     uid: profile.uid,
     profileCode: profile.profileCode || profile.uid,
@@ -150,14 +108,6 @@ export function userProfileToFeedAuthor(profile: UserProfile): FeedAuthor {
     firstName: profile.firstName || profile.displayName.split(' ')[0] || '',
     lastName: profile.lastName || profile.displayName.split(' ').slice(1).join(' ') || '',
     avatarUrl: profile.photoURL,
-    role,
-    verificationStatus,
-    isVerified: profile.isVerified || false,
-    sport: profile.sport,
-    position: profile.position,
-    schoolName: profile.schoolName,
-    schoolLogoUrl: profile.schoolLogoUrl,
-    classYear: profile.classYear,
   };
 }
 
@@ -167,12 +117,7 @@ export function userProfileToFeedAuthor(profile: UserProfile): FeedAuthor {
 export function firestorePostToFeedPost(
   id: string,
   doc: FirestorePostDoc,
-  author: FeedAuthor,
-  userEngagement?: {
-    isLiked?: boolean;
-    isBookmarked?: boolean;
-    isReposted?: boolean;
-  }
+  author: FeedAuthor
 ): FeedPost {
   const media: FeedMedia[] = (doc.images || []).map((url, index) => ({
     id: `${id}-image-${index}`,
@@ -180,17 +125,33 @@ export function firestorePostToFeedPost(
     url,
   }));
 
-  const videoUrl = doc.mediaUrl ?? doc.videoUrl ?? doc.playback?.iframeUrl ?? doc.playback?.hlsUrl;
+  const iframeUrl = doc.playback?.iframeUrl ?? doc.mediaUrl ?? null;
+  const hlsUrl = doc.playback?.hlsUrl ?? doc.videoUrl ?? null;
+  const dashUrl = doc.playback?.dashUrl ?? null;
   const thumbnailUrl = doc.thumbnailUrl ?? doc.poster;
+  const hasVideo = !!(iframeUrl || hlsUrl);
 
-  if (videoUrl) {
+  // Determine Cloudflare processing status
+  const cfStatus = doc.cloudflareStatus as FeedMedia['processingStatus'] | undefined;
+  const processingStatus: FeedMedia['processingStatus'] =
+    cfStatus ?? (doc.readyToStream === true ? 'ready' : hasVideo ? 'ready' : undefined);
+
+  if (hasVideo || doc.cloudflareVideoId) {
+    // Use iframeUrl as the primary `url` (Cloudflare Stream iframe player);
+    // fall back to hlsUrl for legacy non-CF video posts.
+    const primaryUrl = iframeUrl ?? hlsUrl ?? '';
     media.push({
       id: `${id}-video-0`,
       type: 'video' as const,
-      url: videoUrl,
+      url: primaryUrl,
       thumbnailUrl,
       duration: doc.duration,
       altText: doc.content || 'Highlight video',
+      ...(doc.cloudflareVideoId ? { cloudflareVideoId: doc.cloudflareVideoId } : {}),
+      ...(iframeUrl ? { iframeUrl } : {}),
+      ...(hlsUrl ? { hlsUrl } : {}),
+      ...(dashUrl ? { dashUrl } : {}),
+      ...(processingStatus ? { processingStatus } : {}),
     });
   }
 
@@ -201,19 +162,9 @@ export function firestorePostToFeedPost(
     content: doc.content,
     media,
     engagement: {
-      reactionCount: doc.stats?.likes || 0,
-      likeCount: doc.stats?.likes || 0,
       shareCount: doc.stats?.shares || 0,
       viewCount: doc.stats?.views || 0,
     },
-    userEngagement: {
-      isReacted: userEngagement?.isLiked || false,
-      reactionType: userEngagement?.isLiked ? 'like' : null,
-      isLiked: userEngagement?.isLiked || false,
-      isBookmarked: userEngagement?.isBookmarked || false,
-      isReposted: userEngagement?.isReposted || false,
-    },
-    mentions: doc.mentions,
     location: doc.location,
     isPinned: doc.isPinned || false,
     createdAt: timestampToISO(doc.createdAt),
@@ -229,7 +180,7 @@ function mapPostTypeToFeedType(type: PostType): FeedPostType {
     text: 'text',
     photo: 'image',
     video: 'video',
-    highlight: 'highlight',
+    highlight: 'video', // backward compat — old docs stored as 'highlight', now treated as 'video'
     stats: 'text',
     achievement: 'milestone',
     announcement: 'text',

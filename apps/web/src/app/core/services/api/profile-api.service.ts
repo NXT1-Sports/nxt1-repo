@@ -11,6 +11,7 @@ import {
   type VerifiedStat,
   type VerifiedMetric,
 } from '@nxt1/core';
+import { type FeedItemResponse } from '@nxt1/core/posts';
 import { PROFILE_CACHE_KEYS } from '@nxt1/core/profile';
 import { CACHE_CONFIG } from '@nxt1/core/cache';
 import { AngularHttpAdapter } from '../../infrastructure';
@@ -357,10 +358,10 @@ export class ProfileService {
     const mediaUrl = firstMedia?.['url'] as string | undefined;
     const postType = (raw['postType'] as ProfilePost['type']) ?? 'text';
 
-    // For video/highlight use the explicit thumbnail; for images the url IS the display url
+    // For video use the explicit thumbnail; for images the url IS the display url
     const thumbnailUrl =
       (firstMedia?.['thumbnailUrl'] as string | undefined) ??
-      (postType === 'video' || postType === 'highlight' ? undefined : mediaUrl);
+      (postType === 'video' ? undefined : mediaUrl);
 
     return {
       id: (raw['id'] as string | undefined) ?? String(raw['_id'] ?? ''),
@@ -379,30 +380,24 @@ export class ProfileService {
   }
 
   /**
-   * Get timeline posts from the user's timeline sub-collection.
-   * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/timeline?sportId=football
-   * GET /api/v1/auth/profile/:userId/timeline
+   * Get the polymorphic timeline feed for a user.
+   * Returns all FeedItem types (POST, EVENT, STAT, METRIC, OFFER, COMMITMENT,
+   * VISIT, CAMP, AWARD, etc.) sorted chronologically by the backend.
+   * Optionally filter by sportId: GET /auth/profile/:userId/timeline?sportId=football
    */
   getProfileTimeline(
     userId: string,
-    sportId?: string
-  ): Observable<{ success: boolean; data: ProfilePost[] }> {
-    const queryParams = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
-    return this.http
-      .get<{
-        success: boolean;
-        data: Record<string, unknown>[];
-      }>(`${environment.apiURL}/auth/profile/${userId}/timeline${queryParams}`)
-      .pipe(
-        map((resp) => ({
-          success: resp.success,
-          // Only map POST items — other feedTypes (EVENT, STAT, etc.) have
-          // their own renderers and are not represented by ProfilePost.
-          data: (resp.data ?? [])
-            .filter((d) => d['feedType'] === 'POST')
-            .map((d) => this.mapTimelineDoc(d)),
-        }))
-      );
+    sportId?: string,
+    cursor?: string
+  ): Observable<FeedItemResponse> {
+    const params = new URLSearchParams();
+    if (sportId) params.set('sportId', sportId);
+    if (cursor) params.set('cursor', cursor);
+    const queryString = params.toString();
+    const queryParams = queryString ? `?${queryString}` : '';
+    return this.http.get<FeedItemResponse>(
+      `${environment.apiURL}/auth/profile/${userId}/timeline${queryParams}`
+    );
   }
 
   getProfileStats(

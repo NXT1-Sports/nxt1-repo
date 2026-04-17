@@ -29,6 +29,9 @@ import type { SidenavSportProfile } from '../platform/navigation.model';
 export interface UserDisplayInput {
   readonly displayName?: string;
   readonly email?: string;
+  /** Canonical image array — first entry is the primary avatar */
+  readonly profileImgs?: string[] | readonly string[] | null;
+  /** Legacy singular field — used as fallback when profileImgs is absent */
   readonly profileImg?: string;
   readonly unicode?: string;
   readonly role?: string | null;
@@ -270,7 +273,8 @@ function buildAthleteContext(
   fallback: UserDisplayFallback | null | undefined,
   personalName: string
 ): UserDisplayContext {
-  const profileImg = user?.profileImg || undefined;
+  // profileImgs[] is the canonical source; profileImg (singular) is the pre-mapped fallback
+  const profileImg = user?.profileImgs?.[0] ?? user?.profileImg ?? undefined;
   const athleteTeamCode =
     user?.teamCode && typeof user.teamCode === 'object' ? user.teamCode : null;
   const isOnTeam = !!(

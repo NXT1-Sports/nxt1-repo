@@ -187,10 +187,22 @@ export abstract class BaseAgent {
     systemContent +=
       '\n- NEVER reveal raw NXT1 platform identifiers such as user IDs, team IDs, organization IDs, post IDs, unicode values, team codes, routes, cursors, or internal document IDs. Refer to people and entities by name only.';
 
-    const messages: LLMMessage[] = [
-      { role: 'system', content: systemContent },
-      { role: 'user', content: intent },
-    ];
+    // Build the initial user message — multipart when file attachments are present
+    // (e.g. images forwarded from the SSE chat client).
+    const userMessage: LLMMessage = context.attachments?.length
+      ? {
+          role: 'user',
+          content: [
+            { type: 'text' as const, text: intent },
+            ...context.attachments.map((a) => ({
+              type: 'image_url' as const,
+              image_url: { url: a.url, detail: 'auto' as const },
+            })),
+          ],
+        }
+      : { role: 'user', content: intent };
+
+    const messages: LLMMessage[] = [{ role: 'system', content: systemContent }, userMessage];
 
     logger.info(`[${this.id}] Starting ReAct loop`, {
       agentId: this.id,
@@ -371,12 +383,21 @@ export abstract class BaseAgent {
             agentId: this.id,
           },
         }),
+        // Propagate the SSE abort signal so client disconnects cancel in-flight LLM calls
+        ...(context.signal && { signal: context.signal }),
       };
 
-      // Use streaming when onStreamEvent is provided so deltas flow to Firestore.
-      // Otherwise fall back to non-streaming for backward compatibility (e.g. /chat SSE).
+      // Use streaming when onStreamEvent is provided so deltas flow to the caller.
+      // SSE chat now provides onStreamEvent, so streaming is always active for live requests.
       const result = onStreamEvent
         ? await llm.completeStream(messages, llmOptions, (delta) => {
+            if (delta.content) {
+              onStreamEvent({
+                type: 'delta',
+                agentId: this.id,
+                text: delta.content,
+              });
+            }
             if (delta.toolName) {
               onStreamEvent({
                 type: 'tool_call',

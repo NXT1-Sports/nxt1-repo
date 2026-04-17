@@ -24,7 +24,15 @@
  * ```
  */
 
-import { Component, ChangeDetectionStrategy, input, output, computed, inject } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  input,
+  output,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { IonRippleEffect } from '@ionic/angular/standalone';
 import type { FeedItem, FeedAuthor, FeedItemType } from '@nxt1/core';
 import { FEED_CARD_TEST_IDS } from '@nxt1/core/testing';
@@ -35,7 +43,8 @@ import { HapticsService } from '../services/haptics/haptics.service';
 /** Labels for the feed item type badge */
 const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
   POST: 'Post',
-  EVENT: 'Game',
+  EVENT: 'Event',
+  SCHEDULE: 'Game',
   STAT: 'Stats',
   METRIC: 'Metrics',
   OFFER: 'Offer',
@@ -81,15 +90,39 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
             <span class="feed-shell__time">{{ timeAgo() }}</span>
           </div>
           @if (showMenu()) {
-            <button
-              type="button"
-              class="feed-shell__menu-btn"
-              (click)="handleMenuClick($event)"
-              aria-label="Post options"
-              [attr.data-testid]="testIds.SHELL_MENU_BTN"
-            >
-              <nxt1-icon name="moreHorizontal" [size]="18" />
-            </button>
+            <div class="feed-shell__menu-wrap">
+              <button
+                type="button"
+                class="feed-shell__menu-btn"
+                (click)="handleMenuClick($event)"
+                aria-label="Post options"
+                [attr.data-testid]="testIds.SHELL_MENU_BTN"
+              >
+                <nxt1-icon name="moreHorizontal" [size]="18" />
+              </button>
+              @if (menuOpen()) {
+                <div class="feed-shell__dropdown" role="menu" (click)="$event.stopPropagation()">
+                  <button
+                    type="button"
+                    class="feed-shell__dropdown-item"
+                    role="menuitem"
+                    (click)="handlePinClick($event)"
+                  >
+                    <nxt1-icon name="pin" [size]="16" />
+                    <span>{{ item().isPinned ? 'Unpin' : 'Pin' }}</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="feed-shell__dropdown-item feed-shell__dropdown-item--danger"
+                    role="menuitem"
+                    (click)="handleDeleteClick($event)"
+                  >
+                    <nxt1-icon name="trash" [size]="16" />
+                    <span>Delete</span>
+                  </button>
+                </div>
+              }
+            </div>
           }
         </div>
       }
@@ -128,15 +161,39 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
             </div>
           }
           @if (showMenu()) {
-            <button
-              type="button"
-              class="feed-shell__menu-btn"
-              (click)="handleMenuClick($event)"
-              aria-label="Post options"
-              [attr.data-testid]="testIds.SHELL_MENU_BTN"
-            >
-              <nxt1-icon name="moreHorizontal" [size]="20" />
-            </button>
+            <div class="feed-shell__menu-wrap">
+              <button
+                type="button"
+                class="feed-shell__menu-btn"
+                (click)="handleMenuClick($event)"
+                aria-label="Post options"
+                [attr.data-testid]="testIds.SHELL_MENU_BTN"
+              >
+                <nxt1-icon name="moreHorizontal" [size]="20" />
+              </button>
+              @if (menuOpen()) {
+                <div class="feed-shell__dropdown" role="menu" (click)="$event.stopPropagation()">
+                  <button
+                    type="button"
+                    class="feed-shell__dropdown-item"
+                    role="menuitem"
+                    (click)="handlePinClick($event)"
+                  >
+                    <nxt1-icon name="pin" [size]="16" />
+                    <span>{{ item().isPinned ? 'Unpin' : 'Pin' }}</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="feed-shell__dropdown-item feed-shell__dropdown-item--danger"
+                    role="menuitem"
+                    (click)="handleDeleteClick($event)"
+                  >
+                    <nxt1-icon name="trash" [size]="16" />
+                    <span>Delete</span>
+                  </button>
+                </div>
+              }
+            </div>
           }
         </header>
       }
@@ -160,18 +217,6 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
 
       <!-- Engagement Stats Bar -->
       <div class="feed-shell__stats" [attr.data-testid]="testIds.SHELL_STATS">
-        <div class="feed-shell__stat" [attr.data-testid]="testIds.SHELL_STAT_REACT">
-          <nxt1-icon name="flame" [size]="14" />
-          <span class="feed-shell__stat-count">{{
-            formatCount(item().engagement.reactionCount)
-          }}</span>
-        </div>
-        <div class="feed-shell__stat" [attr.data-testid]="testIds.SHELL_STAT_REPOST">
-          <nxt1-icon name="repeat" [size]="14" />
-          <span class="feed-shell__stat-count">{{
-            formatCount(item().engagement.shareCount)
-          }}</span>
-        </div>
         <div class="feed-shell__stat" [attr.data-testid]="testIds.SHELL_STAT_SHARES">
           <nxt1-icon name="share" [size]="14" />
           <span class="feed-shell__stat-count">{{
@@ -223,8 +268,8 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
         box-shadow: var(--nxt1-glass-shadowInner, inset 0 1px 0 rgba(255, 255, 255, 0.06));
         border: 1px solid var(--shell-border);
         border-radius: var(--nxt1-radius-lg, 16px);
-        margin: 0 16px 12px;
-        overflow: hidden;
+        margin: 0 0 12px;
+        overflow: visible;
         transition: background 0.2s ease;
 
         @media (min-width: 768px) {
@@ -234,6 +279,12 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
             background: var(--shell-bg-hover);
           }
         }
+      }
+
+      /* Lead media clips to the top corners of the card */
+      .feed-shell__lead {
+        border-radius: var(--nxt1-radius-lg, 16px) var(--nxt1-radius-lg, 16px) 0 0;
+        overflow: hidden;
       }
 
       .feed-shell--featured {
@@ -360,6 +411,60 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
         }
       }
 
+      /* Menu Wrap & Dropdown */
+      .feed-shell__menu-wrap {
+        position: relative;
+        flex-shrink: 0;
+        /* Creates its own stacking context above ALL card children */
+        z-index: 9999;
+        isolation: isolate;
+      }
+
+      .feed-shell__dropdown {
+        position: absolute;
+        top: calc(100% + 4px);
+        right: 0;
+        min-width: 172px;
+        /* Solid opaque background — no transparency, no backdrop-filter inheritance */
+        background: #1a1c20;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 14px;
+        box-shadow:
+          0 12px 32px rgba(0, 0, 0, 0.7),
+          0 2px 8px rgba(0, 0, 0, 0.4),
+          inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        overflow: hidden;
+        z-index: 9999;
+      }
+
+      .feed-shell__dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 14px 18px;
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+        color: #ffffff;
+        text-align: left;
+        transition: background 0.15s ease;
+        -webkit-tap-highlight-color: transparent;
+        &:hover,
+        &:active {
+          background: rgba(255, 255, 255, 0.07);
+        }
+        & + & {
+          border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+      }
+
+      .feed-shell__dropdown-item--danger {
+        color: var(--nxt1-color-error, #ff4c4c);
+      }
+
       /* Pinned Badge */
       .feed-shell__pinned-badge {
         display: inline-flex;
@@ -374,18 +479,18 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
 
       /* Content Area (projected) */
       .feed-shell__content {
-        padding: 8px 16px;
+        padding: 12px 16px;
         cursor: pointer;
       }
 
       .feed-shell--compact .feed-shell__content {
-        padding: 6px 10px;
+        padding: 8px 10px;
       }
 
       /* Stats Bar */
       .feed-shell__stats {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(2, 1fr);
         padding: 10px 16px;
         border-top: 1px solid rgba(255, 255, 255, 0.06);
       }
@@ -424,11 +529,6 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
         transition: background 0.15s ease;
       }
 
-      .feed-shell__lead {
-        overflow: hidden;
-        padding: 0 16px;
-      }
-
       .feed-shell__view-profile:hover {
         background: rgba(255, 255, 255, 0.04);
       }
@@ -457,10 +557,14 @@ export class FeedCardShellComponent {
   readonly contentClick = output<FeedItem>();
   readonly authorClick = output<FeedAuthor>();
   readonly menuClick = output<FeedItem>();
+  readonly pinClick = output<FeedItem>();
+  readonly deleteClick = output<FeedItem>();
 
   // ============================================
   // COMPUTED
   // ============================================
+
+  protected readonly menuOpen = signal(false);
 
   protected readonly ariaLabel = computed(() => {
     const i = this.item();
@@ -497,7 +601,22 @@ export class FeedCardShellComponent {
   protected async handleMenuClick(event: Event): Promise<void> {
     event.stopPropagation();
     await this.haptics.impact('light');
+    this.menuOpen.update((v) => !v);
     this.menuClick.emit(this.item());
+  }
+
+  protected async handlePinClick(event: Event): Promise<void> {
+    event.stopPropagation();
+    await this.haptics.impact('light');
+    this.menuOpen.set(false);
+    this.pinClick.emit(this.item());
+  }
+
+  protected async handleDeleteClick(event: Event): Promise<void> {
+    event.stopPropagation();
+    await this.haptics.notification('warning');
+    this.menuOpen.set(false);
+    this.deleteClick.emit(this.item());
   }
 
   // ============================================

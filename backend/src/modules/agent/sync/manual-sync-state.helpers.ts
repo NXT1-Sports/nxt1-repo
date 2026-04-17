@@ -115,7 +115,8 @@ function normalizeCoachRecord(
 
 export function buildPreviousStateFromUserRecord(
   user: Record<string, unknown>,
-  sportIndex?: number
+  sportIndex?: number,
+  awardDocs: readonly Record<string, unknown>[] = []
 ): PreviousProfileState {
   const location = asRecord(user['location']);
   const sport = pickSportRecord(user, sportIndex);
@@ -141,7 +142,7 @@ export function buildPreviousStateFromUserRecord(
     sportInfo: sportInfo ? { ...sportInfo } : undefined,
     team: normalizeTeamRecord(asRecord(sport?.['team'])),
     coach: normalizeCoachRecord(asRecord(sport?.['coach']) ?? asRecord(user['coach'])),
-    awards: Array.isArray(user['awards']) ? (user['awards'] as Record<string, unknown>[]) : [],
+    awards: awardDocs,
   };
 }
 

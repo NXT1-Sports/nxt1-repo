@@ -1,6 +1,6 @@
 /**
  * @fileoverview Feed Constants
- * @module @nxt1/core/feed
+ * @module @nxt1/core/posts
  * @version 1.0.0
  *
  * Constants for Home Feed feature.
@@ -59,7 +59,6 @@ export const FEED_POST_TYPE_ICONS: Record<FeedPostType, string> = {
   text: 'documentText',
   image: 'image',
   video: 'videocam',
-  highlight: 'playCircle',
   offer: 'school',
   commitment: 'trophy',
   article: 'newspaper',
@@ -84,7 +83,7 @@ export const FEED_POST_TYPE_LABELS: Record<FeedPostType, string> = {
   text: 'Post',
   image: 'Photo',
   video: 'Video',
-  highlight: 'Highlight',
+
   offer: 'Offer',
   commitment: 'Commitment',
   article: 'Article',
@@ -145,7 +144,7 @@ export const FEED_MAX_VISIBLE_TAGS = 3;
 /**
  * Engagement action types.
  */
-export type FeedEngagementAction = 'like' | 'share' | 'bookmark' | 'report';
+export type FeedEngagementAction = 'share' | 'report';
 
 /**
  * Icons for engagement actions.
@@ -154,9 +153,7 @@ export const FEED_ENGAGEMENT_ICONS: Record<
   FeedEngagementAction,
   { outline: string; filled: string }
 > = {
-  like: { outline: 'heart', filled: 'heartFilled' },
   share: { outline: 'share', filled: 'share' },
-  bookmark: { outline: 'bookmark', filled: 'bookmarkFilled' },
   report: { outline: 'flag', filled: 'flagFilled' },
 } as const;
 

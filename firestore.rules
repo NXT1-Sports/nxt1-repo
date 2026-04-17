@@ -260,6 +260,18 @@ service cloud.firestore {
     }
     
     // ============================================
+    // AWARDS COLLECTION
+    // ============================================
+    
+    match /Awards/{awardId} {
+      // Read: Only the award owner or admin
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      
+      // Write: Only backend admin SDK (write_awards tool)
+      allow write: if false;
+    }
+    
+    // ============================================
     // ACTIVITY FEED
     // ============================================
     
@@ -295,6 +307,18 @@ service cloud.firestore {
     match /FeatureFlags/{flagId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
+    }
+
+    // ============================================
+    // SCHEDULE COLLECTION
+    // ============================================
+
+    match /Schedule/{scheduleId} {
+      // Read: Authenticated users (profile is public)
+      allow read: if isAuthenticated();
+
+      // Write: Owner (userId or teamId matches) or admin. Backend writes via Admin SDK.
+      allow write: if isOwner(resource.data.ownerId) || isAdmin();
     }
     
     // ============================================

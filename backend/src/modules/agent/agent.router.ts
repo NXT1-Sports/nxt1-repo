@@ -124,7 +124,8 @@ export class AgentRouter {
     onUpdate?: (update: AgentJobUpdate) => void,
     firestore?: FirebaseFirestore.Firestore,
     onStreamEvent?: OnStreamEvent,
-    environment: 'staging' | 'production' = 'production'
+    environment: 'staging' | 'production' = 'production',
+    signal?: AbortSignal
   ): Promise<AgentOperationResult> {
     const { operationId, userId, intent } = payload;
     const approvalGate = firestore ? new ApprovalGateService(firestore) : undefined;
@@ -164,12 +165,27 @@ export class AgentRouter {
         ? ((contextObj as Record<string, unknown>)['threadId'] as string)
         : undefined;
 
+    // Extract SSE-specific context fields injected by the chat route
+    const mode =
+      typeof (contextObj as Record<string, unknown>)['mode'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['mode'] as string)
+        : undefined;
+    const attachments = Array.isArray((contextObj as Record<string, unknown>)['attachments'])
+      ? ((contextObj as Record<string, unknown>)['attachments'] as readonly {
+          url: string;
+          mimeType: string;
+        }[])
+      : undefined;
+
     const context = this.buildSessionContext(
       userId,
       payload.sessionId,
       operationId,
       threadId,
-      environment
+      environment,
+      signal,
+      mode,
+      attachments
     );
 
     // Inject thread history for conversation continuity
@@ -828,8 +844,13 @@ export class AgentRouter {
 
     // Inject structured job context so the LLM has URLs, platform names, etc.
     if (jobContext && Object.keys(jobContext).length > 0) {
-      // Exclude internal keys from being shown to the LLM
-      const { threadId: _threadId, ...visibleContext } = jobContext;
+      // Exclude internal/system keys — these are not useful LLM context
+      const {
+        threadId: _threadId,
+        mode: _mode,
+        attachments: _attachments,
+        ...visibleContext
+      } = jobContext;
       if (Object.keys(visibleContext).length > 0) {
         enriched += `\n\n[Job Context]\n${JSON.stringify(visibleContext, null, 2)}`;
       }
@@ -892,7 +913,10 @@ export class AgentRouter {
     sessionId?: string,
     operationId?: string,
     threadId?: string,
-    environment?: 'staging' | 'production'
+    environment?: 'staging' | 'production',
+    signal?: AbortSignal,
+    mode?: string,
+    attachments?: readonly { readonly url: string; readonly mimeType: string }[]
   ): AgentSessionContext {
     const now = new Date().toISOString();
     return {
@@ -904,6 +928,9 @@ export class AgentRouter {
       ...(environment && { environment }),
       ...(operationId && { operationId }),
       ...(threadId && { threadId }),
+      ...(mode && { mode }),
+      ...(attachments?.length && { attachments }),
+      ...(signal && { signal }),
     };
   }
 

@@ -428,9 +428,6 @@ export function buildFilterFromCategory(
       return { ...filter, sortBy: 'recent', sortOrder: 'desc' };
     case 'trending':
       return { ...filter, sortBy: 'trending', sortOrder: 'desc' };
-    case 'saved':
-      // Handled by API
-      return filter;
     default:
       return filter;
   }

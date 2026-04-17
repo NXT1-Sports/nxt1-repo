@@ -111,10 +111,9 @@ export interface VideoAnalytics {
 /** Analytics for a single post. */
 export interface PostAnalytics {
   readonly id: string;
-  readonly type: 'text' | 'image' | 'video' | 'graphic' | 'highlight';
+  readonly type: 'text' | 'image' | 'video' | 'graphic';
   readonly previewUrl?: string;
   readonly impressions: number;
-  readonly likes: number;
   readonly shares: number;
   readonly engagementRate: number;
   readonly createdAt: string;

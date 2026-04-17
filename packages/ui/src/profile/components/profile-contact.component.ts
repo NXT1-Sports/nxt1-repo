@@ -535,6 +535,7 @@ export class ProfileContactComponent {
 
       return connectedSources
         .slice()
+        .filter((cs) => cs.platform.toLowerCase() !== 'manual')
         .sort((a, b) => {
           const orderA = (a as unknown as { displayOrder?: number }).displayOrder ?? 99;
           const orderB = (b as unknown as { displayOrder?: number }).displayOrder ?? 99;

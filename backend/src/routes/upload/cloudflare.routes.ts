@@ -398,7 +398,7 @@ router.post(
       id: postId,
       userId,
       ownerType: 'user',
-      type: 'highlight',
+      type: 'video',
       visibility,
       isPublic: visibility === PostVisibility.PUBLIC,
       title: resolvedTitle,
@@ -427,7 +427,7 @@ router.post(
       tags,
       stats:
         (existingData['stats'] as Record<string, unknown> | undefined) ??
-        ({ likes: 0, shares: 0, views: 0 } satisfies Record<string, number>),
+        ({ shares: 0, views: 0 } satisfies Record<string, number>),
       createdAt,
       updatedAt,
       ...((sportId ?? existingData['sportId'])

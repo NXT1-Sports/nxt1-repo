@@ -283,16 +283,6 @@ export class ContextBuilder {
       lines.push(parts.join(' | '));
     }
 
-    if (context.targetDivisions?.length || context.targetColleges?.length) {
-      const divs = context.targetDivisions?.length
-        ? `Targets: ${context.targetDivisions.join(', ')}`
-        : '';
-      const cols = context.targetColleges?.length
-        ? `Top Schools: ${context.targetColleges.slice(0, 5).join(', ')}`
-        : '';
-      lines.push([divs, cols].filter(Boolean).join(' | '));
-    }
-
     if (context.commitmentStatus) {
       lines.push(`Status: ${context.commitmentStatus}`);
     }
@@ -550,8 +540,6 @@ export class ContextBuilder {
       state,
 
       // Recruiting
-      targetDivisions: recruitingData?.targetDivisions,
-      targetColleges: recruitingData?.targetColleges,
       recruitingStatus: recruitingData?.recruitingStatus,
       commitmentStatus: recruitingData?.commitmentStatus,
 
@@ -631,15 +619,11 @@ export class ContextBuilder {
    * Checks athlete sub-object and top-level fields.
    */
   private extractRecruitingData(user: UserData): {
-    targetDivisions?: string[];
-    targetColleges?: string[];
     recruitingStatus?: string;
     commitmentStatus?: string;
   } {
     const athlete = user['athlete'] as Record<string, unknown> | undefined;
     return {
-      targetDivisions: (athlete?.['targetDivisions'] as string[]) ?? undefined,
-      targetColleges: (athlete?.['targetColleges'] as string[]) ?? undefined,
       recruitingStatus: (athlete?.['recruitingStatus'] as string) ?? 'active',
       commitmentStatus: (athlete?.['commitmentStatus'] as string) ?? 'uncommitted',
     };
@@ -704,6 +688,115 @@ export class ContextBuilder {
       });
       return '';
     }
+  }
+
+  /**
+   * Build a compressed team context string for injection into LLM prompts.
+   * Mirrors `buildPromptContext` / `compressToPrompt` but operates on a Team
+   * document instead of a User document.
+   *
+   * - Retrieves team-scoped vector memories (owner userId + teamId filter)
+   * - Retrieves sync delta summaries scoped to teamId
+   * - Compresses team identity fields into a token-efficient string
+   *
+   * @param teamId - Firestore Teams document ID
+   * @param teamData - Raw team document fields
+   * @param query - Semantic query for vector memory retrieval
+   */
+  async buildTeamPromptContext(
+    teamId: string,
+    teamData: Record<string, unknown>,
+    query: string
+  ): Promise<string> {
+    const lines: string[] = [];
+
+    // ── Identity fields ────────────────────────────────────────────────────
+    const teamName = (teamData['teamName'] as string) || 'Unknown Program';
+    const sport = (teamData['sport'] as string) || '';
+    const teamType = (teamData['teamType'] as string) || '';
+    const city = (teamData['city'] as string) || '';
+    const state = (teamData['state'] as string) || '';
+    const division = (teamData['division'] as string) || '';
+    const conference = (teamData['conference'] as string) || '';
+    const mascot = (teamData['branding'] as Record<string, unknown> | undefined)?.['mascot'] as
+      | string
+      | undefined;
+    const record = teamData['record'] as Record<string, unknown> | undefined;
+    const organizationId = (teamData['organizationId'] as string) || '';
+    const createdBy = (teamData['createdBy'] as string) || '';
+
+    const loc = [city, state].filter(Boolean).join(', ');
+    lines.push(
+      `Team: ${teamName} | TeamID: ${teamId}${organizationId ? ` | OrgID: ${organizationId}` : ''}`
+    );
+
+    if (sport) {
+      const divPart = division ? ` | Division: ${division}` : '';
+      const confPart = conference ? ` | Conference: ${conference}` : '';
+      lines.push(`Sport: ${sport}${teamType ? ` (${teamType})` : ''}${divPart}${confPart}`);
+    }
+
+    if (loc) lines.push(`Location: ${loc}`);
+    if (mascot) lines.push(`Mascot: ${mascot}`);
+
+    if (record) {
+      const wins = record['wins'] ?? record['w'];
+      const losses = record['losses'] ?? record['l'];
+      const ties = record['ties'] ?? record['t'];
+      const parts: string[] = [];
+      if (wins !== undefined) parts.push(`W: ${wins}`);
+      if (losses !== undefined) parts.push(`L: ${losses}`);
+      if (ties !== undefined) parts.push(`T: ${ties}`);
+      if (parts.length) lines.push(`Record: ${parts.join(' | ')}`);
+    }
+
+    // ── Vector memories (team-scoped, retrieved via coach/owner userId) ────
+    if (this.vectorMemory && createdBy && query.trim()) {
+      try {
+        const memories = await this.withTimeout(
+          this.vectorMemory.recallByScope(createdBy, query, {
+            teamId,
+            targets: ['team'],
+            perTargetLimit: MEMORY_RESULTS_PER_TARGET,
+          }),
+          MEMORY_RECALL_TIMEOUT_MS,
+          `team memory retrieval timed out for ${teamId}`
+        );
+
+        if (memories.team.length) {
+          lines.push(`Team Memory: ${memories.team.map((m) => m.content).join(' | ')}`);
+        }
+      } catch (err) {
+        logger.warn('[ContextBuilder] Team memory retrieval failed', {
+          teamId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // ── Sync delta summaries (teamId-scoped) ───────────────────────────────
+    try {
+      const syncSummaries = await this.withTimeout(
+        getSyncDeltaEventService().listRecentSummaries({
+          userId: createdBy || teamId,
+          teamId,
+          limit: RECENT_SYNC_RESULTS_LIMIT,
+        }),
+        RECENT_SYNC_TIMEOUT_MS,
+        `team sync retrieval timed out for ${teamId}`
+      );
+
+      if (syncSummaries.length) {
+        lines.push(`Recent Sync Activity:\n- ${syncSummaries.join('\n- ')}`);
+      }
+    } catch (err) {
+      logger.warn('[ContextBuilder] Team sync retrieval failed', {
+        teamId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    return lines.join('\n');
   }
 
   /**

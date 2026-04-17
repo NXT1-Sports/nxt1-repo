@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { FeedAuthor } from '@nxt1/core/feed';
+import type { FeedAuthor } from '@nxt1/core/posts';
 import { TimelineService } from '../timeline.service.js';
 
 type MockDoc = {

@@ -90,7 +90,6 @@ interface RawTeamData {
   events: Record<string, unknown>[];
   teamStats: Record<string, unknown>[];
   playerStats: Record<string, unknown>[];
-  gameStats: Record<string, unknown>[];
   recruiting: Record<string, unknown>[];
 }
 
@@ -105,10 +104,17 @@ interface NormalizedSection {
     unit?: string;
     source?: string;
     verified?: boolean;
+    faviconUrl?: string;
     date?: string;
     sublabel?: string;
   }>;
-  sources?: Array<{ platform: string; label: string; url?: string; verified?: boolean }>;
+  sources?: Array<{
+    platform: string;
+    label: string;
+    url?: string;
+    verified?: boolean;
+    faviconUrl?: string;
+  }>;
 }
 
 // ─── Intel Generation Service ───────────────────────────────────────────────
@@ -308,20 +314,20 @@ export class IntelGenerationService {
             role: 'system',
             content:
               'You are Agent X — the AI sports intelligence engine powering NXT1. ' +
-              "You are the athlete's advocate. Your job is to TELL THEIR STORY, not score them. " +
+              'You generate PUBLIC scouting and recruiting intel reports written in the THIRD PERSON. ' +
+              'These reports are read by coaches, scouts, and recruiting programs — NOT addressed to the athlete. ' +
+              'Do NOT use "you", "your", or address the athlete directly at any point. ' +
+              'Refer to the athlete by name or as "the athlete" or "the prospect". ' +
               'You never produce evaluation ratings, tier labels, or numeric scores. ' +
-              "You produce a professional, narrative-first Intel report that showcases the athlete's " +
-              'journey, achievements, measurables, recruiting activity, and academic profile. ' +
               'ABSOLUTE RULE: Do NOT invent, hallucinate, or fabricate any data. ' +
               "If a data field is 'NONE', write factual absence text only. " +
               'Never invent stats, school names, offers, measurables, or awards. ' +
-              'Be specific and data-driven using only the provided context. ' +
               'Output valid JSON only.',
           },
           { role: 'user', content: prompt },
         ],
         {
-          tier: 'evaluator',
+          tier: 'copywriting',
           maxTokens: 4096,
           temperature: 0.6,
           jsonMode: true,
@@ -403,8 +409,25 @@ export class IntelGenerationService {
       (teamData['connectedSources'] as Record<string, unknown>[] | undefined) ?? []
     );
 
+    // ── Build team context via RAG + vector memory (mirrors athlete path) ──
+    let teamContextText = '';
+    try {
+      const builder = this.getOrCreateContextBuilder();
+      const query = [
+        'team intel report',
+        `sport: ${(teamData['teamName'] as string) || 'unknown'}`,
+        'retrieve roster, staff, stats, recruiting, schedule, program identity',
+      ].join(' | ');
+      teamContextText = await builder.buildTeamPromptContext(teamId, teamData, query);
+    } catch (err) {
+      logger.warn('[IntelGenerationService] Failed to build team prompt context', {
+        teamId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     // ── Build LLM prompt ──
-    const prompt = this.buildTeamIntelPrompt(teamData, raw);
+    const prompt = this.buildTeamIntelPrompt(teamData, raw, teamContextText);
 
     // ── Call OpenRouter ──
     let parsed: Record<string, unknown>;
@@ -416,10 +439,11 @@ export class IntelGenerationService {
             role: 'system',
             content:
               'You are Agent X — the AI sports intelligence engine powering NXT1. ' +
-              "You are the program's advocate. Your job is to TELL THE PROGRAM'S STORY. " +
+              'You generate PUBLIC program intel reports written in the THIRD PERSON. ' +
+              'These reports are read by recruits, scouts, and opposing programs — NOT addressed to the coaching staff or athletes. ' +
+              'Do NOT use "you", "your", or address the team or coaches directly at any point. ' +
+              'Refer to the program by its team name. ' +
               'You never produce evaluation ratings or numeric scores for athletes. ' +
-              "You produce a professional, narrative-first team Intel report that covers the program's " +
-              'identity, roster composition, performance stats, recruiting pipeline, and schedule. ' +
               'ABSOLUTE RULE: Do NOT invent, hallucinate, or fabricate any data. ' +
               "If a data field is 'NONE', write factual absence text only. " +
               'Never invent athlete names, win-loss records, commitments, or school names. ' +
@@ -428,7 +452,7 @@ export class IntelGenerationService {
           { role: 'user', content: prompt },
         ],
         {
-          tier: 'evaluator',
+          tier: 'copywriting',
           maxTokens: 4096,
           temperature: 0.6,
           jsonMode: true,
@@ -524,13 +548,22 @@ export class IntelGenerationService {
       })
       .slice(0, 30);
 
+    const awardsFromCollection = awardsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    // Transition fallback: if Awards collection is empty, check Users.awards[]
+    // TODO: remove once awards backfill migration has run in production
+    const legacyAwards =
+      awardsFromCollection.length === 0 && Array.isArray(userData['awards'])
+        ? (userData['awards'] as Record<string, unknown>[])
+        : [];
+    const awards = awardsFromCollection.length > 0 ? awardsFromCollection : legacyAwards;
+
     return {
       userData,
       stats: statsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
       metrics: sortedMetrics,
       recruiting: sortedRecruiting,
       events: eventsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
-      awards: awardsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+      awards,
       scoutReports: scoutSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
       connectedSources,
     };
@@ -543,36 +576,27 @@ export class IntelGenerationService {
   ): Promise<RawTeamData> {
     const teamRef = db.collection('Teams').doc(teamId);
 
-    const [
-      rosterSnap,
-      staffSnap,
-      eventsSnap,
-      teamStatsSnap,
-      playerStatsSnap,
-      gameStatsSnap,
-      recruitingSnap,
-    ] = await Promise.all([
-      // RosterEntries root collection — N:N junction
-      db.collection('RosterEntries').where('teamId', '==', teamId).get(),
-      // Staff subcollection (kept — team-owned)
-      teamRef.collection('staff').get(),
-      // Events root collection (team events)
-      db
-        .collection('Events')
-        .where('ownerType', '==', 'team')
-        .where('userId', '==', teamId)
-        .orderBy('date', 'desc')
-        .limit(30)
-        .get(),
-      // TeamStats root collection — equality only, sort in-memory
-      db.collection('TeamStats').where('teamId', '==', teamId).get(),
-      // PlayerStats for team members — equality only, sort in-memory
-      db.collection('PlayerStats').where('teamId', '==', teamId).limit(50).get(),
-      // GameStats per-game records — returns empty gracefully if collection doesn't exist
-      db.collection('GameStats').where('teamId', '==', teamId).limit(30).get(),
-      // Recruiting prospects associated with this team
-      db.collection('Recruiting').where('teamId', '==', teamId).limit(30).get(),
-    ]);
+    const [rosterSnap, staffSnap, eventsSnap, teamStatsSnap, playerStatsSnap, recruitingSnap] =
+      await Promise.all([
+        // RosterEntries root collection — N:N junction
+        db.collection('RosterEntries').where('teamId', '==', teamId).get(),
+        // Staff subcollection (kept — team-owned)
+        teamRef.collection('staff').get(),
+        // Events root collection (team events)
+        db
+          .collection('Events')
+          .where('ownerType', '==', 'team')
+          .where('userId', '==', teamId)
+          .orderBy('date', 'desc')
+          .limit(30)
+          .get(),
+        // TeamStats root collection — equality only, sort in-memory
+        db.collection('TeamStats').where('teamId', '==', teamId).get(),
+        // PlayerStats for team members — equality only, sort in-memory
+        db.collection('PlayerStats').where('teamId', '==', teamId).limit(50).get(),
+        // Recruiting prospects associated with this team
+        db.collection('Recruiting').where('teamId', '==', teamId).limit(30).get(),
+      ]);
 
     // Sort in-memory for TeamStats without deployed composite index
     const sortedTeamStats = teamStatsSnap.docs
@@ -591,7 +615,6 @@ export class IntelGenerationService {
       events: eventsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
       teamStats: sortedTeamStats,
       playerStats: playerStatsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
-      gameStats: gameStatsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
       recruiting: recruitingSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
     };
   }
@@ -672,15 +695,15 @@ DATA SOURCES CONNECTED: ${sourcesStr}
 
 ═══ TASK ═══
 You are Agent X. Generate a 6-section athlete Intel report in JSON.
-NXT1 is the athlete's advocate — you TELL THEIR STORY, not score them.
+This is a PUBLIC scouting report — write in the THIRD PERSON throughout. Do NOT address the athlete directly. Do NOT use 'I', 'you', or 'your' when referring to the athlete. NXT1 tells the athlete's story objectively to recruiters and coaches, not to the athlete themselves.
 Do NOT produce ratings, tier labels, or overall scores.
 ABSOLUTE RULE: Base ALL content ONLY on the ACTUAL data provided above.
-- If MEASURABLES data is 'NONE': for the athletic_measurements section, write only "No measurables have been added yet." Do NOT invent heights, weights, or combine numbers.
-- If SEASON STATS data is 'NONE': for the season_stats section, write only "No stats have been added yet." Do NOT invent statistics, records, or performance numbers.
-- If RECRUITING ACTIVITY data is 'NONE': for the recruiting_activity section, write only "No recruiting activity has been recorded yet." Do NOT invent offers, school names, or interest levels.
-- If CAMPS & EVENTS data is 'NONE': mention only that no events have been logged yet.
-- If AWARDS & HONORS data is 'NONE': for the awards_honors section, write only "No awards have been recorded yet." Do NOT invent accolades or recognition.
-- If ACADEMICS data fields are null/undefined: write only "Not provided" for those fields. Do NOT invent GPA, test scores, or class year.
+- If MEASURABLES data is 'NONE': for the athletic_measurements section, write only "No measurables have been added yet. Add your height, weight, and combine numbers to generate this section of your Intel report." Do NOT invent heights, weights, or combine numbers.
+- If SEASON STATS data is 'NONE': for the season_stats section, write only "No stats have been recorded yet. Add your season stats to generate a full statistical breakdown in your Intel report." Do NOT invent statistics, records, or performance numbers.
+- If RECRUITING ACTIVITY data is 'NONE': for the recruiting_activity section, write only "No recruiting activity has been recorded yet. Add your offers, campus visits, and school interest to generate your recruiting Intel." Do NOT invent offers, school names, or interest levels.
+- If CAMPS & EVENTS data is 'NONE': mention only that no events have been logged yet, and encourage the athlete to add their camps and events to generate this section.
+- If AWARDS & HONORS data is 'NONE': for the awards_honors section, write only "No awards have been recorded yet. Add your honors and accolades to generate this section of your Intel report." Do NOT invent accolades or recognition.
+- If ACADEMICS data fields are null/undefined: write only "No academic information has been added yet. Add your GPA, test scores, and graduation year to generate your academic Intel." Do NOT invent GPA, test scores, or class year.
 
 Output this EXACT JSON structure with all 6 sections:
 
@@ -690,14 +713,14 @@ Output this EXACT JSON structure with all 6 sections:
       "id": "agent_x_brief",
       "title": "Agent X Brief",
       "icon": "sparkles",
-      "content": "<2-4 paragraph first-person Agent X narrative — who is this athlete, what defines them, what's their story right now>",
+      "content": "<2-4 paragraph third-person narrative written as a public scouting/intel report — describe who this athlete is, what defines them, and what their story looks like right now. Write as a professional report viewed by coaches, scouts, and recruiters. Do NOT address the athlete directly. Do NOT use 'I', 'you', or 'your'. Refer to the athlete by name or as 'this athlete' or 'the prospect'.",
       "sources": [{"platform": "<source>", "label": "<label>", "verified": <true|false>}]
     },
     {
       "id": "athletic_measurements",
       "title": "Athletic Measurements",
       "icon": "body",
-      "content": "<1-2 paragraph narrative on the athlete's physical profile>",
+      "content": "<1-2 paragraph third-person narrative on the athlete's physical profile. Do NOT use 'you' or 'your'. Refer to the athlete by name or as 'the athlete' or 'the prospect'.>",
       "items": [
         {"label": "<e.g. Height>", "value": "<6'2\\">", "source": "<self-reported|maxpreps>", "verified": false},
         {"label": "<e.g. 40-Yard Dash>", "value": "<4.52>", "unit": "sec", "source": "<self-reported>", "verified": false}
@@ -707,7 +730,7 @@ Output this EXACT JSON structure with all 6 sections:
       "id": "season_stats",
       "title": "Season Stats",
       "icon": "stats-chart",
-      "content": "<1-3 paragraph narrative on season performance>",
+      "content": "<1-3 paragraph third-person narrative on season performance. Do NOT use 'you' or 'your'. Refer to the athlete by name or as 'the athlete'.",
       "items": [
         {"label": "<stat label>", "value": "<value>", "sublabel": "<season or category>", "source": "<maxpreps|self-reported>", "verified": <true|false>}
       ]
@@ -716,7 +739,7 @@ Output this EXACT JSON structure with all 6 sections:
       "id": "recruiting_activity",
       "title": "Recruiting Activity",
       "icon": "school",
-      "content": "<1-3 paragraph narrative on recruiting status, camps attended, interest received>",
+      "content": "<1-3 paragraph third-person narrative on recruiting status, camps attended, and interest received. Do NOT use 'you' or 'your'. Refer to the athlete by name or as 'the prospect'.",
       "items": [
         {"label": "<e.g. Offers>", "value": "<N>"},
         {"label": "<e.g. Camps Attended>", "value": "<N>"},
@@ -727,7 +750,7 @@ Output this EXACT JSON structure with all 6 sections:
       "id": "academic_profile",
       "title": "Academic Profile",
       "icon": "book",
-      "content": "<1-2 paragraph narrative on academic standing, eligibility, class year>",
+      "content": "<1-2 paragraph third-person narrative on academic standing, eligibility, and class year. Do NOT use 'you' or 'your'. Refer to the athlete by name or as 'the athlete'.",
       "items": [
         {"label": "GPA", "value": "<gpa or Not provided>"},
         {"label": "Class Of", "value": "<year or Not provided>"},
@@ -739,7 +762,7 @@ Output this EXACT JSON structure with all 6 sections:
       "id": "awards_honors",
       "title": "Awards & Honors",
       "icon": "trophy",
-      "content": "<1-2 paragraph narrative on accolades, recognition, milestones>",
+      "content": "<1-2 paragraph third-person narrative on accolades, recognition, and milestones. Do NOT use 'you' or 'your'. Refer to the athlete by name or as 'the athlete'.",
       "items": [
         {"label": "<award title>", "value": "<year or org>", "source": "<source>", "verified": <true|false>}
       ]
@@ -753,12 +776,15 @@ Output this EXACT JSON structure with all 6 sections:
 `.trim();
   }
 
-  private buildTeamIntelPrompt(teamData: Record<string, unknown>, raw: RawTeamData): string {
+  private buildTeamIntelPrompt(
+    teamData: Record<string, unknown>,
+    raw: RawTeamData,
+    teamContextText = ''
+  ): string {
     const teamName = (teamData['teamName'] as string) || 'Unknown';
     const sport = (teamData['sport'] as string) || 'Unknown';
     const teamType = (teamData['teamType'] as string) || 'high-school';
     const location = [teamData['city'], teamData['state']].filter(Boolean).join(', ') || 'Unknown';
-    const description = (teamData['description'] as string) || '';
     const record = teamData['record'] as Record<string, unknown> | undefined;
     const branding = teamData['branding'] as Record<string, unknown> | undefined;
 
@@ -774,10 +800,6 @@ Output this EXACT JSON structure with all 6 sections:
       raw.playerStats.length > 0
         ? JSON.stringify(raw.playerStats.slice(0, 30))
         : 'NONE — no player stats recorded yet';
-    const gameStatsJson =
-      raw.gameStats.length > 0
-        ? JSON.stringify(raw.gameStats.slice(0, 20))
-        : 'NONE — no game stats recorded yet';
     const teamStatsJson =
       raw.teamStats.length > 0
         ? JSON.stringify(raw.teamStats.slice(0, 10))
@@ -792,13 +814,12 @@ Output this EXACT JSON structure with all 6 sections:
         : 'NONE — no recruiting activity recorded';
 
     return `
-═══ TEAM PROFILE ═══
+${teamContextText ? `═══ TEAM CONTEXT (RAG + MEMORY) ═══\n${teamContextText}\n\n` : ''}═══ TEAM PROFILE ═══
 Team: ${teamName}
 Team ID: ${raw.teamData['id'] ?? 'unknown'}
 Sport: ${sport}
 Type: ${teamType}
 Location: ${location}
-Description: ${description}
 Record: ${record ? JSON.stringify(record) : 'Not set'}
 Mascot: ${branding?.['mascot'] ?? 'Not set'}
 
@@ -813,9 +834,6 @@ ${staffJson}
 PLAYER STATS (PlayerStats by teamId):
 ${playerStatsJson}
 
-GAME STATS (GameStats by teamId):
-${gameStatsJson}
-
 TEAM STATS (TeamStats):
 ${teamStatsJson}
 
@@ -827,14 +845,14 @@ ${recruitingJson}
 
 ═══ TASK ═══
 You are Agent X. Generate a 5-section team Intel report in JSON.
-You are the program's advocate — TELL THE PROGRAM'S STORY.
+This is a PUBLIC program intel report — write in the THIRD PERSON throughout. Do NOT address the coaching staff or athletes directly. Do NOT use 'I', 'you', or 'your' when referring to the team or program. Write as a professional report viewed by recruits, scouts, and opposing programs.
 Do NOT produce player scores, tier labels, or ratings.
 ABSOLUTE RULE: Base ALL content ONLY on ACTUAL data provided above.
-- If ROSTER data is 'NONE': write only "No roster data has been added yet." — do NOT invent player names.
-- If STAFF data is 'NONE': write only "No coaching staff has been added yet." — do NOT invent coaches.
-- If PLAYER STATS, GAME STATS, or TEAM STATS data is 'NONE': write only "No [type] stats available yet." — do NOT invent stats, records, or scores.
-- If RECRUITING data is 'NONE': write only "No recruiting activity has been recorded yet." — do NOT invent commits or prospects.
-- If EVENTS data is 'NONE': write only "No schedule or events have been added yet." — do NOT invent games or opponents.
+- If ROSTER data is 'NONE': write only "No roster data has been added yet. Add your players to generate this section of your Intel report." — do NOT invent player names.
+- If STAFF data is 'NONE': write only "No coaching staff has been added yet. Add your coaches to generate this section of your Intel report." — do NOT invent coaches.
+- If PLAYER STATS, GAME STATS, or TEAM STATS data is 'NONE': write only "No stats have been recorded yet. Add your team and player stats to generate a full statistical breakdown in your Intel report." — do NOT invent stats, records, or scores.
+- If RECRUITING data is 'NONE': write only "No recruiting activity has been recorded yet. Add your prospects and recruiting pipeline to generate your recruiting Intel." — do NOT invent commits or prospects.
+- If EVENTS data is 'NONE': write only "No schedule or events have been added yet. Add your games and events to generate this section of your Intel report." — do NOT invent games or opponents.
 
 Output this EXACT JSON structure with all 5 sections:
 
@@ -844,14 +862,14 @@ Output this EXACT JSON structure with all 5 sections:
       "id": "agent_overview",
       "title": "Agent Overview",
       "icon": "sparkles",
-      "content": "<2-3 paragraph Agent X narrative — program identity, what defines this team, where they are right now. Based ONLY on provided profile data. If description is empty, state that the program has not yet added a bio.>",
+      "content": "<2-3 paragraph third-person narrative written as a public program intel report — describe the program's identity, what defines this team, and where they stand right now. Write as a professional report viewed by recruits, scouts, and opposing programs. Do NOT address the coaching staff or athletes directly. Do NOT use 'I', 'you', or 'your'. If description is empty, state that the program has not yet added a bio.>",
       "sources": [{"platform": "agent-x", "label": "Agent X Analysis", "verified": false}]
     },
     {
       "id": "team",
       "title": "Team",
       "icon": "people",
-      "content": "<1-2 paragraph narrative on roster composition and coaching staff. If ROSTER is NONE write: 'No roster data has been added yet.' If STAFF is NONE write: 'No coaching staff has been added yet.' Do NOT invent names.>",
+      "content": "<1-2 paragraph third-person narrative on roster composition and coaching staff. Do NOT use 'you', 'your', or address the team directly. If ROSTER is NONE write: 'No roster data has been added yet.' If STAFF is NONE write: 'No coaching staff has been added yet.' Do NOT invent names.>",
       "items": [
         {"label": "Roster Size", "value": "${raw.roster.length > 0 ? raw.roster.length.toString() : 'Not recorded'}"},
         {"label": "Coaching Staff", "value": "${raw.staff.length > 0 ? raw.staff.length.toString() : 'Not recorded'}"}
@@ -861,7 +879,7 @@ Output this EXACT JSON structure with all 5 sections:
       "id": "stats",
       "title": "Stats",
       "icon": "stats-chart",
-      "content": "<1-2 paragraph narrative on team statistical profile. If ALL stats data is NONE write: 'No stats have been recorded yet.' Do NOT invent scores, records, or statistical values.>",
+      "content": "<1-2 paragraph third-person narrative on the team's statistical profile. Do NOT use 'you' or 'your'. If ALL stats data is NONE write: 'No stats have been recorded yet. Add your team and player stats to generate a full statistical breakdown in your Intel report.' Do NOT invent scores, records, or statistical values.>",
       "items": [
         {"label": "<stat label from actual data>", "value": "<actual value>", "sublabel": "<season>"}
       ]
@@ -870,7 +888,7 @@ Output this EXACT JSON structure with all 5 sections:
       "id": "recruiting",
       "title": "Recruiting",
       "icon": "school",
-      "content": "<1-2 paragraph narrative on recruiting pipeline. If RECRUITING is NONE write: 'No recruiting activity has been recorded yet.' Do NOT invent prospect names or college commitments.>",
+      "content": "<1-2 paragraph third-person narrative on the program's recruiting pipeline. Do NOT use 'you' or 'your'. If RECRUITING is NONE write: 'No recruiting activity has been recorded yet. Add your prospects and pipeline to generate your recruiting Intel.' Do NOT invent prospect names or college commitments.>",
       "items": [
         {"label": "Team ID", "value": "${String(raw.teamData['id'] ?? 'unknown')}"},
         {"label": "<recruiting label from actual data>", "value": "<actual value>"}
@@ -880,7 +898,7 @@ Output this EXACT JSON structure with all 5 sections:
       "id": "schedule",
       "title": "Schedule",
       "icon": "calendar",
-      "content": "<1-2 paragraph narrative on upcoming games or recent results. If EVENTS is NONE write: 'No schedule or events have been added yet.' Do NOT invent opponents, dates, or results.>",
+      "content": "<1-2 paragraph third-person narrative on upcoming games or recent results. Do NOT use 'you' or 'your'. If EVENTS is NONE write: 'No schedule or events have been added yet.' Do NOT invent opponents, dates, or results.>",
       "items": [
         {"label": "<opponent from actual data>", "value": "<result or date from actual data>", "sublabel": "<home/away>"}
       ]
@@ -919,18 +937,22 @@ Output this EXACT JSON structure with all 5 sections:
     const NO_DATA_OVERRIDES: Partial<Record<AthleteSectionId, string>> = {
       athletic_measurements: availability['hasMetrics']
         ? undefined
-        : 'No measurables have been added yet.',
-      season_stats: availability['hasStats'] ? undefined : 'No stats have been recorded yet.',
+        : 'No measurables have been added yet. Add your height, weight, and combine numbers to generate this section of your Intel report.',
+      season_stats: availability['hasStats']
+        ? undefined
+        : 'No stats have been recorded yet. Add your season stats to generate a full statistical breakdown in your Intel report.',
       recruiting_activity: availability['hasRecruiting']
         ? undefined
-        : 'No recruiting activity has been recorded yet.',
-      awards_honors: availability['hasAwards'] ? undefined : 'No awards have been recorded yet.',
+        : 'No recruiting activity has been recorded yet. Add your offers, campus visits, and school interest to generate your recruiting Intel.',
+      awards_honors: availability['hasAwards']
+        ? undefined
+        : 'No awards have been recorded yet. Add your honors and accolades to generate this section of your Intel report.',
       academic_profile: availability['hasAcademics']
         ? undefined
-        : 'No academic information has been added yet.',
+        : 'No academic information has been added yet. Add your GPA, test scores, and graduation year to generate your academic Intel.',
     };
 
-    const sections = this.normalizeSections(
+    const rawSections = this.normalizeSections(
       parsed['sections'],
       ATHLETE_SECTION_ORDER,
       ATHLETE_SECTION_META
@@ -944,6 +966,8 @@ Output this EXACT JSON structure with all 5 sections:
         items: undefined,
       };
     });
+
+    const sections = this.enrichSectionsWithFavicons(rawSections, citations);
 
     return {
       userId,
@@ -979,7 +1003,10 @@ Output this EXACT JSON structure with all 5 sections:
       status: 'ready',
       generatedBy: 'agent-x',
 
-      sections: this.normalizeSections(parsed['sections'], TEAM_SECTION_ORDER, TEAM_SECTION_META),
+      sections: this.enrichSectionsWithFavicons(
+        this.normalizeSections(parsed['sections'], TEAM_SECTION_ORDER, TEAM_SECTION_META),
+        citations
+      ),
       citations,
       missingDataPrompts: [],
       quickCommands: this.normalizeQuickCommands(parsed['quickCommands']),
@@ -1042,6 +1069,7 @@ Output this EXACT JSON structure with all 5 sections:
         unit: typeof item['unit'] === 'string' ? item['unit'] : undefined,
         source: typeof item['source'] === 'string' ? item['source'] : undefined,
         verified: typeof item['verified'] === 'boolean' ? item['verified'] : undefined,
+        faviconUrl: typeof item['faviconUrl'] === 'string' ? item['faviconUrl'] : undefined,
         date: typeof item['date'] === 'string' ? item['date'] : undefined,
         sublabel: typeof item['sublabel'] === 'string' ? item['sublabel'] : undefined,
       }));
@@ -1057,8 +1085,46 @@ Output this EXACT JSON structure with all 5 sections:
         label: typeof item['label'] === 'string' ? item['label'] : '',
         url: typeof item['url'] === 'string' ? item['url'] : undefined,
         verified: typeof item['verified'] === 'boolean' ? item['verified'] : false,
+        faviconUrl: typeof item['faviconUrl'] === 'string' ? item['faviconUrl'] : undefined,
       }));
     return sources.length > 0 ? sources : undefined;
+  }
+
+  /**
+   * Enriches section sources and item source chips with faviconUrl from top-level citations.
+   * The LLM doesn't know favicon URLs — this seeds them by matching on platform name.
+   */
+  private enrichSectionsWithFavicons(
+    sections: NormalizedSection[],
+    citations: Array<{ platform: string; faviconUrl?: string; url?: string }>
+  ): NormalizedSection[] {
+    if (citations.length === 0) return sections;
+
+    // Build a lookup: platform → { faviconUrl, url }
+    const faviconByPlatform = new Map<string, { faviconUrl?: string; url?: string }>();
+    for (const c of citations) {
+      if (c.platform) {
+        faviconByPlatform.set(c.platform.toLowerCase(), {
+          faviconUrl: c.faviconUrl,
+          url: c.url,
+        });
+      }
+    }
+    if (faviconByPlatform.size === 0) return sections;
+
+    return sections.map((section) => ({
+      ...section,
+      sources: section.sources?.map((src) => {
+        if (src.faviconUrl) return src; // already has one
+        const match = faviconByPlatform.get(src.platform.toLowerCase());
+        return match?.faviconUrl ? { ...src, faviconUrl: match.faviconUrl } : src;
+      }),
+      items: section.items?.map((item) => {
+        if (!item.source || item.faviconUrl) return item;
+        const match = faviconByPlatform.get(item.source.toLowerCase());
+        return match?.faviconUrl ? { ...item, faviconUrl: match.faviconUrl } : item;
+      }),
+    }));
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1092,6 +1158,7 @@ Output this EXACT JSON structure with all 5 sections:
         url: (src['profileUrl'] as string) || undefined,
         lastSyncedAt: (src['lastSyncedAt'] as string) || undefined,
         verified: VERIFIED_PLATFORMS.has(platform),
+        faviconUrl: (src['faviconUrl'] as string) || undefined,
       };
     });
   }
@@ -1258,7 +1325,9 @@ Output this EXACT JSON structure with all 5 sections:
             role: 'system',
             content:
               'You are Agent X — the AI sports intelligence engine powering NXT1. ' +
-              "You are the athlete's advocate. Your job is to TELL THEIR STORY, not score them. " +
+              'You generate PUBLIC scouting and recruiting intel reports written in the THIRD PERSON. ' +
+              'These reports are read by coaches, scouts, and recruiting programs — NOT addressed to the athlete. ' +
+              'Do NOT use "you", "your", or address the athlete directly at any point. ' +
               'You never produce evaluation ratings, tier labels, or numeric scores. ' +
               'ABSOLUTE RULE: Do NOT invent, hallucinate, or fabricate any data. ' +
               "If a data field is 'NONE', write factual absence text only. " +
@@ -1267,7 +1336,7 @@ Output this EXACT JSON structure with all 5 sections:
           { role: 'user', content: prompt },
         ],
         {
-          tier: 'evaluator',
+          tier: 'copywriting',
           maxTokens: 1200,
           temperature: 0.6,
           jsonMode: true,
@@ -1384,7 +1453,9 @@ Output this EXACT JSON structure with all 5 sections:
             role: 'system',
             content:
               'You are Agent X — the AI sports intelligence engine powering NXT1. ' +
-              "You are the program's advocate. Your job is to TELL THE PROGRAM'S STORY. " +
+              'You generate PUBLIC program intel reports written in the THIRD PERSON. ' +
+              'These reports are read by recruits, scouts, and opposing programs — NOT addressed to the coaching staff or athletes. ' +
+              'Do NOT use "you", "your", or address the team or coaches directly at any point. ' +
               'You never produce evaluation ratings or numeric scores for athletes. ' +
               'ABSOLUTE RULE: Do NOT invent, hallucinate, or fabricate any data. ' +
               "If a data field is 'NONE', write factual absence text only. " +
@@ -1393,7 +1464,7 @@ Output this EXACT JSON structure with all 5 sections:
           { role: 'user', content: prompt },
         ],
         {
-          tier: 'evaluator',
+          tier: 'copywriting',
           maxTokens: 1200,
           temperature: 0.6,
           jsonMode: true,
@@ -1525,9 +1596,16 @@ Output this EXACT JSON structure with all 5 sections:
 
       case 'awards_honors': {
         const awardsSnap = await db.collection('Awards').where('userId', '==', userId).get();
+        // Transition fallback: if Awards collection is empty, check Users.awards[]
+        // TODO: remove once awards backfill migration has run in production
+        const awardDocs = awardsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const legacyAwards =
+          awardDocs.length === 0 && Array.isArray(userData['awards'])
+            ? (userData['awards'] as Record<string, unknown>[])
+            : [];
         return {
           userData,
-          awards: awardsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+          awards: awardDocs.length > 0 ? awardDocs : legacyAwards,
         };
       }
 
@@ -1567,10 +1645,9 @@ Output this EXACT JSON structure with all 5 sections:
       }
 
       case 'stats': {
-        const [teamStatsSnap, playerStatsSnap, gameStatsSnap] = await Promise.all([
+        const [teamStatsSnap, playerStatsSnap] = await Promise.all([
           db.collection('TeamStats').where('teamId', '==', teamId).get(),
           db.collection('PlayerStats').where('teamId', '==', teamId).limit(50).get(),
-          db.collection('GameStats').where('teamId', '==', teamId).limit(30).get(),
         ]);
         const teamStats = teamStatsSnap.docs
           .map((d) => ({ id: d.id, ...d.data() }) as Record<string, unknown>)
@@ -1580,7 +1657,6 @@ Output this EXACT JSON structure with all 5 sections:
           teamData,
           teamStats,
           playerStats: playerStatsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
-          gameStats: gameStatsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
         };
       }
 
@@ -1784,7 +1860,6 @@ COACHING STAFF (${raw.staff?.length ?? 0}): ${raw.staff?.length ? JSON.stringify
       case 'stats': {
         dataBlock = `
 PLAYER STATS: ${raw.playerStats?.length ? JSON.stringify(raw.playerStats.slice(0, 30)) : 'NONE — no player stats recorded yet'}
-GAME STATS: ${raw.gameStats?.length ? JSON.stringify(raw.gameStats.slice(0, 20)) : 'NONE — no game stats recorded yet'}
 TEAM STATS: ${raw.teamStats?.length ? JSON.stringify(raw.teamStats.slice(0, 10)) : 'NONE — no team stats recorded yet'}
 `.trim();
         break;
@@ -1818,14 +1893,14 @@ TEAM STATS: ${raw.teamStats?.length ? JSON.stringify(raw.teamStats.slice(0, 10))
   "id": "stats",
   "title": "Stats",
   "icon": "stats-chart",
-  "content": "<1-2 paragraph narrative on team statistical profile. If all stats NONE write: 'No stats have been recorded yet.'>",
+  "content": "<1-2 paragraph narrative on team statistical profile. If all stats NONE write: 'No stats have been recorded yet. Add your team and player stats to generate a full statistical breakdown in your Intel report.'>",
   "items": [{"label": "<stat from actual data>", "value": "<actual value>", "sublabel": "<season>"}]
 }`,
       recruiting: `{
   "id": "recruiting",
   "title": "Recruiting",
   "icon": "school",
-  "content": "<1-2 paragraph narrative on recruiting pipeline. If NONE write: 'No recruiting activity has been recorded yet.'>",
+  "content": "<1-2 paragraph narrative on recruiting pipeline. If NONE write: 'No recruiting activity has been recorded yet. Add your prospects and pipeline to generate your recruiting Intel.'>",
   "items": [{"label": "<recruiting label>", "value": "<actual value>"}]
 }`,
       schedule: `{
@@ -1885,15 +1960,19 @@ ${sectionSchemas[sectionId]}
     const overrides: Partial<Record<AthleteSectionId, string>> = {
       athletic_measurements: availability['hasMetrics']
         ? undefined
-        : 'No measurables have been added yet.',
-      season_stats: availability['hasStats'] ? undefined : 'No stats have been recorded yet.',
+        : 'No measurables have been added yet. Add your height, weight, and combine numbers to generate this section of your Intel report.',
+      season_stats: availability['hasStats']
+        ? undefined
+        : 'No stats have been recorded yet. Add your season stats to generate a full statistical breakdown in your Intel report.',
       recruiting_activity: availability['hasRecruiting']
         ? undefined
-        : 'No recruiting activity has been recorded yet.',
-      awards_honors: availability['hasAwards'] ? undefined : 'No awards have been recorded yet.',
+        : 'No recruiting activity has been recorded yet. Add your offers, campus visits, and school interest to generate your recruiting Intel.',
+      awards_honors: availability['hasAwards']
+        ? undefined
+        : 'No awards have been recorded yet. Add your honors and accolades to generate this section of your Intel report.',
       academic_profile: availability['hasAcademics']
         ? undefined
-        : 'No academic information has been added yet.',
+        : 'No academic information has been added yet. Add your GPA, test scores, and graduation year to generate your academic Intel.',
     };
     return overrides[sectionId];
   }
@@ -1905,21 +1984,19 @@ ${sectionSchemas[sectionId]}
     switch (sectionId) {
       case 'team':
         return (raw.roster?.length ?? 0) === 0 && (raw.staff?.length ?? 0) === 0
-          ? 'No roster or coaching staff data has been added yet.'
+          ? 'No roster or coaching staff data has been added yet. Add your players and staff to generate this section of your Intel report.'
           : undefined;
       case 'stats':
-        return (raw.teamStats?.length ?? 0) === 0 &&
-          (raw.playerStats?.length ?? 0) === 0 &&
-          (raw.gameStats?.length ?? 0) === 0
-          ? 'No stats have been recorded yet.'
+        return (raw.teamStats?.length ?? 0) === 0 && (raw.playerStats?.length ?? 0) === 0
+          ? 'No stats have been recorded yet. Add your team and player stats to generate a full statistical breakdown in your Intel report.'
           : undefined;
       case 'recruiting':
         return (raw.recruiting?.length ?? 0) === 0
-          ? 'No recruiting activity has been recorded yet.'
+          ? 'No recruiting activity has been recorded yet. Add your prospects and recruiting pipeline to generate your recruiting Intel.'
           : undefined;
       case 'schedule':
         return (raw.events?.length ?? 0) === 0
-          ? 'No schedule or events have been added yet.'
+          ? 'No schedule or events have been added yet. Add your games and events to generate this section of your Intel report.'
           : undefined;
       default:
         return undefined;

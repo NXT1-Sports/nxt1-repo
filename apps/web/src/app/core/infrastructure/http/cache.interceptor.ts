@@ -122,8 +122,10 @@ const DEFAULT_TTL_CONFIG: CacheTTLConfig[] = [
   // Colleges - Long TTL (static data)
   { pattern: /\/college\//, ttl: CACHE_CONFIG.LONG_TTL },
 
-  // Profiles - Medium TTL
+  // Profiles - timeline is SHORT TTL so Agent X posts appear immediately
+  { pattern: /\/auth\/profile\/[^/]+\/timeline/, ttl: CACHE_CONFIG.SHORT_TTL },
   { pattern: /\/auth\/profile/, ttl: CACHE_CONFIG.MEDIUM_TTL },
+  { pattern: /\/profile\/[^/]+\/timeline/, ttl: CACHE_CONFIG.SHORT_TTL },
   { pattern: /\/profile\//, ttl: CACHE_CONFIG.MEDIUM_TTL },
 
   // Teams - Medium TTL

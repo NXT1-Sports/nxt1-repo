@@ -145,21 +145,6 @@ export class WriteCoreIdentityTool extends BaseTool {
         },
         required: ['firstName', 'lastName'],
       },
-      awards: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            title: { type: 'string' },
-            category: { type: 'string' },
-            sport: { type: 'string' },
-            season: { type: 'string' },
-            issuer: { type: 'string' },
-            date: { type: 'string' },
-          },
-          required: ['title'],
-        },
-      },
       teamHistory: {
         type: 'array',
         items: {
@@ -220,7 +205,6 @@ export class WriteCoreIdentityTool extends BaseTool {
     const team = this.obj(input, 'team');
     const coach = this.obj(input, 'coach');
     const coachTitle = coach ? (this.str(coach, 'title') ?? undefined) : undefined;
-    const awards = this.arr(input, 'awards');
     const teamHistory = this.arr(input, 'teamHistory');
     const rawProfileImgs = input['profileImgs'];
     const profileImgs: string[] = Array.isArray(rawProfileImgs)
@@ -244,14 +228,13 @@ export class WriteCoreIdentityTool extends BaseTool {
       !sportInfo &&
       !team &&
       !coach &&
-      !awards &&
       !teamHistory &&
       profileImgs.length === 0
     ) {
       return {
         success: false,
         error:
-          'At least one data section (identity, academics, sportInfo, team, coach, awards, teamHistory) is required.',
+          'At least one data section (identity, academics, sportInfo, team, coach, teamHistory) is required.',
       };
     }
 
@@ -422,9 +405,6 @@ export class WriteCoreIdentityTool extends BaseTool {
             : userData['coach'] && typeof userData['coach'] === 'object'
               ? (userData['coach'] as Record<string, unknown>)
               : undefined,
-        awards: Array.isArray(userData['awards'])
-          ? (userData['awards'] as Record<string, unknown>[])
-          : [],
       };
 
       const rawSports = userData['sports'];
@@ -531,17 +511,6 @@ export class WriteCoreIdentityTool extends BaseTool {
         sportObj['updatedAt'] = now;
         updatedSports[sportIndex] = sportObj;
         payload['sports'] = updatedSports;
-      }
-
-      // ── Awards ───────────────────────────────────────────────────────
-      if (awards?.length && !isCoachOrDirector) {
-        const existingAwards = (userData['awards'] ?? []) as Record<string, unknown>[];
-        payload['awards'] = this.mergeAwards(
-          existingAwards,
-          awards as Record<string, unknown>[],
-          targetSport
-        );
-        writtenSections.push('awards');
       }
 
       // ── Team History ─────────────────────────────────────────────────
@@ -788,17 +757,6 @@ export class WriteCoreIdentityTool extends BaseTool {
                     phone: this.str(coach, 'phone'),
                     title: this.str(coach, 'title'),
                   },
-                }
-              : {}),
-            ...(awards?.length
-              ? {
-                  awards: (awards as Record<string, unknown>[]).map((a) => ({
-                    title: this.str(a, 'title') ?? '',
-                    category: this.str(a, 'category'),
-                    sport: this.str(a, 'sport') ?? targetSport,
-                    season: this.str(a, 'season'),
-                    issuer: this.str(a, 'issuer'),
-                  })),
                 }
               : {}),
           };
@@ -1119,51 +1077,6 @@ export class WriteCoreIdentityTool extends BaseTool {
     const title = this.str(coach, 'title');
     if (title) result['title'] = title;
     return result;
-  }
-
-  private mergeAwards(
-    existing: Record<string, unknown>[],
-    incoming: Record<string, unknown>[],
-    defaultSport: string
-  ): Record<string, unknown>[] {
-    if (incoming.length > VALIDATION.MAX_AWARDS) return existing;
-    const merged = [...existing];
-    const keyOf = (a: Record<string, unknown>) => {
-      const title = String(a['title'] ?? '')
-        .toLowerCase()
-        .trim();
-      const sport = String(a['sport'] ?? defaultSport)
-        .toLowerCase()
-        .trim();
-      const season = String(a['season'] ?? '')
-        .toLowerCase()
-        .trim();
-      return `${title}::${sport}::${season}`;
-    };
-    const indexMap = new Map<string, number>();
-    for (let i = 0; i < merged.length; i++) indexMap.set(keyOf(merged[i]), i);
-
-    for (const entry of incoming) {
-      const title = this.str(entry, 'title');
-      if (!title) continue;
-      const record: Record<string, unknown> = {
-        title,
-        sport: this.str(entry, 'sport') ?? defaultSport,
-      };
-      for (const f of ['category', 'season', 'issuer', 'date']) {
-        const v = this.str(entry, f);
-        if (v) record[f] = v;
-      }
-      const key = keyOf(record);
-      const idx = indexMap.get(key);
-      if (idx !== undefined) {
-        merged[idx] = { ...merged[idx], ...record };
-      } else {
-        indexMap.set(key, merged.length);
-        merged.push(record);
-      }
-    }
-    return merged;
   }
 
   private mergeTeamHistory(

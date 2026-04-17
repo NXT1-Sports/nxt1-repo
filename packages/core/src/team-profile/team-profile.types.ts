@@ -32,7 +32,40 @@ export type { DataVerification } from '../models/user';
  * - Roster shows team members split by class year
  * - Connect shows contact info, recruiting, and scheduling
  */
-export type TeamProfileTabId = 'intel' | 'timeline' | 'roster' | 'connect';
+export type TeamProfileTabId = 'intel' | 'timeline' | 'roster' | 'connect' | 'schedule';
+
+// ============================================
+// TEAM TIMELINE FILTER TYPES
+// ============================================
+
+/**
+ * Filter identifiers for the Team Timeline tab.
+ *
+ * - all: All feed items (no filter)
+ * - media: Photos and highlight videos
+ * - stats: TeamStats and PlayerStats entries
+ * - games: Schedule items where status === 'final'
+ * - schedule: Schedule items where status is upcoming/live
+ * - recruiting: Recruiting activities (offers, commits, visits)
+ * - news: News articles linked to the team
+ */
+export type TeamTimelineFilterId =
+  | 'all'
+  | 'media'
+  | 'stats'
+  | 'games'
+  | 'schedule'
+  | 'recruiting'
+  | 'news';
+
+/**
+ * Configuration for a single team timeline filter chip.
+ */
+export interface TeamTimelineFilter {
+  readonly id: TeamTimelineFilterId;
+  readonly label: string;
+  readonly icon: string;
+}
 
 /**
  * Configuration for a team profile content tab.
@@ -395,13 +428,7 @@ export interface TeamProfileQuickStats {
 /**
  * Team post/content item (same shape as profile posts for reuse).
  */
-export type TeamProfilePostType =
-  | 'video'
-  | 'image'
-  | 'text'
-  | 'highlight'
-  | 'news'
-  | 'announcement';
+export type TeamProfilePostType = 'video' | 'image' | 'text' | 'news' | 'announcement';
 
 export interface TeamProfilePost {
   readonly id: string;
@@ -411,11 +438,9 @@ export interface TeamProfilePost {
   readonly thumbnailUrl?: string;
   readonly mediaUrl?: string;
   readonly externalLink?: string;
-  readonly likeCount: number;
   readonly shareCount: number;
   readonly viewCount?: number;
   readonly duration?: number;
-  readonly isLiked?: boolean;
   readonly isPinned?: boolean;
   readonly createdAt: string;
 }

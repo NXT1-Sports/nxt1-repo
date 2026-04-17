@@ -358,16 +358,7 @@ export class ProfileComponent {
     }
     if (!this.isOwnProfile()) return [];
     const tab = this.uiProfileService.activeTab();
-    if (tab === 'intel')
-      return [
-        {
-          id: 'intel',
-          label: this.intel.athleteReport() ? 'Update Intel' : 'Generate Intel',
-          variant: 'primary',
-          onClick: () => void this.onGenerateAthleteIntel(),
-        },
-      ];
-    if (tab === 'timeline')
+    if (tab === 'intel' || tab === 'timeline')
       return [
         {
           id: 'add-update',
@@ -621,7 +612,10 @@ export class ProfileComponent {
       this.logger.warn('Failed to load profile metrics', { userId, sportId });
     }
     if (timeline.success) {
-      this.uiProfileService.setTimelinePosts(timeline.data);
+      this.uiProfileService.setPolymorphicTimeline(timeline.data, {
+        hasMore: timeline.hasMore,
+        nextCursor: timeline.nextCursor,
+      });
     } else {
       this.logger.warn('Failed to load profile timeline', { userId });
     }
@@ -639,7 +633,11 @@ export class ProfileComponent {
       const userId = this.fetchedProfile()?.id;
       if (userId) {
         void this.profileApiService.getProfileTimeline(userId).then((resp) => {
-          if (resp.success) this.uiProfileService.setTimelinePosts(resp.data);
+          if (resp.success)
+            this.uiProfileService.setPolymorphicTimeline(resp.data, {
+              hasMore: resp.hasMore,
+              nextCursor: resp.nextCursor,
+            });
         });
       }
     }
@@ -810,6 +808,13 @@ export class ProfileComponent {
     });
 
     if (result?.saved) {
+      // Refresh auth state so the top-nav/footer avatar reflects the new profileImgs[0]
+      try {
+        await this.authFlow.refreshUserProfile();
+      } catch (err) {
+        this.logger.warn('Failed to refresh auth state after profile edit', { err });
+      }
+
       const param = this.routeParam();
       if (!param && userId) {
         // Clear service cache so the re-fetch hits the backend
@@ -1131,6 +1136,10 @@ export class ProfileComponent {
   }
 
   private async openCreatePostSheet(): Promise<void> {
+    const hasReport = !!this.intel.athleteReport();
+    const message = hasReport
+      ? 'I want to create a post for my timeline. After creating the post, automatically review it and update any relevant sections of my Agent X Intel report with new stats, achievements, or information from the post.'
+      : 'I want to create a post for my timeline.';
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
       componentProps: {
@@ -1138,7 +1147,7 @@ export class ProfileComponent {
         contextTitle: 'Create a Post',
         contextIcon: 'create-outline',
         contextType: 'command',
-        initialMessage: 'I want to create a post for my timeline.',
+        initialMessage: message,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

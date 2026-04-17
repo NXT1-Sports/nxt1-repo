@@ -967,6 +967,12 @@ export class AgentXService {
           onCard: (evt: AgentXStreamCardEvent) => {
             const card: AgentXRichCard = { type: evt.type, title: evt.title, payload: evt.payload };
 
+            // When the card supersedes preceding streamed text (e.g. ask_user),
+            // wipe all accumulated text parts so the question only appears once.
+            if (evt.clearText) {
+              parts.length = 0;
+            }
+
             // Each card is its own part (always a new entry in the sequence)
             parts.push({ type: 'card', card });
 
@@ -977,6 +983,8 @@ export class AgentXService {
                   m.id === streamingId
                     ? {
                         ...m,
+                        // If the card supersedes streamed text, wipe it.
+                        content: evt.clearText ? '' : m.content,
                         cards: [...(m.cards ?? []), card],
                         parts: [...parts],
                       }

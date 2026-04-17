@@ -352,6 +352,7 @@ export interface AgentXToolStep {
 export type AgentXRichCardType =
   | 'planner'
   | 'confirmation'
+  | 'ask_user'
   | 'data-table'
   | 'citations'
   | 'parameter-form'
@@ -385,6 +386,7 @@ export interface AgentXRichCard {
     | AgentXPlannerPayload
     | AgentXDataTablePayload
     | AgentXConfirmationPayload
+    | AgentXAskUserPayload
     | AgentXCitationsPayload
     | AgentXParameterFormPayload
     | AgentXDraftPayload
@@ -445,6 +447,18 @@ export interface AgentXConfirmationPayload {
   readonly approvalId?: string;
   /** Operation id associated with the pending approval. */
   readonly operationId?: string;
+}
+
+// ── Ask User ──
+
+/** Payload for the `ask_user` card type — inline question from Agent X. */
+export interface AgentXAskUserPayload {
+  /** The question Agent X is asking. */
+  readonly question: string;
+  /** Optional additional context or instructions. */
+  readonly context?: string;
+  /** The thread ID — used when posting the user's reply. */
+  readonly threadId?: string;
 }
 
 // ── Citations ──
@@ -684,6 +698,12 @@ export interface AgentXStreamCardEvent {
   readonly type: AgentXRichCardType;
   /** Card title. */
   readonly title: string;
+  /**
+   * When true, the frontend should discard any text parts streamed before
+   * this card (e.g. when ask_user causes the LLM's streamed question text
+   * to be superseded by the interactive card).
+   */
+  readonly clearText?: boolean;
   /** Type-specific payload (e.g. planner checklist items). */
   readonly payload:
     | AgentXPlannerPayload

@@ -39,8 +39,6 @@ import {
   star,
   starOutline,
   starHalf,
-  bookmark,
-  bookmarkOutline,
   checkmarkCircle,
   diamond,
   diamondOutline,
@@ -76,8 +74,6 @@ import { NxtChipComponent } from '../components/chip';
       class="scout-card"
       [class.scout-card--grid]="viewMode() === 'grid'"
       [class.scout-card--list]="viewMode() === 'list'"
-      [class.scout-card--compact]="viewMode() === 'compact'"
-      [class.scout-card--bookmarked]="report().isBookmarked"
       (click)="handleCardClick($event)"
       role="article"
       [attr.aria-label]="ariaLabel()"
@@ -107,17 +103,6 @@ import { NxtChipComponent } from '../components/chip';
             </div>
           }
         </div>
-
-        <!-- Bookmark Button -->
-        <button
-          type="button"
-          class="scout-card__bookmark"
-          [class.scout-card__bookmark--active]="report().isBookmarked"
-          (click)="handleBookmark($event)"
-          [attr.aria-label]="report().isBookmarked ? 'Remove from saved' : 'Save report'"
-        >
-          <ion-icon [name]="report().isBookmarked ? 'bookmark' : 'bookmark-outline'"></ion-icon>
-        </button>
 
         <!-- Rating Badge -->
         <div class="scout-card__rating" [style.--rating-color]="ratingColor()">
@@ -267,13 +252,8 @@ import { NxtChipComponent } from '../components/chip';
         transform: scale(0.98);
       }
 
-      /* Bookmarked state */
-      .scout-card--bookmarked {
-        border-color: var(--nxt1-color-primary, #3b82f6);
-      }
-
       /* ============================================
-         LIST VIEW LAYOUT
+         RATING BADGE
          ============================================ */
 
       .scout-card--list {
@@ -371,55 +351,6 @@ import { NxtChipComponent } from '../components/chip';
       .scout-card__badge--verified {
         background: rgba(59, 130, 246, 0.9);
         color: white;
-      }
-
-      /* ============================================
-         BOOKMARK BUTTON
-         ============================================ */
-
-      .scout-card__bookmark {
-        position: absolute;
-        top: var(--nxt1-spacing-2, 8px);
-        right: var(--nxt1-spacing-2, 8px);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 36px;
-        height: 36px;
-        background: rgba(0, 0, 0, 0.5);
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
-        border: none;
-        border-radius: 50%;
-        color: white;
-        cursor: pointer;
-        transition: all 0.2s ease-out;
-      }
-
-      .scout-card__bookmark:hover {
-        background: rgba(0, 0, 0, 0.7);
-        transform: scale(1.1);
-      }
-
-      .scout-card__bookmark--active {
-        background: var(--nxt1-color-primary, #3b82f6);
-        animation: bookmark-pop 0.3s ease-out;
-      }
-
-      .scout-card__bookmark ion-icon {
-        font-size: 18px;
-      }
-
-      @keyframes bookmark-pop {
-        0% {
-          transform: scale(1);
-        }
-        50% {
-          transform: scale(1.3);
-        }
-        100% {
-          transform: scale(1);
-        }
       }
 
       /* ============================================
@@ -646,8 +577,6 @@ export class ScoutReportCardComponent {
       star,
       starOutline,
       starHalf,
-      bookmark,
-      bookmarkOutline,
       checkmarkCircle,
       diamond,
       diamondOutline,
@@ -680,9 +609,6 @@ export class ScoutReportCardComponent {
 
   /** Emitted when card is clicked */
   readonly cardClick = output<ScoutReport>();
-
-  /** Emitted when bookmark is toggled */
-  readonly bookmark = output<string>();
 
   // ============================================
   // COMPUTED PROPERTIES
@@ -730,21 +656,7 @@ export class ScoutReportCardComponent {
    * Handle card click.
    */
   protected async handleCardClick(event: Event): Promise<void> {
-    // Don't trigger if bookmark was clicked
-    if ((event.target as HTMLElement).closest('.scout-card__bookmark')) {
-      return;
-    }
-
     await this.haptics.impact('light');
     this.cardClick.emit(this.report());
-  }
-
-  /**
-   * Handle bookmark toggle.
-   */
-  protected async handleBookmark(event: Event): Promise<void> {
-    event.stopPropagation();
-    await this.haptics.impact('medium');
-    this.bookmark.emit(this.report().id);
   }
 }

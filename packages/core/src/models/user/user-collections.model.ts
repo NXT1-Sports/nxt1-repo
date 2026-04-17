@@ -55,7 +55,6 @@ export interface SportFirestoreDoc extends UserFirestoreDoc {
 
 export type PostType =
   | 'update'
-  | 'highlight'
   | 'milestone'
   | 'question'
   | 'media'
@@ -92,7 +91,6 @@ export interface PostDoc extends UserFirestoreDoc {
   mentions: string[];
   isPinned: boolean;
   stats: {
-    likes: number;
     shares: number;
     views: number;
   };

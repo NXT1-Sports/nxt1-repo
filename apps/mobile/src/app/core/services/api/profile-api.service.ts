@@ -21,6 +21,7 @@ import {
 import { PROFILE_CACHE_KEYS } from '@nxt1/core/profile';
 import { type ProfilePost, type ProfileSeasonGameLog } from '@nxt1/core/profile';
 import { type User, type SportProfile, type VerifiedMetric } from '@nxt1/core/models';
+import { type FeedItemResponse } from '@nxt1/core/posts';
 import { CACHE_CONFIG } from '@nxt1/core/cache';
 import { CapacitorHttpAdapter } from '../../infrastructure';
 import { environment } from '../../../../environments/environment';
@@ -220,20 +221,23 @@ export class ProfileApiService {
     };
   }
 
-  /** GET /auth/profile/:userId/timeline — cached MEDIUM_TTL */
-  async getProfileTimeline(userId: string): Promise<{ success: boolean; data: ProfilePost[] }> {
-    const key = `${userId}:timeline`;
-    const cached = this.getSubCache<ProfilePost[]>(key);
-    if (cached) return { success: true, data: cached };
+  /** GET /auth/profile/:userId/timeline — returns all polymorphic FeedItem types */
+  async getProfileTimeline(userId: string, cursor?: string): Promise<FeedItemResponse> {
+    const key = `${userId}:timeline:${cursor ?? 'first'}`;
+    const cached = this.getSubCache<FeedItemResponse>(key);
+    if (cached) return cached;
     try {
-      const resp = await this.http.get<{ success: boolean; data: Record<string, unknown>[] }>(
-        `${environment.apiUrl}/auth/profile/${userId}/timeline`
-      );
-      const data = (resp.data ?? []).map((d) => this.mapTimelineDoc(d));
-      if (resp.success) this.setSubCache(key, data);
-      return { success: resp.success, data };
+      const params = new URLSearchParams();
+      if (cursor) params.set('cursor', cursor);
+      const queryString = params.toString();
+      const url = `${environment.apiUrl}/auth/profile/${userId}/timeline${
+        queryString ? `?${queryString}` : ''
+      }`;
+      const resp = await this.http.get<FeedItemResponse>(url);
+      if (resp.success) this.setSubCache(key, resp);
+      return resp;
     } catch {
-      return { success: false, data: [] };
+      return { success: false, data: [], hasMore: false };
     }
   }
 

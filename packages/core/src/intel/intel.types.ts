@@ -13,20 +13,14 @@
 // SHARED INTEL TYPES
 // ============================================
 
-/** How a specific data point was sourced / verified. */
-export type IntelDataSource =
-  | 'self-reported'
-  | 'coach-verified'
-  | 'maxpreps'
-  | 'hudl'
-  | '247sports'
-  | 'rivals'
-  | 'on3'
-  | 'perfect-game'
-  | 'prep-baseball'
-  | 'ncsa'
-  | 'usa-football'
-  | 'agent-x';
+/**
+ * Platform identifier for a data source.
+ * Open-ended string — any platform from ConnectedSource is valid.
+ * Well-known values: 'self-reported' | 'coach-verified' | 'agent-x' |
+ * 'maxpreps' | 'hudl' | '247sports' | 'rivals' | 'on3' | 'perfect-game' |
+ * 'prep-baseball' | 'ncsa' | 'usa-football'
+ */
+export type IntelDataSource = string;
 
 /** A single citation referencing where a data point came from. */
 export interface IntelCitation {
@@ -36,6 +30,8 @@ export interface IntelCitation {
   readonly lastSyncedAt?: string;
   /** True when the source is a verified third-party platform (not self-reported). */
   readonly verified?: boolean;
+  /** Favicon URL scraped from the connected source — use this directly in <img> tags. */
+  readonly faviconUrl?: string;
 }
 
 /** Lifecycle status of an intel report. */
@@ -88,6 +84,8 @@ export interface IntelBriefItem {
   readonly source?: IntelDataSource;
   /** True when the data point comes from a verified third-party platform. */
   readonly verified?: boolean;
+  /** Favicon URL scraped from the connected source — use this directly in <img> tags. */
+  readonly faviconUrl?: string;
   readonly date?: string;
   readonly sublabel?: string;
 }

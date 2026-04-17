@@ -24,6 +24,7 @@ import {
   type FeedItemCamp,
   type FeedItemAward,
   type FeedItemNews,
+  type FeedItemSchedule,
   type ContentCardItem,
   feedOfferToContentCard,
   feedCommitmentToContentCard,
@@ -99,6 +100,9 @@ import { TeamProfileService } from '../team-profile.service';
               }
               @case ('NEWS') {
                 <nxt1-feed-news-card [data]="asNews(item).newsData" />
+              }
+              @case ('SCHEDULE') {
+                <nxt1-feed-event-card [data]="asSchedule(item).eventData" />
               }
               @default {
                 @if (asFallbackContent(item); as content) {
@@ -304,6 +308,10 @@ export class TeamTimelineWebComponent {
 
   protected asNews(item: FeedItem): FeedItemNews {
     return item as FeedItemNews;
+  }
+
+  protected asSchedule(item: FeedItem): FeedItemSchedule {
+    return item as FeedItemSchedule;
   }
 
   protected asFallbackContent(item: FeedItem): string | null {

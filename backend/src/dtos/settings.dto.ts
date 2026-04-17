@@ -37,10 +37,6 @@ export class NotificationPreferencesDto {
 
   @IsBoolean()
   @IsOptional()
-  postLikes?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
   postShares?: boolean;
 
   @IsBoolean()

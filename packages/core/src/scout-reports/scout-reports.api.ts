@@ -15,7 +15,6 @@ import type {
   ScoutReportFilter,
   ScoutReportListResponse,
   ScoutReportDetailResponse,
-  ScoutReportBookmarkResponse,
   ScoutReportViewResponse,
   ScoutReportSummary,
   ScoutReportCategoryId,
@@ -201,58 +200,6 @@ export function createScoutReportsApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Bookmark a scout report.
-     *
-     * @param reportId - Report ID to bookmark
-     * @returns Bookmark response with XP earned
-     */
-    async bookmarkReport(reportId: string): Promise<ScoutReportBookmarkResponse> {
-      try {
-        const url = `${baseUrl}${SCOUT_REPORT_API_ENDPOINTS.BOOKMARK}`;
-        const response = await http.post<ScoutReportBookmarkResponse>(url, { reportId });
-
-        if (!response.success) {
-          throw createApiError('SRV_INTERNAL_ERROR', {
-            message: response.error ?? 'Failed to bookmark report',
-          });
-        }
-
-        return response;
-      } catch (error) {
-        if (isNxtApiError(error)) throw error;
-        throw createApiError('SRV_INTERNAL_ERROR', {
-          message: error instanceof Error ? error.message : 'Failed to bookmark report',
-        });
-      }
-    },
-
-    /**
-     * Remove bookmark from a scout report.
-     *
-     * @param reportId - Report ID to unbookmark
-     * @returns Unbookmark response
-     */
-    async unbookmarkReport(reportId: string): Promise<ScoutReportBookmarkResponse> {
-      try {
-        const url = `${baseUrl}${SCOUT_REPORT_API_ENDPOINTS.UNBOOKMARK}`;
-        const response = await http.post<ScoutReportBookmarkResponse>(url, { reportId });
-
-        if (!response.success) {
-          throw createApiError('SRV_INTERNAL_ERROR', {
-            message: response.error ?? 'Failed to remove bookmark',
-          });
-        }
-
-        return response;
-      } catch (error) {
-        if (isNxtApiError(error)) throw error;
-        throw createApiError('SRV_INTERNAL_ERROR', {
-          message: error instanceof Error ? error.message : 'Failed to remove bookmark',
-        });
-      }
-    },
-
-    /**
      * Track view of a scout report.
      * Awards XP to user if first view.
      *
@@ -301,17 +248,6 @@ export function createScoutReportsApi(http: HttpAdapter, baseUrl: string) {
           error: error instanceof Error ? error.message : 'Failed to fetch summary',
         };
       }
-    },
-
-    /**
-     * Get bookmarked reports for current user.
-     *
-     * @param page - Page number
-     * @param limit - Items per page
-     * @returns List of bookmarked reports
-     */
-    async getBookmarkedReports(page = 1, limit = 20): Promise<ScoutReportListResponse> {
-      return this.getReports({ category: 'saved', page, limit });
     },
   } as const;
 }

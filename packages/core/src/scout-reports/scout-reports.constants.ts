@@ -68,11 +68,6 @@ export const SCOUT_REPORT_CATEGORIES: readonly ScoutReportCategory[] = [
     label: 'Class 2028',
     icon: 'school-outline',
   },
-  {
-    id: 'saved',
-    label: 'Saved',
-    icon: 'bookmark-outline',
-  },
 ] as const;
 
 /**
@@ -335,7 +330,6 @@ export const SCOUT_REPORT_SORT_OPTIONS: readonly {
  */
 export const SCOUT_REPORT_XP_REWARDS: readonly ScoutReportXpReward[] = [
   { action: 'view', xp: 10, description: 'View a scout report' },
-  { action: 'bookmark', xp: 15, description: 'Save a report to bookmarks' },
   { action: 'share', xp: 20, description: 'Share a report' },
   { action: 'complete-category', xp: 50, description: 'View all reports in a category' },
   { action: 'milestone', xp: 100, description: 'Reach a viewing milestone' },
@@ -386,14 +380,6 @@ export const SCOUT_REPORT_MILESTONES: readonly ScoutReportMilestone[] = [
     badgeIcon: 'trophy-outline',
   },
   {
-    id: 'bookworm',
-    title: 'Bookworm',
-    description: 'Save 25 reports to bookmarks',
-    threshold: 25,
-    xpReward: 150,
-    badgeIcon: 'bookmark-outline',
-  },
-  {
     id: 'social-scout',
     title: 'Social Scout',
     description: 'Share 10 reports',
@@ -441,7 +427,6 @@ export const SCOUT_REPORT_LAYOUT_DEFAULTS: ScoutReportLayoutConfig = {
 export const SCOUT_REPORT_CACHE_KEYS = {
   REPORTS_LIST: 'scout-reports:list:',
   REPORT_DETAIL: 'scout-reports:detail:',
-  BOOKMARKED: 'scout-reports:bookmarked',
   FILTERS: 'scout-reports:filters',
   SUMMARY: 'scout-reports:summary',
   VIEW_MODE: 'scout-reports:view-mode',
@@ -457,8 +442,6 @@ export const SCOUT_REPORT_CACHE_KEYS = {
 export const SCOUT_REPORT_API_ENDPOINTS = {
   LIST: '/api/v1/scout-reports',
   DETAIL: '/api/v1/scout-reports',
-  BOOKMARK: '/api/v1/scout-reports/bookmark',
-  UNBOOKMARK: '/api/v1/scout-reports/unbookmark',
   VIEW: '/api/v1/scout-reports/view',
   SUMMARY: '/api/v1/scout-reports/summary',
   SEARCH: '/api/v1/scout-reports/search',
@@ -483,7 +466,6 @@ export const SCOUT_REPORT_CARD_ASPECT = {
 export const SCOUT_REPORT_ANIMATIONS = {
   cardEntrance: 200,
   staggerDelay: 50,
-  bookmarkPop: 300,
   ratingFill: 500,
   filterSlide: 250,
   skeletonShimmer: 1500,

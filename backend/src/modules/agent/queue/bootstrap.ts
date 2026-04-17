@@ -45,6 +45,7 @@ import {
 } from '../tools/scraping/index.js';
 import {
   WriteCoreIdentityTool,
+  WriteAwardsTool,
   WriteCombineMetricsTool,
   WriteRankingsTool,
   WriteSeasonStatsTool,
@@ -63,6 +64,11 @@ import {
   SaveMemoryTool,
   DeleteMemoryTool,
   WriteConnectedSourceTool,
+  WriteScheduleTool,
+  WriteTeamStatsTool,
+  WriteTeamNewsTool,
+  WriteTeamPostTool,
+  WriteRosterEntriesTool,
 } from '../tools/database/index.js';
 import {
   GenerateGraphicTool,
@@ -289,11 +295,17 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   }
 
   toolRegistry.register(new WriteCoreIdentityTool(stagingDb));
+  toolRegistry.register(new WriteAwardsTool(stagingDb));
   toolRegistry.register(new WriteCombineMetricsTool(stagingDb));
   toolRegistry.register(new WriteRankingsTool(stagingDb));
   toolRegistry.register(new WriteSeasonStatsTool(stagingDb));
   toolRegistry.register(new WriteRecruitingActivityTool(stagingDb));
   toolRegistry.register(new WriteCalendarEventsTool(stagingDb));
+  toolRegistry.register(new WriteScheduleTool(stagingDb));
+  toolRegistry.register(new WriteTeamStatsTool(stagingDb));
+  toolRegistry.register(new WriteTeamNewsTool(stagingDb));
+  toolRegistry.register(new WriteTeamPostTool(stagingDb));
+  toolRegistry.register(new WriteRosterEntriesTool(stagingDb));
   toolRegistry.register(new WriteAthleteVideosTool(stagingDb));
   toolRegistry.register(new WriteIntelTool(stagingDb));
   toolRegistry.register(new UpdateIntelTool(stagingDb));
@@ -461,6 +473,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     llmService: llm,
     toolRegistry,
     pubsub,
+    agentRouter: router,
   });
   setWelcomeDependencies({ queueService, jobRepository, chatService: agentChatService });
   setScrapeDependencies({ queueService, jobRepository, chatService: agentChatService });

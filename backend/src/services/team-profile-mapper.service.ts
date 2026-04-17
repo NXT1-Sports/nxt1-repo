@@ -451,8 +451,8 @@ async function fetchTeamSchedule(
 ): Promise<TeamProfileScheduleEvent[]> {
   try {
     const snap = await db
-      .collection('Events')
-      .where('teamId', '==', teamId)
+      .collection('Schedule')
+      .where('ownerId', '==', teamId)
       .where('ownerType', '==', 'team')
       .get();
 
@@ -483,14 +483,7 @@ async function fetchTeamSchedule(
 // ─── Posts Fetching ───────────────────────────────────────────────────────────
 
 function toTeamPostType(raw: unknown): TeamProfilePost['type'] {
-  const allowed: TeamProfilePostType[] = [
-    'video',
-    'image',
-    'text',
-    'highlight',
-    'news',
-    'announcement',
-  ];
+  const allowed: TeamProfilePostType[] = ['video', 'image', 'text', 'news', 'announcement'];
   const t = String(raw ?? '').toLowerCase() as TeamProfilePost['type'];
   return allowed.includes(t) ? t : 'text';
 }
@@ -510,7 +503,6 @@ async function fetchTeamPosts(teamId: string, db: Firestore): Promise<TeamProfil
           thumbnailUrl: data['thumbnailUrl'] as string | undefined,
           mediaUrl: data['mediaUrl'] as string | undefined,
           externalLink: data['externalLink'] as string | undefined,
-          likeCount: (data['likeCount'] as number) ?? 0,
           shareCount: (data['shareCount'] as number) ?? 0,
           viewCount: data['viewCount'] as number | undefined,
           isPinned: Boolean(data['isPinned']),

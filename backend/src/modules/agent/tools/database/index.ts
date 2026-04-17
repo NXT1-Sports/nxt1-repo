@@ -13,6 +13,7 @@
  */
 
 export { WriteCoreIdentityTool } from './write-core-identity.tool.js';
+export { WriteAwardsTool, AWARDS_COLLECTION } from './write-awards.tool.js';
 export { WriteCombineMetricsTool } from './write-combine-metrics.tool.js';
 export { WriteRankingsTool } from './write-rankings.tool.js';
 export { WriteSeasonStatsTool } from './write-season-stats.tool.js';
@@ -31,3 +32,8 @@ export { GetAnalyticsSummaryTool } from './get-analytics-summary.tool.js';
 export { SaveMemoryTool } from './save-memory.tool.js';
 export { DeleteMemoryTool } from './delete-memory.tool.js';
 export { WriteConnectedSourceTool } from './write-connected-source.tool.js';
+export { WriteScheduleTool } from './write-schedule.tool.js';
+export { WriteTeamStatsTool } from './write-team-stats.tool.js';
+export { WriteTeamNewsTool } from './write-team-news.tool.js';
+export { WriteTeamPostTool } from './write-team-post.tool.js';
+export { WriteRosterEntriesTool } from './write-roster-entries.tool.js';

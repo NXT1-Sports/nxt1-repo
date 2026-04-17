@@ -2008,6 +2008,7 @@ export class ProfileOverviewWebComponent implements OnDestroy {
 
       return connectedSources
         .slice()
+        .filter((cs) => cs.platform.toLowerCase() !== 'manual')
         .sort((a, b) => {
           const orderA = (a as unknown as { displayOrder?: number }).displayOrder ?? 99;
           const orderB = (b as unknown as { displayOrder?: number }).displayOrder ?? 99;
@@ -2024,7 +2025,7 @@ export class ProfileOverviewWebComponent implements OnDestroy {
             icon: meta.icon,
             color: meta.color,
             url: cs.profileUrl,
-            faviconUrl: getPlatformFaviconUrl(cs.platform.toLowerCase()),
+            faviconUrl: cs.faviconUrl ?? getPlatformFaviconUrl(cs.platform.toLowerCase()) ?? null,
           };
         });
     }

@@ -25,12 +25,10 @@ export type FeedPostType =
   | 'text'
   | 'image'
   | 'video'
-  | 'highlight'
   | 'offer'
   | 'commitment'
   | 'article'
   | 'milestone'
-  | 'repost'
   | 'stats'
   | 'metrics'
   | 'award'
@@ -40,22 +38,8 @@ export type FeedPostType =
   | 'graphic'
   | 'game'
   | 'playoffs'
-  | 'news';
-
-/**
- * Post visibility settings.
- */
-export type FeedPostVisibility = 'public' | 'followers' | 'team' | 'private';
-
-/**
- * User role for post attribution.
- */
-export type FeedAuthorRole = 'athlete' | 'coach' | 'director' | 'team' | 'official';
-
-/**
- * Verification status for post authors.
- */
-export type FeedVerificationStatus = 'unverified' | 'pending' | 'verified' | 'premium';
+  | 'news'
+  | 'repost';
 
 // ============================================
 // AUTHOR TYPES
@@ -63,6 +47,7 @@ export type FeedVerificationStatus = 'unverified' | 'pending' | 'verified' | 'pr
 
 /**
  * Post author information.
+ * Only fields actually returned by the backend join — not stored on the post document.
  */
 export interface FeedAuthor {
   /** Unique user ID */
@@ -77,27 +62,22 @@ export interface FeedAuthor {
   readonly lastName: string;
   /** Profile image URL */
   readonly avatarUrl?: string;
-  /** User role */
-  readonly role: FeedAuthorRole;
-  /** Verification status */
-  readonly verificationStatus: FeedVerificationStatus;
-  /** Whether user is verified */
-  readonly isVerified: boolean;
-  /** Primary sport name */
-  readonly sport?: string;
-  /** Position (for athletes) */
-  readonly position?: string;
-  /** School/team name */
-  readonly schoolName?: string;
-  /** School/team logo URL */
-  readonly schoolLogoUrl?: string;
-  /** Class year (for athletes) */
-  readonly classYear?: string;
 }
 
 // ============================================
 // MEDIA TYPES
 // ============================================
+
+/**
+ * Video processing status for Cloudflare Stream videos.
+ * Matches Cloudflare Stream `status.state` values.
+ */
+export type FeedVideoProcessingStatus =
+  | 'queued'
+  | 'inprogress'
+  | 'ready'
+  | 'error'
+  | 'pendingupload';
 
 /**
  * Media attachment for posts.
@@ -107,7 +87,7 @@ export interface FeedMedia {
   readonly id: string;
   /** Media type */
   readonly type: 'image' | 'video' | 'gif';
-  /** Full-size URL */
+  /** Full-size URL — for images: direct URL; for video: iframe embed URL (preferred) */
   readonly url: string;
   /** Thumbnail URL (for videos/images) */
   readonly thumbnailUrl?: string;
@@ -121,6 +101,19 @@ export interface FeedMedia {
   readonly altText?: string;
   /** Blurhash placeholder */
   readonly blurhash?: string;
+
+  // ── Cloudflare Stream fields (present only for CF-hosted videos) ──────
+
+  /** Cloudflare Stream video UID */
+  readonly cloudflareVideoId?: string;
+  /** HLS manifest URL for native `<video>` playback */
+  readonly hlsUrl?: string;
+  /** DASH manifest URL for adaptive-bitrate playback */
+  readonly dashUrl?: string;
+  /** Cloudflare Stream iframe embed URL — use this for the player */
+  readonly iframeUrl?: string;
+  /** Processing state; absent means ready (legacy/non-CF posts) */
+  readonly processingStatus?: FeedVideoProcessingStatus;
 }
 
 /**
@@ -423,64 +416,18 @@ export interface FeedPostTag {
 }
 
 // ============================================
-// REPOST DATA
-// ============================================
-
-/**
- * Repost metadata when a post is shared/reposted by another user.
- */
-export interface FeedRepostData {
-  /** Reposter's user ID */
-  readonly reposterId: string;
-  /** Reposter's display name */
-  readonly reposterName: string;
-  /** Reposter's profile image URL */
-  readonly reposterAvatarUrl?: string;
-  /** Reposter's profile code for navigation */
-  readonly reposterProfileCode?: string;
-  /** When the repost was created */
-  readonly repostedAt: string;
-}
-
-// ============================================
 // ENGAGEMENT TYPES
 // ============================================
 
 /**
- * Reaction type for fire/emoji reactions.
- */
-export type FeedReactionType = 'like' | 'love' | 'celebrate' | 'support' | 'insightful' | null;
-
-/**
  * Engagement metrics for a post.
+ * Only fields stored on the Firestore document stats map.
  */
 export interface FeedEngagement {
-  /** Number of reactions (fire/emoji) */
-  readonly reactionCount: number;
   /** Number of shares */
   readonly shareCount: number;
   /** Number of views */
   readonly viewCount: number;
-  /** Legacy: Number of likes (alias for reactionCount) */
-  readonly likeCount: number;
-  /** Number of bookmarks */
-  readonly bookmarkCount?: number;
-}
-
-/**
- * User's engagement state with a post.
- */
-export interface FeedUserEngagement {
-  /** Whether current user has reacted */
-  readonly isReacted: boolean;
-  /** Current user's reaction type */
-  readonly reactionType: FeedReactionType;
-  /** Whether current user has liked (legacy alias for isReacted) */
-  readonly isLiked: boolean;
-  /** Whether current user has bookmarked */
-  readonly isBookmarked: boolean;
-  /** Whether current user has reposted */
-  readonly isReposted: boolean;
 }
 
 // ============================================
@@ -527,18 +474,10 @@ export interface FeedPost {
   readonly academicData?: FeedAcademicData;
   /** External platform source (for AI-synced content) */
   readonly externalSource?: FeedExternalSource;
-  /** Original post (for reposts) */
-  readonly originalPost?: FeedPost;
-  /** Repost metadata (if this post was reposted) */
-  readonly repostData?: FeedRepostData;
   /** Engagement metrics */
   readonly engagement: FeedEngagement;
-  /** Current user's engagement state */
-  readonly userEngagement: FeedUserEngagement;
   /** Attached profile data tags (stat chips, award chips, etc.) */
   readonly postTags?: readonly FeedPostTag[];
-  /** Mention strings */
-  readonly mentions?: readonly string[];
   /** Location tag */
   readonly location?: string;
   /** Whether post is pinned to top */
@@ -561,16 +500,12 @@ export interface FeedFilter {
   readonly sport?: string;
   /** Filter by post types */
   readonly postTypes?: readonly FeedPostType[];
-  /** Filter by author role */
-  readonly authorRoles?: readonly FeedAuthorRole[];
   /** Search query */
   readonly query?: string;
   /** Author UID (for profile feeds) */
   readonly authorUid?: string;
   /** Team code (for team feeds) */
   readonly teamCode?: string;
-  /** Only show posts from verified users */
-  readonly verifiedOnly?: boolean;
   /** Only show posts with media */
   readonly mediaOnly?: boolean;
   /** Date range start */
@@ -635,8 +570,6 @@ export interface FeedActionResponse {
   readonly success: boolean;
   /** Updated engagement state */
   readonly engagement?: FeedEngagement;
-  /** Updated user engagement state */
-  readonly userEngagement?: FeedUserEngagement;
   /** Error message (if failed) */
   readonly error?: string;
 }
@@ -648,10 +581,7 @@ export interface FeedActionResponse {
 /**
  * Post with user-specific metadata (for authenticated users)
  */
-export interface FeedPostWithMetadata extends FeedPost {
-  /** Whether current user has liked this post */
-  readonly likedByCurrentUser?: boolean;
-}
+export interface FeedPostWithMetadata extends FeedPost {}
 
 // ============================================
 // QUERY & CURSOR TYPES
@@ -661,8 +591,6 @@ export interface FeedPostWithMetadata extends FeedPost {
  * Feed query parameters
  */
 export interface GetFeedQuery {
-  /** Visibility filter */
-  readonly visibility?: FeedPostVisibility | string;
   /** Team ID filter */
   readonly teamId?: string;
   /** Items per page */
@@ -700,6 +628,7 @@ export interface FeedCursor {
 export type FeedItemType =
   | 'POST'
   | 'EVENT'
+  | 'SCHEDULE'
   | 'STAT'
   | 'METRIC'
   | 'OFFER'
@@ -726,8 +655,6 @@ export interface FeedItemBase {
   readonly author: FeedAuthor;
   /** Engagement counters */
   readonly engagement: FeedEngagement;
-  /** Current user's engagement state */
-  readonly userEngagement: FeedUserEngagement;
   /** Whether item is pinned to top of timeline */
   readonly isPinned: boolean;
   /** Created timestamp (ISO 8601) */
@@ -751,24 +678,21 @@ export interface FeedItemPost extends FeedItemBase {
   readonly content?: string;
   /** Media attachments */
   readonly media: readonly FeedMedia[];
-  /** Mentions */
-  readonly mentions?: readonly string[];
   /** Location tag */
   readonly location?: string;
   /** External source annotation (e.g. synced from Hudl) */
   readonly externalSource?: FeedExternalSource;
   /** Attached profile data tags (stat chips, award chips) */
   readonly postTags?: readonly FeedPostTag[];
-  /** Repost metadata */
-  readonly repostData?: FeedRepostData;
-  /** Original post (for reposts) */
-  readonly originalPost?: FeedItemPost;
+  /** Embedded news link cards (for link-preview embeds) */
+  readonly embeds?: readonly FeedNewsData[];
 }
 
 // --- Variant: Structured Game/Event ---
 
 /**
  * A structured game or event from the Events collection.
+ * Represents exposure events: camps, combines, showcases, visits, tryouts.
  * Rendered as a native box score / schedule card.
  */
 export interface FeedItemEvent extends FeedItemBase {
@@ -777,6 +701,21 @@ export interface FeedItemEvent extends FeedItemBase {
   readonly referenceId: string;
   /** Structured event/game data */
   readonly eventData: FeedScheduleData;
+}
+
+/**
+ * A competitive schedule item from the Schedule collection.
+ * Represents games, scrimmages, practices, and playoffs — NOT exposure events.
+ * Rendered as a native box score / schedule card (same visual as FeedItemEvent).
+ */
+export interface FeedItemSchedule extends FeedItemBase {
+  readonly feedType: 'SCHEDULE';
+  /** ID of the source document in the Schedule collection */
+  readonly referenceId: string;
+  /** Structured schedule/game data */
+  readonly eventData: FeedScheduleData;
+  /** Schedule type: game, scrimmage, practice, playoff, other */
+  readonly scheduleType: string;
 }
 
 // --- Variant: Stat Update ---
@@ -958,6 +897,7 @@ export interface FeedItemSharedReference extends FeedItemBase {
 export type FeedItem =
   | FeedItemPost
   | FeedItemEvent
+  | FeedItemSchedule
   | FeedItemStat
   | FeedItemMetric
   | FeedItemOffer
@@ -977,9 +917,14 @@ export function isFeedItemPost(item: FeedItem): item is FeedItemPost {
   return item.feedType === 'POST';
 }
 
-/** Narrow a FeedItem to FeedItemEvent */
+/** Narrow a FeedItem to FeedItemEvent (exposure events: camps, combines, visits) */
 export function isFeedItemEvent(item: FeedItem): item is FeedItemEvent {
   return item.feedType === 'EVENT';
+}
+
+/** Narrow a FeedItem to FeedItemSchedule (competitive: games, practices, scrimmages) */
+export function isFeedItemSchedule(item: FeedItem): item is FeedItemSchedule {
+  return item.feedType === 'SCHEDULE';
 }
 
 /** Narrow a FeedItem to FeedItemStat */

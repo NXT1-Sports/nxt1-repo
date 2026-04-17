@@ -43,6 +43,9 @@ describe('Agent X Routes', () => {
         completeStream: vi.fn(),
         embed: vi.fn(),
       } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
     });
   });
 
@@ -109,6 +112,9 @@ describe('Agent X Routes', () => {
         completeStream: vi.fn(),
         embed: vi.fn(),
       } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
     });
 
     __seedMockFirestoreDocument('AgentApprovalRequests/approval-123', {
@@ -166,50 +172,8 @@ describe('Agent X Routes', () => {
       getThread: vi.fn().mockResolvedValue(null),
       generateThreadTitle: vi.fn().mockResolvedValue(null),
     };
-    const llmService = {
-      completeStream: vi
-        .fn()
-        .mockImplementation(
-          async (
-            _messages: unknown,
-            _options: unknown,
-            onDelta?: (delta: { toolName?: string; toolCallIndex?: number }) => void
-          ) => {
-            onDelta?.({ toolName: 'ask_user', toolCallIndex: 0 });
-            return {
-              model: 'openai/gpt-4.1-mini',
-              usage: { inputTokens: 10, outputTokens: 5 },
-              content: '',
-              toolCalls: [
-                {
-                  id: 'tool-ask-user-1',
-                  type: 'function',
-                  function: {
-                    name: 'ask_user',
-                    arguments: JSON.stringify({ question: 'Which college should I target first?' }),
-                  },
-                },
-              ],
-            };
-          }
-        ),
-      embed: vi.fn(),
-    };
-    const toolRegistry = {
-      getDefinitions: vi.fn().mockReturnValue([
-        {
-          name: 'ask_user',
-          description: 'Ask the user for missing context.',
-          parameters: {
-            type: 'object',
-            properties: {
-              question: { type: 'string' },
-            },
-            required: ['question'],
-          },
-        },
-      ]),
-      execute: vi.fn().mockRejectedValue(
+    const agentRouter = {
+      run: vi.fn().mockRejectedValue(
         new AgentYieldException({
           reason: 'needs_input',
           promptToUser: 'Which college should I target first?',
@@ -230,8 +194,11 @@ describe('Agent X Routes', () => {
         compressToPrompt: vi.fn().mockReturnValue(''),
         getRecentThreadHistory: vi.fn().mockResolvedValue(''),
       } as never,
-      llmService: llmService as never,
-      toolRegistry: toolRegistry as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: agentRouter as never,
     });
 
     const response = await request(app)

@@ -94,6 +94,7 @@ import { ProfileVerificationBannerComponent } from '../components/profile-verifi
 import { ProfileContactComponent } from '../components/profile-contact.component';
 import { ProfileGenerationBannerComponent } from '../profile-generation-banner.component';
 import { ProfileGenerationStateService } from '../profile-generation-state.service';
+import { ProfileScheduleComponent } from '../components/profile-schedule.component';
 import type { ProfileShellUser } from '../profile-shell.component';
 
 const TEAM_TYPE_LABELS: Readonly<Record<ProfileTeamType, string>> = {
@@ -136,6 +137,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
     ProfileVerificationBannerComponent,
     ProfileContactComponent,
     ProfileGenerationBannerComponent,
+    ProfileScheduleComponent,
   ],
   template: `
     <!-- Portal: center — Profile name + subtitle teleported into top nav -->
@@ -367,23 +369,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                     </div>
                   }
 
-                  @if (
-                    profile.isOwnProfile() &&
-                    profile.activeTab() === 'intel' &&
-                    !platform.isMobile()
-                  ) {
-                    <div class="desktop-intel-action-bar">
-                      <button
-                        type="button"
-                        class="desktop-intel-action-bar__btn"
-                        (click)="onGenerateIntel()"
-                      >
-                        <nxt1-icon name="flash-outline" [size]="16" />
-                        {{ footerButtonLabel() }}
-                      </button>
-                    </div>
-                  }
-
                   @switch (profile.activeTab()) {
                     @case ('intel') {
                       <nxt1-athlete-intel
@@ -391,32 +376,36 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                         [isOwnProfile]="profile.isOwnProfile()"
                         [activeSection]="activeSideTab()"
                         (generateClick)="onGenerateIntel()"
+                        (resyncClick)="onResyncIntel()"
                         (missingDataAction)="editProfileClick.emit()"
                       />
                     }
                     @case ('timeline') {
-                      <nxt1-profile-timeline
-                        [posts]="profile.filteredPosts()"
-                        [unifiedFeed]="profile.unifiedTimeline()"
-                        [isLoading]="false"
-                        [isLoadingMore]="profile.isLoadingMore()"
-                        [isEmpty]="profile.isEmpty()"
-                        [hasMore]="profile.hasMore()"
-                        [isOwnProfile]="profile.isOwnProfile()"
-                        [showMenu]="profile.isOwnProfile()"
-                        [showFilters]="false"
-                        [filter]="timelineFilter()"
-                        [emptyIcon]="emptyState().icon"
-                        [emptyTitle]="emptyState().title"
-                        [emptyMessage]="emptyState().message"
-                        [emptyCta]="null"
-                        (postClick)="onPostClick($event)"
-                        (reactClick)="onLikePost($event)"
-                        (repostClick)="onCommentPost($event)"
-                        (shareClick)="onSharePost($event)"
-                        (menuClick)="onPostMenu($event)"
-                        (loadMore)="onLoadMore()"
-                      />
+                      @if (activeSideTab() === 'schedule') {
+                        <!-- Schedule Board: rich game/practice grid view -->
+                        <nxt1-profile-schedule [activeSideTab]="activeSideTab()" />
+                      } @else {
+                        <nxt1-profile-timeline
+                          [posts]="profile.filteredPosts()"
+                          [polymorphicFeed]="profile.polymorphicTimeline()"
+                          [isLoading]="false"
+                          [isLoadingMore]="profile.isLoadingMore()"
+                          [isEmpty]="profile.isEmpty()"
+                          [hasMore]="profile.hasMore()"
+                          [isOwnProfile]="profile.isOwnProfile()"
+                          [showMenu]="profile.isOwnProfile()"
+                          [showFilters]="true"
+                          [filter]="timelineFilter()"
+                          [emptyIcon]="emptyState().icon"
+                          [emptyTitle]="emptyState().title"
+                          [emptyMessage]="emptyState().message"
+                          [emptyCta]="null"
+                          (postClick)="onPostClick($event)"
+                          (shareClick)="onSharePost($event)"
+                          (menuClick)="onPostMenu($event)"
+                          (loadMore)="onLoadMore()"
+                        />
+                      }
                     }
 
                     @case ('connect') {
@@ -555,36 +544,15 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         <ng-content />
       }
 
-      @if (
-        profile.isOwnProfile() &&
-        (profile.activeTab() === 'intel' || profile.activeTab() === 'timeline') &&
-        platform.isMobile()
-      ) {
+      @if (profile.isOwnProfile() && profile.activeTab() === 'timeline' && platform.isMobile()) {
         <div class="mobile-intel-footer">
-          @if (profile.activeTab() === 'timeline') {
-            <button
-              type="button"
-              class="mobile-intel-footer__btn mobile-intel-footer__btn--primary mobile-intel-footer__btn--full"
-              (click)="onAddUpdate()"
-            >
-              Add Update
-            </button>
-          } @else {
-            <button
-              type="button"
-              class="mobile-intel-footer__btn mobile-intel-footer__btn--secondary"
-              (click)="onAddUpdate()"
-            >
-              Add Update
-            </button>
-            <button
-              type="button"
-              class="mobile-intel-footer__btn mobile-intel-footer__btn--primary"
-              (click)="onGenerateIntel()"
-            >
-              {{ footerButtonLabel() }}
-            </button>
-          }
+          <button
+            type="button"
+            class="mobile-intel-footer__btn mobile-intel-footer__btn--primary mobile-intel-footer__btn--full"
+            (click)="onAddUpdate()"
+          >
+            Add Update
+          </button>
         </div>
       }
     </main>
@@ -1674,23 +1642,14 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   });
 
   protected readonly showActionFooter = computed(
-    () =>
-      this.profile.isOwnProfile() &&
-      (this.profile.activeTab() === 'intel' || this.profile.activeTab() === 'timeline')
-  );
-
-  protected readonly footerButtonLabel = computed(() =>
-    this.intel.athleteReport() ? 'Update Intel' : 'Generate Intel'
+    () => this.profile.isOwnProfile() && this.profile.activeTab() === 'timeline'
   );
 
   /** Section nav items — contextual to active top tab */
   protected readonly sideTabItems = computed((): SectionNavItem[] => {
     const tab = this.profile.activeTab();
     const sections: Record<string, SectionNavItem[]> = {
-      intel:
-        this.intel.athleteSections().length > 0
-          ? this.intel.athleteSections().map((s) => ({ id: s.id, label: s.title }))
-          : [{ id: 'agent_x_brief', label: 'Overview' }],
+      intel: this.intel.athleteSections().map((s) => ({ id: s.id, label: s.title })),
       timeline: [
         {
           id: 'all-posts',
@@ -1712,10 +1671,63 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
                 (post) =>
                   post.type === 'image' ||
                   post.type === 'video' ||
-                  post.type === 'highlight' ||
                   !!post.thumbnailUrl ||
                   !!post.mediaUrl
               ).length || undefined,
+        },
+        {
+          id: 'metrics',
+          label: 'Metrics',
+          badge:
+            this.profile.polymorphicTimeline().filter((i) => i.feedType === 'METRIC').length ||
+            undefined,
+        },
+        {
+          id: 'stats',
+          label: 'Stats',
+          badge:
+            this.profile.polymorphicTimeline().filter((i) => i.feedType === 'STAT').length ||
+            undefined,
+        },
+        {
+          id: 'awards',
+          label: 'Awards',
+          badge:
+            this.profile.polymorphicTimeline().filter((i) => i.feedType === 'AWARD').length ||
+            undefined,
+        },
+        {
+          id: 'recruiting',
+          label: 'Recruiting',
+          badge:
+            this.profile
+              .polymorphicTimeline()
+              .filter((i) => i.feedType === 'OFFER' || i.feedType === 'COMMITMENT').length ||
+            undefined,
+        },
+        {
+          id: 'schedule',
+          label: 'Schedule',
+          badge:
+            this.profile.polymorphicTimeline().filter((i) => i.feedType === 'SCHEDULE').length ||
+            undefined,
+        },
+        {
+          id: 'events',
+          label: 'Events',
+          badge:
+            this.profile
+              .polymorphicTimeline()
+              .filter(
+                (i) => i.feedType === 'EVENT' || i.feedType === 'VISIT' || i.feedType === 'CAMP'
+              ).length || undefined,
+        },
+        {
+          id: 'news',
+          label: 'News',
+          badge:
+            this.profile.polymorphicTimeline().filter((i) => i.feedType === 'NEWS').length ||
+            undefined,
         },
       ],
       connect: [
@@ -1755,9 +1767,17 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   protected readonly timelineFilter = computed<ProfileTimelineFilterId>(() => {
     const sideTab = this.activeSideTab();
     const map: Record<string, ProfileTimelineFilterId> = {
-      pinned: 'pinned',
       'all-posts': 'all',
+      pinned: 'pinned',
       media: 'media',
+      metrics: 'metrics',
+      stats: 'stats',
+      awards: 'awards',
+      news: 'news',
+      recruiting: 'recruiting',
+      // 'schedule' is handled by nxt1-profile-schedule board, timeline shows 'all' as fallback
+      schedule: 'all',
+      events: 'events',
     };
     return map[sideTab] ?? 'all';
   });
@@ -1825,6 +1845,9 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
 
   protected onTabChange(event: OptionScrollerChangeEvent): void {
     const tabId = event.option.id as ProfileTabId;
+    // Reset side-tab on every top-level tab switch so we never land on a
+    // stale sub-tab from a different section (mirrors mobile shell behavior).
+    this._activeSideTab.set('');
     this.profile.setActiveTab(tabId);
     this.tabChange.emit(tabId);
   }
@@ -1895,14 +1918,6 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     this.logger.debug('News board item click', { itemId: item.id, title: item.title });
   }
 
-  protected onLikePost(post: ProfilePost): void {
-    this.logger.debug('Like post', { postId: post.id });
-  }
-
-  protected onCommentPost(post: ProfilePost): void {
-    this.logger.debug('Comment post', { postId: post.id });
-  }
-
   protected onSharePost(post: ProfilePost): void {
     this.logger.debug('Share post', { postId: post.id });
   }
@@ -1916,7 +1931,10 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   }
 
   protected async onCreatePostWithAgent(): Promise<void> {
-    const message = 'I want to create a post for my timeline.';
+    const hasReport = !!this.intel.athleteReport();
+    const message = hasReport
+      ? 'I want to create a post for my timeline. After creating the post, automatically review it and update any relevant sections of my Agent X Intel report with new stats, achievements, or information from the post.'
+      : 'I want to create a post for my timeline.';
     if (this.platform.isMobile()) {
       await this.bottomSheet.openSheet({
         component: AgentXOperationChatComponent,
@@ -1985,6 +2003,35 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
       }
     } else {
       this.agentX.queueStartupMessage(initialMessage);
+      void this.router.navigate(['/agent']);
+    }
+  }
+
+  protected async onResyncIntel(): Promise<void> {
+    const userId = this.profile.user()?.uid ?? '';
+    const message = `Do a full resync of my Agent X Intel report for athlete ${userId}. Gather all current data and regenerate the entire report from scratch.`;
+    if (this.platform.isMobile()) {
+      this.intel.startPendingGeneration();
+      await this.bottomSheet.openSheet({
+        component: AgentXOperationChatComponent,
+        componentProps: {
+          contextId: 'profile-intel-resync',
+          contextTitle: 'Resync Intel',
+          contextIcon: 'refresh-outline',
+          contextType: 'command',
+          initialMessage: message,
+        },
+        ...SHEET_PRESETS.FULL,
+        showHandle: true,
+        handleBehavior: 'cycle',
+        backdropDismiss: true,
+        cssClass: 'agent-x-operation-sheet',
+      });
+      if (!this.intel.isAnythingGenerating()) {
+        await this.intel.generateAthleteIntel(userId);
+      }
+    } else {
+      this.agentX.queueStartupMessage(message);
       void this.router.navigate(['/agent']);
     }
   }

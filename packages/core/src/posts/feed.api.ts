@@ -1,6 +1,6 @@
 /**
  * @fileoverview Feed API Factory - Pure TypeScript
- * @module @nxt1/core/feed
+ * @module @nxt1/core/posts
  * @version 1.0.0
  *
  * Pure functions for feed API calls.
@@ -97,11 +97,9 @@ export function createFeedApi(http: HttpAdapter, baseUrl: string) {
         const url = buildUrl(FEED_API_ENDPOINTS.FEED, {
           sport: filter?.sport,
           postTypes: filter?.postTypes?.join(','),
-          authorRoles: filter?.authorRoles?.join(','),
           query: filter?.query,
           authorUid: filter?.authorUid,
           teamCode: filter?.teamCode,
-          verifiedOnly: filter?.verifiedOnly,
           mediaOnly: filter?.mediaOnly,
           startDate: filter?.startDate,
           endDate: filter?.endDate,

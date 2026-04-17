@@ -419,7 +419,7 @@ async function fetchUserVideos(
     const snapshot = await db
       .collection(POSTS_COLLECTION)
       .where('userId', '==', uid)
-      .where('type', '==', 'highlight')
+      .where('type', '==', 'video')
       .limit(100)
       .get();
     return snapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<Record<string, unknown>>;
@@ -486,10 +486,13 @@ export function buildAthleteOverviewCards(
   const coachViews = Math.max(Number(rollupSnapshot?.coachViews ?? 0), legacyCoachViews);
   const followers = Math.max(Number(rollupSnapshot?.followerCount ?? 0), 0);
 
-  // Engagement rate = (likes + shares) / views * 100
-  const totalLikes = videos.reduce((acc, v) => acc + (Number(v['likes']) || 0), 0);
+  // Engagement rate = shares / views * 100
   const engagementRate =
-    totalVideoViews > 0 ? Math.round((totalLikes / totalVideoViews) * 1000) / 10 : 0;
+    totalVideoViews > 0
+      ? Math.round(
+          (videos.reduce((acc, v) => acc + (Number(v['shares']) || 0), 0) / totalVideoViews) * 1000
+        ) / 10
+      : 0;
 
   // Profile completeness score (based on profile fields)
   const profileScore = computeProfileScore(profile);
@@ -656,17 +659,14 @@ function buildPostAnalytics(posts: Array<Record<string, unknown>>): readonly Pos
   return posts.slice(0, 20).map((p) => {
     const stats = (p['stats'] as Record<string, number> | undefined) ?? {};
     const impressions = stats['views'] ?? (Number(p['views']) || 0);
-    const likes = stats['likes'] ?? (Number(p['likes']) || 0);
     const shares = stats['shares'] ?? (Number(p['shares']) || 0);
-    const engagementRate =
-      impressions > 0 ? Math.round(((likes + shares) / impressions) * 1000) / 10 : 0;
+    const engagementRate = impressions > 0 ? Math.round((shares / impressions) * 1000) / 10 : 0;
 
     return {
       id: String(p['id'] ?? ''),
       type: (p['type'] as PostAnalytics['type']) ?? 'text',
       previewUrl: p['mediaUrl'] as string | undefined,
       impressions,
-      likes,
       shares,
       engagementRate,
       createdAt: String(toDate(p['createdAt'])?.toISOString() ?? new Date().toISOString()),

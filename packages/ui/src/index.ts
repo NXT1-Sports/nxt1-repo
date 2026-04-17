@@ -163,6 +163,11 @@ export {
 } from './components/share-button';
 
 // ============================================
+// LINK EMBED (Inline news/article preview card)
+// ============================================
+export { LinkEmbedComponent, type LinkEmbedData } from './components/link-embed';
+
+// ============================================
 // SEARCH BAR (Shared Native HTML Search — No Shadow DOM)
 // ============================================
 export {
@@ -230,7 +235,6 @@ export { NxtImmersiveHeroComponent, type ImmersiveHeroShot } from './components/
 export { NxtMediaEmpireHeroComponent } from './components/media-empire-hero';
 export { NxtBreakingNewsHeroComponent } from './components/breaking-news-hero';
 export { NxtScoutReportJournalismSectionComponent } from './components/scout-report-journalism-section';
-export { NxtCoSignCollaborationSectionComponent } from './components/co-sign-collaboration-section';
 export { NxtGraphicFactoryHeroComponent } from './components/graphic-factory-hero';
 export { NxtInfiniteContentEngineSectionComponent } from './components/infinite-content-engine-section';
 export {
@@ -1114,7 +1118,6 @@ export {
   ScoutReportFilterPanelComponent,
   ScoutReportRatingDisplayComponent,
   ScoutReportQuickStatsComponent,
-  ScoutReportBookmarkButtonComponent,
   // Services
   ScoutReportsService,
   ScoutReportsApiService,

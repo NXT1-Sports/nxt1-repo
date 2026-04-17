@@ -41,9 +41,11 @@ import { NxtPageHeaderComponent, type PageHeaderAction } from '../components/pag
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import { NxtStateViewComponent } from '../components/state-view';
 import { NxtEntityHeroComponent, type EntityHeroMetaItem } from '../components/entity-hero';
+import { ProfileTimelineComponent } from '../profile/profile-timeline.component';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { formatSportDisplayName } from '@nxt1/core';
+import type { FeedItem } from '@nxt1/core';
 
 // Register icons
 /**
@@ -76,6 +78,7 @@ export interface TeamData {
     NxtRefresherComponent,
     NxtStateViewComponent,
     NxtEntityHeroComponent,
+    ProfileTimelineComponent,
   ],
   template: `
     <!-- Top Navigation Header -->
@@ -166,11 +169,22 @@ export interface TeamData {
             }
           </div>
 
-          <!-- Placeholder for future sections -->
-          <div class="team-sections">
-            <div class="section-placeholder">
-              <p class="placeholder-text">Roster, schedule, and highlights coming soon...</p>
-            </div>
+          <!-- Team Timeline — polymorphic post feed (same infrastructure as /profile) -->
+          <div class="team-timeline-section">
+            <nxt1-profile-timeline
+              [polymorphicFeed]="timelinePosts()"
+              [isLoading]="timelineLoading()"
+              [isLoadingMore]="timelineLoadingMore()"
+              [isEmpty]="timelinePosts().length === 0 && !timelineLoading() && !timelineError()"
+              [error]="timelineError()"
+              [hasMore]="timelineHasMore()"
+              [showMenu]="false"
+              emptyIcon="megaphone-outline"
+              emptyTitle="No posts yet"
+              emptyMessage="This team hasn't shared any posts, events, or highlights yet."
+              (loadMore)="timelineLoadMore.emit()"
+              (retry)="retryClick.emit()"
+            />
           </div>
         }
       </div>
@@ -323,18 +337,9 @@ export interface TeamData {
         color: var(--ion-color-medium-shade);
       }
 
-      /* Placeholder */
-      .team-sections {
-        padding: 40px 20px;
-      }
-
-      .section-placeholder {
-        text-align: center;
-      }
-
-      .placeholder-text {
-        font-size: 16px;
-        color: var(--ion-color-medium);
+      /* Team Timeline */
+      .team-timeline-section {
+        margin-top: 8px;
       }
 
       /* Responsive */
@@ -363,6 +368,19 @@ export class TeamShellComponent {
   /** Team data (can be passed from parent or loaded internally) */
   readonly teamData = input<TeamData | null>(null);
 
+  // ── Timeline inputs ──
+
+  /** Polymorphic post feed for the team timeline (FeedItem discriminated union) */
+  readonly timelinePosts = input<readonly FeedItem[]>([]);
+  /** Whether the timeline is performing an initial load */
+  readonly timelineLoading = input(false);
+  /** Whether an incremental "load more" fetch is in progress */
+  readonly timelineLoadingMore = input(false);
+  /** Error message from the timeline fetch (null = no error) */
+  readonly timelineError = input<string | null>(null);
+  /** Whether more timeline posts are available to load */
+  readonly timelineHasMore = input(false);
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -375,6 +393,9 @@ export class TeamShellComponent {
 
   /** Retry loading */
   readonly retryClick = output<void>();
+
+  /** Emitted when the user scrolls to the bottom and requests more timeline posts */
+  readonly timelineLoadMore = output<void>();
 
   // ============================================
   // STATE

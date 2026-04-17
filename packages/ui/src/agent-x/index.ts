@@ -124,3 +124,7 @@ export {
   AgentXBillingActionCardComponent,
   type BillingActionResolvedEvent,
 } from './agent-x-billing-action-card.component';
+export {
+  AgentXAskUserCardComponent,
+  type AskUserReplyEvent,
+} from './agent-x-ask-user-card.component';

@@ -17,12 +17,13 @@ import {
   inject,
   SecurityContext,
 } from '@angular/core';
-import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
+import { DomSanitizer, type SafeHtml, type SafeResourceUrl } from '@angular/platform-browser';
 import type { FeedItemPost, FeedAuthor } from '@nxt1/core';
 import { FEED_CARD_TEST_IDS } from '@nxt1/core/testing';
 import { NxtImageComponent } from '../components/image';
 import { NxtIconComponent } from '../components/icon';
 import { NxtAvatarComponent } from '../components/avatar';
+import { LinkEmbedComponent, type LinkEmbedData } from '../components/link-embed';
 
 const MAX_VISIBLE_TAGS = 5;
 type FeedPostContentMode = 'full' | 'media' | 'body';
@@ -30,7 +31,7 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
 @Component({
   selector: 'nxt1-feed-post-content',
   standalone: true,
-  imports: [NxtImageComponent, NxtIconComponent, NxtAvatarComponent],
+  imports: [NxtImageComponent, NxtIconComponent, NxtAvatarComponent, LinkEmbedComponent],
   template: `
     <!-- Media Carousel -->
     @if (showMedia()) {
@@ -49,24 +50,49 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
                   fit="cover"
                 />
               } @else if (media.type === 'video') {
-                @if (media.thumbnailUrl) {
-                  <nxt1-image
-                    [src]="media.thumbnailUrl"
-                    [alt]="media.altText || 'Video thumbnail'"
-                    fit="cover"
-                  />
-                } @else {
-                  <div class="post-content__video-placeholder">
-                    <nxt1-icon name="videocam" [size]="48" />
+                @if (media.processingStatus && media.processingStatus !== 'ready') {
+                  <!-- Video is still being processed by Cloudflare -->
+                  <div class="post-content__video-processing">
+                    <div class="post-content__video-processing-inner">
+                      <nxt1-icon name="videocam" [size]="32" />
+                      <span>Video processing…</span>
+                    </div>
                   </div>
-                }
-                <div class="post-content__video-overlay">
-                  <nxt1-icon name="playCircle" [size]="48" />
-                </div>
-                @if (media.duration) {
-                  <span class="post-content__video-duration">{{
-                    formatDuration(media.duration)
-                  }}</span>
+                } @else if (activeVideoSlide() === getMediaIndex(media.id)) {
+                  <!-- Active: render the Cloudflare Stream iframe player -->
+                  <iframe
+                    class="post-content__video-iframe"
+                    [src]="getSafeIframeUrl(media.iframeUrl || media.url)"
+                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
+                    allowfullscreen
+                    frameborder="0"
+                  ></iframe>
+                } @else {
+                  <!-- Inactive: show thumbnail + play button tap target -->
+                  @if (media.thumbnailUrl) {
+                    <nxt1-image
+                      [src]="media.thumbnailUrl"
+                      [alt]="media.altText || 'Video thumbnail'"
+                      fit="cover"
+                    />
+                  } @else {
+                    <div class="post-content__video-placeholder">
+                      <nxt1-icon name="videocam" [size]="48" />
+                    </div>
+                  }
+                  <button
+                    type="button"
+                    class="post-content__video-overlay"
+                    [attr.aria-label]="'Play video' + (media.altText ? ': ' + media.altText : '')"
+                    (click)="activateVideo(media.id, $event)"
+                  >
+                    <nxt1-icon name="playCircle" [size]="48" />
+                  </button>
+                  @if (media.duration) {
+                    <span class="post-content__video-duration">{{
+                      formatDuration(media.duration)
+                    }}</span>
+                  }
                 }
               }
             </div>
@@ -181,6 +207,15 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
         <span>{{ data().location }}</span>
       </div>
     }
+
+    <!-- Link Embeds (news articles linked within post) -->
+    @if (showBody() && hasEmbeds()) {
+      <div class="post-content__embeds">
+        @for (embed of embedItems(); track embed.url ?? embed.title) {
+          <nxt1-link-embed [data]="embed" />
+        }
+      </div>
+    }
   `,
   styles: [
     `
@@ -191,7 +226,7 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
       /* Media */
       .post-content__media {
         position: relative;
-        margin: 0 -16px;
+        margin: 0 -16px 14px;
       }
 
       .post-content__media-track {
@@ -222,6 +257,34 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
       }
 
+      .post-content__video-processing {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
+      }
+
+      .post-content__video-processing-inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .post-content__video-iframe {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: none;
+        background: #000;
+      }
+
       .post-content__video-overlay {
         position: absolute;
         inset: 0;
@@ -232,6 +295,12 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
         color: #ffffff;
         opacity: 0.9;
         transition: opacity 0.2s;
+        border: none;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        &:hover {
+          opacity: 1;
+        }
       }
 
       .post-content__video-duration {
@@ -335,13 +404,13 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
         font-size: 16px;
         font-weight: 700;
         color: var(--nxt1-color-text-primary, #ffffff);
-        margin: 4px 0 2px;
+        margin: 0 0 4px;
       }
 
       /* Text */
       .post-content__text {
         font-size: 14px;
-        line-height: 1.55;
+        line-height: 1.6;
         color: var(--nxt1-color-text-primary, #ffffff);
         margin: 0;
         word-break: break-word;
@@ -407,6 +476,13 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
         font-size: 12px;
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
       }
+
+      .post-content__embeds {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 12px;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -424,6 +500,8 @@ export class FeedPostContentComponent {
   private readonly sanitizer = inject(DomSanitizer);
   protected readonly testIds = FEED_CARD_TEST_IDS;
   protected readonly activeMediaIndex = signal(0);
+  /** Tracks which video slide is "playing" by media ID. null = thumbnail shown. */
+  protected readonly activeVideoSlide = signal<string | null>(null);
 
   protected readonly hasMedia = computed(() => this.data().media.length > 0);
   protected readonly showMedia = computed(() => {
@@ -450,6 +528,20 @@ export class FeedPostContentComponent {
   });
 
   protected readonly hasTags = computed(() => (this.data().postTags?.length ?? 0) > 0);
+
+  protected readonly hasEmbeds = computed(() => (this.data().embeds?.length ?? 0) > 0);
+
+  protected readonly embedItems = computed<LinkEmbedData[]>(() =>
+    (this.data().embeds ?? []).map((e) => ({
+      url: e.articleUrl,
+      title: e.headline,
+      excerpt: e.excerpt,
+      imageUrl: e.imageUrl,
+      source: e.source,
+      sourceLogoUrl: e.sourceLogoUrl,
+      publishedAt: e.publishedAt,
+    }))
+  );
 
   protected readonly visibleTags = computed(() =>
     (this.data().postTags ?? []).slice(0, MAX_VISIBLE_TAGS)
@@ -489,6 +581,23 @@ export class FeedPostContentComponent {
   protected handleMenuClick(event: Event): void {
     event.stopPropagation();
     this.menuClick.emit();
+  }
+
+  protected activateVideo(mediaId: string, event: Event): void {
+    event.stopPropagation();
+    this.activeVideoSlide.set(mediaId);
+  }
+
+  protected getMediaIndex(mediaId: string): string {
+    return mediaId;
+  }
+
+  /**
+   * Bypasses Angular's URL sanitization for trusted Cloudflare Stream iframe URLs.
+   * Only called for iframeUrl values constructed by the backend from CF's own CDN.
+   */
+  protected getSafeIframeUrl(iframeUrl: string): SafeResourceUrl {
+    return this.sanitizer.bypassSecurityTrustResourceUrl(iframeUrl);
   }
 
   protected formatRelativeTime(dateString: string): string {

@@ -15,31 +15,8 @@ import { ANALYTICS_ADAPTER } from '../services/analytics';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { IntelService } from './intel.service';
-import type { IntelMissingDataPrompt, IntelQuickCommand, IntelDataSource } from '@nxt1/core';
+import type { IntelMissingDataPrompt, IntelQuickCommand } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
-
-// ── Source metadata for favicons + labels ──
-
-interface SourceMeta {
-  readonly domain: string;
-  readonly label: string;
-  readonly isVerified: boolean;
-}
-
-const SOURCE_META: Readonly<Record<IntelDataSource, SourceMeta>> = {
-  'self-reported': { domain: '', label: 'Self', isVerified: false },
-  'coach-verified': { domain: '', label: 'Coach', isVerified: false },
-  'agent-x': { domain: 'nxt1.com', label: 'Agent X', isVerified: false },
-  maxpreps: { domain: 'maxpreps.com', label: 'MaxPreps', isVerified: true },
-  hudl: { domain: 'hudl.com', label: 'Hudl', isVerified: true },
-  '247sports': { domain: '247sports.com', label: '247Sports', isVerified: true },
-  rivals: { domain: 'rivals.com', label: 'Rivals', isVerified: true },
-  on3: { domain: 'on3.com', label: 'On3', isVerified: true },
-  'perfect-game': { domain: 'perfectgame.org', label: 'PG', isVerified: true },
-  'prep-baseball': { domain: 'prepbaseballreport.com', label: 'PBR', isVerified: true },
-  ncsa: { domain: 'ncsasports.org', label: 'NCSA', isVerified: true },
-  'usa-football': { domain: 'usafootball.com', label: 'USA FB', isVerified: true },
-};
 
 @Component({
   selector: 'nxt1-team-intel',
@@ -135,6 +112,14 @@ const SOURCE_META: Readonly<Record<IntelDataSource, SourceMeta>> = {
         </div>
       } @else {
         <div class="intel-stage" [attr.data-testid]="testIds.REPORT_CONTAINER">
+          @if (canGenerate()) {
+            <div class="resync-bar">
+              <button type="button" class="resync-bar__btn" (click)="onResync()">
+                <nxt1-icon name="refresh-outline" [size]="14" />
+                Resync Intel
+              </button>
+            </div>
+          }
           <!-- ── Active Section Card ── -->
           @for (section of report()!.sections; track section.id) {
             @if (activeSection() === section.id) {
@@ -192,17 +177,17 @@ const SOURCE_META: Readonly<Record<IntelDataSource, SourceMeta>> = {
                         }
                         @if (item.source) {
                           <span class="intel-source-chip">
-                            @if (sourceMeta(item.source).isVerified) {
+                            @if (item.faviconUrl) {
                               <img
                                 class="intel-favicon"
-                                [src]="faviconUrl(item.source)"
-                                [alt]="sourceMeta(item.source).label"
+                                [src]="item.faviconUrl"
+                                [alt]="item.source"
                                 width="12"
                                 height="12"
                                 loading="lazy"
                               />
                             }
-                            {{ sourceMeta(item.source).label }}
+                            {{ item.source }}
                           </span>
                         }
                       </div>
@@ -221,34 +206,34 @@ const SOURCE_META: Readonly<Record<IntelDataSource, SourceMeta>> = {
                           class="intel-citation-badge intel-citation-badge--linked"
                           [class.intel-citation-badge--verified]="citation.verified"
                         >
-                          @if (citation.verified && sourceMeta(citation.platform).isVerified) {
+                          @if (citation.faviconUrl) {
                             <img
                               class="intel-favicon"
-                              [src]="faviconUrl(citation.platform)"
-                              [alt]="sourceMeta(citation.platform).label"
+                              [src]="citation.faviconUrl"
+                              [alt]="citation.label || citation.platform"
                               width="12"
                               height="12"
                               loading="lazy"
                             />
                           }
-                          {{ citation.label || sourceMeta(citation.platform).label }}
+                          {{ citation.label || citation.platform }}
                         </a>
                       } @else {
                         <span
                           class="intel-citation-badge"
                           [class.intel-citation-badge--verified]="citation.verified"
                         >
-                          @if (citation.verified && sourceMeta(citation.platform).isVerified) {
+                          @if (citation.faviconUrl) {
                             <img
                               class="intel-favicon"
-                              [src]="faviconUrl(citation.platform)"
-                              [alt]="sourceMeta(citation.platform).label"
+                              [src]="citation.faviconUrl"
+                              [alt]="citation.label || citation.platform"
                               width="12"
                               height="12"
                               loading="lazy"
                             />
                           }
-                          {{ citation.label || sourceMeta(citation.platform).label }}
+                          {{ citation.label || citation.platform }}
                         </span>
                       }
                     }
@@ -279,12 +264,12 @@ const SOURCE_META: Readonly<Record<IntelDataSource, SourceMeta>> = {
     `
       :host {
         display: block;
-        --intel-surface: var(--nxt1-ui-bg-card, var(--m-surface, rgba(255, 255, 255, 0.04)));
+        --intel-surface: var(--nxt1-glass-bg, rgba(20, 20, 20, 0.88));
         --intel-surface-elevated: var(
           --nxt1-color-surface-200,
           var(--m-surface-2, rgba(255, 255, 255, 0.06))
         );
-        --intel-border: var(--nxt1-ui-border-subtle, var(--m-border, rgba(255, 255, 255, 0.08)));
+        --intel-border: var(--nxt1-glass-border, rgba(255, 255, 255, 0.12));
         --intel-border-strong: var(--nxt1-ui-border-default, rgba(255, 255, 255, 0.12));
         --intel-text: var(--nxt1-ui-text-primary, var(--m-text, #ffffff));
         --intel-text-secondary: var(
@@ -293,9 +278,9 @@ const SOURCE_META: Readonly<Record<IntelDataSource, SourceMeta>> = {
         );
         --intel-text-muted: var(--nxt1-ui-text-muted, var(--m-text-3, rgba(255, 255, 255, 0.45)));
         --intel-accent: var(--nxt1-ui-primary, var(--m-accent, #d4ff00));
-        --intel-radius: var(--nxt1-ui-radius-lg, 14px);
+        --intel-radius: var(--nxt1-ui-radius-lg, 16px);
         --intel-radius-sm: var(--nxt1-ui-radius-default, 12px);
-        --intel-shadow: var(--nxt1-ui-shadow-sm, 0 10px 28px rgba(0, 0, 0, 0.14));
+        --intel-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
       }
 
       /* ─── Layout ─── */
@@ -440,8 +425,10 @@ const SOURCE_META: Readonly<Record<IntelDataSource, SourceMeta>> = {
         padding: var(--nxt1-spacing-4, 16px);
         border-radius: var(--intel-radius);
         background: var(--intel-surface);
-        border: 1px solid color-mix(in srgb, var(--intel-accent) 14%, var(--intel-border));
+        border: 1px solid var(--intel-border);
         box-shadow: var(--intel-shadow);
+        backdrop-filter: saturate(180%) blur(20px);
+        -webkit-backdrop-filter: saturate(180%) blur(20px);
       }
       .intel-focus-card--feature {
         min-height: 180px;
@@ -515,9 +502,11 @@ const SOURCE_META: Readonly<Record<IntelDataSource, SourceMeta>> = {
         border-radius: var(--intel-radius-sm);
         background: var(--intel-surface-elevated);
         border: 1px solid var(--intel-border);
+        backdrop-filter: saturate(180%) blur(20px);
+        -webkit-backdrop-filter: saturate(180%) blur(20px);
       }
       .intel-item-card--verified {
-        border-color: color-mix(in srgb, var(--intel-accent) 22%, var(--intel-border));
+        border-color: var(--intel-border);
         background: color-mix(in srgb, var(--intel-accent) 6%, var(--intel-surface-elevated));
       }
       .intel-item-value {
@@ -757,6 +746,48 @@ const SOURCE_META: Readonly<Record<IntelDataSource, SourceMeta>> = {
         line-height: var(--nxt1-lineHeight-normal, 1.5);
       }
 
+      /* ─── Resync Bar ─── */
+      .resync-bar {
+        display: flex;
+        justify-content: flex-end;
+        padding: 0 0 4px;
+      }
+      .resync-bar__btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 7px 14px;
+        border-radius: var(--nxt1-ui-radius-full, 9999px);
+        border: 1px solid var(--intel-border);
+        background: var(--intel-surface-elevated);
+        color: var(--intel-text-secondary);
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        font-weight: var(--nxt1-fontWeight-bold, 700);
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition:
+          background var(--nxt1-ui-transition-fast, 150ms) ease,
+          border-color var(--nxt1-ui-transition-fast, 150ms) ease,
+          color var(--nxt1-ui-transition-fast, 150ms) ease;
+      }
+      .resync-bar__btn:hover {
+        background: color-mix(in srgb, var(--intel-accent) 10%, var(--intel-surface-elevated));
+        border-color: color-mix(in srgb, var(--intel-accent) 30%, var(--intel-border));
+        color: var(--intel-text);
+      }
+      .resync-bar__btn:active {
+        filter: brightness(0.9);
+        transform: translateY(1px);
+      }
+      .resync-bar__btn:focus-visible {
+        outline: none;
+        box-shadow:
+          0 0 0 2px var(--nxt1-color-focus-ringOffset, rgba(10, 10, 10, 1)),
+          0 0 0 4px var(--nxt1-color-focus-ring, rgba(204, 255, 0, 0.5));
+      }
+
       /* ─── Footer ─── */
       .intel-footer {
         text-align: center;
@@ -802,22 +833,18 @@ export class TeamIntelComponent {
   readonly activeSection = input<string>('agent_overview');
 
   readonly generateClick = output<void>();
+  readonly resyncClick = output<void>();
   readonly missingDataAction = output<IntelMissingDataPrompt>();
   readonly quickCommandClick = output<IntelQuickCommand>();
 
   protected readonly report = this.intel.teamReport;
 
-  protected sourceMeta(source: IntelDataSource): SourceMeta {
-    return SOURCE_META[source] ?? { domain: '', label: source, isVerified: false };
-  }
-
-  protected faviconUrl(source: IntelDataSource): string {
-    const { domain } = this.sourceMeta(source);
-    return domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
-  }
-
   protected onGenerate(): void {
     this.generateClick.emit();
+  }
+
+  protected onResync(): void {
+    this.resyncClick.emit();
   }
 
   protected onMissingDataClick(prompt: IntelMissingDataPrompt): void {

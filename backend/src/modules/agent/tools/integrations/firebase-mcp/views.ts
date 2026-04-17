@@ -390,8 +390,12 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
       maxLimit: 1,
     },
     async resolve(db, scope) {
-      const snapshot = await db.collection(USERS_COLLECTION).doc(scope.userId).get();
+      const [snapshot, awardsSnap] = await Promise.all([
+        db.collection(USERS_COLLECTION).doc(scope.userId).get(),
+        db.collection('Awards').where('userId', '==', scope.userId).get(),
+      ]);
       const data = snapshot.exists ? sanitizeRecord({ id: snapshot.id, ...snapshot.data() }) : null;
+      const awardDocs = awardsSnap.docs.map((d) => sanitizeRecord({ id: d.id, ...d.data() }));
       const item = data
         ? sanitizeRecord({
             id: data['id'],
@@ -407,7 +411,7 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
             sportInfo: data['sportInfo'],
             team: data['team'],
             coach: data['coach'],
-            awards: data['awards'],
+            awards: awardDocs.length > 0 ? awardDocs : (data['awards'] ?? []),
             teamHistory: data['teamHistory'],
             profileImgs: data['profileImgs'],
             city: data['city'],
@@ -780,7 +784,7 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
       let query: Query = db
         .collection(POSTS_COLLECTION)
         .where('userId', '==', scope.userId)
-        .where('type', '==', 'highlight');
+        .where('type', '==', 'video');
 
       const sportId = parseStringFilter(input, 'sportId');
       if (sportId) query = query.where('sportId', '==', sportId);
@@ -1020,7 +1024,7 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
           let query: Query = db
             .collection(POSTS_COLLECTION)
             .where('teamId', '==', teamId)
-            .where('type', '==', 'highlight');
+            .where('type', '==', 'video');
           if (sportId) query = query.where('sportId', '==', sportId);
           if (visibility) query = query.where('visibility', '==', visibility);
           query = query.orderBy('createdAt', 'desc');
@@ -1180,7 +1184,7 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
           let query: Query = db
             .collection(POSTS_COLLECTION)
             .where('organizationId', '==', organizationId)
-            .where('type', '==', 'highlight');
+            .where('type', '==', 'video');
           if (sportId) query = query.where('sportId', '==', sportId);
           if (visibility) query = query.where('visibility', '==', visibility);
           query = query.orderBy('createdAt', 'desc');

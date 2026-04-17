@@ -64,7 +64,6 @@ import {
   chevronDownOutline,
   flameOutline,
   starOutline,
-  bookmarkOutline,
   footballOutline,
   basketballOutline,
   baseballOutline,
@@ -211,7 +210,6 @@ import {
         [hasMore]="hasMore()"
         [activeCategory]="activeCategory()"
         (cardClick)="cardClick.emit($event)"
-        (bookmark)="bookmark.emit($event)"
         (loadMore)="loadMore.emit()"
         (retry)="retry.emit()"
         (emptyCta)="emptyCta.emit()"
@@ -461,9 +459,6 @@ export class ScoutReportsShellComponent {
   /** Emitted when a card is clicked */
   readonly cardClick = output<ScoutReport>();
 
-  /** Emitted when bookmark is toggled */
-  readonly bookmark = output<string>();
-
   /** Emitted to load more data */
   readonly loadMore = output<void>();
 
@@ -534,7 +529,6 @@ export class ScoutReportsShellComponent {
       chevronDownOutline,
       flameOutline,
       starOutline,
-      bookmarkOutline,
       footballOutline,
       basketballOutline,
       baseballOutline,

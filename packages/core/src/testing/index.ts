@@ -1101,6 +1101,35 @@ export const LIVE_VIEW_LAUNCHER_TEST_IDS = {
   RECENT_SECTION: 'live-view-launcher-recent-section',
 } as const;
 
+// ============================================
+// TEAM TIMELINE TEST IDS
+// ============================================
+
+export const TEAM_TIMELINE_TEST_IDS = {
+  /** Filter chip bar container */
+  FILTER_BAR: 'team-timeline-filter-bar',
+  /** Individual filter chip button — suffix with -{filterId} */
+  FILTER_CHIP: 'team-timeline-filter-chip',
+  /** Timeline feed list container */
+  LIST: 'team-timeline-list',
+  /** Individual timeline feed item */
+  LIST_ITEM: 'team-timeline-item',
+  /** Loading skeleton */
+  LOADING_SKELETON: 'team-timeline-loading-skeleton',
+  /** Empty state */
+  EMPTY_STATE: 'team-timeline-empty',
+  /** Empty state admin CTA */
+  EMPTY_CTA: 'team-timeline-empty-cta',
+  /** Error state */
+  ERROR_STATE: 'team-timeline-error',
+  /** Retry button */
+  RETRY_BTN: 'team-timeline-retry',
+  /** Load more trigger element */
+  LOAD_MORE: 'team-timeline-load-more',
+  /** Load more button */
+  LOAD_MORE_BTN: 'team-timeline-load-more-btn',
+} as const;
+
 export const TEST_IDS = {
   AUTH: AUTH_TEST_IDS,
   AUTH_PAGE: AUTH_PAGE_TEST_IDS,
@@ -1127,6 +1156,7 @@ export const TEST_IDS = {
   MEDIA_VIEWER: MEDIA_VIEWER_TEST_IDS,
   LIVE_VIEW: LIVE_VIEW_TEST_IDS,
   LIVE_VIEW_LAUNCHER: LIVE_VIEW_LAUNCHER_TEST_IDS,
+  TEAM_TIMELINE: TEAM_TIMELINE_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript

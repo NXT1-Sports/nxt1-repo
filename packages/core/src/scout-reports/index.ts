@@ -36,7 +36,6 @@ export type {
   // API response types
   ScoutReportListResponse,
   ScoutReportDetailResponse,
-  ScoutReportBookmarkResponse,
   ScoutReportViewResponse,
   ScoutReportSummary,
   // State types

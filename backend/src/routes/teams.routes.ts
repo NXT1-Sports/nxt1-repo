@@ -47,6 +47,7 @@ import {
   buildPreviousStateFromTeamRecord,
 } from '../modules/agent/sync/manual-sync-state.helpers.js';
 import { onDailySyncComplete } from '../modules/agent/triggers/trigger.listeners.js';
+import { createTimelineService } from '../services/timeline.service.js';
 
 const router: ExpressRouter = Router();
 
@@ -1169,6 +1170,83 @@ router.patch(
       message: `Section "${sectionId}" updated successfully`,
       sectionId,
       data: report,
+    });
+  })
+);
+
+/**
+ * Get polymorphic team timeline
+ * GET /api/v1/teams/:teamCode/timeline
+ *
+ * Returns FeedItem[] sorted newest-first, assembled from:
+ *   Posts (teamId), Schedule (ownerType:team), TeamStats, News,
+ *   and Recruiting fan-out via RosterEntries.
+ *
+ * Query params:
+ *   - filter: 'all' | 'media' | 'stats' | 'games' | 'schedule' | 'recruiting' | 'news'
+ *   - limit: number (default 20, max 50)
+ *   - cursor: base64-encoded ISO timestamp for pagination
+ *   - sportId: optional sport filter
+ */
+router.get(
+  '/:teamCode/timeline',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { teamCode } = req.params;
+    const db = req.firebase!.db;
+
+    validateRequired(teamCode, 'teamCode');
+
+    const rawLimit = parseInt(String(req.query['limit'] ?? '20'), 10);
+    const limit = Math.min(isNaN(rawLimit) ? 20 : rawLimit, 50);
+    const filter = String(req.query['filter'] ?? 'all') as
+      | 'all'
+      | 'media'
+      | 'stats'
+      | 'games'
+      | 'schedule'
+      | 'recruiting'
+      | 'news';
+    const cursor = req.query['cursor'] ? String(req.query['cursor']) : undefined;
+    const sportId = req.query['sportId'] ? String(req.query['sportId']) : undefined;
+
+    const validFilters = new Set(['all', 'media', 'stats', 'games', 'schedule', 'recruiting', 'news']);
+    const resolvedFilter = validFilters.has(filter) ? filter : 'all';
+
+    const cache = getCacheService();
+    const cacheKey = `team:timeline:v1:${teamCode}:${resolvedFilter}:${sportId ?? ''}:${cursor ?? ''}`;
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      markCacheHit(req, 'redis', cacheKey);
+      sendSuccess(res, cached, { cached: true });
+      return;
+    }
+
+    const timelineService = createTimelineService(db);
+    const result = await timelineService.getTeamTimeline(String(teamCode), {
+      limit,
+      filter: resolvedFilter,
+      sportId,
+      cursor,
+    });
+
+    await cache.set(
+      cacheKey,
+      { items: result.data, nextCursor: result.nextCursor, hasMore: result.hasMore },
+      { ttl: CACHE_TTL.FEED }
+    );
+
+    logger.info('[Teams API] Team timeline assembled', {
+      teamCode,
+      filter: resolvedFilter,
+      count: result.data.length,
+      hasMore: result.hasMore,
+    });
+
+    sendSuccess(res, {
+      items: result.data,
+      nextCursor: result.nextCursor,
+      hasMore: result.hasMore,
     });
   })
 );

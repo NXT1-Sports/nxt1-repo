@@ -96,6 +96,7 @@ import {
 } from './agent-x-action-card.component';
 import type { BillingActionResolvedEvent } from './agent-x-billing-action-card.component';
 import type { ConfirmationActionEvent } from './agent-x-confirmation-card.component';
+import type { AskUserReplyEvent } from './agent-x-ask-user-card.component';
 import type { DraftSubmittedEvent } from './agent-x-draft-card.component';
 import type { AgentYieldState } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
@@ -304,6 +305,7 @@ interface OperationMessage {
               (billingActionResolved)="onBillingActionResolved($event)"
               (confirmationAction)="onConfirmationAction($event)"
               (draftSubmitted)="onDraftSubmitted($event)"
+              (askUserReply)="onAskUserReply($event)"
             />
             @if (msg.attachments?.length) {
               <div class="msg-attachments">
@@ -393,8 +395,11 @@ interface OperationMessage {
           </div>
         }
 
-        <!-- ═══ HITL ACTION CARD (when operation is yielded) ═══ -->
-        @if (activeYieldState() && !yieldResolved()) {
+        <!-- ═══ HITL ACTION CARD (when operation is yielded — approval only) ═══ -->
+        <!-- ask_user yields are handled inline via the rich card in the chat bubble -->
+        @if (
+          activeYieldState() && !yieldResolved() && activeYieldState()!.reason === 'needs_approval'
+        ) {
           <div class="msg-row msg-assistant">
             <nxt1-agent-action-card
               #actionCard
@@ -2509,11 +2514,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     userInput: string,
     attachments: AgentXAttachment[] = []
   ): Promise<void> {
-    // Build conversation history from local messages (exclude typing indicators)
+    // Build conversation history from local messages (exclude typing indicators and empty content)
     const request = {
       message: userInput,
       history: this.messages()
-        .filter((m) => !m.isTyping && m.role !== 'system')
+        .filter((m) => !m.isTyping && m.role !== 'system' && m.content.trim().length > 0)
         .slice(-10)
         .map((m) => ({
           id: this.uid(),
@@ -2650,13 +2655,25 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             const tid = this._resolvedThreadId();
             if (tid) this.streamRegistry.appendCard(tid, card);
 
+            // When the card supersedes preceding streamed text (e.g. ask_user),
+            // wipe all accumulated text parts so the question only appears once.
+            if (evt.clearText) {
+              parts.length = 0;
+            }
+
             // Each card is its own part in the interleaved sequence
             parts.push({ type: 'card', card });
 
             this.messages.update((msgs) =>
               msgs.map((m) =>
                 m.id === streamingId
-                  ? { ...m, cards: [...(m.cards ?? []), card], parts: [...parts] }
+                  ? {
+                      ...m,
+                      // If the card supersedes streamed text, wipe it.
+                      content: evt.clearText ? '' : m.content,
+                      cards: [...(m.cards ?? []), card],
+                      parts: [...parts],
+                    }
                   : m
               )
             );
@@ -2925,6 +2942,13 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       successMessage:
         decision === 'approved' ? 'Approved — Agent X is resuming' : 'Request rejected',
     });
+  }
+
+  /** Route an ask_user card reply into the chat as a normal user message. */
+  protected async onAskUserReply(event: AskUserReplyEvent): Promise<void> {
+    this.logger.info('ask_user reply submitted', { threadId: event.threadId });
+    this.inputValue.set(event.answer);
+    await this.send();
   }
 
   /** Handle approval/rejection from the action card. */

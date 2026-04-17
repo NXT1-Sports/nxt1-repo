@@ -8,7 +8,6 @@
  * GET /:userId/news
  * GET /:userId/rankings
  * GET /:userId/scout-reports
- * GET /:userId/videos
  * GET /:userId/schedule
  * GET /:userId/recruiting
  */
@@ -24,7 +23,7 @@ import {
   userProfileToFeedAuthor,
   type UserProfile as PostsUserProfile,
 } from '../../adapters/firestore-posts.adapter.js';
-import type { FeedItemResponse } from '@nxt1/core/feed';
+import type { FeedItemResponse } from '@nxt1/core/posts';
 import { USERS_COLLECTION, PLAYER_STATS_COLLECTION, CACHE_TTL } from './shared.js';
 
 const router = Router();
@@ -326,73 +325,6 @@ router.get(
   })
 );
 
-// ─── GET /:userId/videos ──────────────────────────────────────────────────────
-
-router.get(
-  '/:userId/videos',
-  optionalAuth,
-  asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { userId } = req.params as { userId: string };
-    const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
-    const sportId = req.query['sportId'] ? String(req.query['sportId']) : null;
-
-    const cache = getCacheService();
-    const cacheKey = `profile:videos:${userId}${sportId ? `:${sportId}` : ''}:${limit}`;
-    const hit = await cache.get<unknown[]>(cacheKey);
-    if (hit) {
-      markCacheHit(req, 'redis', cacheKey);
-      res.json({ success: true, data: hit });
-      return;
-    }
-
-    const db = req.firebase!.db;
-    let query = db
-      .collection('Posts')
-      .where('userId', '==', userId)
-      .where('type', '==', 'highlight') as FirebaseFirestore.Query;
-    if (sportId) query = query.where('sportId', '==', sportId);
-    query = query.orderBy('createdAt', 'desc').limit(limit);
-
-    const snap = await query.get();
-    const videos = snap.docs.map((d) => {
-      const data = d.data();
-      const playback =
-        data['playback'] && typeof data['playback'] === 'object'
-          ? (data['playback'] as Record<string, unknown>)
-          : null;
-
-      return {
-        id: d.id,
-        ...data,
-        createdAt:
-          typeof data['createdAt']?.['toDate'] === 'function'
-            ? data['createdAt'].toDate().toISOString()
-            : (data['createdAt'] as string | undefined),
-        updatedAt:
-          typeof data['updatedAt']?.['toDate'] === 'function'
-            ? data['updatedAt'].toDate().toISOString()
-            : (data['updatedAt'] as string | undefined),
-        mediaUrl:
-          (data['mediaUrl'] as string | undefined) ??
-          (data['videoUrl'] as string | undefined) ??
-          (playback?.['iframeUrl'] as string | undefined) ??
-          (playback?.['hlsUrl'] as string | undefined),
-        thumbnailUrl:
-          (data['thumbnailUrl'] as string | undefined) ??
-          (data['poster'] as string | undefined) ??
-          (data['previewUrl'] as string | undefined),
-        duration:
-          (data['duration'] as number | undefined) ??
-          (data['durationSeconds'] as number | undefined) ??
-          undefined,
-      };
-    });
-
-    await cache.set(cacheKey, videos, { ttl: CACHE_TTL.POSTS });
-    res.json({ success: true, data: videos });
-  })
-);
-
 // ─── GET /:userId/schedule ────────────────────────────────────────────────────
 
 router.get(
@@ -414,8 +346,8 @@ router.get(
 
     const db = req.firebase!.db;
     let query = db
-      .collection('Events')
-      .where('userId', '==', userId)
+      .collection('Schedule')
+      .where('ownerId', '==', userId)
       .where('ownerType', '==', 'user')
       .orderBy('date', 'asc')
       .limit(limit) as FirebaseFirestore.Query;
@@ -426,12 +358,11 @@ router.get(
     const snap = await query.get();
     const events = snap.docs.map((d) => {
       const data = d.data();
-      let eventType = data['eventType'] as string;
-      if (eventType === 'tournament' || eventType === 'tryout') eventType = 'other';
+      const scheduleType = (data['scheduleType'] as string) ?? 'game';
 
       return {
         id: d.id,
-        type: eventType,
+        type: scheduleType,
         name: data['title'] || 'Untitled Event',
         description: data['description'],
         location: data['location'],

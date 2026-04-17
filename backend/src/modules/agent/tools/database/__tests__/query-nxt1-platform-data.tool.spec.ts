@@ -130,21 +130,21 @@ describe('QueryNxt1PlatformDataTool', () => {
         {
           id: 'post-1',
           userId: 'user-1',
-          type: 'highlight',
+          type: 'video',
           sportId: 'Football',
           title: 'Week 1 TD',
         },
         {
           id: 'post-2',
           userId: 'user-2',
-          type: 'highlight',
+          type: 'video',
           sportId: 'Football',
           title: 'Week 2 TD',
         },
         {
           id: 'post-3',
           userId: 'user-3',
-          type: 'highlight',
+          type: 'video',
           sportId: 'Basketball',
           title: 'Dunk Mix',
         },
@@ -166,8 +166,8 @@ describe('QueryNxt1PlatformDataTool', () => {
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>)['totalCount']).toBe(2);
     expect((result.data as Record<string, unknown>)['items']).toEqual([
-      expect.objectContaining({ id: 'post-1', type: 'highlight' }),
-      expect.objectContaining({ id: 'post-2', type: 'highlight' }),
+      expect.objectContaining({ id: 'post-1', type: 'video' }),
+      expect.objectContaining({ id: 'post-2', type: 'video' }),
     ]);
   });
 
@@ -186,7 +186,7 @@ describe('QueryNxt1PlatformDataTool', () => {
       Teams: [],
       Organizations: [],
       Posts: [
-        { id: 'post-1', userId: 'user-1', type: 'highlight', title: 'Senior Tape' },
+        { id: 'post-1', userId: 'user-1', type: 'video', title: 'Senior Tape' },
         { id: 'post-2', userId: 'user-1', type: 'update', title: 'Offer Update' },
       ],
       Recruiting: [
