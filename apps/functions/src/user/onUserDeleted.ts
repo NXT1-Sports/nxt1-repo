@@ -410,7 +410,7 @@ async function cleanupOrganizations(
 
 async function deleteUserStorage(userId: string): Promise<void> {
   try {
-    await bucket.deleteFiles({ prefix: `users/${userId}/` });
+    await bucket.deleteFiles({ prefix: `Users/${userId}/` });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('No such object')) {
