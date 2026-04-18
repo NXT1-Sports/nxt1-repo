@@ -95,7 +95,7 @@ export const onPostCreatedV3 = onDocumentCreated(
         return; // Don't throw — this is a best-effort trigger
       }
 
-      const result = await response.json();
+      const result = (await response.json()) as { data?: { jobId?: string } };
       logger.info('Timeline scan enqueued for post author', {
         postId,
         userId,

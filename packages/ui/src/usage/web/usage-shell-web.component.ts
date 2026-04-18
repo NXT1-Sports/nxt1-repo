@@ -235,6 +235,7 @@ export type { UsageUser };
                     [chartData]="svc.chartData()"
                     [timeframe]="svc.timeframe()"
                     [yLabels]="svc.chartYLabels()"
+                    [chartMaxCents]="svc.chartMaxValue()"
                     (timeframeChange)="svc.setTimeframe($event)"
                     (viewBreakdown)="svc.setActiveSection('breakdown')"
                   />

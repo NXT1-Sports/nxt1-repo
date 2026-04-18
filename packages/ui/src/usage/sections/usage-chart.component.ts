@@ -399,6 +399,7 @@ export class UsageChartComponent {
   readonly chartData = input.required<readonly UsageChartDataPoint[]>();
   readonly timeframe = input.required<UsageTimeframe>();
   readonly yLabels = input.required<readonly string[]>();
+  readonly chartMaxCents = input.required<number>();
 
   readonly timeframeChange = output<UsageTimeframe>();
   readonly viewBreakdown = output<void>();
@@ -434,7 +435,7 @@ export class UsageChartComponent {
   protected readonly svgPath = computed(() => {
     const data = this.chartData();
     if (data.length < 2) return '';
-    const max = Math.max(...data.map((d) => d.amount), 1);
+    const max = Math.max(this.chartMaxCents(), 1);
     const step = 1000 / Math.max(data.length - 1, 1);
 
     return data

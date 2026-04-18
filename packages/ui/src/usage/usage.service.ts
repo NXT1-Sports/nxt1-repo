@@ -230,7 +230,14 @@ export class UsageService implements OnDestroy {
     const data = this._chartData();
     if (data.length === 0) return 0;
     const max = Math.max(...data.map((d) => d.amount));
-    return Math.ceil(max / 2000) * 2000;
+    if (max === 0) return 0;
+    // Compute a "nice" ceiling scaled to the actual data magnitude
+    // so small amounts (e.g. $2.07) don't get rounded up to $20.
+    const rawStep = max / 4;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(Math.max(rawStep, 1))));
+    const normalized = rawStep / magnitude;
+    const niceFactor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+    return niceFactor * magnitude * 4;
   });
 
   /** Chart Y-axis labels */
