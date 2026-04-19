@@ -665,7 +665,10 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       };
     });
 
-    // Payment methods and billing info from Stripe — skip for non-admins (data is masked anyway)
+    // Payment methods and billing info
+    // Primary: read from Firestore (StripeCustomers.defaultPaymentMethod — synced by webhooks).
+    // This avoids 2 slow Stripe API calls (3-5s each) on every dashboard load.
+    // The dedicated GET /payment-methods endpoint still calls Stripe directly for full accuracy.
     let paymentMethods: UsagePaymentMethod[] = [];
     let billingInfo: UsageBillingInfo | null = null;
     if (isOrgAdmin) {
@@ -678,53 +681,74 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
           .get();
 
         if (!customerDoc.empty) {
-          const customerId = customerDoc.docs[0]?.data()['stripeCustomerId'] as string;
-          const stripe = getStripeClient(environment);
+          const docData = customerDoc.docs[0]!.data() as Record<string, unknown>;
+          const cached = docData['defaultPaymentMethod'] as Record<string, unknown> | undefined;
 
-          // Parallelize the two Stripe API calls (each can take 3-5s)
-          const [methods, customer] = await Promise.all([
-            stripe.paymentMethods.list({ customer: customerId, type: 'card' }),
-            stripe.customers.retrieve(customerId),
-          ]);
+          if (cached?.['pmId']) {
+            // Fast path: build from Firestore cache (set by payment_method.attached /
+            // setup_intent.succeeded / customer.updated webhooks)
+            const brand = (cached['brand'] as string | undefined) ?? 'card';
+            paymentMethods = [
+              {
+                id: cached['pmId'] as string,
+                type: 'card' as const,
+                provider: 'stripe' as const,
+                label: `${brand.charAt(0).toUpperCase() + brand.slice(1)} ending in ${(cached['last4'] as string | undefined) ?? '****'}`,
+                last4: (cached['last4'] as string | null) ?? null,
+                brand: brand ?? null,
+                expiryMonth: (cached['expMonth'] as number | null) ?? null,
+                expiryYear: (cached['expYear'] as number | null) ?? null,
+                isDefault: true,
+                email: null,
+                addedAt: (docData['updatedAt'] as string | undefined) ?? new Date().toISOString(),
+              },
+            ];
+          } else {
+            // Cold path: no webhook data yet — fall back to Stripe API once
+            const customerId = docData['stripeCustomerId'] as string;
+            const stripe = getStripeClient(environment);
+            const [methods, customer] = await Promise.all([
+              stripe.paymentMethods.list({ customer: customerId, type: 'card' }),
+              stripe.customers.retrieve(customerId),
+            ]);
 
-          const defaultMethodId =
-            typeof customer !== 'string' && !customer.deleted
-              ? typeof customer.invoice_settings?.default_payment_method === 'string'
-                ? customer.invoice_settings.default_payment_method
-                : customer.invoice_settings?.default_payment_method?.id
-              : undefined;
+            const defaultMethodId =
+              typeof customer !== 'string' && !customer.deleted
+                ? typeof customer.invoice_settings?.default_payment_method === 'string'
+                  ? customer.invoice_settings.default_payment_method
+                  : customer.invoice_settings?.default_payment_method?.id
+                : undefined;
 
-          paymentMethods = methods.data.map((m) => ({
-            id: m.id,
-            type: 'card' as const,
-            provider: 'stripe' as const,
-            label: `${(m.card?.brand ?? 'card').charAt(0).toUpperCase() + (m.card?.brand ?? 'card').slice(1)} ending in ${m.card?.last4 ?? '****'}`,
-            last4: m.card?.last4 ?? null,
-            brand: m.card?.brand ?? null,
-            expiryMonth: m.card?.exp_month ?? null,
-            expiryYear: m.card?.exp_year ?? null,
-            isDefault: m.id === defaultMethodId,
-            email: null,
-            addedAt: new Date(m.created * 1000).toISOString(),
-          }));
+            paymentMethods = methods.data.map((m) => ({
+              id: m.id,
+              type: 'card' as const,
+              provider: 'stripe' as const,
+              label: `${(m.card?.brand ?? 'card').charAt(0).toUpperCase() + (m.card?.brand ?? 'card').slice(1)} ending in ${m.card?.last4 ?? '****'}`,
+              last4: m.card?.last4 ?? null,
+              brand: m.card?.brand ?? null,
+              expiryMonth: m.card?.exp_month ?? null,
+              expiryYear: m.card?.exp_year ?? null,
+              isDefault: m.id === defaultMethodId,
+              email: null,
+              addedAt: new Date(m.created * 1000).toISOString(),
+            }));
 
-          if (typeof customer !== 'string' && !customer.deleted && customer.address) {
-            const addr = customer.address;
-            const cityStateZip = [addr.city, addr.state, addr.postal_code]
-              .filter(Boolean)
-              .join(', ');
-            billingInfo = {
-              name: customer.name ?? '',
-              addressLine1: addr.line1 ?? '',
-              addressLine2: addr.line2 ? `${addr.line2}, ${cityStateZip}` : cityStateZip,
-              country: addr.country ?? '',
-            };
+            if (typeof customer !== 'string' && !customer.deleted && customer.address) {
+              const addr = customer.address;
+              const cityStateZip = [addr.city, addr.state, addr.postal_code]
+                .filter(Boolean)
+                .join(', ');
+              billingInfo = {
+                name: customer.name ?? '',
+                addressLine1: addr.line1 ?? '',
+                addressLine2: addr.line2 ? `${addr.line2}, ${cityStateZip}` : cityStateZip,
+                country: addr.country ?? '',
+              };
+            }
           }
         }
       } catch (err) {
-        logger.warn('[GET /dashboard] Failed to fetch payment methods from Stripe', {
-          error: err,
-        });
+        logger.warn('[GET /dashboard] Failed to fetch payment methods', { error: err });
       }
     }
 
@@ -784,10 +808,10 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       productDetails,
       topItems,
       breakdownRows,
-      // Non-admin org members: mask sensitive financial data
-      paymentHistory: isOrgAdmin ? paymentHistory : [],
-      paymentMethods: isOrgAdmin ? paymentMethods : [],
-      billingInfo: isOrgAdmin ? billingInfo : null,
+      // Individual users always see their own financial data; only mask for non-admin org members
+      paymentHistory: isOrgAdmin || billingCtx.billingEntity === 'individual' ? paymentHistory : [],
+      paymentMethods: isOrgAdmin || billingCtx.billingEntity === 'individual' ? paymentMethods : [],
+      billingInfo: isOrgAdmin || billingCtx.billingEntity === 'individual' ? billingInfo : null,
       coupon: null,
       budgets,
       billingEntity: billingCtx.billingEntity,
