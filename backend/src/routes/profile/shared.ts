@@ -38,7 +38,7 @@ export type UserFirestoreDoc = DocumentData & {
   gender?: string;
   role?: string;
   status?: string;
-  bannerImg?: string | null;
+
   profileImgs?: string[];
   aboutMe?: string;
   height?: string;

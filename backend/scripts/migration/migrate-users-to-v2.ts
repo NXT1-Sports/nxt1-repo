@@ -309,7 +309,6 @@ function transformLegacyUser(docId: string, d: LegacyUser): TransformResult {
     username,
     unicode,
     aboutMe: cleanString(d['aboutMe']) || '',
-    bannerImg: rewriteStorageUrl(cleanString(d['bannerImg'])) || null,
     profileImgs: rewriteStorageUrls(profileImgs),
     gender: cleanString(d['gender']) || undefined,
 

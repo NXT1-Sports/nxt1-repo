@@ -274,7 +274,6 @@ function mapTeamCodeToTeam(
     state,
     location,
     logoUrl,
-    bannerImg: (teamCode as unknown as Record<string, unknown>)['bannerImg'] as string | undefined,
     galleryImages: teamCode.galleryImages ?? [],
     description: teamCode.description,
     record: formatRecord(teamCode.seasonRecord),

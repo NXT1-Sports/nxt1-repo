@@ -178,7 +178,7 @@ export interface TeamProfileTeam {
   /** Team logo URL */
   readonly logoUrl?: string;
   /** Banner/cover image URL */
-  readonly bannerImg?: string;
+
   /** Gallery images for carousel display */
   readonly galleryImages?: readonly string[];
   /** About/description text */

@@ -141,7 +141,6 @@ export interface EditProfileBasicInfo {
  * Photos form data.
  */
 export interface EditProfilePhotos {
-  readonly bannerImg?: string;
   readonly profileImgs?: readonly string[];
 }
 

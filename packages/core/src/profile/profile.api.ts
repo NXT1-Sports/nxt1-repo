@@ -72,7 +72,7 @@ export interface UpdateProfileRequest {
   username?: string;
   aboutMe?: string;
   profileImg?: string;
-  bannerImg?: string;
+
   profileImgs?: string[];
   gender?: string;
 

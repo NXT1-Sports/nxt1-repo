@@ -36,7 +36,6 @@ export const MOCK_TEAM: TeamProfileTeam = {
   state: 'NE',
   location: 'Lincoln, NE',
   logoUrl: '/assets/images/teams/lincoln-hs-logo.png',
-  bannerImg: '/assets/images/teams/lincoln-hs-cover.jpg',
   galleryImages: [
     '/assets/images/teams/lincoln-hs-gallery-1.jpg',
     '/assets/images/teams/lincoln-hs-gallery-2.jpg',

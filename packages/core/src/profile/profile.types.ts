@@ -259,7 +259,7 @@ export interface ProfileUser {
   /** Profile image URL */
   readonly profileImg?: string;
   /** Banner/cover image URL */
-  readonly bannerImg?: string;
+
   /** Profile images for carousel display */
   readonly profileImgs?: readonly string[];
   /** User role */

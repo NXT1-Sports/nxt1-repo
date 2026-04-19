@@ -143,7 +143,12 @@ export interface User {
   lastName: string;
   /** Preferred display name (if different from firstName + lastName) */
   displayName?: string;
-  username: string;
+  /**
+   * Human-chosen handle / slug (optional — not all users set this).
+   * Legacy users may have a numeric string (e.g., "20846078") which is
+   * a migration artifact and should be cleaned up via the normalization script.
+   */
+  username?: string;
 
   /** Optional bio/about text */
   aboutMe?: string;
@@ -268,6 +273,18 @@ export interface User {
   parent?: ParentData;
 
   // ============================================
+  // REFERRAL
+  // ============================================
+  /** Unique referral code for this user — lazy-created on first invite generation. */
+  referralCode?: string;
+  /** How the user heard about the platform (e.g., 'friend', 'social', 'coach'). */
+  referralSource?: string;
+  /** Free-text details about the referral source (may be null). */
+  referralDetails?: string | null;
+  /** UID of the user who referred this user (set at registration time). */
+  referralId?: string;
+
+  // ============================================
   // ONBOARDING
   // ============================================
   /**
@@ -275,6 +292,34 @@ export interface User {
    * Once true, user has full access to the platform.
    */
   onboardingCompleted?: boolean;
+  /** ISO timestamp when onboarding was completed. */
+  onboardingCompletedAt?: string;
+
+  // ============================================
+  // PROFILE COMPLETENESS
+  // ============================================
+  /**
+   * Profile completeness score (0–100).
+   * Computed and written by the `onUserProfileUpdated` Cloud Function.
+   * Read by analytics service for reporting. Do NOT write from frontend.
+   */
+  profileCompleteness?: number;
+
+  // ============================================
+  // ONBOARDING FLAGS
+  // ============================================
+  /**
+   * Whether the "How did you hear about us?" prompt has been shown.
+   * Set to true after the user dismisses the prompt (write-once flag).
+   */
+  showedHearAbout?: boolean;
+
+  /**
+   * Whether an Agent X welcome graphic has been queued for generation.
+   * Set to true by agent-welcome.service when the welcome job is enqueued;
+   * cleared after the graphic is delivered.
+   */
+  welcomeGraphicQueued?: boolean;
 
   // ============================================
   // PREFERENCES

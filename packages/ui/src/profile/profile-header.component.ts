@@ -30,10 +30,8 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
   template: `
     <header class="madden-card" [attr.data-tier]="currentTier()">
       <!-- ═══ BANNER (Dark cinematic) ═══ -->
-      <div class="mc-banner" [style.backgroundImage]="bannerStyle()">
-        @if (!user()?.bannerImg) {
-          <div class="mc-banner-grid" aria-hidden="true"></div>
-        }
+      <div class="mc-banner">
+        <div class="mc-banner-grid" aria-hidden="true"></div>
         <div class="mc-banner-fade" aria-hidden="true"></div>
       </div>
 
@@ -1209,11 +1207,6 @@ export class ProfileHeaderComponent {
     const trait = this.playerCard()?.trait;
     if (!trait?.progressTotal) return 0;
     return Math.min(100, ((trait.progressCurrent ?? 0) / trait.progressTotal) * 100);
-  });
-
-  protected readonly bannerStyle = computed(() => {
-    const banner = this.user()?.bannerImg;
-    return banner ? `url(${banner})` : 'none';
   });
 
   // ─── HELPERS ───

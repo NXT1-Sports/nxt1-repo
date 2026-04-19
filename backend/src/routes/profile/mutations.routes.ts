@@ -55,7 +55,6 @@ router.put(
       'displayName',
       'username',
       'aboutMe',
-      'bannerImg',
       'profileImgs',
       'gender',
       'measurables',
