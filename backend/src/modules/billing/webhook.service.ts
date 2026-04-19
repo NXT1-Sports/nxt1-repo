@@ -409,6 +409,10 @@ export async function handleSetupIntentSucceeded(
 
     const stripe = getStripeClient(environment);
 
+    // Ensure the payment method is attached to the customer before setting as default.
+    // The attach call is idempotent: if already attached it succeeds without error.
+    await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId });
+
     // Set default on Stripe + fetch full PM details in parallel
     const [, pm] = await Promise.all([
       stripe.customers.update(customerId, {
