@@ -383,10 +383,11 @@ export async function handleCustomerDeleted(
 
 /**
  * Handle setup_intent.succeeded event
- * Sets the payment method as the customer's default after a successful card save.
+ * Sets the payment method as the customer's default on Stripe AND syncs card
+ * details to Firestore (StripeCustomers + BillingContexts / Organization).
  */
 export async function handleSetupIntentSucceeded(
-  _db: Firestore,
+  db: Firestore,
   setupIntent: Stripe.SetupIntent,
   environment: 'staging' | 'production'
 ): Promise<void> {
@@ -407,13 +408,50 @@ export async function handleSetupIntentSucceeded(
     }
 
     const stripe = getStripeClient(environment);
-    await stripe.customers.update(customerId, {
-      invoice_settings: { default_payment_method: paymentMethodId },
-    });
 
-    logger.info('[handleSetupIntentSucceeded] Default payment method updated', {
+    // Set default on Stripe + fetch full PM details in parallel
+    const [, pm] = await Promise.all([
+      stripe.customers.update(customerId, {
+        invoice_settings: { default_payment_method: paymentMethodId },
+      }),
+      stripe.paymentMethods.retrieve(paymentMethodId),
+    ]);
+
+    const cardDetails =
+      pm.type === 'card' && pm.card
+        ? {
+            pmId: pm.id,
+            brand: pm.card.brand,
+            last4: pm.card.last4,
+            expMonth: pm.card.exp_month,
+            expYear: pm.card.exp_year,
+            funding: pm.card.funding,
+            country: pm.card.country,
+          }
+        : undefined;
+
+    // Persist to Firestore: StripeCustomers cache + BillingContexts / Organization
+    const customerSnap = await db
+      .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+      .where('stripeCustomerId', '==', customerId)
+      .where('environment', '==', environment)
+      .limit(1)
+      .get();
+
+    if (!customerSnap.empty && cardDetails) {
+      await customerSnap.docs[0]!.ref.update({
+        defaultPaymentMethod: cardDetails,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    await setHasPaymentMethod(db, customerId, environment, true, cardDetails);
+
+    logger.info('[handleSetupIntentSucceeded] Default payment method synced to Firestore', {
       customerId,
       paymentMethodId,
+      brand: cardDetails?.brand,
+      last4: cardDetails?.last4,
       setupIntentId: setupIntent.id,
     });
   } catch (error) {
@@ -421,6 +459,76 @@ export async function handleSetupIntentSucceeded(
       error,
       setupIntentId: setupIntent.id,
     });
+    throw error;
+  }
+}
+
+/**
+ * Handle customer.updated event
+ * Fired by Stripe whenever customer data changes — most importantly when
+ * invoice_settings.default_payment_method is set after a SetupIntent.
+ * Uses metadata.userId for a direct lookup instead of an extra Stripe call.
+ */
+export async function handleCustomerUpdated(
+  db: Firestore,
+  customer: Stripe.Customer,
+  environment: 'staging' | 'production'
+): Promise<void> {
+  try {
+    const defaultPmId =
+      typeof customer.invoice_settings?.default_payment_method === 'string'
+        ? customer.invoice_settings.default_payment_method
+        : customer.invoice_settings?.default_payment_method?.id;
+
+    if (!defaultPmId) {
+      // No default PM set — nothing to sync
+      logger.info('[handleCustomerUpdated] No default_payment_method — skipping', {
+        customerId: customer.id,
+      });
+      return;
+    }
+
+    const stripe = getStripeClient(environment);
+    const pm = await stripe.paymentMethods.retrieve(defaultPmId);
+
+    const cardDetails =
+      pm.type === 'card' && pm.card
+        ? {
+            pmId: pm.id,
+            brand: pm.card.brand,
+            last4: pm.card.last4,
+            expMonth: pm.card.exp_month,
+            expYear: pm.card.exp_year,
+            funding: pm.card.funding,
+            country: pm.card.country,
+          }
+        : undefined;
+
+    // Update StripeCustomers cache
+    const customerSnap = await db
+      .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+      .where('stripeCustomerId', '==', customer.id)
+      .where('environment', '==', environment)
+      .limit(1)
+      .get();
+
+    if (!customerSnap.empty && cardDetails) {
+      await customerSnap.docs[0]!.ref.update({
+        defaultPaymentMethod: cardDetails,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    await setHasPaymentMethod(db, customer.id, environment, true, cardDetails);
+
+    logger.info('[handleCustomerUpdated] Default payment method synced', {
+      customerId: customer.id,
+      pmId: defaultPmId,
+      brand: cardDetails?.brand,
+      last4: cardDetails?.last4,
+    });
+  } catch (error) {
+    logger.error('[handleCustomerUpdated] Failed', { error, customerId: customer.id });
     throw error;
   }
 }
@@ -596,7 +704,7 @@ async function syncSubscriptionToOrg(
 
 /**
  * Handle payment_method.attached
- * Marks hasPaymentMethod = true on the org or user billing context.
+ * Marks hasPaymentMethod = true and stores card details for frontend display.
  */
 export async function handlePaymentMethodAttached(
   db: Firestore,
@@ -611,11 +719,42 @@ export async function handlePaymentMethodAttached(
 
     if (!customerId) return;
 
-    await setHasPaymentMethod(db, customerId, environment, true);
+    // Extract card details for display
+    const cardDetails =
+      paymentMethod.type === 'card' && paymentMethod.card
+        ? {
+            pmId: paymentMethod.id,
+            brand: paymentMethod.card.brand,
+            last4: paymentMethod.card.last4,
+            expMonth: paymentMethod.card.exp_month,
+            expYear: paymentMethod.card.exp_year,
+            funding: paymentMethod.card.funding,
+            country: paymentMethod.card.country,
+          }
+        : undefined;
 
-    logger.info('[handlePaymentMethodAttached] hasPaymentMethod set', {
+    // Always update StripeCustomers cache with card info for quick lookup
+    const customerSnap = await db
+      .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+      .where('stripeCustomerId', '==', customerId)
+      .where('environment', '==', environment)
+      .limit(1)
+      .get();
+
+    if (!customerSnap.empty && cardDetails) {
+      await customerSnap.docs[0]!.ref.update({
+        defaultPaymentMethod: cardDetails,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    await setHasPaymentMethod(db, customerId, environment, true, cardDetails);
+
+    logger.info('[handlePaymentMethodAttached] hasPaymentMethod set with card details', {
       customerId,
       paymentMethodId: paymentMethod.id,
+      brand: cardDetails?.brand,
+      last4: cardDetails?.last4,
     });
   } catch (error) {
     logger.error('[handlePaymentMethodAttached] Failed', {
@@ -628,9 +767,8 @@ export async function handlePaymentMethodAttached(
 
 /**
  * Handle payment_method.detached
- * When ALL payment methods are removed, clears hasPaymentMethod flag.
- * Stripe does not indicate if it was the last one — we flip to false and let
- * the frontend re-check via the billing portal.
+ * Clears hasPaymentMethod flag and card details.
+ * Also checks remaining payment methods via Stripe API — only clears if none left.
  */
 export async function handlePaymentMethodDetached(
   db: Firestore,
@@ -638,27 +776,74 @@ export async function handlePaymentMethodDetached(
   environment: 'staging' | 'production'
 ): Promise<void> {
   try {
-    // On detach, customer is null per Stripe docs — need to look up via previous customer
-    // The best we can do is search by paymentMethod ID in the customer cache
-    // If we can't find the customer, log and skip gracefully
-    const customerId =
-      typeof paymentMethod.customer === 'string'
-        ? paymentMethod.customer
-        : paymentMethod.customer?.id;
+    // On detach, customer is null per Stripe docs — look up via StripeCustomers by pmId
+    // First try the pmId stored in defaultPaymentMethod to find the right customer
+    const pmSnap = await db
+      .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+      .where('defaultPaymentMethod.pmId', '==', paymentMethod.id)
+      .where('environment', '==', environment)
+      .limit(1)
+      .get();
 
-    if (!customerId) {
-      logger.info('[handlePaymentMethodDetached] No customer on detached PM — skipping', {
+    if (pmSnap.empty) {
+      logger.info('[handlePaymentMethodDetached] PM not found in cache — skipping', {
         paymentMethodId: paymentMethod.id,
       });
       return;
     }
 
-    await setHasPaymentMethod(db, customerId, environment, false);
+    const customerDoc = pmSnap.docs[0]!;
+    const customerId = customerDoc.data()['stripeCustomerId'] as string;
 
-    logger.info('[handlePaymentMethodDetached] hasPaymentMethod cleared', {
-      customerId,
-      paymentMethodId: paymentMethod.id,
+    // Check if customer still has other payment methods
+    const stripe = getStripeClient(environment);
+    const remainingPMs = await stripe.paymentMethods.list({
+      customer: customerId,
+      type: 'card',
+      limit: 1,
     });
+
+    const hasRemaining = remainingPMs.data.length > 0;
+
+    if (hasRemaining) {
+      // Swap defaultPaymentMethod to the next available card
+      const nextPM = remainingPMs.data[0]!;
+      const nextCard = nextPM.card
+        ? {
+            pmId: nextPM.id,
+            brand: nextPM.card.brand,
+            last4: nextPM.card.last4,
+            expMonth: nextPM.card.exp_month,
+            expYear: nextPM.card.exp_year,
+            funding: nextPM.card.funding,
+            country: nextPM.card.country,
+          }
+        : undefined;
+
+      await customerDoc.ref.update({
+        defaultPaymentMethod: nextCard ?? FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      await setHasPaymentMethod(db, customerId, environment, true, nextCard);
+
+      logger.info('[handlePaymentMethodDetached] Swapped to next payment method', {
+        customerId,
+        removedPmId: paymentMethod.id,
+        newPmId: nextPM.id,
+      });
+    } else {
+      // No cards left — clear everything
+      await customerDoc.ref.update({
+        defaultPaymentMethod: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      await setHasPaymentMethod(db, customerId, environment, false, undefined);
+
+      logger.info('[handlePaymentMethodDetached] All cards removed — hasPaymentMethod cleared', {
+        customerId,
+        paymentMethodId: paymentMethod.id,
+      });
+    }
   } catch (error) {
     logger.error('[handlePaymentMethodDetached] Failed', {
       error,
@@ -668,15 +853,30 @@ export async function handlePaymentMethodDetached(
   }
 }
 
+interface CardDetails {
+  pmId: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+  funding: string;
+  country: string | null;
+}
+
 /**
- * Shared helper: set billing.hasPaymentMethod on org (or BillingContexts for individual).
+ * Shared helper: set billing.hasPaymentMethod (+ optional card details) on org or BillingContexts.
  */
 async function setHasPaymentMethod(
   db: Firestore,
   customerId: string,
   environment: 'staging' | 'production',
-  value: boolean
+  value: boolean,
+  cardDetails?: CardDetails
 ): Promise<void> {
+  const pmUpdate = cardDetails
+    ? { defaultPaymentMethod: cardDetails }
+    : { defaultPaymentMethod: FieldValue.delete() };
+
   // Try org first
   const orgSnap = await db
     .collection('Organizations')
@@ -687,6 +887,7 @@ async function setHasPaymentMethod(
   if (!orgSnap.empty) {
     await orgSnap.docs[0]!.ref.update({
       'billing.hasPaymentMethod': value,
+      'billing.defaultPaymentMethod': pmUpdate.defaultPaymentMethod,
       updatedAt: FieldValue.serverTimestamp(),
     });
     return;
@@ -712,6 +913,7 @@ async function setHasPaymentMethod(
   if (!ctxSnap.empty) {
     await ctxSnap.docs[0]!.ref.update({
       hasPaymentMethod: value,
+      defaultPaymentMethod: pmUpdate.defaultPaymentMethod,
       updatedAt: FieldValue.serverTimestamp(),
     });
   }
@@ -827,6 +1029,10 @@ export async function handleWebhookEvent(
 
     case 'charge.refunded':
       await handleChargeRefunded(db, event.data.object as Stripe.Charge, environment);
+      break;
+
+    case 'customer.updated':
+      await handleCustomerUpdated(db, event.data.object as Stripe.Customer, environment);
       break;
 
     case 'customer.deleted':
