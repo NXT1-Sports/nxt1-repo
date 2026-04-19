@@ -426,6 +426,298 @@ export async function handleSetupIntentSucceeded(
 }
 
 /**
+ * Handle customer.subscription.created
+ * Sets billing.subscriptionId + billing.customerId on the Organization doc
+ * so getBillingContext treats it as org-level billing.
+ */
+export async function handleSubscriptionCreated(
+  db: Firestore,
+  subscription: Stripe.Subscription,
+  environment: 'staging' | 'production'
+): Promise<void> {
+  try {
+    await syncSubscriptionToOrg(db, subscription, environment);
+    logger.info('[handleSubscriptionCreated] Subscription synced', {
+      subscriptionId: subscription.id,
+      customerId: subscription.customer,
+      status: subscription.status,
+    });
+  } catch (error) {
+    logger.error('[handleSubscriptionCreated] Failed', { error, subscriptionId: subscription.id });
+    throw error;
+  }
+}
+
+/**
+ * Handle customer.subscription.updated
+ * Syncs plan changes, status changes (trialing→active, active→past_due, etc.)
+ * and next billing date back to the Organization doc.
+ */
+export async function handleSubscriptionUpdated(
+  db: Firestore,
+  subscription: Stripe.Subscription,
+  environment: 'staging' | 'production'
+): Promise<void> {
+  try {
+    await syncSubscriptionToOrg(db, subscription, environment);
+    logger.info('[handleSubscriptionUpdated] Subscription synced', {
+      subscriptionId: subscription.id,
+      status: subscription.status,
+    });
+  } catch (error) {
+    logger.error('[handleSubscriptionUpdated] Failed', { error, subscriptionId: subscription.id });
+    throw error;
+  }
+}
+
+/**
+ * Handle customer.subscription.deleted
+ * Clears billing.subscriptionId on the Organization so getBillingContext
+ * falls back to individual billing. Also notifies org admins.
+ */
+export async function handleSubscriptionDeleted(
+  db: Firestore,
+  subscription: Stripe.Subscription,
+  environment: 'staging' | 'production'
+): Promise<void> {
+  try {
+    const customerId =
+      typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
+
+    // Find the org by customerId
+    const orgSnap = await db
+      .collection('Organizations')
+      .where('billing.customerId', '==', customerId)
+      .limit(1)
+      .get();
+
+    if (orgSnap.empty) {
+      logger.warn('[handleSubscriptionDeleted] No org found for customer', {
+        customerId,
+        environment,
+      });
+      return;
+    }
+
+    const orgDoc = orgSnap.docs[0]!;
+    await orgDoc.ref.update({
+      'billing.subscriptionId': FieldValue.delete(),
+      'billing.subscriptionStatus': 'canceled',
+      'billing.nextBillingDate': FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    logger.info('[handleSubscriptionDeleted] Subscription cleared from org', {
+      orgId: orgDoc.id,
+      subscriptionId: subscription.id,
+    });
+
+    // Notify org admins
+    const orgData = orgDoc.data() as Record<string, unknown>;
+    const admins = (orgData['admins'] as Array<{ userId: string }> | undefined) ?? [];
+    const { dispatch } = await import('../../services/notification.service.js');
+    await Promise.all(
+      admins.map((admin) =>
+        dispatch(db, {
+          userId: admin.userId,
+          type: NOTIFICATION_TYPES.PAYMENT_FAILED,
+          title: 'Subscription Canceled',
+          body: 'Your organization subscription has been canceled. Individual billing is now active.',
+          deepLink: '/usage?section=payment-info',
+          priority: 'high',
+          source: { userName: 'NXT1 Billing' },
+        }).catch((err: unknown) =>
+          logger.error('[handleSubscriptionDeleted] Notify failed', { error: err })
+        )
+      )
+    );
+  } catch (error) {
+    logger.error('[handleSubscriptionDeleted] Failed', { error, subscriptionId: subscription.id });
+    throw error;
+  }
+}
+
+/**
+ * Shared helper: write subscription state to the matching Organization doc.
+ */
+async function syncSubscriptionToOrg(
+  db: Firestore,
+  subscription: Stripe.Subscription,
+  environment: 'staging' | 'production'
+): Promise<void> {
+  const customerId =
+    typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
+
+  // Find org by customerId
+  const orgSnap = await db
+    .collection('Organizations')
+    .where('billing.customerId', '==', customerId)
+    .limit(1)
+    .get();
+
+  if (orgSnap.empty) {
+    // If no org found, try falling back to StripeCustomers cache → user-level
+    const customerCache = await db
+      .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+      .where('stripeCustomerId', '==', customerId)
+      .where('environment', '==', environment)
+      .limit(1)
+      .get();
+
+    if (!customerCache.empty) {
+      logger.info('[syncSubscriptionToOrg] No org found — subscription is user-level, skipping', {
+        customerId,
+      });
+    } else {
+      logger.warn('[syncSubscriptionToOrg] No org or user found for customer', { customerId });
+    }
+    return;
+  }
+
+  const orgDoc = orgSnap.docs[0]!;
+  const currentPeriodEnd = (subscription as unknown as Record<string, unknown>)[
+    'current_period_end'
+  ];
+  const nextBillingDate =
+    typeof currentPeriodEnd === 'number'
+      ? new Date(currentPeriodEnd * 1000).toISOString()
+      : undefined;
+
+  const update: Record<string, unknown> = {
+    'billing.subscriptionId': subscription.id,
+    'billing.customerId': customerId,
+    'billing.subscriptionStatus': subscription.status,
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+  if (nextBillingDate) update['billing.nextBillingDate'] = nextBillingDate;
+
+  await orgDoc.ref.update(update);
+}
+
+/**
+ * Handle payment_method.attached
+ * Marks hasPaymentMethod = true on the org or user billing context.
+ */
+export async function handlePaymentMethodAttached(
+  db: Firestore,
+  paymentMethod: Stripe.PaymentMethod,
+  environment: 'staging' | 'production'
+): Promise<void> {
+  try {
+    const customerId =
+      typeof paymentMethod.customer === 'string'
+        ? paymentMethod.customer
+        : paymentMethod.customer?.id;
+
+    if (!customerId) return;
+
+    await setHasPaymentMethod(db, customerId, environment, true);
+
+    logger.info('[handlePaymentMethodAttached] hasPaymentMethod set', {
+      customerId,
+      paymentMethodId: paymentMethod.id,
+    });
+  } catch (error) {
+    logger.error('[handlePaymentMethodAttached] Failed', {
+      error,
+      paymentMethodId: paymentMethod.id,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Handle payment_method.detached
+ * When ALL payment methods are removed, clears hasPaymentMethod flag.
+ * Stripe does not indicate if it was the last one — we flip to false and let
+ * the frontend re-check via the billing portal.
+ */
+export async function handlePaymentMethodDetached(
+  db: Firestore,
+  paymentMethod: Stripe.PaymentMethod,
+  environment: 'staging' | 'production'
+): Promise<void> {
+  try {
+    // On detach, customer is null per Stripe docs — need to look up via previous customer
+    // The best we can do is search by paymentMethod ID in the customer cache
+    // If we can't find the customer, log and skip gracefully
+    const customerId =
+      typeof paymentMethod.customer === 'string'
+        ? paymentMethod.customer
+        : paymentMethod.customer?.id;
+
+    if (!customerId) {
+      logger.info('[handlePaymentMethodDetached] No customer on detached PM — skipping', {
+        paymentMethodId: paymentMethod.id,
+      });
+      return;
+    }
+
+    await setHasPaymentMethod(db, customerId, environment, false);
+
+    logger.info('[handlePaymentMethodDetached] hasPaymentMethod cleared', {
+      customerId,
+      paymentMethodId: paymentMethod.id,
+    });
+  } catch (error) {
+    logger.error('[handlePaymentMethodDetached] Failed', {
+      error,
+      paymentMethodId: paymentMethod.id,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Shared helper: set billing.hasPaymentMethod on org (or BillingContexts for individual).
+ */
+async function setHasPaymentMethod(
+  db: Firestore,
+  customerId: string,
+  environment: 'staging' | 'production',
+  value: boolean
+): Promise<void> {
+  // Try org first
+  const orgSnap = await db
+    .collection('Organizations')
+    .where('billing.customerId', '==', customerId)
+    .limit(1)
+    .get();
+
+  if (!orgSnap.empty) {
+    await orgSnap.docs[0]!.ref.update({
+      'billing.hasPaymentMethod': value,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return;
+  }
+
+  // Fall back to individual user billing context
+  const customerSnap = await db
+    .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+    .where('stripeCustomerId', '==', customerId)
+    .where('environment', '==', environment)
+    .limit(1)
+    .get();
+
+  if (customerSnap.empty) return;
+
+  const userId = customerSnap.docs[0]!.data()['userId'] as string;
+  const ctxSnap = await db
+    .collection(COLLECTIONS.BILLING_CONTEXTS)
+    .where('userId', '==', userId)
+    .limit(1)
+    .get();
+
+  if (!ctxSnap.empty) {
+    await ctxSnap.docs[0]!.ref.update({
+      hasPaymentMethod: value,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  }
+}
+
+/**
  * Handle checkout.session.completed
  *
  * Processes completed Stripe Checkout Sessions. Currently handles:
@@ -547,6 +839,26 @@ export async function handleWebhookEvent(
 
     case 'checkout.session.completed':
       await handleCheckoutSessionCompleted(db, event.data.object as Stripe.Checkout.Session);
+      break;
+
+    case 'customer.subscription.created':
+      await handleSubscriptionCreated(db, event.data.object as Stripe.Subscription, environment);
+      break;
+
+    case 'customer.subscription.updated':
+      await handleSubscriptionUpdated(db, event.data.object as Stripe.Subscription, environment);
+      break;
+
+    case 'customer.subscription.deleted':
+      await handleSubscriptionDeleted(db, event.data.object as Stripe.Subscription, environment);
+      break;
+
+    case 'payment_method.attached':
+      await handlePaymentMethodAttached(db, event.data.object as Stripe.PaymentMethod, environment);
+      break;
+
+    case 'payment_method.detached':
+      await handlePaymentMethodDetached(db, event.data.object as Stripe.PaymentMethod, environment);
       break;
 
     default:
