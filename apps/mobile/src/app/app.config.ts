@@ -60,6 +60,7 @@ import {
   INTEL_API_BASE_URL,
   HELP_CENTER_API,
 } from '@nxt1/ui';
+import { TEAM_LOGO_UPLOADER } from '@nxt1/ui/manage-team';
 // Mobile-specific Activity API adapter (uses CapacitorHttpAdapter + auth)
 // Settings persistence adapter (connects SettingsService → backend API)
 // Email connection service (OAuth connect flow for linked accounts in settings)
@@ -271,6 +272,18 @@ export const appConfig: ApplicationConfig = {
 
     // Help Center API adapter
     { provide: HELP_CENTER_API, useExisting: HelpCenterApiService },
+
+    // Team logo uploader — bridges TEAM_LOGO_UPLOADER token → EditProfileApiService
+    {
+      provide: TEAM_LOGO_UPLOADER,
+      useFactory:
+        (editProfileApi: EditProfileApiService, auth: Auth) => (teamId: string, file: File) => {
+          const userId = auth.currentUser?.uid;
+          if (!userId) return Promise.resolve(null);
+          return editProfileApi.uploadTeamLogo(userId, teamId, file);
+        },
+      deps: [EditProfileApiService, Auth],
+    },
 
     // Settings persistence adapter (connects SettingsService → backend API)
     { provide: SETTINGS_PERSISTENCE_ADAPTER, useExisting: SettingsApiService },

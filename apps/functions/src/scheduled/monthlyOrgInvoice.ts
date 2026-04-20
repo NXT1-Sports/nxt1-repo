@@ -24,6 +24,7 @@ import Stripe from 'stripe';
 
 const BILLING_CONTEXTS_COLLECTION = 'BillingContexts';
 const STRIPE_CUSTOMERS_COLLECTION = 'StripeCustomers';
+const PAYMENT_LOGS_COLLECTION = 'PaymentLogs';
 
 // ─── Firebase project IDs ─────────────────────────────────────────────────────
 
@@ -193,10 +194,16 @@ export const monthlyOrgInvoice = onSchedule(
         });
       } catch (err) {
         errorCount++;
+        let errorMessage: string;
+        if (err instanceof Error) {
+          errorMessage = (err as Error).message;
+        } else {
+          errorMessage = String(err);
+        }
         logger.error('[monthlyOrgInvoice] Failed to invoice org', {
           billingUserId,
           organizationId,
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage,
         });
         // Continue processing remaining orgs — don't abort the entire batch
       }

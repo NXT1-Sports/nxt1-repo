@@ -43,7 +43,7 @@ import type { ApiResponse } from '../profile/profile.api';
  * Supported file categories for uploads
  * Backend enforces different rules per category
  */
-export type FileCategory = 'profile-photo' | 'video-thumbnail' | 'highlight-video';
+export type FileCategory = 'profile-photo' | 'video-thumbnail' | 'highlight-video' | 'team-logo';
 
 /**
  * File metadata for upload
@@ -254,6 +254,11 @@ export const FILE_UPLOAD_RULES = {
     maxSize: 500 * 1024 * 1024, // 500MB
     allowedTypes: ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-msvideo'],
     maxDimensions: null,
+  },
+  'team-logo': {
+    maxSize: 5 * 1024 * 1024, // 5MB
+    allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'],
+    maxDimensions: { width: 2048, height: 2048 },
   },
 } as const;
 
@@ -539,12 +544,15 @@ export function createFileUploadApi(http: FileUploadHttpAdapter, baseUrl: string
      * Get signed upload URL for large files
      * Enables direct-to-storage uploads for files > 10MB
      * (Backend still validates after upload)
+     *
+     * @param teamId - Required when category is 'team-logo'
      */
     async getSignedUploadUrl(
       userId: string,
       category: FileCategory,
       fileName: string,
-      mimeType: string
+      mimeType: string,
+      teamId?: string
     ): Promise<{ uploadUrl: string; storagePath: string; expiresAt: number }> {
       const response = await http.post<
         ApiResponse<{
@@ -557,6 +565,7 @@ export function createFileUploadApi(http: FileUploadHttpAdapter, baseUrl: string
         category,
         fileName,
         mimeType,
+        ...(teamId ? { teamId } : {}),
       });
 
       if (!response.success || !response.data) {

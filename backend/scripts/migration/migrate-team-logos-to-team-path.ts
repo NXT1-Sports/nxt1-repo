@@ -1,25 +1,24 @@
 #!/usr/bin/env npx tsx
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * Migration: Teams/TeamLogos/{userId} → Teams/{teamId}/logo/{filename}
+ * Migration: Teams/TeamLogos/{file} → Teams/{teamId}/logo/{file}
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * Background
  * ──────────
- * The legacy app stored team logos at Teams/TeamLogos/{userId} — keyed by the
- * coach's Firebase UID, not the team document ID. The new monorepo backend
- * writes team logos to Teams/{teamId}/logo/{filename}, which correctly scopes
- * assets to the team entity rather than the user.
+ * The legacy app stored team logos at Teams/TeamLogos/{userId_timestamp} — keyed
+ * by the coach's UID, not the team document ID. The new backend writes team logos
+ * to Teams/{teamId}/logo/{filename}, scoping assets to the team entity.
  *
- * This script:
- *   1. Scans every file under Teams/TeamLogos/ in the target bucket
- *   2. Extracts the userId from the GCS path
- *   3. Queries Firestore for the Teams doc(s) owned by that userId
- *      (checks Teams.ownerId, Teams.coachId, Teams.managerUid, and
- *       the user's sports[].team.teamId cascade as fallbacks)
- *   4. Copies the file to Teams/{teamId}/logo/{filename} and makes it public
- *   5. Updates the Firestore Teams doc's logoUrl field to the new public URL
- *   6. Optionally deletes the old file (--delete-old flag)
+ * Approach (Firestore-first — reliable, no userId lookup needed)
+ * ──────────────────────────────────────────────────────────────
+ *   1. Paginate through ALL Teams Firestore docs
+ *   2. For each doc, check if `logoUrl` or `teamLogoImg` points to the legacy path
+ *      (contains "Teams/TeamLogos" or "TeamLogos%2F")
+ *   3. Extract the GCS object path from the URL
+ *   4. Copy the GCS file → Teams/{teamId}/logo/{filename}, make public
+ *   5. Update Firestore: set logoUrl = new URL, delete deprecated teamLogoImg field
+ *   6. Optionally delete the old GCS file (--delete-old flag)
  *
  * Modes
  * ─────
@@ -28,39 +27,32 @@
  *
  * Usage
  * ─────
- *   # Dry-run against staging (default)
- *   npx tsx backend/scripts/migration/migrate-team-logos-to-team-path.ts
- *
- *   # Execute against staging
- *   npx tsx backend/scripts/migration/migrate-team-logos-to-team-path.ts --mode=migrate --target=staging
+ *   # Dry-run against production
+ *   npx tsx backend/scripts/migration/migrate-team-logos-to-team-path.ts --target=production
  *
  *   # Execute against production (copy only, no delete)
  *   npx tsx backend/scripts/migration/migrate-team-logos-to-team-path.ts --mode=migrate --target=production
  *
- *   # Execute against production and delete old files after verify
+ *   # Execute and delete old files after verify
  *   npx tsx backend/scripts/migration/migrate-team-logos-to-team-path.ts --mode=migrate --target=production --delete-old
  *
- *   # Limit to first 10 files for a spot-check
- *   npx tsx backend/scripts/migration/migrate-team-logos-to-team-path.ts --mode=migrate --target=staging --limit=10
+ *   # Limit to first 10 docs for a spot-check
+ *   npx tsx backend/scripts/migration/migrate-team-logos-to-team-path.ts --mode=migrate --target=production --limit=10 --verbose
  *
  * Flags
  * ─────
- *   --mode=analyze|migrate   Default: analyze
+ *   --mode=analyze|migrate        Default: analyze
  *   --target=staging|production   Default: staging
- *   --delete-old             Delete Teams/TeamLogos/{userId} after successful copy
- *   --limit=N                Process at most N files
- *   --verbose                Print detail for every file
+ *   --delete-old                  Delete old GCS file after successful copy
+ *   --limit=N                     Process at most N Teams docs with old logos
+ *   --verbose                     Print detail for every doc
  *
  * Safety
  * ──────
- *   - Idempotent: if destination already exists it is skipped (not re-copied)
+ *   - Idempotent: if destination already exists, skips GCS copy but still fixes Firestore
  *   - Firestore update uses set+merge so partial writes don't corrupt docs
- *   - Failures are logged and counted; script continues to next file
- *   - --delete-old is opt-in and only fires after copy + Firestore update both succeed
- *
- * Prerequisites
- * ─────────────
- *   npm install @google-cloud/storage  (already pulled in via firebase-admin)
+ *   - Failures are logged and counted; script continues to next doc
+ *   - --delete-old is opt-in and only fires after copy + Firestore update succeed
  */
 
 import { config } from 'dotenv';
@@ -74,7 +66,7 @@ import { readFileSync } from 'node:fs';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
-import type { Bucket, File } from '@google-cloud/storage';
+import type { Bucket } from '@google-cloud/storage';
 
 // ─── CLI args ────────────────────────────────────────────────────────────────
 
@@ -118,7 +110,6 @@ if (!getApps().find((a) => a.name === APP_NAME)) {
   initializeApp({ credential: cert(sa), storageBucket: BUCKET_MAP[TARGET] }, APP_NAME);
 }
 
-// Import getApp after initialization
 const { getApp } = await import('firebase-admin/app');
 const app = getApp(APP_NAME);
 const db = getFirestore(app);
@@ -126,149 +117,143 @@ const bucket: Bucket = getStorage(app).bucket();
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const LEGACY_PREFIX = 'Teams/TeamLogos/';
 const TEAMS_COLLECTION = 'Teams';
-const USERS_COLLECTION = 'Users';
+const BUCKET_NAME = BUCKET_MAP[TARGET];
+const LEGACY_PATH_MARKERS = ['Teams/TeamLogos/', 'Teams%2FTeamLogos%2F', 'TeamLogos%2F'];
 
-// ─── Firestore helpers ────────────────────────────────────────────────────────
+// ─── URL helpers ──────────────────────────────────────────────────────────────
 
-/**
- * Resolve the Firestore teamId for a given userId.
- *
- * Strategy (in order):
- *   1. Teams collection: any doc where ownerId == userId
- *   2. Teams collection: any doc where coachId == userId
- *   3. Users doc: user.sports[].team.teamId (first match)
- *
- * Returns null if no team can be found — these are logged as unresolved.
- */
-async function resolveTeamId(userId: string): Promise<string | null> {
-  // 1. Teams.ownerId
-  const ownerSnap = await db
-    .collection(TEAMS_COLLECTION)
-    .where('ownerId', '==', userId)
-    .limit(1)
-    .get();
-  if (!ownerSnap.empty) return ownerSnap.docs[0].id;
-
-  // 2. Teams.coachId
-  const coachSnap = await db
-    .collection(TEAMS_COLLECTION)
-    .where('coachId', '==', userId)
-    .limit(1)
-    .get();
-  if (!coachSnap.empty) return coachSnap.docs[0].id;
-
-  // 3. User sports cascade
-  const userDoc = await db.collection(USERS_COLLECTION).doc(userId).get();
-  if (userDoc.exists) {
-    const data = userDoc.data() ?? {};
-
-    // Direct teamId on user root
-    if (typeof data['teamId'] === 'string' && data['teamId']) {
-      return data['teamId'] as string;
-    }
-
-    // sports[].team.teamId
-    if (Array.isArray(data['sports'])) {
-      for (const sport of data['sports'] as Record<string, unknown>[]) {
-        const team = sport['team'] as Record<string, unknown> | undefined;
-        const tid = team?.['teamId'];
-        if (typeof tid === 'string' && tid) return tid;
-      }
-    }
-  }
-
-  return null;
+/** Returns true if the URL points to the legacy Teams/TeamLogos/ path. */
+function isLegacyUrl(url: string): boolean {
+  if (!url) return false;
+  return LEGACY_PATH_MARKERS.some((marker) => url.includes(marker));
 }
 
 /**
- * Build the public HTTPS URL for a GCS object.
+ * Extract the GCS object path from a Firebase Storage public URL.
+ * Input:  https://firebasestorage.googleapis.com/v0/b/{bucket}/o/Teams%2FTeamLogos%2F{name}?alt=media
+ * Output: Teams/TeamLogos/{name}
  */
-function publicUrl(bucketName: string, gcsPath: string): string {
-  return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(gcsPath)}?alt=media`;
+function extractGcsPath(url: string): string | null {
+  try {
+    const u = new URL(url);
+    // pathname: /v0/b/{bucket}/o/{encoded-path}
+    const parts = u.pathname.split('/o/');
+    if (parts.length < 2) return null;
+    return decodeURIComponent(parts[1]);
+  } catch {
+    return null;
+  }
+}
+
+/** Build the public HTTPS URL for a GCS object. */
+function publicUrl(gcsPath: string): string {
+  return `https://firebasestorage.googleapis.com/v0/b/${BUCKET_NAME}/o/${encodeURIComponent(gcsPath)}?alt=media`;
 }
 
 // ─── Stats ───────────────────────────────────────────────────────────────────
 
 const stats = {
-  total: 0,
+  docsScanned: 0,
+  needsMigration: 0,
   migrated: 0,
   skippedAlreadyMigrated: 0,
-  skippedNoTeam: 0,
+  skippedMissingFile: 0,
   failed: 0,
   deleted: 0,
 };
 
-const unresolved: string[] = []; // userIds with no matching team
-const failures: { file: string; error: string }[] = [];
+const failures: { teamId: string; error: string }[] = [];
 
 // ─── Core migration logic ─────────────────────────────────────────────────────
 
-async function migrateFile(file: File): Promise<void> {
-  const gcsPath = file.name; // e.g. "Teams/TeamLogos/0HkPZq76..."
-  // Extract userId — everything after the prefix (may have a _timestamp suffix)
-  const afterPrefix = gcsPath.slice(LEGACY_PREFIX.length);
-  // userId is the segment before the first slash (flat file, no sub-folder)
-  const userId = afterPrefix.split('/')[0];
+async function migrateTeamDoc(
+  teamId: string,
+  logoUrl: string | undefined,
+  teamLogoImg: string | undefined
+): Promise<void> {
+  // Pick whichever field has the legacy URL (prefer logoUrl)
+  const legacyUrl = isLegacyUrl(logoUrl ?? '') ? logoUrl! : teamLogoImg!;
 
-  if (VERBOSE) console.log(`  Processing: ${gcsPath} (userId: ${userId})`);
-
-  const teamId = await resolveTeamId(userId);
-
-  if (!teamId) {
-    console.warn(`  ⚠  No team found for userId=${userId} — skipping`);
-    unresolved.push(userId);
-    stats.skippedNoTeam++;
+  const gcsPath = extractGcsPath(legacyUrl);
+  if (!gcsPath) {
+    console.warn(`  ⚠  Could not extract GCS path for teamId=${teamId}: ${legacyUrl}`);
+    stats.failed++;
+    failures.push({ teamId, error: `Could not extract GCS path from: ${legacyUrl}` });
     return;
   }
 
-  // Derive filename — use original filename segment for traceability
-  const filename = afterPrefix.replace(/\//g, '_'); // flatten any sub-path
+  // Use only the last segment of the old path as the new filename
+  const filename = gcsPath.split('/').pop() ?? gcsPath.replace(/\//g, '_');
   const destPath = `Teams/${teamId}/logo/${filename}`;
 
-  // Check if already migrated (idempotent)
-  const [destExists] = await bucket.file(destPath).exists();
-  if (destExists) {
-    if (VERBOSE) console.log(`  ↩  Already at ${destPath} — skipping`);
-    stats.skippedAlreadyMigrated++;
-    return;
+  if (VERBOSE) {
+    console.log(`  teamId=${teamId}`);
+    console.log(`    from: ${gcsPath}`);
+    console.log(`      to: ${destPath}`);
   }
 
   if (MODE === 'analyze') {
-    console.log(`  → Would copy: ${gcsPath}\n      to: ${destPath} (teamId=${teamId})`);
+    // Check if source exists for reporting accuracy
+    const [srcExists] = await bucket.file(gcsPath).exists();
+    console.log(`  → Would copy: ${gcsPath}${srcExists ? '' : ' [SOURCE MISSING]'}`);
+    console.log(`          to : ${destPath}  (teamId=${teamId})`);
     stats.migrated++;
+    return;
+  }
+
+  // ── Idempotent: dest already exists → just fix Firestore ─────────────────
+  const [destExists] = await bucket.file(destPath).exists();
+  if (destExists) {
+    const newUrl = publicUrl(destPath);
+    if (VERBOSE) console.log(`    ↩  GCS file already at destination — fixing Firestore only`);
+    await db.collection(TEAMS_COLLECTION).doc(teamId).set(
+      {
+        logoUrl: newUrl,
+        teamLogoImg: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    stats.skippedAlreadyMigrated++;
     return;
   }
 
   // ── Copy ──────────────────────────────────────────────────────────────────
   try {
-    await file.copy(bucket.file(destPath));
+    const [srcExists] = await bucket.file(gcsPath).exists();
+    if (!srcExists) {
+      console.warn(`  ⚠  Source file not found in GCS: ${gcsPath} (teamId=${teamId})`);
+      stats.skippedMissingFile++;
+      return;
+    }
 
-    // Make public (matches how promoteMedia works)
+    await bucket.file(gcsPath).copy(bucket.file(destPath));
     await bucket.file(destPath).makePublic();
 
-    const newUrl = publicUrl(BUCKET_MAP[TARGET], destPath);
+    const newUrl = publicUrl(destPath);
 
-    // ── Update Firestore Teams doc ────────────────────────────────────────
-    await db
-      .collection(TEAMS_COLLECTION)
-      .doc(teamId)
-      .set({ logoUrl: newUrl, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    await db.collection(TEAMS_COLLECTION).doc(teamId).set(
+      {
+        logoUrl: newUrl,
+        teamLogoImg: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
 
-    if (VERBOSE) console.log(`  ✓  Copied to ${destPath}, Firestore updated`);
+    if (VERBOSE) console.log(`    ✓  Copied → ${destPath}, Firestore updated`);
     stats.migrated++;
 
-    // ── Optionally delete old file ────────────────────────────────────────
     if (DELETE_OLD) {
-      await file.delete();
-      if (VERBOSE) console.log(`  🗑  Deleted legacy: ${gcsPath}`);
+      await bucket.file(gcsPath).delete();
+      if (VERBOSE) console.log(`    🗑  Deleted legacy: ${gcsPath}`);
       stats.deleted++;
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`  ✗  Failed for ${gcsPath}: ${msg}`);
-    failures.push({ file: gcsPath, error: msg });
+    console.error(`  ✗  Failed for teamId=${teamId}: ${msg}`);
+    failures.push({ teamId, error: msg });
     stats.failed++;
   }
 }
@@ -278,38 +263,72 @@ async function migrateFile(file: File): Promise<void> {
 async function main(): Promise<void> {
   console.log('');
   console.log('═══════════════════════════════════════════════════════════');
-  console.log('  Team Logo Storage Migration');
+  console.log('  Team Logo Storage Migration (Firestore-first)');
   console.log('═══════════════════════════════════════════════════════════');
-  console.log(`  Target  : ${TARGET.toUpperCase()} (${BUCKET_MAP[TARGET]})`);
+  console.log(`  Target  : ${TARGET.toUpperCase()} (${BUCKET_NAME})`);
   console.log(`  Mode    : ${MODE.toUpperCase()}`);
-  console.log(
-    `  Delete  : ${DELETE_OLD ? 'YES — will delete Teams/TeamLogos/ files after copy' : 'NO'}`
-  );
+  console.log(`  Delete  : ${DELETE_OLD ? 'YES — will delete old GCS files after copy' : 'NO'}`);
   console.log(`  Limit   : ${LIMIT > 0 ? LIMIT : 'none'}`);
   console.log('═══════════════════════════════════════════════════════════');
   console.log('');
 
   if (MODE === 'migrate' && TARGET === 'production' && !DELETE_OLD) {
-    console.log('ℹ  Running in copy-only mode for production — source files will NOT be deleted.');
+    console.log('ℹ  Running in copy-only mode — source files will NOT be deleted.');
     console.log('   Re-run with --delete-old after verifying the migration is complete.');
     console.log('');
   }
 
-  // List all files under Teams/TeamLogos/
-  const [files] = await bucket.getFiles({ prefix: LEGACY_PREFIX });
+  // ── Paginate through ALL Teams Firestore docs ─────────────────────────────
+  const docsToMigrate: Array<{
+    teamId: string;
+    logoUrl?: string;
+    teamLogoImg?: string;
+  }> = [];
 
-  // Filter out directory placeholder entries (end with /)
-  const realFiles = files.filter((f) => !f.name.endsWith('/'));
+  let cursor: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+  const PAGE_SIZE = 500;
 
-  console.log(`Found ${realFiles.length} files under ${LEGACY_PREFIX}`);
-  if (LIMIT > 0) console.log(`Processing first ${LIMIT} only (--limit=${LIMIT})`);
+  process.stdout.write('Scanning Teams collection');
+  while (true) {
+    let q = db.collection(TEAMS_COLLECTION).orderBy('__name__').limit(PAGE_SIZE);
+    if (cursor) q = q.startAfter(cursor);
+
+    const snap = await q.get();
+    if (snap.empty) break;
+
+    for (const doc of snap.docs) {
+      stats.docsScanned++;
+      const data = doc.data();
+      const logoUrl: string | undefined = data['logoUrl'];
+      const teamLogoImg: string | undefined = data['teamLogoImg'];
+
+      if (isLegacyUrl(logoUrl ?? '') || isLegacyUrl(teamLogoImg ?? '')) {
+        docsToMigrate.push({ teamId: doc.id, logoUrl, teamLogoImg });
+      }
+    }
+
+    cursor = snap.docs[snap.docs.length - 1];
+    process.stdout.write('.');
+    if (snap.docs.length < PAGE_SIZE) break;
+  }
+  console.log(' done.\n');
+
+  stats.needsMigration = docsToMigrate.length;
+  console.log(`  Docs scanned          : ${stats.docsScanned}`);
+  console.log(`  Docs needing migration: ${docsToMigrate.length}`);
   console.log('');
 
-  const toProcess = LIMIT > 0 ? realFiles.slice(0, LIMIT) : realFiles;
-  stats.total = toProcess.length;
+  if (docsToMigrate.length === 0) {
+    console.log('✓ Nothing to migrate. All team logos are already at the correct path.');
+    console.log('');
+    process.exit(0);
+  }
 
-  for (const file of toProcess) {
-    await migrateFile(file);
+  const toProcess = LIMIT > 0 ? docsToMigrate.slice(0, LIMIT) : docsToMigrate;
+  if (LIMIT > 0) console.log(`Processing first ${LIMIT} only (--limit=${LIMIT})\n`);
+
+  for (const { teamId, logoUrl, teamLogoImg } of toProcess) {
+    await migrateTeamDoc(teamId, logoUrl, teamLogoImg);
   }
 
   // ─── Summary ───────────────────────────────────────────────────────────────
@@ -317,27 +336,18 @@ async function main(): Promise<void> {
   console.log('═══════════════════════════════════════════════════════════');
   console.log('  Summary');
   console.log('═══════════════════════════════════════════════════════════');
-  console.log(`  Total processed       : ${stats.total}`);
+  console.log(`  Teams docs scanned    : ${stats.docsScanned}`);
+  console.log(`  Needed migration      : ${stats.needsMigration}`);
   console.log(`  Migrated (or would)   : ${stats.migrated}`);
   console.log(`  Already at dest       : ${stats.skippedAlreadyMigrated}`);
-  console.log(`  No team found         : ${stats.skippedNoTeam}`);
+  console.log(`  Source file missing   : ${stats.skippedMissingFile}`);
   console.log(`  Deleted old files     : ${stats.deleted}`);
   console.log(`  Failures              : ${stats.failed}`);
-
-  if (unresolved.length > 0) {
-    console.log('');
-    console.log('  Unresolved userIds (no matching Teams doc):');
-    for (const uid of unresolved) console.log(`    - ${uid}`);
-    console.log('');
-    console.log('  These users may be coaches whose team docs were deleted,');
-    console.log('  or athletes who uploaded a team logo manually. Safe to leave');
-    console.log('  or manually delete after investigation.');
-  }
 
   if (failures.length > 0) {
     console.log('');
     console.log('  Failures:');
-    for (const f of failures) console.log(`    ${f.file}: ${f.error}`);
+    for (const f of failures) console.log(`    teamId=${f.teamId}: ${f.error}`);
   }
 
   console.log('═══════════════════════════════════════════════════════════');

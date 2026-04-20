@@ -18,7 +18,11 @@ import {
   computed,
   inject,
   OnInit,
+  PLATFORM_ID,
+  ViewChild,
+  ElementRef,
 } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { IonSpinner } from '@ionic/angular/standalone';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type {
@@ -42,6 +46,7 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { InviteBottomSheetService } from '../invite';
+import { TEAM_LOGO_UPLOADER } from './team-logo-uploader.token';
 
 /** Event emitted when shell requests close */
 export interface ManageTeamCloseEvent {
@@ -64,7 +69,17 @@ export interface ManageTeamCloseEvent {
     NxtListRowComponent,
     NxtMediaGalleryComponent,
   ],
+  host: { class: 'nxt1-manage-team-shell' },
   template: `
+    <!-- Hidden file input for team logo upload (only rendered when uploader is available) -->
+    <input
+      #logoFileInput
+      type="file"
+      accept="image/jpeg,image/png,image/webp,image/svg+xml"
+      style="display:none"
+      (change)="onLogoFileChange($event)"
+    />
+
     <!-- Header (suppressed when headless — web modal provides its own) -->
     @if (showHeader() && !headless()) {
       @if (!isModalMode()) {
@@ -475,6 +490,10 @@ export class ManageTeamShellComponent implements OnInit {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly inviteSheet = inject(InviteBottomSheetService);
+  private readonly logoUploader = inject(TEAM_LOGO_UPLOADER, { optional: true });
+  private readonly platformId = inject(PLATFORM_ID);
+
+  @ViewChild('logoFileInput') private readonly logoFileInputRef?: ElementRef<HTMLInputElement>;
 
   private initialSectionHandled = false;
 
@@ -855,6 +874,15 @@ export class ManageTeamShellComponent implements OnInit {
   }
 
   protected async openImagePrompt(): Promise<void> {
+    const teamId = this.service.teamId();
+
+    // If a real upload adapter is provided and we have a teamId, use file picker
+    if (this.logoUploader && teamId && isPlatformBrowser(this.platformId)) {
+      this.logoFileInputRef?.nativeElement.click();
+      return;
+    }
+
+    // Fallback: prompt for a URL
     const result = await this.modal.prompt({
       title: 'Team Image URL',
       placeholder: 'https://example.com/team-image.jpg',
@@ -872,14 +900,38 @@ export class ManageTeamShellComponent implements OnInit {
       return;
     }
 
+    this.applyLogoUrl(imageUrl);
+  }
+
+  protected async onLogoFileChange(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    // Reset so the same file can be re-selected later
+    input.value = '';
+
+    if (!file || !this.logoUploader) return;
+
+    const teamId = this.service.teamId();
+    if (!teamId) return;
+
+    this.logger.info('Uploading team logo', { teamId, fileName: file.name });
+    const url = await this.logoUploader(teamId, file);
+
+    if (url) {
+      this.applyLogoUrl(url);
+      this.logger.info('Team logo uploaded', { teamId, url });
+    } else {
+      this.logger.warn('Team logo upload returned null', { teamId });
+    }
+  }
+
+  private applyLogoUrl(imageUrl: string): void {
     const nextImages = Array.from(new Set([...this.teamImages(), imageUrl]));
     this.emitAction('images', 'add', imageUrl);
     this.service.updateField({ sectionId: 'images', fieldId: 'galleryImages', value: nextImages });
-
     if (!this.service.formData()?.branding?.logo) {
       this.service.updateField({ sectionId: 'images', fieldId: 'logo', value: imageUrl });
     }
-
     this.service.expandSection('images');
   }
 

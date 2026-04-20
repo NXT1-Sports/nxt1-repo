@@ -8,6 +8,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { createEditProfileApi, type EditProfileApi } from '@nxt1/core/edit-profile';
+import { createFileUploadApi } from '@nxt1/core';
 import type {
   EditProfileData,
   EditProfileFormData,
@@ -31,6 +32,7 @@ import { environment } from '../../../../environments/environment';
 export class EditProfileApiService {
   private readonly http = inject(CapacitorHttpAdapter);
   private readonly api: EditProfileApi;
+  private readonly uploadApi = createFileUploadApi(this.http as never, environment.apiUrl);
 
   constructor() {
     this.api = createEditProfileApi(this.http, environment.apiUrl);
@@ -157,6 +159,35 @@ export class EditProfileApiService {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to upload photo',
       };
+    }
+  }
+
+  /**
+   * Upload team logo via signed URL (direct-to-storage).
+   */
+  async uploadTeamLogo(userId: string, teamId: string, file: File): Promise<string | null> {
+    try {
+      const signed = await this.uploadApi.getSignedUploadUrl(
+        userId,
+        'team-logo',
+        file.name,
+        file.type,
+        teamId
+      );
+
+      const putResponse = await fetch(signed.uploadUrl, {
+        method: 'PUT',
+        body: file,
+        headers: { 'Content-Type': file.type },
+      });
+
+      if (!putResponse.ok) return null;
+
+      const bucket = environment.firebase.storageBucket;
+      const encodedPath = encodeURIComponent(signed.storagePath);
+      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedPath}?alt=media`;
+    } catch {
+      return null;
     }
   }
 }

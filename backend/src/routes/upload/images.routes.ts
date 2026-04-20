@@ -14,6 +14,7 @@ import {
   uploadToStorage,
   buildExtensionCompatiblePath,
   buildStoragePath,
+  buildTeamLogoPath,
   getExtensionThumbnailPaths,
   waitForExtensionThumbnails,
   buildThumbnailUrls,
@@ -296,7 +297,7 @@ router.post(
   '/signed-url',
   asyncHandler(async (req: Request, res: Response) => {
     const userId = req.user!.uid;
-    const { category, fileName, mimeType } = req.body;
+    const { category, fileName, mimeType, teamId } = req.body;
 
     if (!category) {
       throw fieldError('category', 'File category is required', 'required');
@@ -320,10 +321,39 @@ router.post(
       throw fieldError('mimeType', `File type ${mimeType} not allowed for ${category}`, 'invalid');
     }
 
-    const storagePath =
-      category === 'profile-photo'
-        ? buildExtensionCompatiblePath(userId, category as FileCategory)
-        : buildStoragePath(userId, category as FileCategory, fileName);
+    let storagePath: string;
+
+    if (category === 'team-logo') {
+      if (!teamId || typeof teamId !== 'string') {
+        throw fieldError('teamId', 'Team ID is required for team-logo uploads', 'required');
+      }
+
+      const db = req.firebase?.db;
+      if (!db) {
+        throw fieldError('teamId', 'Database unavailable', 'server_error');
+      }
+
+      const teamDoc = await db.collection('Teams').doc(teamId).get();
+      if (!teamDoc.exists) {
+        throw forbiddenError('team');
+      }
+
+      const teamData = teamDoc.data() ?? {};
+      const isAuthorized =
+        teamData['ownerId'] === userId ||
+        teamData['coachId'] === userId ||
+        teamData['createdBy'] === userId;
+
+      if (!isAuthorized) {
+        throw forbiddenError('team');
+      }
+
+      storagePath = buildTeamLogoPath(teamId, fileName);
+    } else if (category === 'profile-photo') {
+      storagePath = buildExtensionCompatiblePath(userId, category as FileCategory);
+    } else {
+      storagePath = buildStoragePath(userId, category as FileCategory, fileName);
+    }
 
     const bucket = req.firebase?.storage?.bucket() || getStorage().bucket();
     const file = bucket.file(storagePath);

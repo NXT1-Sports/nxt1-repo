@@ -217,6 +217,18 @@ export function buildExtensionCompatiblePath(userId: string, category: FileCateg
   }
 }
 
+/**
+ * Build a storage path for a team logo scoped to the team entity.
+ * Output: Teams/{teamId}/logo/{timestamp}_{sanitisedFileName}
+ */
+export function buildTeamLogoPath(teamId: string, fileName: string): string {
+  const timestamp = Date.now();
+  const sanitizedName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const extension = sanitizedName.split('.').pop() || 'jpg';
+  const base = sanitizedName.split('.').slice(0, -1).join('.') || 'logo';
+  return `Teams/${teamId}/logo/${timestamp}_${base}.${extension}`;
+}
+
 export function getExtensionThumbnailPaths(originalPath: string): {
   small: { jpg: string; webp: string; png: string };
   medium: { jpg: string; webp: string; png: string };

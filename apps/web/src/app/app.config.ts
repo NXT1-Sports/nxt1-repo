@@ -82,7 +82,7 @@ import { provideWebPush } from './core/services';
 
 import { TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui/team-profile';
 import { INTEL_API_BASE_URL } from '@nxt1/ui/intel';
-import { MANAGE_TEAM_API_BASE_URL } from '@nxt1/ui/manage-team';
+import { MANAGE_TEAM_API_BASE_URL, TEAM_LOGO_UPLOADER } from '@nxt1/ui/manage-team';
 import {
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
@@ -130,6 +130,7 @@ import {
 // Auth service with injection token pattern
 import { AUTH_SERVICE, BrowserAuthService } from './core/services/auth';
 import { AuthFlowService, type IAuthService } from './core/services/auth';
+import { FileUploadService } from './core/services';
 import { WebEmailConnectionService } from './core/services/web/email-connection.service';
 
 // Settings persistence adapter (connects SettingsService → backend API)
@@ -351,6 +352,18 @@ export const appConfig: ApplicationConfig = {
 
     // Manage Team API base URL
     { provide: MANAGE_TEAM_API_BASE_URL, useFactory: () => environment.apiURL },
+
+    // Team logo uploader — bridges TEAM_LOGO_UPLOADER token → FileUploadService
+    {
+      provide: TEAM_LOGO_UPLOADER,
+      useFactory:
+        (upload: FileUploadService, auth: IAuthService) => (teamId: string, file: File) => {
+          const userId = auth.user?.()?.uid;
+          if (!userId) return Promise.resolve(null);
+          return upload.uploadTeamLogo(userId, teamId, file);
+        },
+      deps: [FileUploadService, AUTH_SERVICE],
+    },
 
     // Agent X API base URL
     { provide: AGENT_X_API_BASE_URL, useFactory: () => environment.apiURL },
