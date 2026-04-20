@@ -54,6 +54,7 @@ export {
   CreateSignedUrlTool,
   EnableDownloadTool,
   ManageWatermarkTool,
+  DeleteVideoTool,
 } from './cloudflare-stream/index.js';
 
 // ── Runway — AI video/image generation ───────────────────────────────────

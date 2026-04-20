@@ -55,6 +55,34 @@ const NEWS_COLLECTION = 'News';
 const ROSTER_ENTRIES_COLLECTION = 'RosterEntries';
 const TEAMS_COLLECTION = 'Teams';
 
+function extractPrimaryYear(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+
+  const match = value.match(/\b(19|20)\d{2}\b/);
+  if (!match) return undefined;
+
+  const parsed = Number.parseInt(match[0], 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function compareCreatedAtDescWithSeasonTieBreaker(
+  leftCreatedAt: string,
+  rightCreatedAt: string,
+  leftSeason?: string,
+  rightSeason?: string
+): number {
+  const timeDiff = new Date(rightCreatedAt).getTime() - new Date(leftCreatedAt).getTime();
+  if (timeDiff !== 0) return timeDiff;
+
+  const leftYear = extractPrimaryYear(leftSeason);
+  const rightYear = extractPrimaryYear(rightSeason);
+  if (leftYear !== undefined || rightYear !== undefined) {
+    return (rightYear ?? Number.NEGATIVE_INFINITY) - (leftYear ?? Number.NEGATIVE_INFINITY);
+  }
+
+  return 0;
+}
+
 // ============================================
 // TYPES
 // ============================================
@@ -68,6 +96,8 @@ export interface TimelineOptions {
   readonly viewerUserId?: string;
   /** Cursor for pagination (ISO timestamp of last item) */
   readonly cursor?: string;
+  /** Virtual IDs of pinned metric groups stored on the User doc */
+  readonly pinnedMetricGroups?: readonly string[];
 }
 
 export interface TeamTimelineOptions {
@@ -100,7 +130,7 @@ export class TimelineService {
     author: FeedAuthor,
     options: TimelineOptions
   ): Promise<FeedItemResponse> {
-    const { limit, sportId, cursor } = options;
+    const { limit, sportId, cursor, pinnedMetricGroups = [] } = options;
     // Fetch extra to know if there are more items
     const fetchLimit = limit + 1;
 
@@ -117,7 +147,7 @@ export class TimelineService {
       this.fetchSchedule(userId, fetchLimit, sportId, cursor),
       this.fetchStats(userId, fetchLimit, sportId, cursor),
       this.fetchRecruiting(userId, fetchLimit, sportId, cursor),
-      this.fetchMetrics(userId, fetchLimit, sportId, cursor),
+      this.fetchMetrics(userId, fetchLimit, sportId, cursor, pinnedMetricGroups),
       this.fetchRankings(userId, fetchLimit, sportId, cursor),
     ]);
 
@@ -130,43 +160,97 @@ export class TimelineService {
     }
 
     for (const event of events) {
-      items.push(eventDocToFeedItemEvent(event.id, event.data, author));
+      items.push(eventDocToFeedItemEvent(event.id, event.data, author, event.data.isPinned));
     }
 
     for (const scheduleEvent of schedule) {
-      items.push(scheduleDocToFeedItemSchedule(scheduleEvent.id, scheduleEvent.data, author));
+      items.push(
+        scheduleDocToFeedItemSchedule(
+          scheduleEvent.id,
+          scheduleEvent.data,
+          author,
+          scheduleEvent.data.isPinned
+        )
+      );
     }
 
     for (const stat of stats) {
-      items.push(statDocToFeedItemStat(stat.id, stat.data, author));
+      items.push(statDocToFeedItemStat(stat.id, stat.data, author, stat.data.isPinned));
     }
 
     for (const recruitingDoc of recruiting) {
-      items.push(recruitingDocToFeedItemVariant(recruitingDoc.id, recruitingDoc.data, author));
+      items.push(
+        recruitingDocToFeedItemVariant(
+          recruitingDoc.id,
+          recruitingDoc.data,
+          author,
+          recruitingDoc.data.isPinned
+        )
+      );
     }
 
     for (const metric of metrics) {
-      items.push(metricGroupToFeedItemMetric(metric.id, metric.data, author));
+      items.push(metricGroupToFeedItemMetric(metric.id, metric.data, author, metric.data.isPinned));
     }
 
     for (const ranking of rankings) {
-      items.push(rankingDocToFeedItemAward(ranking.id, ranking.data, author));
+      items.push(
+        rankingDocToFeedItemAward(ranking.id, ranking.data, author, ranking.data.isPinned)
+      );
     }
 
-    // Sort all items by date descending (newest first)
-    items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    // Sort: pinned items float to top, then newest-first within each group
+    items.sort((a, b) => {
+      if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
 
-    // Determine pagination
+    // Determine pagination first so we only enrich the page we're returning
     const hasMore = items.length > limit;
     const resultItems = hasMore ? items.slice(0, limit) : items;
+
+    // Batch-enrich engagement counts via a single Firestore getAll() RPC —
+    // one network round-trip regardless of page size, far cheaper than
+    // N individual .get() calls even when run via Promise.all.
+    const engagementMap = new Map<string, { views: number; shares: number }>();
+
+    if (resultItems.length > 0) {
+      const engRefs = resultItems.map((item) => this.db.collection('Engagement').doc(item.id));
+
+      const engSnaps = await this.db
+        .getAll(...engRefs)
+        .catch(() => [] as FirebaseFirestore.DocumentSnapshot[]);
+
+      for (const snap of engSnaps) {
+        if (!snap.exists) continue;
+        const d = snap.data()!;
+        engagementMap.set(snap.id, {
+          views: (d['views'] as number | undefined) ?? 0,
+          shares: (d['shares'] as number | undefined) ?? 0,
+        });
+      }
+    }
+
+    // Merge engagement into each item (immutable spread)
+    const enrichedItems = resultItems.map((item) => {
+      const eng = engagementMap.get(item.id);
+      if (!eng) return item;
+      return {
+        ...item,
+        engagement: {
+          viewCount: eng.views,
+          shareCount: eng.shares,
+        },
+      } as typeof item;
+    });
     const nextCursor =
-      resultItems.length > 0
-        ? Buffer.from(resultItems[resultItems.length - 1].createdAt).toString('base64')
+      enrichedItems.length > 0
+        ? Buffer.from(enrichedItems[enrichedItems.length - 1].createdAt).toString('base64')
         : undefined;
 
     logger.debug('[Timeline] Timeline assembled', {
       userId,
-      total: resultItems.length,
+      total: enrichedItems.length,
       posts: posts.length,
       events: events.length,
       stats: stats.length,
@@ -178,7 +262,7 @@ export class TimelineService {
 
     return {
       success: true,
-      data: resultItems,
+      data: enrichedItems,
       nextCursor: hasMore ? nextCursor : undefined,
       hasMore,
     };
@@ -257,6 +341,7 @@ export class TimelineService {
         };
         sport?: string;
         teamId?: string;
+        isPinned?: boolean;
       };
     }>
   > {
@@ -302,6 +387,7 @@ export class TimelineService {
               | undefined,
             sport: d['sport'] as string | undefined,
             teamId: d['teamId'] as string | undefined,
+            isPinned: d['isPinned'] === true,
           },
         };
       });
@@ -341,6 +427,7 @@ export class TimelineService {
         };
         sport?: string;
         teamId?: string;
+        isPinned?: boolean;
       };
     }>
   > {
@@ -386,6 +473,7 @@ export class TimelineService {
               | undefined,
             sport: d['sport'] as string | undefined,
             teamId: d['teamId'] as string | undefined,
+            isPinned: d['isPinned'] === true,
           },
         };
       });
@@ -413,6 +501,7 @@ export class TimelineService {
       id: string;
       data: {
         createdAt: string;
+        season?: string;
         context?: string;
         gameDate?: string;
         gameResult?: string;
@@ -429,6 +518,7 @@ export class TimelineService {
           unit?: string;
           isHighlight?: boolean;
         }[];
+        isPinned?: boolean;
       };
     }>
   > {
@@ -446,6 +536,7 @@ export class TimelineService {
         id: string;
         data: {
           createdAt: string;
+          season?: string;
           context?: string;
           gameDate?: string;
           gameResult?: string;
@@ -462,6 +553,7 @@ export class TimelineService {
             unit?: string;
             isHighlight?: boolean;
           }[];
+          isPinned?: boolean;
         };
       }> = [];
 
@@ -483,6 +575,7 @@ export class TimelineService {
             id: doc.id,
             data: {
               createdAt,
+              season,
               context: season ? `${season} ${sport ?? ''} Season Stats`.trim() : 'Season Stats',
               stats: statsArray.map(
                 (s: Record<string, unknown>) =>
@@ -498,6 +591,7 @@ export class TimelineService {
                     isHighlight?: boolean;
                   }
               ),
+              isPinned: d['isPinned'] === true,
             },
           });
         }
@@ -513,8 +607,13 @@ export class TimelineService {
       }
 
       // Sort by createdAt descending and limit
-      results.sort(
-        (a, b) => new Date(b.data.createdAt).getTime() - new Date(a.data.createdAt).getTime()
+      results.sort((a, b) =>
+        compareCreatedAtDescWithSeasonTieBreaker(
+          a.data.createdAt,
+          b.data.createdAt,
+          a.data.season,
+          b.data.season
+        )
       );
 
       return results.slice(0, limit);
@@ -554,6 +653,7 @@ export class TimelineService {
         coachName?: string;
         notes?: string;
         graphicUrl?: string;
+        isPinned?: boolean;
       };
     }>
   > {
@@ -598,6 +698,7 @@ export class TimelineService {
             coachName: data['coachName'] as string | undefined,
             notes: data['notes'] as string | undefined,
             graphicUrl: data['graphicUrl'] as string | undefined,
+            isPinned: data['isPinned'] === true,
           },
         };
       });
@@ -617,7 +718,8 @@ export class TimelineService {
     userId: string,
     limit: number,
     sportId?: string,
-    cursor?: string
+    cursor?: string,
+    pinnedMetricGroups: readonly string[] = []
   ): Promise<
     Array<{
       id: string;
@@ -632,6 +734,7 @@ export class TimelineService {
           verified?: boolean;
           previousValue?: string | number;
         }[];
+        isPinned?: boolean;
       };
     }>
   > {
@@ -706,15 +809,19 @@ export class TimelineService {
       }
 
       const result = [...grouped.entries()]
-        .map(([key, value]) => ({
-          id: Buffer.from(key).toString('base64url'),
-          data: {
-            measuredAt: value.measuredAt,
-            source: value.source,
-            category: value.category,
-            metrics: value.metrics.sort((left, right) => left.label.localeCompare(right.label)),
-          },
-        }))
+        .map(([key, value]) => {
+          const groupId = Buffer.from(key).toString('base64url');
+          return {
+            id: groupId,
+            data: {
+              measuredAt: value.measuredAt,
+              source: value.source,
+              category: value.category,
+              metrics: value.metrics.sort((left, right) => left.label.localeCompare(right.label)),
+              isPinned: pinnedMetricGroups.includes(groupId),
+            },
+          };
+        })
         .sort(
           (left, right) =>
             new Date(right.data.measuredAt).getTime() - new Date(left.data.measuredAt).getTime()
@@ -750,6 +857,7 @@ export class TimelineService {
         stateRank?: number | null;
         positionRank?: number | null;
         stars?: number | null;
+        isPinned?: boolean;
       };
     }>
   > {
@@ -787,6 +895,7 @@ export class TimelineService {
               positionRank:
                 typeof data['positionRank'] === 'number' ? (data['positionRank'] as number) : null,
               stars: typeof data['stars'] === 'number' ? (data['stars'] as number) : null,
+              isPinned: data['isPinned'] === true,
             },
           };
         })
@@ -960,22 +1069,49 @@ export class TimelineService {
 
     const hasMore = items.length > limit;
     const resultItems = hasMore ? items.slice(0, limit) : items;
+
+    // Batch-enrich engagement via single getAll() RPC — same pattern as profile timeline
+    const engagementMap = new Map<string, { views: number; shares: number }>();
+    if (resultItems.length > 0) {
+      const engRefs = resultItems.map((item) => this.db.collection('Engagement').doc(item.id));
+      const engSnaps = await this.db
+        .getAll(...engRefs)
+        .catch(() => [] as FirebaseFirestore.DocumentSnapshot[]);
+      for (const snap of engSnaps) {
+        if (!snap.exists) continue;
+        const d = snap.data()!;
+        engagementMap.set(snap.id, {
+          views: (d['views'] as number | undefined) ?? 0,
+          shares: (d['shares'] as number | undefined) ?? 0,
+        });
+      }
+    }
+
+    const enrichedItems = resultItems.map((item) => {
+      const eng = engagementMap.get(item.id);
+      if (!eng) return item;
+      return {
+        ...item,
+        engagement: { viewCount: eng.views, shareCount: eng.shares },
+      } as typeof item;
+    });
+
     const nextCursor =
-      resultItems.length > 0
-        ? Buffer.from(resultItems[resultItems.length - 1].createdAt).toString('base64')
+      enrichedItems.length > 0
+        ? Buffer.from(enrichedItems[enrichedItems.length - 1].createdAt).toString('base64')
         : undefined;
 
     logger.debug('[Timeline] Team timeline assembled', {
       teamCode,
       teamId,
       filter,
-      total: resultItems.length,
+      total: enrichedItems.length,
       hasMore,
     });
 
     return {
       success: true,
-      data: resultItems,
+      data: enrichedItems,
       nextCursor: hasMore ? nextCursor : undefined,
       hasMore,
     };
@@ -1125,7 +1261,7 @@ export class TimelineService {
       }
 
       const snap = await query.get();
-      return snap.docs.map((doc) => {
+      const results = snap.docs.map((doc) => {
         const d = doc.data();
         const rawStats = Array.isArray(d['stats']) ? d['stats'] : [];
         const createdAt =
@@ -1152,6 +1288,17 @@ export class TimelineService {
           },
         };
       });
+
+      results.sort((a, b) =>
+        compareCreatedAtDescWithSeasonTieBreaker(
+          a.data.createdAt,
+          b.data.createdAt,
+          a.data.season,
+          b.data.season
+        )
+      );
+
+      return results;
     } catch (err) {
       logger.error('[Timeline] Failed to fetch team stats', {
         teamId,

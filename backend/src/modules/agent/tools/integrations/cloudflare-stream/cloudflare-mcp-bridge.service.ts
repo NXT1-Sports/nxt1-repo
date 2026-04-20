@@ -201,9 +201,12 @@ export class CloudflareMcpBridgeService extends BaseMcpClientService {
    * The code has access to a global `cloudflare` object with a `.request()` method.
    */
   private async executeCode(code: string, timeoutMs: number, operation: string): Promise<unknown> {
+    // The CF executor calls the code as `(code)()` — it must be a self-contained
+    // async arrow function. Wrap bare statement blocks automatically.
+    const wrappedCode = code.trimStart().startsWith('async ()') ? code : `async () => { ${code} }`;
     const result = await this.executeTool(
       'execute',
-      { code, account_id: this.accountId },
+      { code: wrappedCode, account_id: this.accountId },
       { timeoutMs }
     );
 

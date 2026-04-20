@@ -72,18 +72,6 @@ describe('File Upload API', () => {
       expect(error?.code).toBe('EMPTY_FILE');
     });
 
-    it('should accept PDF for document category', () => {
-      const file: FileUploadMetadata = {
-        fileName: 'transcript.pdf',
-        mimeType: 'application/pdf',
-        size: 1024 * 1024,
-        category: 'document',
-      };
-
-      const error = validateFileForUpload(file);
-      expect(error).toBeNull();
-    });
-
     it('should accept WebP for profile photo', () => {
       const file: FileUploadMetadata = {
         fileName: 'photo.webp',
@@ -150,13 +138,6 @@ describe('File Upload API', () => {
       expect(rules.allowedTypes).toContain('image/png');
       expect(rules.allowedTypes).toContain('image/webp');
       expect(rules.allowedTypes).toContain('image/gif');
-    });
-
-    it('should have correct document rules', () => {
-      const rules = FILE_UPLOAD_RULES['document'];
-
-      expect(rules.maxSize).toBe(25 * 1024 * 1024); // 25MB
-      expect(rules.allowedTypes).toContain('application/pdf');
     });
   });
 

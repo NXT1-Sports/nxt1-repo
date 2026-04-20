@@ -34,6 +34,7 @@ import type {
   ProfileSeasonGameLog,
 } from '@nxt1/core';
 import { isTeamRole, isAthleteRole, USER_ROLES, getPositionAbbreviation } from '@nxt1/core';
+import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 /** Map a UserAward (User model) → ProfileAward (UI model). */
@@ -54,7 +55,7 @@ function mapConnectedSource(
   return {
     platform: src.platform,
     profileUrl: src.profileUrl,
-    faviconUrl: src.faviconUrl ?? undefined,
+    faviconUrl: src.faviconUrl ?? getPlatformFaviconUrl(src.platform) ?? undefined,
     lastSyncedAt:
       src.lastSyncedAt instanceof Date
         ? src.lastSyncedAt.toISOString()

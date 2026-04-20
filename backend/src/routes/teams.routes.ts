@@ -736,6 +736,17 @@ router.post(
       team.teamCode ?? undefined
     );
 
+    void dispatch(db, {
+      userId,
+      type: NOTIFICATION_TYPES.TEAM_JOIN_REQUEST,
+      title: `You joined ${team.teamName}`,
+      body: `Welcome to ${team.teamName}!`,
+      data: team.id ? { teamId: team.id } : undefined,
+      source: { teamName: team.teamName },
+    }).catch((err) =>
+      logger.error('[Teams] Failed to dispatch team_join_request notification', { error: err })
+    );
+
     // Fire-and-forget: notify team owner that a new member joined
     void (async () => {
       if (!team.id) return;
@@ -853,6 +864,45 @@ router.delete(
       String(id),
       existingTeam?.slug ?? undefined,
       existingTeam?.teamCode ?? undefined
+    );
+
+    void (async () => {
+      const teamName = existingTeam?.teamName ?? 'the team';
+      const normalizedTargetUserId = String(targetUserId);
+      const isSelfLeave = removerId === normalizedTargetUserId;
+
+      await dispatch(db, {
+        userId: normalizedTargetUserId,
+        type: NOTIFICATION_TYPES.TEAM_MEMBER_LEFT,
+        title: isSelfLeave ? `You left ${teamName}` : `You were removed from ${teamName}`,
+        body: isSelfLeave
+          ? `Your membership in ${teamName} has been removed.`
+          : `Your membership in ${teamName} was updated by a team admin.`,
+        deepLink: '/activity',
+        data: { teamId: String(id) },
+        source: { teamName },
+      });
+
+      const teamDoc = await db.collection('Teams').doc(String(id)).get();
+      const ownerId = teamDoc.data()?.['createdBy'] as string | undefined;
+      if (isSelfLeave || !ownerId || ownerId === removerId || ownerId === normalizedTargetUserId) {
+        return;
+      }
+
+      await dispatch(db, {
+        userId: ownerId,
+        type: NOTIFICATION_TYPES.TEAM_MEMBER_LEFT,
+        title: 'A member left your team',
+        body: `${teamName} has one fewer active member.`,
+        data: { teamId: String(id), memberUserId: normalizedTargetUserId },
+        source: { teamName },
+      });
+    })().catch((err) =>
+      logger.error('[Teams] Failed to dispatch team_member_left notification', {
+        error: err,
+        teamId: id,
+        targetUserId,
+      })
     );
 
     sendSuccess(res, { message: 'Member removed successfully' });
@@ -1210,7 +1260,15 @@ router.get(
     const cursor = req.query['cursor'] ? String(req.query['cursor']) : undefined;
     const sportId = req.query['sportId'] ? String(req.query['sportId']) : undefined;
 
-    const validFilters = new Set(['all', 'media', 'stats', 'games', 'schedule', 'recruiting', 'news']);
+    const validFilters = new Set([
+      'all',
+      'media',
+      'stats',
+      'games',
+      'schedule',
+      'recruiting',
+      'news',
+    ]);
     const resolvedFilter = validFilters.has(filter) ? filter : 'all';
 
     const cache = getCacheService();

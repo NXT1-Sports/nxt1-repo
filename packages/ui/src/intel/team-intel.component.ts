@@ -60,10 +60,10 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
         </div>
       } @else if (intel.isLoading()) {
         <div class="intel-skeleton" [attr.data-testid]="testIds.LOADING_SKELETON">
-          <div class="intel-skeleton-header animate-pulse"></div>
-          <div class="intel-skeleton-brief animate-pulse"></div>
-          <div class="intel-skeleton-cards animate-pulse"></div>
-          <div class="intel-skeleton-ratings animate-pulse"></div>
+          <div class="intel-skeleton-header"></div>
+          <div class="intel-skeleton-brief"></div>
+          <div class="intel-skeleton-cards"></div>
+          <div class="intel-skeleton-ratings"></div>
         </div>
       } @else if (intel.error() && !report()) {
         <div class="madden-empty" [attr.data-testid]="testIds.ERROR_STATE">
@@ -101,14 +101,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
             </svg>
           </div>
           <h3>No Team Intel Yet</h3>
-          <p>
-            @if (canGenerate()) {
-              Tap <strong>Generate Intel</strong> below to create the Agent X Intel report for this
-              program.
-            } @else {
-              No Intel report has been generated for this team yet.
-            }
-          </p>
+          <p>Start sharing your journey</p>
         </div>
       } @else {
         <div class="intel-stage" [attr.data-testid]="testIds.REPORT_CONTAINER">
@@ -246,9 +239,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
           <!-- ── Update Intel Guide (admin only) ── -->
           @if (canGenerate()) {
             <div class="intel-strengthen-guide" [attr.data-testid]="testIds.MISSING_DATA_SECTION">
-              <p>
-                Tap <strong>Update Intel</strong> below to refresh your report with the latest data.
-              </p>
+              <p>Tap <strong>Add Update</strong> to refresh your report with the latest data.</p>
             </div>
           }
 
@@ -298,6 +289,8 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
       }
 
       /* ─── Skeleton ─── */
+      /* Uses canonical --nxt1-skeleton-gradient token + global skeleton-shimmer keyframe
+         (defined in @nxt1/ui/styles/base/skeleton.css) — same pattern as explore/profile skeletons. */
       .intel-skeleton {
         display: flex;
         flex-direction: column;
@@ -307,8 +300,19 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
       .intel-skeleton-brief,
       .intel-skeleton-cards,
       .intel-skeleton-ratings {
-        border-radius: var(--intel-radius-sm);
-        background: var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08));
+        border-radius: var(--nxt1-skeleton-radius-md, 8px);
+        background: var(
+          --nxt1-skeleton-gradient,
+          linear-gradient(
+            90deg,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 25%,
+            var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.15)) 50%,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 75%
+          )
+        );
+        background-size: 200% 100%;
+        animation: skeleton-shimmer var(--nxt1-skeleton-animation-duration, 1.5s)
+          var(--nxt1-skeleton-animation-timing, ease-in-out) infinite;
       }
       .intel-skeleton-header {
         height: 64px;
@@ -321,18 +325,6 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
       }
       .intel-skeleton-ratings {
         height: 160px;
-      }
-      .animate-pulse {
-        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-      }
-      @keyframes pulse {
-        0%,
-        100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.5;
-        }
       }
 
       /* ─── Empty / Madden State ─── */

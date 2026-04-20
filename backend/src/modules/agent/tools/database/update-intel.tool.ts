@@ -25,7 +25,10 @@ export class UpdateIntelTool extends BaseTool {
       },
       entityId: {
         type: 'string',
-        description: 'The athlete userId or teamId whose Intel section should be updated.',
+        description:
+          'The athlete userId or teamId whose Intel section should be updated. ' +
+          'Omit this field when updating for the currently authenticated user — ' +
+          'the system will resolve their ID automatically.',
       },
       sectionId: {
         type: 'string',
@@ -48,10 +51,15 @@ export class UpdateIntelTool extends BaseTool {
           'Team sections: agent_overview, team, stats, recruiting, schedule.',
       },
     },
-    required: ['entityType', 'entityId', 'sectionId'],
+    required: ['entityType', 'sectionId'],
   } as const;
 
-  override readonly allowedAgents = ['performance_coordinator', 'general'] as const;
+  override readonly allowedAgents = [
+    'data_coordinator',
+    'performance_coordinator',
+    'recruiting_coordinator',
+    'general',
+  ] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
 
@@ -64,7 +72,9 @@ export class UpdateIntelTool extends BaseTool {
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
     const entityTypeRaw = this.str(input, 'entityType');
-    const entityId = this.str(input, 'entityId');
+    // Prefer LLM-supplied entityId; fall back to the authenticated user's UID for athlete.
+    const entityId =
+      this.str(input, 'entityId') || (entityTypeRaw === 'athlete' ? (context?.userId ?? '') : '');
     const sectionId = this.str(input, 'sectionId');
 
     if (!entityTypeRaw || (entityTypeRaw !== 'athlete' && entityTypeRaw !== 'team')) {

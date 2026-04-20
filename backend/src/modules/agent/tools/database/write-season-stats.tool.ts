@@ -33,6 +33,7 @@ import {
 } from '../../sync/index.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 import { logger } from '../../../../utils/logger.js';
+import { resolveCreatedAt, seasonToDate } from './doc-date-utils.js';
 
 type SupportedTeamType = 'school' | 'club' | 'college';
 
@@ -252,7 +253,7 @@ export class WriteSeasonStatsTool extends BaseTool {
             provider: source,
             extractedAt: now,
             ...(sourceUrl ? { sourceUrl } : {}),
-            createdAt: existingData?.['createdAt'] ?? now,
+            createdAt: resolveCreatedAt(existingData?.['createdAt'], seasonToDate(season), now),
             updatedAt: now,
           },
           { merge: true }

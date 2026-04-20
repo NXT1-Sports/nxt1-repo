@@ -30,7 +30,7 @@ import {
   ScraperMediaService,
   type MediaInput,
   type PersistedMedia,
-  type MediaStagingContext,
+  type MediaThreadContext,
 } from './scraper-media.service.js';
 import { logger } from '../../../../../utils/logger.js';
 
@@ -131,7 +131,7 @@ export class ScrapeInstagramTool extends BaseTool {
     }
 
     // Build staging context for thread-scoped media storage
-    const staging: MediaStagingContext | undefined =
+    const staging: MediaThreadContext | undefined =
       context?.userId && context?.threadId
         ? { userId: context.userId, threadId: context.threadId }
         : undefined;
@@ -175,7 +175,7 @@ export class ScrapeInstagramTool extends BaseTool {
 
   private async handlePosts(
     input: Record<string, unknown>,
-    staging?: MediaStagingContext
+    staging?: MediaThreadContext
   ): Promise<ToolResult> {
     const usernames = this.extractInstagramUsernames(input);
     if (usernames.length === 0) {
@@ -213,7 +213,7 @@ export class ScrapeInstagramTool extends BaseTool {
 
   private async handleProfile(
     input: Record<string, unknown>,
-    staging?: MediaStagingContext
+    staging?: MediaThreadContext
   ): Promise<ToolResult> {
     const usernames = this.extractInstagramUsernames(input);
     if (usernames.length === 0) {
@@ -246,7 +246,7 @@ export class ScrapeInstagramTool extends BaseTool {
 
   private async handleHashtag(
     input: Record<string, unknown>,
-    staging?: MediaStagingContext
+    staging?: MediaThreadContext
   ): Promise<ToolResult> {
     const query = this.str(input, 'query');
     if (!query) {
@@ -338,7 +338,7 @@ export class ScrapeInstagramTool extends BaseTool {
    */
   private async persistPostMedia(
     posts: readonly InstagramPost[],
-    staging?: MediaStagingContext
+    staging?: MediaThreadContext
   ): Promise<PersistedMedia[]> {
     const inputs: MediaInput[] = [];
 
@@ -362,6 +362,12 @@ export class ScrapeInstagramTool extends BaseTool {
     }
 
     if (inputs.length === 0) return [];
+    if (!staging) {
+      logger.warn(
+        '[ScrapeInstagramTool] Skipping media persistence — no userId/threadId in context'
+      );
+      return [];
+    }
 
     try {
       return await this.media.persistBatch(inputs, staging);
@@ -378,7 +384,7 @@ export class ScrapeInstagramTool extends BaseTool {
    */
   private async persistProfileMedia(
     profiles: readonly InstagramProfile[],
-    staging?: MediaStagingContext
+    staging?: MediaThreadContext
   ): Promise<PersistedMedia[]> {
     const inputs: MediaInput[] = profiles
       .filter((p) => p.profilePicUrl || p.profilePicUrlHD)
@@ -391,6 +397,12 @@ export class ScrapeInstagramTool extends BaseTool {
       }));
 
     if (inputs.length === 0) return [];
+    if (!staging) {
+      logger.warn(
+        '[ScrapeInstagramTool] Skipping profile media persistence — no userId/threadId in context'
+      );
+      return [];
+    }
 
     try {
       return await this.media.persistBatch(inputs, staging);

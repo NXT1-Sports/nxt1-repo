@@ -72,7 +72,11 @@ export function setAgentDependencies(deps: {
 
 // ─── Constants ───────────────────────────────────────────────────────────
 
-/** Maximum agentic loop iterations per chat request. */
+/**
+ * Fallback maximum agentic loop iterations per chat request.
+ * The live value is read from `AppConfig/agentConfig` → `maxAgenticTurns` in Firestore.
+ * This constant is only used if the Firestore doc is absent.
+ */
 export const MAX_AGENTIC_TURNS = 6;
 
 /** Maximum lifetime for an entry in the activeAbortControllers map (10 minutes). */
@@ -243,14 +247,17 @@ export async function resolveThread(
 export function replayJobEventsAsSSE(
   res: Response,
   events: ReadonlyArray<{
+    seq?: number;
     type: string;
     text?: string;
     toolName?: string;
     message?: string;
     toolSuccess?: boolean;
-  }>
+  }>,
+  afterSeq = -1
 ): void {
   for (const evt of events) {
+    if (afterSeq >= 0 && (evt.seq ?? 0) <= afterSeq) continue;
     switch (evt.type) {
       case 'delta':
         if (evt.text) {

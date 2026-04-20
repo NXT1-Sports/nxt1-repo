@@ -18,7 +18,6 @@ import type {
   HelpArticle,
   FaqItem,
   HelpCategoryId,
-  HelpUserType,
   HelpCenterApi,
   HelpCenterHome,
   HelpCategoryDetail,
@@ -64,7 +63,8 @@ export class HelpCenterService {
   private readonly _selectedCategory = signal<HelpCategoryId | null>(null);
   private readonly _articles = signal<HelpArticle[]>([]);
   private readonly _faqs = signal<FaqItem[]>([]);
-  private readonly _userRole = signal<HelpUserType | null>(null);
+  /** Home FAQs — set ONLY by loadHome(), never overwritten by loadCategory() */
+  private readonly _popularFaqs = signal<FaqItem[]>([]);
   private readonly _error = signal<string | null>(null);
   private readonly _homeData = signal<HelpCenterHome | null>(null);
   private readonly _categoryDetail = signal<HelpCategoryDetail | null>(null);
@@ -78,7 +78,6 @@ export class HelpCenterService {
   readonly loading = computed(() => this._loading());
   readonly searchQuery = computed(() => this._searchQuery());
   readonly selectedCategory = computed(() => this._selectedCategory());
-  readonly userRole = computed(() => this._userRole());
   readonly error = computed(() => this._error());
   readonly homeData = computed(() => this._homeData());
   readonly categoryDetail = computed(() => this._categoryDetail());
@@ -86,41 +85,30 @@ export class HelpCenterService {
   readonly pagination = computed(() => this._pagination());
   readonly searchResults = computed(() => this._searchResults());
 
-  /** Categories filtered by user role */
-  readonly categories = computed<readonly HelpCategory[]>(() => {
-    const role = this._userRole();
-    return HELP_CATEGORIES.filter((c) => this.matchesRole(c.targetUsers, role));
-  });
+  /** All categories */
+  readonly categories = computed<readonly HelpCategory[]>(() => [...HELP_CATEGORIES]);
 
-  /** Featured articles filtered by user role (top 3) */
+  /** Featured articles (top 3) */
   readonly featuredArticles = computed(() =>
     this._articles()
-      .filter((a) => a.isFeatured && this.matchesRole(a.targetUsers, this._userRole()))
+      .filter((a) => a.isFeatured)
       .slice(0, 3)
   );
 
-  /** All articles filtered by user role */
-  readonly articles = computed(() =>
-    this._articles().filter((a) => this.matchesRole(a.targetUsers, this._userRole()))
-  );
+  /** All articles */
+  readonly articles = computed(() => this._articles());
 
-  /** All FAQs filtered by user role */
-  readonly faqs = computed(() =>
-    this._faqs().filter((f) => this.matchesRole(f.targetUsers, this._userRole()))
-  );
+  /** All FAQs */
+  readonly faqs = computed(() => this._faqs());
 
-  /** Quick actions filtered by user role */
-  readonly quickActions = computed(() => {
-    const role = this._userRole();
-    return HELP_QUICK_ACTIONS.filter((a) => this.matchesRole(a.targetUsers, role));
-  });
+  /** Quick actions */
+  readonly quickActions = computed(() => [...HELP_QUICK_ACTIONS]);
 
-  /** Filtered articles based on search, category, and user role */
+  /** Filtered articles based on search and category */
   readonly filteredArticles = computed(() => {
     const query = this._searchQuery().toLowerCase().trim();
     const category = this._selectedCategory();
-    const role = this._userRole();
-    let results = this._articles().filter((a) => this.matchesRole(a.targetUsers, role));
+    let results = [...this._articles()];
 
     if (category) {
       results = results.filter((a) => a.category === category);
@@ -138,12 +126,11 @@ export class HelpCenterService {
     return results;
   });
 
-  /** Filtered FAQs based on search, category, and user role */
+  /** Filtered FAQs based on search and category */
   readonly filteredFaqs = computed(() => {
     const query = this._searchQuery().toLowerCase().trim();
     const category = this._selectedCategory();
-    const role = this._userRole();
-    let results = this._faqs().filter((f) => this.matchesRole(f.targetUsers, role));
+    let results = [...this._faqs()];
 
     if (category) {
       results = results.filter((f) => f.category === category);
@@ -158,12 +145,9 @@ export class HelpCenterService {
     return results;
   });
 
-  /** Popular FAQs filtered by user role (sorted by helpful count) */
+  /** Popular FAQs — all home FAQs in backend-defined order, never filtered by category */
   readonly popularFaqs = computed(() =>
-    [...this._faqs()]
-      .filter((f) => this.matchesRole(f.targetUsers, this._userRole()))
-      .sort((a, b) => b.helpfulCount - a.helpfulCount)
-      .slice(0, 5)
+    [...this._popularFaqs()].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
   );
 
   /** Whether there are search results */
@@ -187,15 +171,17 @@ export class HelpCenterService {
 
     this._loading.set(true);
     this._error.set(null);
+    this._selectedCategory.set(null);
     this.logger.info('Loading help center home');
     this.breadcrumb.trackStateChange('help-center:loading');
 
     try {
-      const response = await this.api.getHome(this._userRole() ?? undefined);
+      const response = await this.api.getHome();
       if (response.data) {
         this._homeData.set(response.data);
         this._articles.set(response.data.popularArticles ?? []);
         this._faqs.set(response.data.topFaqs ?? []);
+        this._popularFaqs.set(response.data.topFaqs ?? []);
         this.logger.info('Help center home loaded', {
           articles: response.data.popularArticles?.length ?? 0,
           faqs: response.data.topFaqs?.length ?? 0,
@@ -304,7 +290,7 @@ export class HelpCenterService {
     this.breadcrumb.trackStateChange('help-center:searching', { query });
 
     try {
-      const response = await this.api.search({ query, userType: this._userRole() ?? undefined });
+      const response = await this.api.search({ query });
       if (response.data) {
         this._searchResults.set(response.data.results ?? []);
         this.logger.info('Search complete', {
@@ -358,16 +344,8 @@ export class HelpCenterService {
   // Sync Actions (local state management)
   // ============================================
 
-  /**
-   * Set the current user role for content filtering.
-   * Pass null to show all content (unauthenticated users).
-   */
-  setUserRole(role: HelpUserType | null): void {
-    this._userRole.set(role);
-  }
-
-  setSearchQuery(query: string): void {
-    this._searchQuery.set(query);
+  setSearchQuery(query: string | null | undefined): void {
+    this._searchQuery.set(query ?? '');
   }
 
   setCategory(categoryId: HelpCategoryId | null): void {
@@ -398,34 +376,10 @@ export class HelpCenterService {
   }
 
   getArticlesByCategory(categoryId: HelpCategoryId): HelpArticle[] {
-    const role = this._userRole();
-    return this._articles().filter(
-      (a) => a.category === categoryId && this.matchesRole(a.targetUsers, role)
-    );
+    return this._articles().filter((a) => a.category === categoryId);
   }
 
   getFaqsByCategory(categoryId: HelpCategoryId): FaqItem[] {
-    const role = this._userRole();
-    return this._faqs().filter(
-      (f) => f.category === categoryId && this.matchesRole(f.targetUsers, role)
-    );
-  }
-
-  // ============================================
-  // Private Helpers
-  // ============================================
-
-  /**
-   * Checks if content should be visible to the given user role.
-   * Content with 'all' in targetUsers is always visible.
-   * If no role is set (null), all content is shown.
-   */
-  private matchesRole(
-    targetUsers: readonly HelpUserType[] | undefined,
-    role: HelpUserType | null
-  ): boolean {
-    if (!targetUsers || targetUsers.length === 0 || targetUsers.includes('all')) return true;
-    if (!role) return true;
-    return targetUsers.includes(role);
+    return this._faqs().filter((f) => f.category === categoryId);
   }
 }

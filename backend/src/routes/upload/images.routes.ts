@@ -5,7 +5,7 @@ import { getStorage } from 'firebase-admin/storage';
 import { asyncHandler } from '@nxt1/core/errors/express';
 import { fieldError, forbiddenError } from '@nxt1/core/errors';
 import { FILE_UPLOAD_RULES, formatFileSize } from '@nxt1/core';
-import type { FileCategory, FileUploadResult } from '@nxt1/core';
+import type { FileCategory } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
 import {
   type ExtendedFileUploadResult,
@@ -30,7 +30,6 @@ router.post(
   upload.single('file'),
   asyncHandler(async (req: Request, res: Response) => {
     const userId = req.user!.uid;
-    const { fileName } = req.body;
     const file = req.file;
 
     if (!file) {
@@ -58,7 +57,7 @@ router.post(
     // Convert to JPEG for extension compatibility
     const jpegBuffer = await sharp(optimized.buffer).jpeg({ quality: 90 }).toBuffer();
 
-    const mainPath = buildExtensionCompatiblePath(userId, category, fileName);
+    const mainPath = buildExtensionCompatiblePath(userId, category);
     const mainUrl = await uploadToStorage(jpegBuffer, mainPath, 'image/jpeg', bucket);
 
     const thumbnailPaths = getExtensionThumbnailPaths(mainPath);
@@ -211,56 +210,6 @@ router.post(
 );
 
 // ============================================
-// POST /document
-// ============================================
-
-router.post(
-  '/document',
-  upload.single('file'),
-  asyncHandler(async (req: Request, res: Response) => {
-    const userId = req.user!.uid;
-    const { fileName } = req.body;
-    const file = req.file;
-
-    if (!file) {
-      throw fieldError('file', 'File is required', 'required');
-    }
-
-    const category: FileCategory = 'document';
-    const rules = FILE_UPLOAD_RULES[category];
-
-    if (file.size > rules.maxSize) {
-      throw fieldError(
-        'file',
-        `File must be smaller than ${formatFileSize(rules.maxSize)}`,
-        'maxSize'
-      );
-    }
-
-    logger.info('Processing document upload', {
-      userId,
-      size: formatFileSize(file.size),
-      mimeType: file.mimetype,
-    });
-
-    const originalFileName = fileName || file.originalname;
-    const mainPath = buildStoragePath(userId, category, originalFileName);
-    const mainUrl = await uploadToStorage(file.buffer, mainPath, file.mimetype);
-
-    const result: FileUploadResult = {
-      url: mainUrl,
-      storagePath: mainPath,
-      size: file.size,
-      mimeType: file.mimetype,
-    };
-
-    logger.info('Document upload complete', { userId, url: mainUrl });
-
-    res.json({ success: true, data: result });
-  })
-);
-
-// ============================================
 // DELETE /file
 // ============================================
 
@@ -373,7 +322,7 @@ router.post(
 
     const storagePath =
       category === 'profile-photo'
-        ? buildExtensionCompatiblePath(userId, category as FileCategory, fileName)
+        ? buildExtensionCompatiblePath(userId, category as FileCategory)
         : buildStoragePath(userId, category as FileCategory, fileName);
 
     const bucket = req.firebase?.storage?.bucket() || getStorage().bucket();

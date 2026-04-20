@@ -333,6 +333,29 @@ service cloud.firestore {
     }
     
     // ============================================
+    // AGENT JOBS COLLECTION
+    // ============================================
+
+    match /AgentJobs/{operationId} {
+      // Read: Only the user who owns the job (single-doc get only)
+      allow get: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      // List: Deny direct collection listing — users query via backend API
+      allow list: if false;
+      // Write: Only backend Admin SDK
+      allow write: if false;
+
+      // Events subcollection — live-streamed to the frontend via onSnapshot.
+      // Ownership is verified by reading the parent AgentJobs document so that
+      // both single-doc get() and collection list/onSnapshot operations work.
+      // (resource.data is null for list operations, so we must use get() here.)
+      match /events/{eventId} {
+        allow read: if isAuthenticated()
+          && get(/databases/$(database)/documents/AgentJobs/$(operationId)).data.userId == request.auth.uid;
+        allow write: if false;
+      }
+    }
+
+    // ============================================
     // DENY ALL OTHER ACCESS
     // ============================================
     

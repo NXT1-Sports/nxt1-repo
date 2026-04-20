@@ -28,7 +28,7 @@
 
 import Firecrawl from '@mendable/firecrawl-js';
 import type { ScrapeExecuteResponse } from '@mendable/firecrawl-js';
-import { PLATFORM_REGISTRY } from '@nxt1/core';
+import { PLATFORM_REGISTRY } from '@nxt1/core/platforms';
 import type {
   LiveViewSession,
   LiveViewDestinationTier,

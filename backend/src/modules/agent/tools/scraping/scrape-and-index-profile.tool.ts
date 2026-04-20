@@ -26,6 +26,7 @@ import { OpenRouterService } from '../../llm/openrouter.service.js';
 import { logger } from '../../../../utils/logger.js';
 import { getCacheService } from '../../../../services/cache.service.js';
 import { createHash } from 'crypto';
+import { parallelBatch } from '../../../agent/utils/parallel-batch.js';
 
 // ─── Scrape Cooldown ────────────────────────────────────────────────────────
 
@@ -328,57 +329,74 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
     }
 
     try {
-      // ── Step 1: Scrape the page ─────────────────────────────────────
+      // ── Step 1: Scrape the main page ────────────────────────────────
       const progress = context?.onProgress;
-      progress?.(`Scraping ${new URL(cleanUrl).hostname}…`);
+      const hostname = new URL(cleanUrl).hostname;
+      progress?.(`Scraping ${hostname} (main page)…`);
       const result = await this.scraper.scrape({ url: cleanUrl, signal: context?.signal });
 
-      // ── Step 1b: Detect & fetch stats sub-page if available ─────────
-      // Many platforms (MaxPreps, etc.) have the full game-by-game stats
+      // ── Step 1b: Detect & fetch stats sub-pages in parallel ─────────
+      // Many platforms (MaxPreps, etc.) render the full game-by-game stats
       // table on a separate sub-page linked from the main profile.
-      // We detect these links and append the stats table content so the
-      // AI distiller has the complete dataset.
+      // We detect these links and fetch ALL of them concurrently via
+      // parallelBatch so the AI distiller receives the complete dataset
+      // without sequential round-trips adding to wall-clock time.
       let combinedMarkdown = result.markdownContent;
       const statsUrls = this.detectStatsPageUrls(result.markdownContent, cleanUrl);
 
       if (statsUrls.length > 0) {
-        logger.info('[ScrapeAndIndex] Detected stats sub-pages, fetching', {
+        logger.info('[ScrapeAndIndex] Detected stats sub-pages, fetching in parallel', {
           count: statsUrls.length,
           urls: statsUrls,
         });
-        for (const statsUrl of statsUrls) {
-          try {
-            const statsResult = await this.scraper.scrape({
-              url: statsUrl,
-              signal: context?.signal,
-            });
+        progress?.(
+          `Fetching ${statsUrls.length} stats sub-page${statsUrls.length > 1 ? 's' : ''} in parallel…`
+        );
+
+        const subPageResults = await parallelBatch(
+          statsUrls,
+          (statsUrl) => this.scraper.scrape({ url: statsUrl, signal: context?.signal }),
+          {
+            concurrency: 4, // matches the caps in detectStatsPageUrls
+            signal: context?.signal,
+            onProgress: (done, total) => progress?.(`Fetching stats sub-pages (${done}/${total})…`),
+          }
+        );
+
+        let pagesAppended = 0;
+        for (const r of subPageResults) {
+          if (r.status === 'fulfilled') {
+            const { value: statsResult } = r;
             if (statsResult.markdownContent && statsResult.markdownContent.length > 200) {
               combinedMarkdown +=
                 '\n\n═══ STATS PAGE DATA (from ' +
-                statsUrl +
+                statsUrls[r.index] +
                 ') ═══\n\n' +
                 statsResult.markdownContent;
+              pagesAppended++;
             }
-          } catch (err) {
-            // Non-fatal — continue with other stats pages
+          } else {
+            // Non-fatal — log and continue with the data we have
             logger.warn('[ScrapeAndIndex] Stats sub-page fetch failed', {
-              statsUrl,
-              error: err instanceof Error ? err.message : String(err),
+              statsUrl: statsUrls[r.index],
+              error: r.reason.message,
             });
           }
         }
-        if (combinedMarkdown.length > result.markdownContent.length) {
+
+        if (pagesAppended > 0) {
           logger.info('[ScrapeAndIndex] Stats sub-pages appended', {
             mainLength: result.markdownContent.length,
             combinedLength: combinedMarkdown.length,
-            pagesAppended: statsUrls.length,
+            pagesAppended,
           });
         }
       }
 
       // ── Step 2: AI Distillation (primary extraction path) ──────────
       if (this.llm) {
-        progress?.('Running AI extraction on page content…');
+        const charCount = combinedMarkdown.length.toLocaleString();
+        progress?.(`Running AI extraction (${charCount} chars)…`);
         const distilled = await distillWithAI(
           cleanUrl,
           combinedMarkdown,

@@ -109,7 +109,6 @@ function createFullUserDoc() {
       targetDivisions: ['D1', 'D2'],
       targetColleges: ['Georgia', 'Texas', 'Ohio State'],
       recruitingStatus: 'active',
-      commitmentStatus: 'uncommitted',
     },
     social: [
       { platform: 'twitter', connected: true, lastSyncedAt: '2026-01-15T00:00:00Z' },
@@ -302,7 +301,6 @@ describe('ContextBuilder', () => {
       expect(ctx.targetDivisions).toEqual(['D1', 'D2']);
       expect(ctx.targetColleges).toEqual(['Georgia', 'Texas', 'Ohio State']);
       expect(ctx.recruitingStatus).toBe('active');
-      expect(ctx.commitmentStatus).toBe('uncommitted');
     });
 
     it('should map connected accounts from social, sources, and emails', async () => {
@@ -490,7 +488,6 @@ describe('ContextBuilder', () => {
       expect(prompt).toContain('Weight: 195lb');
       expect(prompt).toContain('Targets: D1, D2');
       expect(prompt).toContain('Top Schools: Georgia, Texas, Ohio State');
-      expect(prompt).toContain('Status: uncommitted');
       expect(prompt).toContain('Connected: maxpreps, gmail');
       expect(prompt).not.toContain('Profile:');
       expect(prompt).not.toContain('Views:');

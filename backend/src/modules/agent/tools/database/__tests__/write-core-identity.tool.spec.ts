@@ -86,7 +86,7 @@ vi.mock('../../../triggers/trigger.listeners.js', () => ({
   onDailySyncComplete: mockOnDailySyncComplete,
 }));
 
-vi.mock('../../integrations/scraper-media.service.js', () => ({
+vi.mock('../../integrations/social/scraper-media.service.js', () => ({
   ScraperMediaService: {
     promoteMedia: mockPromoteMedia,
   },
@@ -619,7 +619,7 @@ describe('WriteCoreIdentityTool', () => {
     expect(payload).toHaveProperty('classOf', 2027);
     expect(payload).toHaveProperty('location');
     expect(payload).toHaveProperty('academics');
-    expect(payload).toHaveProperty('awards');
+    // awards are written to the root Awards collection by write_awards tool — NOT user doc
     expect(payload).toHaveProperty('teamHistory');
     expect(payload).toHaveProperty('profileImgs');
     expect(payload).toHaveProperty('connectedSources');
@@ -696,5 +696,130 @@ describe('WriteCoreIdentityTool', () => {
     expect(team['teamId']).toBe('team_123');
     expect(team['organizationId']).toBe('org_123');
     expect(teamRef.set).not.toHaveBeenCalled();
+  });
+
+  it('overwrites existing non-manual height/weight in measurables[] on second scrape', async () => {
+    const { db, userRef } = createMockFirestore({
+      userData: {
+        role: 'athlete',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+        // Existing measurables from a prior scrape (no manual flag)
+        measurables: [
+          { id: 'height_old', field: 'height', label: 'Height', value: "6'0\"", unit: '', category: 'physical' },
+          { id: 'weight_old', field: 'weight', label: 'Weight', value: '175', unit: 'lbs', category: 'physical' },
+        ],
+      },
+      teamData: { organizationId: 'org_123', teamCode: 'team-code', unicode: 'team-unicode' },
+      organizationData: {},
+    });
+
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'user_123',
+      targetUserId: 'user_123',
+      targetRole: 'athlete',
+      targetUserData: {
+        role: 'athlete',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+        measurables: [
+          { id: 'height_old', field: 'height', label: 'Height', value: "6'0\"", unit: '', category: 'physical' },
+          { id: 'weight_old', field: 'weight', label: 'Weight', value: '175', unit: 'lbs', category: 'physical' },
+        ],
+      },
+      isSelfWrite: true,
+      sharedTeamIds: [],
+      sharedOrganizationIds: [],
+      sharedSports: [],
+    });
+
+    const tool = new WriteCoreIdentityTool(db as never);
+    const result = await tool.execute(
+      buildInput({
+        identity: {
+          firstName: 'Jordan',
+          lastName: 'Smith',
+          height: "6'2\"",
+          weight: '185',
+          classOf: 2027,
+        },
+      }),
+      { userId: 'user_123' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(userRef.update).toHaveBeenCalledTimes(1);
+
+    const payload = userRef.update.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload).toHaveProperty('measurables');
+
+    const measurables = payload['measurables'] as Array<Record<string, unknown>>;
+    const height = measurables.find((m) => m['field'] === 'height');
+    const weight = measurables.find((m) => m['field'] === 'weight');
+
+    // Values should be updated, not the old ones
+    expect(height?.['value']).toBe("6'2\"");
+    expect(weight?.['value']).toBe('185');
+  });
+
+  it('does not overwrite manual height/weight entry set by the user', async () => {
+    const { db, userRef } = createMockFirestore({
+      userData: {
+        role: 'athlete',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+        // User manually set their own height — protected from agent overwrite
+        measurables: [
+          { id: 'height', field: 'height', label: 'Height', value: "6'1\"", unit: 'ft', category: 'physical', manual: true },
+          { id: 'weight', field: 'weight', label: 'Weight', value: '180', unit: 'lbs', category: 'physical', manual: true },
+        ],
+      },
+      teamData: { organizationId: 'org_123', teamCode: 'team-code', unicode: 'team-unicode' },
+      organizationData: {},
+    });
+
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'user_123',
+      targetUserId: 'user_123',
+      targetRole: 'athlete',
+      targetUserData: {
+        role: 'athlete',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+        measurables: [
+          { id: 'height', field: 'height', label: 'Height', value: "6'1\"", unit: 'ft', category: 'physical', manual: true },
+          { id: 'weight', field: 'weight', label: 'Weight', value: '180', unit: 'lbs', category: 'physical', manual: true },
+        ],
+      },
+      isSelfWrite: true,
+      sharedTeamIds: [],
+      sharedOrganizationIds: [],
+      sharedSports: [],
+    });
+
+    const tool = new WriteCoreIdentityTool(db as never);
+    const result = await tool.execute(
+      buildInput({
+        identity: {
+          firstName: 'Jordan',
+          lastName: 'Smith',
+          height: "6'3\"",  // Agent scraped different value
+          weight: '200',
+          classOf: 2027,
+        },
+      }),
+      { userId: 'user_123' }
+    );
+
+    expect(result.success).toBe(true);
+
+    // If update was called, the manual values must be preserved
+    if (userRef.update.mock.calls.length > 0) {
+      const payload = userRef.update.mock.calls[0][0] as Record<string, unknown>;
+      if (payload['measurables']) {
+        const measurables = payload['measurables'] as Array<Record<string, unknown>>;
+        const height = measurables.find((m) => m['field'] === 'height');
+        const weight = measurables.find((m) => m['field'] === 'weight');
+        // Manual entries must NOT be overwritten by agent scrape
+        expect(height?.['value']).toBe("6'1\"");
+        expect(weight?.['value']).toBe('180');
+      }
+    }
   });
 });

@@ -708,7 +708,7 @@ export class TeamPage {
         contextType: 'command',
         initialMessage: hasReport
           ? `I want to update my team's Intel report. What information or recent results should I include to strengthen it?`
-          : `I want to build an Intel Intel report for my team. What information do you need from me to create the best possible report?`,
+          : `I want to build an Agent X Intel report for my team. What information do you need from me to create the best possible report?`,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

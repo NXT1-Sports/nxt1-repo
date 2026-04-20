@@ -135,6 +135,119 @@ router.post(
 
       logger.info('Playbook item status updated', { userId: user.uid, itemId, status });
 
+      // ── Per-goal completion check ──────────────────────────────────────
+      // When an item is marked complete, check whether ALL items for its
+      // linked goal are now done.  If so, auto-mark the goal as completed
+      // in goal_history so both levels stay in sync.
+      if (status === 'complete' || status === 'snoozed') {
+        const checkDoc = await playbooksRef.orderBy('generatedAt', 'desc').limit(1).get();
+        if (!checkDoc.empty) {
+          const allItems = (checkDoc.docs[0].data()?.['items'] ?? []) as ShellWeeklyPlaybookItem[];
+          const nonSnoozed = allItems.filter((i) => i.status !== 'snoozed');
+          const allDone = nonSnoozed.length > 0 && nonSnoozed.every((i) => i.status === 'complete');
+
+          // Check per-goal completion (fire-and-forget, non-blocking)
+          void (async () => {
+            try {
+              const goalHistoryRef = db
+                .collection('Users')
+                .doc(user.uid)
+                .collection('goal_history');
+              // Build a map of goalId → all items for that goal
+              const goalItemMap = new Map<string, ShellWeeklyPlaybookItem[]>();
+              for (const item of allItems) {
+                if (item.goal?.id) {
+                  const bucket = goalItemMap.get(item.goal.id) ?? [];
+                  bucket.push(item);
+                  goalItemMap.set(item.goal.id, bucket);
+                }
+              }
+
+              const now = new Date().toISOString();
+              const playbookId = checkDoc.docs[0].id;
+              for (const [goalId, goalItems] of goalItemMap) {
+                const nonSnoozedGoalItems = goalItems.filter((i) => i.status !== 'snoozed');
+                const allGoalItemsDone =
+                  nonSnoozedGoalItems.length > 0 &&
+                  nonSnoozedGoalItems.every((i) => i.status === 'complete');
+                const completedCount = goalItems.filter((i) => i.status === 'complete').length;
+                const histDoc = await goalHistoryRef.doc(goalId).get();
+                if (!histDoc.exists) continue;
+
+                const completedItems = goalItems
+                  .filter((i) => i.status === 'complete')
+                  .map((i) => ({ id: i.id, title: i.title, completedAt: now }));
+                const pendingItems = goalItems
+                  .filter((i) => i.status !== 'complete' && i.status !== 'snoozed')
+                  .map((i) => ({ id: i.id, title: i.title }));
+
+                const update: Record<string, unknown> = {
+                  itemsTotal: goalItems.length,
+                  itemsCompleted: completedCount,
+                  completedItems,
+                  pendingItems,
+                };
+
+                if (allGoalItemsDone && !histDoc.data()?.['isCompleted']) {
+                  update['isCompleted'] = true;
+                  update['completedAt'] = now;
+                  update['completionSource'] = 'all_items_done';
+                  logger.info('Goal auto-completed via all items done', {
+                    userId: user.uid,
+                    goalId,
+                    itemCount: goalItems.length,
+                  });
+                }
+
+                await goalHistoryRef.doc(goalId).update(update);
+
+                // ── Keep cycle record in sync ──────────────────────────────
+                // Update the immutable cycle doc for this playbook so the
+                // per-cycle audit trail reflects real-time item progress.
+                try {
+                  const cycleUpdate: Record<string, unknown> = {
+                    itemsCompleted: completedCount,
+                    itemsTotal: goalItems.length,
+                    completedItems,
+                    pendingItems,
+                  };
+                  if (allGoalItemsDone && !histDoc.data()?.['isCompleted']) {
+                    cycleUpdate['isCompleted'] = true;
+                    cycleUpdate['completedAt'] = now;
+                  }
+                  await goalHistoryRef
+                    .doc(goalId)
+                    .collection('cycles')
+                    .doc(playbookId)
+                    .update(cycleUpdate);
+                } catch {
+                  // Cycle doc may not exist for legacy playbooks — ignore
+                }
+              }
+            } catch (goalErr) {
+              logger.warn('Failed to auto-complete goal after item completion', {
+                userId: user.uid,
+                error: goalErr instanceof Error ? goalErr.message : String(goalErr),
+              });
+            }
+          })();
+
+          if (allDone) {
+            logger.info('All playbook tasks complete — regenerating playbook', {
+              userId: user.uid,
+            });
+            getGenerationService()
+              .generateWeeklyPlaybook(user.uid, true)
+              .catch((err) =>
+                logger.warn('Playbook regeneration after all-complete failed', {
+                  userId: user.uid,
+                  error: err instanceof Error ? err.message : String(err),
+                })
+              );
+          }
+        }
+      }
+
       res.json({ success: true, data: updatedItem });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));

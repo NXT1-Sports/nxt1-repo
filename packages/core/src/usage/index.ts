@@ -5,6 +5,7 @@
 
 // Types
 export type {
+  UsageSection,
   UsagePeriod,
   UsageTimeframe,
   UsageOverview,

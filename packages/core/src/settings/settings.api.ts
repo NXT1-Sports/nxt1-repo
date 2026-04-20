@@ -52,6 +52,9 @@ export interface SettingsApi {
   /** Change password */
   changePassword(currentPassword: string, newPassword: string): Promise<void>;
 
+  /** Record a completed password change after the auth provider confirms success */
+  recordPasswordChanged(): Promise<void>;
+
   /** Delete account */
   deleteAccount(password: string): Promise<void>;
 
@@ -149,6 +152,17 @@ export function createSettingsApi(http: HttpAdapter, baseUrl: string): SettingsA
 
       if (!response.success) {
         throw new Error(response.error ?? 'Failed to change password');
+      }
+    },
+
+    async recordPasswordChanged(): Promise<void> {
+      const response = await http.post<ApiResponse<void>>(
+        buildUrl(SETTINGS_API_ENDPOINTS.PASSWORD_CHANGED),
+        {}
+      );
+
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to record password change');
       }
     },
 

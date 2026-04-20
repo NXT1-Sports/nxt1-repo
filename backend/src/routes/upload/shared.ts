@@ -204,23 +204,13 @@ export async function uploadToStorage(
   return `https://storage.googleapis.com/${storageBucket.name}/${storagePath}`;
 }
 
-export function buildExtensionCompatiblePath(
-  userId: string,
-  category: FileCategory,
-  fileName?: string
-): string {
+export function buildExtensionCompatiblePath(userId: string, category: FileCategory): string {
   const timestamp = Date.now();
   const extension = 'jpg';
 
   switch (category) {
     case 'profile-photo':
-      return `Profiles/ProfileImages/${userId}/avatar_${timestamp}.${extension}`;
-
-    case 'document': {
-      const docExtension = fileName?.split('.').pop() || 'pdf';
-      const sanitizedName = (fileName || 'document').replace(/[^a-zA-Z0-9.-]/g, '_').split('.')[0];
-      return `Users/${userId}/documents/${timestamp}_${sanitizedName}.${docExtension}`;
-    }
+      return `Users/${userId}/profile/avatar_${timestamp}.${extension}`;
 
     default:
       return `Users/${userId}/uploads/${timestamp}.${extension}`;
@@ -326,7 +316,7 @@ export function buildStoragePath(userId: string, category: FileCategory, fileNam
   const sanitizedName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
 
   if (category === 'profile-photo') {
-    return `Profiles/ProfileImages/${userId}/avatar_${timestamp}.jpg`;
+    return `Users/${userId}/profile/avatar_${timestamp}.jpg`;
   }
 
   const extension = sanitizedName.split('.').pop() || 'bin';

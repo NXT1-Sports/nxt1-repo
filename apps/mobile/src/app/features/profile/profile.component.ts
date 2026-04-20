@@ -410,6 +410,10 @@ export class ProfileComponent {
     this.uiProfileService.setApiService({
       updateActiveSportIndex: (userId: string, activeSportIndex: number) =>
         this.editProfileApiService.updateActiveSportIndex(userId, activeSportIndex),
+      pinPost: (userId: string, postId: string, isPinned: boolean) =>
+        this.profileApiService.pinPost(userId, postId, isPinned),
+      deletePost: (userId: string, postId: string) =>
+        this.profileApiService.deletePost(userId, postId),
     });
 
     /**
@@ -1131,6 +1135,10 @@ export class ProfileComponent {
     const role = user?.role ?? null;
     await this.connectedAccountsModal.open({
       role,
+      selectedSports: [
+        ...(user?.primarySport ? [user.primarySport.name] : []),
+        ...(user?.additionalSports?.map((s) => s.name) ?? []),
+      ],
       scope: role === 'coach' || role === 'director' ? 'team' : 'athlete',
     });
   }
@@ -1169,7 +1177,7 @@ export class ProfileComponent {
         contextType: 'command',
         initialMessage: hasReport
           ? `I want to update my Intel report. What new information or highlights should I add to make it stronger?`
-          : `I want to build my Agent X Intel Intel report. What information do you need from me to create the best possible report?`,
+          : `I want to build my Agent X Intel report. What information do you need from me to create the best possible report?`,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,
@@ -1192,7 +1200,7 @@ export class ProfileComponent {
         contextType: 'command',
         initialMessage: hasReport
           ? `I want to update my team's Intel report. What information or recent results should I include to strengthen it?`
-          : `I want to build an Intel Intel report for my team. What information do you need from me to create the best possible report?`,
+          : `I want to build an Agent X Intel report for my team. What information do you need from me to create the best possible report?`,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

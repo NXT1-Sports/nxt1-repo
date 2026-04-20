@@ -9,6 +9,7 @@
  */
 
 import { Router, type Request, type Response } from 'express';
+import { getAuth } from 'firebase-admin/auth';
 import { appGuard } from '../middleware/auth.middleware.js';
 import { validateBody } from '../middleware/validation.middleware.js';
 import {
@@ -25,7 +26,11 @@ import { logger } from '../utils/logger.js';
 import { INVITE_UI_CONFIG } from '@nxt1/core';
 import type { InviteType, InviteChannel, InviteStatus } from '@nxt1/core';
 import { invalidateTeamProfileCache } from '../services/cache.service.js';
-import { creditReferralReward } from '../modules/billing/index.js';
+import {
+  creditReferralReward,
+  getReferralRewardCents,
+  NEW_USER_MAX_AGE_MINUTES,
+} from '../modules/billing/index.js';
 
 const router = Router();
 
@@ -718,6 +723,10 @@ router.get('/stats', appGuard, async (req: Request, res: Response) => {
     const accepted = data.accepted ?? 0;
     const conversionRate = totalSent > 0 ? Math.round((accepted / totalSent) * 100) : 0;
 
+    // Read the live referral reward so frontend copy stays in sync with the
+    // actual wallet credit applied on acceptance (no drift between UI & ledger).
+    const referralRewardCents = await getReferralRewardCents(db);
+
     return res.json({
       success: true,
       data: {
@@ -729,6 +738,7 @@ router.get('/stats', appGuard, async (req: Request, res: Response) => {
         weeklyCount: data.weeklyCount ?? 0,
         monthlyCount: data.monthlyCount ?? 0,
         conversionRate,
+        referralRewardCents,
       },
     });
   } catch (error) {
@@ -964,13 +974,52 @@ router.post(
 
       await batch.commit();
 
+      let verifiedIsNewUser = false;
+      if (inviterId && isNewUser === true && !teamCode) {
+        try {
+          const userRecord = await getAuth().getUser(userId);
+          const creationTime = userRecord.metadata.creationTime;
+
+          if (creationTime) {
+            const accountAgeMinutes = Math.max(
+              0,
+              (Date.now() - new Date(creationTime).getTime()) / 60_000
+            );
+            verifiedIsNewUser = accountAgeMinutes <= NEW_USER_MAX_AGE_MINUTES;
+
+            if (!verifiedIsNewUser) {
+              logger.warn('[POST /invite/accept] Skipping referral reward — account is not new', {
+                referrerId: inviterId,
+                userId,
+                accountAgeMinutes,
+                maxAgeMinutes: NEW_USER_MAX_AGE_MINUTES,
+              });
+            }
+          } else {
+            logger.warn('[POST /invite/accept] Skipping referral reward — missing creation time', {
+              referrerId: inviterId,
+              userId,
+            });
+          }
+        } catch (verificationError) {
+          logger.warn('[POST /invite/accept] Failed to verify new-user status', {
+            referrerId: inviterId,
+            userId,
+            error:
+              verificationError instanceof Error
+                ? verificationError.message
+                : String(verificationError),
+          });
+        }
+      }
+
       // ── Credit referral reward to the inviter's Agent X wallet ──
       // Rules:
       //   1. Only when the invitee is a brand-new user completing onboarding (isNewUser = true).
       //   2. Only for INDIVIDUAL referral invites (no teamCode in body).
       //      Coach/Director team invites are a program-management action, not a referral.
       //   3. Amount is read live from AppConfig/referralReward in Firestore (adjustable without deploy).
-      if (inviterId && isNewUser === true && !teamCode) {
+      if (inviterId && verifiedIsNewUser && !teamCode) {
         try {
           const rewardResult = await creditReferralReward(db, inviterId, userId);
           if (rewardResult.success) {
@@ -996,6 +1045,14 @@ router.post(
             referrerId: inviterId,
             userId,
             teamCode,
+          }
+        );
+      } else if (inviterId && isNewUser === true && !teamCode) {
+        logger.debug(
+          '[POST /invite/accept] Skipping referral reward — server did not verify new user',
+          {
+            referrerId: inviterId,
+            userId,
           }
         );
       } else if (inviterId && !isNewUser) {

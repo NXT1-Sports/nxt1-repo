@@ -66,6 +66,7 @@ import type { AgentGoal, AgentDashboardGoal } from '@nxt1/core';
 
 // App Services
 import { AuthFlowService } from '../../../../core/services/auth';
+import { FcmRegistrationService } from '../../../../core/services/native/fcm-registration.service';
 
 @Component({
   selector: 'app-onboarding-congratulations',
@@ -117,6 +118,7 @@ import { AuthFlowService } from '../../../../core/services/auth';
 export class OnboardingCongratulationsPage implements OnInit {
   private readonly navController = inject(NavController);
   private readonly authFlow = inject(AuthFlowService);
+  private readonly fcmRegistration = inject(FcmRegistrationService);
   private readonly themeService = inject(NxtThemeService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('CongratulationsPage');
   private readonly agentX = inject(AgentXService);
@@ -297,6 +299,12 @@ export class OnboardingCongratulationsPage implements OnInit {
     // This ensures the app respects user's original theme choice going forward
     this.themeService.clearTemporaryOverride();
     this.logger.debug('Cleared temporary theme override, restored user preference');
+
+    // ⭐ REQUEST PUSH NOTIFICATION PERMISSION: Triggered here at the natural
+    // end of onboarding — the ideal moment (user has context, is engaged).
+    // For returning users with permission already granted, requestPermissions()
+    // returns 'granted' silently with no OS dialog shown.
+    void this.fcmRegistration.registerToken();
 
     await this.navController.navigateRoot(AUTH_REDIRECTS.AGENT, {
       animated: true,

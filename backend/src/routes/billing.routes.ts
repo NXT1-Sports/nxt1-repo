@@ -20,7 +20,6 @@ import {
   recordSpend,
   resolveBillingTarget,
   updateBudget,
-  updateTeamBudget,
   updateOrgBudget,
   updateTeamAllocation,
   getOrgTeamAllocations,
@@ -38,7 +37,6 @@ import { validateBody } from '../middleware/validation.middleware.js';
 import {
   CreateUsageEventDto,
   UpdateBudgetDto,
-  UpdateTeamBudgetDto,
   UpdateOrganizationBudgetDto,
   UpdateTeamAllocationDto,
   UpdatePricingConfigDto,
@@ -132,7 +130,7 @@ router.post(
           : {}),
       };
 
-      const eventId = await recordUsageEvent(db, input, environment);
+      const eventId = await recordUsageEvent(input, environment);
 
       // ── Record spend against budget ─────────────────────────
       await recordSpend(db, userId, costCents, teamId);
@@ -186,7 +184,7 @@ router.get('/usage/me', appGuard, async (req: Request, res: Response) => {
     }
 
     const limit = Number(req.query['limit']) || 50;
-    const events = await getUserUsageEvents(db, userId, limit);
+    const events = await getUserUsageEvents(userId, limit);
 
     return res.json({
       success: true,
@@ -242,7 +240,7 @@ router.get('/usage/team/:teamId', appGuard, async (req: Request, res: Response) 
     }
 
     const limit = Number(req.query['limit']) || 100;
-    const events = await getTeamUsageEvents(db, teamId, limit);
+    const events = await getTeamUsageEvents(teamId, limit);
 
     return res.json({
       success: true,
@@ -289,8 +287,19 @@ router.get('/budget', appGuard, async (req: Request, res: Response) => {
 
     if (!db) throw new Error('Firebase context not available');
 
-    // Resolve billing target (director → org, otherwise individual)
-    const target = await resolveBillingTarget(db, userId);
+    // Read the user's personal billing context for user-level preferences
+    const personalCtxData = await getBillingContext(db, userId);
+    const usePersonalBilling =
+      (personalCtxData?.['usePersonalBilling'] as boolean | undefined) ?? false;
+    const autoTopUpEnabled =
+      (personalCtxData?.['autoTopUpEnabled'] as boolean | undefined) ?? false;
+    const autoTopUpThresholdCents =
+      (personalCtxData?.['autoTopUpThresholdCents'] as number | undefined) ?? 0;
+    const autoTopUpAmountCents =
+      (personalCtxData?.['autoTopUpAmountCents'] as number | undefined) ?? 0;
+
+    // Resolve billing target — respect the user's billing-mode preference
+    const target = await resolveBillingTarget(db, userId, { usePersonalBilling });
     const ctx = target.context;
     const adminResult =
       target.type === 'organization' && target.organizationId
@@ -341,8 +350,9 @@ router.get('/budget', appGuard, async (req: Request, res: Response) => {
 
             return { isOrgAdmin: false, isTeamAdmin: false };
           })()
-        : { isOrgAdmin: true, isTeamAdmin: true };
+        : { isOrgAdmin: false, isTeamAdmin: false };
 
+    const walletBalance = ctx.walletBalanceCents ?? 0;
     return res.json({
       success: true,
       data: {
@@ -359,9 +369,15 @@ router.get('/budget', appGuard, async (req: Request, res: Response) => {
         teamId: ctx.teamId,
         organizationId: ctx.organizationId,
         paymentProvider: ctx.paymentProvider,
-        walletBalanceCents: ctx.walletBalanceCents,
+        walletBalanceCents: walletBalance,
+        pendingHoldsCents: ctx.pendingHoldsCents ?? 0,
         isOrgAdmin: adminResult.isOrgAdmin,
         isTeamAdmin: adminResult.isTeamAdmin,
+        usePersonalBilling,
+        autoTopUpEnabled,
+        autoTopUpThresholdCents,
+        autoTopUpAmountCents,
+        orgWalletEmpty: ctx.billingEntity !== 'individual' && walletBalance <= 0,
       },
     });
   } catch (error) {
@@ -405,50 +421,6 @@ router.put(
       logger.error('[PUT /budget] Failed to update budget', { error });
       return res.status(500).json({
         error: 'Failed to update budget',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      });
-    }
-  }
-);
-
-/**
- * PUT /api/v1/billing/budget/team/:teamId
- * Update a team's monthly budget (team admin only)
- * Body: { monthlyBudget: number (cents) }
- */
-router.put(
-  '/budget/team/:teamId',
-  appGuard,
-  validateBody(UpdateTeamBudgetDto),
-  async (req: Request, res: Response) => {
-    try {
-      const teamId = req.params['teamId'] as string;
-      const { monthlyBudget } = req.body;
-      const db = req.firebase?.db;
-
-      if (!db) throw new Error('Firebase context not available');
-
-      // Verify the caller is a team admin
-      const teamDoc = await db.collection('Teams').doc(teamId).get();
-      const teamData = teamDoc.data();
-      const userId = req.user!.uid;
-      const adminIds: string[] = Array.isArray(teamData?.['adminIds'])
-        ? (teamData!['adminIds'] as string[])
-        : teamData?.['createdBy']
-          ? [teamData['createdBy'] as string]
-          : [];
-
-      if (!adminIds.includes(userId)) {
-        return res.status(403).json({ error: 'Only team admins can update the team budget' });
-      }
-
-      await updateTeamBudget(db, teamId, monthlyBudget);
-
-      return res.json({ success: true, teamId, monthlyBudget });
-    } catch (error) {
-      logger.error('[PUT /budget/team/:teamId] Failed to update team budget', { error });
-      return res.status(500).json({
-        error: 'Failed to update team budget',
         message: error instanceof Error ? error.message : 'Unknown error',
       });
     }

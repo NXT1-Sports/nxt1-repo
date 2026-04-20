@@ -106,7 +106,7 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
   template: `
     <!-- Portal: center — Team name + subtitle teleported into top nav -->
     <ng-template #teamPortalContent>
-      <div class="header-portal-team">
+      <div class="nxt1-header-portal header-portal-team">
         <button
           type="button"
           class="header-portal-back-btn"
@@ -150,15 +150,17 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
           }
         </div>
         @if (teamProfile.canEdit()) {
-          <button
-            type="button"
-            class="header-portal-action-btn"
-            (click)="manageTeamClick.emit()"
-            aria-label="Manage team"
-          >
-            <nxt1-icon name="settings" [size]="13" />
-            Manage Team
-          </button>
+          <div class="nxt1-header-portal__center">
+            <button
+              type="button"
+              class="header-nav-pill"
+              (click)="manageTeamClick.emit()"
+              aria-label="Manage team"
+            >
+              <nxt1-icon name="settings" [size]="13" />
+              Manage Team
+            </button>
+          </div>
         }
       </div>
     </ng-template>
@@ -235,7 +237,8 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
       }
       <!-- Content State -->
       @else if (isContentReady()) {
-        <div class="madden-stage" [style.--team-accent]="teamAccentColor()">
+        <!-- Org brand colors injected via TeamProfileService → NxtThemeService.applyOrgTheme() -->
+        <div class="madden-stage">
           <!-- ═══ SPLIT: LEFT CONTENT | RIGHT TEAM BRANDING ═══ -->
           <div class="madden-split">
             <!-- LEFT SIDE: Header + Tabs + Content -->
@@ -307,6 +310,7 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
                           [activeSection]="activeIntelSection()"
                           [canGenerate]="teamProfile.canEdit()"
                           (generateClick)="onGenerateTeamIntel()"
+                          (resyncClick)="onResyncTeamIntel()"
                           (missingDataAction)="manageTeamClick.emit()"
                         />
                       }
@@ -333,6 +337,7 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
                       <nxt1-team-timeline-web
                         [activeSection]="activeSideTab()"
                         [polymorphicFeed]="teamProfile.timeline()"
+                        [isLoading]="teamProfile.timelineLoading()"
                         (postClick)="onPostClick($event)"
                         (manageTeam)="manageTeamClick.emit()"
                       />
@@ -613,11 +618,7 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
       }
       /* ─── HEADER PORTAL — Perplexity-style team identity in top nav ─── */
       .header-portal-team {
-        display: flex;
-        align-items: center;
         gap: 10px;
-        width: 100%;
-        padding: 0 var(--nxt1-spacing-2, 8px);
       }
       .header-portal-back-btn {
         display: inline-flex;
@@ -663,7 +664,6 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
         flex-direction: column;
         min-width: 0;
         gap: 1px;
-        flex: 1;
       }
       .header-portal-title {
         font-family: var(--nxt1-fontFamily-brand);
@@ -684,30 +684,35 @@ import { ProfileScheduleComponent } from '../../profile/components/profile-sched
         overflow: hidden;
         text-overflow: ellipsis;
       }
-      .header-portal-action-btn {
+      .header-nav-pill {
         display: inline-flex;
         align-items: center;
-        gap: 5px;
+        justify-content: center;
+        gap: 6px;
         flex-shrink: 0;
         margin-left: auto;
-        padding: 6px 14px;
-        border-radius: var(--nxt1-radius-md, 8px);
-        border: 1.5px solid var(--nxt1-color-border-secondary, rgba(255, 255, 255, 0.2));
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
-        color: var(--nxt1-color-text-primary);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: 12px;
+        padding: 6px 16px;
+        appearance: none;
+        -webkit-appearance: none;
+        border-radius: var(--nxt1-borderRadius-lg, 0.5rem);
+        font-size: 13px;
         font-weight: 600;
+        line-height: 1;
+        white-space: nowrap;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
+        border: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.06));
+        font-family: inherit;
         cursor: pointer;
         transition: all 0.15s ease;
-        white-space: nowrap;
+        user-select: none;
       }
-      .header-portal-action-btn:hover {
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.1));
-        border-color: var(--nxt1-color-border-primary, rgba(255, 255, 255, 0.35));
+      .header-nav-pill:hover {
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
+        border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
       }
-      .header-portal-action-btn:active {
-        transform: scale(0.97);
+      .header-nav-pill:active {
+        transform: scale(0.98);
       }
       .madden-right-stack {
         display: flex;
@@ -1453,11 +1458,8 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
    * - 'halftone' — legacy recruiting-card halftone dots
    */
 
-  /** Team accent color from branding */
-  protected readonly teamAccentColor = computed(() => {
-    const branding = this.teamProfile.team()?.branding;
-    return branding?.primaryColor ?? 'var(--nxt1-color-primary, #d4ff00)';
-  });
+  // Org brand colors are injected page-wide via TeamProfileService → NxtThemeService.applyOrgTheme().
+  // No per-component inline style needed — the CSS cascade via --team-primary / --team-accent handles it.
 
   /** Organization name for the team (school/club/program) shown in right panel. */
   protected readonly organizationName = computed(() => {
@@ -1765,8 +1767,8 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     if (!team) return;
     const hasReport = !!this.intel.teamReport();
     const initialMessage = hasReport
-      ? `Update the Agent X Intel Intel report for team ${team.id}.`
-      : `Generate an Agent X Intel Intel report for team ${team.id}.`;
+      ? `Update our Agent X Intel report.`
+      : `Generate an Agent X Intel report for our team.`;
     if (this.platform.isMobile()) {
       this.intel.startPendingGeneration();
       await this.bottomSheet.openSheet({
@@ -1789,6 +1791,36 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
       }
     } else {
       this.agentX.queueStartupMessage(initialMessage);
+      void this.router.navigate(['/agent']);
+    }
+  }
+
+  protected async onResyncTeamIntel(): Promise<void> {
+    const team = this.teamProfile.team();
+    if (!team) return;
+    const message = `Do a full resync of our Agent X Intel report. Gather all current data and regenerate the entire report from scratch.`;
+    if (this.platform.isMobile()) {
+      this.intel.startPendingGeneration();
+      await this.bottomSheet.openSheet({
+        component: AgentXOperationChatComponent,
+        componentProps: {
+          contextId: 'team-intel-resync',
+          contextTitle: 'Resync Intel',
+          contextIcon: 'refresh-outline',
+          contextType: 'command',
+          initialMessage: message,
+        },
+        ...SHEET_PRESETS.FULL,
+        showHandle: true,
+        handleBehavior: 'cycle',
+        backdropDismiss: true,
+        cssClass: 'agent-x-operation-sheet',
+      });
+      if (!this.intel.isAnythingGenerating()) {
+        await this.intel.generateTeamIntel(team.id);
+      }
+    } else {
+      this.agentX.queueStartupMessage(message);
       void this.router.navigate(['/agent']);
     }
   }

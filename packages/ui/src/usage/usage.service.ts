@@ -9,11 +9,12 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Injectable, inject, signal, computed, effect, OnDestroy } from '@angular/core';
+import { Injectable, inject, signal, computed, effect, NgZone, OnDestroy } from '@angular/core';
 import {
   formatPrice,
   USAGE_CATEGORY_CONFIGS,
   USAGE_HISTORY_PAGE_SIZE,
+  type UsageSection,
   type UsageTimeframe,
   type UsageOverview,
   type UsageChartDataPoint,
@@ -34,14 +35,8 @@ import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { NxtBrowserService } from '../services/browser/browser.service';
 
-/** Navigation sections for the billing dashboard */
-export type UsageSection =
-  | 'overview'
-  | 'metered-usage'
-  | 'breakdown'
-  | 'payment-history'
-  | 'budgets'
-  | 'payment-info';
+// Re-export so consumers can import UsageSection from '@nxt1/ui/usage' as before
+export type { UsageSection };
 
 export interface UsageSectionNav {
   readonly id: UsageSection;
@@ -52,9 +47,9 @@ export const USAGE_SECTION_NAVS: readonly UsageSectionNav[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'metered-usage', label: 'Metered usage' },
   { id: 'breakdown', label: 'Usage breakdown' },
-  { id: 'payment-history', label: 'Payment history' },
   { id: 'budgets', label: 'Budgets' },
   { id: 'payment-info', label: 'Payment info' },
+  { id: 'auto-topup', label: 'Auto top-up' },
 ] as const;
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
@@ -69,9 +64,14 @@ export class UsageService implements OnDestroy {
   private readonly logger = inject(NxtLoggingService).child('UsageService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly ngZone = inject(NgZone);
 
   /** Interval handle for polling overview while agent holds are pending */
   private _holdsPollingInterval: ReturnType<typeof setInterval> | null = null;
+  /** Interval handle for polling wallet balance every 60 s while the page is active */
+  private _balancePollInterval: ReturnType<typeof setInterval> | null = null;
+  /** Monotonic token so stale async dashboard loads cannot overwrite newer state */
+  private _dashboardLoadRequestId = 0;
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -98,8 +98,24 @@ export class UsageService implements OnDestroy {
   private readonly _historyHasMore = signal(true);
   private readonly _isLoadingMore = signal(false);
   private readonly _activeSection = signal<UsageSection>('overview');
-  private readonly _isOrgAdmin = signal(false);
-  private readonly _isTeamAdmin = signal(false);
+  // NOTE: isOrgAdmin, isTeamAdmin, isOrgMember, usePersonalBilling are ALL derived
+  // from _billingContext (SSOT). Never store them as separate writable signals
+  // — that creates flashes when one signal updates before the other during
+  // billing-mode switches.
+  /**
+   * Authoritative allowed sections from backend.
+   * Empty while loading — tabs are hidden until the backend responds.
+   * Never computed on the frontend; always read from the dashboard payload.
+   */
+  private readonly _allowedSections = signal<readonly UsageSection[]>([]);
+
+  // usePersonalBilling is derived from _billingContext (SSOT) — no separate writable signal
+  /** Auto top-up enabled flag */
+  private readonly _autoTopUpEnabled = signal(false);
+  /** Balance threshold (cents) at which auto top-up fires */
+  private readonly _autoTopUpThresholdCents = signal(0);
+  /** Amount (cents) added when auto top-up fires */
+  private readonly _autoTopUpAmountCents = signal(0);
 
   constructor() {
     // Auto-poll overview every 5 s while an agent job has an active hold.
@@ -107,12 +123,17 @@ export class UsageService implements OnDestroy {
     effect(() => {
       const hasHolds = this.pendingHoldsCents() > 0;
       if (hasHolds && !this._holdsPollingInterval) {
-        this._holdsPollingInterval = setInterval(() => {
-          this.api
-            .getOverview()
-            .then((overview) => this._overview.set(overview))
-            .catch((err: unknown) => this.logger.warn('Holds polling failed', { error: err }));
-        }, 5000);
+        // Run outside NgZone: a running setInterval inside the zone permanently
+        // prevents app stabilization (Zone.js treats it as a live macrotask).
+        // Signal writes (this._overview.set) are zone-independent.
+        this.ngZone.runOutsideAngular(() => {
+          this._holdsPollingInterval = setInterval(() => {
+            this.api
+              .getOverview()
+              .then((overview) => this._overview.set(overview))
+              .catch((err: unknown) => this.logger.warn('Holds polling failed', { error: err }));
+          }, 5000);
+        });
       } else if (!hasHolds && this._holdsPollingInterval) {
         clearInterval(this._holdsPollingInterval);
         this._holdsPollingInterval = null;
@@ -124,6 +145,32 @@ export class UsageService implements OnDestroy {
     if (this._holdsPollingInterval) {
       clearInterval(this._holdsPollingInterval);
       this._holdsPollingInterval = null;
+    }
+    this._stopBalancePoll();
+  }
+
+  /**
+   * Start a 60 s interval that re-fetches `/usage/overview` so that
+   * `walletBalanceCents` stays current as Agent X deducts credits.
+   * Safe to call multiple times — clears any existing interval first.
+   */
+  private _startBalancePoll(): void {
+    this._stopBalancePoll();
+    this.ngZone.runOutsideAngular(() => {
+      this._balancePollInterval = setInterval(() => {
+        this.api
+          .getOverview()
+          .then((overview) => this._overview.set(overview))
+          .catch((err: unknown) => this.logger.warn('Balance poll failed', { error: err }));
+      }, 60_000);
+    });
+  }
+
+  /** Clear the balance poll interval. */
+  private _stopBalancePoll(): void {
+    if (this._balancePollInterval) {
+      clearInterval(this._balancePollInterval);
+      this._balancePollInterval = null;
     }
   }
 
@@ -152,10 +199,22 @@ export class UsageService implements OnDestroy {
   readonly historyHasMore = computed(() => this._historyHasMore());
   readonly activeSection = computed(() => this._activeSection());
 
-  /** Whether the current user is an admin of the organization */
-  readonly isOrgAdmin = computed(() => this._isOrgAdmin());
-  /** Whether the current user is an admin of their assigned team */
-  readonly isTeamAdmin = computed(() => this._isTeamAdmin());
+  /** Whether the current user is an admin of the organization — derived from _billingContext (SSOT) */
+  readonly isOrgAdmin = computed(() => this._billingContext()?.isOrgAdmin ?? false);
+  /** Whether the current user is an admin of their assigned team — derived from _billingContext (SSOT) */
+  readonly isTeamAdmin = computed(() => this._billingContext()?.isTeamAdmin ?? false);
+  /**
+   * True when this user is an org-billed member but not an admin.
+   * Derived from _billingContext (SSOT) so billing-mode switches are atomic.
+   * When usePersonalBilling=true, resolveBillingTarget returns billingEntity='individual'
+   * — so this correctly flips to false without waiting for loadDashboard.
+   */
+  readonly isOrgMember = computed(() => {
+    const ctx = this._billingContext();
+    if (!ctx) return false;
+    const isOrgOrTeamBilled = ctx.billingEntity === 'organization' || ctx.billingEntity === 'team';
+    return isOrgOrTeamBilled && !ctx.isOrgAdmin && !ctx.isTeamAdmin;
+  });
 
   // ============================================
   // BILLING MODEL SIGNALS (B2C vs B2B)
@@ -164,39 +223,81 @@ export class UsageService implements OnDestroy {
   /** Whether this is a personal / individual wallet user (B2C) */
   readonly isPersonal = computed(() => this._billingContext()?.billingEntity === 'individual');
 
-  /** Whether this is an org / team metered-billing user (B2B) */
+  /** Whether this is an org / team wallet user (B2B) */
   readonly isOrg = computed(() => {
     const entity = this._billingContext()?.billingEntity;
     return entity === 'organization' || entity === 'team';
   });
+
+  /** Whether the current user has elected to pay from personal wallet (overrides org billing) — derived from _billingContext (SSOT) */
+  readonly usePersonalBilling = computed(() => this._billingContext()?.usePersonalBilling ?? false);
+
+  /**
+   * True when this is an org member whose org wallet is empty AND they haven't
+   * already switched to personal billing — prompts the "use my personal wallet?" banner.
+   */
+  readonly orgWalletEmpty = computed(
+    () =>
+      this.isOrg() &&
+      !this.usePersonalBilling() &&
+      (this._billingContext()?.orgWalletEmpty ?? false)
+  );
+
+  /**
+   * True when an org member is currently on personal billing BUT the org wallet
+   * has been refilled (balance > 0) — prompts the "switch back to org billing?" banner.
+   */
+  readonly orgWalletRefilled = computed(() => {
+    if (!this.isOrg() || !this.usePersonalBilling()) return false;
+    const walletBalance = this._billingContext()?.walletBalanceCents ?? 0;
+    return walletBalance > 0;
+  });
+
+  /**
+   * Resolved billing mode label for display.
+   * - 'personal' when isPersonal OR usePersonalBilling override is active
+   * - 'organization' when on org billing
+   */
+  readonly effectiveBillingMode = computed((): 'personal' | 'organization' =>
+    this.isPersonal() || this.usePersonalBilling() ? 'personal' : 'organization'
+  );
 
   /** Whether the current user should see billing actions in shared UI. */
   readonly canManageBilling = computed(
     () => this.isPersonal() || this.isOrgAdmin() || this.isTeamAdmin()
   );
 
-  /** Dynamic section nav — hides org-only sections for personal users and admin-only sections for non-admin org members */
+  /** Dynamic section nav — tailored per billing entity and admin role */
+  /**
+   * Sidebar nav tabs — derived directly from backend-provided `allowedSections`.
+   * Empty while the dashboard is loading so tabs never flash or re-order.
+   * Zero frontend conditional logic: the backend is the authoritative source.
+   */
   readonly sectionNavs = computed((): readonly UsageSectionNav[] => {
-    if (this.isPersonal()) {
-      // B2C: hide metered-usage chart, budgets, and payment-info
-      return USAGE_SECTION_NAVS.filter(
-        (n) => n.id !== 'metered-usage' && n.id !== 'budgets' && n.id !== 'payment-info'
-      );
-    }
-    if (this.isOrg() && !this.isOrgAdmin()) {
-      // Non-admin org members: hide payment-history and payment-info (sensitive financial data)
-      return USAGE_SECTION_NAVS.filter(
-        (n) => n.id !== 'payment-history' && n.id !== 'payment-info'
-      );
-    }
-    return USAGE_SECTION_NAVS;
+    const allowed = this._allowedSections();
+    if (allowed.length === 0) return []; // still loading — render nothing
+    return USAGE_SECTION_NAVS.filter((n) => (allowed as readonly string[]).includes(n.id));
   });
 
-  /** Wallet balance in cents (B2C only) */
-  readonly walletBalanceCents = computed(() => this._overview()?.walletBalanceCents ?? 0);
+  /**
+   * Wallet balance in cents (personal and org wallets).
+   * Reads _overview first because the 60 s balance poll keeps it current
+   * as Agent X deducts credits. Falls back to _billingContext (set on
+   * loadDashboard) so the value is available before the first poll fires.
+   */
+  readonly walletBalanceCents = computed(
+    () => this._overview()?.walletBalanceCents ?? this._billingContext()?.walletBalanceCents ?? 0
+  );
 
-  /** Pending holds in cents (B2C only) */
-  readonly pendingHoldsCents = computed(() => this._overview()?.pendingHoldsCents ?? 0);
+  /** Pending holds in cents (personal and org wallets) */
+  readonly pendingHoldsCents = computed(
+    () => this._billingContext()?.pendingHoldsCents ?? this._overview()?.pendingHoldsCents ?? 0
+  );
+
+  /** Whether auto top-up is configured */
+  readonly autoTopUpEnabled = computed(() => this._autoTopUpEnabled());
+  readonly autoTopUpThresholdCents = computed(() => this._autoTopUpThresholdCents());
+  readonly autoTopUpAmountCents = computed(() => this._autoTopUpAmountCents());
 
   // ============================================
   // DERIVED COMPUTEDS
@@ -337,24 +438,34 @@ export class UsageService implements OnDestroy {
     try {
       const billingCtx = await this.api.getBillingContext();
       this._billingContext.set(billingCtx);
-      this._isOrgAdmin.set(billingCtx.isOrgAdmin);
-      this._isTeamAdmin.set(billingCtx.isTeamAdmin);
+      // isOrgAdmin / isTeamAdmin / isOrgMember / usePersonalBilling are all
+      // derived from _billingContext (SSOT) — no separate .set() calls needed.
+      this._autoTopUpEnabled.set(billingCtx.autoTopUpEnabled ?? false);
+      this._autoTopUpThresholdCents.set(billingCtx.autoTopUpThresholdCents ?? 0);
+      this._autoTopUpAmountCents.set(billingCtx.autoTopUpAmountCents ?? 0);
     } catch (err) {
       this.logger.warn('Failed to load billing access context', { error: err });
     }
   }
 
-  async loadDashboard(): Promise<void> {
-    this.logger.info('Loading usage dashboard', { timeframe: this._timeframe() });
-    this.breadcrumb.trackStateChange('usage:loading', { timeframe: this._timeframe() });
+  async loadDashboard(forceFresh = false): Promise<void> {
+    const requestId = ++this._dashboardLoadRequestId;
+    const timeframe = this._timeframe();
+    this.logger.info('Loading usage dashboard', { timeframe, forceFresh });
+    this.breadcrumb.trackStateChange('usage:loading', { timeframe, forceFresh });
     this._isLoading.set(true);
     this._error.set(null);
 
     try {
       const [dashboard, billingCtx] = await Promise.all([
-        this.api.getDashboard({ timeframe: this._timeframe() }),
-        this.api.getBillingContext(),
+        forceFresh ? this.api.getDashboardFresh(timeframe) : this.api.getDashboard({ timeframe }),
+        forceFresh ? this.api.getBillingContextFresh() : this.api.getBillingContext(),
       ]);
+
+      if (requestId !== this._dashboardLoadRequestId) {
+        this.logger.info('Discarding stale usage dashboard response', { requestId, timeframe });
+        return;
+      }
 
       this._overview.set(dashboard.overview);
       this._chartData.set(dashboard.chartData);
@@ -367,32 +478,72 @@ export class UsageService implements OnDestroy {
       this._coupon.set(dashboard.coupon);
       this._budgets.set(dashboard.budgets);
       this._billingContext.set(billingCtx);
-      this._isOrgAdmin.set(billingCtx.isOrgAdmin);
-      this._isTeamAdmin.set(billingCtx.isTeamAdmin);
+      // isOrgAdmin / isTeamAdmin / isOrgMember / usePersonalBilling are all
+      // derived from _billingContext (SSOT) — no separate .set() calls needed.
+      // Set authoritative sections from backend — this is what drives the sidebar tabs.
+      // Setting this last ensures tabs appear in one atomic render after all data is ready.
+      this._allowedSections.set(dashboard.allowedSections ?? []);
+      // usePersonalBilling is derived from _billingContext (SSOT) — no separate signal write needed
+      this._autoTopUpEnabled.set(billingCtx.autoTopUpEnabled ?? false);
+      this._autoTopUpThresholdCents.set(billingCtx.autoTopUpThresholdCents ?? 0);
+      this._autoTopUpAmountCents.set(billingCtx.autoTopUpAmountCents ?? 0);
       this._historyPage.set(1);
       this._historyHasMore.set(dashboard.paymentHistory.length >= USAGE_HISTORY_PAGE_SIZE);
 
       this.logger.info('Usage dashboard loaded', { entity: billingCtx.billingEntity });
       this.breadcrumb.trackStateChange('usage:loaded', { entity: billingCtx.billingEntity });
       this.analytics?.trackEvent(APP_EVENTS.USAGE_DASHBOARD_VIEWED, {
-        timeframe: this._timeframe(),
+        timeframe,
         entity: billingCtx.billingEntity,
       });
+
+      // Start a lightweight 60 s balance poll so walletBalanceCents stays
+      // current as Agent X deducts credits during the session.
+      this._startBalancePoll();
     } catch (err) {
+      if (requestId !== this._dashboardLoadRequestId) {
+        return;
+      }
       const message = err instanceof Error ? err.message : 'Failed to load usage data';
       this._error.set(message);
       this.logger.error('Failed to load usage dashboard', err);
       this.breadcrumb.trackStateChange('usage:error', { message });
     } finally {
-      this._isLoading.set(false);
+      if (requestId === this._dashboardLoadRequestId) {
+        this._isLoading.set(false);
+      }
     }
   }
 
   /** Refresh all usage data (pull-to-refresh) */
   async refresh(): Promise<void> {
     this.logger.info('Refreshing usage dashboard');
-    await this.loadDashboard();
+    await this.loadDashboard(true);
   }
+
+  /**
+   * Called by the shell after opening the Stripe billing portal.
+   * Ensures the next focus/visibility event triggers a guaranteed refresh
+   * regardless of how long the user spent in the portal.
+   */
+  markPortalOpened(): void {
+    this._pendingPortalRefresh = true;
+  }
+
+  /**
+   * Returns true (and clears the flag) if a portal refresh is pending.
+   * Called by the shell on visibilitychange / window focus.
+   */
+  consumePortalRefresh(): boolean {
+    if (this._pendingPortalRefresh) {
+      this._pendingPortalRefresh = false;
+      return true;
+    }
+    return false;
+  }
+
+  /** True when the next focus/visibility event should force a dashboard reload */
+  private _pendingPortalRefresh = false;
 
   /** Load more payment history */
   async loadMoreHistory(): Promise<void> {
@@ -437,6 +588,8 @@ export class UsageService implements OnDestroy {
     try {
       const url = await this.api.createPortalSession();
       this.analytics?.trackEvent(APP_EVENTS.USAGE_BILLING_PORTAL_OPENED);
+      // Flag the shell to force-refresh when the user returns from the portal
+      this._pendingPortalRefresh = true;
 
       if (preOpenedWindow) {
         // Web: redirect the pre-opened window to the Stripe portal URL
@@ -556,20 +709,144 @@ export class UsageService implements OnDestroy {
 
   /**
    * Purchase credits via Stripe Checkout.
+   * Supports both personal wallet top-ups and organization wallet top-ups.
    * Opens the Stripe-hosted checkout page in the in-app browser.
    */
-  async buyCredits(amountCents: number): Promise<void> {
-    this.logger.info('Purchasing credits', { amountCents });
-    this.breadcrumb.trackStateChange('usage:buying-credits', { amountCents });
+  async buyCredits(amountCents: number, organizationId?: string): Promise<void> {
+    this.logger.info('Purchasing credits', { amountCents, organizationId });
+    this.breadcrumb.trackStateChange('usage:buying-credits', { amountCents, organizationId });
     try {
-      const url = await this.api.buyCredits(amountCents);
-      this.analytics?.trackEvent(APP_EVENTS.USAGE_CREDITS_PURCHASED, { amountCents });
-      this.browser.open({ url, presentationStyle: 'fullscreen' });
+      const result = await this.api.buyCredits(amountCents, organizationId);
+      this.analytics?.trackEvent(APP_EVENTS.USAGE_CREDITS_PURCHASED, {
+        amountCents,
+        billingEntity: organizationId ? 'organization' : 'individual',
+      });
+
+      if (result.type === 'credited') {
+        // Saved card charged directly — no redirect needed.
+        await this.haptics.notification('success');
+        this.toast.success(`$${(amountCents / 100).toFixed(2)} added to your wallet`);
+        // Reload so balance card and payment history update immediately.
+        await this.loadDashboard();
+      } else {
+        this.browser.open({ url: result.url, presentationStyle: 'fullscreen' });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to start credit purchase';
-      this.logger.error('Failed to purchase credits', err, { amountCents });
+      this.logger.error('Failed to purchase credits', err, { amountCents, organizationId });
       this.toast.error(message);
       await this.haptics.notification('error');
+    }
+  }
+
+  /**
+   * Toggle between org wallet billing and personal wallet billing.
+   * Used by org roster members when the org wallet is empty.
+   */
+  async switchBillingMode(usePersonalBilling: boolean): Promise<boolean> {
+    this.logger.info('Switching billing mode', { usePersonalBilling });
+    this.breadcrumb.trackStateChange('usage:billing-mode-switch', { usePersonalBilling });
+    try {
+      // The mutation response contains the freshly-resolved billing context
+      // AND the new authoritative allowedSections. Apply both directly so the
+      // entire UI (role-dependent rendering + sidebar tabs) updates atomically
+      // in a single render tick — no re-fetch, no cache race, no flash.
+      const { billingContext, allowedSections } = await this.api.setBillingMode(usePersonalBilling);
+      this._billingContext.set(billingContext);
+      this._allowedSections.set(allowedSections);
+      this._autoTopUpEnabled.set(billingContext.autoTopUpEnabled ?? false);
+      this._autoTopUpThresholdCents.set(billingContext.autoTopUpThresholdCents ?? 0);
+      this._autoTopUpAmountCents.set(billingContext.autoTopUpAmountCents ?? 0);
+
+      // If the currently-active section is no longer allowed in the new mode,
+      // snap back to 'overview' to prevent rendering a forbidden section.
+      if (!(allowedSections as readonly UsageSection[]).includes(this._activeSection())) {
+        this._activeSection.set('overview');
+      }
+
+      await this.haptics.notification('success');
+      this.toast.success(
+        usePersonalBilling
+          ? 'Now using your personal wallet'
+          : 'Switched back to organization billing'
+      );
+      this.logger.info('Billing mode switched', {
+        usePersonalBilling,
+        entity: billingContext.billingEntity,
+        walletBalanceCents: billingContext.walletBalanceCents,
+      });
+      this.analytics?.trackEvent(APP_EVENTS.USAGE_BILLING_MODE_SWITCHED, {
+        usePersonalBilling,
+        entity: billingContext.billingEntity,
+      });
+
+      // Reload via true no-cache reads so the detailed dashboard data matches
+      // the already-applied SSOT state. This avoids the old race where a stale
+      // cached GET would arrive ~1 s later and revert the UI.
+      await this.loadDashboard(true);
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update billing mode';
+      this.logger.error('Failed to switch billing mode', err, { usePersonalBilling });
+      this.toast.error(message);
+      await this.haptics.notification('error');
+      return false;
+    }
+  }
+
+  /**
+   * Configure (or disable) automatic wallet top-up.
+   */
+  async configureAutoTopUp(settings: {
+    enabled: boolean;
+    thresholdCents: number;
+    amountCents: number;
+  }): Promise<boolean> {
+    this.logger.info('Configuring auto top-up', settings);
+    this.breadcrumb.trackStateChange('usage:auto-topup-config', settings);
+    try {
+      await this.api.configureAutoTopUp(settings);
+      this._autoTopUpEnabled.set(settings.enabled);
+      this._autoTopUpThresholdCents.set(settings.thresholdCents);
+      this._autoTopUpAmountCents.set(settings.amountCents);
+      await this.haptics.notification('success');
+      this.toast.success(settings.enabled ? 'Auto top-up enabled' : 'Auto top-up disabled');
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to configure auto top-up';
+      this.logger.error('Failed to configure auto top-up', err, settings);
+      this.toast.error(message);
+      await this.haptics.notification('error');
+      return false;
+    }
+  }
+
+  /**
+   * Request an invoice-based wallet top-up for school districts / large orgs.
+   * Creates and sends a Stripe Invoice with net payment terms.
+   */
+  async requestInvoiceTopUp(request: {
+    amountCents: number;
+    poNumber?: string;
+    netDays: 30 | 45 | 60;
+  }): Promise<{
+    invoiceId: string;
+    invoiceUrl: string | null;
+    hostedInvoiceUrl: string | null;
+  } | null> {
+    this.logger.info('Requesting invoice top-up', request);
+    this.breadcrumb.trackStateChange('usage:invoice-topup', request);
+    try {
+      const result = await this.api.requestInvoiceTopUp(request);
+      await this.haptics.notification('success');
+      this.toast.success('Invoice sent — funds will be credited when payment is received');
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create invoice';
+      this.logger.error('Failed to request invoice top-up', err, request);
+      this.toast.error(message);
+      await this.haptics.notification('error');
+      return null;
     }
   }
 

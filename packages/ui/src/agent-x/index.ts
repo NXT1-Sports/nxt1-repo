@@ -11,6 +11,11 @@
 // Services
 export { AgentXService } from './agent-x.service';
 export {
+  AgentXVideoUploadService,
+  type VideoUploadProgress,
+  type VideoUploadPhase,
+} from './agent-x-video-upload.service';
+export {
   AgentXJobService,
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
@@ -50,6 +55,7 @@ export {
 export { AgentXDashboardSkeletonComponent } from './agent-x-dashboard-skeleton.component';
 export { AgentXControlPanelComponent } from './agent-x-control-panel.component';
 export { AgentXWelcomeComponent } from './agent-x-welcome.component';
+export { AgentXGoalHistoryComponent } from './agent-x-goal-history.component';
 export {
   AgentXActionCardComponent,
   type ActionCardApprovalEvent,

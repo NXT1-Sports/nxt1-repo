@@ -135,6 +135,8 @@ interface AgentXDesktopSession {
   readonly operationStatus?: 'processing' | 'complete' | 'error' | 'awaiting_input' | null;
   readonly errorMessage?: string | null;
   readonly yieldState?: AgentYieldState;
+  /** When set, the mounted op-chat immediately connects to this resumed stream. */
+  readonly resumeOperationId?: string;
 }
 
 type AgentXDesktopResizablePanel = 'sessions' | 'action-plan' | 'expanded-panel';
@@ -325,29 +327,6 @@ interface AgentXDesktopResizeState {
               <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
             </svg>
           </button>
-          <button
-            type="button"
-            class="header-icon-btn"
-            (click)="openControlPanel('budget')"
-            aria-label="Budget"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7z" />
-              <path d="M2 7l16-2" />
-              <path d="M17 13.5a.5.5 0 1 1 0-1 .5.5 0 0 1 0 1z" />
-            </svg>
-          </button>
         }
       </div>
     </ng-template>
@@ -436,7 +415,6 @@ interface AgentXDesktopResizeState {
             @if (showDesktopBriefing()) {
               <div class="chat-briefing">
                 <h2 class="chat-briefing__greeting">{{ greeting() }}</h2>
-                <!-- chat-briefing__content hidden for now — re-enable when ready
                 <div class="chat-briefing__content">
                   @if (!isBriefingExpanded()) {
                     <p class="chat-briefing__preview">
@@ -464,7 +442,6 @@ interface AgentXDesktopResizeState {
                     </button>
                   }
                 </div>
-                -->
               </div>
             }
             @for (session of activeDesktopSessions(); track session.mountKey) {
@@ -480,6 +457,7 @@ interface AgentXDesktopResizeState {
                 [scheduledActions]="session.scheduledActions ?? []"
                 [initialMessage]="session.initialMessage ?? ''"
                 [threadId]="session.threadId ?? ''"
+                [resumeOperationId]="session.resumeOperationId ?? ''"
                 [yieldState]="session.yieldState ?? null"
                 [operationStatus]="session.operationStatus ?? null"
                 [errorMessage]="session.errorMessage ?? null"
@@ -496,7 +474,7 @@ interface AgentXDesktopResizeState {
              ACTION PLAN PANEL (right column in desktop grid)
              ═══════════════════════════════════════════ -->
         @if (showActionPlanModal() && !expandedSidePanel()) {
-          <aside class="agent-column agent-action-plan-column" aria-label="Today's Action Plan">
+          <aside class="agent-column agent-action-plan-column" aria-label="This Week's Game Plan">
             <div
               class="agent-resize-handle agent-resize-handle--left"
               [class.agent-resize-handle--active]="activeDesktopResize()?.panel === 'action-plan'"
@@ -531,7 +509,7 @@ interface AgentXDesktopResizeState {
 
             <div class="action-plan-panel__header">
               <div class="action-plan-panel__header-top">
-                <h2 class="action-plan-panel__title">Today's Action Plan</h2>
+                <h2 class="action-plan-panel__title">This Week's Game Plan</h2>
               </div>
               @if (playbookTotalCount() > 0) {
                 <div class="action-plan-status">
@@ -606,6 +584,33 @@ interface AgentXDesktopResizeState {
                     }
                   </div>
                 </div>
+              } @else if (allTasksSnoozed()) {
+                <div
+                  class="action-empty-state action-empty-state--visible"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div class="action-empty-icon" aria-hidden="true">
+                    <svg
+                      class="agent-x-mark"
+                      width="40"
+                      height="40"
+                      viewBox="0 0 612 792"
+                      fill="currentColor"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path [attr.d]="agentXLogoPath" />
+                      <polygon [attr.points]="agentXLogoPolygon" />
+                    </svg>
+                  </div>
+                  <h4 class="action-empty-title">All Tasks Snoozed</h4>
+                  <p class="action-empty-copy">
+                    You snoozed everything. Want Agent X to generate a fresh set of actions?
+                  </p>
+                  <button type="button" class="action-empty-btn" (click)="onRegeneratePlaybook()">
+                    Give Me More
+                  </button>
+                </div>
               } @else if (weeklyPlaybook().length > 0 && !allTasksComplete()) {
                 @for (task of filteredPlaybookItems(); track task.id; let i = $index) {
                   <div
@@ -640,13 +645,22 @@ interface AgentXDesktopResizeState {
                       >
                         {{ task.actionLabel }}
                       </button>
-                      <button
-                        type="button"
-                        class="action-btn snooze-btn"
-                        (click)="onSnoozeTask(task)"
-                      >
-                        Snooze for now
-                      </button>
+                      <div class="card-secondary-actions">
+                        <button
+                          type="button"
+                          class="action-btn done-btn"
+                          (click)="onMarkDoneTask(task)"
+                        >
+                          ✓ Done
+                        </button>
+                        <button
+                          type="button"
+                          class="action-btn snooze-btn"
+                          (click)="onSnoozeTask(task)"
+                        >
+                          Snooze
+                        </button>
+                      </div>
                     </div>
                   </div>
                 }
@@ -657,9 +671,19 @@ interface AgentXDesktopResizeState {
                   aria-live="polite"
                 >
                   <div class="action-empty-icon" aria-hidden="true">
-                    <nxt1-icon name="checkmarkCircle" [size]="30"></nxt1-icon>
+                    <svg
+                      class="agent-x-mark"
+                      width="40"
+                      height="40"
+                      viewBox="0 0 612 792"
+                      fill="currentColor"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path [attr.d]="agentXLogoPath" />
+                      <polygon [attr.points]="agentXLogoPolygon" />
+                    </svg>
                   </div>
-                  <h4 class="action-empty-title">Today's Action Plan Complete</h4>
+                  <h4 class="action-empty-title">Week Complete 🏆</h4>
                   <p class="action-empty-copy">
                     You crushed it. Agent X is still monitoring for new opportunities.
                   </p>
@@ -991,10 +1015,10 @@ interface AgentXDesktopResizeState {
             </div>
           </section>
 
-          <!-- ═══ 2. TODAY'S ACTION PLAN ═══ -->
-          <section class="m-action-plan" aria-label="Today's Action Plan">
+          <!-- ═══ 2. THIS WEEK'S GAME PLAN ═══ -->
+          <section class="m-action-plan" aria-label="This Week's Game Plan">
             <div class="action-plan-header">
-              <h3 class="m-section-title action-plan-title">Today's Action Plan</h3>
+              <h3 class="m-section-title action-plan-title">This Week's Game Plan</h3>
               @if (playbookTotalCount() > 0) {
                 <div class="action-plan-status">
                   <div class="action-plan-status-main">
@@ -1044,6 +1068,23 @@ interface AgentXDesktopResizeState {
                   }
                 </div>
               </div>
+            } @else if (allTasksSnoozed()) {
+              <div
+                class="action-empty-state action-empty-state--visible"
+                role="status"
+                aria-live="polite"
+              >
+                <div class="action-empty-icon" aria-hidden="true">
+                  <nxt1-icon name="moonOutline" [size]="30"></nxt1-icon>
+                </div>
+                <h4 class="action-empty-title">All Tasks Snoozed</h4>
+                <p class="action-empty-copy">
+                  You snoozed everything. Want Agent X to generate a fresh set of actions?
+                </p>
+                <button type="button" class="action-empty-btn" (click)="onRegeneratePlaybook()">
+                  Give Me More
+                </button>
+              </div>
             } @else if (weeklyPlaybook().length > 0 && !allTasksComplete()) {
               @if (showCategoryPills()) {
                 <div class="category-pills" role="tablist" aria-label="Filter action plan">
@@ -1091,13 +1132,22 @@ interface AgentXDesktopResizeState {
                     >
                       {{ task.actionLabel }}
                     </button>
-                    <button
-                      type="button"
-                      class="action-btn snooze-btn"
-                      (click)="onSnoozeTask(task)"
-                    >
-                      Snooze for now
-                    </button>
+                    <div class="card-secondary-actions">
+                      <button
+                        type="button"
+                        class="action-btn done-btn"
+                        (click)="onMarkDoneTask(task)"
+                      >
+                        ✓ Done
+                      </button>
+                      <button
+                        type="button"
+                        class="action-btn snooze-btn"
+                        (click)="onSnoozeTask(task)"
+                      >
+                        Snooze
+                      </button>
+                    </div>
                   </div>
                 </div>
               }
@@ -1110,7 +1160,7 @@ interface AgentXDesktopResizeState {
                 <div class="action-empty-icon" aria-hidden="true">
                   <nxt1-icon name="checkmarkCircle" [size]="30"></nxt1-icon>
                 </div>
-                <h4 class="action-empty-title">Today's Action Plan Complete</h4>
+                <h4 class="action-empty-title">Week Complete 🏆</h4>
                 <p class="action-empty-copy">
                   You crushed it. Agent X is still monitoring for new opportunities.
                 </p>
@@ -1180,7 +1230,6 @@ interface AgentXDesktopResizeState {
         [uploading]="agentX.uploading()"
         (messageChange)="agentX.setUserMessage($event)"
         (send)="onMobileSendMessage()"
-        (stop)="agentX.cancelStream()"
         (removeTask)="agentX.clearTask()"
         (toggleTasks)="onToggleTasks()"
         (filesAdded)="agentX.addFiles($event)"
@@ -2572,11 +2621,18 @@ interface AgentXDesktopResizeState {
         background: var(--agent-primary);
         color: var(--nxt1-color-bg-primary, #0a0a0a);
         animation: agent-pulse 2.8s ease-in-out infinite;
+        width: 100%;
       }
       .action-btn.secondary-btn {
         background: var(--agent-surface-hover);
         border: 1px solid var(--agent-border);
         color: var(--agent-text-primary);
+      }
+
+      .action-btn.done-btn {
+        background: transparent;
+        border: 1px solid var(--agent-primary);
+        color: var(--agent-primary);
       }
 
       .action-btn.snooze-btn {
@@ -2585,11 +2641,16 @@ interface AgentXDesktopResizeState {
         color: var(--agent-text-secondary);
       }
 
-      .card-actions {
+      .card-secondary-actions {
         display: flex;
         align-items: center;
+        gap: 6px;
+      }
+
+      .card-actions {
+        display: flex;
+        flex-direction: column;
         gap: 8px;
-        flex-wrap: wrap;
       }
 
       .action-empty-state {
@@ -3255,6 +3316,20 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const rightTpl = this.agentRightPortal();
     if (rightTpl) this.headerPortal.setRightContent(rightTpl);
 
+    // Drop-recovery: if the page was refreshed mid-stream, open an op-chat
+    // session that immediately attaches to the pending operation's stream.
+    const pendingOp = this.agentX.getAndClearDropRecoveryOp();
+    if (pendingOp) {
+      this.setDesktopSession({
+        contextId: pendingOp.operationId,
+        contextTitle: 'Resuming Operation',
+        contextIcon: 'sparkles',
+        contextType: 'operation',
+        threadId: pendingOp.threadId,
+        resumeOperationId: pendingOp.operationId,
+      });
+    }
+
     // Subscribe to real-time title updates — update the active desktop session
     // title when the backend auto-generates a concise thread title.
     this.operationEventService.titleUpdated$
@@ -3415,7 +3490,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly actionPlanCompletionLabel = computed(() => {
     const completed = this.playbookCompletedCount();
     const total = this.playbookTotalCount();
-    return `${completed} of ${total} cleared today`;
+    return `${completed} of ${total} cleared this week`;
   });
   protected readonly actionPlanProgressPercent = computed(() => {
     const total = this.playbookTotalCount();
@@ -3690,24 +3765,28 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.agentX.weeklyPlaybook()
   );
 
-  /** Number of completed playbook tasks. */
+  /** Number of completed playbook tasks (snoozed don't count). */
   protected readonly playbookCompletedCount = computed(
     () => this.weeklyPlaybook().filter((t) => t.status === 'complete').length
   );
 
-  /** Total number of playbook tasks. */
-  protected readonly playbookTotalCount = computed(() => this.weeklyPlaybook().length);
-
-  /** Whether all playbook tasks are complete (show "Give Me More" state). */
-  protected readonly allTasksComplete = computed(
-    () =>
-      this.weeklyPlaybook().length > 0 &&
-      this.weeklyPlaybook().every((t) => t.status === 'complete')
+  /** Total number of active (non-snoozed) playbook tasks. */
+  protected readonly playbookTotalCount = computed(
+    () => this.weeklyPlaybook().filter((t) => t.status !== 'snoozed').length
   );
 
-  // ============================================
-  // COORDINATORS — Role-Aware Virtual Staff
-  // ============================================
+  /** Whether all active (non-snoozed) playbook tasks are complete. */
+  protected readonly allTasksComplete = computed(() => {
+    const items = this.weeklyPlaybook();
+    const active = items.filter((t) => t.status !== 'snoozed');
+    return active.length > 0 && active.every((t) => t.status === 'complete');
+  });
+
+  /** Whether every playbook task has been snoozed (none active or complete). */
+  protected readonly allTasksSnoozed = computed(() => {
+    const items = this.weeklyPlaybook();
+    return items.length > 0 && items.every((t) => t.status === 'snoozed');
+  });
 
   /** Coordinator cards — live from service only. */
   protected readonly commandCategories = computed(() => this.agentX.coordinators());
@@ -3812,6 +3891,22 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       }
     });
 
+    // React to inline approval resume — open op-chat pointing at the resumed stream.
+    effect(() => {
+      const resume = this.agentX.pendingResumeOp();
+      if (!resume) return;
+
+      this.agentX.clearPendingResumeOp();
+      this.setDesktopSession({
+        contextId: resume.operationId,
+        contextTitle: 'Resuming Operation',
+        contextIcon: 'sparkles',
+        contextType: 'operation',
+        threadId: resume.threadId,
+        resumeOperationId: resume.operationId,
+      });
+    });
+
     effect(() => {
       const session = this.activeDesktopSession();
       const quickActions = this.commandQuickActions();
@@ -3886,25 +3981,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
     // After saving goals, sync to backend and trigger generation
     if (panel === 'goals' && result?.data?.saved) {
-      const goalIds = this.controlPanelState.goals();
-      const dashboardGoals: AgentDashboardGoal[] = goalIds.map((id) => {
-        if (id.startsWith('custom:')) {
-          return { id, text: id.slice(7), category: 'custom', createdAt: new Date().toISOString() };
-        }
-        const option = AGENT_X_GOAL_OPTIONS.find((o) => o.id === id);
-        return {
-          id,
-          text: option?.label ?? id,
-          category: 'custom',
-          createdAt: new Date().toISOString(),
-        };
+      // Goals already persisted by AgentXControlPanelComponent — just refresh the briefing
+      this.agentX.generateBriefing(true).catch(() => {
+        /* noop */
       });
-
-      await this.agentX.setGoals(dashboardGoals);
-      // generateBriefing disabled — briefing display hidden
-      // this.agentX.generateBriefing(true).catch(() => {
-      //   /* noop */
-      // });
     }
   }
 
@@ -3924,14 +4004,14 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    * Routes through the SSE chat loop so the operations log sidebar
    * receives real-time status updates (in-progress, awaiting_input, etc.).
    */
-  protected async onPlaybookAction(task: WeeklyPlaybookItem): Promise<void> {
+  protected async onPlaybookAction(task: ShellWeeklyPlaybookItem): Promise<void> {
     if (task.id === 'goal-setup') {
       this.onSetupGoals();
       return;
     }
 
     if (this.agentX.dashboardLoaded()) {
-      const { intent, title } = this.agentX.preparePlaybookAction(task as ShellWeeklyPlaybookItem);
+      const { intent, title } = this.agentX.preparePlaybookAction(task);
       // Open a desktop session with initialMessage so the SSE chat loop
       // streams properly — giving the operations log real-time status events.
       this.setDesktopSession({
@@ -3942,8 +4022,14 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         initialMessage: intent,
       });
     } else {
-      this.agentX.setUserMessage(`${task.actionLabel}: ${task.title}`);
-      await this.agentX.sendMessage();
+      const intent = `${task.actionLabel}: ${task.title}`;
+      this.setDesktopSession({
+        contextId: `playbook-${task.id}`,
+        contextTitle: task.title,
+        contextIcon: 'sparkles',
+        contextType: 'command',
+        initialMessage: intent,
+      });
     }
   }
 
@@ -4005,11 +4091,36 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    * Handle session history entry tap (desktop) — open in right-side chat column.
    */
   protected onLogEntryTap(entry: OperationLogEntry): void {
+    const operationStatus =
+      entry.status === 'in-progress'
+        ? 'processing'
+        : entry.status === 'complete'
+          ? 'complete'
+          : entry.status === 'error'
+            ? 'error'
+            : entry.status === 'awaiting_input'
+              ? 'awaiting_input'
+              : null;
+
+    const isFirestoreOperationId = (id: string | undefined): boolean => {
+      if (!id) return false;
+      const bare = id.startsWith('chat-') ? id.slice(5) : id;
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bare);
+    };
+    const resolvedOperationId = isFirestoreOperationId(entry.operationId)
+      ? entry.operationId
+      : undefined;
+
     this.setDesktopSession({
-      contextId: entry.id,
+      contextId: resolvedOperationId ?? entry.threadId ?? entry.id,
       contextTitle: entry.title,
       contextIcon: entry.icon,
       contextType: 'operation',
+      operationStatus: resolvedOperationId
+        ? operationStatus
+        : operationStatus === 'processing'
+          ? null
+          : operationStatus,
       threadId: entry.threadId ?? '',
     });
   }
@@ -4058,6 +4169,15 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     await this.haptics.impact('light');
     this.agentX.snoozePlaybookItem(task.id);
     this.toast.success('Task snoozed');
+  }
+
+  /**
+   * Mark a task as explicitly done — user already completed it outside the app.
+   */
+  protected async onMarkDoneTask(task: ShellWeeklyPlaybookItem): Promise<void> {
+    await this.haptics.notification('success');
+    this.agentX.markPlaybookItemComplete(task.id);
+    this.toast.success('Task marked complete');
   }
 
   protected async onSendMessage(): Promise<void> {

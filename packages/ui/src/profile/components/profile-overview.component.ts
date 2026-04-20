@@ -40,8 +40,8 @@ import {
   formatSportDisplayName,
   normalizeWeightDisplay,
   isFemaleGender,
-  getPlatformFaviconUrl,
 } from '@nxt1/core';
+import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
 import { ICONS, type IconName } from '@nxt1/design-tokens/assets/icons';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 

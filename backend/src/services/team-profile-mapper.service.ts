@@ -219,8 +219,9 @@ function mapTeamCodeToTeam(
   const state = teamCode.state ?? org?.state ?? '';
   const location = [city, state].filter(Boolean).join(', ');
   const logoUrl = teamCode.logoUrl ?? teamCode.teamLogoImg ?? org?.logoUrl ?? undefined;
-  const primaryColor = teamCode.primaryColor ?? org?.primaryColor ?? undefined;
-  const secondaryColor = teamCode.secondaryColor ?? org?.secondaryColor ?? undefined;
+  // Org colors are canonical — org takes precedence over team doc (mirrors profile-hydration behaviour)
+  const primaryColor = org?.primaryColor ?? teamCode.primaryColor ?? undefined;
+  const secondaryColor = org?.secondaryColor ?? teamCode.secondaryColor ?? undefined;
   const mascot = teamCode.mascot ?? org?.mascot ?? undefined;
 
   const teamName = teamCode.teamName ?? '';

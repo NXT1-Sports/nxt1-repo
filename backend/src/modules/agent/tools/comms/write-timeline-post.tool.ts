@@ -210,7 +210,7 @@ export class WriteTimelinePostTool extends BaseTool {
       // and expires with the thread. Published posts need permanent copies at
       // users/{userId}/posts/{postId}/ so they survive thread deletion.
       const postIdForMedia = this.db.collection(POSTS_COLLECTIONS.POSTS).doc().id;
-      const destinationPrefix = `users/${userId}/posts/${postIdForMedia}`;
+      const destinationPrefix = `Users/${userId}/posts/${postIdForMedia}`;
 
       let promotedImages = images.urls;
       let promotedVideoUrl = videoUrl;

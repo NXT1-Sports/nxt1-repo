@@ -16,6 +16,7 @@ import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { getCacheService } from '../../../../services/cache.service.js';
 import { logger } from '../../../../utils/logger.js';
+import { resolveCreatedAt } from './doc-date-utils.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -157,7 +158,7 @@ export class WriteTeamNewsTool extends BaseTool {
             ...(imageUrl ? { imageUrl } : {}),
             ...(sourceLogoUrl ? { sourceLogoUrl } : {}),
             ...(category ? { category } : {}),
-            createdAt: now,
+            createdAt: resolveCreatedAt(undefined, publishedAt, now),
             updatedAt: now,
           },
           { merge: true }

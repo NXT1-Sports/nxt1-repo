@@ -302,6 +302,56 @@ export class WebPushService {
   }
 
   /**
+   * Unregister the current FCM token and clear all local state.
+   * Call when the user disables push notifications in Settings.
+   *
+   * Mirrors the mobile FcmRegistrationService.unregisterToken() pattern.
+   */
+  async revokeToken(): Promise<void> {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    const token = this._token();
+    if (!token) {
+      this.logger.info('revokeToken: no active token to unregister');
+      return;
+    }
+
+    this.logger.info('Revoking FCM token');
+    this.breadcrumb.trackUserAction('push:token-revoke');
+
+    try {
+      const { getFunctions, httpsCallable } = await import('firebase/functions');
+      const functions = getFunctions(this.firebaseApp as Parameters<typeof getFunctions>[0]);
+      const unregisterFn = httpsCallable<{ token: string }, { success: boolean }>(
+        functions,
+        'unregisterFcmToken'
+      );
+      await unregisterFn({ token });
+      this.logger.info('FCM token unregistered with backend');
+    } catch (err) {
+      // Non-blocking — preference is already saved as push:false on the backend,
+      // so the onNotificationCreatedV3 gate will block delivery regardless.
+      // The weeklyCleanup cron will purge the stale token within 90 days.
+      this.logger.warn('Failed to unregister FCM token with backend', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // Clear local state regardless of whether the backend call succeeded
+    this._token.set(null);
+    try {
+      localStorage.removeItem(this.WEB_TOKEN_STORAGE_KEY);
+    } catch {
+      // localStorage may be unavailable in some browser contexts — ignore
+    }
+
+    this.analytics?.trackEvent(APP_EVENTS.PUSH_TOKEN_REGISTERED, {
+      platform: 'web',
+      action: 'revoke',
+    });
+  }
+
+  /**
    * Handle a push notification received while the app is in the foreground.
    * Shows an in-app toast with a "View" action that navigates to the deep link.
    */

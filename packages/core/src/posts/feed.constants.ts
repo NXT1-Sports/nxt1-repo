@@ -21,13 +21,18 @@ export const FEED_API_ENDPOINTS = {
   FEED: '/feed',
   /** Single post endpoint */
   POST: '/feed/posts/:id',
-  /** Post actions (like, etc) */
+  /** Post actions (like, report) */
   POST_LIKE: '/feed/posts/:id/like',
-  POST_SHARE: '/feed/posts/:id/share',
   POST_REPORT: '/feed/posts/:id/report',
   /** User-specific feeds */
   USER_FEED: '/feed/users/:uid',
   TEAM_FEED: '/feed/teams/:teamCode',
+  /**
+   * Universal engagement endpoints — work for every feed item type (Posts,
+   * Events, Stats, Recruiting, Metrics, etc.) via the Engagement collection.
+   */
+  ITEM_VIEW: '/engagement/:id/view',
+  ITEM_SHARE: '/engagement/:id/share',
 } as const;
 
 // ============================================

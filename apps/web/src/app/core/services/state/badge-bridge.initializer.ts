@@ -37,6 +37,7 @@
 import {
   inject,
   effect,
+  NgZone,
   makeEnvironmentProviders,
   ENVIRONMENT_INITIALIZER,
   PLATFORM_ID,
@@ -73,6 +74,7 @@ export function provideBadgeBridge(): EnvironmentProviders {
         const badges = inject(BadgeCountService);
         const authFlow = inject(AuthFlowService);
         const platformId = inject(PLATFORM_ID);
+        const ngZone = inject(NgZone);
         const logger = inject(NxtLoggingService).child('BadgeBridge');
 
         // Reactive bridge: whenever ActivityService counts change, update BadgeCountService
@@ -88,18 +90,22 @@ export function provideBadgeBridge(): EnvironmentProviders {
 
           const startPolling = (): void => {
             stopPolling();
-            pollTimer = setInterval(async () => {
-              // Guard: skip if no valid auth token (avoids 401 on expired sessions)
-              try {
-                const token = await authFlow.getIdToken();
-                if (!token) return;
-              } catch {
-                return;
-              }
-              activityService.refreshBadges().catch(() => {
-                // Silent fail — will retry next interval
-              });
-            }, BADGE_POLL_INTERVAL_MS);
+            // Run outside NgZone: Zone.js tracks setInterval as a live macrotask.
+            // A running interval inside the zone permanently prevents app stabilization.
+            ngZone.runOutsideAngular(() => {
+              pollTimer = setInterval(async () => {
+                // Guard: skip if no valid auth token (avoids 401 on expired sessions)
+                try {
+                  const token = await authFlow.getIdToken();
+                  if (!token) return;
+                } catch {
+                  return;
+                }
+                activityService.refreshBadges().catch(() => {
+                  // Silent fail — will retry next interval
+                });
+              }, BADGE_POLL_INTERVAL_MS);
+            });
           };
 
           const stopPolling = (): void => {
@@ -135,17 +141,21 @@ export function provideBadgeBridge(): EnvironmentProviders {
           // Visibility API: pause polling when tab is hidden,
           // resume polling when tab becomes visible.
           // (Discord / Slack / Twitter pattern)
-          document.addEventListener('visibilitychange', () => {
-            if (!isAuthed) return;
+          // Run outside NgZone: event listener callbacks re-enter the zone on
+          // every visibility change, creating spurious change detection cycles.
+          ngZone.runOutsideAngular(() =>
+            document.addEventListener('visibilitychange', () => {
+              if (!isAuthed) return;
 
-            if (document.visibilityState === 'visible') {
-              logger.debug('Tab visible, resuming badge polling');
-              startPolling();
-            } else {
-              logger.debug('Tab hidden, pausing badge polling');
-              stopPolling();
-            }
-          });
+              if (document.visibilityState === 'visible') {
+                logger.debug('Tab visible, resuming badge polling');
+                startPolling();
+              } else {
+                logger.debug('Tab hidden, pausing badge polling');
+                stopPolling();
+              }
+            })
+          );
 
           // Auth state watcher
           effect(() => {

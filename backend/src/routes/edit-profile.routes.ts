@@ -122,7 +122,7 @@ async function uploadToStorage(
  */
 function buildPhotoStoragePath(userId: string): string {
   const timestamp = Date.now();
-  return `Profiles/ProfileImages/${userId}/avatar_${timestamp}.jpg`;
+  return `Users/${userId}/profile/avatar_${timestamp}.jpg`;
 }
 
 function getRequiredRouteParam(value: string | string[] | undefined, name: string): string {

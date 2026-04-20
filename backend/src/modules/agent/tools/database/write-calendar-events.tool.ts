@@ -28,6 +28,7 @@ import { getAnalyticsLoggerService } from '../../../../services/analytics-logger
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 import { logger } from '../../../../utils/logger.js';
 import { normalizeOpponentName } from './dedup-utils.js';
+import { resolveCreatedAt } from './doc-date-utils.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -205,7 +206,7 @@ export class WriteCalendarEventsTool extends BaseTool {
           // Data lineage
           provider: source,
           extractedAt: now,
-          createdAt: now,
+          createdAt: resolveCreatedAt(undefined, date, now),
           updatedAt: now,
         };
         if (sourceUrl) record['sourceUrl'] = sourceUrl;

@@ -90,11 +90,23 @@ export interface UserProfile {
 /**
  * Convert Firestore Timestamp to ISO string
  */
-export function timestampToISO(timestamp: Timestamp | undefined): string {
+export function timestampToISO(timestamp: Timestamp | unknown | undefined): string {
   if (!timestamp) {
     return new Date().toISOString();
   }
-  return timestamp.toDate().toISOString();
+  // Native Firestore Timestamp
+  if (typeof (timestamp as Timestamp).toDate === 'function') {
+    return (timestamp as Timestamp).toDate().toISOString();
+  }
+  // Plain serialized Timestamp object: { _seconds, _nanoseconds } or { seconds, nanoseconds }
+  const ts = timestamp as Record<string, unknown>;
+  const seconds = (ts['_seconds'] ?? ts['seconds']) as number | undefined;
+  if (typeof seconds === 'number') {
+    return new Date(seconds * 1000).toISOString();
+  }
+  // Already an ISO string or Date
+  const d = new Date(timestamp as string | number);
+  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 
 /**
@@ -162,8 +174,8 @@ export function firestorePostToFeedPost(
     content: doc.content,
     media,
     engagement: {
-      shareCount: doc.stats?.shares || 0,
-      viewCount: doc.stats?.views || 0,
+      shareCount: 0,
+      viewCount: 0,
     },
     location: doc.location,
     isPinned: doc.isPinned || false,

@@ -70,46 +70,114 @@ export const PENDING_REFERRAL_KEY = 'nxt1:pending_referral';
   selector: 'app-join',
   standalone: true,
   imports: [NxtLogoComponent],
+  styles: [
+    `
+      :host {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        background: var(--nxt1-ui-bg-page);
+      }
+
+      .join-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--nxt1-spacing-6, 1.5rem);
+        width: 100%;
+        max-width: 384px;
+        padding: var(--nxt1-spacing-8, 2rem);
+        background: var(--nxt1-ui-bg-card);
+        border: 1px solid var(--nxt1-ui-bg-card-border);
+        border-radius: var(--nxt1-ui-radius-2xl);
+        box-shadow: var(--nxt1-ui-shadow-xl);
+        text-align: center;
+      }
+
+      .join-copy {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-2, 0.5rem);
+      }
+
+      .join-title {
+        font-size: var(--nxt1-fontSize-lg, 1.125rem);
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
+        color: var(--nxt1-ui-text-primary);
+        margin: 0;
+      }
+
+      .join-subtitle {
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--nxt1-ui-text-secondary);
+        margin: 0;
+      }
+
+      .join-subtitle strong {
+        color: var(--nxt1-ui-text-primary);
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
+      }
+
+      .join-actions {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-3, 0.75rem);
+        width: 100%;
+      }
+
+      .join-loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--nxt1-spacing-4, 1rem);
+        text-align: center;
+      }
+
+      .join-loading-text {
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--nxt1-ui-text-muted);
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
+      }
+    `,
+  ],
   template: `
-    <div
-      class="bg-background flex min-h-screen items-center justify-center"
-      data-testid="join-redirect-page"
-    >
+    <div data-testid="join-redirect-page">
       @if (confirmState()) {
         <!-- Confirmation modal for already-authenticated users -->
-        <div
-          class="flex max-w-sm flex-col items-center gap-6 rounded-2xl border border-white/10 bg-white/5 p-8 text-center shadow-xl"
-        >
+        <div class="join-card">
           <nxt1-logo variant="default" size="md" />
-          <div class="flex flex-col gap-2">
-            <h2 class="text-lg font-semibold text-text-primary">You've been invited!</h2>
-            <p class="text-sm text-text-secondary">
-              <strong class="text-text-primary">{{ confirmState()!.teamName }}</strong>
+          <div class="join-copy">
+            <h2 class="join-title">You've been invited!</h2>
+            <p class="join-subtitle">
+              <strong>{{ confirmState()!.teamName }}</strong>
               invited you to join their team.
             </p>
           </div>
-          <div class="flex w-full flex-col gap-3">
-            <button
-              class="bg-brand-primary w-full rounded-xl px-6 py-3 text-sm font-semibold text-black transition hover:opacity-90 disabled:opacity-50"
-              [disabled]="isAccepting()"
-              (click)="acceptInvite()"
-            >
+          <div class="join-actions">
+            <button class="nxt1-btn-primary" [disabled]="isAccepting()" (click)="acceptInvite()">
               {{ isAccepting() ? 'Joining…' : 'Accept & Join Team' }}
             </button>
-            <button
-              class="w-full rounded-xl border border-white/10 px-6 py-3 text-sm font-medium text-text-secondary transition hover:bg-white/5"
-              [disabled]="isAccepting()"
-              (click)="declineInvite()"
-            >
+            <button class="nxt1-btn-secondary" [disabled]="isAccepting()" (click)="declineInvite()">
               Decline
             </button>
           </div>
         </div>
       } @else {
         <!-- Loading / redirecting state -->
-        <div class="flex flex-col items-center gap-4 text-center">
+        <div class="join-loading">
           <nxt1-logo variant="default" size="lg" />
-          <p class="animate-pulse text-sm text-text-secondary">Preparing your invite…</p>
+          <p class="join-loading-text">Preparing your invite…</p>
         </div>
       }
     </div>

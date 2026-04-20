@@ -12,13 +12,14 @@ import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../../middleware/auth.middleware.js';
 import { uploadRateLimit } from '../../middleware/rate-limit.middleware.js';
 import { validateBody } from '../../middleware/validation.middleware.js';
-import { SetGoalsDto } from '../../dtos/agent-x.dto.js';
+import { SetGoalsDto, CompleteGoalDto } from '../../dtos/agent-x.dto.js';
 import { Timestamp } from 'firebase-admin/firestore';
 import type {
   AgentDashboardGoal,
   ShellWeeklyPlaybookItem,
   ShellBriefingInsight,
   OperationLogEntry,
+  CompletedGoalRecord,
 } from '@nxt1/core';
 import { getShellContentForRole } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
@@ -35,7 +36,9 @@ import {
   chatService,
   agentUpload,
   getAuthUser,
+  getGenerationService,
   isLegacyFallbackPlaybook,
+  contextBuilder,
 } from './shared.js';
 
 const router = Router();
@@ -102,12 +105,26 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       jobs = [];
     }
 
+    // ── Deduplicate by threadId: keep the most recent job per thread ────
+    // jobs[] is already ordered by createdAt DESC from Firestore, so the
+    // first job seen for a threadId is the most recent one.
+    const seenThreadIds = new Set<string>();
     const entries: OperationLogEntry[] = [];
     const representedThreadIds = new Set<string>();
 
     for (const job of jobs) {
       const intent = (job['intent'] as string) ?? '';
       if (!intent) continue;
+
+      const threadId = (job['threadId'] as string) ?? undefined;
+
+      // If this job belongs to a thread we've already represented, skip it.
+      // This collapses multiple messages in the same conversation into one row.
+      if (threadId) {
+        if (seenThreadIds.has(threadId)) continue;
+        seenThreadIds.add(threadId);
+        representedThreadIds.add(threadId);
+      }
 
       const status = mapJobStatus((job['status'] as string) ?? '', (raw: string) =>
         logger.warn('Unknown job status mapped to in-progress', { status: raw })
@@ -118,12 +135,10 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       const result = job['result'] as { summary?: string } | null | undefined;
       const jobOrigin = validateJobOrigin(job['origin']);
       const isScheduled = jobOrigin !== 'user';
-      const threadId = (job['threadId'] as string) ?? undefined;
-
-      if (threadId) representedThreadIds.add(threadId);
 
       entries.push({
-        id: (job['operationId'] as string) ?? '',
+        id: threadId ?? (job['operationId'] as string) ?? '',
+        operationId: (job['operationId'] as string) ?? undefined,
         title: intent.slice(0, 120),
         summary:
           result?.summary ??
@@ -162,12 +177,28 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
           });
         }
 
+        // Build reverse map: MongoDB threadId → Firestore operationId.
+        // This is necessary because AgentJobs docs have threadId patched in
+        // asynchronously after creation. At the time getByUser runs, some jobs
+        // may have threadId: null, so their MongoDB thread never enters
+        // representedThreadIds and gets added as a thread-only entry below —
+        // without an operationId. This map ensures those entries still carry
+        // the correct UUID for the Firestore events subscription.
+        const threadIdToOperationId = new Map<string, string>();
+        for (const job of jobs) {
+          const tid = job['threadId'] as string | null | undefined;
+          const oid = job['operationId'] as string | undefined;
+          if (tid && oid) threadIdToOperationId.set(tid, oid);
+        }
+
         for (const thread of threads) {
           if (!thread.id || representedThreadIds.has(thread.id)) continue;
 
           const category = inferCategory(thread.title);
+          const resolvedOperationId = threadIdToOperationId.get(thread.id);
           entries.push({
-            id: thread.id,
+            id: resolvedOperationId ?? thread.id,
+            operationId: resolvedOperationId,
             title: thread.title.slice(0, 120),
             summary: `${thread.messageCount} message${thread.messageCount !== 1 ? 's' : ''} · ${thread.category ?? 'general'}`,
             icon: iconForCategory(category),
@@ -320,11 +351,204 @@ router.post('/goals', appGuard, validateBody(SetGoalsDto), async (req: Request, 
 
     logger.info('Agent goals updated', { userId: user.uid, goalCount: goals.length });
 
+    // Invalidate the agent context cache so the next AI request sees the new goals.
+    contextBuilder?.invalidateContext(user.uid).catch(() => {
+      /* non-critical */
+    });
+
+    // Goals changed — regenerate the action plan immediately so the user
+    // sees a fresh playbook that reflects their new goals. fire-and-forget
+    // (non-blocking — the HTTP response returns instantly).
+    if (goals.length > 0) {
+      getGenerationService()
+        .generateWeeklyPlaybook(user.uid, true)
+        .catch((err) =>
+          logger.warn('Playbook regeneration after goal update failed', {
+            userId: user.uid,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        );
+    }
+
     res.json({ success: true });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('Failed to set agent goals', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to save goals' });
+  }
+});
+
+// ─── POST /goals/:goalId/complete ─────────────────────────────────────────
+
+router.post(
+  '/goals/:goalId/complete',
+  appGuard,
+  validateBody(CompleteGoalDto),
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { goalId } = req.params as { goalId: string };
+      const { notes } = req.body as CompleteGoalDto;
+      const { db } = req.firebase!;
+
+      logger.info('Complete goal request received', { userId: user.uid, goalId });
+
+      const userRef = db.collection('Users').doc(user.uid);
+      const userDoc = await userRef.get();
+      const userData = userDoc.data() ?? {};
+      const agentGoals: AgentDashboardGoal[] = (userData['agentGoals'] ??
+        []) as AgentDashboardGoal[];
+      const role = (userData['role'] ?? 'athlete') as string;
+
+      const goal = agentGoals.find((g) => g.id === goalId);
+      // Allow completion even if the goal was already removed from agentGoals
+      // (e.g. optimistic UI removed it before the request landed).
+      // Fall back to the goal_history record if it exists.
+      let resolvedGoal = goal;
+      if (!resolvedGoal) {
+        const histDoc = await userRef.collection('goal_history').doc(goalId).get();
+        if (histDoc.exists) {
+          resolvedGoal = histDoc.data() as AgentDashboardGoal;
+        }
+      }
+      if (!resolvedGoal) {
+        res.status(404).json({ success: false, error: 'Goal not found' });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const createdAtMs = resolvedGoal.createdAt
+        ? new Date(resolvedGoal.createdAt).getTime()
+        : Date.now();
+      const daysToComplete = Math.max(0, Math.round((Date.now() - createdAtMs) / 86_400_000));
+
+      const completedGoal: CompletedGoalRecord = {
+        id: `${goalId}_${Date.now()}`,
+        goalId,
+        text: resolvedGoal.text,
+        category: resolvedGoal.category,
+        ...(resolvedGoal.icon ? { icon: resolvedGoal.icon } : {}),
+        createdAt: resolvedGoal.createdAt,
+        completedAt: now,
+        role,
+        daysToComplete,
+        ...(notes ? { notes } : {}),
+      };
+
+      // Mark existing goal_history record as completed (or create one if missing),
+      // and remove from active goals atomically.
+      const batch = db.batch();
+      const histRef = userRef.collection('goal_history').doc(goalId);
+      const existingHist = await histRef.get();
+      if (existingHist.exists) {
+        batch.update(histRef, {
+          isCompleted: true,
+          completedAt: now,
+          daysToComplete,
+          ...(notes ? { notes } : {}),
+        });
+      } else {
+        batch.set(histRef, {
+          ...completedGoal,
+          isCompleted: true,
+          firstSeenAt: resolvedGoal.createdAt ?? now,
+          lastSeenAt: now,
+          playbookCount: 0,
+        });
+      }
+      if (goal) {
+        // Only update agentGoals if the goal was still in the active list
+        batch.update(userRef, {
+          agentGoals: agentGoals.filter((g) => g.id !== goalId),
+          agentGoalsUpdatedAt: now,
+        });
+      }
+      await batch.commit();
+
+      // ── Sync isCompleted flag to the active cycle doc ──────────────────
+      // Find the latest cycle doc and mark it complete so the audit trail
+      // reflects the manual completion.
+      try {
+        const latestPlaybook = await db
+          .collection('Users')
+          .doc(user.uid)
+          .collection('agent_playbooks')
+          .orderBy('generatedAt', 'desc')
+          .limit(1)
+          .get();
+        if (!latestPlaybook.empty) {
+          const cycleRef = histRef.collection('cycles').doc(latestPlaybook.docs[0].id);
+          const cycleDoc = await cycleRef.get();
+          if (cycleDoc.exists) {
+            await cycleRef.update({ isCompleted: true, completedAt: now });
+          }
+        }
+      } catch {
+        // Non-critical — main goal_history already updated
+      }
+
+      logger.info('Agent goal completed', {
+        userId: user.uid,
+        goalId,
+        category: goal?.category,
+        role,
+        daysToComplete,
+      });
+
+      // Invalidate agent context cache — goal is removed from agentGoals.
+      contextBuilder?.invalidateContext(user.uid).catch(() => {
+        /* non-critical */
+      });
+
+      res.json({ success: true, data: { completedGoal } });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to complete agent goal', { error: error.message, stack: error.stack });
+      res.status(500).json({ success: false, error: 'Failed to complete goal' });
+    }
+  }
+);
+
+// ─── GET /goal-history ────────────────────────────────────────────────────
+
+router.get('/goal-history', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const snapshot = await db
+      .collection('Users')
+      .doc(user.uid)
+      .collection('goal_history')
+      .orderBy('lastSeenAt', 'desc')
+      .limit(50)
+      .get();
+
+    const history = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        ...data,
+        // Normalise: records created before auto-archive used 'generatedAt' as lastSeenAt
+        lastSeenAt: data['lastSeenAt'] ?? data['completedAt'] ?? data['createdAt'],
+      };
+    });
+
+    logger.info('Goal history fetched', { userId: user.uid, count: history.length });
+
+    res.json({ success: true, data: { history, totalCompleted: history.length } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to fetch goal history', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to fetch goal history' });
   }
 });
 
@@ -349,10 +573,16 @@ router.post(
         return;
       }
 
+      const threadId = req.body?.threadId as string | undefined;
+      if (!threadId) {
+        res.status(400).json({ success: false, error: 'threadId is required' });
+        return;
+      }
+
       const bucket = getStorage().bucket();
       const timestamp = Date.now();
       const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const storagePath = `AgentX/${user.uid}/${timestamp}_${sanitizedName}`;
+      const storagePath = `Users/${user.uid}/threads/${threadId}/media/${timestamp}_${sanitizedName}`;
       const storageFile = bucket.file(storagePath);
 
       await storageFile.save(file.buffer, {

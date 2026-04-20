@@ -37,6 +37,7 @@ import {
   PLATFORM_ID,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import {
   ProfileGenerationStateService,
   type GenerationPhase,
@@ -78,7 +79,18 @@ const DISMISS_ANIMATION_MS = 500;
       <!-- Left: Agent X badge -->
       <div class="gen-banner__icon">
         <div class="gen-banner__badge">
-          <span class="gen-banner__badge-text">X</span>
+          <svg
+            class="gen-banner__badge-logo"
+            viewBox="0 0 612 792"
+            fill="currentColor"
+            stroke="currentColor"
+            stroke-width="12"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path [attr.d]="logoPath" />
+            <polygon [attr.points]="logoPolygon" />
+          </svg>
         </div>
         <div class="gen-banner__pulse" aria-hidden="true"></div>
       </div>
@@ -177,8 +189,8 @@ const DISMISS_ANIMATION_MS = 500;
       .gen-banner__icon {
         position: relative;
         flex-shrink: 0;
-        width: 36px;
-        height: 36px;
+        width: 44px;
+        height: 44px;
         margin-top: 2px;
       }
 
@@ -194,18 +206,15 @@ const DISMISS_ANIMATION_MS = 500;
         z-index: 2;
       }
 
-      .gen-banner__badge-text {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 0.9375rem;
-        font-weight: 700;
+      .gen-banner__badge-logo {
+        width: 28px;
+        height: 28px;
         color: var(--nxt1-color-bg-primary, #0a0a0a);
-        letter-spacing: -0.02em;
-        line-height: 1;
       }
 
       .gen-banner__pulse {
         position: absolute;
-        inset: -4px;
+        inset: -6px;
         border-radius: 50%;
         border: 1.5px solid rgba(204, 255, 0, 0.2);
         animation: bannerPulse 2.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
@@ -374,12 +383,13 @@ const DISMISS_ANIMATION_MS = 500;
         }
 
         .gen-banner__icon {
-          width: 30px;
-          height: 30px;
+          width: 36px;
+          height: 36px;
         }
 
-        .gen-banner__badge-text {
-          font-size: 0.8125rem;
+        .gen-banner__badge-logo {
+          width: 22px;
+          height: 22px;
         }
       }
     `,
@@ -390,6 +400,8 @@ export class ProfileGenerationBannerComponent implements OnInit, OnDestroy {
   protected readonly generation = inject(ProfileGenerationStateService);
   private readonly logger = inject(NxtLoggingService).child('ProfileGenerationBanner');
   private readonly platformId = inject(PLATFORM_ID);
+  protected readonly logoPath = AGENT_X_LOGO_PATH;
+  protected readonly logoPolygon = AGENT_X_LOGO_POLYGON;
 
   /** Test IDs from shared constants */
   protected readonly testIds = PROFILE_GENERATION_TEST_IDS;

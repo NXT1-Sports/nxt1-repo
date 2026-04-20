@@ -12,8 +12,8 @@ import { getStripeClient } from './stripe.service.js';
 import { getStripeConfig, COLLECTIONS } from './config.js';
 import { logger } from '../../utils/logger.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
-import { addWalletTopUp } from './budget.service.js';
-import type { PaymentLog } from './types/index.js';
+import { addWalletTopUp, addFundsToOrgWallet, getBillingContext } from './budget.service.js';
+import { PaymentLogModel } from '../../models/payment-log.model.js';
 
 /**
  * Verify webhook signature
@@ -51,7 +51,7 @@ export function verifyWebhookSignature(
  * Handle invoice.finalized event
  */
 export async function handleInvoiceFinalized(
-  db: Firestore,
+  _db: Firestore,
   invoice: Stripe.Invoice,
   _environment: 'staging' | 'production'
 ): Promise<void> {
@@ -62,27 +62,28 @@ export async function handleInvoiceFinalized(
       amountDue: invoice.amount_due,
     });
 
-    // Log payment (even if not paid yet)
-    const now = FieldValue.serverTimestamp();
-    const paymentLog: Omit<PaymentLog, 'createdAt'> = {
-      invoiceId: invoice.id,
-      customerId: invoice.customer as string,
-      userId: invoice.metadata?.['userId'] || '',
-      teamId: invoice.metadata?.['teamId'],
-      amountDue: invoice.amount_due / 100, // Convert cents to dollars
-      amountPaid: invoice.amount_paid / 100,
-      currency: invoice.currency,
-      status: invoice.status === 'paid' ? 'PAID' : 'PENDING',
-      invoiceUrl: invoice.hosted_invoice_url || undefined,
-      rawEvent: invoice as unknown as Record<string, unknown>,
-    };
+    // Log payment (even if not paid yet) — upsert to handle duplicate webhook deliveries
+    await PaymentLogModel.findOneAndUpdate(
+      { invoiceId: invoice.id },
+      {
+        $setOnInsert: {
+          invoiceId: invoice.id,
+          customerId: invoice.customer as string,
+          userId: invoice.metadata?.['userId'] || '',
+          teamId: invoice.metadata?.['teamId'],
+          amountDue: invoice.amount_due / 100,
+          amountPaid: invoice.amount_paid / 100,
+          currency: invoice.currency,
+          status: invoice.status === 'paid' ? 'PAID' : 'PENDING',
+          invoiceUrl: invoice.hosted_invoice_url || undefined,
+          rawEvent: invoice as unknown as Record<string, unknown>,
+          createdAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
 
-    await db.collection(COLLECTIONS.PAYMENT_LOGS).add({
-      ...paymentLog,
-      createdAt: now,
-    });
-
-    logger.info('[handleInvoiceFinalized] Payment log created', {
+    logger.info('[handleInvoiceFinalized] Payment log upserted', {
       invoiceId: invoice.id,
     });
   } catch (error) {
@@ -109,48 +110,51 @@ export async function handleInvoicePaymentSucceeded(
       amountPaid: invoice.amount_paid,
     });
 
-    // Update or create payment log
-    const existingLog = await db
-      .collection(COLLECTIONS.PAYMENT_LOGS)
-      .where('invoiceId', '==', invoice.id)
-      .limit(1)
-      .get();
+    // Upsert payment log — update if exists, create if not
+    await PaymentLogModel.findOneAndUpdate(
+      { invoiceId: invoice.id },
+      {
+        $set: {
+          status: 'PAID',
+          amountPaid: invoice.amount_paid / 100,
+          rawEvent: invoice as unknown as Record<string, unknown>,
+          updatedAt: new Date(),
+        },
+        $setOnInsert: {
+          invoiceId: invoice.id,
+          customerId: invoice.customer as string,
+          userId: invoice.metadata?.['userId'] || '',
+          teamId: invoice.metadata?.['teamId'],
+          amountDue: invoice.amount_due / 100,
+          currency: invoice.currency,
+          invoiceUrl: invoice.hosted_invoice_url || undefined,
+          createdAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
 
-    if (!existingLog.empty) {
-      // Update existing log
-      const logDoc = existingLog.docs[0];
-      await logDoc?.ref.update({
-        status: 'PAID',
-        amountPaid: invoice.amount_paid / 100,
-        rawEvent: invoice as unknown as Record<string, unknown>,
-      });
+    logger.info('[handleInvoicePaymentSucceeded] Payment log upserted to PAID', {
+      invoiceId: invoice.id,
+    });
 
-      logger.info('[handleInvoicePaymentSucceeded] Payment log updated', {
-        invoiceId: invoice.id,
-      });
-    } else {
-      // Create new log
-      const now = FieldValue.serverTimestamp();
-      const paymentLog: Omit<PaymentLog, 'createdAt'> = {
-        invoiceId: invoice.id,
-        customerId: invoice.customer as string,
-        userId: invoice.metadata?.['userId'] || '',
-        teamId: invoice.metadata?.['teamId'],
-        amountDue: invoice.amount_due / 100,
-        amountPaid: invoice.amount_paid / 100,
-        currency: invoice.currency,
-        status: 'PAID',
-        invoiceUrl: invoice.hosted_invoice_url || undefined,
-        rawEvent: invoice as unknown as Record<string, unknown>,
-      };
-
-      await db.collection(COLLECTIONS.PAYMENT_LOGS).add({
-        ...paymentLog,
-        createdAt: now,
-      });
-
-      logger.info('[handleInvoicePaymentSucceeded] Payment log created', {
-        invoiceId: invoice.id,
+    const userId = invoice.metadata?.['userId'];
+    if (typeof userId === 'string' && userId.length > 0) {
+      const { dispatch } = await import('../../services/notification.service.js');
+      await dispatch(db, {
+        userId,
+        type: NOTIFICATION_TYPES.PAYMENT_RECEIVED,
+        title: 'Payment Received',
+        body: `Your payment of $${(invoice.amount_paid / 100).toFixed(2)} was received. Thank you!`,
+        deepLink: '/usage?section=payment-history',
+        source: { userName: 'NXT1 Billing' },
+        data: { invoiceId: invoice.id },
+      }).catch((notifyErr: unknown) => {
+        logger.error('[handleInvoicePaymentSucceeded] Failed to dispatch notification', {
+          error: notifyErr,
+          invoiceId: invoice.id,
+          userId,
+        });
       });
     }
   } catch (error) {
@@ -177,49 +181,33 @@ export async function handleInvoicePaymentFailed(
       amountDue: invoice.amount_due,
     });
 
-    // Update or create payment log
-    const existingLog = await db
-      .collection(COLLECTIONS.PAYMENT_LOGS)
-      .where('invoiceId', '==', invoice.id)
-      .limit(1)
-      .get();
+    // Upsert payment log — update if exists, create if not
+    await PaymentLogModel.findOneAndUpdate(
+      { invoiceId: invoice.id },
+      {
+        $set: {
+          status: 'FAILED',
+          rawEvent: invoice as unknown as Record<string, unknown>,
+          updatedAt: new Date(),
+        },
+        $setOnInsert: {
+          invoiceId: invoice.id,
+          customerId: invoice.customer as string,
+          userId: invoice.metadata?.['userId'] || '',
+          teamId: invoice.metadata?.['teamId'],
+          amountDue: invoice.amount_due / 100,
+          amountPaid: invoice.amount_paid / 100,
+          currency: invoice.currency,
+          invoiceUrl: invoice.hosted_invoice_url || undefined,
+          createdAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
 
-    if (!existingLog.empty) {
-      // Update existing log
-      const logDoc = existingLog.docs[0];
-      await logDoc?.ref.update({
-        status: 'FAILED',
-        rawEvent: invoice as unknown as Record<string, unknown>,
-      });
-
-      logger.info('[handleInvoicePaymentFailed] Payment log updated', {
-        invoiceId: invoice.id,
-      });
-    } else {
-      // Create new log
-      const now = FieldValue.serverTimestamp();
-      const paymentLog: Omit<PaymentLog, 'createdAt'> = {
-        invoiceId: invoice.id,
-        customerId: invoice.customer as string,
-        userId: invoice.metadata?.['userId'] || '',
-        teamId: invoice.metadata?.['teamId'],
-        amountDue: invoice.amount_due / 100,
-        amountPaid: invoice.amount_paid / 100,
-        currency: invoice.currency,
-        status: 'FAILED',
-        invoiceUrl: invoice.hosted_invoice_url || undefined,
-        rawEvent: invoice as unknown as Record<string, unknown>,
-      };
-
-      await db.collection(COLLECTIONS.PAYMENT_LOGS).add({
-        ...paymentLog,
-        createdAt: now,
-      });
-
-      logger.info('[handleInvoicePaymentFailed] Payment log created', {
-        invoiceId: invoice.id,
-      });
-    }
+    logger.info('[handleInvoicePaymentFailed] Payment log upserted to FAILED', {
+      invoiceId: invoice.id,
+    });
 
     // Notify user about failed payment via unified NotificationService
     const { dispatch } = await import('../../services/notification.service.js');
@@ -288,24 +276,38 @@ export async function handleChargeRefunded(
     const billingUserId = customerSnap.docs[0]!.data()['userId'] as string;
 
     // Decrement currentPeriodSpend (floor at 0 — can't go negative)
-    const billingSnap = await db
-      .collection(COLLECTIONS.BILLING_CONTEXTS)
-      .where('userId', '==', billingUserId)
-      .limit(1)
-      .get();
+    const billingContext = await getBillingContext(db, billingUserId);
 
-    if (!billingSnap.empty) {
-      const currentSpend = (billingSnap.docs[0]!.data()['currentPeriodSpend'] as number) ?? 0;
+    if (billingContext) {
+      const billingRef = db.collection(COLLECTIONS.BILLING_CONTEXTS).doc(billingUserId);
+      const currentSpend = billingContext.currentPeriodSpend ?? 0;
       const decrement = Math.min(amountRefundedCents, currentSpend);
+      const splitField =
+        billingContext.billingEntity === 'organization'
+          ? 'orgCurrentPeriodSpend'
+          : 'personalCurrentPeriodSpend';
+      const currentSplitSpend =
+        (billingContext[splitField] as number | undefined) ??
+        billingContext.currentPeriodSpend ??
+        0;
+      const splitDecrement = Math.min(amountRefundedCents, currentSplitSpend);
 
-      await billingSnap.docs[0]!.ref.update({
+      const updates: Record<string, unknown> = {
         currentPeriodSpend: FieldValue.increment(-decrement),
         updatedAt: FieldValue.serverTimestamp(),
-      });
+      };
+
+      if (splitDecrement > 0) {
+        updates[splitField] = FieldValue.increment(-splitDecrement);
+      }
+
+      await billingRef.update(updates);
 
       logger.info('[handleChargeRefunded] currentPeriodSpend decremented', {
         billingUserId,
         decrement,
+        splitField,
+        splitDecrement,
         amountRefundedCents,
       });
     }
@@ -322,21 +324,18 @@ export async function handleChargeRefunded(
           : undefined;
 
     if (invoiceId) {
-      const logSnap = await db
-        .collection(COLLECTIONS.PAYMENT_LOGS)
-        .where('invoiceId', '==', invoiceId)
-        .limit(1)
-        .get();
+      await PaymentLogModel.findOneAndUpdate(
+        { invoiceId },
+        {
+          $set: {
+            status: 'REFUNDED',
+            amountRefunded: amountRefundedCents / 100,
+            updatedAt: new Date(),
+          },
+        }
+      );
 
-      if (!logSnap.empty) {
-        await logSnap.docs[0]!.ref.update({
-          status: 'REFUNDED',
-          amountRefunded: amountRefundedCents / 100,
-          updatedAt: FieldValue.serverTimestamp(),
-        });
-
-        logger.info('[handleChargeRefunded] Payment log marked REFUNDED', { invoiceId });
-      }
+      logger.info('[handleChargeRefunded] Payment log marked REFUNDED', { invoiceId });
     }
   } catch (error) {
     logger.error('[handleChargeRefunded] Failed to handle charge refund', {
@@ -928,15 +927,20 @@ async function setHasPaymentMethod(
  *
  * Processes completed Stripe Checkout Sessions. Currently handles:
  * - `wallet_topup`: Credits the user's prepaid wallet balance via addWalletTopUp.
+ * - `org_wallet_topup`: Credits the organization's wallet via addFundsToOrgWallet.
+ *
+ * Also promotes the payment method used during checkout to the customer's
+ * default so future top-ups can skip Stripe Checkout entirely.
  */
 async function handleCheckoutSessionCompleted(
   db: Firestore,
-  session: Stripe.Checkout.Session
+  session: Stripe.Checkout.Session,
+  environment: 'staging' | 'production'
 ): Promise<void> {
   const metadata = session.metadata ?? {};
   const type = metadata['type'];
 
-  if (type !== 'wallet_topup') {
+  if (type !== 'wallet_topup' && type !== 'org_wallet_topup') {
     logger.info('[handleCheckoutSessionCompleted] Ignoring non-wallet checkout session', {
       sessionId: session.id,
       type,
@@ -965,31 +969,134 @@ async function handleCheckoutSessionCompleted(
   }
 
   try {
-    const { newBalance } = await addWalletTopUp(db, userId, amountCents, 'stripe');
+    let newBalance: number;
 
-    // Write payment log so the dashboard's Payment History section shows this top-up
-    const now = FieldValue.serverTimestamp();
-    await db.collection(COLLECTIONS.PAYMENT_LOGS).add({
-      invoiceId: session.id,
-      customerId: (session.customer as string) ?? '',
-      userId,
-      amountDue: amountCents / 100,
-      amountPaid: amountCents / 100,
-      currency: session.currency ?? 'usd',
-      status: 'PAID',
-      paymentMethodLabel: 'Card',
-      type: 'wallet_topup',
-      invoiceUrl: null,
-      rawEvent: session as unknown as Record<string, unknown>,
-      createdAt: now,
-    });
+    if (type === 'org_wallet_topup') {
+      const organizationId = metadata['organizationId'];
+      if (!organizationId) {
+        logger.error('[handleCheckoutSessionCompleted] Missing organizationId for org top-up', {
+          sessionId: session.id,
+        });
+        return;
+      }
+      ({ newBalance } = await addFundsToOrgWallet(
+        db,
+        organizationId,
+        amountCents,
+        'stripe_checkout'
+      ));
 
-    logger.info('[handleCheckoutSessionCompleted] Wallet topped up via Stripe Checkout', {
-      sessionId: session.id,
-      userId,
-      amountCents,
-      newBalance,
-    });
+      // Notify all roster members currently on personal billing override
+      // so they know the org wallet is funded and can switch back.
+      notifyOrgMembersWalletRefilled(db, organizationId, newBalance).catch((err: unknown) =>
+        logger.error('[handleCheckoutSessionCompleted] Failed to notify org members', { err })
+      );
+
+      await PaymentLogModel.findOneAndUpdate(
+        { invoiceId: session.id },
+        {
+          $setOnInsert: {
+            invoiceId: session.id,
+            customerId: (session.customer as string) ?? '',
+            userId: `org:${organizationId}`,
+            organizationId,
+            amountDue: amountCents / 100,
+            amountPaid: amountCents / 100,
+            currency: session.currency ?? 'usd',
+            status: 'PAID',
+            paymentMethodLabel: 'Card',
+            type: 'org_wallet_topup',
+            invoiceUrl: null,
+            rawEvent: session as unknown as Record<string, unknown>,
+            createdAt: new Date(),
+          },
+        },
+        { upsert: true }
+      );
+
+      logger.info('[handleCheckoutSessionCompleted] Org wallet topped up', {
+        sessionId: session.id,
+        organizationId,
+        amountCents,
+        newBalance,
+      });
+    } else {
+      ({ newBalance } = await addWalletTopUp(db, userId, amountCents, 'stripe'));
+
+      // Retrieve PaymentIntent once: get receipt URL AND promote default payment method.
+      const customerId =
+        typeof session.customer === 'string' ? session.customer : session.customer?.id;
+      const paymentIntentId =
+        typeof session.payment_intent === 'string'
+          ? session.payment_intent
+          : session.payment_intent?.id;
+
+      let receiptUrl: string | null = null;
+
+      if (customerId && paymentIntentId) {
+        try {
+          const stripe = getStripeClient(environment);
+          const pi = await stripe.paymentIntents.retrieve(paymentIntentId, {
+            expand: ['latest_charge'],
+          });
+
+          // Extract receipt URL from the latest charge.
+          const charge = pi.latest_charge;
+          if (charge && typeof charge !== 'string') {
+            receiptUrl = charge.receipt_url ?? null;
+          }
+
+          // Promote the payment method to customer default for future direct-charges.
+          const pmId =
+            typeof pi.payment_method === 'string' ? pi.payment_method : pi.payment_method?.id;
+          if (pmId) {
+            await stripe.customers.update(customerId, {
+              invoice_settings: { default_payment_method: pmId },
+            });
+            logger.info('[handleCheckoutSessionCompleted] Promoted payment method to default', {
+              sessionId: session.id,
+              customerId,
+              pmId,
+            });
+          }
+        } catch (pmErr) {
+          // Non-fatal — wallet already credited; log and continue.
+          logger.warn('[handleCheckoutSessionCompleted] Failed to retrieve PaymentIntent details', {
+            sessionId: session.id,
+            err: pmErr,
+          });
+        }
+      }
+
+      await PaymentLogModel.findOneAndUpdate(
+        { invoiceId: session.id },
+        {
+          $setOnInsert: {
+            invoiceId: session.id,
+            customerId: (session.customer as string) ?? '',
+            userId,
+            amountDue: amountCents / 100,
+            amountPaid: amountCents / 100,
+            currency: session.currency ?? 'usd',
+            status: 'PAID',
+            paymentMethodLabel: 'Card',
+            type: 'wallet_topup',
+            receiptUrl,
+            invoiceUrl: null,
+            rawEvent: session as unknown as Record<string, unknown>,
+            createdAt: new Date(),
+          },
+        },
+        { upsert: true }
+      );
+
+      logger.info('[handleCheckoutSessionCompleted] Wallet topped up via Stripe Checkout', {
+        sessionId: session.id,
+        userId,
+        amountCents,
+        newBalance,
+      });
+    }
   } catch (error) {
     logger.error('[handleCheckoutSessionCompleted] Failed to credit wallet', {
       error,
@@ -999,6 +1106,134 @@ async function handleCheckoutSessionCompleted(
     });
     throw error;
   }
+}
+
+/**
+ * Handle invoice.paid
+ *
+ * Credits the organization wallet when a Stripe Invoice with type='org_invoice_topup'
+ * is paid. This closes the loop for invoice-based top-ups requested via
+ * POST /usage/invoice-topup.
+ */
+async function handleInvoicePaid(db: Firestore, invoice: Stripe.Invoice): Promise<void> {
+  const metadata = invoice.metadata ?? {};
+  if (metadata['type'] !== 'org_invoice_topup') {
+    // Not one of our invoice top-ups — ignore
+    return;
+  }
+
+  const organizationId = metadata['organizationId'];
+  const amountCents = parseInt(metadata['amountCents'] ?? '0', 10);
+  const userId = metadata['userId'] ?? '';
+
+  if (!organizationId || !amountCents || amountCents <= 0) {
+    logger.error('[handleInvoicePaid] Missing metadata on org invoice', {
+      invoiceId: invoice.id,
+      metadata,
+    });
+    return;
+  }
+
+  try {
+    const { newBalance } = await addFundsToOrgWallet(
+      db,
+      organizationId,
+      amountCents,
+      'invoice_payment'
+    );
+
+    await PaymentLogModel.findOneAndUpdate(
+      { invoiceId: invoice.id },
+      {
+        $setOnInsert: {
+          invoiceId: invoice.id,
+          customerId: (invoice.customer as string) ?? '',
+          userId: `org:${organizationId}`,
+          organizationId,
+          amountDue: amountCents / 100,
+          amountPaid: amountCents / 100,
+          currency: invoice.currency ?? 'usd',
+          status: 'PAID',
+          paymentMethodLabel: metadata['poNumber']
+            ? `Invoice (PO #${metadata['poNumber']})`
+            : 'Invoice',
+          type: 'org_invoice_topup',
+          invoiceUrl: invoice.invoice_pdf,
+          rawEvent: invoice as unknown as Record<string, unknown>,
+          createdAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
+
+    logger.info('[handleInvoicePaid] Org wallet credited from invoice payment', {
+      invoiceId: invoice.id,
+      organizationId,
+      userId,
+      amountCents,
+      newBalance,
+    });
+
+    // Notify all roster members on personal billing override
+    notifyOrgMembersWalletRefilled(db, organizationId, newBalance).catch((err: unknown) =>
+      logger.error('[handleInvoicePaid] Failed to notify org members', { err })
+    );
+  } catch (error) {
+    logger.error('[handleInvoicePaid] Failed to credit org wallet', {
+      error,
+      invoiceId: invoice.id,
+      organizationId,
+      amountCents,
+    });
+    throw error;
+  }
+}
+
+/**
+ * After an org wallet top-up, find all roster members currently on personal billing
+ * override (usePersonalBilling=true) and send them an in-app notification so they
+ * can switch back to org billing from the usage overview.
+ *
+ * Fire-and-forget — called with .catch() by callers, never blocks the webhook response.
+ */
+async function notifyOrgMembersWalletRefilled(
+  db: Firestore,
+  organizationId: string,
+  newBalanceCents: number
+): Promise<void> {
+  const { dispatch } = await import('../../services/notification.service.js');
+
+  // Find BILLING_CONTEXTS docs for this org's members who are on personal billing override
+  const ctxSnap = await db
+    .collection(COLLECTIONS.BILLING_CONTEXTS)
+    .where('organizationId', '==', organizationId)
+    .where('usePersonalBilling', '==', true)
+    .get();
+
+  if (ctxSnap.empty) return;
+
+  const balanceDollars = (newBalanceCents / 100).toFixed(2);
+
+  await Promise.allSettled(
+    ctxSnap.docs.map((doc) => {
+      const memberId = doc.data()['userId'] as string | undefined;
+      if (!memberId) return Promise.resolve();
+      return dispatch(db, {
+        userId: memberId,
+        type: NOTIFICATION_TYPES.ORG_WALLET_REFILLED,
+        title: 'Org Wallet Refilled',
+        body: `Your organization's wallet has been topped up ($${balanceDollars}). You can switch back to org billing now.`,
+        deepLink: '/usage?section=overview',
+        data: { organizationId, newBalanceCents: String(newBalanceCents) },
+      });
+    })
+  );
+
+  logger.info('[notifyOrgMembersWalletRefilled] Notifications dispatched', {
+    organizationId,
+    recipientCount: ctxSnap.size,
+    newBalanceCents,
+  });
 }
 
 /**
@@ -1048,7 +1283,15 @@ export async function handleWebhookEvent(
       break;
 
     case 'checkout.session.completed':
-      await handleCheckoutSessionCompleted(db, event.data.object as Stripe.Checkout.Session);
+      await handleCheckoutSessionCompleted(
+        db,
+        event.data.object as Stripe.Checkout.Session,
+        environment
+      );
+      break;
+
+    case 'invoice.paid':
+      await handleInvoicePaid(db, event.data.object as Stripe.Invoice);
       break;
 
     case 'customer.subscription.created':

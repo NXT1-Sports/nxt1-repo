@@ -173,6 +173,8 @@ export interface OnboardingCompleteResponse {
   redirectPath: string;
   /** Job ID for linked account scrape (if any linked accounts were provided). */
   scrapeJobId?: string;
+  /** Thread ID for the Agent X conversation tied to the scrape job. */
+  scrapeThreadId?: string;
 }
 
 /**

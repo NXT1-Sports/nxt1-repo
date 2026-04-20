@@ -758,6 +758,14 @@ export const APP_EVENTS = {
   AGENT_X_DRAFT_EMAIL_SENT: 'agent_x_draft_email_sent',
   /** User cancelled an in-progress Agent X stream/operation */
   AGENT_X_STREAM_CANCELLED: 'agent_x_stream_cancelled',
+  /** User marked an active goal as completed */
+  AGENT_X_GOAL_COMPLETED: 'agent_x_goal_completed',
+  /** User removed an active goal without completing it */
+  AGENT_X_GOAL_REMOVED: 'agent_x_goal_removed',
+  /** User replaced an active goal (remove + set in same action) */
+  AGENT_X_GOAL_REPLACED: 'agent_x_goal_replaced',
+  /** User opened the goal history panel */
+  AGENT_X_GOAL_HISTORY_VIEWED: 'agent_x_goal_history_viewed',
 
   // USAGE / BILLING DASHBOARD EVENTS
   // ============================================
@@ -779,6 +787,8 @@ export const APP_EVENTS = {
   USAGE_TEAM_BUDGET_UPDATED: 'usage_team_budget_updated',
   /** User redeemed a coupon */
   USAGE_COUPON_REDEEMED: 'usage_coupon_redeemed',
+  /** User toggled between org and personal billing mode */
+  USAGE_BILLING_MODE_SWITCHED: 'usage_billing_mode_switched',
 
   // ── Agent X Billing Card ──
   /** Agent X billing action card rendered in chat */
@@ -1002,6 +1012,8 @@ export const USER_PROPERTIES = {
   PUSH_ENABLED: 'push_enabled',
   /** A/B test variant (for experiments) */
   EXPERIMENT_VARIANT: 'experiment_variant',
+  /** Lifetime count of goals the user has completed */
+  GOALS_COMPLETED_TOTAL: 'goals_completed_total',
 } as const;
 
 export type UserPropertyName = (typeof USER_PROPERTIES)[keyof typeof USER_PROPERTIES];
@@ -1032,6 +1044,7 @@ export interface UserPropertiesMap {
   [USER_PROPERTIES.PLATFORM]?: 'web' | 'ios' | 'android';
   [USER_PROPERTIES.PUSH_ENABLED]?: boolean;
   [USER_PROPERTIES.EXPERIMENT_VARIANT]?: string;
+  [USER_PROPERTIES.GOALS_COMPLETED_TOTAL]?: number;
 }
 
 // ============================================

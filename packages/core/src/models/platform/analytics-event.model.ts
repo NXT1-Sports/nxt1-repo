@@ -31,7 +31,13 @@ export const ANALYTICS_EVENT_TYPES = {
   ],
   nil: ['deal_recorded', 'campaign_recorded', 'payment_recorded'],
   performance: ['metric_recorded', 'workout_recorded', 'milestone_recorded', 'recovery_recorded'],
-  engagement: ['profile_viewed', 'content_viewed', 'search_appeared', 'link_clicked'],
+  engagement: [
+    'profile_viewed',
+    'content_viewed',
+    'content_shared',
+    'search_appeared',
+    'link_clicked',
+  ],
   communication: [
     'email_sent',
     'email_delivered',

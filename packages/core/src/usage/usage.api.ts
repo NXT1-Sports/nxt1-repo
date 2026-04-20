@@ -22,6 +22,7 @@ import type {
   UsageBreakdownRow,
   UsageBudget,
   BillingContextSummary,
+  UsageSection,
 } from './usage.types';
 import { USAGE_API_ENDPOINTS } from './usage.constants';
 
@@ -226,19 +227,28 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Purchase credits via Stripe Checkout (B2C wallet top-up).
-     * Returns the Checkout URL to redirect the user.
+     * Purchase credits via Stripe Checkout (individual or org wallet top-up).
+     * Returns either a redirect URL (Stripe Checkout) or a direct-credit result
+     * when a saved default payment method was charged without a redirect.
      */
-    async buyCredits(amountCents: number): Promise<string> {
-      const response = await http.post<ApiResponse<string> & { url?: string }>(
-        endpoints.buyCredits,
-        { amountCents }
-      );
-      const url = (response as { url?: string }).url ?? response.data;
-      if (!response.success || !url) {
+    async buyCredits(
+      amountCents: number,
+      organizationId?: string
+    ): Promise<{ type: 'redirect'; url: string } | { type: 'credited'; newBalance: number }> {
+      const body: Record<string, unknown> = { amountCents };
+      if (organizationId) body['organizationId'] = organizationId;
+      const response = await http.post<
+        ApiResponse<string> & { url?: string; credited?: boolean; newBalance?: number }
+      >(endpoints.buyCredits, body);
+      if (!response.success) {
         throw new Error(response.error ?? 'Failed to start credit purchase');
       }
-      return url;
+      if (response.credited) {
+        return { type: 'credited', newBalance: response.newBalance ?? 0 };
+      }
+      const url = (response as { url?: string }).url ?? response.data;
+      if (!url) throw new Error('No checkout URL returned');
+      return { type: 'redirect', url };
     },
 
     /** Delete (disable) the user's budget by setting it to 0 */
@@ -270,6 +280,71 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
       );
       if (!response.success || !response.data) {
         throw new Error(response.error ?? 'Failed to create setup intent');
+      }
+      return response.data;
+    },
+
+    /**
+     * Configure auto top-up for the current billing context.
+     * For org admins, this updates the org's billing context.
+     * For individuals, this updates their personal billing context.
+     */
+    async configureAutoTopUp(settings: {
+      enabled: boolean;
+      thresholdCents: number;
+      amountCents: number;
+    }): Promise<void> {
+      const response = await http.post<ApiResponse<void>>(
+        `${baseUrl}${USAGE_API_ENDPOINTS.autoTopUp}`,
+        settings
+      );
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to configure auto top-up');
+      }
+    },
+
+    /**
+     * Switch billing mode between personal wallet and org billing.
+     * Only meaningful for users who belong to an org-billed team.
+     * Setting usePersonalBilling=true routes all subsequent AI charges
+     * to the user's personal wallet until reverted.
+     *
+     * Returns the freshly resolved billing context so the frontend can
+     * apply it directly — no subsequent GET required (eliminates cache races).
+     */
+    async setBillingMode(usePersonalBilling: boolean): Promise<{
+      billingMode: string;
+      billingContext: BillingContextSummary;
+      allowedSections: readonly UsageSection[];
+    }> {
+      const response = await http.post<
+        ApiResponse<{
+          billingMode: string;
+          billingContext: BillingContextSummary;
+          allowedSections: readonly UsageSection[];
+        }>
+      >(`${baseUrl}${USAGE_API_ENDPOINTS.billingMode}`, { usePersonalBilling });
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? 'Failed to update billing mode');
+      }
+      return response.data;
+    },
+
+    /**
+     * Request an invoice-based wallet top-up (org admins only).
+     * Creates a Stripe invoice with the specified amount and sends it
+     * to the org's billing email. Credits are added when the invoice is paid.
+     */
+    async requestInvoiceTopUp(request: {
+      amountCents: number;
+      poNumber?: string;
+      netDays: 30 | 45 | 60;
+    }): Promise<{ invoiceId: string; invoiceUrl: string; hostedInvoiceUrl: string }> {
+      const response = await http.post<
+        ApiResponse<{ invoiceId: string; invoiceUrl: string; hostedInvoiceUrl: string }>
+      >(`${baseUrl}${USAGE_API_ENDPOINTS.invoiceTopUp}`, request);
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? 'Failed to create invoice top-up');
       }
       return response.data;
     },

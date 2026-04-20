@@ -15,6 +15,7 @@ import { type FeedItemResponse } from '@nxt1/core/posts';
 import { PROFILE_CACHE_KEYS } from '@nxt1/core/profile';
 import { CACHE_CONFIG } from '@nxt1/core/cache';
 import { AngularHttpAdapter } from '../../infrastructure';
+import { clearHttpCache } from '../../infrastructure/http/cache.interceptor';
 import { PerformanceService } from '..';
 import { TRACE_NAMES, ATTRIBUTE_NAMES, METRIC_NAMES } from '@nxt1/core/performance';
 
@@ -99,11 +100,14 @@ export class ProfileService {
   }
 
   /**
-   * Clear all cached profile data.
+   * Clear all cached profile data — both the service-level Map AND the
+   * HTTP interceptor LRU cache so reloadProfile() always fetches fresh data.
    * Used after Agent X profile generation to ensure fresh data is fetched.
    */
   invalidateAllProfileCache(): void {
     this.profileCache.clear();
+    // Also bust the HTTP-level LRU so the next GET bypasses the interceptor cache.
+    void clearHttpCache('*profile*');
   }
 
   /**
@@ -335,6 +339,42 @@ export class ProfileService {
           },
           onSuccess: async (result, trace) => {
             await trace.putMetric('image_size_bytes', imageData.length);
+          },
+        }
+      )
+    );
+  }
+
+  pinPost(userId: string, postId: string, isPinned: boolean) {
+    this.invalidateCache(userId);
+    return from(
+      this.performance.trace(
+        TRACE_NAMES.PROFILE_UPDATE,
+        () => this.api.pinPost(userId, postId, isPinned),
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_timeline_post',
+            user_id: userId,
+            post_id: postId,
+            action: isPinned ? 'pin' : 'unpin',
+          },
+        }
+      )
+    );
+  }
+
+  deletePost(userId: string, postId: string) {
+    this.invalidateCache(userId);
+    return from(
+      this.performance.trace(
+        TRACE_NAMES.PROFILE_UPDATE,
+        () => this.api.deletePost(userId, postId),
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_timeline_post',
+            user_id: userId,
+            post_id: postId,
+            action: 'delete',
           },
         }
       )

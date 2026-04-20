@@ -208,7 +208,7 @@ export class GenerateGraphicTool extends BaseTool {
       // agent-graphics/ path only when no thread context is available.
       const filePath =
         context?.userId && context?.threadId
-          ? `users/${context.userId}/threads/${context.threadId}/media/${timestamp}-graphic.${extension}`
+          ? `Users/${context.userId}/threads/${context.threadId}/media/${timestamp}-graphic.${extension}`
           : `agent-graphics/${userId}/${timestamp}-graphic.${extension}`;
 
       const bucket = getStorage().bucket();

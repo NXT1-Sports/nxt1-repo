@@ -27,20 +27,30 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
     <div class="profile-skeleton" [class]="'profile-skeleton--' + variant()">
       @switch (variant()) {
         @case ('post') {
+          <!-- Mirrors FeedCardShellComponent hideAuthor=true layout exactly:
+               card shell (border+radius+glass) → lead media → meta-bar → content → 2-col stats -->
           <div class="skeleton-post">
-            <div class="skeleton-post-header">
-              <div class="skeleton-post-avatar skeleton-animate"></div>
-              <div class="skeleton-post-meta">
-                <div class="skeleton-post-name skeleton-animate"></div>
+            <!-- Lead media (full-bleed, top-corner-rounded like .feed-shell__lead) -->
+            <div class="skeleton-post-lead skeleton-animate"></div>
+            <!-- Meta-bar: type badge pill + time gap | menu dot (mirrors .feed-shell__meta-bar) -->
+            <div class="skeleton-post-meta-bar">
+              <div class="skeleton-post-meta-bar__left">
+                <div class="skeleton-post-badge skeleton-animate"></div>
                 <div class="skeleton-post-time skeleton-animate"></div>
               </div>
+              <div class="skeleton-post-menu skeleton-animate"></div>
             </div>
-            <div class="skeleton-post-content skeleton-animate"></div>
-            <div class="skeleton-post-media skeleton-animate"></div>
-            <div class="skeleton-post-actions">
-              <div class="skeleton-post-action skeleton-animate"></div>
-              <div class="skeleton-post-action skeleton-animate"></div>
-              <div class="skeleton-post-action skeleton-animate"></div>
+            <!-- Content area (mirrors .feed-shell__content padding: 12px 16px) -->
+            <div class="skeleton-post-content">
+              <div class="skeleton-post-content-line skeleton-animate"></div>
+              <div
+                class="skeleton-post-content-line skeleton-post-content-line--short skeleton-animate"
+              ></div>
+            </div>
+            <!-- Stats bar: 2-col grid mirroring .feed-shell__stats -->
+            <div class="skeleton-post-stats">
+              <div class="skeleton-post-stat skeleton-animate"></div>
+              <div class="skeleton-post-stat skeleton-animate"></div>
             </div>
           </div>
         }
@@ -176,32 +186,28 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
         display: block;
       }
 
-      /* Skeleton animation */
+      /* Skeleton animation — uses shared --nxt1-skeleton-gradient token (defined in
+         @nxt1/ui/styles/base/skeleton.css). The gradient and keyframe are the single
+         source of truth; we reference them here via the token + fallback. */
       .skeleton-animate {
-        background: linear-gradient(
-          90deg,
-          var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.04)) 0%,
-          var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.08)) 50%,
-          var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.04)) 100%
+        background: var(
+          --nxt1-skeleton-gradient,
+          linear-gradient(
+            90deg,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 25%,
+            var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.15)) 50%,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 75%
+          )
         );
         background-size: 200% 100%;
         animation: skeleton-shimmer 1.5s ease-in-out infinite;
         border-radius: var(--nxt1-radius-sm, 4px);
       }
 
-      @keyframes skeleton-shimmer {
-        0% {
-          background-position: 200% 0;
-        }
-        100% {
-          background-position: -200% 0;
-        }
-      }
-
       @media (prefers-reduced-motion: reduce) {
         .skeleton-animate {
           animation: none;
-          background: var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.04));
+          background: var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08));
         }
       }
 
@@ -209,58 +215,100 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
          POST SKELETON (post variant)
          ============================================ */
 
-      .skeleton-post {
-        padding: 16px;
-        border-bottom: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
-      }
+      /* ============================================
+         POST SKELETON (post variant)
+         Mirrors FeedCardShellComponent hideAuthor=true layout:
+           .feed-shell (border-radius:16px, border, glass bg, padding:0)
+             .feed-shell__lead (top-rounded media)
+             .feed-shell__meta-bar (padding:10px 14px 0) [type badge + time | menu]
+             .feed-shell__content (padding:12px 16px)
+             .feed-shell__stats (grid repeat(2,1fr), padding:10px 16px, border-top)
+         ============================================ */
 
-      .skeleton-post-header {
-        display: flex;
-        gap: 12px;
+      .skeleton-post {
+        padding: 0;
+        border-radius: var(--nxt1-radius-lg, 16px);
+        border: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-glass-bg, rgba(20, 20, 20, 0.88));
+        overflow: hidden;
         margin-bottom: 12px;
       }
 
-      .skeleton-post-avatar {
-        width: 44px;
-        height: 44px;
+      /* Lead media — mirrors .feed-shell__lead (top-corner-rounded, full-bleed) */
+      .skeleton-post-lead {
+        height: 200px;
+        border-radius: var(--nxt1-radius-lg, 16px) var(--nxt1-radius-lg, 16px) 0 0;
+        width: 100%;
+      }
+
+      /* Meta-bar — mirrors .feed-shell__meta-bar (padding:10px 14px 0) */
+      .skeleton-post-meta-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 14px 0;
+        gap: 8px;
+      }
+
+      .skeleton-post-meta-bar__left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      /* Type badge pill — mirrors .feed-shell__type-badge */
+      .skeleton-post-badge {
+        width: 64px;
+        height: 22px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+      }
+
+      /* Time label — mirrors .feed-shell__time (font-size:12px) */
+      .skeleton-post-time {
+        width: 48px;
+        height: 12px;
+        border-radius: 4px;
+      }
+
+      /* Menu dot — mirrors .feed-shell__menu-btn (32×32) */
+      .skeleton-post-menu {
+        width: 32px;
+        height: 32px;
         border-radius: 50%;
         flex-shrink: 0;
       }
 
-      .skeleton-post-meta {
-        flex: 1;
-      }
-
-      .skeleton-post-name {
-        width: 120px;
-        height: 18px;
-        margin-bottom: 6px;
-      }
-
-      .skeleton-post-time {
-        width: 80px;
-        height: 14px;
-      }
-
+      /* Content area — mirrors .feed-shell__content (padding:12px 16px) */
       .skeleton-post-content {
-        height: 60px;
-        margin-bottom: 12px;
+        padding: 12px 16px;
       }
 
-      .skeleton-post-media {
-        height: 200px;
-        border-radius: var(--nxt1-radius-md, 8px);
-        margin-bottom: 12px;
+      .skeleton-post-content-line {
+        height: 14px;
+        border-radius: 4px;
+        margin-bottom: 8px;
       }
 
-      .skeleton-post-actions {
-        display: flex;
-        gap: 24px;
+      .skeleton-post-content-line:last-child {
+        margin-bottom: 0;
       }
 
-      .skeleton-post-action {
-        width: 60px;
+      .skeleton-post-content-line--short {
+        width: 65%;
+      }
+
+      /* Stats bar — mirrors .feed-shell__stats (grid 2-col, padding:10px 16px, border-top) */
+      .skeleton-post-stats {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        padding: 10px 16px;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        gap: 8px;
+      }
+
+      .skeleton-post-stat {
         height: 20px;
+        border-radius: 4px;
       }
 
       /* ============================================

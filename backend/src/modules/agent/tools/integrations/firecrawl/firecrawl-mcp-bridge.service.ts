@@ -76,9 +76,15 @@ const FIRECRAWL_CACHE_PREFIX = {
   MAP: 'agent:mcp:firecrawl:map',
 } as const;
 
-/** Retry configuration injected into the Firecrawl child process env. */
+/**
+ * Retry configuration injected into the Firecrawl child process env.
+ *
+ * Reduced from 5 → 3 attempts: worst-case retry chain drops from ~31s to ~13s
+ * per flaky page (1s + 2s + 4s with 2× backoff capped at 10s).
+ * Three attempts still handle transient Firecrawl/Cloudflare hiccups reliably.
+ */
 const FIRECRAWL_CHILD_ENV = {
-  FIRECRAWL_RETRY_MAX_ATTEMPTS: '5',
+  FIRECRAWL_RETRY_MAX_ATTEMPTS: '3',
   FIRECRAWL_RETRY_INITIAL_DELAY: '1000',
   FIRECRAWL_RETRY_MAX_DELAY: '10000',
   FIRECRAWL_RETRY_BACKOFF_FACTOR: '2',

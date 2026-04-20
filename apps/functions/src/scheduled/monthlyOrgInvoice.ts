@@ -24,7 +24,6 @@ import Stripe from 'stripe';
 
 const BILLING_CONTEXTS_COLLECTION = 'BillingContexts';
 const STRIPE_CUSTOMERS_COLLECTION = 'StripeCustomers';
-const PAYMENT_LOGS_COLLECTION = 'PaymentLogs';
 
 // ─── Firebase project IDs ─────────────────────────────────────────────────────
 
@@ -63,6 +62,12 @@ export const monthlyOrgInvoice = onSchedule(
     secrets: [stripeSecretKey, stripeTestSecretKey],
   },
   async () => {
+    // DISABLED: Orgs are now on a pre-paid wallet model. Credits are deducted
+    // in real-time from the org wallet — there is no post-pay invoicing cycle.
+    // Re-enable only if a post-pay invoicing model is reintroduced.
+    logger.info('[monthlyOrgInvoice] Disabled — org wallet model active. Exiting.');
+    return;
+
     if (!isLastDayOfMonth()) {
       logger.info('[monthlyOrgInvoice] Not the last day of month — skipping');
       return;

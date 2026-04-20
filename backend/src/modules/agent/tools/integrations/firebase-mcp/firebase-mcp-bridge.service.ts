@@ -74,6 +74,12 @@ function describeView(view: FirebaseViewName): string {
       return 'your team memberships';
     case 'user_highlight_videos':
       return 'your highlight videos';
+    case 'user_active_goals':
+      return 'your active Agent X goals';
+    case 'user_goal_history':
+      return 'your goal history and progress';
+    case 'user_current_playbook':
+      return "this week's playbook tasks";
     case 'team_profile_snapshot':
       return 'team profiles';
     case 'team_roster_members':
@@ -130,7 +136,12 @@ function resolveCacheTtl(view: FirebaseViewName): number {
     case 'user_highlight_videos':
     case 'team_highlight_videos':
     case 'organization_highlight_videos':
+    case 'user_current_playbook':
       return CACHE_TTL.FEED;
+    case 'user_active_goals':
+      return CACHE_TTL.PROFILES;
+    case 'user_goal_history':
+      return CACHE_TTL.SEARCH;
     default:
       return CACHE_TTL.SEARCH;
   }

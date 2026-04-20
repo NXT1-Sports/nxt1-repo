@@ -8,7 +8,7 @@
 import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtPlatformIconComponent } from '../../components/platform-icon';
-import { getPlatformFaviconUrl } from '@nxt1/core/onboarding';
+import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
 import { ProfileService } from '../profile.service';
 
 function deriveConnectedHandle(profileUrl: string, fallback: string, prefix = ''): string {

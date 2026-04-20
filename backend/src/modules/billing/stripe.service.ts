@@ -16,10 +16,16 @@ import type {
   CreateInvoiceItemResult,
   GetOrCreateCustomerResult,
   GenerateInvoiceResult,
+  ChargeOffSessionResult,
 } from './types/index.js';
 
 // Stripe client instances (cached)
 const stripeClients: Map<string, Stripe> = new Map();
+
+/** Clear the cached Stripe clients — only for use in tests. */
+export function _clearStripeClientCacheForTesting(): void {
+  stripeClients.clear();
+}
 
 /**
  * Get Stripe client for environment
@@ -389,6 +395,115 @@ export async function hasPaymentMethod(
   } catch (error) {
     logger.error('[hasPaymentMethod] Failed to check payment methods', { error, customerId });
     return false;
+  }
+}
+
+/**
+ * Charge a saved payment method off-session (auto top-up).
+ *
+ * Creates and immediately confirms a PaymentIntent against the customer's
+ * default payment method without requiring the user to be present.
+ *
+ * This is the Stripe-recommended approach for off-session charges:
+ *   - `confirm: true` — confirms immediately
+ *   - `off_session: true` — signals to Stripe that the user is not present
+ *   - If the card requires 3DS (SCA), Stripe returns `requires_action` and
+ *     this function returns `{ success: false, errorCode: 'authentication_required' }`
+ *
+ * IMPORTANT: Only call this when the user has already confirmed the charge
+ * during the SetupIntent flow (i.e., they agreed to automatic top-up).
+ */
+/**
+ * Retrieve the Stripe-hosted receipt URL for a PaymentIntent.
+ * Stripe attaches receipt_url to the latest Charge under the PaymentIntent.
+ * Returns null if not available (non-card payments, test mode, etc.).
+ */
+export async function getPaymentIntentReceiptUrl(
+  paymentIntentId: string,
+  environment: 'staging' | 'production'
+): Promise<string | null> {
+  try {
+    const stripe = getStripeClient(environment);
+    const pi = await stripe.paymentIntents.retrieve(paymentIntentId, {
+      expand: ['latest_charge'],
+    });
+    const charge = pi.latest_charge;
+    if (!charge || typeof charge === 'string') return null;
+    return charge.receipt_url ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function chargeOffSession(
+  customerId: string,
+  paymentMethodId: string,
+  amountCents: number,
+  description: string,
+  idempotencyKey: string,
+  environment: 'staging' | 'production'
+): Promise<ChargeOffSessionResult> {
+  try {
+    if (amountCents <= 0 || !Number.isInteger(amountCents)) {
+      return { success: false, error: `Invalid amountCents: ${amountCents}` };
+    }
+
+    const stripe = getStripeClient(environment);
+
+    const paymentIntent = await stripe.paymentIntents.create(
+      {
+        amount: amountCents,
+        currency: 'usd',
+        customer: customerId,
+        payment_method: paymentMethodId,
+        confirm: true,
+        off_session: true,
+        description,
+        metadata: {
+          type: 'auto_wallet_topup',
+          customerId,
+        },
+      },
+      { idempotencyKey }
+    );
+
+    if (paymentIntent.status === 'succeeded') {
+      logger.info('[chargeOffSession] PaymentIntent succeeded', {
+        paymentIntentId: paymentIntent.id,
+        customerId,
+        amountCents,
+      });
+
+      // Retrieve the receipt URL from the latest charge (non-fatal).
+      const receiptUrl = await getPaymentIntentReceiptUrl(paymentIntent.id, environment);
+      return { success: true, paymentIntentId: paymentIntent.id, receiptUrl };
+    }
+
+    // Covers 'requires_action', 'requires_payment_method', etc.
+    logger.warn('[chargeOffSession] PaymentIntent not succeeded', {
+      paymentIntentId: paymentIntent.id,
+      status: paymentIntent.status,
+      customerId,
+    });
+    return {
+      success: false,
+      paymentIntentId: paymentIntent.id,
+      errorCode: paymentIntent.status,
+      error: `PaymentIntent status: ${paymentIntent.status}`,
+    };
+  } catch (error: unknown) {
+    const stripeError = error as { code?: string; message?: string };
+    logger.error('[chargeOffSession] Charge failed', {
+      error,
+      customerId,
+      amountCents,
+      errorCode: stripeError.code,
+    });
+    return {
+      success: false,
+      errorCode: stripeError.code,
+      error: stripeError.message ?? 'Unknown error',
+    };
   }
 }
 

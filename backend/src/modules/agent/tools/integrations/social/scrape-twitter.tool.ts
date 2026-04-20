@@ -29,7 +29,7 @@ import {
   ScraperMediaService,
   type MediaInput,
   type PersistedMedia,
-  type MediaStagingContext,
+  type MediaThreadContext,
 } from './scraper-media.service.js';
 import { logger } from '../../../../../utils/logger.js';
 
@@ -138,7 +138,7 @@ export class ScrapeTwitterTool extends BaseTool {
     }
 
     // Build staging context for thread-scoped media storage
-    const staging: MediaStagingContext | undefined =
+    const staging: MediaThreadContext | undefined =
       context?.userId && context?.threadId
         ? { userId: context.userId, threadId: context.threadId }
         : undefined;
@@ -184,7 +184,7 @@ export class ScrapeTwitterTool extends BaseTool {
 
   private async handleSearch(
     input: Record<string, unknown>,
-    staging?: MediaStagingContext
+    staging?: MediaThreadContext
   ): Promise<ToolResult> {
     const query = this.str(input, 'query');
     if (!query) {
@@ -230,7 +230,7 @@ export class ScrapeTwitterTool extends BaseTool {
 
   private async handleProfileTweets(
     input: Record<string, unknown>,
-    staging?: MediaStagingContext
+    staging?: MediaThreadContext
   ): Promise<ToolResult> {
     const usernames = this.extractUsernames(input);
     if (usernames.length === 0) {
@@ -334,7 +334,7 @@ export class ScrapeTwitterTool extends BaseTool {
    */
   private async persistTweetMedia(
     tweets: readonly ScweetTweet[],
-    staging?: MediaStagingContext
+    staging?: MediaThreadContext
   ): Promise<PersistedMedia[]> {
     const inputs: MediaInput[] = [];
 
@@ -360,6 +360,10 @@ export class ScrapeTwitterTool extends BaseTool {
     }
 
     if (inputs.length === 0) return [];
+    if (!staging) {
+      logger.warn('[ScrapeTwitterTool] Skipping media persistence — no userId/threadId in context');
+      return [];
+    }
 
     try {
       return await this.media.persistBatch(inputs, staging);

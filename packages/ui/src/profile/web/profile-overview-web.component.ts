@@ -21,7 +21,7 @@ import {
 import { isPlatformBrowser } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtPlatformIconComponent } from '../../components/platform-icon';
-import { getPlatformFaviconUrl } from '@nxt1/core/onboarding';
+import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
 import { NxtImageComponent } from '../../components/image';
 import { NxtTimelineComponent } from '../../components/timeline';
 import {

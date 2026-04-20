@@ -62,14 +62,18 @@ import { UsageHelpContentComponent } from '../usage-help-content.component';
 import { UsageErrorStateComponent } from '../usage-error-state.component';
 import { UsageBottomSheetService } from '../usage-bottom-sheet.service';
 import { AgentXControlPanelComponent, type AgentXControlPanelKind } from '../../agent-x';
-import { BuyCreditsModalComponent } from './buy-credits-modal.component';
+import {
+  BuyCreditsAutoTopupModalComponent,
+  type BuyCreditsAutoTopupResult,
+} from './buy-credits-autotopup-modal.component';
+import { UsageOrgMemberStubComponent } from '../usage-org-member-stub.component';
 import {
   UsageOverviewComponent,
-  UsageChartComponent,
   UsageBreakdownTableComponent,
-  UsagePaymentHistoryComponent,
+  UsageChartComponent,
   UsagePaymentInfoComponent,
   UsageBudgetsComponent,
+  UsageAutoTopupComponent,
 } from '../sections';
 import type { UsageUser } from '../usage-shell.component';
 
@@ -85,12 +89,13 @@ export type { UsageUser };
     NxtRefresherComponent,
     UsageSkeletonComponent,
     UsageErrorStateComponent,
+    UsageOrgMemberStubComponent,
     UsageOverviewComponent,
-    UsageChartComponent,
     UsageBreakdownTableComponent,
-    UsagePaymentHistoryComponent,
+    UsageChartComponent,
     UsagePaymentInfoComponent,
     UsageBudgetsComponent,
+    UsageAutoTopupComponent,
   ],
   template: `
     <!-- Portal: center — "Billing & Usage" title + Action Button in top nav -->
@@ -116,7 +121,7 @@ export type { UsageUser };
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
-              <span>Buy Credits</span>
+              <span>Add Credits</span>
             </button>
           } @else if (svc.isOrg() && svc.isOrgAdmin()) {
             <button type="button" class="header-portal-buy-btn" (click)="onCreateBudget()">
@@ -177,7 +182,7 @@ export type { UsageUser };
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
       <div class="usage-dashboard">
-        <!-- Mobile option scroller (hidden on desktop, visible ≤768px) -->
+        <!-- Mobile option scroller — sectionNavs() already filters tabs per role -->
         <div class="usage-mobile-scroller">
           <nxt1-option-scroller-web
             [options]="$any(svc.sectionNavs())"
@@ -191,6 +196,7 @@ export type { UsageUser };
 
         <!-- Two-column layout: Sidebar nav + Content (matches explore pattern) -->
         <div class="dashboard-layout nxt1-section-layout">
+          <!-- sectionNavs() already returns the correct filtered set per role -->
           <nxt1-section-nav-web
             [items]="$any(svc.sectionNavs())"
             [activeId]="svc.activeSection()"
@@ -211,23 +217,39 @@ export type { UsageUser };
             } @else {
               @switch (svc.activeSection()) {
                 @case ('overview') {
-                  <nxt1-usage-overview
-                    [data]="svc.overview()"
-                    [isPersonal]="svc.isPersonal()"
-                    [hideBuyCredits]="true"
-                    (viewPaymentHistory)="svc.setActiveSection('payment-history')"
-                    (buyCredit)="onBuyCredits()"
-                  />
-
-                  @if (svc.isOrg()) {
-                    <nxt1-usage-budgets
-                      [budgets]="svc.budgets()"
-                      [readOnly]="!svc.isOrgAdmin()"
-                      (createBudget)="onCreateBudget()"
-                      (editBudget)="onEditBudget($event)"
-                      (editTeamBudget)="onEditTeamBudget($event)"
+                  @if (svc.isOrgMember() && !svc.usePersonalBilling()) {
+                    <!-- Org member on org billing: restricted overview — no financial data -->
+                    <nxt1-usage-org-member-stub />
+                  } @else {
+                    <nxt1-usage-overview
+                      [data]="svc.overview()"
+                      [isPersonal]="svc.isPersonal()"
+                      [isOrg]="svc.isOrg()"
+                      [isOrgAdmin]="svc.isOrgAdmin()"
+                      [orgWalletEmpty]="svc.orgWalletEmpty()"
+                      [orgWalletRefilled]="svc.orgWalletRefilled()"
+                      [usePersonalBilling]="svc.usePersonalBilling()"
+                      [hideBuyCredits]="true"
+                      [paymentHistory]="svc.filteredPaymentHistory()"
+                      [historyHasMore]="svc.historyHasMore()"
+                      (buyCredit)="onBuyCredits()"
+                      (switchToBillingMode)="onSwitchBillingMode($event)"
+                      (downloadReceipt)="onDownloadReceipt($event)"
+                      (downloadInvoice)="onDownloadInvoice($event)"
+                      (loadMore)="svc.loadMoreHistory()"
                     />
+
+                    @if (svc.isOrg() && svc.isOrgAdmin()) {
+                      <nxt1-usage-budgets
+                        [budgets]="svc.budgets()"
+                        [readOnly]="false"
+                        (createBudget)="onCreateBudget()"
+                        (editBudget)="onEditBudget($event)"
+                        (editTeamBudget)="onEditTeamBudget($event)"
+                      />
+                    }
                   }
+                  <!-- end @else (not org member) -->
                 }
 
                 @case ('metered-usage') {
@@ -252,16 +274,6 @@ export type { UsageUser };
                   />
                 }
 
-                @case ('payment-history') {
-                  <nxt1-usage-payment-history
-                    [records]="svc.filteredPaymentHistory()"
-                    [hasMore]="svc.historyHasMore()"
-                    (downloadReceipt)="onDownloadReceipt($event)"
-                    (downloadInvoice)="onDownloadInvoice($event)"
-                    (loadMore)="svc.loadMoreHistory()"
-                  />
-                }
-
                 @case ('budgets') {
                   <nxt1-usage-budgets
                     [budgets]="svc.budgets()"
@@ -277,6 +289,15 @@ export type { UsageUser };
                     [billingInfo]="svc.billingInfo()"
                     [paymentMethods]="svc.paymentMethods()"
                     (manageBilling)="onManageBilling()"
+                  />
+                }
+
+                @case ('auto-topup') {
+                  <nxt1-usage-auto-topup
+                    [enabled]="svc.autoTopUpEnabled()"
+                    [thresholdCents]="svc.autoTopUpThresholdCents()"
+                    [amountCents]="svc.autoTopUpAmountCents()"
+                    (save)="onSaveAutoTopUp($event)"
                   />
                 }
               }
@@ -320,25 +341,26 @@ export type { UsageUser };
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        gap: 6px;
-        padding: 6px 16px;
+        gap: var(--nxt1-spacing-1-5, 6px);
+        padding: var(--nxt1-spacing-1-5, 6px) var(--nxt1-spacing-4, 16px);
         border-radius: var(--nxt1-borderRadius-lg, 0.5rem);
-        font-size: 13px;
-        font-weight: 600;
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
         line-height: 1;
         white-space: nowrap;
-        color: var(--nxt1-color-text-primary, #ffffff);
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
-        border: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.06));
+        color: var(--nxt1-color-text-primary);
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-subtle);
         cursor: pointer;
-        transition: all 0.15s ease;
+        transition:
+          background var(--nxt1-transition-fast, 0.15s ease),
+          border-color var(--nxt1-transition-fast, 0.15s ease);
         user-select: none;
       }
 
       .header-portal-buy-btn:hover {
-        color: var(--nxt1-color-text-primary, #ffffff);
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
-        border-color: rgba(255, 255, 255, 0.14);
+        background: var(--nxt1-color-surface-200);
+        border-color: var(--nxt1-color-border-default);
       }
 
       .header-portal-buy-btn:active {
@@ -360,6 +382,11 @@ export type { UsageUser };
 
       .section-content {
         min-width: 0;
+      }
+
+      /* Org-member stub: occupies the full content area (no sidebar nav alongside it) */
+      .section-content--full {
+        grid-column: 1 / -1;
       }
 
       /* Mobile option scroller — hidden on desktop */
@@ -421,9 +448,28 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
   private readonly ngZone = inject(NgZone);
   private readonly platformId = inject(PLATFORM_ID);
 
+  private _hiddenAt: number | null = null;
+  /** Minimum ms away before a visibility change triggers a background refresh */
+  private static readonly STALE_THRESHOLD_MS = 30_000;
+
   private readonly onVisibilityChange = (): void => {
-    if (document.visibilityState === 'visible') {
-      this.ngZone.run(() => this.svc.loadDashboard());
+    if (document.visibilityState === 'hidden') {
+      this._hiddenAt = Date.now();
+      return;
+    }
+    // Tab became visible again
+    const awayMs = this._hiddenAt !== null ? Date.now() - this._hiddenAt : 0;
+    this._hiddenAt = null;
+    if (this.svc.consumePortalRefresh() || awayMs >= UsageShellWebComponent.STALE_THRESHOLD_MS) {
+      this.svc.loadDashboard(true);
+    }
+  };
+
+  private readonly onWindowFocus = (): void => {
+    // Fires when the NXT1 tab regains focus after the Stripe portal tab closes.
+    // Only reload when we know the portal was opened — not on every window focus.
+    if (this.svc.consumePortalRefresh()) {
+      this.svc.loadDashboard(true);
     }
   };
 
@@ -452,9 +498,14 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
   // ============================================
 
   ngOnInit(): void {
-    this.svc.loadDashboard();
+    this.svc.loadDashboard(true);
     if (isPlatformBrowser(this.platformId)) {
-      document.addEventListener('visibilitychange', this.onVisibilityChange);
+      // Register outside NgZone: these events fire often and should not
+      // trigger zone-wide change detection cycles on every tab switch.
+      this.ngZone.runOutsideAngular(() => {
+        document.addEventListener('visibilitychange', this.onVisibilityChange);
+        window.addEventListener('focus', this.onWindowFocus);
+      });
     }
   }
 
@@ -469,6 +520,7 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
     this.headerPortal.clearAll();
     if (isPlatformBrowser(this.platformId)) {
       document.removeEventListener('visibilitychange', this.onVisibilityChange);
+      window.removeEventListener('focus', this.onWindowFocus);
     }
   }
 
@@ -557,17 +609,48 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
 
   protected async onBuyCredits(): Promise<void> {
     await this.haptics.impact('light');
-    const ref = this.overlay.open<BuyCreditsModalComponent, number | null>({
-      component: BuyCreditsModalComponent,
+    const ref = this.overlay.open<BuyCreditsAutoTopupModalComponent, BuyCreditsAutoTopupResult>({
+      component: BuyCreditsAutoTopupModalComponent,
       size: 'sm',
       backdropDismiss: true,
       escDismiss: true,
-      ariaLabel: 'Buy Credits',
+      ariaLabel: 'Add Credits',
+      inputs: {
+        initialAutoTopupEnabled: this.svc.autoTopUpEnabled(),
+        initialThresholdCents: this.svc.autoTopUpThresholdCents(),
+        initialAutoTopupAmountCents: this.svc.autoTopUpAmountCents(),
+      },
     });
     const result = await ref.closed;
-    if (result.reason === 'close' && result.data !== null && result.data !== undefined) {
-      await this.svc.buyCredits(result.data);
+    if (result.reason !== 'close' || !result.data) return;
+
+    const data = result.data;
+    if (data.type === 'buy') {
+      const organizationId = this.svc.isOrgAdmin()
+        ? (this.svc.billingContext()?.organizationId ?? undefined)
+        : undefined;
+      await this.svc.buyCredits(data.amountCents, organizationId);
+    } else if (data.type === 'auto-topup') {
+      await this.svc.configureAutoTopUp({
+        enabled: data.enabled,
+        thresholdCents: data.thresholdCents,
+        amountCents: data.amountCents,
+      });
     }
+  }
+
+  protected async onSwitchBillingMode(usePersonalBilling: boolean): Promise<void> {
+    await this.haptics.impact('medium');
+    await this.svc.switchBillingMode(usePersonalBilling);
+  }
+
+  protected async onSaveAutoTopUp(settings: {
+    enabled: boolean;
+    thresholdCents: number;
+    amountCents: number;
+  }): Promise<void> {
+    await this.haptics.impact('light');
+    await this.svc.configureAutoTopUp(settings);
   }
 
   // ============================================

@@ -16,6 +16,7 @@ import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { getCacheService } from '../../../../services/cache.service.js';
 import { logger } from '../../../../utils/logger.js';
+import { resolveCreatedAt } from './doc-date-utils.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -159,7 +160,7 @@ export class WriteTeamPostTool extends BaseTool {
             url,
           })),
           engagement: { likeCount: 0, commentCount: 0, shareCount: 0, viewCount: 0 },
-          createdAt: now,
+          createdAt: resolveCreatedAt(undefined, undefined, now),
           updatedAt: now,
         });
 

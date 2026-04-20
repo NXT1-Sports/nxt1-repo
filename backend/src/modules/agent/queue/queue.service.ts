@@ -49,8 +49,13 @@ import {
 export class AgentQueueService {
   private readonly queue: Queue<AgentQueueJobData, AgentQueueJobResult>;
   private readonly redisUrl: string;
+  private readonly jobRetryOverrides?: { maxAttempts?: number; retryBackoffMs?: number };
 
-  constructor(redisUrl?: string) {
+  constructor(
+    redisUrl?: string,
+    jobRetryOverrides?: { maxAttempts?: number; retryBackoffMs?: number }
+  ) {
+    this.jobRetryOverrides = jobRetryOverrides;
     this.redisUrl = redisUrl ?? process.env['REDIS_URL'] ?? 'redis://localhost:6379';
 
     // Parse URL into RedisOptions for BullMQ compatibility (includes auth)
@@ -301,8 +306,11 @@ export class AgentQueueService {
 
   private defaultJobOptions(): JobsOptions {
     return {
-      attempts: MAX_JOB_ATTEMPTS,
-      backoff: { type: 'exponential', delay: RETRY_BACKOFF_MS },
+      attempts: this.jobRetryOverrides?.maxAttempts ?? MAX_JOB_ATTEMPTS,
+      backoff: {
+        type: 'exponential',
+        delay: this.jobRetryOverrides?.retryBackoffMs ?? RETRY_BACKOFF_MS,
+      },
       removeOnComplete: { age: COMPLETED_JOB_TTL_S },
       removeOnFail: { age: FAILED_JOB_TTL_S },
     };

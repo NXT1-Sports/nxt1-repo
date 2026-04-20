@@ -125,6 +125,7 @@ export class WriteCoreIdentityTool extends BaseTool {
           mascot: { type: 'string' },
           conference: { type: 'string' },
           division: { type: 'string' },
+          teamId: { type: 'string' },
           logoUrl: { type: 'string' },
           primaryColor: { type: 'string' },
           secondaryColor: { type: 'string' },
@@ -240,43 +241,10 @@ export class WriteCoreIdentityTool extends BaseTool {
 
     const userRef = this.db.collection(USERS_COLLECTION).doc(userId);
 
-    // ── Promote thread-staged logoUrl in team to permanent path ──
-    // Team logos may reference thread-scoped storage that expires with the thread.
-    if (context?.userId && team && typeof team['logoUrl'] === 'string' && team['logoUrl']) {
-      const brandingDest = `users/${context.userId}/profile`;
-      const [promoted] = await ScraperMediaService.promoteMedia(
-        [team['logoUrl'] as string],
-        context.userId,
-        brandingDest
-      );
-      if (promoted) {
-        (team as Record<string, unknown>)['logoUrl'] = promoted;
-      }
-    }
-
     // ── Promote profileImgs from thread staging → permanent path ──────
+    // Team logo + gallery promotions are deferred until resolvedTeamRef is known (see below).
     let promotedProfileImgs: string[] = profileImgs;
-
-    // ── Promote team galleryImages from thread staging → permanent path ──
     let promotedTeamGallery: string[] = [];
-    if (context?.userId) {
-      const galleryDest = `users/${context.userId}/profile`;
-      const extractGallery = (obj: Record<string, unknown> | null): string[] =>
-        obj && Array.isArray(obj['galleryImages'])
-          ? (obj['galleryImages'] as unknown[]).filter(
-              (u): u is string => typeof u === 'string' && u.trim() !== ''
-            )
-          : [];
-
-      const teamGallery = extractGallery(team);
-      if (teamGallery.length > 0) {
-        promotedTeamGallery = await ScraperMediaService.promoteMedia(
-          teamGallery,
-          context.userId,
-          galleryDest
-        );
-      }
-    }
 
     try {
       const accessGrant = await createProfileWriteAccessService(
@@ -343,7 +311,7 @@ export class WriteCoreIdentityTool extends BaseTool {
         promotedProfileImgs = await ScraperMediaService.promoteMedia(
           profileImgs,
           context.userId,
-          `users/${context.userId}/profile`
+          `Users/${context.userId}/profile`
         );
       } else if (isCoachOrDirector) {
         promotedProfileImgs = [];
@@ -378,8 +346,14 @@ export class WriteCoreIdentityTool extends BaseTool {
           firstName: userData['firstName'],
           lastName: userData['lastName'],
           displayName: userData['displayName'],
-          height: userData['height'],
-          weight: userData['weight'],
+          height:
+            (userData['measurables'] as Array<{ field: string; value?: unknown }> | undefined)
+              ?.find((m) => m.field === 'height')
+              ?.value?.toString() ?? (userData['height'] as string | undefined),
+          weight:
+            (userData['measurables'] as Array<{ field: string; value?: unknown }> | undefined)
+              ?.find((m) => m.field === 'weight')
+              ?.value?.toString() ?? (userData['weight'] as string | undefined),
           classOf: userData['classOf'],
           city: (userData['location'] as Record<string, unknown> | undefined)?.['city'],
           state: (userData['location'] as Record<string, unknown> | undefined)?.['state'],
@@ -611,6 +585,41 @@ export class WriteCoreIdentityTool extends BaseTool {
         payload['conference'] = FieldValue.delete();
         payload['division'] = FieldValue.delete();
         payload['level'] = FieldValue.delete();
+      }
+
+      // ── Promote team logo + gallery now that resolvedTeamRef is authoritative ────────────
+      // resolvedTeamRef has the full cascade: sport record → userData.teamId → explicitTeamId.
+      // Promoting here guarantees we always write to Teams/{teamId}/logo/ and Teams/{teamId}/gallery/.
+      const authorityTeamId = this.str(resolvedTeamRef, 'teamId') ?? undefined;
+      if (context?.userId && effectiveTeam) {
+        // Logo
+        if (typeof effectiveTeam['logoUrl'] === 'string' && effectiveTeam['logoUrl']) {
+          const logoDest = authorityTeamId
+            ? `Teams/${authorityTeamId}/logo`
+            : `Users/${context.userId}/profile`;
+          const [promotedLogo] = await ScraperMediaService.promoteMedia(
+            [effectiveTeam['logoUrl'] as string],
+            context.userId,
+            logoDest
+          );
+          if (promotedLogo) effectiveTeam['logoUrl'] = promotedLogo;
+        }
+        // Gallery
+        const rawGallery = Array.isArray(effectiveTeam['galleryImages'])
+          ? (effectiveTeam['galleryImages'] as unknown[]).filter(
+              (u): u is string => typeof u === 'string' && u.trim() !== ''
+            )
+          : [];
+        if (rawGallery.length > 0) {
+          const galleryDest = authorityTeamId
+            ? `Teams/${authorityTeamId}/gallery`
+            : `Users/${context.userId}/profile`;
+          promotedTeamGallery = await ScraperMediaService.promoteMedia(
+            rawGallery,
+            context.userId,
+            galleryDest
+          );
+        }
       }
 
       // ── Sync Team/Organization metadata ──────────────────────────────
@@ -925,11 +934,11 @@ export class WriteCoreIdentityTool extends BaseTool {
         }
       };
 
-      if (heightVal && !existingMeasurables.some((m) => m['field'] === 'height')) {
+      if (heightVal) {
         upsertMetric('height', 'Height', heightVal, '', 'physical');
         written.push('height');
       }
-      if (weightVal && !existingMeasurables.some((m) => m['field'] === 'weight')) {
+      if (weightVal) {
         upsertMetric('weight', 'Weight', weightVal, 'lbs', 'physical');
         written.push('weight');
       }

@@ -264,6 +264,28 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         }
       }
     }
+
+    @if (isError()) {
+      <div class="bubble-error-actions">
+        <button type="button" class="bubble-retry-btn" (click)="retryRequested.emit()">
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            width="11"
+            height="11"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M13.5 2.5A6.5 6.5 0 1 1 7 1.5" />
+            <polyline points="13.5 0 13.5 2.5 11 2.5" />
+          </svg>
+          Try again
+        </button>
+      </div>
+    }
+
     <ng-content />
   `,
   styles: [
@@ -500,8 +522,47 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
       }
 
       :host(.variant-agent-operation.is-error) {
-        background: rgba(239, 68, 68, 0.1);
-        border-color: rgba(239, 68, 68, 0.3);
+        background: rgba(239, 68, 68, 0.08);
+        border-color: rgba(239, 68, 68, 0.25);
+      }
+
+      :host(.variant-agent-operation.is-error) .bubble-error-actions,
+      :host(.variant-agent-fab.is-error) .bubble-error-actions {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(239, 68, 68, 0.2);
+      }
+
+      .bubble-error-actions {
+        display: flex;
+        margin-top: 8px;
+      }
+
+      .bubble-retry-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 10px;
+        border-radius: 20px;
+        border: 1px solid rgba(239, 68, 68, 0.35);
+        background: rgba(239, 68, 68, 0.12);
+        color: rgba(239, 68, 68, 0.9);
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        cursor: pointer;
+        transition:
+          background 0.15s,
+          border-color 0.15s;
+      }
+
+      .bubble-retry-btn:hover {
+        background: rgba(239, 68, 68, 0.2);
+        border-color: rgba(239, 68, 68, 0.5);
+      }
+
+      .bubble-retry-btn:active {
+        background: rgba(239, 68, 68, 0.28);
       }
 
       :host(.variant-agent-operation) .typing-dots span {
@@ -663,4 +724,7 @@ export class NxtChatBubbleComponent {
 
   /** Emitted when the user submits a reply to an ask_user card. */
   readonly askUserReply = output<AskUserReplyEvent>();
+
+  /** Emitted when the user clicks "Try again" on an error bubble. */
+  readonly retryRequested = output<void>();
 }

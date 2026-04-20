@@ -16,9 +16,8 @@
  * Architecture:
  * - Downloads media via native `fetch()` with strict size + timeout limits.
  * - Uploads to Firebase Storage at thread-scoped path:
- *     `users/{userId}/threads/{threadId}/media/{timestamp}-{hash}.{ext}`
- *   Falls back to legacy `agent-scraping/{platform}/{hash}.{ext}` when
- *   no thread context is available.
+ *     `Users/{userId}/threads/{threadId}/media/{timestamp}-{hash}.{ext}`
+ * - A valid `MediaStagingContext` (userId + threadId) is always required.
  * - Generates v4 signed URLs with 7-year read-only expiry.
  * - Processes media in parallel with concurrency cap (default 5).
  * - Error-tolerant: failed downloads are skipped, never crash the tool.
@@ -35,6 +34,7 @@
 import { createHash } from 'node:crypto';
 import { getStorage } from 'firebase-admin/storage';
 import { logger } from '../../../../../utils/logger.js';
+import { parallelBatch, type BatchFulfilled } from '../../../utils/parallel-batch.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -107,11 +107,11 @@ export interface PersistedMedia {
 // ─── Service ─────────────────────────────────────────────────────────────────
 
 /**
- * Optional thread-scoped staging context.
- * When provided, media is stored under the user's thread folder so it shares
- * the thread lifecycle. When omitted, falls back to the legacy flat path.
+ * Thread-scoped staging context — always required.
+ * Media is stored under the user's thread folder so it shares
+ * the thread lifecycle.
  */
-export interface MediaStagingContext {
+export interface MediaThreadContext {
   /** Firestore UID of the owning user. */
   readonly userId: string;
   /** MongoDB thread ID for the current conversation. */
@@ -126,31 +126,25 @@ export class ScraperMediaService {
    * Failed downloads are logged and skipped — never throws.
    *
    * @param items - Array of media items to persist.
-   * @param staging - Optional thread-scoped staging context.
-   *   When provided, media is stored at `users/{userId}/threads/{threadId}/media/`.
-   *   When omitted, falls back to the legacy `agent-scraping/{platform}/` path.
+   * @param staging - Thread-scoped staging context (userId + threadId). Required.
+   *   Media is stored at `Users/{userId}/threads/{threadId}/media/`.
    * @returns Array of successfully persisted media (may be fewer than input).
    */
   async persistBatch(
     items: readonly MediaInput[],
-    staging?: MediaStagingContext
+    staging: MediaThreadContext
   ): Promise<PersistedMedia[]> {
     if (items.length === 0) return [];
 
     const capped = items.slice(0, MAX_MEDIA_PER_CALL);
-    const results: PersistedMedia[] = [];
 
-    // Process in chunks to limit concurrency
-    for (let i = 0; i < capped.length; i += MAX_CONCURRENT_DOWNLOADS) {
-      const chunk = capped.slice(i, i + MAX_CONCURRENT_DOWNLOADS);
-      const settled = await Promise.allSettled(chunk.map((item) => this.persistOne(item, staging)));
+    const batchResults = await parallelBatch(capped, (item) => this.persistOne(item, staging), {
+      concurrency: MAX_CONCURRENT_DOWNLOADS,
+    });
 
-      for (const result of settled) {
-        if (result.status === 'fulfilled' && result.value !== null) {
-          results.push(result.value);
-        }
-      }
-    }
+    const results = batchResults
+      .filter((r) => r.status === 'fulfilled' && r.value !== null)
+      .map((r) => (r as BatchFulfilled<PersistedMedia | null>).value!);
 
     if (results.length > 0) {
       logger.info('[ScraperMediaService] Batch complete', {
@@ -168,7 +162,7 @@ export class ScraperMediaService {
    */
   private async persistOne(
     item: MediaInput,
-    staging?: MediaStagingContext
+    staging: MediaThreadContext
   ): Promise<PersistedMedia | null> {
     try {
       // ── Validate URL ─────────────────────────────────────────────
@@ -232,11 +226,8 @@ export class ScraperMediaService {
       const hash = createHash('sha256').update(buffer).digest('hex').slice(0, 16);
       const timestamp = Date.now();
 
-      // Thread-scoped path: users/{userId}/threads/{threadId}/media/{ts}-{hash}.{ext}
-      // Legacy fallback:    agent-scraping/{platform}/{ts}-{hash}.{ext}
-      const filePath = staging
-        ? `users/${staging.userId}/threads/${staging.threadId}/media/${timestamp}-${hash}.${ext}`
-        : `agent-scraping/${item.platform}/${timestamp}-${hash}.${ext}`;
+      // Thread-scoped path: Users/{userId}/threads/{threadId}/media/{ts}-{hash}.{ext}
+      const filePath = `Users/${staging.userId}/threads/${staging.threadId}/media/${timestamp}-${hash}.${ext}`;
 
       const bucket = getStorage().bucket();
       const file = bucket.file(filePath);
@@ -351,7 +342,7 @@ export class ScraperMediaService {
 
     const bucket = getStorage().bucket();
     const promotedUrls: string[] = [];
-    const threadMediaPrefix = `users/${userId}/threads/`;
+    const threadMediaPrefix = `Users/${userId}/threads/`;
 
     for (const signedUrl of signedUrls) {
       try {
@@ -401,7 +392,7 @@ export class ScraperMediaService {
    * in one bulk operation — no individual file tracking needed.
    */
   static async deleteThreadMedia(userId: string, threadId: string): Promise<number> {
-    const prefix = `users/${userId}/threads/${threadId}/media/`;
+    const prefix = `Users/${userId}/threads/${threadId}/media/`;
     const bucket = getStorage().bucket();
 
     try {

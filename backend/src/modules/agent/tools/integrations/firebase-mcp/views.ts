@@ -809,6 +809,159 @@ const VIEW_DEFINITIONS: Record<FirebaseViewName, FirebaseViewDefinition> = {
       };
     },
   },
+  user_active_goals: {
+    metadata: {
+      name: 'user_active_goals',
+      title: 'User Active Goals',
+      description:
+        "Read the authenticated user's active Agent X goals. Use this to understand what the user is working toward before generating advice, playbooks, or outreach.",
+      filterHelp: ['No filters. Returns all active goals for the authenticated user.'],
+      defaultLimit: 10,
+      maxLimit: 20,
+    },
+    async resolve(db, scope) {
+      const userSnap = await db.collection(USERS_COLLECTION).doc(scope.userId).get();
+      if (!userSnap.exists) {
+        return { view: 'user_active_goals', count: 0, items: [] };
+      }
+
+      const rawGoals = (userSnap.data()?.['agentGoals'] ?? []) as Array<Record<string, unknown>>;
+      const items = rawGoals.map((g) =>
+        sanitizeRecord({
+          id: g['id'],
+          text: g['text'],
+          category: g['category'],
+          icon: g['icon'],
+          createdAt: g['createdAt'],
+        })
+      );
+
+      return { view: 'user_active_goals', count: items.length, items };
+    },
+  },
+
+  user_goal_history: {
+    metadata: {
+      name: 'user_goal_history',
+      title: 'User Goal History',
+      description:
+        "Read the authenticated user's goal history, including active and completed goals with their playbook cycle counts and progress metrics. " +
+        'Use this to understand long-term goal progress, identify completed goals, and provide context-aware coaching.',
+      filterHelp: [
+        'Supported filters: isCompleted (true/false), category.',
+        'Use cursor to paginate older records returned in descending lastSeenAt order.',
+      ],
+      defaultLimit: DEFAULT_FIREBASE_VIEW_LIMIT,
+      maxLimit: 20,
+    },
+    async resolve(db, scope, input) {
+      const limit = limitFor(input, this.metadata);
+      let query: Query = db
+        .collection(USERS_COLLECTION)
+        .doc(scope.userId)
+        .collection('goal_history')
+        .orderBy('lastSeenAt', 'desc');
+
+      const isCompleted = input.filters?.['isCompleted'];
+      if (typeof isCompleted === 'boolean') {
+        query = query.where('isCompleted', '==', isCompleted);
+      }
+
+      const category = parseStringFilter(input, 'category');
+      if (category) query = query.where('category', '==', category);
+
+      const cursor = parseIsoCursor(input);
+      if (cursor) query = query.where('lastSeenAt', '<', cursor);
+
+      const items = await queryDocuments(query, limit);
+      const redactedItems = items.map((item) =>
+        pickFields(item, [
+          'id',
+          'text',
+          'category',
+          'icon',
+          'playbookCount',
+          'itemsTotal',
+          'itemsCompleted',
+          'isCompleted',
+          'completedAt',
+          'firstSeenAt',
+          'lastSeenAt',
+          'latestPlaybookId',
+        ])
+      );
+
+      return {
+        view: 'user_goal_history',
+        count: redactedItems.length,
+        items: redactedItems,
+        nextCursor:
+          redactedItems.length === limit ? createdAtCursor(redactedItems, 'lastSeenAt') : undefined,
+        appliedFilters: input.filters,
+      };
+    },
+  },
+
+  user_current_playbook: {
+    metadata: {
+      name: 'user_current_playbook',
+      title: 'User Current Playbook',
+      description:
+        "Read the authenticated user's most recent Agent X weekly playbook, including all task items with their status (pending, in-progress, complete, snoozed). " +
+        'Use this to understand what tasks the user has been assigned, what they have completed, and what is still in progress this week.',
+      filterHelp: ['No filters. Always returns the single most recent playbook.'],
+      defaultLimit: 1,
+      maxLimit: 1,
+    },
+    async resolve(db, scope) {
+      const snap = await db
+        .collection(USERS_COLLECTION)
+        .doc(scope.userId)
+        .collection('agent_playbooks')
+        .orderBy('generatedAt', 'desc')
+        .limit(1)
+        .get();
+
+      if (snap.empty) {
+        return { view: 'user_current_playbook', count: 0, items: [] };
+      }
+
+      const doc = snap.docs[0];
+      const data = doc.data();
+      const rawItems = (data['items'] ?? []) as Array<Record<string, unknown>>;
+      const rawGoals = (data['goals'] ?? []) as Array<Record<string, unknown>>;
+
+      const playbook = sanitizeRecord({
+        playbookId: doc.id,
+        generatedAt: data['generatedAt'],
+        role: data['role'],
+        goals: rawGoals.map((g) =>
+          sanitizeRecord({ id: g['id'], text: g['text'], category: g['category'] })
+        ),
+        items: rawItems.map((item) =>
+          sanitizeRecord({
+            id: item['id'],
+            title: item['title'],
+            description: item['description'],
+            status: item['status'],
+            actionType: item['actionType'],
+            goalId: (item['goal'] as Record<string, unknown> | undefined)?.['id'],
+            goalText: (item['goal'] as Record<string, unknown> | undefined)?.['text'],
+          })
+        ),
+        summary: {
+          total: rawItems.length,
+          completed: rawItems.filter((i) => i['status'] === 'complete').length,
+          snoozed: rawItems.filter((i) => i['status'] === 'snoozed').length,
+          inProgress: rawItems.filter((i) => i['status'] === 'in-progress').length,
+          pending: rawItems.filter((i) => i['status'] === 'pending').length,
+        },
+      });
+
+      return { view: 'user_current_playbook', count: 1, items: [playbook] };
+    },
+  },
+
   team_profile_snapshot: {
     metadata: {
       name: 'team_profile_snapshot',

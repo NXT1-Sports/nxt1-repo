@@ -126,6 +126,7 @@ export function performanceMiddleware(req: Request, res: Response, next: NextFun
   // Also track res.json calls
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   res.json = function (body?: any): Response {
+    if (this.headersSent) return this;
     return originalJson.call(this, body);
   };
 

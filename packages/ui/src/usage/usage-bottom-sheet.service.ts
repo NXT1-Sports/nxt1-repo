@@ -138,7 +138,7 @@ export class UsageBottomSheetService {
     ] as const;
 
     const result = await this.bottomSheet.show<BottomSheetAction>({
-      title: 'Buy Credits',
+      title: 'Add Credits',
       icon: 'card-outline',
       subtitle: 'Credits let you unlock premium actions across NXT1.',
       actions: packages.map((pkg) => ({
@@ -157,5 +157,93 @@ export class UsageBottomSheetService {
     // Parse price to cents for the Stripe checkout
     const priceCents = Math.round(parseFloat(selected.price.replace('$', '')) * 100);
     return priceCents;
+  }
+
+  /**
+   * Combined buy-credits + auto top-up flow for mobile.
+   *
+   * Step 1: Show credit packages (delegates to `showBuyCreditsOptions`).
+   * Step 2: If a package was selected AND auto top-up is not already on, offer
+   *         to configure it via a follow-up bottom sheet.
+   *
+   * Returns `{ amountCents, autoTopup }` where `autoTopup` is non-null only
+   * when the user configured it in step 2.
+   */
+  async showBuyCreditsWithAutoTopup(opts: {
+    autoTopupEnabled: boolean;
+    autoTopupThresholdCents: number;
+    autoTopupAmountCents: number;
+  }): Promise<{
+    amountCents: number | null;
+    autoTopup: { enabled: boolean; thresholdCents: number; amountCents: number } | null;
+  }> {
+    // Step 1: Credit package selection
+    const amountCents = await this.showBuyCreditsOptions();
+    if (amountCents === null) return { amountCents: null, autoTopup: null };
+
+    // Step 2: Offer auto top-up only when it's not already configured
+    if (!opts.autoTopupEnabled) {
+      const enableResult = await this.bottomSheet.show({
+        title: 'Set Up Auto Top-Up?',
+        icon: 'reload-outline',
+        subtitle: 'Automatically refill your wallet when balance runs low.',
+        actions: [
+          { label: 'Set up Auto Top-Up', role: 'primary', icon: 'checkmark-outline' },
+          { label: 'No thanks', role: 'secondary' },
+        ],
+      });
+
+      const confirmedAutoTopup =
+        enableResult?.confirmed &&
+        (enableResult.data as unknown as BottomSheetAction | undefined)?.label ===
+          'Set up Auto Top-Up';
+
+      if (confirmedAutoTopup) {
+        const thresholdCents = await this.showAutoTopupThreshold();
+        const topupAmountCents = await this.showAutoTopupAmount();
+        if (thresholdCents !== null && topupAmountCents !== null) {
+          return {
+            amountCents,
+            autoTopup: { enabled: true, thresholdCents, amountCents: topupAmountCents },
+          };
+        }
+      }
+    }
+
+    return { amountCents, autoTopup: null };
+  }
+
+  /** Show threshold selector for auto top-up configuration. */
+  async showAutoTopupThreshold(): Promise<number | null> {
+    const thresholds = [200, 500, 1_000, 2_500];
+    const result = await this.bottomSheet.show<BottomSheetAction>({
+      title: 'Top up when balance drops below',
+      icon: 'arrow-down-circle-outline',
+      actions: thresholds.map((cents) => ({
+        label: `$${(cents / 100).toFixed(2)}`,
+        role: 'primary' as const,
+      })),
+    });
+    if (!result?.confirmed) return null;
+    const label = (result.data as BottomSheetAction | undefined)?.label;
+    const match = label?.match(/^\$(\d+(?:\.\d+)?)$/);
+    return match ? Math.round(parseFloat(match[1]) * 100) : null;
+  }
+
+  /** Show amount selector for auto top-up configuration. */
+  async showAutoTopupAmount(): Promise<number | null> {
+    const amounts = [500, 1_000, 2_500, 5_000, 10_000];
+    const result = await this.bottomSheet.show<BottomSheetAction>({
+      title: 'Add this much each time',
+      icon: 'arrow-up-circle-outline',
+      actions: amounts.map((cents) => ({
+        label: `$${(cents / 100).toFixed(2)}`,
+        role: 'primary' as const,
+      })),
+    });
+    if (!result?.confirmed) return null;
+    const label = (result.data as BottomSheetAction | undefined)?.label;
+    const match = label?.match(/^\$(\d+(?:\.\d+)?)$/);
+    return match ? Math.round(parseFloat(match[1]) * 100) : null;
   }
 }

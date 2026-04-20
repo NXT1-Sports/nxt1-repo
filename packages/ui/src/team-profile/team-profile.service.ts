@@ -12,7 +12,7 @@
  * adapted for team-specific data shapes and tab structure.
  */
 
-import { Injectable, inject, signal, computed } from '@angular/core';
+import { Injectable, inject, signal, computed, DestroyRef } from '@angular/core';
 import {
   type TeamProfileTabId,
   type TeamProfilePageData,
@@ -33,6 +33,7 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
+import { NxtThemeService } from '../services/theme';
 import { TeamProfileApiClient, type TeamProfileApiError } from './team-profile-api.client';
 
 @Injectable({ providedIn: 'root' })
@@ -40,6 +41,8 @@ export class TeamProfileService {
   private readonly logger = inject(NxtLoggingService).child('TeamProfileService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly theme = inject(NxtThemeService);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly apiClient = inject(TeamProfileApiClient);
 
   // ============================================
@@ -493,6 +496,13 @@ export class TeamProfileService {
     this._isLoading.set(false);
     this._error.set(null);
     this.logger.info('Team loaded from external data');
+
+    const branding = data.team?.branding;
+    if (branding?.primaryColor) {
+      this.theme.applyOrgTheme(branding.primaryColor, branding.secondaryColor);
+    } else {
+      this.theme.clearOrgTheme();
+    }
   }
 
   /**
@@ -608,6 +618,7 @@ export class TeamProfileService {
     this._timelineCursor.set(null);
     this._timelineHasMore.set(false);
     this._activeTimelineFilter.set(TEAM_TIMELINE_DEFAULT_FILTER);
+    this.theme.clearOrgTheme();
   }
 
   // ============================================

@@ -13,7 +13,6 @@
 import type { HttpAdapter } from '../api/http-adapter';
 import type {
   InviteStats,
-  InviteAchievement,
   InviteLink,
   InviteFilter,
   InviteHistoryResponse,
@@ -112,7 +111,7 @@ export function createInviteApi(http: HttpAdapter, baseUrl: string) {
      * Send invite(s) to recipients.
      *
      * @param request - Send invite request data
-     * @returns Send response with XP earned
+     * @returns Send response
      * @throws NxtApiError on failure
      */
     async sendInvite(request: SendInviteRequest): Promise<SendInviteResponse> {
@@ -140,7 +139,7 @@ export function createInviteApi(http: HttpAdapter, baseUrl: string) {
      * Send bulk team invites.
      *
      * @param request - Bulk invite request data
-     * @returns Send response with XP earned
+     * @returns Send response
      * @throws NxtApiError on failure
      */
     async sendBulkInvites(request: TeamBulkInviteRequest): Promise<SendInviteResponse> {
@@ -226,37 +225,6 @@ export function createInviteApi(http: HttpAdapter, baseUrl: string) {
         if (isNxtApiError(error)) throw error;
         throw createApiError('SRV_INTERNAL_ERROR', {
           message: 'Failed to fetch invite stats',
-          cause: error,
-        });
-      }
-    },
-
-    /**
-     * Get user's invite achievements.
-     *
-     * @returns User achievements with progress
-     * @throws NxtApiError on failure
-     */
-    async getAchievements(): Promise<readonly InviteAchievement[]> {
-      try {
-        const url = buildUrl(INVITE_API_ENDPOINTS.ACHIEVEMENTS);
-        const response = await http.get<{
-          success: boolean;
-          data: InviteAchievement[];
-          error?: string;
-        }>(url);
-
-        if (!response.success || !response.data) {
-          throw createApiError('SRV_INTERNAL_ERROR', {
-            message: response.error ?? 'Failed to fetch achievements',
-          });
-        }
-
-        return response.data;
-      } catch (error) {
-        if (isNxtApiError(error)) throw error;
-        throw createApiError('SRV_INTERNAL_ERROR', {
-          message: 'Failed to fetch achievements',
           cause: error,
         });
       }

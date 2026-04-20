@@ -13,6 +13,7 @@
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { logger } from '../../../utils/logger.js';
 import { getSeasonInfo, resolvePrimarySport, ContextBuilder } from '../memory/context-builder.js';
+import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
 import { VectorMemoryService } from '../memory/vector.service.js';
 import { OpenRouterService } from '../llm/openrouter.service.js';
 
@@ -1158,7 +1159,7 @@ Output this EXACT JSON structure with all 5 sections:
         url: (src['profileUrl'] as string) || undefined,
         lastSyncedAt: (src['lastSyncedAt'] as string) || undefined,
         verified: VERIFIED_PLATFORMS.has(platform),
-        faviconUrl: (src['faviconUrl'] as string) || undefined,
+        faviconUrl: (src['faviconUrl'] as string) || getPlatformFaviconUrl(platform) || undefined,
       };
     });
   }

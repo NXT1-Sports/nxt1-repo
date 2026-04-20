@@ -2,9 +2,8 @@
  * @fileoverview Usage Chart Section — Pure CSS Line Chart
  * @module @nxt1/ui/usage
  *
- * Metered usage line chart with product tabs, billable detail,
- * included usage quotas, and top-products stacked bar.
- * Zero external chart libraries — pure CSS/SVG.
+ * Metered usage line chart with hover tooltips, timeframe selector,
+ * and view-breakdown link. Zero external chart libraries — pure CSS/SVG.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
@@ -100,23 +99,6 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
             </div>
           }
         </div>
-      </div>
-
-      <!-- BILLABLE SUMMARY (replaces per-product tabs — everything flows through Agent X) -->
-      <div class="billable-summary">
-        <div class="detail-header">
-          <h3 class="tabs-title">Billable usage</h3>
-          <button
-            type="button"
-            class="card-link"
-            [attr.data-testid]="testIds.CHART_VIEW_BREAKDOWN"
-            (click)="viewBreakdown.emit()"
-          >
-            View breakdown
-          </button>
-        </div>
-        <div class="detail-amount">{{ totalBillable() }}</div>
-        <p class="detail-stats">All Agent X operations for this period.</p>
       </div>
     </section>
   `,
@@ -335,29 +317,6 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 
       /* ── BILLABLE SUMMARY ─────────────── */
 
-      .billable-summary {
-        background: var(--nxt1-color-surface-100);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        border-radius: var(--nxt1-radius-lg, 12px);
-        padding: var(--nxt1-spacing-5);
-        margin-bottom: var(--nxt1-spacing-5);
-      }
-
-      .tabs-title {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        color: var(--nxt1-color-text-primary);
-        margin: 0;
-      }
-
-      .detail-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: var(--nxt1-spacing-2);
-      }
-
       .card-link {
         font-size: var(--nxt1-fontSize-xs);
         font-weight: var(--nxt1-fontWeight-medium);
@@ -375,20 +334,6 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         background: var(--nxt1-color-surface-200);
         text-decoration: underline;
       }
-
-      .detail-amount {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-2xl);
-        font-weight: var(--nxt1-fontWeight-bold);
-        color: var(--nxt1-color-text-primary);
-        margin-bottom: var(--nxt1-spacing-2);
-      }
-
-      .detail-stats {
-        font-size: var(--nxt1-fontSize-xs);
-        color: var(--nxt1-color-text-secondary);
-        margin: 0;
-      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -405,13 +350,6 @@ export class UsageChartComponent {
   readonly viewBreakdown = output<void>();
 
   protected readonly timeframeOptions = USAGE_TIMEFRAME_OPTIONS;
-
-  /** Total billable amount from the chart's final data point */
-  protected readonly totalBillable = computed(() => {
-    const data = this.chartData();
-    if (data.length === 0) return formatPrice(0);
-    return formatPrice(data[data.length - 1]!.amount);
-  });
 
   private readonly hoverIndex = signal<number | null>(null);
   private readonly hoverXValue = signal(0);

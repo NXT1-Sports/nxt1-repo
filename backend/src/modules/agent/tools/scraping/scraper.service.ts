@@ -100,6 +100,7 @@ import { extractPageData, mergeLinks } from './page-data-extractor.js';
 import type { FirecrawlMcpBridgeService } from '../integrations/firecrawl/firecrawl-mcp-bridge.service.js';
 import { validateUrl } from './url-validator.js';
 import { logger } from '../../../../utils/logger.js';
+import { parallelBatch } from '../../../agent/utils/parallel-batch.js';
 
 // ─── Service ────────────────────────────────────────────────────────────────
 
@@ -253,36 +254,18 @@ export class ScraperService {
       readonly onProgress?: (completed: number, total: number, url: string) => void;
     }
   ): Promise<ScrapeManyResult[]> {
-    const concurrency = Math.max(1, Math.min(options?.concurrency ?? 5, 10));
-    const total = requests.length;
-    const results: ScrapeManyResult[] = new Array(total);
-    let completed = 0;
+    const batchResults = await parallelBatch(requests, (req) => this.scrape(req), {
+      concurrency: options?.concurrency ?? 5,
+      onProgress: options?.onProgress
+        ? (completed, total, idx) => options.onProgress!(completed, total, requests[idx].url)
+        : undefined,
+    });
 
-    // Concurrency-limited executor using a simple semaphore
-    const semaphore = new Array(concurrency).fill(null);
-    let nextIndex = 0;
-
-    const processNext = async (): Promise<void> => {
-      while (nextIndex < total) {
-        const idx = nextIndex++;
-        const req = requests[idx];
-        try {
-          const result = await this.scrape(req);
-          results[idx] = { status: 'success', url: req.url, data: result };
-        } catch (err) {
-          results[idx] = {
-            status: 'error',
-            url: req.url,
-            error: err instanceof Error ? err.message : 'Unknown error',
-          };
-        }
-        completed++;
-        options?.onProgress?.(completed, total, req.url);
-      }
-    };
-
-    await Promise.all(semaphore.map(() => processNext()));
-    return results;
+    return batchResults.map((r, i) =>
+      r.status === 'fulfilled'
+        ? { status: 'success', url: requests[i].url, data: r.value }
+        : { status: 'error', url: requests[i].url, error: r.reason.message }
+    );
   }
 
   // ─── Cache Warming ──────────────────────────────────────────────────────────
@@ -319,33 +302,33 @@ export class ScraperService {
     let warmed = 0;
     let failed = 0;
     const errors: string[] = [];
-    let completed = 0;
 
     logger.info('[ScraperService] Cache warming started', { total, concurrency });
 
-    const semaphore = new Array(concurrency).fill(null);
-    let nextIndex = 0;
-
-    const processNext = async (): Promise<void> => {
-      while (nextIndex < total) {
-        const idx = nextIndex++;
-        const url = batch[idx];
-        try {
-          const sanitized = this.validateUrl(url);
-          // Fire the scrape call — the MCP bridge will cache the result automatically
-          await this.mcpBridge!.scrape(sanitized, { formats: ['markdown', 'html'] });
-          warmed++;
-        } catch (err) {
-          failed++;
-          const message = err instanceof Error ? err.message : 'Unknown error';
-          errors.push(`${url}: ${message}`);
-        }
-        completed++;
-        options?.onProgress?.(completed, total, url);
+    const results = await parallelBatch(
+      batch,
+      async (url: string) => {
+        const sanitized = this.validateUrl(url);
+        // Fire the scrape call — the MCP bridge will cache the result automatically
+        await this.mcpBridge!.scrape(sanitized, { formats: ['markdown', 'html'] });
+        return url;
+      },
+      {
+        concurrency,
+        onProgress: (completed) => {
+          options?.onProgress?.(completed, total, batch[completed - 1] ?? '');
+        },
       }
-    };
+    );
 
-    await Promise.all(semaphore.map(() => processNext()));
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        warmed++;
+      } else {
+        failed++;
+        errors.push(`${result.reason instanceof Error ? result.reason.message : 'Unknown error'}`);
+      }
+    }
 
     logger.info('[ScraperService] Cache warming complete', { total, warmed, failed });
     return { total, warmed, failed, errors: errors.slice(0, 20) };

@@ -71,6 +71,8 @@ export type JobEventType =
 export interface JobEvent {
   /** Monotonically increasing sequence number (0-based). */
   readonly seq: number;
+  /** Owner's Firebase UID — stamped on write so Firestore rules can check without a parent doc get(). */
+  readonly userId: string;
   /** What kind of event this is. */
   readonly type: JobEventType;
   /** Agent identifier if known (e.g. 'recruiting', 'performance'). */
@@ -242,6 +244,25 @@ export class AgentJobRepository {
         completedAt: FieldValue.serverTimestamp(),
         expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
       });
+  }
+
+  /**
+   * Patch a subset of context fields onto an existing job document.
+   * Used for best-effort updates that happen after the job is already enqueued
+   * (e.g. stitching in a `threadId` that was created asynchronously).
+   *
+   * Only merges the keys present in `patch` — never overwrites the full document.
+   */
+  async patchContext(operationId: string, patch: Record<string, unknown>): Promise<void> {
+    const update: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+
+    // Flatten into top-level dotted paths that Firestore's merge-update understands.
+    // e.g. { threadId: 'abc' } → updates the top-level `threadId` field directly.
+    for (const [key, value] of Object.entries(patch)) {
+      update[key] = value;
+    }
+
+    await this.db.collection(COLLECTION).doc(operationId).update(update);
   }
 
   /**

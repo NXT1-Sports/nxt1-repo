@@ -21,6 +21,8 @@ import type {
 import { isAgentYield } from '../../modules/agent/exceptions/agent-yield.exception.js';
 import type { LLMMessage, LLMContentPart } from '../../modules/agent/llm/llm.types.js';
 import { buildSseStreamCallback } from './sse-stream-adapter.js';
+import { DebouncedEventWriter } from '../../modules/agent/queue/event-writer.js';
+import type { StreamEvent } from '../../modules/agent/queue/event-writer.js';
 import { STREAM_TERMINAL_EVENTS } from '../../modules/agent/queue/pubsub.service.js';
 import { notifyYield } from '../../modules/agent/services/yield-notifier.service.js';
 import { logger } from '../../utils/logger.js';
@@ -500,6 +502,7 @@ router.post(
     const chatOperationId = `chat-${crypto.randomUUID()}`;
     const chatUser = getAuthUser(req);
     let resolvedThreadId: string | undefined;
+    let chatEventWriter: DebouncedEventWriter | null = null;
 
     const abortController = new AbortController();
     activeAbortControllers.set(chatOperationId, {
@@ -525,8 +528,65 @@ router.post(
         return;
       }
 
-      const { message, mode, history, threadId, attachments, resumeOperationId } =
+      const { message, mode, history, threadId, attachments, resumeOperationId, afterSeq } =
         req.body as AgentChatRequestDto;
+
+      // ── Pre-compute enriched message text ─────────────────────────────
+      // Build the full enriched text BEFORE Step 1 so it can be stored in
+      // thread history. This means follow-up turns always have full context
+      // (video IDs, image URLs, doc references) in their history — not just
+      // the raw typed message.
+      const _allAttachments = attachments ?? [];
+      const _fileAttachments = _allAttachments.filter(
+        (a: { mimeType: string }) =>
+          a.mimeType.startsWith('image/') ||
+          a.mimeType === 'application/pdf' ||
+          a.mimeType === 'text/csv' ||
+          a.mimeType === 'text/plain' ||
+          a.mimeType === 'application/vnd.ms-excel' ||
+          a.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+          a.mimeType === 'application/msword' ||
+          a.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      ) as {
+        id: string;
+        url: string;
+        name: string;
+        mimeType: string;
+        type: string;
+        sizeBytes: number;
+      }[];
+      const _videoAttachments = _allAttachments.filter((a: { mimeType: string }) =>
+        a.mimeType.startsWith('video/')
+      ) as {
+        id: string;
+        url: string;
+        name: string;
+        mimeType: string;
+        type: string;
+        sizeBytes: number;
+        cloudflareVideoId?: string;
+      }[];
+
+      // Produce enriched text that carries all attachment references.
+      // This is what gets stored in thread history so future turns retain full context.
+      let enrichedMessageText = message.trim();
+      if (_videoAttachments.length > 0) {
+        const videoRefs = _videoAttachments
+          .map((v) => {
+            const idPart = v.cloudflareVideoId
+              ? ` | cloudflareVideoId: ${v.cloudflareVideoId}`
+              : '';
+            return `[Attached video: ${v.name} — ${v.url}${idPart}]`;
+          })
+          .join('\n');
+        enrichedMessageText = `${enrichedMessageText}\n\n${videoRefs}`;
+      }
+      if (_fileAttachments.length > 0) {
+        const fileRefs = _fileAttachments
+          .map((f) => `[Attached file: ${f.name} (${f.mimeType}) — ${f.url}]`)
+          .join('\n');
+        enrichedMessageText = `${enrichedMessageText}\n\n${fileRefs}`;
+      }
 
       // ── Drop Recovery ─────────────────────────────────────────────────
       if (resumeOperationId && pubsubService && jobRepository) {
@@ -553,7 +613,7 @@ router.post(
 
           if (job.status === 'completed' || job.status === 'failed') {
             const events = await jobRepository.getJobEvents(resumeOperationId);
-            replayJobEventsAsSSE(res, events);
+            replayJobEventsAsSSE(res, events, afterSeq);
             res.write(
               `event: done\ndata: ${JSON.stringify({
                 operationId: resumeOperationId,
@@ -571,7 +631,7 @@ router.post(
           }
 
           const events = await jobRepository.getJobEvents(resumeOperationId);
-          replayJobEventsAsSSE(res, events);
+          replayJobEventsAsSSE(res, events, afterSeq);
 
           logger.info('Drop recovery: replayed events, subscribing to live stream', {
             operationId: resumeOperationId,
@@ -641,7 +701,7 @@ router.post(
               threadId: resolvedThreadId,
               userId: user.uid,
               role: 'user',
-              content: message.trim(),
+              content: enrichedMessageText,
               origin: 'user',
             });
           }
@@ -724,20 +784,13 @@ router.post(
         }
       }
 
-      const fileAttachments = (attachments ?? []).filter(
-        (a: { mimeType: string }) =>
-          a.mimeType.startsWith('image/') ||
-          a.mimeType === 'application/pdf' ||
-          a.mimeType === 'text/csv' ||
-          a.mimeType === 'text/plain' ||
-          a.mimeType === 'application/vnd.ms-excel' ||
-          a.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
-          a.mimeType === 'application/msword' ||
-          a.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-      );
+      // Reuse the pre-computed attachment splits from above (already filtered).
+      const fileAttachments = _fileAttachments;
+      const videoAttachments = _videoAttachments;
 
+      // enrichedMessageText already contains video + file refs (built before Step 1).
       if (fileAttachments.length > 0) {
-        const contentParts: LLMContentPart[] = [{ type: 'text', text: message.trim() }];
+        const contentParts: LLMContentPart[] = [{ type: 'text', text: enrichedMessageText }];
         for (const att of fileAttachments) {
           contentParts.push({
             type: 'image_url',
@@ -746,7 +799,7 @@ router.post(
         }
         messages.push({ role: 'user', content: contentParts });
       } else {
-        messages.push({ role: 'user', content: message.trim() });
+        messages.push({ role: 'user', content: enrichedMessageText });
       }
 
       // ── Step 4: Budget preflight ──────────────────────────────────────
@@ -813,6 +866,7 @@ router.post(
           ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
           ...(mode ? { mode } : {}),
           ...(fileAttachments.length > 0 ? { attachments: fileAttachments } : {}),
+          ...(videoAttachments.length > 0 ? { videoAttachments } : {}),
         },
       };
 
@@ -821,6 +875,11 @@ router.post(
       if (jobRepository) {
         try {
           await jobRepository.withDb(db).create(chatPayload);
+          chatEventWriter = new DebouncedEventWriter(
+            jobRepository.withDb(db),
+            chatOperationId,
+            user.uid
+          );
         } catch (createErr) {
           logger.warn('Failed to create SSE chat job record in Firestore', {
             operationId: chatOperationId,
@@ -830,13 +889,19 @@ router.post(
       }
 
       const streamRef: import('./sse-stream-adapter.js').SseStreamRef = {
-        heavyTaskOperationId: null,
         invokedTools,
         model,
         tokenUsage: undefined,
         pendingAutoOpenPanel: null,
       };
-      const onStreamEvent = buildSseStreamCallback(res, streamRef);
+      const sseSink = buildSseStreamCallback(res, streamRef);
+      const onStreamEvent = (event: StreamEvent) => {
+        sseSink(event);
+        chatEventWriter?.emit(event);
+        if (pubsubService) {
+          pubsubService.publish(chatOperationId, event.type, event).catch(() => undefined);
+        }
+      };
 
       if (agentRouterRef) {
         try {
@@ -863,131 +928,6 @@ router.post(
             };
           }
           pendingAutoOpenPanel = streamRef.pendingAutoOpenPanel;
-
-          // ── Heavy task SSE proxy ────────────────────────────────────
-          // If enqueue_heavy_task fired, the SSE adapter captured its operationId.
-          // Pivot to a PubSub subscription so the user watches the background job live.
-          const heavyOperationId = streamRef.heavyTaskOperationId;
-          if (heavyOperationId && pubsubService) {
-            logger.info('Pivoting to PubSub SSE proxy for heavy task', {
-              operationId: heavyOperationId,
-              userId: user.uid,
-            });
-
-            res.write(
-              `event: step\ndata: ${JSON.stringify({
-                id: 'heavy-task-queued',
-                label: 'Agent processing in background',
-                status: 'active',
-              })}\n\n`
-            );
-            forceProxyFlush(res);
-
-            const heartbeatInterval = setInterval(() => {
-              try {
-                res.write(`event: ping\ndata: {}\n\n`);
-              } catch {
-                clearInterval(heartbeatInterval);
-              }
-            }, 15_000);
-
-            const unsubscribe = await pubsubService.subscribe(heavyOperationId, (msg) => {
-              try {
-                res.write(`event: ${msg.event}\ndata: ${JSON.stringify(msg.data)}\n\n`);
-
-                if (
-                  msg.event === 'delta' &&
-                  msg.data &&
-                  typeof msg.data === 'object' &&
-                  'content' in (msg.data as Record<string, unknown>)
-                ) {
-                  responseContent += (msg.data as Record<string, unknown>)['content'] as string;
-                }
-
-                if (STREAM_TERMINAL_EVENTS.has(msg.event)) {
-                  clearInterval(heartbeatInterval);
-                  void unsubscribe();
-
-                  res.write(
-                    `event: step\ndata: ${JSON.stringify({
-                      id: 'heavy-task-queued',
-                      label: 'Agent processing in background',
-                      status: msg.event === 'done' ? 'success' : 'error',
-                    })}\n\n`
-                  );
-
-                  const donePayload: Record<string, unknown> = {
-                    threadId: resolvedThreadId,
-                    model,
-                    usage: tokenUsage,
-                    timestamp: new Date().toISOString(),
-                    operationId: heavyOperationId,
-                  };
-                  if (pendingAutoOpenPanel) donePayload['autoOpenPanel'] = pendingAutoOpenPanel;
-                  res.write(`event: done\ndata: ${JSON.stringify(donePayload)}\n\n`);
-                  res.write(
-                    `event: operation\ndata: ${JSON.stringify({
-                      threadId: resolvedThreadId,
-                      status: msg.event === 'done' ? 'complete' : 'error',
-                      timestamp: new Date().toISOString(),
-                    })}\n\n`
-                  );
-                  forceProxyFlush(res);
-                  res.end();
-
-                  logger.info('Heavy task SSE proxy completed', {
-                    operationId: heavyOperationId,
-                    userId: user.uid,
-                    terminalEvent: msg.event,
-                  });
-                }
-              } catch (proxyErr) {
-                clearInterval(heartbeatInterval);
-                void unsubscribe();
-                logger.warn('SSE proxy write failed (client likely disconnected)', {
-                  operationId: heavyOperationId,
-                  error: proxyErr instanceof Error ? proxyErr.message : String(proxyErr),
-                });
-              }
-            });
-
-            req.on('close', () => {
-              clearInterval(heartbeatInterval);
-              void unsubscribe();
-            });
-
-            if (chatService && resolvedThreadId && responseContent) {
-              try {
-                await chatService.addMessage({
-                  threadId: resolvedThreadId,
-                  userId: user.uid,
-                  role: 'assistant',
-                  content: responseContent,
-                  origin: 'user',
-                  agentId: 'general',
-                  tokenUsage,
-                });
-              } catch (persistErr) {
-                logger.warn('Failed to persist pre-proxy assistant reply', {
-                  error: persistErr instanceof Error ? persistErr.message : String(persistErr),
-                  userId: user.uid,
-                });
-              }
-            }
-
-            activeAbortControllers.delete(chatOperationId);
-            void executeBillingDeduction({
-              db,
-              userId: user.uid,
-              operationId: chatOperationId,
-              feature: UsageFeature.ACTIVITY_USAGE,
-              environment: (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'production') as
-                | 'production'
-                | 'staging',
-              metadata: { threadId: resolvedThreadId, model, mode, agentTools: invokedTools },
-            });
-            return;
-          }
         } catch (err) {
           // ── AgentYieldException (ask_user / approval gate) ────────────
           // The agent paused mid-execution waiting for user input.
@@ -1008,6 +948,13 @@ router.post(
               expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
             };
 
+            if (chatEventWriter) {
+              try {
+                await chatEventWriter.flush();
+              } catch {
+                /* non-critical */
+              }
+            }
             await jobRepository.withDb(db).markYielded(chatOperationId, yieldState);
 
             // Persist the agent's question to the conversation thread
@@ -1103,6 +1050,11 @@ router.post(
             });
 
             activeAbortControllers.delete(chatOperationId);
+            // Dispose event writer for yield path (fire-and-forget)
+            if (chatEventWriter) {
+              chatEventWriter.dispose().catch(() => undefined);
+              chatEventWriter = null;
+            }
             res.end();
 
             void executeBillingDeduction({
@@ -1228,16 +1180,17 @@ router.post(
 
         res.write(`event: done\ndata: ${JSON.stringify(donePayload)}\n\n`);
 
-        if (resolvedThreadId) {
-          res.write(
-            `event: operation\ndata: ${JSON.stringify({
-              threadId: resolvedThreadId,
-              status: 'complete',
-              timestamp: new Date().toISOString(),
-            })}\n\n`
-          );
-          forceProxyFlush(res);
-        }
+        // Always emit operation:complete — use threadId if available, else operationId
+        // as the identifier so the frontend can always clear the spinner.
+        res.write(
+          `event: operation\ndata: ${JSON.stringify({
+            threadId: resolvedThreadId ?? chatOperationId,
+            operationId: chatOperationId,
+            status: 'complete',
+            timestamp: new Date().toISOString(),
+          })}\n\n`
+        );
+        forceProxyFlush(res);
       }
 
       logger.info('Agent X SSE chat completed', {
@@ -1247,6 +1200,18 @@ router.post(
       });
 
       activeAbortControllers.delete(chatOperationId);
+
+      if (jobRepository && chatEventWriter) {
+        try {
+          await chatEventWriter.dispose();
+          await jobRepository.withDb(db).markCompleted(chatOperationId, {
+            summary: responseContent.slice(0, 500),
+          });
+        } catch {
+          // Non-critical
+        }
+      }
+
       res.end();
 
       // ── Step 7: Billing deduction (fire-and-forget) ────────────────────
@@ -1261,6 +1226,55 @@ router.post(
           | 'staging',
         metadata: { threadId: resolvedThreadId, model, mode, agentTools: invokedTools },
       });
+
+      // ── Step 8: Back-fill threadId if resolveThread failed earlier ────
+      // If chatService was available but resolveThread threw (e.g. MongoDB
+      // timeout), the Firestore job was created with threadId: null. Now that
+      // the stream is complete, attempt to create/recover the thread and patch
+      // the job so future operations-log fetches can correctly link the entry
+      // to its Firestore AgentJob document.
+      if (jobRepository && chatService && !resolvedThreadId && responseContent) {
+        void (async () => {
+          try {
+            const recoveredThreadId = await resolveThread(
+              chatService,
+              user.uid,
+              undefined,
+              message
+            );
+            if (recoveredThreadId) {
+              await chatService.addMessage({
+                threadId: recoveredThreadId,
+                userId: user.uid,
+                role: 'user',
+                content: message,
+                origin: 'user',
+              });
+              await chatService.addMessage({
+                threadId: recoveredThreadId,
+                userId: user.uid,
+                role: 'assistant',
+                content: responseContent,
+                origin: 'agent_chain',
+              });
+              await jobRepository.withDb(req.firebase!.db).patchContext(chatOperationId, {
+                threadId: recoveredThreadId,
+              });
+              logger.info('Back-filled threadId on Firestore job after resolveThread recovery', {
+                operationId: chatOperationId,
+                recoveredThreadId,
+                userId: user.uid,
+              });
+            }
+          } catch (recoveryErr) {
+            logger.warn('Post-stream thread recovery failed — job will remain without threadId', {
+              operationId: chatOperationId,
+              userId: user.uid,
+              error: recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr),
+            });
+          }
+        })();
+      }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
 
@@ -1279,6 +1293,12 @@ router.post(
           }
         }
         activeAbortControllers.delete(chatOperationId);
+        if (jobRepository && req.firebase?.db) {
+          jobRepository
+            .withDb(req.firebase.db)
+            .markCancelled(chatOperationId)
+            .catch(() => undefined);
+        }
         return;
       }
 
@@ -1308,20 +1328,27 @@ router.post(
           res.write(
             `event: error\ndata: ${JSON.stringify({ error: 'Failed to process message' })}\n\n`
           );
-          if (resolvedThreadId) {
-            res.write(
-              `event: operation\ndata: ${JSON.stringify({
-                threadId: resolvedThreadId,
-                status: 'error',
-                timestamp: new Date().toISOString(),
-              })}\n\n`
-            );
-            forceProxyFlush(res);
-          }
+          // Always emit operation:error regardless of thread resolution
+          res.write(
+            `event: operation\ndata: ${JSON.stringify({
+              threadId: resolvedThreadId ?? chatOperationId,
+              operationId: chatOperationId,
+              status: 'error',
+              timestamp: new Date().toISOString(),
+            })}\n\n`
+          );
+          forceProxyFlush(res);
           res.end();
         } catch {
           // Client already disconnected
         }
+      }
+
+      if (jobRepository && req.firebase?.db) {
+        jobRepository
+          .withDb(req.firebase.db)
+          .markFailed(chatOperationId, error.message ?? 'Unknown error')
+          .catch(() => undefined);
       }
 
       activeAbortControllers.delete(chatOperationId);

@@ -83,6 +83,7 @@ router.get(
       sportId: sportId ?? undefined,
       viewerUserId: req.user?.uid,
       cursor,
+      pinnedMetricGroups: (userData['pinnedMetricGroups'] as string[] | undefined) ?? [],
     });
 
     if (!cursor) {

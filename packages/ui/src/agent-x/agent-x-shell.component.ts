@@ -32,10 +32,13 @@ import {
   input,
   output,
   computed,
+  signal,
   afterNextRender,
   effect,
   viewChild,
   ElementRef,
+  EnvironmentInjector,
+  runInInjectionContext,
 } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
 import { Location } from '@angular/common';
@@ -63,7 +66,6 @@ import { AgentXDashboardSkeletonComponent } from './agent-x-dashboard-skeleton.c
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
-import { UsageService } from '../usage/usage.service';
 import {
   type ShellWeeklyPlaybookItem,
   type AgentDashboardGoal,
@@ -71,7 +73,6 @@ import {
 } from '@nxt1/core/ai';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import { NxtStateViewComponent } from '../components/state-view';
-import { ConnectedAccountsModalService } from '../components/connected-sources';
 import { ActivityService } from '../activity/activity.service';
 import type { OnboardingUserType } from '@nxt1/core';
 
@@ -126,7 +127,7 @@ export interface WeeklyPlaybookItem {
   readonly summary: string;
   readonly details: string;
   readonly actionLabel: string;
-  readonly status: 'pending' | 'in-progress' | 'complete' | 'problem';
+  readonly status: 'pending' | 'in-progress' | 'complete' | 'snoozed' | 'problem';
   readonly goal?: GoalTag;
 }
 
@@ -167,16 +168,14 @@ export interface WeeklyPlaybookItem {
         </div>
 
         <div pageHeaderSlot="end" class="agent-header-actions">
-          @if (canManageBilling()) {
-            <button
-              type="button"
-              class="agent-header-action"
-              [attr.aria-label]="billingActionAriaLabel()"
-              (click)="onBillingActionClick()"
-            >
-              <nxt1-icon name="card" [size]="22" className="agent-header-icon" />
-            </button>
-          }
+          <button
+            type="button"
+            class="agent-header-action"
+            aria-label="Usage and billing"
+            (click)="onBillingActionClick()"
+          >
+            <nxt1-icon name="card" [size]="22" className="agent-header-icon" />
+          </button>
           <button
             type="button"
             class="agent-header-action"
@@ -235,9 +234,33 @@ export interface WeeklyPlaybookItem {
 
             <h2 class="briefing-greeting">{{ greeting() }}</h2>
 
-            <!-- briefing-summary hidden for now — re-enable when ready
-            <p class="briefing-summary">{{ briefingPreview() }}</p>
-            -->
+            <div class="briefing-content">
+              @if (!isBriefingExpanded()) {
+                <p class="briefing-summary">{{ briefingPreview() }}</p>
+                @if (briefingInsights().length > 0) {
+                  <button
+                    type="button"
+                    class="briefing-toggle"
+                    (click)="isBriefingExpanded.set(true)"
+                  >
+                    Read full briefing
+                  </button>
+                }
+              } @else {
+                <ul class="briefing-list">
+                  @for (insight of briefingInsights(); track insight.id) {
+                    <li class="briefing-list__item">{{ insight.text }}</li>
+                  }
+                </ul>
+                <button
+                  type="button"
+                  class="briefing-toggle"
+                  (click)="isBriefingExpanded.set(false)"
+                >
+                  Show less
+                </button>
+              }
+            </div>
 
             <div class="inline-goals">
               <button type="button" class="inline-goals__manage-btn" (click)="onSetupGoals()">
@@ -271,11 +294,11 @@ export interface WeeklyPlaybookItem {
               </button>
             </div>
 
-            <!-- ═══ 2. TODAY'S ACTION PLAN (AI-Generated Playbook) ═══ -->
-            <section class="action-cards-section" aria-label="Today's Action Plan">
+            <!-- ═══ 2. THIS WEEK'S GAME PLAN (AI-Generated Playbook) ═══ -->
+            <section class="action-cards-section" aria-label="This Week's Game Plan">
               <div class="action-plan-header">
-                <h3 class="section-title action-plan-title">Today's Action Plan</h3>
-                @if (playbookTotalCount() > 0) {
+                <h3 class="section-title action-plan-title">This Week's Game Plan</h3>
+                @if (weeklyPlaybook().length > 0) {
                   <div class="action-plan-status">
                     <div class="action-plan-status-main">
                       <span class="action-plan-percent">{{ actionPlanProgressPercent() }}%</span>
@@ -325,6 +348,33 @@ export interface WeeklyPlaybookItem {
                       </div>
                     }
                   </div>
+                </div>
+              } @else if (allTasksSnoozed()) {
+                <div
+                  class="action-empty-state action-empty-state--visible"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div class="action-empty-icon" aria-hidden="true">
+                    <svg
+                      class="agent-x-mark"
+                      width="40"
+                      height="40"
+                      viewBox="0 0 612 792"
+                      fill="currentColor"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path [attr.d]="agentXLogoPath" />
+                      <polygon [attr.points]="agentXLogoPolygon" />
+                    </svg>
+                  </div>
+                  <h4 class="action-empty-title">All Tasks Snoozed</h4>
+                  <p class="action-empty-copy">
+                    You snoozed everything. Want Agent X to generate a fresh set of actions?
+                  </p>
+                  <button type="button" class="action-empty-btn" (click)="onRegeneratePlaybook()">
+                    Give Me More
+                  </button>
                 </div>
               } @else if (weeklyPlaybook().length > 0 && !allTasksComplete()) {
                 @if (showCategoryPills()) {
@@ -389,13 +439,22 @@ export interface WeeklyPlaybookItem {
                       >
                         {{ task.actionLabel }}
                       </button>
-                      <button
-                        type="button"
-                        class="action-btn snooze-btn"
-                        (click)="onSnoozeTask(task)"
-                      >
-                        Snooze for now
-                      </button>
+                      <div class="card-secondary-actions">
+                        <button
+                          type="button"
+                          class="action-btn done-btn"
+                          (click)="onMarkDoneTask(task)"
+                        >
+                          ✓ Done
+                        </button>
+                        <button
+                          type="button"
+                          class="action-btn snooze-btn"
+                          (click)="onSnoozeTask(task)"
+                        >
+                          Snooze
+                        </button>
+                      </div>
                     </div>
                   </div>
                 }
@@ -406,9 +465,19 @@ export interface WeeklyPlaybookItem {
                   aria-live="polite"
                 >
                   <div class="action-empty-icon" aria-hidden="true">
-                    <nxt1-icon name="checkmarkCircle" [size]="30"></nxt1-icon>
+                    <svg
+                      class="agent-x-mark"
+                      width="40"
+                      height="40"
+                      viewBox="0 0 612 792"
+                      fill="currentColor"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path [attr.d]="agentXLogoPath" />
+                      <polygon [attr.points]="agentXLogoPolygon" />
+                    </svg>
                   </div>
-                  <h4 class="action-empty-title">Today's Action Plan Complete</h4>
+                  <h4 class="action-empty-title">Week Complete 🏆</h4>
                   <p class="action-empty-copy">
                     You crushed it. Agent X is still monitoring for new opportunities.
                   </p>
@@ -461,7 +530,6 @@ export interface WeeklyPlaybookItem {
       [selectedTask]="agentX.selectedTask()?.title ?? null"
       (messageChange)="onInputChange($event)"
       (send)="onSendMessage()"
-      (stop)="agentX.cancelStream()"
       (toggleAttachments)="onToggleAttachments()"
       (removeFile)="agentX.removeFile($event)"
       (removeTask)="agentX.clearTask()"
@@ -1346,16 +1414,15 @@ export interface WeeklyPlaybookItem {
 
       .card-actions {
         display: flex;
-        align-items: center;
+        flex-direction: column;
         gap: 8px;
-        flex-wrap: wrap;
       }
 
       .action-btn {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        padding: 6px 14px;
+        padding: 10px 16px;
         border-radius: var(--nxt1-radius-full, 9999px);
         font-size: 13px;
         font-weight: 600;
@@ -1364,9 +1431,9 @@ export interface WeeklyPlaybookItem {
           opacity 0.15s ease,
           transform 0.1s ease;
         border: none;
-        align-self: flex-start;
         font-family: inherit;
         -webkit-tap-highlight-color: transparent;
+        white-space: nowrap;
       }
 
       .action-btn:active {
@@ -1378,6 +1445,20 @@ export interface WeeklyPlaybookItem {
         background: var(--agent-primary);
         color: #000;
         animation: agent-pulse 2.8s ease-in-out infinite;
+        width: 100%;
+      }
+
+      .card-secondary-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex: 0 0 auto;
+      }
+
+      .action-btn.done-btn {
+        background: transparent;
+        border: 1px solid var(--agent-primary);
+        color: var(--agent-primary);
       }
 
       .action-btn.snooze-btn {
@@ -1577,13 +1658,12 @@ export class AgentXShellComponent {
   private readonly el = inject(ElementRef<HTMLElement>);
   protected readonly agentX = inject(AgentXService);
   protected readonly controlPanelState = inject(AgentXControlPanelStateService);
-  protected readonly usageService = inject(UsageService);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly location = inject(Location);
   private readonly router = inject(Router);
-  private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
+  private readonly injector = inject(EnvironmentInjector);
   private readonly activityService = inject(ActivityService);
 
   /** Unread activity count — drives the red dot on the bell icon. */
@@ -1649,15 +1729,11 @@ export class AgentXShellComponent {
 
   /** Briefing preview text — live from service only. */
   protected readonly briefingPreview = computed(() => this.agentX.briefingPreviewText());
+  protected readonly briefingInsights = computed(() => this.agentX.briefingInsights());
+  protected readonly isBriefingExpanded = signal(false);
   protected readonly agentStatusLabel = this.controlPanelState.statusLabel;
   protected readonly agentStatusTone = this.controlPanelState.statusTone;
   protected readonly agentBudgetBadgeLabel = this.controlPanelState.budgetBadgeLabel;
-  protected readonly canManageBilling = this.usageService.canManageBilling;
-  protected readonly billingActionAriaLabel = computed(() =>
-    this.usageService.isPersonal()
-      ? 'Buy Credits'
-      : `Billing and budget. ${this.agentBudgetBadgeLabel()}`
-  );
 
   // ============================================
   // COORDINATORS — Role-Aware Virtual Staff
@@ -1668,13 +1744,15 @@ export class AgentXShellComponent {
     this.agentX.weeklyPlaybook()
   );
 
-  /** Number of completed playbook tasks. */
+  /** Number of completed playbook tasks (snoozed don't count). */
   protected readonly playbookCompletedCount = computed(
     () => this.weeklyPlaybook().filter((t) => t.status === 'complete').length
   );
 
-  /** Total number of playbook tasks. */
-  protected readonly playbookTotalCount = computed(() => this.weeklyPlaybook().length);
+  /** Total number of active (non-snoozed) playbook tasks. */
+  protected readonly playbookTotalCount = computed(
+    () => this.weeklyPlaybook().filter((t) => t.status !== 'snoozed').length
+  );
 
   /** Whether all playbook tasks are complete (show "Give Me More" state). */
   protected readonly allTasksComplete = computed(
@@ -1682,6 +1760,12 @@ export class AgentXShellComponent {
       this.weeklyPlaybook().length > 0 &&
       this.weeklyPlaybook().every((t) => t.status === 'complete')
   );
+
+  /** Whether every playbook task has been snoozed (none active or complete). */
+  protected readonly allTasksSnoozed = computed(() => {
+    const items = this.weeklyPlaybook();
+    return items.length > 0 && items.every((t) => t.status === 'snoozed');
+  });
 
   /** Pending (non-complete) playbook items to render as action cards. */
   protected readonly pendingPlaybookItems = this.agentX.pendingPlaybookItems;
@@ -1701,7 +1785,7 @@ export class AgentXShellComponent {
   protected readonly actionPlanCompletionLabel = computed(() => {
     const completed = this.playbookCompletedCount();
     const total = this.playbookTotalCount();
-    return `${completed} of ${total} cleared today`;
+    return `${completed} of ${total} cleared this week`;
   });
 
   /** Playbook-derived progress percentage. */
@@ -1722,7 +1806,6 @@ export class AgentXShellComponent {
     afterNextRender(() => {
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
-      void this.usageService.ensureBillingAccessContext();
 
       // Keyboard lift: manually raise the footer above the keyboard.
       // ion-content/ion-footer are nested inside this custom element so
@@ -1793,10 +1876,11 @@ export class AgentXShellComponent {
 
   protected async openConnectedAccounts(): Promise<void> {
     const role = (this.user()?.role as OnboardingUserType) ?? null;
-    await this.connectedAccountsModal.open({
-      role,
-      scope: 'athlete',
-    });
+    const { ConnectedAccountsModalService } = await import('../components/connected-sources');
+    const service = runInInjectionContext(this.injector, () =>
+      inject(ConnectedAccountsModalService)
+    );
+    await service.open({ role, scope: 'athlete' });
   }
 
   protected async openControlPanel(panel: AgentXControlPanelKind, required = false): Promise<void> {
@@ -1860,9 +1944,8 @@ export class AgentXShellComponent {
         };
       });
 
-      await this.agentX.setGoals(dashboardGoals);
-      // generateBriefing disabled — briefing display hidden
-      // this.agentX.generateBriefing(true).catch(() => undefined);
+      // Goals already persisted by AgentXControlPanelComponent — just refresh the briefing
+      this.agentX.generateBriefing(true).catch(() => undefined);
     }
   }
 
@@ -1993,6 +2076,14 @@ export class AgentXShellComponent {
     }
 
     await this.onSetupGoals();
+  }
+
+  /**
+   * Mark a task as explicitly done — user already completed it outside the app.
+   */
+  protected async onMarkDoneTask(task: ShellWeeklyPlaybookItem): Promise<void> {
+    await this.haptics.notification('success');
+    this.agentX.markPlaybookItemComplete(task.id);
   }
 
   /**

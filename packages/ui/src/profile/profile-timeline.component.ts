@@ -24,6 +24,7 @@ import {
 } from '@angular/core';
 import type {
   ProfilePost,
+  ProfilePostType,
   FeedPost,
   FeedItem,
   FeedItemPost,
@@ -188,7 +189,7 @@ import { FeedNewsCardComponent } from '../post-cards/feed-news-card.component';
               [showMenu]="showMenu()"
               (contentClick)="handlePolyPostClick(idx)"
               (menuClick)="handlePolyMenuClick(idx)"
-              (pinClick)="handlePolyPinClick(idx)"
+              (pinClick)="handlePolyPinClick($event)"
               (deleteClick)="handlePolyDeleteClick(idx)"
             >
               @switch (item.feedType) {
@@ -651,32 +652,73 @@ export class ProfileTimelineComponent {
   // EVENT HANDLERS
   // ============================================
 
+  private resolveProfilePost(item: FeedItem): ProfilePost | null {
+    const existing = this.posts().find((post) => post.id === item.id);
+    if (existing) return existing;
+    // For non-POST feed types (METRICS, STATS, EVENTS), return a minimal
+    // ProfilePost stub so delete actions still work (only the id is needed
+    // by the backend DELETE /:userId/posts/:postId endpoint).
+    if (item.feedType !== 'POST') {
+      return {
+        id: item.id,
+        type: item.feedType as unknown as ProfilePostType,
+        body: '',
+        isPinned: item.isPinned,
+        shareCount: item.engagement.shareCount,
+        viewCount: item.engagement.viewCount,
+        createdAt: item.createdAt,
+      } as ProfilePost;
+    }
+
+    const post = item as FeedItemPost;
+    const primaryMedia = post.media[0];
+    const mediaRecord = primaryMedia as unknown as Record<string, unknown> | undefined;
+    const thumbnailUrl =
+      (mediaRecord?.['thumbnailUrl'] as string | undefined) ??
+      (primaryMedia?.type === 'image' ? primaryMedia.url : undefined);
+
+    return {
+      id: post.id,
+      type: post.postType as unknown as ProfilePostType,
+      body: post.content,
+      thumbnailUrl,
+      mediaUrl: primaryMedia?.url,
+      shareCount: post.engagement.shareCount,
+      viewCount: post.engagement.viewCount,
+      duration: mediaRecord?.['duration'] as number | undefined,
+      isPinned: post.isPinned,
+      iframeUrl: mediaRecord?.['iframeUrl'] as string | undefined,
+      hlsUrl: mediaRecord?.['hlsUrl'] as string | undefined,
+      dashUrl: mediaRecord?.['dashUrl'] as string | undefined,
+      cloudflareVideoId: mediaRecord?.['cloudflareVideoId'] as string | undefined,
+      cloudflareStatus: mediaRecord?.['processingStatus'] as string | undefined,
+      createdAt: post.createdAt,
+    };
+  }
+
   protected handlePolyPostClick(index: number): void {
-    // Try to resolve to legacy ProfilePost for backward compat
     const item = this.filteredPolyFeed()[index];
     if (!item) return;
-    const post = this.posts().find((p) => p.id === item.id);
+    const post = this.resolveProfilePost(item);
     if (post) this.postClick.emit(post);
   }
 
   protected handlePolyMenuClick(index: number): void {
     const item = this.filteredPolyFeed()[index];
     if (!item) return;
-    const post = this.posts().find((p) => p.id === item.id);
+    const post = this.resolveProfilePost(item);
     if (post) this.menuClick.emit(post);
   }
 
-  protected handlePolyPinClick(index: number): void {
-    const item = this.filteredPolyFeed()[index];
-    if (!item) return;
-    const post = this.posts().find((p) => p.id === item.id);
+  protected handlePolyPinClick(emittedItem: FeedItem): void {
+    const post = this.resolveProfilePost(emittedItem);
     if (post) this.pinClick.emit(post);
   }
 
   protected handlePolyDeleteClick(index: number): void {
     const item = this.filteredPolyFeed()[index];
     if (!item) return;
-    const post = this.posts().find((p) => p.id === item.id);
+    const post = this.resolveProfilePost(item);
     if (post) this.deleteClick.emit(post);
   }
 

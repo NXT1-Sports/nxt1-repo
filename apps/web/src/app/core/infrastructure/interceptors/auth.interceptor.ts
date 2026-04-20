@@ -43,6 +43,7 @@ const PUBLIC_ENDPOINTS = [
   '/college/search',
   '/college/list',
   '/programs/search', // Onboarding program search — no auth on backend
+  '/help-center', // Help Center is publicly accessible (backend uses optionalAuth)
 ];
 
 /**

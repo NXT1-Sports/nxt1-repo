@@ -592,6 +592,87 @@ export class NxtThemeService {
     }
   }
 
+  // ============================================
+  // PUBLIC API - Org / Team Brand Colors
+  // ============================================
+
+  /**
+   * Apply an organisation's brand colors to the document-level design token
+   * custom properties (`--team-primary`, `--team-secondary`, `--team-accent`,
+   * `--team-text-on-primary`).
+   *
+   * This is the correct, token-system-native way to activate organisation
+   * colors.  Every component that references `var(--team-primary)` or
+   * `var(--team-accent)` — including all surface/border/gradient tokens in
+   * `semantic.tokens.json` — will automatically pick up the injected value
+   * through the CSS cascade without any per-component inline style hacks.
+   *
+   * @param primary   - Hex color, e.g. `"#003087"`
+   * @param secondary - Optional hex color, e.g. `"#FFB612"`
+   *
+   * @example
+   * ```typescript
+   * // Called when profile / team data resolves
+   * this.theme.applyOrgTheme('#003087', '#FFB612');
+   * ```
+   */
+  applyOrgTheme(primary: string, secondary?: string | null): void {
+    if (!this.isBrowser) return;
+    if (!primary) return;
+
+    const root = document.documentElement;
+    root.style.setProperty('--team-primary', primary);
+    // --team-accent mirrors primary (semantic.tokens.json defines it as var(--team-accent))
+    root.style.setProperty('--team-accent', primary);
+
+    if (secondary) {
+      root.style.setProperty('--team-secondary', secondary);
+    } else {
+      root.style.removeProperty('--team-secondary');
+    }
+
+    // Compute accessible text-on-primary (black or white) via WCAG relative luminance
+    root.style.setProperty('--team-text-on-primary', this.contrastColor(primary));
+
+    this.logger.debug('Org theme applied', { primary, secondary: secondary ?? null });
+  }
+
+  /**
+   * Remove organisation brand colors from the document, restoring the
+   * default NXT1 volt palette fallbacks defined in the token system.
+   *
+   * Call this whenever leaving a profile or team page.
+   */
+  clearOrgTheme(): void {
+    if (!this.isBrowser) return;
+
+    const root = document.documentElement;
+    root.style.removeProperty('--team-primary');
+    root.style.removeProperty('--team-secondary');
+    root.style.removeProperty('--team-accent');
+    root.style.removeProperty('--team-text-on-primary');
+
+    this.logger.debug('Org theme cleared');
+  }
+
+  // ============================================
+  // PRIVATE HELPERS
+  // ============================================
+
+  /**
+   * Return `#000000` or `#ffffff` — whichever gives better contrast
+   * against `hex` per the WCAG simplified luminance formula.
+   */
+  private contrastColor(hex: string): string {
+    const clean = hex.replace('#', '');
+    if (clean.length !== 6) return '#000000';
+    const r = parseInt(clean.slice(0, 2), 16);
+    const g = parseInt(clean.slice(2, 4), 16);
+    const b = parseInt(clean.slice(4, 6), 16);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.5 ? '#000000' : '#ffffff';
+  }
+
   /**
    * Clear the sport theme, reverting to default NXT1 volt colors.
    */

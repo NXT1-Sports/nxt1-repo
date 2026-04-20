@@ -544,6 +544,8 @@ export {
   buildInviteShareTitle,
   buildInviteShareText,
   buildInviteUiCopy,
+  formatReferralReward,
+  DEFAULT_REFERRAL_REWARD_CENTS,
   // UTM tracking
   UTM_SOURCE,
   UTM_MEDIUM,

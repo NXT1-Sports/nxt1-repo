@@ -19,6 +19,7 @@ import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.to
 import { getCacheService } from '../../../../services/cache.service.js';
 import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
 import { logger } from '../../../../utils/logger.js';
+import { resolveCreatedAt, seasonToDate } from './doc-date-utils.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -219,7 +220,11 @@ export class WriteTeamStatsTool extends BaseTool {
         updatedAt: now,
       };
       if (sourceUrl) docData['sourceUrl'] = sourceUrl;
-      if (!existingDoc.exists) docData['createdAt'] = now;
+      docData['createdAt'] = resolveCreatedAt(
+        existingDoc.data()?.['createdAt'],
+        seasonToDate(season.trim()),
+        now
+      );
 
       await docRef.set(docData, { merge: true });
 

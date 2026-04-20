@@ -51,13 +51,14 @@ import { UsageHelpContentComponent } from './usage-help-content.component';
 import { UsageErrorStateComponent } from './usage-error-state.component';
 import { UsageBottomSheetService } from './usage-bottom-sheet.service';
 import { AgentXControlPanelComponent } from '../agent-x';
+import { UsageOrgMemberStubComponent } from './usage-org-member-stub.component';
 import {
   UsageOverviewComponent,
-  UsageChartComponent,
   UsageBreakdownTableComponent,
-  UsagePaymentHistoryComponent,
+  UsageChartComponent,
   UsagePaymentInfoComponent,
   UsageBudgetsComponent,
+  UsageAutoTopupComponent,
 } from './sections';
 
 /**
@@ -78,12 +79,13 @@ export interface UsageUser {
     NxtRefresherComponent,
     UsageSkeletonComponent,
     UsageErrorStateComponent,
+    UsageOrgMemberStubComponent,
     UsageOverviewComponent,
-    UsageChartComponent,
     UsageBreakdownTableComponent,
-    UsagePaymentHistoryComponent,
+    UsageChartComponent,
     UsagePaymentInfoComponent,
     UsageBudgetsComponent,
+    UsageAutoTopupComponent,
     NxtOptionScrollerComponent,
     NxtIconComponent,
   ],
@@ -124,7 +126,7 @@ export interface UsageUser {
       </nxt1-page-header>
     }
 
-    <!-- Mobile: Twitter/TikTok Style Tab Selector (outside ion-content like Agent X) -->
+    <!-- Mobile: Tab Selector — sectionNavs() already filters tabs per role -->
     <div class="mobile-tabs">
       <nxt1-option-scroller
         [options]="tabOptions()"
@@ -170,7 +172,7 @@ export interface UsageUser {
           />
         } @else {
           <div class="dashboard-layout">
-            <!-- Side Navigation (Desktop only) -->
+            <!-- Side Navigation (Desktop only) — sectionNavs() filters per role -->
             <nav
               class="section-nav"
               role="tablist"
@@ -198,22 +200,38 @@ export interface UsageUser {
               } @else {
                 @switch (svc.activeSection()) {
                   @case ('overview') {
-                    <nxt1-usage-overview
-                      [data]="svc.overview()"
-                      [isPersonal]="svc.isPersonal()"
-                      (viewPaymentHistory)="svc.setActiveSection('payment-history')"
-                      (buyCredit)="onBuyCredits()"
-                    />
-
-                    @if (svc.isOrg()) {
-                      <nxt1-usage-budgets
-                        [budgets]="svc.budgets()"
-                        [readOnly]="!svc.isOrgAdmin()"
-                        (createBudget)="onCreateBudget()"
-                        (editBudget)="onEditBudget($event)"
-                        (editTeamBudget)="onEditTeamBudget($event)"
+                    @if (svc.isOrgMember() && !svc.usePersonalBilling()) {
+                      <!-- Org member on org billing: restricted overview — no financial data -->
+                      <nxt1-usage-org-member-stub />
+                    } @else {
+                      <nxt1-usage-overview
+                        [data]="svc.overview()"
+                        [isPersonal]="svc.isPersonal()"
+                        [isOrg]="svc.isOrg()"
+                        [isOrgAdmin]="svc.isOrgAdmin()"
+                        [orgWalletEmpty]="svc.orgWalletEmpty()"
+                        [orgWalletRefilled]="svc.orgWalletRefilled()"
+                        [usePersonalBilling]="svc.usePersonalBilling()"
+                        [paymentHistory]="svc.filteredPaymentHistory()"
+                        [historyHasMore]="svc.historyHasMore()"
+                        (buyCredit)="onBuyCredits()"
+                        (switchToBillingMode)="onSwitchBillingMode($event)"
+                        (downloadReceipt)="onDownloadReceipt($event)"
+                        (downloadInvoice)="onDownloadInvoice($event)"
+                        (loadMore)="svc.loadMoreHistory()"
                       />
+
+                      @if (svc.isOrg() && svc.isOrgAdmin()) {
+                        <nxt1-usage-budgets
+                          [budgets]="svc.budgets()"
+                          [readOnly]="false"
+                          (createBudget)="onCreateBudget()"
+                          (editBudget)="onEditBudget($event)"
+                          (editTeamBudget)="onEditTeamBudget($event)"
+                        />
+                      }
                     }
+                    <!-- end @else (not org member) -->
                   }
 
                   @case ('metered-usage') {
@@ -238,16 +256,6 @@ export interface UsageUser {
                     />
                   }
 
-                  @case ('payment-history') {
-                    <nxt1-usage-payment-history
-                      [records]="svc.filteredPaymentHistory()"
-                      [hasMore]="svc.historyHasMore()"
-                      (downloadReceipt)="onDownloadReceipt($event)"
-                      (downloadInvoice)="onDownloadInvoice($event)"
-                      (loadMore)="svc.loadMoreHistory()"
-                    />
-                  }
-
                   @case ('budgets') {
                     <nxt1-usage-budgets
                       [budgets]="svc.budgets()"
@@ -263,6 +271,15 @@ export interface UsageUser {
                       [billingInfo]="svc.billingInfo()"
                       [paymentMethods]="svc.paymentMethods()"
                       (manageBilling)="onManageBilling()"
+                    />
+                  }
+
+                  @case ('auto-topup') {
+                    <nxt1-usage-auto-topup
+                      [enabled]="svc.autoTopUpEnabled()"
+                      [thresholdCents]="svc.autoTopUpThresholdCents()"
+                      [amountCents]="svc.autoTopUpAmountCents()"
+                      (save)="onSaveAutoTopUp($event)"
                     />
                   }
                 }
@@ -589,7 +606,7 @@ export class UsageShellComponent implements OnInit {
   // ============================================
 
   ngOnInit(): void {
-    this.svc.loadDashboard();
+    this.svc.loadDashboard(true);
   }
 
   // ============================================
@@ -625,10 +642,35 @@ export class UsageShellComponent implements OnInit {
       await handler();
       return;
     }
-    const amountCents = await this.usageBottomSheet.showBuyCreditsOptions();
+    const { amountCents, autoTopup } = await this.usageBottomSheet.showBuyCreditsWithAutoTopup({
+      autoTopupEnabled: this.svc.autoTopUpEnabled(),
+      autoTopupThresholdCents: this.svc.autoTopUpThresholdCents(),
+      autoTopupAmountCents: this.svc.autoTopUpAmountCents(),
+    });
     if (amountCents !== null) {
-      await this.svc.buyCredits(amountCents);
+      // Pass organizationId for org admins so the top-up targets the org wallet
+      const organizationId = this.svc.isOrgAdmin()
+        ? (this.svc.billingContext()?.organizationId ?? undefined)
+        : undefined;
+      await this.svc.buyCredits(amountCents, organizationId);
     }
+    if (autoTopup !== null) {
+      await this.svc.configureAutoTopUp(autoTopup);
+    }
+  }
+
+  protected async onSwitchBillingMode(usePersonalBilling: boolean): Promise<void> {
+    await this.haptics.impact('medium');
+    await this.svc.switchBillingMode(usePersonalBilling);
+  }
+
+  protected async onSaveAutoTopUp(settings: {
+    enabled: boolean;
+    thresholdCents: number;
+    amountCents: number;
+  }): Promise<void> {
+    await this.haptics.impact('light');
+    await this.svc.configureAutoTopUp(settings);
   }
 
   protected async onDownloadReceipt(recordId: string): Promise<void> {

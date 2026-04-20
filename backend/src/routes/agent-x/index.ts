@@ -21,6 +21,7 @@ import cronRoutes from './cron.routes.js';
 import threadsRoutes from './threads.routes.js';
 import firecrawlRoutes from './firecrawl.routes.js';
 import liveViewRoutes from './live-view.routes.js';
+import knowledgeAdminRoutes from './knowledge-admin.routes.js';
 
 const router = Router();
 
@@ -32,5 +33,6 @@ router.use(cronRoutes);
 router.use(threadsRoutes);
 router.use(firecrawlRoutes);
 router.use(liveViewRoutes);
+router.use(knowledgeAdminRoutes);
 
 export default router;

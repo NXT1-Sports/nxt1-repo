@@ -31,7 +31,7 @@ import type { ApifyMcpBridgeService } from './apify-mcp-bridge.service.js';
 import {
   ScraperMediaService,
   type MediaInput,
-  type MediaStagingContext,
+  type MediaThreadContext,
 } from '../social/scraper-media.service.js';
 import { logger } from '../../../../../utils/logger.js';
 
@@ -291,10 +291,15 @@ export class CallApifyActorTool extends BaseTool {
         platform,
       }));
 
-      const staging: MediaStagingContext | undefined =
+      const staging: MediaThreadContext | undefined =
         context.userId && context.threadId
           ? { userId: context.userId, threadId: context.threadId }
           : undefined;
+
+      if (!staging) {
+        logger.warn('[CallApifyActor] Skipping media persistence — no userId/threadId in context');
+        return [];
+      }
 
       const persisted = await this.media.persistBatch(mediaItems, staging);
       return persisted.map((p) => p.url);

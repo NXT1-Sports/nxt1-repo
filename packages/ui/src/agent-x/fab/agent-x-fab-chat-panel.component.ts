@@ -41,6 +41,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import type { AgentXQuickTask } from '@nxt1/core';
+import type { AgentXMessage } from '@nxt1/core/ai';
 import { ATHLETE_QUICK_TASKS, COACH_QUICK_TASKS } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon/icon.component';
 import { NxtChatBubbleComponent } from '../../components/chat-bubble';
@@ -213,6 +214,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
                   (confirmationAction)="onConfirmationAction($event)"
                   (draftSubmitted)="onDraftSubmitted($event)"
                   (askUserReply)="onAskUserReply($event)"
+                  (retryRequested)="onRetryErrorMessage(message)"
                 />
               </div>
             }
@@ -934,7 +936,8 @@ export class AgentXFabChatPanelComponent {
    */
   protected async onSuggestionClick(task: AgentXQuickTask): Promise<void> {
     await this.agentX.selectTask(task);
-    await this.agentX.sendMessage();
+    // TODO(@fab-migration): FAB streaming not yet migrated to AgentXOperationChatComponent
+    this.toast.info('Open Agent X to continue your conversation.');
   }
 
   /**
@@ -960,7 +963,8 @@ export class AgentXFabChatPanelComponent {
    * Send the current message.
    */
   protected async onSend(): Promise<void> {
-    await this.agentX.sendMessage();
+    // TODO(@fab-migration): FAB streaming not yet migrated to AgentXOperationChatComponent
+    this.toast.info('Open Agent X to continue your conversation.');
 
     // Reset textarea height
     const textarea = this.chatInput()?.nativeElement;
@@ -1000,7 +1004,8 @@ export class AgentXFabChatPanelComponent {
   /** Route an ask_user card reply into the chat as a user message. */
   protected async onAskUserReply(event: AskUserReplyEvent): Promise<void> {
     this.agentX.setUserMessage(event.answer);
-    await this.agentX.sendMessage();
+    // TODO(@fab-migration): FAB streaming not yet migrated to AgentXOperationChatComponent
+    this.toast.info('Open Agent X to continue your conversation.');
   }
 
   protected async onConfirmationAction(event: ConfirmationActionEvent): Promise<void> {
@@ -1015,6 +1020,24 @@ export class AgentXFabChatPanelComponent {
       successMessage:
         decision === 'approved' ? 'Approved — Agent X is resuming' : 'Request rejected',
     });
+  }
+
+  /** Remove the error bubble and pre-populate the input with the failed message. */
+  protected onRetryErrorMessage(errorMsg: AgentXMessage): void {
+    const msgs = this.agentX.messages();
+    const errorIdx = msgs.findIndex((m) => m.id === errorMsg.id);
+    const lastUserMsg = [...msgs]
+      .slice(0, errorIdx)
+      .reverse()
+      .find((m) => m.role === 'user');
+
+    // Remove error bubble from history
+    this.agentX.removeMessage(errorMsg.id);
+
+    if (lastUserMsg) {
+      this.agentX.setUserMessage(lastUserMsg.content);
+    }
+    this.toast.info('Message restored — tap Send to retry.');
   }
 
   /**

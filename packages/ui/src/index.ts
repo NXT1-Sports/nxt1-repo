@@ -1192,6 +1192,9 @@ export {
   // Types
   type HelpNavigateEvent,
 
+  // Token
+  HELP_CENTER_API,
+
   // Legacy (deprecated - use platform-specific)
   HelpCenterShellComponent,
   HelpCategoryDetailComponent,
@@ -1292,7 +1295,6 @@ export {
   InviteStatsCardComponent,
   InviteChannelGridComponent,
   InviteQrCodeComponent,
-  InviteAchievementsComponent,
   InviteCelebrationComponent,
   InviteSkeletonComponent,
   InviteModalComponent,

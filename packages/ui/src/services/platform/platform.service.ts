@@ -320,39 +320,32 @@ export class NxtPlatformService {
     // Guard for SSR
     if (typeof window === 'undefined') return;
 
-    // Use ResizeObserver for more reliable updates
-    if ('ResizeObserver' in window) {
-      const observer = new ResizeObserver(() => {
-        this.ngZone.run(() => this.updateViewport());
-      });
-      observer.observe(document.documentElement);
-    } else {
-      // Fallback to resize event
-      (window as Window).addEventListener(
-        'resize',
-        () => {
-          this.ngZone.run(() => this.updateViewport());
-        },
-        { passive: true }
-      );
-    }
+    // Run outside NgZone — signal writes schedule CD automatically,
+    // no pending task is created, and app stabilization is unblocked.
+    this.ngZone.runOutsideAngular(() => {
+      if ('ResizeObserver' in window) {
+        const observer = new ResizeObserver(() => this.updateViewport());
+        observer.observe(document.documentElement);
+      } else {
+        (window as Window).addEventListener('resize', () => this.updateViewport(), {
+          passive: true,
+        });
+      }
+    });
   }
 
   private setupOrientationListener(): void {
     // Guard for SSR
     if (typeof window === 'undefined') return;
 
-    // Listen for orientation changes
-    if (typeof screen !== 'undefined' && 'orientation' in screen) {
-      screen.orientation.addEventListener('change', () => {
-        this.ngZone.run(() => this.updateViewport());
-      });
-    } else {
-      // Fallback
-      (window as Window).addEventListener('orientationchange', () => {
-        this.ngZone.run(() => this.updateViewport());
-      });
-    }
+    // Run outside NgZone — same rationale as setupResizeListener.
+    this.ngZone.runOutsideAngular(() => {
+      if (typeof screen !== 'undefined' && 'orientation' in screen) {
+        screen.orientation.addEventListener('change', () => this.updateViewport());
+      } else {
+        (window as Window).addEventListener('orientationchange', () => this.updateViewport());
+      }
+    });
   }
 
   // ============================================

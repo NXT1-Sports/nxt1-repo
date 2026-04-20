@@ -32,6 +32,8 @@ export interface ScrapeLinkedAccountsInput {
 
 export interface ScrapeLinkedAccountsResult {
   readonly operationId: string;
+  /** Thread ID for the conversation created alongside this job. */
+  readonly threadId?: string;
 }
 
 // ─── Lazy Queue References ──────────────────────────────────────────────────
@@ -90,29 +92,9 @@ export async function enqueueLinkedAccountScrape(
   const operationId = crypto.randomUUID();
   const sessionId = crypto.randomUUID();
 
-  // Create a MongoDB thread + first message atomically via startConversation
-  let threadId: string | undefined;
-  if (chatService) {
-    try {
-      const { thread } = await chatService.startConversation({
-        userId: input.userId,
-        prompt,
-        category: 'analytics',
-        origin: 'database_event',
-      });
-      threadId = thread.id;
-      logger.info('[Scrape] Thread created for linked account scrape', {
-        userId: input.userId,
-        threadId,
-      });
-    } catch (err) {
-      logger.warn('[Scrape] Failed to create thread — job will run without persistence', {
-        userId: input.userId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
+  // Build the job payload immediately — thread creation is fire-and-forget
+  // (non-blocking) so the queue job starts as fast as possible.  The thread
+  // ID is patched into the job's context once the DB write resolves.
   const payload: AgentJobPayload = {
     operationId,
     userId: input.userId,
@@ -131,7 +113,6 @@ export async function enqueueLinkedAccountScrape(
       })),
       ...(input.teamId ? { teamId: input.teamId } : {}),
       ...(input.organizationId ? { organizationId: input.organizationId } : {}),
-      ...(threadId ? { threadId } : {}),
     },
   };
 
@@ -139,14 +120,49 @@ export async function enqueueLinkedAccountScrape(
     await jobRepository.withDb(db).create(payload);
     await queueService.enqueue(payload, environment);
 
+    // Await thread creation so we can return the threadId to the caller.
+    // The frontend needs it to open an SSE resume stream immediately after onboarding.
+    let threadId: string | undefined;
+    const repo = jobRepository; // Capture for async closure (TypeScript narrowing).
+    if (chatService) {
+      try {
+        const { thread } = await chatService.startConversation({
+          userId: input.userId,
+          prompt,
+          category: 'analytics',
+          origin: 'database_event',
+        });
+        threadId = thread.id;
+        logger.info('[Scrape] Thread created for linked account scrape', {
+          userId: input.userId,
+          threadId: thread.id,
+        });
+        // Best-effort patch — the job may have already started without it.
+        await repo
+          .withDb(db)
+          .patchContext(operationId, { threadId: thread.id })
+          .catch((err) =>
+            logger.warn('[Scrape] Failed to patch threadId into job context', {
+              err: err instanceof Error ? err.message : String(err),
+            })
+          );
+      } catch (err) {
+        logger.warn('[Scrape] Failed to create thread — job will run without persistence', {
+          userId: input.userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     logger.info('[Scrape] Linked account scrape job enqueued', {
       userId: input.userId,
       operationId,
       platforms: platformNames,
       count: input.linkedAccounts.length,
+      threadId: threadId ?? undefined,
     });
 
-    return { operationId };
+    return { operationId, ...(threadId ? { threadId } : {}) };
   } catch (err) {
     logger.error('[Scrape] Failed to enqueue linked account scrape job', {
       userId: input.userId,

@@ -7,13 +7,7 @@
  * 100% portable - no platform dependencies.
  */
 
-import type {
-  InviteChannel,
-  InviteChannelConfig,
-  InviteRewardTier,
-  InviteAchievement,
-  InviteType,
-} from './invite.types';
+import type { InviteChannel, InviteChannelConfig, InviteType } from './invite.types';
 
 // ============================================
 // INVITE CHANNELS CONFIGURATION
@@ -122,117 +116,6 @@ export const INVITE_CHANNELS: readonly InviteChannelConfig[] = [
 export const INVITE_DEFAULT_CHANNEL: InviteChannel = 'copy_link';
 
 // ============================================
-// REWARD TIERS CONFIGURATION
-// ============================================
-
-/**
- * Reward tiers for invite milestones.
- * @deprecated XP system not active — tiers retained for future use.
- */
-export const INVITE_XP_TIERS: readonly InviteRewardTier[] = [
-  {
-    name: 'Rookie',
-    minInvites: 0,
-    badgeIcon: 'star-outline',
-    badgeColor: 'var(--nxt1-color-text-tertiary)',
-  },
-  {
-    name: 'Connector',
-    minInvites: 5,
-    badgeIcon: 'star-half',
-    badgeColor: '#CD7F32', // Bronze
-  },
-  {
-    name: 'Networker',
-    minInvites: 15,
-    badgeIcon: 'star',
-    badgeColor: '#C0C0C0', // Silver
-  },
-  {
-    name: 'Ambassador',
-    minInvites: 30,
-    badgeIcon: 'trophy',
-    badgeColor: '#FFD700', // Gold
-  },
-  {
-    name: 'Legend',
-    minInvites: 50,
-    badgeIcon: 'diamond',
-    badgeColor: '#B9F2FF', // Diamond
-  },
-] as const;
-
-// ============================================
-// ACHIEVEMENTS CONFIGURATION
-// ============================================
-
-/**
- * All possible invite achievements.
- * Unlocked based on various milestones.
- */
-export const INVITE_ACHIEVEMENTS: readonly Omit<
-  InviteAchievement,
-  'isEarned' | 'progress' | 'earnedAt'
->[] = [
-  {
-    id: 'first_invite',
-    name: 'First Connection',
-    description: 'Send your first invite',
-    icon: 'rocket',
-    color: 'var(--nxt1-color-primary)',
-  },
-  {
-    id: 'social_butterfly',
-    name: 'Social Butterfly',
-    description: 'Use 3 different invite channels',
-    icon: 'share-social',
-    color: 'var(--nxt1-color-info)',
-  },
-  {
-    id: 'team_builder',
-    name: 'Team Builder',
-    description: 'Invite 5 teammates',
-    icon: 'people',
-    color: 'var(--nxt1-color-success)',
-  },
-  {
-    id: 'streak_master',
-    name: 'Streak Master',
-    description: 'Maintain a 7-day invite streak',
-    icon: 'flame',
-    color: '#FF6B35',
-  },
-  {
-    id: 'influencer',
-    name: 'Influencer',
-    description: 'Have 10 invites accepted',
-    icon: 'megaphone',
-    color: 'var(--nxt1-color-warning)',
-  },
-  {
-    id: 'ambassador',
-    name: 'NXT Ambassador',
-    description: 'Invite 25 people who join',
-    icon: 'ribbon',
-    color: '#FFD700',
-  },
-  {
-    id: 'viral',
-    name: 'Going Viral',
-    description: 'Share via all social platforms',
-    icon: 'trending-up',
-    color: '#E4405F',
-  },
-  {
-    id: 'qr_master',
-    name: 'QR Master',
-    description: 'Have 5 people join via QR code',
-    icon: 'qr-code',
-    color: 'var(--nxt1-color-text-primary)',
-  },
-] as const;
-
-// ============================================
 // INVITE TYPE CONFIGURATION
 // ============================================
 
@@ -326,8 +209,6 @@ export const INVITE_API_ENDPOINTS = {
   HISTORY: '/invite/history',
   /** Get invite stats */
   STATS: '/invite/stats',
-  /** Get achievements */
-  ACHIEVEMENTS: '/invite/achievements',
   /** Validate referral code */
   VALIDATE_CODE: '/invite/validate',
   /** Accept invite */
@@ -346,8 +227,6 @@ export const INVITE_API_ENDPOINTS = {
 export const INVITE_CACHE_KEYS = {
   /** Stats cache key */
   STATS: 'invite:stats',
-  /** Achievements cache key */
-  ACHIEVEMENTS: 'invite:achievements',
   /** History cache key prefix */
   HISTORY_PREFIX: 'invite:history:',
   /** Link cache key */
@@ -360,8 +239,6 @@ export const INVITE_CACHE_KEYS = {
 export const INVITE_CACHE_TTL = {
   /** Stats: 5 minutes */
   STATS: 300_000,
-  /** Achievements: 15 minutes */
-  ACHIEVEMENTS: 900_000,
   /** History: 2 minutes */
   HISTORY: 120_000,
   /** Link: 1 hour */
@@ -378,7 +255,7 @@ export const INVITE_CACHE_TTL = {
 export const INVITE_EMPTY_STATES = {
   noHistory: {
     title: 'No invites yet',
-    message: 'Start sharing NXT with friends and teammates to earn XP!',
+    message: 'Start sharing NXT with friends and teammates!',
     icon: 'person-add-outline',
     ctaLabel: 'Send First Invite',
   },

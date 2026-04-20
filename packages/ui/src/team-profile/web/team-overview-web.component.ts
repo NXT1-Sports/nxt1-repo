@@ -14,7 +14,7 @@ import { Component, ChangeDetectionStrategy, inject, input, output, computed } f
 import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtPlatformIconComponent } from '../../components/platform-icon';
-import { getPlatformFaviconUrl } from '@nxt1/core/onboarding';
+import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
 import { NxtImageComponent } from '../../components/image';
 import {
   NxtHistoryTimelineComponent,

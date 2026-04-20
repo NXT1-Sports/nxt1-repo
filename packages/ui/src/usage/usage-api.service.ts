@@ -10,7 +10,13 @@
 import { Injectable, InjectionToken, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { createUsageApi, type UsageApi } from '@nxt1/core';
+import {
+  createUsageApi,
+  type UsageApi,
+  type UsageDashboardData,
+  type BillingContextSummary,
+  type UsageTimeframe,
+} from '@nxt1/core';
 
 /**
  * Injection token for Usage API base URL.
@@ -34,6 +40,8 @@ export class UsageApiService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = inject(USAGE_API_BASE_URL);
 
+  private readonly noCacheOptions = { headers: { 'X-No-Cache': '1' } };
+
   private readonly api = createUsageApi(
     {
       get: <T>(url: string) => firstValueFrom(this.http.get<T>(url)),
@@ -48,6 +56,42 @@ export class UsageApiService {
   // ── Dashboard ────────────────────────────────
 
   readonly getDashboard: UsageApi['getDashboard'] = this.api.getDashboard;
+
+  async getDashboardFresh(timeframe?: UsageTimeframe): Promise<UsageDashboardData> {
+    const response = await firstValueFrom(
+      this.http.get<{
+        success: boolean;
+        data?: UsageDashboardData;
+        error?: string;
+      }>(`${this.baseUrl}/usage/dashboard`, {
+        ...this.noCacheOptions,
+        params: timeframe ? { timeframe } : undefined,
+      })
+    );
+
+    if (!response.success || !response.data) {
+      throw new Error(response.error ?? 'Failed to fetch usage dashboard');
+    }
+
+    return response.data;
+  }
+
+  /**
+   * Bust the HTTP cache for all billing-related endpoints.
+   * Call this before loadDashboard() when a mutation has changed the billing
+   * context (e.g. billing mode switch) so the next GET is fresh.
+   * Fires both requests in parallel for minimum latency.
+   */
+  bustDashboardCache(): Promise<void> {
+    return Promise.all([
+      firstValueFrom(
+        this.http.get<unknown>(`${this.baseUrl}/usage/dashboard`, this.noCacheOptions)
+      ).catch(() => void 0),
+      firstValueFrom(
+        this.http.get<unknown>(`${this.baseUrl}/billing/budget`, this.noCacheOptions)
+      ).catch(() => void 0),
+    ]).then(() => void 0);
+  }
   readonly getOverview: UsageApi['getOverview'] = this.api.getOverview;
   readonly getChartData: UsageApi['getChartData'] = this.api.getChartData;
   readonly getBreakdown: UsageApi['getBreakdown'] = this.api.getBreakdown;
@@ -74,11 +118,30 @@ export class UsageApiService {
   // ── Budget Management ────────────────────────
 
   readonly getBillingContext: UsageApi['getBillingContext'] = this.api.getBillingContext;
+
+  async getBillingContextFresh(): Promise<BillingContextSummary> {
+    const response = await firstValueFrom(
+      this.http.get<{
+        success: boolean;
+        data?: BillingContextSummary;
+        error?: string;
+      }>(`${this.baseUrl}/billing/budget`, this.noCacheOptions)
+    );
+
+    if (!response.success || !response.data) {
+      throw new Error(response.error ?? 'Failed to fetch billing context');
+    }
+
+    return response.data;
+  }
   readonly updateBudget: UsageApi['updateBudget'] = this.api.updateBudget;
   readonly updateTeamBudget: UsageApi['updateTeamBudget'] = this.api.updateTeamBudget;
   readonly buyCredits: UsageApi['buyCredits'] = this.api.buyCredits;
   readonly deleteBudget: UsageApi['deleteBudget'] = this.api.deleteBudget;
   readonly deleteTeamBudget: UsageApi['deleteTeamBudget'] = this.api.deleteTeamBudget;
+  readonly configureAutoTopUp: UsageApi['configureAutoTopUp'] = this.api.configureAutoTopUp;
+  readonly setBillingMode: UsageApi['setBillingMode'] = this.api.setBillingMode;
+  readonly requestInvoiceTopUp: UsageApi['requestInvoiceTopUp'] = this.api.requestInvoiceTopUp;
   // ── Stripe SetupIntent ────────────────────────────────────────────
 
   readonly getSetupIntent: UsageApi['getSetupIntent'] = this.api.getSetupIntent;

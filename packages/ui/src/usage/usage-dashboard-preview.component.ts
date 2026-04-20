@@ -33,7 +33,7 @@ const PREVIEW_OVERVIEW = [
   {
     label: 'Current Usage',
     value: '$4.82',
-    sublabel: 'This billing period',
+    sublabel: 'This month',
     icon: 'trending-up-outline',
   },
   { label: 'Included Free', value: '$10.00', sublabel: '55% remaining', icon: 'gift-outline' },

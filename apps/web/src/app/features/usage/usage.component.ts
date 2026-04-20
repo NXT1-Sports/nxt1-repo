@@ -85,8 +85,8 @@ export class UsageComponent implements OnInit {
   private readonly usageSections: readonly UsageSection[] = [
     'overview',
     'metered-usage',
+    'auto-topup',
     'breakdown',
-    'payment-history',
     'budgets',
     'payment-info',
   ] as const;

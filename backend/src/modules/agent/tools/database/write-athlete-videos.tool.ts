@@ -27,6 +27,7 @@ import { getAnalyticsLoggerService } from '../../../../services/analytics-logger
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
 import { logger } from '../../../../utils/logger.js';
 import { normalizeVideoUrl } from './dedup-utils.js';
+import { resolveCreatedAt } from './doc-date-utils.js';
 import { PostVisibility } from '@nxt1/core';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -87,7 +88,11 @@ export class WriteAthleteVideosTool extends BaseTool {
     required: ['userId', 'targetSport', 'source', 'videos'],
   } as const;
 
-  override readonly allowedAgents = ['data_coordinator', 'performance_coordinator'] as const;
+  override readonly allowedAgents = [
+    'data_coordinator',
+    'performance_coordinator',
+    'general',
+  ] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
 
@@ -252,7 +257,7 @@ export class WriteAthleteVideosTool extends BaseTool {
           stats: { views: 0, likes: 0, shares: 0 },
           // Data lineage
           extractedAt: now,
-          createdAt: now,
+          createdAt: resolveCreatedAt(undefined, undefined, now),
           updatedAt: now,
         };
         if (sourceUrl) record['sourceUrl'] = sourceUrl;

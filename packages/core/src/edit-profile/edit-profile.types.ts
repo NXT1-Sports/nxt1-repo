@@ -170,8 +170,6 @@ export interface EditProfileAcademics {
   readonly sat?: string;
   readonly act?: string;
   readonly intendedMajor?: string;
-  readonly graduationDate?: string;
-  readonly school?: string;
 }
 
 /**

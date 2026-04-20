@@ -59,6 +59,8 @@ import {
   SearchMemoryTool,
   SearchCollegesTool,
   SearchCollegeCoachesTool,
+  GetCollegeLogosTool,
+  GetConferenceLogosTool,
   TrackAnalyticsEventTool,
   GetAnalyticsSummaryTool,
   SaveMemoryTool,
@@ -109,6 +111,7 @@ import {
   CreateSignedUrlTool,
   EnableDownloadTool,
   ManageWatermarkTool,
+  DeleteVideoTool,
 } from '../tools/integrations/index.js';
 import { AskUserTool } from '../tools/comms/ask-user.tool.js';
 import { WriteTimelinePostTool } from '../tools/comms/write-timeline-post.tool.js';
@@ -118,13 +121,13 @@ import {
   ScheduleRecurringTaskTool,
   ListRecurringTasksTool,
   CancelRecurringTaskTool,
-  EnqueueHeavyTaskTool,
 } from '../tools/automation/index.js';
 import { ContextBuilder } from '../memory/context-builder.js';
 import { VectorMemoryService } from '../memory/vector.service.js';
+import { SessionMemoryService } from '../memory/session.service.js';
 import { KnowledgeRetrievalService } from '../memory/knowledge-retrieval.service.js';
 import { AgentChatService } from '../services/agent-chat.service.js';
-import { TelemetryService } from '../services/telemetry.service.js';
+import { getCacheService } from '../../../services/cache.service.js';
 import {
   SkillRegistry,
   ScoutingRubricSkill,
@@ -149,6 +152,7 @@ import { setScrapeDependencies } from '../../../services/agent-scrape.service.js
 import { stagingDb } from '../../../utils/firebase-staging.js';
 import { logger } from '../../../utils/logger.js';
 import { addJobCost } from './job-cost-tracker.js';
+import { getAgentRunConfig } from '../config/agent-app-config.js';
 
 /**
  * Quick probe: attempt a single TCP connect + PING to Redis.
@@ -221,29 +225,12 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     };
   }
   // ── 1. Core services ─────────────────────────────────────────────────
-  const telemetry = new TelemetryService();
   const llm = new OpenRouterService({
     onTelemetry: (record) => {
-      // Accumulate cost per operationId so the worker can deduct billing
-      // without querying the Helicone REST API (which requires a matching org key).
-      logger.info('[onTelemetry] LLM call recorded', {
-        operationId: record.operationId,
-        model: record.model,
-        inputTokens: record.inputTokens,
-        outputTokens: record.outputTokens,
-        costUsd: record.costUsd,
-      });
+      // Accumulate cost per operationId so the billing module can deduct
+      // the correct amount at job completion. Helicone handles all usage
+      // tracking and cost reporting — no separate telemetry store needed.
       addJobCost(record.operationId, record.costUsd);
-      void telemetry.recordLLMCall({
-        operationId: record.operationId,
-        userId: record.userId,
-        agentId: record.agentId,
-        model: record.model,
-        inputTokens: record.inputTokens,
-        outputTokens: record.outputTokens,
-        latencyMs: record.latencyMs,
-        hadToolCall: record.hadToolCall,
-      });
     },
   });
   const toolRegistry = new ToolRegistry();
@@ -315,6 +302,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GetAnalyticsSummaryTool());
   toolRegistry.register(new SearchCollegesTool());
   toolRegistry.register(new SearchCollegeCoachesTool());
+  toolRegistry.register(new GetCollegeLogosTool());
+  toolRegistry.register(new GetConferenceLogosTool());
   toolRegistry.register(new GenerateGraphicTool(llm));
   toolRegistry.register(new AnalyzeVideoTool(scraperService, llm));
   toolRegistry.register(new DynamicExportTool());
@@ -390,8 +379,9 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new CreateSignedUrlTool(cfBridge));
     toolRegistry.register(new EnableDownloadTool(cfBridge));
     toolRegistry.register(new ManageWatermarkTool(cfBridge));
+    toolRegistry.register(new DeleteVideoTool(cfBridge));
     logger.info(
-      'MCP-bridged Cloudflare Stream tools registered (import, clip, thumbnail, details, captions, signed-url, download, watermark)'
+      'MCP-bridged Cloudflare Stream tools registered (import, clip, thumbnail, details, captions, signed-url, download, watermark, delete)'
     );
   } catch {
     logger.warn(
@@ -426,7 +416,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new GlobalKnowledgeSkill(knowledgeRetrieval));
 
   // ── 2. Wire the AgentRouter with all sub-agents ───────────────────
-  const router = new AgentRouter(llm, toolRegistry, contextBuilder, skillRegistry);
+  const sessionMemory = new SessionMemoryService(getCacheService(), contextBuilder);
+  const router = new AgentRouter(llm, toolRegistry, contextBuilder, skillRegistry, sessionMemory);
   router.registerAgent(new DataCoordinatorAgent());
   router.registerAgent(new PerformanceCoordinatorAgent());
   router.registerAgent(new RecruitingCoordinatorAgent());
@@ -435,16 +426,20 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   router.registerAgent(new GeneralAgent());
 
   // ── 3. Queue infrastructure ──────────────────────────────────────────────────
-  const queueService = new AgentQueueService();
+  const { getFirestore } = await import('firebase-admin/firestore');
+  const agentRunConfig = await getAgentRunConfig(getFirestore());
+  const queueService = new AgentQueueService(undefined, {
+    maxAttempts: agentRunConfig.maxJobAttempts,
+    retryBackoffMs: agentRunConfig.retryBackoffMs,
+  });
   const jobRepository = new AgentJobRepository(); // production Firestore
   const stagingJobRepository = new AgentJobRepository(stagingDb); // staging Firestore
-  const agentChatService = new AgentChatService(queueService);
+  const agentChatService = new AgentChatService(queueService, sessionMemory);
 
   // ── 3a. Automation tools (require queueService + Firestore for durable metadata) ──
   toolRegistry.register(new ScheduleRecurringTaskTool(queueService, stagingDb));
   toolRegistry.register(new ListRecurringTasksTool(queueService, stagingDb));
   toolRegistry.register(new CancelRecurringTaskTool(queueService, stagingDb));
-  toolRegistry.register(new EnqueueHeavyTaskTool(queueService));
 
   // ── 4. Create the Redis PubSub service (real-time SSE pipe) ───────────
   // Enables BullMQ workers to stream tokens/steps back to the Express SSE

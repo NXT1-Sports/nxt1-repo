@@ -7,10 +7,18 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import type { Firestore, QueryDocumentSnapshot } from 'firebase-admin/firestore';
+import type { Firestore } from 'firebase-admin/firestore';
+import { Types } from 'mongoose';
 import { appGuard } from '../middleware/auth.middleware.js';
 import { validateBody } from '../middleware/validation.middleware.js';
-import { PaymentMethodIdDto, RedeemCouponDto, BuyCreditsDto } from '../dtos/usage.dto.js';
+import {
+  PaymentMethodIdDto,
+  RedeemCouponDto,
+  BuyCreditsDto,
+  AutoTopUpDto,
+  BillingModeDto,
+  InvoiceTopUpDto,
+} from '../dtos/usage.dto.js';
 import { logger } from '../utils/logger.js';
 import {
   COLLECTIONS,
@@ -18,11 +26,17 @@ import {
   getStripeClient,
   createSetupIntent,
   getBillingContext,
+  getOrCreateBillingContext,
   getOrgTeamAllocations,
   resolveBillingTarget,
+  evictBillingResolutionCache,
+  chargeOffSession,
+  addWalletTopUp,
   type ResolvedBillingTarget,
 } from '../modules/billing/index.js';
 import { USAGE_PRODUCT_CONFIGS, USAGE_CATEGORY_CONFIGS, USAGE_HISTORY_PAGE_SIZE } from '@nxt1/core';
+import { UsageEventModel, type UsageEventDocument } from '../models/usage-event.model.js';
+import { PaymentLogModel, type PaymentLogDocument } from '../models/payment-log.model.js';
 
 /** Normalize PaymentLog status (Firestore: 'PAID'/'FAILED'/…) to TransactionStatus ('completed'/'failed'/…) */
 function normalizePaymentStatus(status: unknown): string {
@@ -54,20 +68,20 @@ function toISOString(val: unknown): string {
   return new Date().toISOString();
 }
 
-/** Convert Firestore Timestamp, Date, or ISO string to epoch milliseconds.
- *  Used for numeric sorting of usage events whose `createdAt` may be any of
- *  these types depending on whether the field has been read-back or is still
- *  a sentinel. */
-function toMillis(val: unknown): number {
-  if (!val) return 0;
-  if (typeof val === 'number') return val;
-  if (val instanceof Date) return val.getTime();
-  if (typeof val === 'string') return new Date(val).getTime();
-  const tsVal = val as Record<string, unknown>;
-  if (typeof tsVal['toMillis'] === 'function') return (tsVal['toMillis'] as () => number)();
-  if (typeof tsVal['toDate'] === 'function') return (tsVal['toDate'] as () => Date)().getTime();
-  return 0;
+function hasConfiguredBudget(ctx: {
+  billingEntity: string;
+  monthlyBudget: number;
+  budgetAlertsEnabled?: boolean;
+  budgetName?: string;
+}): boolean {
+  if (ctx.monthlyBudget <= 0) return false;
+  if (ctx.billingEntity === 'individual') return false;
+  if (ctx.billingEntity === 'organization') {
+    return ctx.budgetAlertsEnabled === true || ctx.budgetName !== 'Starter budget';
+  }
+  return ctx.budgetAlertsEnabled === true;
 }
+
 import type {
   UsageOverview,
   UsageChartDataPoint,
@@ -175,7 +189,7 @@ function getFeatureDisplayName(feature: string): string {
  */
 async function buildBreakdownRows(
   db: Firestore,
-  eventsDocs: readonly QueryDocumentSnapshot[],
+  eventsDocs: readonly UsageEventDocument[],
   target: ResolvedBillingTarget
 ): Promise<UsageBreakdownRow[]> {
   const isOrg = target.type === 'organization';
@@ -197,20 +211,14 @@ async function buildBreakdownRows(
   const indDaily = new Map<string, Map<string, FeatureAgg>>();
 
   for (const doc of eventsDocs) {
-    const data = doc.data();
-    const dateKey = toISOString(data['createdAt']).slice(0, 10);
-    let feature = data['feature'] as string;
-    const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
-    const qty = data['quantity'] as number;
+    const dateKey = doc.createdAt.toISOString().slice(0, 10);
+    let feature = doc.feature;
+    const cost = doc.unitCostSnapshot * doc.quantity;
+    const qty = doc.quantity;
 
     // ── Autonomous agent billing: unpack tool name from metadata ──
-    // When the agent bills as 'activity-usage', the specific tool(s) it
-    // invoked are stored in metadata.agentTools.  Use the *last* tool as
-    // the display feature — in an agentic chain the final tool is
-    // typically the primary output (e.g. generate_scout_report) while
-    // earlier tools are lightweight lookups (e.g. search_athletes).
     if (feature === 'activity-usage') {
-      const meta = data['metadata'] as Record<string, unknown> | undefined;
+      const meta = doc.metadata as Record<string, unknown> | undefined;
       const agentTools = meta?.['agentTools'] as string[] | undefined;
       if (agentTools && agentTools.length > 0) {
         feature = agentTools[agentTools.length - 1]!;
@@ -218,8 +226,8 @@ async function buildBreakdownRows(
     }
 
     if (isOrg) {
-      const evTeamId = (data['teamId'] as string | undefined) ?? 'unknown';
-      const evUserId = (data['userId'] as string | undefined) ?? 'unknown';
+      const evTeamId = doc.teamId ?? 'unknown';
+      const evUserId = doc.userId ?? 'unknown';
       if (evTeamId !== 'unknown') teamIdSet.add(evTeamId);
       if (evUserId !== 'unknown') userIdSet.add(evUserId);
 
@@ -366,84 +374,53 @@ async function buildBreakdownRows(
 // ============================================
 
 /**
- * Fetch usage events for an organization by querying all team IDs.
- * Firestore `.in()` is limited to 30 values, so we chunk and merge.
- *
- * IMPORTANT: `startDate` and `endDate` MUST be native `Date` objects so
- * the Admin SDK converts them to Firestore `Timestamp` values.  Passing
- * ISO strings causes a type mismatch — strings always sort higher than
- * timestamps in Firestore, so the range filter silently returns 0 docs.
+ * Fetch usage events for an organization by querying all team IDs in one go.
+ * MongoDB's `$in` operator handles any number of values without chunking.
  */
 async function fetchOrgUsageEvents(
-  db: Firestore,
   teamIds: string[],
   startDate: Date,
   endDate: Date,
   orderDesc = true,
   limit = 1000
-): Promise<QueryDocumentSnapshot[]> {
+): Promise<UsageEventDocument[]> {
   if (teamIds.length === 0) return [];
 
-  const CHUNK_SIZE = 30;
-  const chunks: string[][] = [];
-  for (let i = 0; i < teamIds.length; i += CHUNK_SIZE) {
-    chunks.push(teamIds.slice(i, i + CHUNK_SIZE));
-  }
+  const docs = await UsageEventModel.find({
+    teamId: { $in: teamIds },
+    createdAt: { $gte: startDate, $lte: endDate },
+  })
+    .sort({ createdAt: orderDesc ? -1 : 1 })
+    .limit(limit)
+    .lean();
 
-  const direction = orderDesc ? 'desc' : 'asc';
-
-  const results = await Promise.all(
-    chunks.map((chunk) =>
-      db
-        .collection(COLLECTIONS.USAGE_EVENTS)
-        .where('teamId', 'in', chunk)
-        .where('createdAt', '>=', startDate)
-        .where('createdAt', '<=', endDate)
-        .orderBy('createdAt', direction)
-        .limit(limit)
-        .get()
-    )
-  );
-
-  const allDocs = results.flatMap((snap) => snap.docs);
-  allDocs.sort((a, b) => {
-    const aMs = toMillis(a.data()['createdAt']);
-    const bMs = toMillis(b.data()['createdAt']);
-    return orderDesc ? bMs - aMs : aMs - bMs;
-  });
-  return allDocs.slice(0, limit);
+  return docs as UsageEventDocument[];
 }
 
 /**
  * Fetch usage events for either an org (by teamIds) or an individual (by userId).
- *
- * Accepts native `Date` objects — never ISO strings — to guarantee
- * Firestore Timestamp-compatible range queries.
  */
 async function fetchUsageEvents(
-  db: Firestore,
+  _db: Firestore,
   target: ResolvedBillingTarget,
   startDate: Date,
   endDate: Date,
   orderDesc = true,
   limit = 1000
-): Promise<QueryDocumentSnapshot[]> {
+): Promise<UsageEventDocument[]> {
   if (target.type === 'organization' && target.teamIds && target.teamIds.length > 0) {
-    return fetchOrgUsageEvents(db, target.teamIds, startDate, endDate, orderDesc, limit);
+    return fetchOrgUsageEvents(target.teamIds, startDate, endDate, orderDesc, limit);
   }
 
-  // Individual query — date filtering at the database level
-  const direction = orderDesc ? 'desc' : 'asc';
-  const snap = await db
-    .collection(COLLECTIONS.USAGE_EVENTS)
-    .where('userId', '==', target.billingUserId)
-    .where('createdAt', '>=', startDate)
-    .where('createdAt', '<=', endDate)
-    .orderBy('createdAt', direction)
+  const docs = await UsageEventModel.find({
+    userId: target.billingUserId,
+    createdAt: { $gte: startDate, $lte: endDate },
+  })
+    .sort({ createdAt: orderDesc ? -1 : 1 })
     .limit(limit)
-    .get();
+    .lean();
 
-  return snap.docs;
+  return docs as UsageEventDocument[];
 }
 
 // ============================================
@@ -464,8 +441,12 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     const { start, end } = resolveTimeframe(timeframe);
     const environment = req.isStaging ? 'staging' : 'production';
 
-    // Resolve billing target (director → org, otherwise individual)
-    const target = await resolveBillingTarget(db, userId);
+    // Resolve billing target (director → org, otherwise individual).
+    // Read the personal billing context first to get the usePersonalBilling flag,
+    // then pass it explicitly so we don't rely on resolveBillingTarget's auto-read
+    // which could return stale data right after a billing mode switch.
+    const usePersonalBilling = (await getBillingContext(db, userId))?.usePersonalBilling ?? false;
+    const target = await resolveBillingTarget(db, userId, { usePersonalBilling });
     const billingCtx = target.context;
 
     // ── Parallelize independent queries ──
@@ -517,18 +498,19 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
 
         return { isOrgAdmin: false, isTeamAdmin: false };
       }
-      // Individual users are their own "admin"
-      return { isOrgAdmin: true, isTeamAdmin: true };
+      // Individual billing target (personal wallet, or org member who switched
+      // to personal billing). Admin flags refer to the ORG — not the wallet —
+      // so they must be false here. Returning true would incorrectly render
+      // admin-only UI and overwrite the post-mutation state on dashboard reload.
+      return { isOrgAdmin: false, isTeamAdmin: false };
     })();
 
     const eventsPromise = fetchUsageEvents(db, target, start, end, true, 1000);
 
-    const paymentLogsPromise = db
-      .collection(COLLECTIONS.PAYMENT_LOGS)
-      .where('userId', '==', target.billingUserId)
-      .orderBy('createdAt', 'desc')
+    const paymentLogsPromise = PaymentLogModel.find({ userId: target.billingUserId })
+      .sort({ createdAt: -1 })
       .limit(USAGE_HISTORY_PAGE_SIZE)
-      .get();
+      .lean();
 
     // Run all three in parallel
     const [adminResult, eventsDocs, paymentLogsSnap] = await Promise.all([
@@ -539,32 +521,41 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
 
     const { isOrgAdmin, isTeamAdmin } = adminResult;
 
+    // Org member = on org billing but NOT a billing admin of any kind.
+    // Hoisted early so payment-method fetch and dashboard masking both use it.
+    const isOrgMember = target.type === 'organization' && !isOrgAdmin && !isTeamAdmin;
+
     // Aggregate usage by feature
     const featureUsage = new Map<string, number>();
     const dailyUsage = new Map<string, number>();
     let totalUsageCents = 0;
 
-    // For IAP wallet users and org billing contexts, use the atomic counter
-    // (currentPeriodSpend) as the authoritative total.  IAP's deductWallet and
-    // org billing's recordOrgSpend always increment the counter, while usage
-    // events may be missing for dynamic-cost features without Stripe price IDs.
+    // For IAP wallet users, org billing contexts, and personal billing overrides,
+    // use the atomic counter (currentPeriodSpend) as the authoritative total.
+    // deductWallet() and recordOrgSpend() always increment the counter, while
+    // usage events may be missing for dynamic-cost features without Stripe price IDs.
+    // For personal billing overrides: currentPeriodSpend only counts charges deducted
+    // from the personal wallet — events from the prior org-billing period are excluded.
     const isIapUser =
       billingCtx.billingEntity === 'individual' && billingCtx.paymentProvider === 'iap';
+    const isPersonalOverride = billingCtx.usePersonalBilling === true;
     const isOrgBilling = billingCtx.billingEntity === 'organization';
 
-    if (isIapUser) {
+    if (isIapUser || isPersonalOverride) {
+      // For IAP and personal-override users, currentPeriodSpend is the authoritative
+      // total for the ACTIVE mode. On billing-mode switch, the backend restores it
+      // from the preserved personal spend counter, so prior personal usage remains
+      // intact when the user switches away and later returns.
       totalUsageCents = billingCtx.currentPeriodSpend ?? 0;
     } else {
       // Aggregate events for feature/daily breakdown (charts)
       for (const doc of eventsDocs) {
-        const data = doc.data();
-        const feature = data['feature'] as string;
-        const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
+        const cost = doc.unitCostSnapshot * doc.quantity;
         totalUsageCents += cost;
 
-        featureUsage.set(feature, (featureUsage.get(feature) ?? 0) + cost);
+        featureUsage.set(doc.feature, (featureUsage.get(doc.feature) ?? 0) + cost);
 
-        const dateKey = toISOString(data['createdAt']).slice(0, 10);
+        const dateKey = doc.createdAt.toISOString().slice(0, 10);
         dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
       }
 
@@ -646,32 +637,33 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     const breakdownRows = await buildBreakdownRows(db, eventsDocs, target);
 
     // Payment history from the already-fetched paymentLogsSnap (parallelized above)
-    const paymentLogDocs = paymentLogsSnap.docs;
+    const paymentLogDocs = paymentLogsSnap as PaymentLogDocument[];
 
     const paymentHistory: UsagePaymentHistoryRecord[] = paymentLogDocs.map((doc) => {
-      const d = doc.data();
+      const idStr = (doc._id as Types.ObjectId).toString();
       return {
-        id: doc.id,
-        displayId: doc.id.slice(0, 8).toUpperCase(),
-        amount: (d['amountPaid'] as number) ?? 0,
-        currency: ((d['currency'] as string) ?? 'usd') as UsagePaymentHistoryRecord['currency'],
-        status: normalizePaymentStatus(d['status']) as UsagePaymentHistoryRecord['status'],
-        paymentMethodLabel: (d['paymentMethodLabel'] as string) ?? 'Card',
+        id: idStr,
+        displayId: idStr.slice(0, 8).toUpperCase(),
+        // PaymentLog stores amountPaid in dollars; UsagePaymentHistoryRecord.amount is cents.
+        amount: Math.round((doc.amountPaid ?? 0) * 100),
+        currency: (doc.currency ?? 'usd') as UsagePaymentHistoryRecord['currency'],
+        status: normalizePaymentStatus(doc.status) as UsagePaymentHistoryRecord['status'],
+        paymentMethodLabel: doc.paymentMethodLabel ?? 'Card',
         provider: 'stripe',
-        createdAt: toISOString(d['createdAt']),
-        dateLabel: toISOString(d['createdAt']).slice(0, 10),
-        receiptUrl: (d['receiptUrl'] as string | null) ?? null,
-        invoiceUrl: (d['invoiceUrl'] as string | null) ?? null,
+        createdAt: toISOString(doc.createdAt),
+        dateLabel: toISOString(doc.createdAt).slice(0, 10),
+        receiptUrl: doc.receiptUrl ?? null,
+        invoiceUrl: doc.invoiceUrl ?? null,
       };
     });
 
-    // Payment methods and billing info
-    // Primary: read from Firestore (StripeCustomers.defaultPaymentMethod — synced by webhooks).
-    // This avoids 2 slow Stripe API calls (3-5s each) on every dashboard load.
-    // The dedicated GET /payment-methods endpoint still calls Stripe directly for full accuracy.
+  // Payment methods and billing info.
+  // Primary: read from Firestore (StripeCustomers.defaultPaymentMethod — synced by webhooks)
+  // to avoid slow Stripe API calls on every dashboard load. Fall back to Stripe only on a
+  // cold cache, and skip entirely for non-admin org members who have no billing access.
     let paymentMethods: UsagePaymentMethod[] = [];
     let billingInfo: UsageBillingInfo | null = null;
-    if (isOrgAdmin) {
+    if (!isOrgMember) {
       try {
         const customerDoc = await db
           .collection(COLLECTIONS.STRIPE_CUSTOMERS)
@@ -753,12 +745,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     }
 
     // Budgets from billing context
-    const accountName =
-      billingCtx.billingEntity === 'organization'
-        ? 'Organization'
-        : billingCtx.billingEntity === 'team'
-          ? 'Team'
-          : 'Personal';
+    const accountName = billingCtx.billingEntity === 'organization' ? 'Organization' : 'Personal';
 
     // For org billing, include team allocations so the AD can see per-team breakdown
     let teamAllocations: UsageBudget['teamAllocations'];
@@ -784,40 +771,53 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       }
     }
 
-    const budgets: UsageBudget[] = [
-      {
-        id: `budget-${userId}`,
-        category: 'ai',
-        productName: billingCtx.budgetName ?? 'Overall Budget',
-        budgetLimit: billingCtx.monthlyBudget,
-        spent: billingCtx.currentPeriodSpend,
-        percentUsed:
-          billingCtx.monthlyBudget > 0
-            ? Math.round((billingCtx.currentPeriodSpend / billingCtx.monthlyBudget) * 100)
-            : 0,
-        stopOnLimit: billingCtx.hardStop,
-        accountName,
-        ownershipPercent: 100,
-        teamAllocations,
-      },
-    ];
+    const budgets: UsageBudget[] = hasConfiguredBudget(billingCtx)
+      ? [
+          {
+            id: `budget-${userId}`,
+            category: 'ai',
+            productName: billingCtx.budgetName ?? 'Overall Budget',
+            budgetLimit: billingCtx.monthlyBudget,
+            spent: billingCtx.currentPeriodSpend,
+            percentUsed:
+              billingCtx.monthlyBudget > 0
+                ? Math.round((billingCtx.currentPeriodSpend / billingCtx.monthlyBudget) * 100)
+                : 0,
+            stopOnLimit: billingCtx.hardStop,
+            accountName,
+            ownershipPercent: 100,
+            teamAllocations,
+          },
+        ]
+      : [];
 
-    const dashboard: UsageDashboardData = {
+    // Authoritative section list — backend decides, frontend just renders.
+    // Eliminating all tab-visibility conditional logic from the frontend.
+    const allowedSections: UsageDashboardData['allowedSections'] = isOrgMember
+      ? ['overview']
+      : target.type === 'organization'
+        ? ['overview', 'metered-usage', 'breakdown', 'budgets', 'payment-info']
+        : ['overview', 'metered-usage', 'breakdown', 'payment-info']; // personal: payment-info to view/manage saved card
+
+        const dashboard: UsageDashboardData = {
       overview,
-      chartData,
-      productDetails,
-      topItems,
-      breakdownRows,
-      // Individual users always see their own financial data; only mask for non-admin org members
-      paymentHistory: isOrgAdmin || billingCtx.billingEntity === 'individual' ? paymentHistory : [],
-      paymentMethods: isOrgAdmin || billingCtx.billingEntity === 'individual' ? paymentMethods : [],
-      billingInfo: isOrgAdmin || billingCtx.billingEntity === 'individual' ? billingInfo : null,
+      chartData: isOrgMember ? [] : chartData,
+      productDetails: isOrgMember ? [] : productDetails,
+      topItems: isOrgMember ? [] : topItems,
+      breakdownRows: isOrgMember ? [] : breakdownRows,
+      // Non-admin org members: mask all sensitive financial data.
+      // Personal users and org admins both receive their full payment data.
+      paymentHistory: isOrgAdmin ? paymentHistory : isOrgMember ? [] : paymentHistory,
+      paymentMethods: isOrgMember ? [] : paymentMethods,
+      billingInfo: isOrgMember ? null : billingInfo,
       coupon: null,
       budgets,
       billingEntity: billingCtx.billingEntity,
       paymentProvider: billingCtx.paymentProvider,
       isOrgAdmin,
       isTeamAdmin,
+      isOrgMember,
+      allowedSections,
     };
 
     return res.json({ success: true, data: dashboard });
@@ -850,19 +850,24 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
 
     const eventsDocs = await fetchUsageEvents(db, target, start, end, false, 10000);
 
-    // For IAP wallet users, charges go directly to BillingContexts.currentPeriodSpend
-    // (deductWallet does not write UsageEvents). Use the authoritative source directly.
+    // For IAP wallet users, personal billing overrides, and org billing contexts,
+    // use the atomic counter (currentPeriodSpend) as the authoritative total.
+    // Personal overrides: currentPeriodSpend only reflects personal wallet charges,
+    // correctly excluding spend that occurred while the user was on org billing.
     const isIapUser =
       billingCtx.billingEntity === 'individual' && billingCtx.paymentProvider === 'iap';
+    const isPersonalOverride = billingCtx.usePersonalBilling === true;
     const isOrgBilling = billingCtx.billingEntity === 'organization';
 
     let totalUsageCents = 0;
-    if (isIapUser) {
+    if (isIapUser || isPersonalOverride) {
+      // currentPeriodSpend is the active-mode mirror restored from the preserved
+      // personal spend counter, so switching away and back keeps the last
+      // personal-wallet usage state intact.
       totalUsageCents = billingCtx.currentPeriodSpend ?? 0;
     } else {
       for (const doc of eventsDocs) {
-        const data = doc.data();
-        totalUsageCents += (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
+        totalUsageCents += doc.unitCostSnapshot * doc.quantity;
       }
 
       // For org billing, prefer the atomic counter as the authoritative total.
@@ -921,9 +926,8 @@ router.get('/chart', appGuard, async (req: Request, res: Response) => {
 
     const dailyUsage = new Map<string, number>();
     for (const doc of eventsDocs) {
-      const data = doc.data();
-      const dateKey = toISOString(data['createdAt']).slice(0, 10);
-      const cost = (data['unitCostSnapshot'] as number) * (data['quantity'] as number);
+      const dateKey = doc.createdAt.toISOString().slice(0, 10);
+      const cost = doc.unitCostSnapshot * doc.quantity;
       dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
     }
 
@@ -1001,41 +1005,35 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
     // Resolve billing target (director → org, otherwise individual)
     const target = await resolveBillingTarget(db, userId);
 
-    // Get total count
-    const countSnap = await db
-      .collection(COLLECTIONS.PAYMENT_LOGS)
-      .where('userId', '==', target.billingUserId)
-      .count()
-      .get();
-    const total = countSnap.data().count;
+    // Get total count + paginated results in parallel
+    const [total, paginatedDocs] = await Promise.all([
+      PaymentLogModel.countDocuments({ userId: target.billingUserId }),
+      PaymentLogModel.find({ userId: target.billingUserId })
+        .sort({ createdAt: -1 })
+        .skip(offset)
+        .limit(limit)
+        .lean(),
+    ]);
 
-    // Paginate at the database level using orderBy + offset + limit
-    const logsSnap = await db
-      .collection(COLLECTIONS.PAYMENT_LOGS)
-      .where('userId', '==', target.billingUserId)
-      .orderBy('createdAt', 'desc')
-      .offset(offset)
-      .limit(limit)
-      .get();
-
-    const paginatedDocs = logsSnap.docs;
-
-    const records: UsagePaymentHistoryRecord[] = paginatedDocs.map((doc) => {
-      const d = doc.data();
-      return {
-        id: doc.id,
-        displayId: doc.id.slice(0, 8).toUpperCase(),
-        amount: (d['amountPaid'] as number) ?? 0,
-        currency: ((d['currency'] as string) ?? 'usd') as UsagePaymentHistoryRecord['currency'],
-        status: normalizePaymentStatus(d['status']) as UsagePaymentHistoryRecord['status'],
-        paymentMethodLabel: (d['paymentMethodLabel'] as string) ?? 'Card',
-        provider: 'stripe',
-        createdAt: toISOString(d['createdAt']),
-        dateLabel: toISOString(d['createdAt']).slice(0, 10),
-        receiptUrl: (d['receiptUrl'] as string | null) ?? null,
-        invoiceUrl: (d['invoiceUrl'] as string | null) ?? null,
-      };
-    });
+    const records: UsagePaymentHistoryRecord[] = (paginatedDocs as PaymentLogDocument[]).map(
+      (doc) => {
+        const idStr = (doc._id as Types.ObjectId).toString();
+        return {
+          id: idStr,
+          displayId: idStr.slice(0, 8).toUpperCase(),
+          // PaymentLog stores amountPaid in dollars; UsagePaymentHistoryRecord.amount is cents.
+          amount: Math.round((doc.amountPaid ?? 0) * 100),
+          currency: (doc.currency ?? 'usd') as UsagePaymentHistoryRecord['currency'],
+          status: normalizePaymentStatus(doc.status) as UsagePaymentHistoryRecord['status'],
+          paymentMethodLabel: doc.paymentMethodLabel ?? 'Card',
+          provider: 'stripe',
+          createdAt: toISOString(doc.createdAt),
+          dateLabel: toISOString(doc.createdAt).slice(0, 10),
+          receiptUrl: doc.receiptUrl ?? null,
+          invoiceUrl: doc.invoiceUrl ?? null,
+        };
+      }
+    );
 
     return res.json({
       success: true,
@@ -1297,12 +1295,13 @@ router.post(
 );
 
 /**
+/**
  * POST /api/v1/usage/buy-credits
- * Purchase credits via Stripe Checkout (B2C wallet top-up).
+ * Purchase credits via Stripe Checkout (wallet top-up for individuals and organizations).
  * Creates a Stripe Checkout Session in "payment" mode for a one-time purchase.
- * On success the webhook credits the wallet; the frontend gets the checkout URL.
+ * On success the Stripe webhook credits the wallet; the frontend gets the checkout URL.
  *
- * Body: { amountCents: number } — min 500 ($5), max 50000 ($500)
+ * Body: { amountCents: number, organizationId?: string }
  */
 router.post(
   '/buy-credits',
@@ -1312,7 +1311,7 @@ router.post(
     try {
       const userId = req.user!.uid;
       const email = req.user!.email ?? '';
-      const { amountCents } = req.body as BuyCreditsDto;
+      const { amountCents, organizationId } = req.body as BuyCreditsDto;
       const db = req.firebase?.db;
 
       if (!db) {
@@ -1320,31 +1319,156 @@ router.post(
       }
 
       const environment = req.isStaging ? 'staging' : 'production';
-      const { customerId } = await getOrCreateCustomer(db, userId, email, undefined, environment);
       const stripe = getStripeClient(environment);
-
       const origin = req.headers.origin ?? '';
+
+      let customerId: string;
+      let productName = 'NXT1 Credits';
+      let sessionMetadata: Record<string, string>;
+
+      if (organizationId) {
+        // ── Org wallet top-up: verify the caller is an org admin ──
+        const orgDoc = await db.collection('Organizations').doc(organizationId).get();
+        if (!orgDoc.exists) {
+          return res.status(404).json({ error: 'Organization not found' });
+        }
+        const orgData = orgDoc.data()!;
+        const ownerId = orgData['ownerId'] as string | undefined;
+        const admins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
+        const isAdmin = ownerId === userId || admins.some((a) => a.userId === userId);
+        if (!isAdmin) {
+          return res.status(403).json({ error: 'Only org admins can add funds to the org wallet' });
+        }
+
+        const orgEmail =
+          (orgData['billingEmail'] as string) || (orgData['email'] as string) || email;
+        const orgCustomer = await getOrCreateCustomer(
+          db,
+          `org:${organizationId}`,
+          orgEmail,
+          undefined,
+          environment
+        );
+        customerId = orgCustomer.customerId;
+        productName = 'NXT1 Team Credits';
+        sessionMetadata = {
+          userId,
+          type: 'org_wallet_topup',
+          billingEntity: 'organization',
+          organizationId,
+          amountCents: String(amountCents),
+        };
+      } else {
+        // ── Individual wallet top-up ──
+        const individual = await getOrCreateCustomer(db, userId, email, undefined, environment);
+        customerId = individual.customerId;
+        sessionMetadata = {
+          userId,
+          type: 'wallet_topup',
+          billingEntity: 'individual',
+          amountCents: String(amountCents),
+        };
+      }
+
+      // ── Fast path: charge saved default payment method directly ──────────
+      // Avoids redirecting the user to Stripe Checkout when a card is already
+      // on file. Only personal top-ups use this path — org top-ups may involve
+      // bank accounts which need the full Checkout UX.
+      if (!organizationId) {
+        const customer = await stripe.customers.retrieve(customerId);
+        const defaultMethodId =
+          typeof customer !== 'string' && !customer.deleted
+            ? typeof customer.invoice_settings?.default_payment_method === 'string'
+              ? customer.invoice_settings.default_payment_method
+              : (customer.invoice_settings?.default_payment_method?.id ?? null)
+            : null;
+
+        if (defaultMethodId) {
+          const idempotencyKey = `buy-credits:${userId}:${amountCents}:${Date.now()}`;
+          const charge = await chargeOffSession(
+            customerId,
+            defaultMethodId,
+            amountCents,
+            'NXT1 Credits top-up',
+            idempotencyKey,
+            environment
+          );
+
+          if (!charge.success) {
+            // Card declined or requires authentication — fall through to Checkout
+            // so the user can update their payment method.
+            logger.warn('[POST /buy-credits] Off-session charge failed, falling back to Checkout', {
+              userId,
+              amountCents,
+              errorCode: charge.errorCode,
+            });
+          } else {
+            // Credit the wallet and write a PaymentLog immediately — no webhook needed.
+            const { newBalance } = await addWalletTopUp(db!, userId, amountCents, 'stripe');
+
+            await PaymentLogModel.findOneAndUpdate(
+              { invoiceId: charge.paymentIntentId },
+              {
+                $setOnInsert: {
+                  invoiceId: charge.paymentIntentId,
+                  customerId,
+                  userId,
+                  amountDue: amountCents / 100,
+                  amountPaid: amountCents / 100,
+                  currency: 'usd',
+                  status: 'PAID',
+                  paymentMethodLabel: 'Card',
+                  type: 'wallet_topup',
+                  receiptUrl: charge.receiptUrl ?? null,
+                  invoiceUrl: null,
+                  rawEvent: { paymentIntentId: charge.paymentIntentId } as Record<string, unknown>,
+                  createdAt: new Date(),
+                },
+              },
+              { upsert: true }
+            );
+
+            logger.info('[POST /buy-credits] Wallet topped up via saved card', {
+              userId,
+              amountCents,
+              newBalance,
+              paymentIntentId: charge.paymentIntentId,
+            });
+
+            return res.json({ success: true, credited: true, newBalance });
+          }
+        }
+      }
+
+      // ── Redirect path: no saved card, or org top-up ──────────────────────
       const session = await stripe.checkout.sessions.create({
         customer: customerId,
         mode: 'payment',
+        payment_method_types: organizationId
+          ? ([
+              'card',
+              'us_bank_account',
+            ] as import('stripe').Stripe.Checkout.SessionCreateParams.PaymentMethodType[])
+          : (['card'] as import('stripe').Stripe.Checkout.SessionCreateParams.PaymentMethodType[]),
         line_items: [
           {
             price_data: {
               currency: 'usd',
               unit_amount: amountCents,
               product_data: {
-                name: 'NXT1 Credits',
+                name: productName,
                 description: `$${(amountCents / 100).toFixed(2)} credit top-up`,
               },
             },
             quantity: 1,
           },
         ],
-        metadata: {
-          userId,
-          type: 'wallet_topup',
-          amountCents: String(amountCents),
+        // Save the card to the Stripe customer after checkout so it can be
+        // displayed in Payment info and reused for future top-ups.
+        payment_intent_data: {
+          setup_future_usage: 'off_session',
         },
+        metadata: sessionMetadata,
         success_url: `${origin}/usage?credits=success&amount=${amountCents}`,
         cancel_url: `${origin}/usage?credits=cancelled`,
       });
@@ -1352,6 +1476,7 @@ router.post(
       logger.info('[POST /buy-credits] Checkout session created', {
         userId,
         amountCents,
+        organizationId,
         sessionId: session.id,
       });
 
@@ -1360,6 +1485,305 @@ router.post(
       logger.error('[POST /buy-credits] Failed to create checkout session', { error });
       return res.status(500).json({
         error: 'Failed to start credit purchase',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+);
+
+/**
+ * POST /api/v1/usage/auto-topup
+ * Configure automatic wallet top-up settings for the current user.
+ * When enabled the backend will automatically trigger a Stripe charge
+ * when the wallet balance falls below the threshold.
+ */
+router.post(
+  '/auto-topup',
+  appGuard,
+  validateBody(AutoTopUpDto),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.uid;
+      const { enabled, thresholdCents, amountCents } = req.body as AutoTopUpDto;
+      const db = req.firebase?.db;
+      if (!db) return res.status(503).json({ error: 'Database unavailable' });
+
+      // Resolve billing context — auto top-up applies to whoever pays
+      const target = await resolveBillingTarget(db, userId);
+      const billingUserId = target.billingUserId;
+
+      const snapshot = await db.collection(COLLECTIONS.BILLING_CONTEXTS).doc(billingUserId).get();
+
+      if (!snapshot.exists) {
+        return res.status(404).json({ error: 'Billing context not found' });
+      }
+
+      await snapshot.ref.update({
+        autoTopUpEnabled: enabled,
+        autoTopUpThresholdCents: thresholdCents,
+        autoTopUpAmountCents: amountCents,
+        updatedAt: new Date(),
+      });
+
+      logger.info('[POST /auto-topup] Auto top-up configured', {
+        userId,
+        billingUserId,
+        enabled,
+        thresholdCents,
+        amountCents,
+      });
+
+      return res.json({ success: true });
+    } catch (error) {
+      logger.error('[POST /auto-topup] Failed to configure auto top-up', { error });
+      return res.status(500).json({
+        error: 'Failed to configure auto top-up',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+);
+
+/**
+ * POST /api/v1/usage/billing-mode
+ * Allow an org roster member to toggle between org wallet and personal wallet.
+ * When usePersonalBilling=true, their AI spend is deducted from their own wallet
+ * instead of the org wallet — useful when the org wallet is empty.
+ */
+router.post(
+  '/billing-mode',
+  appGuard,
+  validateBody(BillingModeDto),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.uid;
+      const { usePersonalBilling } = req.body as BillingModeDto;
+      const db = req.firebase?.db;
+      if (!db) return res.status(503).json({ error: 'Database unavailable' });
+
+      // Persist the preference on the user's individual billing context.
+      // Use getOrCreateBillingContext to guarantee the doc exists before writing —
+      // org users may not have a personal billing context yet if they've never
+      // used personal billing.
+      await getOrCreateBillingContext(db, userId);
+
+      // Re-query to get the Firestore doc ref after ensuring it exists
+      const snapshot = await db.collection(COLLECTIONS.BILLING_CONTEXTS).doc(userId).get();
+
+      if (!snapshot.exists) {
+        return res.status(404).json({ error: 'Billing context not found' });
+      }
+
+      const personalCtxData = snapshot.data();
+
+      const modeUpdate: Record<string, unknown> = {
+        usePersonalBilling,
+        updatedAt: new Date(),
+      };
+      // currentPeriodSpend is the active-mode display counter consumed by the UI.
+      // Restore it from the persisted per-mode counters so switching away and
+      // back keeps the last personal/org state exactly intact.
+      if (usePersonalBilling) {
+        modeUpdate['currentPeriodSpend'] =
+          (personalCtxData?.['personalCurrentPeriodSpend'] as number | undefined) ?? 0;
+      } else {
+        modeUpdate['currentPeriodSpend'] =
+          (personalCtxData?.['orgCurrentPeriodSpend'] as number | undefined) ?? 0;
+      }
+
+      await snapshot.ref.update(modeUpdate);
+
+      // Evict in-memory billing resolution cache so the next dashboard load
+      // re-resolves from Firestore (picks up the new usePersonalBilling flag).
+      evictBillingResolutionCache(userId);
+
+      // ── Return the fully resolved billing context in the response ──
+      // This eliminates read-after-write races: the frontend can apply the
+      // fresh context directly from the mutation response instead of needing
+      // to GET /billing/budget (which may hit a stale HTTP cache).
+      const freshTarget = await resolveBillingTarget(db, userId, { usePersonalBilling });
+      const freshCtx = freshTarget.context;
+      const freshWalletBalance = freshCtx.walletBalanceCents ?? 0;
+
+      // Resolve admin flags for the fresh context.
+      // Default to FALSE — when switching to personal billing, freshTarget.type
+      // is 'individual' and admin flags are meaningless for the user's own wallet
+      // view. Only compute real admin flags when the resolved target is the org.
+      let freshAdminResult = { isOrgAdmin: false, isTeamAdmin: false };
+      if (freshTarget.type === 'organization' && freshTarget.organizationId) {
+        const [userDoc, orgDoc] = await Promise.all([
+          db.collection('Users').doc(userId).get(),
+          db.collection('Organizations').doc(freshTarget.organizationId).get(),
+        ]);
+        const role = userDoc.data()?.['role'] as string | undefined;
+        const orgData = orgDoc.data();
+        let orgAdmin = false;
+        if (orgData) {
+          const ownerId = orgData['ownerId'] as string | undefined;
+          const admins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
+          const adminIds = admins.map((a) => a.userId).filter(Boolean);
+          orgAdmin = role === 'director' || ownerId === userId || adminIds.includes(userId);
+        }
+        freshAdminResult = { isOrgAdmin: orgAdmin, isTeamAdmin: orgAdmin };
+      }
+
+      logger.info('[POST /billing-mode] Billing mode updated', { userId, usePersonalBilling });
+
+      // Compute the authoritative section list for the new billing mode so the
+      // frontend can swap sidebar tabs atomically with the billing context.
+      // Must match the /dashboard handler's logic exactly.
+      const freshIsOrgMember =
+        freshTarget.type === 'organization' &&
+        !freshAdminResult.isOrgAdmin &&
+        !freshAdminResult.isTeamAdmin;
+      const freshAllowedSections: UsageDashboardData['allowedSections'] = freshIsOrgMember
+        ? ['overview']
+        : freshTarget.type === 'organization'
+          ? ['overview', 'metered-usage', 'breakdown', 'budgets', 'payment-info']
+          : ['overview', 'metered-usage', 'breakdown', 'payment-info'];
+
+      return res.json({
+        success: true,
+        data: {
+          billingMode: usePersonalBilling ? 'personal' : 'organization',
+          allowedSections: freshAllowedSections,
+          // Fresh billing context — SSOT for the frontend
+          billingContext: {
+            billingEntity: freshCtx.billingEntity,
+            monthlyBudget: freshCtx.monthlyBudget,
+            currentPeriodSpend: freshCtx.currentPeriodSpend,
+            periodStart: freshCtx.periodStart,
+            periodEnd: freshCtx.periodEnd,
+            percentUsed:
+              freshCtx.monthlyBudget > 0
+                ? Math.round((freshCtx.currentPeriodSpend / freshCtx.monthlyBudget) * 100)
+                : 0,
+            hardStop: freshCtx.hardStop,
+            teamId: freshCtx.teamId,
+            organizationId: freshCtx.organizationId,
+            paymentProvider: freshCtx.paymentProvider,
+            walletBalanceCents: freshWalletBalance,
+            pendingHoldsCents: freshCtx.pendingHoldsCents ?? 0,
+            isOrgAdmin: freshAdminResult.isOrgAdmin,
+            isTeamAdmin: freshAdminResult.isTeamAdmin,
+            usePersonalBilling,
+            autoTopUpEnabled:
+              (personalCtxData?.['autoTopUpEnabled'] as boolean | undefined) ?? false,
+            autoTopUpThresholdCents:
+              (personalCtxData?.['autoTopUpThresholdCents'] as number | undefined) ?? 0,
+            autoTopUpAmountCents:
+              (personalCtxData?.['autoTopUpAmountCents'] as number | undefined) ?? 0,
+            orgWalletEmpty: freshCtx.billingEntity !== 'individual' && freshWalletBalance <= 0,
+          },
+        },
+      });
+    } catch (error) {
+      logger.error('[POST /billing-mode] Failed to update billing mode', { error });
+      return res.status(500).json({
+        error: 'Failed to update billing mode',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+);
+
+/**
+ * POST /api/v1/usage/invoice-topup
+ * Request an invoice-based wallet top-up for organizations.
+ * Creates a Stripe Invoice with net payment terms. When paid, the webhook
+ * calls addFundsToOrgWallet() to credit the org wallet.
+ *
+ * Requires the caller to be an org admin.
+ */
+router.post(
+  '/invoice-topup',
+  appGuard,
+  validateBody(InvoiceTopUpDto),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.uid;
+      const email = req.user!.email ?? '';
+      const { amountCents, poNumber, netDays } = req.body as InvoiceTopUpDto;
+      const db = req.firebase?.db;
+      if (!db) return res.status(503).json({ error: 'Database unavailable' });
+
+      // Resolve org billing context — only org admins can request invoice top-ups
+      const billingCtx = await getBillingContext(db, userId);
+      if (billingCtx?.billingEntity !== 'organization' || !billingCtx.organizationId) {
+        return res
+          .status(403)
+          .json({ error: 'Invoice top-up is only available for organization accounts' });
+      }
+
+      const organizationId = billingCtx.organizationId;
+      const orgDoc = await db.collection('Organizations').doc(organizationId).get();
+      const orgData = orgDoc.data()!;
+      const ownerId = orgData['ownerId'] as string | undefined;
+      const admins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
+      const isAdmin = ownerId === userId || admins.some((a) => a.userId === userId);
+
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Only org admins can request invoice top-ups' });
+      }
+
+      const environment = req.isStaging ? 'staging' : 'production';
+      const orgEmail = (orgData['billingEmail'] as string) || (orgData['email'] as string) || email;
+      const { customerId } = await getOrCreateCustomer(
+        db,
+        `org:${organizationId}`,
+        orgEmail,
+        undefined,
+        environment
+      );
+
+      const stripe = getStripeClient(environment);
+
+      // Create a Stripe Invoice Item + Invoice with net payment terms
+      await stripe.invoiceItems.create({
+        customer: customerId,
+        amount: amountCents,
+        currency: 'usd',
+        description: poNumber ? `NXT1 Team Credits (PO #${poNumber})` : 'NXT1 Team Credits',
+      });
+
+      const invoice = await stripe.invoices.create({
+        customer: customerId,
+        collection_method: 'send_invoice',
+        days_until_due: netDays,
+        metadata: {
+          userId,
+          organizationId,
+          type: 'org_invoice_topup',
+          billingEntity: 'organization',
+          amountCents: String(amountCents),
+          ...(poNumber ? { poNumber } : {}),
+        },
+        description: poNumber ? `PO #${poNumber}` : undefined,
+      });
+
+      const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id);
+      await stripe.invoices.sendInvoice(finalizedInvoice.id);
+
+      logger.info('[POST /invoice-topup] Invoice created and sent', {
+        userId,
+        organizationId,
+        amountCents,
+        invoiceId: finalizedInvoice.id,
+        netDays,
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          invoiceId: finalizedInvoice.id,
+          invoiceUrl: finalizedInvoice.invoice_pdf,
+          hostedInvoiceUrl: finalizedInvoice.hosted_invoice_url,
+        },
+      });
+    } catch (error) {
+      logger.error('[POST /invoice-topup] Failed to create invoice', { error });
+      return res.status(500).json({
+        error: 'Failed to create invoice',
         message: error instanceof Error ? error.message : 'Unknown error',
       });
     }
@@ -1380,12 +1804,7 @@ router.get('/budgets', appGuard, async (req: Request, res: Response) => {
     const target = await resolveBillingTarget(db, userId);
     const ctx = target.context;
 
-    const accountName =
-      ctx.billingEntity === 'organization'
-        ? 'Organization'
-        : ctx.billingEntity === 'team'
-          ? 'Team'
-          : 'Personal';
+    const accountName = ctx.billingEntity === 'organization' ? 'Organization' : 'Personal';
 
     // For org billing, include team allocations
     let teamAllocations: UsageBudget['teamAllocations'];
@@ -1410,23 +1829,25 @@ router.get('/budgets', appGuard, async (req: Request, res: Response) => {
       }
     }
 
-    const budgets: UsageBudget[] = [
-      {
-        id: `budget-${userId}`,
-        category: 'ai',
-        productName: ctx.budgetName ?? 'Overall Budget',
-        budgetLimit: ctx.monthlyBudget,
-        spent: ctx.currentPeriodSpend,
-        percentUsed:
-          ctx.monthlyBudget > 0
-            ? Math.round((ctx.currentPeriodSpend / ctx.monthlyBudget) * 100)
-            : 0,
-        stopOnLimit: ctx.hardStop,
-        accountName,
-        ownershipPercent: 100,
-        teamAllocations,
-      },
-    ];
+    const budgets: UsageBudget[] = hasConfiguredBudget(ctx)
+      ? [
+          {
+            id: `budget-${userId}`,
+            category: 'ai',
+            productName: ctx.budgetName ?? 'Overall Budget',
+            budgetLimit: ctx.monthlyBudget,
+            spent: ctx.currentPeriodSpend,
+            percentUsed:
+              ctx.monthlyBudget > 0
+                ? Math.round((ctx.currentPeriodSpend / ctx.monthlyBudget) * 100)
+                : 0,
+            stopOnLimit: ctx.hardStop,
+            accountName,
+            ownershipPercent: 100,
+            teamAllocations,
+          },
+        ]
+      : [];
 
     return res.json({ success: true, data: budgets });
   } catch (error) {
@@ -1449,24 +1870,25 @@ router.get('/receipt/:transactionId', appGuard, async (req: Request, res: Respon
     const db = req.firebase?.db;
     if (!db) throw new Error('Firebase context not available');
 
-    const logDoc = await db.collection(COLLECTIONS.PAYMENT_LOGS).doc(transactionId).get();
-    if (!logDoc.exists) {
+    if (!Types.ObjectId.isValid(transactionId)) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+    const receiptLog = await PaymentLogModel.findById(transactionId).lean();
+    if (!receiptLog) {
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
-    const logData = logDoc.data();
     // Allow access if the log belongs to the user directly OR to their org billing target
-    const target = await resolveBillingTarget(db, userId);
-    if (logData?.['userId'] !== userId && logData?.['userId'] !== target.billingUserId) {
+    const receiptTarget = await resolveBillingTarget(db, userId);
+    if (receiptLog.userId !== userId && receiptLog.userId !== receiptTarget.billingUserId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const receiptUrl = logData?.['receiptUrl'] as string | undefined;
-    if (!receiptUrl) {
+    if (!receiptLog.receiptUrl) {
       return res.status(404).json({ error: 'Receipt not available' });
     }
 
-    return res.json({ success: true, data: { url: receiptUrl } });
+    return res.json({ success: true, data: { url: receiptLog.receiptUrl } });
   } catch (error) {
     logger.error('[GET /receipt/:id] Failed to get receipt', { error });
     return res.status(500).json({
@@ -1487,24 +1909,25 @@ router.get('/invoice/:transactionId', appGuard, async (req: Request, res: Respon
     const db = req.firebase?.db;
     if (!db) throw new Error('Firebase context not available');
 
-    const logDoc = await db.collection(COLLECTIONS.PAYMENT_LOGS).doc(transactionId).get();
-    if (!logDoc.exists) {
+    if (!Types.ObjectId.isValid(transactionId)) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+    const invoiceLog = await PaymentLogModel.findById(transactionId).lean();
+    if (!invoiceLog) {
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
-    const logData = logDoc.data();
     // Allow access if the log belongs to the user directly OR to their org billing target
-    const target = await resolveBillingTarget(db, userId);
-    if (logData?.['userId'] !== userId && logData?.['userId'] !== target.billingUserId) {
+    const invoiceTarget = await resolveBillingTarget(db, userId);
+    if (invoiceLog.userId !== userId && invoiceLog.userId !== invoiceTarget.billingUserId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const invoiceUrl = logData?.['invoiceUrl'] as string | undefined;
-    if (!invoiceUrl) {
+    if (!invoiceLog.invoiceUrl) {
       return res.status(404).json({ error: 'Invoice not available' });
     }
 
-    return res.json({ success: true, data: { url: invoiceUrl } });
+    return res.json({ success: true, data: { url: invoiceLog.invoiceUrl } });
   } catch (error) {
     logger.error('[GET /invoice/:id] Failed to get invoice', { error });
     return res.status(500).json({
@@ -1637,13 +2060,6 @@ router.post('/portal-session', appGuard, async (req: Request, res: Response) => 
         organizationId: billingCtx.organizationId,
         customerUserId,
       });
-    } else if (billingCtx?.billingEntity === 'team' && billingCtx.teamId) {
-      // Legacy team billing
-      customerUserId = `team:${billingCtx.teamId}`;
-      const teamDoc = await db.collection('Teams').doc(billingCtx.teamId).get();
-      const teamData = teamDoc.data();
-      customerEmail =
-        (teamData?.['billingEmail'] as string) || (teamData?.['email'] as string) || email;
     }
 
     const { customerId } = await getOrCreateCustomer(

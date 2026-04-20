@@ -6,7 +6,7 @@
  * Displays contact info, social media links, and coach contact card.
  */
 import { Component, ChangeDetectionStrategy, inject, computed, input } from '@angular/core';
-import { getPlatformFaviconUrl } from '@nxt1/core/onboarding';
+import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtPlatformIconComponent } from '../../components/platform-icon';
 import { ProfileService } from '../profile.service';

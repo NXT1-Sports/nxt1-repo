@@ -33,9 +33,9 @@ export const STORAGE_PATHS = {
   /** Team banners */
   TEAM_BANNER: 'teams/{teamId}/banner',
   /** Documents (PDFs, etc.) */
-  DOCUMENTS: 'users/{userId}/documents',
+  DOCUMENTS: 'Users/{userId}/documents',
   /** Video thumbnails */
-  VIDEO_THUMBNAILS: 'users/{userId}/video-thumbnails',
+  VIDEO_THUMBNAILS: 'Users/{userId}/video-thumbnails',
   /** Temporary uploads */
   TEMP: 'temp/{userId}',
 } as const;

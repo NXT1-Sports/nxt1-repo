@@ -11,6 +11,7 @@
  * ⭐ WEB ONLY — SSR-safe ⭐
  */
 import { Component, ChangeDetectionStrategy, inject, input, output, computed } from '@angular/core';
+import { ProfileSkeletonComponent } from '../../profile/profile-skeleton.component';
 import {
   type TeamProfilePost,
   type FeedItem,
@@ -58,10 +59,17 @@ import { TeamProfileService } from '../team-profile.service';
     FeedMetricsCardComponent,
     FeedAwardCardComponent,
     FeedNewsCardComponent,
+    ProfileSkeletonComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (effectiveFeed().length > 0) {
+    @if (isLoading()) {
+      <div class="team-timeline-loading" data-testid="team-timeline-loading">
+        @for (i of [1, 2, 3]; track i) {
+          <nxt1-profile-skeleton variant="post" />
+        }
+      </div>
+    } @else if (effectiveFeed().length > 0) {
       <div class="team-timeline-list" data-testid="team-timeline-list">
         @for (item of effectiveFeed(); track item.id; let idx = $index) {
           <nxt1-feed-card-shell
@@ -207,6 +215,9 @@ export class TeamTimelineWebComponent {
 
   /** New polymorphic feed items (discriminated union FeedItem[]) */
   readonly polymorphicFeed = input<readonly FeedItem[]>([]);
+
+  /** Whether the timeline data is currently loading — shows skeleton post cards */
+  readonly isLoading = input<boolean>(false);
 
   /** Emitted when a post card is clicked */
   readonly postClick = output<TeamProfilePost>();

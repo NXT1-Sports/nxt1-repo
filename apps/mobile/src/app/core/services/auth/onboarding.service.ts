@@ -900,8 +900,15 @@ export class OnboardingService {
             ?.filter((l) => l.connected)
             .map((l) => l.platform)
             .join(', ') ?? '';
-        this.profileGenerationState.startGeneration(result.scrapeJobId, platformNames);
-        this.logger.info('Backend scrape job started', { scrapeJobId: result.scrapeJobId });
+        this.profileGenerationState.attachToOperation(
+          result.scrapeJobId,
+          result.scrapeThreadId,
+          platformNames
+        );
+        this.logger.info('Backend scrape job started', {
+          scrapeJobId: result.scrapeJobId,
+          scrapeThreadId: result.scrapeThreadId,
+        });
       }
     } catch (saveError) {
       this.logger.warn('Failed to save profile data, continuing', { error: saveError });

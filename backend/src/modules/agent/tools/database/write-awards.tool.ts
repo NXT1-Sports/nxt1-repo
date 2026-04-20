@@ -17,6 +17,7 @@ import {
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
 import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { logger } from '../../../../utils/logger.js';
+import { resolveCreatedAt, seasonToDate, yearToDate } from './doc-date-utils.js';
 
 export const AWARDS_COLLECTION = 'Awards';
 const MAX_AWARDS = 50;
@@ -179,12 +180,16 @@ export class WriteAwardsTool extends BaseTool {
           const docId = [userId, this.slug(title), this.slug(temporalKey)].join('_');
 
           const now = new Date().toISOString();
+          const docRef = awardsCol.doc(docId);
+          const existingData = (await docRef.get()).data();
+          const semanticCreatedAt = seasonToDate(season) ?? yearToDate(year);
           const record: Record<string, unknown> = {
             id: docId,
             userId,
             sport: effectiveSport,
             title,
             source,
+            createdAt: resolveCreatedAt(existingData?.['createdAt'], semanticCreatedAt, now),
             extractedAt: now,
             updatedAt: now,
           };
@@ -200,7 +205,7 @@ export class WriteAwardsTool extends BaseTool {
           const description = this.str(award, 'description');
           if (description) record['description'] = description;
 
-          await awardsCol.doc(docId).set(record, { merge: true });
+          await docRef.set(record, { merge: true });
           written++;
         })
       );

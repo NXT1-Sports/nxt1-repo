@@ -32,13 +32,20 @@ import {
   computed,
   inject,
   signal,
+  effect,
+  ElementRef,
+  HostListener,
+  afterNextRender,
+  PLATFORM_ID,
 } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { IonRippleEffect } from '@ionic/angular/standalone';
 import type { FeedItem, FeedAuthor, FeedItemType } from '@nxt1/core';
 import { FEED_CARD_TEST_IDS } from '@nxt1/core/testing';
 import { NxtAvatarComponent } from '../components/avatar';
 import { NxtIconComponent } from '../components/icon';
 import { HapticsService } from '../services/haptics/haptics.service';
+import { FEED_ENGAGEMENT } from './feed-engagement.token';
 
 /** Labels for the feed item type badge */
 const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
@@ -89,41 +96,55 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
             }
             <span class="feed-shell__time">{{ timeAgo() }}</span>
           </div>
-          @if (showMenu()) {
-            <div class="feed-shell__menu-wrap">
-              <button
-                type="button"
-                class="feed-shell__menu-btn"
-                (click)="handleMenuClick($event)"
-                aria-label="Post options"
-                [attr.data-testid]="testIds.SHELL_MENU_BTN"
+          <div class="feed-shell__meta-bar-right">
+            @if (item().isPinned) {
+              <div
+                class="feed-shell__pin-indicator"
+                [attr.data-testid]="testIds.SHELL_PINNED_BADGE"
               >
-                <nxt1-icon name="moreHorizontal" [size]="18" />
-              </button>
-              @if (menuOpen()) {
-                <div class="feed-shell__dropdown" role="menu" (click)="$event.stopPropagation()">
-                  <button
-                    type="button"
-                    class="feed-shell__dropdown-item"
-                    role="menuitem"
-                    (click)="handlePinClick($event)"
-                  >
-                    <nxt1-icon name="pin" [size]="16" />
-                    <span>{{ item().isPinned ? 'Unpin' : 'Pin' }}</span>
-                  </button>
-                  <button
-                    type="button"
-                    class="feed-shell__dropdown-item feed-shell__dropdown-item--danger"
-                    role="menuitem"
-                    (click)="handleDeleteClick($event)"
-                  >
-                    <nxt1-icon name="trash" [size]="16" />
-                    <span>Delete</span>
-                  </button>
-                </div>
-              }
-            </div>
-          }
+                <nxt1-icon name="pin" [size]="12" />
+                <span>Pinned</span>
+              </div>
+            }
+            @if (canShowMenu()) {
+              <div class="feed-shell__menu-wrap">
+                <button
+                  type="button"
+                  class="feed-shell__menu-btn"
+                  (click)="handleMenuClick($event)"
+                  aria-label="Post options"
+                  [attr.data-testid]="testIds.SHELL_MENU_BTN"
+                >
+                  <nxt1-icon name="moreHorizontal" [size]="18" />
+                </button>
+                @if (menuOpen()) {
+                  <div class="feed-shell__dropdown" role="menu" (click)="$event.stopPropagation()">
+                    @if (canPin()) {
+                      <button
+                        type="button"
+                        class="feed-shell__dropdown-item"
+                        role="menuitem"
+                        (click)="handlePinClick($event)"
+                      >
+                        <nxt1-icon name="pin" [size]="16" />
+                        <span>{{ item().isPinned ? 'Unpin' : 'Pin' }}</span>
+                      </button>
+                      <div class="feed-shell__dropdown-divider"></div>
+                    }
+                    <button
+                      type="button"
+                      class="feed-shell__dropdown-item feed-shell__dropdown-item--danger"
+                      role="menuitem"
+                      (click)="handleDeleteClick($event)"
+                    >
+                      <nxt1-icon name="trash" [size]="16" />
+                      <span>Delete</span>
+                    </button>
+                  </div>
+                }
+              </div>
+            }
+          </div>
         </div>
       }
 
@@ -160,7 +181,13 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
               <span>{{ typeBadgeLabel() }}</span>
             </div>
           }
-          @if (showMenu()) {
+          @if (item().isPinned) {
+            <div class="feed-shell__pin-indicator" [attr.data-testid]="testIds.SHELL_PINNED_BADGE">
+              <nxt1-icon name="pin" [size]="12" />
+              <span>Pinned</span>
+            </div>
+          }
+          @if (canShowMenu()) {
             <div class="feed-shell__menu-wrap">
               <button
                 type="button"
@@ -173,15 +200,18 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
               </button>
               @if (menuOpen()) {
                 <div class="feed-shell__dropdown" role="menu" (click)="$event.stopPropagation()">
-                  <button
-                    type="button"
-                    class="feed-shell__dropdown-item"
-                    role="menuitem"
-                    (click)="handlePinClick($event)"
-                  >
-                    <nxt1-icon name="pin" [size]="16" />
-                    <span>{{ item().isPinned ? 'Unpin' : 'Pin' }}</span>
-                  </button>
+                  @if (canPin()) {
+                    <button
+                      type="button"
+                      class="feed-shell__dropdown-item"
+                      role="menuitem"
+                      (click)="handlePinClick($event)"
+                    >
+                      <nxt1-icon name="pin" [size]="16" />
+                      <span>{{ item().isPinned ? 'Unpin' : 'Pin' }}</span>
+                    </button>
+                    <div class="feed-shell__dropdown-divider"></div>
+                  }
                   <button
                     type="button"
                     class="feed-shell__dropdown-item feed-shell__dropdown-item--danger"
@@ -198,14 +228,6 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
         </header>
       }
 
-      <!-- Pinned Badge -->
-      @if (item().isPinned) {
-        <div class="feed-shell__pinned-badge" [attr.data-testid]="testIds.SHELL_PINNED_BADGE">
-          <nxt1-icon name="pin" [size]="12" />
-          <span>Pinned</span>
-        </div>
-      }
-
       <!-- Projected Payload Content (title, body, tags, etc.) -->
       <div
         class="feed-shell__content"
@@ -217,12 +239,17 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
 
       <!-- Engagement Stats Bar -->
       <div class="feed-shell__stats" [attr.data-testid]="testIds.SHELL_STATS">
-        <div class="feed-shell__stat" [attr.data-testid]="testIds.SHELL_STAT_SHARES">
+        <button
+          type="button"
+          class="feed-shell__stat feed-shell__stat--btn"
+          [attr.data-testid]="testIds.SHELL_STAT_SHARES"
+          [class.feed-shell__stat--sharing]="sharing()"
+          (click)="handleShareClick($event)"
+          aria-label="Share"
+        >
           <nxt1-icon name="share" [size]="14" />
-          <span class="feed-shell__stat-count">{{
-            formatCount(item().engagement.shareCount)
-          }}</span>
-        </div>
+          <span class="feed-shell__stat-count">{{ formatCount(shareCount()) }}</span>
+        </button>
         <div class="feed-shell__stat" [attr.data-testid]="testIds.SHELL_STAT_VIEWS">
           <nxt1-icon name="barChart" [size]="14" />
           <span class="feed-shell__stat-count">{{ formatCount(item().engagement.viewCount) }}</span>
@@ -407,7 +434,7 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
         transition: background 0.15s ease;
         flex-shrink: 0;
         &:hover {
-          background: rgba(255, 255, 255, 0.08);
+          background: color-mix(in srgb, var(--shell-text-primary) 8%, transparent);
         }
       }
 
@@ -422,59 +449,71 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
 
       .feed-shell__dropdown {
         position: absolute;
-        top: calc(100% + 4px);
+        top: calc(100% + var(--nxt1-spacing-2, 8px));
         right: 0;
-        min-width: 172px;
-        /* Solid opaque background — no transparency, no backdrop-filter inheritance */
-        background: #1a1c20;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        border-radius: 14px;
-        box-shadow:
-          0 12px 32px rgba(0, 0, 0, 0.7),
-          0 2px 8px rgba(0, 0, 0, 0.4),
-          inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        min-width: var(--nxt1-spacing-52, 13rem);
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-ui-radius-lg, 12px);
+        box-shadow: var(--nxt1-navigation-dropdown);
+        padding: var(--nxt1-spacing-1, 4px);
         overflow: hidden;
-        z-index: 9999;
+        z-index: var(--nxt1-nav-z-dropdown, 1000);
       }
 
       .feed-shell__dropdown-item {
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: var(--nxt1-spacing-3, 0.75rem);
         width: 100%;
-        padding: 14px 18px;
-        background: none;
+        padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-3, 0.75rem);
+        background: transparent;
         border: none;
+        border-radius: var(--nxt1-ui-radius-default, 8px);
         cursor: pointer;
-        font-size: 14px;
-        font-weight: 600;
-        color: #ffffff;
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-medium, 500);
+        color: var(--nxt1-nav-text);
         text-align: left;
-        transition: background 0.15s ease;
+        transition: background-color var(--nxt1-nav-transition-fast, 0.15s ease);
         -webkit-tap-highlight-color: transparent;
         &:hover,
         &:active {
-          background: rgba(255, 255, 255, 0.07);
+          background: var(--nxt1-nav-hover-bg);
         }
-        & + & {
-          border-top: 1px solid rgba(255, 255, 255, 0.08);
+        &:focus-visible {
+          outline: 2px solid var(--nxt1-nav-focus-ring);
+          outline-offset: -2px;
         }
+      }
+
+      .feed-shell__dropdown-divider {
+        height: 1px;
+        margin: var(--nxt1-spacing-1, 4px) 0;
+        background: var(--nxt1-color-border-default);
       }
 
       .feed-shell__dropdown-item--danger {
         color: var(--nxt1-color-error, #ff4c4c);
       }
 
-      /* Pinned Badge */
-      .feed-shell__pinned-badge {
+      /* Pinned indicator — inline with three-dots menu */
+      .feed-shell__pin-indicator {
         display: inline-flex;
         align-items: center;
         gap: 4px;
-        padding: 2px 10px;
-        margin: 8px 16px 0;
         font-size: 11px;
         font-weight: 600;
         color: var(--shell-primary);
+        flex-shrink: 0;
+      }
+
+      /* Right-side wrapper in compact meta-bar */
+      .feed-shell__meta-bar-right {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex-shrink: 0;
       }
 
       /* Content Area (projected) */
@@ -503,6 +542,31 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
         gap: 4px;
         color: var(--shell-text-tertiary);
         font-variant-numeric: tabular-nums;
+      }
+
+      .feed-shell__stat--btn {
+        background: none;
+        border: none;
+        padding: 4px 8px;
+        cursor: pointer;
+        border-radius: 8px;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease;
+        -webkit-tap-highlight-color: transparent;
+        &:hover {
+          background: color-mix(in srgb, var(--shell-primary) 8%, transparent);
+          color: var(--shell-primary);
+        }
+        &:active {
+          background: color-mix(in srgb, var(--shell-primary) 15%, transparent);
+        }
+      }
+
+      .feed-shell__stat--sharing {
+        color: var(--shell-primary);
+        opacity: 0.7;
+        pointer-events: none;
       }
 
       .feed-shell__stat-count {
@@ -538,6 +602,9 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
 })
 export class FeedCardShellComponent {
   private readonly haptics = inject(HapticsService);
+  private readonly elementRef = inject(ElementRef<HTMLElement>);
+  private readonly platformId = inject(PLATFORM_ID);
+  private readonly feedEngagement = inject(FEED_ENGAGEMENT, { optional: true });
   protected readonly testIds = FEED_CARD_TEST_IDS;
 
   // ============================================
@@ -561,10 +628,19 @@ export class FeedCardShellComponent {
   readonly deleteClick = output<FeedItem>();
 
   // ============================================
-  // COMPUTED
+  // STATE
   // ============================================
 
   protected readonly menuOpen = signal(false);
+  /** Optimistic local share count — updated immediately on tap */
+  private readonly _shareCount = signal(0);
+  protected readonly shareCount = computed(() => this._shareCount());
+  /** True while share action is in-flight — prevents double-tap */
+  protected readonly sharing = signal(false);
+
+  // ============================================
+  // COMPUTED
+  // ============================================
 
   protected readonly ariaLabel = computed(() => {
     const i = this.item();
@@ -579,9 +655,27 @@ export class FeedCardShellComponent {
     return this.item().feedType !== 'POST';
   });
 
+  protected readonly canShowMenu = computed(() => this.showMenu());
+
+  /** Pin is available for all owned feed items (metric groups included). */
+  protected readonly canPin = computed(() => this.showMenu());
+
   protected readonly typeBadgeLabel = computed(() => {
     return FEED_ITEM_TYPE_LABELS[this.item().feedType];
   });
+
+  constructor() {
+    // Sync local shareCount whenever the item input changes
+    effect(() => {
+      this._shareCount.set(this.item().engagement.shareCount);
+    });
+
+    // Set up IntersectionObserver after first render (SSR-safe)
+    afterNextRender(() => {
+      if (!isPlatformBrowser(this.platformId) || !this.feedEngagement) return;
+      this.setupViewObserver();
+    });
+  }
 
   // ============================================
   // EVENT HANDLERS
@@ -617,6 +711,65 @@ export class FeedCardShellComponent {
     await this.haptics.notification('warning');
     this.menuOpen.set(false);
     this.deleteClick.emit(this.item());
+  }
+
+  protected async handleShareClick(event: Event): Promise<void> {
+    event.stopPropagation();
+    if (this.sharing()) return;
+
+    await this.haptics.impact('medium');
+
+    // Optimistic increment before async work
+    this._shareCount.update((c) => c + 1);
+    this.sharing.set(true);
+
+    try {
+      await this.feedEngagement?.sharePost(this.item());
+    } catch {
+      // Rollback on failure
+      this._shareCount.update((c) => Math.max(0, c - 1));
+    } finally {
+      this.sharing.set(false);
+    }
+  }
+
+  // ============================================
+  // INTERSECTION OBSERVER (view impressions)
+  // ============================================
+
+  private setupViewObserver(): void {
+    const item = this.item();
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry?.isIntersecting) {
+          this.feedEngagement?.viewPost(item.id);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(this.elementRef.nativeElement);
+  }
+
+  @HostListener('document:click', ['$event'])
+  protected handleDocumentClick(event: Event): void {
+    if (!this.menuOpen()) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest('.feed-shell__menu-wrap')) {
+      return;
+    }
+    if (!this.elementRef.nativeElement.isConnected) return;
+    this.menuOpen.set(false);
+  }
+
+  @HostListener('document:keydown.escape')
+  protected handleEscapeKey(): void {
+    if (this.menuOpen()) {
+      this.menuOpen.set(false);
+    }
   }
 
   // ============================================

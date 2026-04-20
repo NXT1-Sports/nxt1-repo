@@ -20,7 +20,8 @@ import { validationError, notFoundError, forbiddenError } from '@nxt1/core/error
 import type { SportProfile } from '@nxt1/core';
 import type { UpdateSportProfileRequest } from '@nxt1/core';
 import { RosterEntryStatus } from '@nxt1/core/models';
-import { isTeamRole } from '@nxt1/core';
+import { isTeamRole, PROFILE_UI_CONFIG } from '@nxt1/core';
+import { CLOUDFLARE_API_BASE_URL } from '../upload/shared.js';
 import {
   USERS_COLLECTION,
   FieldValue,
@@ -31,6 +32,64 @@ import {
 } from './shared.js';
 
 const router = Router();
+const POSTS_COLLECTION = 'Posts';
+const PLAYER_STATS_COLLECTION = 'PlayerStats';
+const RANKINGS_COLLECTION = 'Rankings';
+const EVENTS_COLLECTION = 'Events';
+const RECRUITING_COLLECTION = 'Recruiting';
+const SCHEDULE_COLLECTION = 'Schedule';
+const NEWS_COLLECTION = 'News';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Resolve the Firestore collection name and real document ID from a composite
+ * feed item ID (e.g. "stat-ABCDEF" → PlayerStats / "ABCDEF").
+ *
+ * Metric groups are virtual (their IDs are base64url-encoded composite keys,
+ * not real Firestore document IDs) and are flagged with isMetricGroup: true.
+ */
+type ResolvedItem =
+  | { isMetricGroup: false; collection: string; docId: string }
+  | { isMetricGroup: true; groupId: string };
+
+function resolveCollectionAndDocId(itemId: string): ResolvedItem {
+  if (itemId.startsWith('stat-')) {
+    return { isMetricGroup: false, collection: PLAYER_STATS_COLLECTION, docId: itemId.slice(5) };
+  }
+  if (itemId.startsWith('metric-')) {
+    return { isMetricGroup: true, groupId: itemId.slice(7) };
+  }
+  if (itemId.startsWith('ranking-')) {
+    return { isMetricGroup: false, collection: RANKINGS_COLLECTION, docId: itemId.slice(8) };
+  }
+  if (itemId.startsWith('event-')) {
+    return { isMetricGroup: false, collection: EVENTS_COLLECTION, docId: itemId.slice(6) };
+  }
+  // All recruiting sub-types (offer, commitment, visit, camp) live in the
+  // Recruiting collection. The frontend prefixes them differently for display
+  // discrimination but the real Firestore doc ID is always the suffix.
+  if (itemId.startsWith('recruiting-')) {
+    return { isMetricGroup: false, collection: RECRUITING_COLLECTION, docId: itemId.slice(11) };
+  }
+  if (itemId.startsWith('commitment-')) {
+    return { isMetricGroup: false, collection: RECRUITING_COLLECTION, docId: itemId.slice(11) };
+  }
+  if (itemId.startsWith('visit-')) {
+    return { isMetricGroup: false, collection: RECRUITING_COLLECTION, docId: itemId.slice(6) };
+  }
+  if (itemId.startsWith('camp-')) {
+    return { isMetricGroup: false, collection: RECRUITING_COLLECTION, docId: itemId.slice(5) };
+  }
+  if (itemId.startsWith('schedule-')) {
+    return { isMetricGroup: false, collection: SCHEDULE_COLLECTION, docId: itemId.slice(9) };
+  }
+  if (itemId.startsWith('news-')) {
+    return { isMetricGroup: false, collection: NEWS_COLLECTION, docId: itemId.slice(5) };
+  }
+  // Default: Posts collection (no prefix)
+  return { isMetricGroup: false, collection: POSTS_COLLECTION, docId: itemId };
+}
 
 // ─── PUT /:userId — full profile update ──────────────────────────────────────
 
@@ -590,6 +649,302 @@ router.delete(
 
     logger.info('[Profile] Sport removed', { userId, sportIndex });
     res.json({ success: true, data: null });
+  })
+);
+
+// ─── PATCH /:userId/posts/:postId/pin ────────────────────────────────────────
+
+router.patch(
+  '/:userId/posts/:postId/pin',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId, postId } = req.params as { userId: string; postId: string };
+    const requestingUid = req.user!.uid;
+
+    if (requestingUid !== userId) {
+      sendError(res, forbiddenError());
+      return;
+    }
+
+    const requestedPinState = (req.body as Record<string, unknown> | undefined)?.['isPinned'];
+    if (typeof requestedPinState !== 'boolean') {
+      sendError(
+        res,
+        validationError([
+          { field: 'isPinned', message: 'isPinned must be a boolean', rule: 'invalid' },
+        ])
+      );
+      return;
+    }
+
+    const db = req.firebase!.db;
+    const userRef = db.collection(USERS_COLLECTION).doc(userId);
+    const userDoc = await userRef.get();
+
+    if (!userDoc.exists) {
+      sendError(res, notFoundError('profile'));
+      return;
+    }
+
+    const userData = userDoc.data() as UserFirestoreDoc;
+    const resolved = resolveCollectionAndDocId(postId);
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Metric groups: virtual IDs stored in Users.pinnedMetricGroups array
+    // ──────────────────────────────────────────────────────────────────────────
+    if (resolved.isMetricGroup) {
+      const pinnedMetricGroups: string[] = Array.isArray(userData['pinnedMetricGroups'])
+        ? [...(userData['pinnedMetricGroups'] as string[])]
+        : [];
+      const currentIsPinned = pinnedMetricGroups.includes(resolved.groupId);
+      const countDelta =
+        requestedPinState && !currentIsPinned ? 1 : !requestedPinState && currentIsPinned ? -1 : 0;
+
+      if (requestedPinState && !currentIsPinned) {
+        const currentPinnedCount =
+          typeof userData['pinnedCount'] === 'number' ? (userData['pinnedCount'] as number) : 0;
+        if (currentPinnedCount >= PROFILE_UI_CONFIG.maxPinnedPosts) {
+          sendError(
+            res,
+            validationError([
+              {
+                field: 'isPinned',
+                message: `You can pin up to ${PROFILE_UI_CONFIG.maxPinnedPosts} items`,
+                rule: 'max',
+              },
+            ])
+          );
+          return;
+        }
+        pinnedMetricGroups.push(resolved.groupId);
+      } else if (!requestedPinState) {
+        const idx = pinnedMetricGroups.indexOf(resolved.groupId);
+        if (idx !== -1) pinnedMetricGroups.splice(idx, 1);
+      }
+
+      const userUpdates: Record<string, unknown> = {
+        pinnedMetricGroups,
+        updatedAt: new Date().toISOString(),
+      };
+      if (countDelta !== 0) {
+        userUpdates['pinnedCount'] = FieldValue.increment(countDelta);
+      }
+      await userRef.update(userUpdates);
+
+      const currentUnicode = userData['unicode'] as string | null | undefined;
+      await invalidateProfileCaches(userId, currentUnicode);
+
+      logger.info('[Profile] Metric group pin state updated', {
+        userId,
+        postId,
+        isPinned: requestedPinState,
+      });
+      res.json({ success: true, data: { postId, isPinned: requestedPinState } });
+      return;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // All other types: store isPinned on the item's own Firestore document
+    // ──────────────────────────────────────────────────────────────────────────
+    const itemRef = db.collection(resolved.collection).doc(resolved.docId);
+    const itemDoc = await itemRef.get();
+
+    if (!itemDoc.exists) {
+      sendError(res, notFoundError('post'));
+      return;
+    }
+
+    const itemData = itemDoc.data() as Record<string, unknown>;
+    if (itemData['userId'] !== userId) {
+      sendError(res, forbiddenError());
+      return;
+    }
+
+    const currentIsPinned = !!itemData['isPinned'];
+    const countDelta =
+      requestedPinState && !currentIsPinned ? 1 : !requestedPinState && currentIsPinned ? -1 : 0;
+
+    if (requestedPinState && !currentIsPinned) {
+      const currentPinnedCount =
+        typeof userData['pinnedCount'] === 'number' ? (userData['pinnedCount'] as number) : 0;
+      if (currentPinnedCount >= PROFILE_UI_CONFIG.maxPinnedPosts) {
+        sendError(
+          res,
+          validationError([
+            {
+              field: 'isPinned',
+              message: `You can pin up to ${PROFILE_UI_CONFIG.maxPinnedPosts} items`,
+              rule: 'max',
+            },
+          ])
+        );
+        return;
+      }
+    }
+
+    const batch = db.batch();
+    batch.update(itemRef, {
+      isPinned: requestedPinState,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    if (countDelta !== 0) {
+      batch.update(userRef, {
+        pinnedCount: FieldValue.increment(countDelta),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    await batch.commit();
+
+    const currentUnicode = userData['unicode'] as string | null | undefined;
+    await invalidateProfileCaches(userId, currentUnicode);
+
+    logger.info('[Profile] Item pin state updated', {
+      userId,
+      postId,
+      collection: resolved.collection,
+      isPinned: requestedPinState,
+    });
+
+    res.json({ success: true, data: { postId, isPinned: requestedPinState } });
+  })
+);
+
+// ─── DELETE /:userId/posts/:postId ───────────────────────────────────────────
+
+router.delete(
+  '/:userId/posts/:postId',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId, postId } = req.params as { userId: string; postId: string };
+    const requestingUid = req.user!.uid;
+
+    if (requestingUid !== userId) {
+      sendError(res, forbiddenError());
+      return;
+    }
+
+    const db = req.firebase!.db;
+    const userRef = db.collection(USERS_COLLECTION).doc(userId);
+
+    // Route to the correct Firestore collection based on item ID prefix
+    const resolved = resolveCollectionAndDocId(postId);
+
+    // Metric groups are virtual composite IDs — individual docs can't be targeted
+    if (resolved.isMetricGroup) {
+      sendError(
+        res,
+        validationError([
+          {
+            field: 'postId',
+            message: 'Metric group items cannot be individually deleted',
+            rule: 'invalid',
+          },
+        ])
+      );
+      return;
+    }
+
+    const itemRef = db.collection(resolved.collection).doc(resolved.docId);
+    const [userDoc, itemDoc] = await Promise.all([userRef.get(), itemRef.get()]);
+
+    if (!userDoc.exists) {
+      sendError(res, notFoundError('profile'));
+      return;
+    }
+
+    if (!itemDoc.exists) {
+      sendError(res, notFoundError('post'));
+      return;
+    }
+
+    const userData = userDoc.data() as UserFirestoreDoc;
+    const itemData = itemDoc.data() as Record<string, unknown>;
+
+    if (itemData['userId'] !== userId) {
+      sendError(res, forbiddenError());
+      return;
+    }
+
+    const wasItemPinned = !!itemData['isPinned'];
+
+    await itemRef.delete();
+
+    // Decrement pinnedCount if this item was pinned
+    if (wasItemPinned) {
+      await userRef.update({
+        pinnedCount: FieldValue.increment(-1),
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    const currentUnicode = userData['unicode'] as string | null | undefined;
+    await invalidateProfileCaches(userId, currentUnicode);
+
+    // Best-effort: delete the Cloudflare Stream asset if this was a Post with a video.
+    // Only Posts carry a cloudflareVideoId.
+    if (resolved.collection === POSTS_COLLECTION) {
+      const cloudflareVideoId =
+        typeof itemData['cloudflareVideoId'] === 'string'
+          ? (itemData['cloudflareVideoId'] as string)
+          : null;
+
+      if (cloudflareVideoId) {
+        const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
+        const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
+
+        if (accountId && apiToken) {
+          try {
+            const cfDeleteUrl = `${CLOUDFLARE_API_BASE_URL}/accounts/${accountId}/stream/${cloudflareVideoId}`;
+            const cfRes = await fetch(cfDeleteUrl, {
+              method: 'DELETE',
+              headers: {
+                Authorization: `Bearer ${apiToken}`,
+                'Content-Type': 'application/json',
+              },
+            });
+
+            if (cfRes.ok) {
+              logger.info('[Profile] Cloudflare Stream asset deleted', {
+                userId,
+                postId,
+                cloudflareVideoId,
+              });
+            } else {
+              let cfBody: unknown;
+              try {
+                cfBody = await cfRes.json();
+              } catch {
+                cfBody = null;
+              }
+              logger.warn('[Profile] Cloudflare Stream asset deletion returned non-OK', {
+                userId,
+                postId,
+                cloudflareVideoId,
+                status: cfRes.status,
+                body: cfBody,
+              });
+            }
+          } catch (cfErr) {
+            logger.error('[Profile] Cloudflare Stream asset deletion threw', {
+              userId,
+              postId,
+              cloudflareVideoId,
+              error: cfErr instanceof Error ? cfErr.message : String(cfErr),
+            });
+          }
+        } else {
+          logger.warn('[Profile] Cloudflare env vars missing — Stream asset not deleted', {
+            userId,
+            postId,
+            cloudflareVideoId,
+          });
+        }
+      }
+    }
+
+    logger.info('[Profile] Item deleted', { userId, postId, collection: resolved.collection });
+
+    res.json({ success: true, data: { postId } });
   })
 );
 

@@ -24,6 +24,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { logger } from '../../utils/logger.js';
 import { COLLECTIONS } from './config.js';
 import { getPlatformConfig } from './platform-config.service.js';
+import { getRuntimeEnvironment } from '../../config/runtime-environment.js';
 import {
   type BillingContext,
   type BillingEntity,
@@ -32,10 +33,63 @@ import {
   type WalletHold,
   type WalletHoldResult,
   DEFAULT_INDIVIDUAL_BUDGET,
+  DEFAULT_INDIVIDUAL_STARTER_BALANCE,
   DEFAULT_ORGANIZATION_BUDGET,
-  BUDGET_ALERT_THRESHOLDS,
+  DEFAULT_ORGANIZATION_STARTER_BALANCE,
 } from './types/index.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
+import type { NotificationType } from '@nxt1/core';
+
+type CreditsAlertFlag = 'creditsNotified80' | 'creditsNotified50' | 'creditsNotified25';
+
+interface CreditsLowAlert {
+  readonly title: string;
+  readonly priority: 'normal' | 'high';
+  readonly updates: Partial<Record<CreditsAlertFlag, boolean>>;
+}
+
+interface BillingContextRecord {
+  readonly ref: FirebaseFirestore.DocumentReference;
+  readonly data: BillingContext;
+}
+
+function getBillingContextRef(
+  db: Firestore,
+  billingUserId: string
+): FirebaseFirestore.DocumentReference {
+  return db.collection(COLLECTIONS.BILLING_CONTEXTS).doc(billingUserId);
+}
+
+async function getBillingContextRecord(
+  db: Firestore,
+  billingUserId: string
+): Promise<BillingContextRecord | null> {
+  const docRef = getBillingContextRef(db, billingUserId);
+  const doc = await docRef.get();
+
+  if (!doc.exists) return null;
+
+  return {
+    ref: docRef,
+    data: doc.data() as BillingContext,
+  };
+}
+
+async function getBillingContextRecordForTransaction(
+  txn: FirebaseFirestore.Transaction,
+  db: Firestore,
+  billingUserId: string
+): Promise<BillingContextRecord | null> {
+  const docRef = getBillingContextRef(db, billingUserId);
+  const doc = await txn.get(docRef);
+
+  if (!doc.exists) return null;
+
+  return {
+    ref: docRef,
+    data: doc.data() as BillingContext,
+  };
+}
 
 // ============================================
 // BILLING CONTEXT MANAGEMENT
@@ -49,15 +103,8 @@ export async function getBillingContext(
   db: Firestore,
   userId: string
 ): Promise<BillingContext | null> {
-  const snapshot = await db
-    .collection(COLLECTIONS.BILLING_CONTEXTS)
-    .where('userId', '==', userId)
-    .limit(1)
-    .get();
-
-  if (snapshot.empty) return null;
-
-  return snapshot.docs[0]!.data() as BillingContext;
+  const record = await getBillingContextRecord(db, userId);
+  return record?.data ?? null;
 }
 
 /**
@@ -67,9 +114,6 @@ export async function getBillingContext(
  *   1. If a teamId is provided, look up the team's organizationId.
  *   2. If the organization exists and has billing enabled → billingEntity = 'organization'.
  *   3. Otherwise → billingEntity = 'individual'.
- *
- * The legacy `orgBillingEnabled` flag on the team doc is still respected as a
- * fallback, but the preferred path is organization.billing.subscriptionId being set.
  */
 export async function getOrCreateBillingContext(
   db: Firestore,
@@ -95,24 +139,22 @@ export async function getOrCreateBillingContext(
       const orgDoc = await db.collection('Organizations').doc(orgId).get();
       const orgData = orgDoc.data();
 
-      // Organization billing is enabled if it has a billing subscription OR
-      // the legacy orgBillingEnabled flag is set on the team
-      const orgHasBilling =
-        !!orgData?.['billing']?.['subscriptionId'] || !!teamData?.['orgBillingEnabled'];
+      const orgHasBilling = !!orgData?.['billing']?.['subscriptionId'];
 
       if (orgHasBilling) {
         billingEntity = 'organization';
         organizationId = orgId;
       }
-    } else if (teamData?.['orgBillingEnabled']) {
-      // Legacy fallback: team has orgBillingEnabled but no organizationId
-      // Treat as 'organization' with the teamId acting as the billing anchor
-      billingEntity = 'organization';
     }
   }
 
   const budget =
-    billingEntity === 'organization' ? DEFAULT_ORGANIZATION_BUDGET : DEFAULT_INDIVIDUAL_BUDGET;
+    billingEntity === 'individual' ? DEFAULT_INDIVIDUAL_BUDGET : DEFAULT_ORGANIZATION_BUDGET;
+  const starterWalletConfig = await getStarterWalletConfig(db);
+  const starterWalletBalance =
+    billingEntity === 'individual' ? starterWalletConfig.individualAmountCents : 0;
+  const creditsAlertBaseline =
+    billingEntity === 'individual' ? starterWalletConfig.individualAmountCents : 0;
 
   const now = new Date();
   const periodStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
@@ -124,22 +166,29 @@ export async function getOrCreateBillingContext(
     organizationId,
     billingEntity,
     monthlyBudget: budget,
-    budgetName: billingEntity === 'organization' ? 'Starter budget' : undefined,
+    budgetName: undefined,
     currentPeriodSpend: 0,
+    personalCurrentPeriodSpend: 0,
+    orgCurrentPeriodSpend: 0,
     periodStart,
     periodEnd,
     notified50: false,
     notified80: false,
     notified100: false,
     iapLowBalanceNotified: false,
+    budgetAlertsEnabled: false,
+    creditsAlertBaselineCents: creditsAlertBaseline,
+    creditsNotified80: false,
+    creditsNotified50: false,
+    creditsNotified25: false,
     hardStop: true,
     paymentProvider: 'stripe',
-    walletBalanceCents: billingEntity === 'individual' ? 500 : 0,
+    walletBalanceCents: starterWalletBalance,
     pendingHoldsCents: 0,
   };
 
   const ts = FieldValue.serverTimestamp();
-  await db.collection(COLLECTIONS.BILLING_CONTEXTS).add({
+  await getBillingContextRef(db, userId).set({
     ...context,
     createdAt: ts,
     updatedAt: ts,
@@ -153,6 +202,109 @@ export async function getOrCreateBillingContext(
   });
 
   return context as BillingContext;
+}
+
+function getCreditsLowAlert(data: BillingContext, newBalance: number): CreditsLowAlert | null {
+  const baseline = data.creditsAlertBaselineCents ?? 0;
+  if (baseline <= 0) return null;
+
+  if (newBalance <= baseline * 0.25 && !data.creditsNotified25) {
+    return {
+      title: 'Only 25% of your wallet credits remain',
+      priority: 'high',
+      updates: {
+        creditsNotified80: true,
+        creditsNotified50: true,
+        creditsNotified25: true,
+      },
+    };
+  }
+
+  if (newBalance <= baseline * 0.5 && !data.creditsNotified50) {
+    return {
+      title: "You've used half your wallet credits",
+      priority: 'normal',
+      updates: {
+        creditsNotified80: true,
+        creditsNotified50: true,
+      },
+    };
+  }
+
+  if (newBalance <= baseline * 0.8 && !data.creditsNotified80) {
+    return {
+      title: 'Heads up - 80% of your wallet credits remain',
+      priority: 'normal',
+      updates: {
+        creditsNotified80: true,
+      },
+    };
+  }
+
+  return null;
+}
+
+function areBudgetAlertsEnabled(data: BillingContext): boolean {
+  if (data.budgetAlertsEnabled === true) return true;
+
+  // Preserve org budgets that were explicitly configured before this flag existed.
+  if (data.billingEntity === 'organization') {
+    return data.budgetName !== 'Starter budget';
+  }
+
+  return false;
+}
+
+async function getOrganizationAdminIds(
+  db: Firestore,
+  organizationId: string
+): Promise<readonly string[]> {
+  const orgDoc = await db.collection('Organizations').doc(organizationId).get();
+  const orgData = orgDoc.data();
+  const adminIds = ((orgData?.['admins'] as Array<{ userId?: string }> | undefined) ?? [])
+    .map((admin) => admin.userId)
+    .filter((adminId): adminId is string => typeof adminId === 'string' && adminId.length > 0);
+
+  if (adminIds.length > 0) return adminIds;
+
+  const ownerId = orgData?.['ownerId'];
+  return typeof ownerId === 'string' && ownerId.length > 0 ? [ownerId] : [];
+}
+
+async function getOrganizationBillingOwnerUid(
+  db: Firestore,
+  organizationId: string
+): Promise<string | undefined> {
+  const orgDoc = await db.collection('Organizations').doc(organizationId).get();
+  const orgData = orgDoc.data();
+  const billingOwnerUid = orgData?.['billingOwnerUid'];
+
+  if (typeof billingOwnerUid === 'string' && billingOwnerUid.length > 0) {
+    return billingOwnerUid;
+  }
+
+  const admins = (
+    (orgData?.['admins'] as Array<{ userId?: string; role?: string }> | undefined) ?? []
+  ).filter((admin): admin is { userId: string; role?: string } => {
+    return typeof admin.userId === 'string' && admin.userId.length > 0;
+  });
+  const directorUid = admins.find((admin) => admin.role === 'director')?.userId;
+
+  if (directorUid) {
+    return directorUid;
+  }
+
+  if (admins.length > 0) {
+    return admins[0]!.userId;
+  }
+
+  const ownerId = orgData?.['ownerId'];
+
+  if (typeof ownerId === 'string' && ownerId.length > 0) {
+    return ownerId;
+  }
+
+  return undefined;
 }
 
 // ============================================
@@ -172,6 +324,11 @@ export interface BudgetCheckResult {
   percentUsed: number;
   /** Who is paying */
   billingEntity: BillingEntity;
+  /**
+   * When true, the calling user is an org roster member whose org wallet is empty.
+   * The frontend can surface a "Use my personal wallet?" prompt inline.
+   */
+  canSwitchToPersonal?: boolean;
 }
 
 /**
@@ -193,14 +350,9 @@ export async function checkBudget(
 ): Promise<BudgetCheckResult> {
   const ctx = await getOrCreateBillingContext(db, userId, teamId);
 
-  // ── IAP wallet billing: check prepaid balance ──
-  if (ctx.billingEntity === 'individual' && ctx.paymentProvider === 'iap') {
-    return checkWalletBudget(ctx, costCents);
-  }
-
-  // ── Individual billing: simple single-tier check ──
+  // ── Individual billing: always gate against available wallet credits ──
   if (ctx.billingEntity === 'individual') {
-    return checkSingleTierBudget(ctx, costCents);
+    return checkWalletBudget(ctx, costCents);
   }
 
   // ── Organization billing: two-tier check ──
@@ -232,15 +384,16 @@ export async function checkBudget(
     }
   }
 
-  // Tier 2: Check organization master budget
-  const orgCtx = orgId
-    ? await getOrgBillingContext(db, orgId)
-    : effectiveTeamId
-      ? await getTeamBillingContext(db, effectiveTeamId)
-      : null;
+  // Tier 2: Check organization master wallet balance
+  const orgCtx = orgId ? await getOrgBillingContext(db, orgId) : null;
 
   const masterCtx = orgCtx ?? ctx;
-  return checkSingleTierBudget(masterCtx, costCents);
+  const result = checkWalletBudget(masterCtx, costCents, 'organization');
+  // Signal to the frontend that this roster member can switch to their personal wallet
+  if (!result.allowed) {
+    result.canSwitchToPersonal = true;
+  }
+  return result;
 }
 
 /**
@@ -279,21 +432,32 @@ function checkSingleTierBudget(ctx: BillingContext, costCents: number): BudgetCh
  * Instead of monthly spend vs budget, we check if the prepaid wallet has enough
  * **available** funds (balance minus pending holds).
  */
-function checkWalletBudget(ctx: BillingContext, costCents: number): BudgetCheckResult {
+function checkWalletBudget(
+  ctx: BillingContext,
+  costCents: number,
+  billingEntity: BillingEntity = 'individual'
+): BudgetCheckResult {
   const walletBalance = ctx.walletBalanceCents ?? 0;
   const pendingHolds = ctx.pendingHoldsCents ?? 0;
   const availableBalance = walletBalance - pendingHolds;
 
+  const isOrg = billingEntity === 'organization';
+
   if (availableBalance < costCents) {
+    const reason = isOrg
+      ? `Organization wallet balance of $${(availableBalance / 100).toFixed(2)} (available) is insufficient. ` +
+        'An admin can add funds in Settings → Usage.'
+      : `Wallet balance of $${(availableBalance / 100).toFixed(2)} (available) is insufficient. ` +
+        'Add funds in Settings → Usage to continue.';
+
     return {
       allowed: false,
-      reason:
-        `Wallet balance of $${(availableBalance / 100).toFixed(2)} (available) is insufficient. ` +
-        'Add funds in Settings → Usage to continue.',
+      reason,
       currentSpend: 0,
       budget: availableBalance,
       percentUsed: 100,
-      billingEntity: 'individual',
+      billingEntity,
+      canSwitchToPersonal: isOrg,
     };
   }
 
@@ -302,7 +466,7 @@ function checkWalletBudget(ctx: BillingContext, costCents: number): BudgetCheckR
     currentSpend: 0,
     budget: availableBalance,
     percentUsed: 0,
-    billingEntity: 'individual',
+    billingEntity,
   };
 }
 
@@ -317,8 +481,11 @@ export function checkBudgetFromContext(
   ctx: BillingContext,
   costCents: number = 0
 ): BudgetCheckResult {
-  if (ctx.billingEntity === 'individual' && ctx.paymentProvider === 'iap') {
-    return checkWalletBudget(ctx, costCents);
+  if (ctx.billingEntity === 'individual') {
+    return checkWalletBudget(ctx, costCents, 'individual');
+  }
+  if (ctx.billingEntity === 'organization') {
+    return checkWalletBudget(ctx, costCents, 'organization');
   }
   return checkSingleTierBudget(ctx, costCents);
 }
@@ -348,31 +515,36 @@ export async function recordSpend(
 
   const ctx = await getOrCreateBillingContext(db, userId, teamId);
 
-  // ── IAP wallet: deduct from wallet balance instead of incrementing spend ──
-  if (ctx.billingEntity === 'individual' && ctx.paymentProvider === 'iap') {
+  // ── Prepaid wallet (individual IAP or Stripe pre-paid wallet) ──
+  // Both IAP and Stripe wallet users have a real walletBalanceCents balance that
+  // must be decremented on each spend. walletBalanceCents > 0 is the determinant —
+  // a Stripe user who has purchased credits is effectively a wallet user.
+  if (ctx.paymentProvider === 'iap') {
     await deductWallet(db, userId, costCents);
     return;
   }
 
-  // Always update the user's own context (for per-user tracking)
-  await updateSpend(db, userId, costCents);
+  // Stripe wallet: individual user who has pre-paid credits (walletBalanceCents > 0)
+  if (ctx.billingEntity === 'individual' && (ctx.walletBalanceCents ?? 0) > 0) {
+    await deductWallet(db, userId, costCents);
+    return;
+  }
 
   if (ctx.billingEntity === 'organization') {
-    const effectiveTeamId = ctx.teamId;
-
-    // Update team sub-allocation spend
-    if (effectiveTeamId) {
-      await updateTeamAllocationSpend(db, effectiveTeamId, costCents);
+    // Org billing: deduct from the org wallet and record per-user spend
+    const organizationId = ctx.organizationId;
+    const effectiveTeamId = ctx.teamId ?? teamId;
+    if (organizationId) {
+      await deductOrgWallet(db, organizationId, userId, effectiveTeamId, costCents);
+    } else {
+      // Fallback to spend increment if no wallet entity found
+      await updateSpend(db, userId, costCents);
     }
-
-    // Update organization master budget
-    if (ctx.organizationId) {
-      await updateOrgSpend(db, ctx.organizationId, costCents);
-    } else if (effectiveTeamId) {
-      // Legacy fallback: no organizationId, use team-level billing context
-      await updateTeamSpend(db, effectiveTeamId, costCents);
-    }
+    return;
   }
+
+  // ── Post-paid individual (Stripe metered) ──
+  await updateSpend(db, userId, costCents);
 }
 
 /**
@@ -395,7 +567,7 @@ export async function recordOrgSpend(
   if (!Number.isInteger(costCents) || costCents <= 0) return;
 
   await Promise.all([
-    updateSpend(db, userId, costCents, true), // skip individual notifications — org alerts via updateOrgSpend
+    updateSpend(db, userId, costCents), // per-user spend tracking only — org alerts via updateOrgSpend → checkAndNotifyOrg
     ...(teamId ? [updateTeamAllocationSpend(db, teamId, costCents)] : []),
     updateOrgSpend(db, organizationId, costCents),
   ]);
@@ -404,36 +576,25 @@ export async function recordOrgSpend(
 /**
  * Increment current period spend for a user and check thresholds.
  */
-async function updateSpend(
-  db: Firestore,
-  userId: string,
-  costCents: number,
-  skipNotifications = false
-): Promise<void> {
-  const snapshot = await db
-    .collection(COLLECTIONS.BILLING_CONTEXTS)
-    .where('userId', '==', userId)
-    .limit(1)
-    .get();
+async function updateSpend(db: Firestore, userId: string, costCents: number): Promise<void> {
+  const record = await getBillingContextRecord(db, userId);
+  if (!record) return;
 
-  if (snapshot.empty) return;
+  const { ref: docRef, data } = record;
 
-  const docRef = snapshot.docs[0]!.ref;
-  const data = snapshot.docs[0]!.data() as BillingContext;
-
-  const newSpend = data.currentPeriodSpend + costCents;
   const updates: Record<string, unknown> = {
     currentPeriodSpend: FieldValue.increment(costCents),
     updatedAt: FieldValue.serverTimestamp(),
   };
 
-  // Only send individual alerts if this is an individual billing context
-  // and notifications aren't suppressed (org users get org-level notifications
-  // via updateOrgSpend → checkAndNotifyOrg instead).
-  if (!skipNotifications && data.billingEntity === 'individual') {
-    const pct = data.monthlyBudget > 0 ? Math.round((newSpend / data.monthlyBudget) * 100) : 0;
-    await checkAndNotify(db, data, pct, updates, userId);
+  if (data.billingEntity === 'organization') {
+    updates['orgCurrentPeriodSpend'] = FieldValue.increment(costCents);
+  } else {
+    updates['personalCurrentPeriodSpend'] = FieldValue.increment(costCents);
   }
+
+  // Budget alerts are only for explicit org/team budgets.
+  // Wallet credit alerts for both individuals and orgs flow through wallet paths.
 
   await docRef.update(updates);
 }
@@ -447,24 +608,20 @@ async function updateSpend(
  *   3. Decrement walletBalanceCents and increment currentPeriodSpend
  *
  * Fires a low-balance alert when balance drops below the configured threshold
- * (default $2.00, via `platformConfig/billing.lowBalanceThresholdCents`).
+ * (default $2.00, via `AppConfig/billing.lowBalanceThresholdCents`).
  * Uses a separate `iapLowBalanceNotified` flag — distinct from Stripe's notified100.
  */
 async function deductWallet(db: Firestore, userId: string, costCents: number): Promise<void> {
   const config = await getPlatformConfig(db);
-  const collRef = db.collection(COLLECTIONS.BILLING_CONTEXTS);
-  const snapshot = await collRef.where('userId', '==', userId).limit(1).get();
+  const record = await getBillingContextRecord(db, userId);
 
-  if (snapshot.empty) {
+  if (!record) {
     logger.error('[deductWallet] Billing context not found', { userId, costCents });
     throw new Error(`Billing context not found for user ${userId}`);
   }
 
-  const docRef = snapshot.docs[0]!.ref;
-  let newBalance = 0;
-  let shouldNotifyLow = false;
-
-  await db.runTransaction(async (txn) => {
+  const docRef = record.ref;
+  const { newBalance, shouldNotifyLow, creditsLowAlert } = await db.runTransaction(async (txn) => {
     const doc = await txn.get(docRef);
     const data = doc.data() as BillingContext;
     const currentBalance = data.walletBalanceCents ?? 0;
@@ -475,29 +632,61 @@ async function deductWallet(db: Firestore, userId: string, costCents: number): P
       );
     }
 
-    newBalance = currentBalance - costCents;
-    shouldNotifyLow = newBalance < config.lowBalanceThresholdCents && !data.iapLowBalanceNotified;
+    const nextBalance = currentBalance - costCents;
+    const nextShouldNotifyLow =
+      nextBalance < config.lowBalanceThresholdCents && !data.iapLowBalanceNotified;
+    const nextCreditsLowAlert = getCreditsLowAlert(data, nextBalance);
 
     const updates: Record<string, unknown> = {
       walletBalanceCents: FieldValue.increment(-costCents),
       currentPeriodSpend: FieldValue.increment(costCents),
+      personalCurrentPeriodSpend: FieldValue.increment(costCents),
       updatedAt: FieldValue.serverTimestamp(),
     };
 
-    if (shouldNotifyLow) {
+    if (nextCreditsLowAlert) {
+      Object.assign(updates, nextCreditsLowAlert.updates);
+    }
+
+    if (nextShouldNotifyLow) {
       updates['iapLowBalanceNotified'] = true;
     }
 
     txn.update(docRef, updates);
+    return {
+      newBalance: nextBalance,
+      shouldNotifyLow: nextShouldNotifyLow,
+      creditsLowAlert: nextCreditsLowAlert,
+    };
   });
 
   logger.info('[deductWallet] Wallet deducted', { userId, costCents, newBalance });
 
-  if (shouldNotifyLow) {
+  if (creditsLowAlert) {
     const { dispatch } = await import('../../services/notification.service.js');
     await dispatch(db, {
       userId,
-      type: NOTIFICATION_TYPES.BUDGET_WARNING,
+      type: NOTIFICATION_TYPES.CREDITS_LOW,
+      title: creditsLowAlert.title,
+      body:
+        `You have $${(Math.max(0, newBalance) / 100).toFixed(2)} remaining in wallet credits. ` +
+        'Add funds in Settings → Usage to keep using Agent X without interruption.',
+      deepLink: '/usage?section=overview',
+      priority: creditsLowAlert.priority,
+      source: { userName: 'NXT1 Billing' },
+    }).catch((err: unknown) => {
+      logger.error('[deductWallet] Failed to send credits-low threshold alert', {
+        error: err,
+        userId,
+      });
+    });
+  }
+
+  if (shouldNotifyLow && !creditsLowAlert) {
+    const { dispatch } = await import('../../services/notification.service.js');
+    await dispatch(db, {
+      userId,
+      type: NOTIFICATION_TYPES.CREDITS_LOW,
       title: 'Wallet Balance Low',
       body: `Your wallet balance is $${(Math.max(0, newBalance) / 100).toFixed(2)}. Add funds in Settings → Usage to continue using Agent X.`,
       deepLink: '/usage',
@@ -507,6 +696,590 @@ async function deductWallet(db: Firestore, userId: string, costCents: number): P
       logger.error('[deductWallet] Failed to send low-balance alert', { error: err, userId });
     });
   }
+
+  // Fire auto top-up if the user configured it — non-blocking, never delays the spend recording.
+  // Re-read the full doc from the snapshot so we have the autoTopUp settings.
+  const ctxData = record.data;
+  triggerAutoTopUpIfEnabled(db, userId, ctxData, newBalance).catch((err: unknown) => {
+    logger.error('[deductWallet] Auto top-up trigger failed', { error: err, userId });
+  });
+}
+
+// ============================================
+// ORGANIZATION WALLET OPERATIONS
+// ============================================
+
+/**
+ * Atomically deduct from an organization master wallet AND record
+ * per-user + team-allocation spend in a single logical operation.
+ *
+ * Steps:
+ *   1. Locate the org billing context by organizationId.
+ *   2. Transactionally decrement walletBalanceCents and increment currentPeriodSpend.
+ *   3. In parallel: update user's own spend context and team sub-allocation (if any).
+ *   4. If the new wallet balance crosses the low-balance threshold, dispatch an alert
+ *      to the organization admin.
+ *
+ * Throws if the wallet balance is insufficient (caller should have already called
+ * checkBudget / checkWalletBudget before recording spend).
+ */
+export async function deductOrgWallet(
+  db: Firestore,
+  organizationId: string,
+  userId: string,
+  teamId: string | undefined,
+  costCents: number
+): Promise<void> {
+  const config = await getPlatformConfig(db);
+
+  // Locate org master billing context
+  const record = await getBillingContextRecord(db, `org:${organizationId}`);
+
+  if (!record) {
+    // Org billing context not found — fall back gracefully to per-user spend tracking
+    logger.warn('[deductOrgWallet] Org billing context not found, falling back to updateSpend', {
+      organizationId,
+      userId,
+      costCents,
+    });
+    await updateSpend(db, userId, costCents);
+    return;
+  }
+
+  const docRef = record.ref;
+  const { newBalance, shouldNotifyLow, creditsLowAlert } = await db.runTransaction(async (txn) => {
+    const doc = await txn.get(docRef);
+    const data = doc.data() as BillingContext;
+    const currentBalance = data.walletBalanceCents ?? 0;
+
+    if (currentBalance < costCents) {
+      throw new Error(
+        `Insufficient org wallet balance: $${(currentBalance / 100).toFixed(2)} < $${(costCents / 100).toFixed(2)}`
+      );
+    }
+
+    const nextBalance = currentBalance - costCents;
+    const nextShouldNotifyLow =
+      nextBalance < config.lowBalanceThresholdCents && !data.iapLowBalanceNotified;
+    const nextCreditsLowAlert = getCreditsLowAlert(data, nextBalance);
+
+    const updates: Record<string, unknown> = {
+      walletBalanceCents: FieldValue.increment(-costCents),
+      currentPeriodSpend: FieldValue.increment(costCents),
+      orgCurrentPeriodSpend: FieldValue.increment(costCents),
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+
+    if (nextCreditsLowAlert) {
+      Object.assign(updates, nextCreditsLowAlert.updates);
+    }
+
+    if (nextShouldNotifyLow) {
+      updates['iapLowBalanceNotified'] = true;
+    }
+
+    txn.update(docRef, updates);
+    return {
+      newBalance: nextBalance,
+      shouldNotifyLow: nextShouldNotifyLow,
+      creditsLowAlert: nextCreditsLowAlert,
+    };
+  });
+
+  logger.info('[deductOrgWallet] Org wallet deducted', {
+    organizationId,
+    userId,
+    costCents,
+    newBalance,
+  });
+
+  const orgAdminIds = await getOrganizationAdminIds(db, organizationId);
+
+  if (creditsLowAlert && orgAdminIds.length > 0) {
+    const { dispatch } = await import('../../services/notification.service.js');
+    await Promise.allSettled(
+      orgAdminIds.map((adminId) =>
+        dispatch(db, {
+          userId: adminId,
+          type: NOTIFICATION_TYPES.CREDITS_LOW,
+          title: creditsLowAlert.title,
+          body:
+            `Your organization's wallet has $${(Math.max(0, newBalance) / 100).toFixed(2)} remaining. ` +
+            'Add funds in Settings → Usage to keep your team running.',
+          deepLink: '/usage?section=overview',
+          priority: creditsLowAlert.priority,
+          source: { userName: 'NXT1 Billing' },
+          data: { organizationId },
+        })
+      )
+    );
+  }
+
+  // Update per-user spend (analytics only — no threshold alerts at this level)
+  const perUserUpdate = updateSpend(db, userId, costCents);
+  // Update team sub-allocation spend
+  const teamUpdate = teamId ? updateTeamAllocationSpend(db, teamId, costCents) : Promise.resolve();
+
+  await Promise.all([perUserUpdate, teamUpdate]).catch((err: unknown) => {
+    // Non-fatal: master wallet deducted successfully — only analytics is affected
+    logger.error('[deductOrgWallet] Failed to update per-user or team spend', {
+      error: err,
+      organizationId,
+      userId,
+    });
+  });
+
+  if (shouldNotifyLow && !creditsLowAlert && orgAdminIds.length > 0) {
+    const { dispatch } = await import('../../services/notification.service.js');
+    await Promise.allSettled(
+      orgAdminIds.map((adminId) =>
+        dispatch(db, {
+          userId: adminId,
+          type: NOTIFICATION_TYPES.CREDITS_LOW,
+          title: 'Organization Wallet Low',
+          body:
+            `Your organization's AI wallet balance is $${(Math.max(0, newBalance) / 100).toFixed(2)}. ` +
+            'Add funds in Settings → Usage to keep your team running.',
+          deepLink: '/usage',
+          priority: 'high',
+          source: { userName: 'NXT1 Billing' },
+          data: { organizationId },
+        })
+      )
+    );
+  }
+
+  // Fire org auto top-up if configured — non-blocking.
+  const billingOwnerUid = record.data.billingOwnerUid ?? orgAdminIds[0];
+  if (billingOwnerUid) {
+    const orgCtxData = record.data;
+    triggerAutoTopUpIfEnabled(db, billingOwnerUid, orgCtxData, newBalance, {
+      organizationId,
+    }).catch((err: unknown) => {
+      logger.error('[deductOrgWallet] Auto top-up trigger failed', {
+        error: err,
+        organizationId,
+      });
+    });
+  }
+}
+
+// ============================================
+// AUTO TOP-UP TRIGGER
+// ============================================
+
+/**
+ * Trigger an automatic Stripe wallet reload if the user has auto top-up enabled
+ * and the new balance has dropped below their configured threshold.
+ *
+ * This is intentionally fire-and-forget — callers should never await it so a slow
+ * Stripe API call never delays spend recording. All errors are caught internally.
+ *
+ * Guards against double-firing via `autoTopUpInProgress` flag on BillingContext.
+ * Uses `confirm: true, off_session: true` PaymentIntent — no 3DS challenge possible.
+ * If the card requires additional authentication, the charge fails and a failure
+ * notification is sent to prompt the user to re-enter their card.
+ *
+ * @param db        Firestore instance
+ * @param userId    The billing context owner (individual uid, or org admin uid for orgs)
+ * @param ctx       The BillingContext snapshot read just before calling this function
+ * @param newBalance The wallet balance AFTER the deduction that triggered this check
+ * @param orgOptions When the billing context is an org, pass { organizationId } so the
+ *                   wallet credit goes to the org wallet instead of the individual.
+ */
+async function triggerAutoTopUpIfEnabled(
+  db: Firestore,
+  userId: string,
+  ctx: BillingContext,
+  newBalance: number,
+  orgOptions?: { organizationId: string }
+): Promise<void> {
+  // ── Guard: only Stripe users; IAP is controlled by Apple ──
+  if (ctx.paymentProvider !== 'stripe') return;
+
+  // ── Guard: auto top-up must be enabled and configured ──
+  if (!ctx.autoTopUpEnabled) return;
+  const thresholdCents = ctx.autoTopUpThresholdCents ?? 0;
+  const amountCents = ctx.autoTopUpAmountCents ?? 0;
+  if (thresholdCents <= 0 || amountCents <= 0) return;
+
+  // ── Guard: balance must actually be below threshold ──
+  if (newBalance >= thresholdCents) return;
+
+  // ── Guard: acquire in-progress lock atomically to prevent double-fire ──
+  // Use a transaction to set the flag only when it is currently false/undefined.
+  const billingContextKey = orgOptions?.organizationId
+    ? `org:${orgOptions.organizationId}`
+    : userId;
+  const record = await getBillingContextRecord(db, billingContextKey);
+  if (!record) {
+    logger.warn('[triggerAutoTopUpIfEnabled] Billing context disappeared', { userId });
+    return;
+  }
+  const docRef = record.ref;
+
+  let lockAcquired = false;
+  await db.runTransaction(async (txn) => {
+    const doc = await txn.get(docRef);
+    const data = doc.data() as BillingContext;
+    if (data.autoTopUpInProgress) {
+      // Check for stale lock — if locked more than 5 minutes ago the process likely
+      // crashed before the finally block could release it. Treat as expired.
+      const STALE_LOCK_MS = 5 * 60 * 1000;
+      const lockedAt = data.autoTopUpLockedAt?.toMillis?.() ?? null;
+      const isStale = lockedAt !== null && Date.now() - lockedAt > STALE_LOCK_MS;
+      if (!isStale) {
+        // Lock is fresh — another in-flight charge owns it
+        return;
+      }
+      // Stale lock detected — log and take over
+      logger.warn('[triggerAutoTopUpIfEnabled] Stale lock detected — recovering', {
+        userId,
+        lockedAt,
+        ageMsec: lockedAt ? Date.now() - lockedAt : null,
+      });
+    }
+    txn.update(docRef, {
+      autoTopUpInProgress: true,
+      autoTopUpLockedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    lockAcquired = true;
+  });
+
+  if (!lockAcquired) {
+    logger.info('[triggerAutoTopUpIfEnabled] Lock already held — skipping duplicate trigger', {
+      userId,
+    });
+    return;
+  }
+
+  logger.info('[triggerAutoTopUpIfEnabled] Auto top-up triggered', {
+    userId,
+    newBalance,
+    thresholdCents,
+    amountCents,
+    isOrg: !!orgOptions,
+  });
+
+  const environment = getRuntimeEnvironment();
+
+  try {
+    // ── Resolve Stripe customer and default payment method ──
+    const customerSnap = await db
+      .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+      .where('userId', '==', userId)
+      .where('environment', '==', environment)
+      .limit(1)
+      .get();
+
+    if (customerSnap.empty) {
+      logger.warn('[triggerAutoTopUpIfEnabled] No Stripe customer found — cannot auto charge', {
+        userId,
+      });
+      await releaseAutoTopUpLock(docRef);
+      return;
+    }
+
+    const { stripeCustomerId } = customerSnap.docs[0]!.data() as { stripeCustomerId: string };
+
+    // Retrieve customer from Stripe to get the current default payment method
+    const { getStripeClient } = await import('./stripe.service.js');
+    const stripe = getStripeClient(environment);
+    const customer = await stripe.customers.retrieve(stripeCustomerId);
+
+    if (!customer || (customer as { deleted?: boolean }).deleted) {
+      logger.warn('[triggerAutoTopUpIfEnabled] Stripe customer deleted', {
+        userId,
+        stripeCustomerId,
+      });
+      await releaseAutoTopUpLock(docRef);
+      return;
+    }
+
+    const defaultPm =
+      typeof (customer as { invoice_settings?: { default_payment_method?: unknown } })
+        .invoice_settings?.default_payment_method === 'string'
+        ? ((customer as { invoice_settings: { default_payment_method: string } }).invoice_settings
+            .default_payment_method as string)
+        : ((
+            customer as {
+              invoice_settings?: { default_payment_method?: { id?: string } };
+            }
+          ).invoice_settings?.default_payment_method?.id ?? null);
+
+    if (!defaultPm) {
+      logger.warn('[triggerAutoTopUpIfEnabled] No default payment method — cannot auto charge', {
+        userId,
+        stripeCustomerId,
+      });
+      await releaseAutoTopUpLock(docRef);
+      // Notify user so they know why the auto top-up didn't fire
+      await sendAutoTopUpNotification(db, userId, 'no_payment_method', amountCents);
+      return;
+    }
+
+    // ── Charge the card ──
+    const idempotencyKey = `auto-topup-${billingContextKey}-${Date.now()}`;
+    const description = orgOptions
+      ? `NXT1 Organization Wallet Auto Top-Up ($${(amountCents / 100).toFixed(2)})`
+      : `NXT1 Wallet Auto Top-Up ($${(amountCents / 100).toFixed(2)})`;
+
+    const { chargeOffSession } = await import('./stripe.service.js');
+    const result = await chargeOffSession(
+      stripeCustomerId,
+      defaultPm,
+      amountCents,
+      description,
+      idempotencyKey,
+      environment
+    );
+
+    if (result.success && result.paymentIntentId) {
+      // ── Credit the wallet ──
+      if (orgOptions?.organizationId) {
+        await addFundsToOrgWallet(db, orgOptions.organizationId, amountCents, 'stripe_checkout');
+      } else {
+        await addWalletTopUp(db, userId, amountCents, 'stripe');
+      }
+
+      // ── Write a PaymentLog entry so it appears in payment history ──
+      const { PaymentLogModel } = await import('../../models/payment-log.model.js');
+      await PaymentLogModel.findOneAndUpdate(
+        { invoiceId: result.paymentIntentId },
+        {
+          $setOnInsert: {
+            invoiceId: result.paymentIntentId,
+            customerId: stripeCustomerId,
+            userId,
+            organizationId: orgOptions?.organizationId,
+            amountDue: amountCents / 100,
+            amountPaid: amountCents / 100,
+            currency: 'usd',
+            status: 'PAID',
+            type: 'auto_wallet_topup',
+            receiptUrl: result.receiptUrl ?? null,
+            rawEvent: {
+              type: 'auto_wallet_topup',
+              paymentIntentId: result.paymentIntentId,
+              amountCents,
+              userId,
+              organizationId: orgOptions?.organizationId ?? null,
+            },
+            createdAt: new Date(),
+          },
+        },
+        { upsert: true }
+      ).catch((err: unknown) => {
+        // Non-fatal — wallet was credited successfully; only audit log is affected
+        logger.error('[triggerAutoTopUpIfEnabled] Failed to write PaymentLog', {
+          error: err,
+          userId,
+        });
+      });
+
+      logger.info('[triggerAutoTopUpIfEnabled] Auto top-up succeeded', {
+        userId,
+        amountCents,
+        paymentIntentId: result.paymentIntentId,
+      });
+
+      await sendAutoTopUpNotification(db, userId, 'success', amountCents);
+    } else {
+      logger.error('[triggerAutoTopUpIfEnabled] Stripe charge failed', {
+        userId,
+        amountCents,
+        errorCode: result.errorCode,
+        error: result.error,
+      });
+
+      // ── Write a failed PaymentLog entry ──
+      const { PaymentLogModel } = await import('../../models/payment-log.model.js');
+      const failedId = result.paymentIntentId ?? `auto-topup-failed-${userId}-${Date.now()}`;
+      await PaymentLogModel.findOneAndUpdate(
+        { invoiceId: failedId },
+        {
+          $setOnInsert: {
+            invoiceId: failedId,
+            customerId: stripeCustomerId,
+            userId,
+            organizationId: orgOptions?.organizationId,
+            amountDue: amountCents / 100,
+            amountPaid: 0,
+            currency: 'usd',
+            status: 'FAILED',
+            type: 'auto_wallet_topup',
+            rawEvent: {
+              type: 'auto_wallet_topup_failed',
+              errorCode: result.errorCode,
+              error: result.error,
+              amountCents,
+              userId,
+            },
+            createdAt: new Date(),
+          },
+        },
+        { upsert: true }
+      ).catch((err: unknown) => {
+        logger.error('[triggerAutoTopUpIfEnabled] Failed to write failed PaymentLog', {
+          error: err,
+          userId,
+        });
+      });
+
+      await sendAutoTopUpNotification(db, userId, 'failed', amountCents);
+    }
+  } catch (err: unknown) {
+    logger.error('[triggerAutoTopUpIfEnabled] Unexpected error during auto top-up', {
+      error: err,
+      userId,
+    });
+  } finally {
+    // Always release the lock — whether success, failure, or unexpected error
+    await releaseAutoTopUpLock(docRef).catch((err: unknown) => {
+      logger.error('[triggerAutoTopUpIfEnabled] Failed to release lock', { error: err, userId });
+    });
+  }
+}
+
+/** Release the `autoTopUpInProgress` lock on a BillingContext document. */
+async function releaseAutoTopUpLock(docRef: FirebaseFirestore.DocumentReference): Promise<void> {
+  await docRef.update({
+    autoTopUpInProgress: false,
+    autoTopUpLockedAt: FieldValue.delete(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+}
+
+/** Send an auto top-up push notification to the user. */
+async function sendAutoTopUpNotification(
+  db: Firestore,
+  userId: string,
+  outcome: 'success' | 'failed' | 'no_payment_method',
+  amountCents: number
+): Promise<void> {
+  const { dispatch } = await import('../../services/notification.service.js');
+  const amountStr = `$${(amountCents / 100).toFixed(2)}`;
+
+  const messages: Record<
+    typeof outcome,
+    { title: string; body: string; type: NotificationType; priority: 'high' | 'normal' }
+  > = {
+    success: {
+      title: 'Wallet Auto-Reloaded',
+      body: `Your wallet was automatically reloaded with ${amountStr}. You're good to go.`,
+      type: NOTIFICATION_TYPES.PAYMENT_RECEIVED,
+      priority: 'normal',
+    },
+    failed: {
+      title: 'Auto Top-Up Failed',
+      body: `We couldn't reload your wallet with ${amountStr}. Please add funds manually in Settings → Usage.`,
+      type: NOTIFICATION_TYPES.PAYMENT_FAILED,
+      priority: 'high',
+    },
+    no_payment_method: {
+      title: 'Auto Top-Up Failed',
+      body: `No saved payment method found. Add a card in Settings → Usage to enable auto top-up.`,
+      type: NOTIFICATION_TYPES.PAYMENT_FAILED,
+      priority: 'high',
+    },
+  };
+
+  const msg = messages[outcome];
+  await dispatch(db, {
+    userId,
+    type: msg.type,
+    title: msg.title,
+    body: msg.body,
+    deepLink: '/usage',
+    priority: msg.priority,
+    source: { userName: 'NXT1 Billing' },
+  }).catch((err: unknown) => {
+    logger.error('[sendAutoTopUpNotification] Failed to send notification', {
+      error: err,
+      userId,
+      outcome,
+    });
+  });
+}
+
+/**
+ * Add funds to an organization's prepaid wallet.
+ * Called after a verified Stripe Checkout session or approved invoice payment.
+ *
+ * - Atomically increments `walletBalanceCents` on the org master billing context.
+ * - Resets low-balance notification flags.
+ * - Returns the new balance for downstream logging / webhook response.
+ */
+export async function addFundsToOrgWallet(
+  db: Firestore,
+  organizationId: string,
+  amountCents: number,
+  source: 'stripe_checkout' | 'invoice_payment' | 'manual_credit' = 'stripe_checkout'
+): Promise<{ newBalance: number }> {
+  if (!Number.isInteger(amountCents) || amountCents <= 0) {
+    throw new Error(
+      `[addFundsToOrgWallet] amountCents must be a positive integer, got ${amountCents}`
+    );
+  }
+
+  const docRef = getBillingContextRef(db, `org:${organizationId}`);
+  let snapshot = await docRef.get();
+
+  if (!snapshot.exists) {
+    await createOrgBillingContext(db, organizationId);
+    snapshot = await docRef.get();
+  }
+
+  if (!snapshot.exists) {
+    throw new Error(
+      `[addFundsToOrgWallet] No org billing context found for organizationId=${organizationId}`
+    );
+  }
+
+  const currentData = snapshot.data() as BillingContext;
+  const newBalance = (currentData.walletBalanceCents ?? 0) + amountCents;
+
+  await docRef.update({
+    walletBalanceCents: FieldValue.increment(amountCents),
+    paymentProvider: 'stripe',
+    // Reset low-balance flag so the org sees fresh alerts at the new balance
+    iapLowBalanceNotified: false,
+    creditsAlertBaselineCents: newBalance,
+    creditsNotified80: false,
+    creditsNotified50: false,
+    creditsNotified25: false,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  logger.info('[addFundsToOrgWallet] Org wallet funded', {
+    organizationId,
+    amountCents,
+    newBalance,
+    source,
+  });
+
+  const adminIds = await getOrganizationAdminIds(db, organizationId);
+  if (adminIds.length > 0) {
+    const { dispatch } = await import('../../services/notification.service.js');
+    await Promise.allSettled(
+      adminIds.map((adminId) =>
+        dispatch(db, {
+          userId: adminId,
+          type: NOTIFICATION_TYPES.CREDITS_ADDED,
+          title: 'Organization Credits Added',
+          body:
+            `$${(amountCents / 100).toFixed(2)} was added to your organization's wallet. ` +
+            `New balance: $${(newBalance / 100).toFixed(2)}.`,
+          deepLink: '/usage?section=overview',
+          source: { userName: 'NXT1 Billing' },
+          data: { organizationId },
+        })
+      )
+    );
+  }
+
+  return { newBalance };
 }
 
 // ============================================
@@ -534,10 +1307,9 @@ export async function processWalletRefund(
     );
   }
 
-  const collRef = db.collection(COLLECTIONS.BILLING_CONTEXTS);
-  const snapshot = await collRef.where('userId', '==', userId).limit(1).get();
+  const record = await getBillingContextRecord(db, userId);
 
-  if (snapshot.empty) {
+  if (!record) {
     logger.warn('[processWalletRefund] Billing context not found — nothing to deduct', {
       userId,
       amountCents,
@@ -545,7 +1317,7 @@ export async function processWalletRefund(
     return; // Graceful no-op — user may have been deleted
   }
 
-  const docRef = snapshot.docs[0]!.ref;
+  const docRef = record.ref;
 
   await db.runTransaction(async (txn) => {
     const doc = await txn.get(docRef);
@@ -589,18 +1361,15 @@ export async function addWalletTopUp(
   // existence check and returns early if one already exists.
   await getOrCreateBillingContext(db, userId);
 
-  const snapshot = await db
-    .collection(COLLECTIONS.BILLING_CONTEXTS)
-    .where('userId', '==', userId)
-    .limit(1)
-    .get();
+  const record = await getBillingContextRecord(db, userId);
 
-  if (snapshot.empty) {
+  if (!record) {
     throw new Error(`Failed to find or create billing context for user ${userId}`);
   }
 
-  const docRef = snapshot.docs[0]!.ref;
-  const data = snapshot.docs[0]!.data() as BillingContext;
+  const docRef = record.ref;
+  const data = record.data;
+  const newBalance = (data.walletBalanceCents ?? 0) + amountCents;
 
   await docRef.update({
     walletBalanceCents: FieldValue.increment(amountCents),
@@ -610,12 +1379,16 @@ export async function addWalletTopUp(
     notified80: false,
     notified100: false,
     iapLowBalanceNotified: false,
+    creditsAlertBaselineCents: newBalance,
+    creditsNotified80: false,
+    creditsNotified50: false,
+    creditsNotified25: false,
     updatedAt: FieldValue.serverTimestamp(),
   });
 
-  const newBalance = (data.walletBalanceCents ?? 0) + amountCents;
-
   logger.info('[addWalletTopUp] Wallet topped up', { userId, amountCents, newBalance });
+
+  await dispatchCreditsAddedNotification(db, userId, amountCents, newBalance);
 
   return { newBalance };
 }
@@ -628,45 +1401,35 @@ async function updateOrgSpend(
   organizationId: string,
   costCents: number
 ): Promise<void> {
-  const snapshot = await db
-    .collection(COLLECTIONS.BILLING_CONTEXTS)
-    .where('organizationId', '==', organizationId)
-    .where('billingEntity', '==', 'organization')
-    .where('userId', '>=', 'org:')
-    .where('userId', '<', 'org:\uf8ff')
-    .limit(1)
-    .get();
+  let record = await getBillingContextRecord(db, `org:${organizationId}`);
 
-  if (snapshot.empty) {
+  if (!record) {
     // Auto-create and then re-query to record the spend
     await createOrgBillingContext(db, organizationId);
-    const retrySnap = await db
-      .collection(COLLECTIONS.BILLING_CONTEXTS)
-      .where('organizationId', '==', organizationId)
-      .where('billingEntity', '==', 'organization')
-      .limit(1)
-      .get();
+    record = await getBillingContextRecord(db, `org:${organizationId}`);
 
-    if (retrySnap.empty) {
+    if (!record) {
       logger.error('[updateOrgSpend] Failed to find org context after creation', {
         organizationId,
       });
       return;
     }
 
-    await retrySnap.docs[0]!.ref.update({
+    await record.ref.update({
       currentPeriodSpend: FieldValue.increment(costCents),
+      orgCurrentPeriodSpend: FieldValue.increment(costCents),
       updatedAt: FieldValue.serverTimestamp(),
     });
     return;
   }
 
-  const docRef = snapshot.docs[0]!.ref;
-  const data = snapshot.docs[0]!.data() as BillingContext;
+  const docRef = record.ref;
+  const data = record.data;
 
   const newSpend = data.currentPeriodSpend + costCents;
   const updates: Record<string, unknown> = {
     currentPeriodSpend: FieldValue.increment(costCents),
+    orgCurrentPeriodSpend: FieldValue.increment(costCents),
     updatedAt: FieldValue.serverTimestamp(),
   };
 
@@ -713,116 +1476,9 @@ async function updateTeamAllocationSpend(
   await docRef.update(updates);
 }
 
-/**
- * Legacy: Increment current period spend for a team aggregate and check thresholds.
- * Used when there is no organizationId (legacy orgBillingEnabled teams).
- */
-async function updateTeamSpend(db: Firestore, teamId: string, costCents: number): Promise<void> {
-  const snapshot = await db
-    .collection(COLLECTIONS.BILLING_CONTEXTS)
-    .where('teamId', '==', teamId)
-    .where('billingEntity', '==', 'organization')
-    .limit(1)
-    .get();
-
-  if (snapshot.empty) {
-    // Try legacy 'team' entity
-    const legacySnap = await db
-      .collection(COLLECTIONS.BILLING_CONTEXTS)
-      .where('teamId', '==', teamId)
-      .where('billingEntity', '==', 'team')
-      .limit(1)
-      .get();
-
-    if (legacySnap.empty) {
-      await createTeamBillingContext(db, teamId);
-      return;
-    }
-
-    const docRef = legacySnap.docs[0]!.ref;
-    const data = legacySnap.docs[0]!.data() as BillingContext;
-    const newSpend = data.currentPeriodSpend + costCents;
-    const updates: Record<string, unknown> = {
-      currentPeriodSpend: FieldValue.increment(costCents),
-      updatedAt: FieldValue.serverTimestamp(),
-    };
-    const pct = data.monthlyBudget > 0 ? Math.round((newSpend / data.monthlyBudget) * 100) : 0;
-    await checkAndNotifyTeamLegacy(db, teamId, pct, data, updates);
-    await docRef.update(updates);
-    return;
-  }
-
-  const docRef = snapshot.docs[0]!.ref;
-  const data = snapshot.docs[0]!.data() as BillingContext;
-
-  const newSpend = data.currentPeriodSpend + costCents;
-  const updates: Record<string, unknown> = {
-    currentPeriodSpend: FieldValue.increment(costCents),
-    updatedAt: FieldValue.serverTimestamp(),
-  };
-
-  const pct = data.monthlyBudget > 0 ? Math.round((newSpend / data.monthlyBudget) * 100) : 0;
-  await checkAndNotifyTeamLegacy(db, teamId, pct, data, updates);
-  await docRef.update(updates);
-}
-
 // ============================================
 // ALERT DISPATCH HELPERS
 // ============================================
-
-/**
- * Check threshold percentages and dispatch push notifications for individual.
- */
-async function checkAndNotify(
-  db: Firestore,
-  ctx: BillingContext,
-  pct: number,
-  updates: Record<string, unknown>,
-  userId: string
-): Promise<void> {
-  const { dispatch } = await import('../../services/notification.service.js');
-
-  if (pct >= BUDGET_ALERT_THRESHOLDS[2] && !ctx.notified100) {
-    updates['notified100'] = true;
-    await dispatch(db, {
-      userId,
-      type: NOTIFICATION_TYPES.BUDGET_REACHED,
-      title: 'Budget Limit Reached',
-      body: `You've reached your monthly budget of $${(ctx.monthlyBudget / 100).toFixed(2)}. Increase your budget to continue using Agent X.`,
-      deepLink: '/usage',
-      priority: 'high',
-      source: { userName: 'NXT1 Billing' },
-    }).catch((err: unknown) => {
-      logger.error('[checkAndNotify] Failed to send 100% alert', { error: err, userId });
-    });
-  } else if (pct >= BUDGET_ALERT_THRESHOLDS[1] && !ctx.notified80) {
-    updates['notified80'] = true;
-    await dispatch(db, {
-      userId,
-      type: NOTIFICATION_TYPES.BUDGET_WARNING,
-      title: 'Budget Warning — 80%',
-      body: `You've used 80% of your monthly budget ($${(ctx.monthlyBudget / 100).toFixed(2)}). Consider increasing your limit.`,
-      deepLink: '/usage',
-      priority: 'normal',
-      source: { userName: 'NXT1 Billing' },
-    }).catch((err: unknown) => {
-      logger.error('[checkAndNotify] Failed to send 80% alert', { error: err, userId });
-    });
-  } else if (pct >= BUDGET_ALERT_THRESHOLDS[0] && !ctx.notified50) {
-    updates['notified50'] = true;
-    await dispatch(db, {
-      userId,
-      type: NOTIFICATION_TYPES.BUDGET_WARNING,
-      title: 'Budget Update — 50%',
-      body: `You've used 50% of your monthly budget ($${(ctx.monthlyBudget / 100).toFixed(2)}).`,
-      deepLink: '/usage',
-      priority: 'normal',
-      source: { userName: 'NXT1 Billing' },
-    }).catch((err: unknown) => {
-      logger.error('[checkAndNotify] Failed to send 50% alert', { error: err, userId });
-    });
-  }
-}
 
 /**
  * Check threshold percentages and notify organization admins.
@@ -834,6 +1490,8 @@ async function checkAndNotifyOrg(
   ctx: BillingContext,
   updates: Record<string, unknown>
 ): Promise<void> {
+  if (!areBudgetAlertsEnabled(ctx)) return;
+
   const { dispatch } = await import('../../services/notification.service.js');
 
   // Get org admins
@@ -964,76 +1622,6 @@ async function checkAndNotifyTeam(
   }
 }
 
-/**
- * Legacy: Check threshold percentages and notify team admins (old billing model).
- */
-async function checkAndNotifyTeamLegacy(
-  db: Firestore,
-  teamId: string,
-  pct: number,
-  ctx: BillingContext,
-  updates: Record<string, unknown>
-): Promise<void> {
-  const { dispatch } = await import('../../services/notification.service.js');
-
-  const teamDoc = await db.collection('Teams').doc(teamId).get();
-  const teamData = teamDoc.data();
-  const adminIds: string[] = Array.isArray(teamData?.['adminIds'])
-    ? (teamData!['adminIds'] as string[])
-    : teamData?.['createdBy']
-      ? [teamData['createdBy'] as string]
-      : [];
-
-  if (adminIds.length === 0) return;
-
-  let title = '';
-  let body = '';
-  let priority: 'high' | 'normal' = 'normal';
-  let flagKey = '';
-
-  if (pct >= 100 && !ctx.notified100) {
-    title = 'Organization Budget Reached';
-    body = `Your organization has reached its monthly budget of $${(ctx.monthlyBudget / 100).toFixed(2)}. Increase the limit to continue.`;
-    priority = 'high';
-    flagKey = 'notified100';
-  } else if (pct >= 80 && !ctx.notified80) {
-    title = 'Organization Budget — 80%';
-    body = `Your organization has used 80% of the $${(ctx.monthlyBudget / 100).toFixed(2)} monthly budget.`;
-    flagKey = 'notified80';
-  } else if (pct >= 50 && !ctx.notified50) {
-    title = 'Organization Budget — 50%';
-    body = `Your organization has used 50% of the $${(ctx.monthlyBudget / 100).toFixed(2)} monthly budget.`;
-    flagKey = 'notified50';
-  }
-
-  if (!flagKey) return;
-
-  updates[flagKey] = true;
-
-  const notificationType =
-    flagKey === 'notified100'
-      ? NOTIFICATION_TYPES.BUDGET_REACHED
-      : NOTIFICATION_TYPES.BUDGET_WARNING;
-
-  for (const adminId of adminIds) {
-    await dispatch(db, {
-      userId: adminId,
-      type: notificationType,
-      title,
-      body,
-      deepLink: '/usage',
-      priority,
-      source: { userName: 'NXT1 Billing' },
-    }).catch((err: unknown) => {
-      logger.error('[checkAndNotifyTeamLegacy] Failed to send team alert', {
-        error: err,
-        adminId,
-        teamId,
-      });
-    });
-  }
-}
-
 // ============================================
 // BILLING TARGET RESOLUTION (DIRECTOR → ORG)
 // ============================================
@@ -1074,6 +1662,11 @@ interface CachedBillingResolution {
 // In-memory cache for billing target resolution (5 min TTL)
 // Only caches the mapping (role → org/individual), NOT the live BillingContext.
 const billingResolutionCache = new Map<string, CachedBillingResolution>();
+
+/** Evict a user's billing resolution cache entry (call after billing mode changes). */
+export function evictBillingResolutionCache(userId: string): void {
+  billingResolutionCache.delete(userId);
+}
 const BILLING_RESOLUTION_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const BILLING_RESOLUTION_CACHE_MAX_SIZE = 10_000; // Prevent unbounded growth
 
@@ -1095,8 +1688,33 @@ const BILLING_RESOLUTION_CACHE_MAX_SIZE = 10_000; // Prevent unbounded growth
  */
 export async function resolveBillingTarget(
   db: Firestore,
-  userId: string
+  userId: string,
+  options?: { usePersonalBilling?: boolean }
 ): Promise<ResolvedBillingTarget> {
+  // ── Determine effective usePersonalBilling flag ──
+  // If the caller explicitly passes the option, use it.
+  // Otherwise, auto-read from the user's stored billing context so ALL callers
+  // (agent workers, routes, etc.) automatically respect the stored preference.
+  let effectiveUsePersonalBilling = options?.usePersonalBilling;
+  if (effectiveUsePersonalBilling === undefined) {
+    const personalCtx = await getBillingContext(db, userId);
+    if (personalCtx) {
+      effectiveUsePersonalBilling =
+        (personalCtx.usePersonalBilling as boolean | undefined) ?? false;
+    }
+  }
+
+  // ── Personal billing override: org member explicitly chose to pay from their own wallet ──
+  if (effectiveUsePersonalBilling) {
+    billingResolutionCache.delete(userId); // Evict so next call re-resolves naturally
+    const ctx = await getOrCreateBillingContext(db, userId);
+    return {
+      type: 'individual',
+      billingUserId: userId,
+      context: { ...ctx, usePersonalBilling: true },
+    };
+  }
+
   // ── Check resolution cache (mapping only, NOT the live context) ──
   const cached = billingResolutionCache.get(userId);
   if (cached && cached.expiresAt > Date.now()) {
@@ -1232,13 +1850,13 @@ async function resolveAthleteOrgTarget(
 
   const orgId = organizationId ?? (teamData?.['organizationId'] as string | undefined);
 
+  if (!orgId) return null;
+
   let orgHasBilling = false;
   if (orgId) {
     const orgDoc = await db.collection('Organizations').doc(orgId).get();
     const orgData = orgDoc.data();
-    orgHasBilling = !!orgData?.['billing']?.['subscriptionId'] || !!teamData?.['orgBillingEnabled'];
-  } else if (teamData?.['orgBillingEnabled']) {
-    orgHasBilling = true;
+    orgHasBilling = !!orgData?.['billing']?.['subscriptionId'];
   }
 
   if (!orgHasBilling) return null;
@@ -1251,13 +1869,9 @@ async function resolveAthleteOrgTarget(
   // If the existing context is individual (created before the team joined org billing),
   // update it to reflect the organization billing.
   if (athleteCtx.billingEntity === 'individual' && orgId) {
-    const ctxSnap = await db
-      .collection(COLLECTIONS.BILLING_CONTEXTS)
-      .where('userId', '==', userId)
-      .limit(1)
-      .get();
-    if (!ctxSnap.empty) {
-      await ctxSnap.docs[0]!.ref.update({
+    const ctxRecord = await getBillingContextRecord(db, userId);
+    if (ctxRecord) {
+      await ctxRecord.ref.update({
         billingEntity: 'organization' as BillingEntity,
         teamId,
         organizationId: orgId,
@@ -1272,7 +1886,7 @@ async function resolveAthleteOrgTarget(
     }
   }
 
-  const billingUserId = orgId ? `org:${orgId}` : `team:${teamId}`;
+  const billingUserId = `org:${orgId}`;
 
   // Fetch all team IDs for this org so the usage dashboard can query
   // UsageEvents across the entire organization (same as resolveUserOrgTarget).
@@ -1410,14 +2024,8 @@ async function getOrgBillingContext(
   db: Firestore,
   organizationId: string
 ): Promise<BillingContext | null> {
-  const snapshot = await db
-    .collection(COLLECTIONS.BILLING_CONTEXTS)
-    .where('userId', '==', `org:${organizationId}`)
-    .limit(1)
-    .get();
-
-  if (snapshot.empty) return null;
-  return snapshot.docs[0]!.data() as BillingContext;
+  const record = await getBillingContextRecord(db, `org:${organizationId}`);
+  return record?.data ?? null;
 }
 
 /**
@@ -1437,23 +2045,6 @@ async function getTeamAllocation(
   return snapshot.docs[0]!.data() as TeamBudgetAllocation;
 }
 
-/**
- * Get the team-level billing context (legacy model).
- */
-async function getTeamBillingContext(
-  db: Firestore,
-  teamId: string
-): Promise<BillingContext | null> {
-  const snapshot = await db
-    .collection(COLLECTIONS.BILLING_CONTEXTS)
-    .where('userId', '==', `team:${teamId}`)
-    .limit(1)
-    .get();
-
-  if (snapshot.empty) return null;
-  return snapshot.docs[0]!.data() as BillingContext;
-}
-
 // ============================================
 // CONTEXT CREATION HELPERS
 // ============================================
@@ -1465,17 +2056,25 @@ async function createOrgBillingContext(db: Firestore, organizationId: string): P
   const now = new Date();
   const periodStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
   const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString();
+  const starterWalletConfig = await getStarterWalletConfig(db);
+  const billingOwnerUid = await getOrganizationBillingOwnerUid(db, organizationId);
+  const billingUserId = `org:${organizationId}`;
+  const docRef = getBillingContextRef(db, billingUserId);
+
+  if ((await docRef.get()).exists) return;
 
   const ts = FieldValue.serverTimestamp();
-  await db.collection(COLLECTIONS.BILLING_CONTEXTS).add({
-    userId: `org:${organizationId}`,
+  await docRef.set({
+    billingOwnerUid,
     organizationId,
     billingEntity: 'organization',
     paymentProvider: 'stripe',
     monthlyBudget: DEFAULT_ORGANIZATION_BUDGET,
-    budgetName: 'Starter budget',
+    budgetName: undefined,
     currentPeriodSpend: 0,
-    walletBalanceCents: 0,
+    personalCurrentPeriodSpend: 0,
+    orgCurrentPeriodSpend: 0,
+    walletBalanceCents: starterWalletConfig.organizationAmountCents,
     pendingHoldsCents: 0,
     periodStart,
     periodEnd,
@@ -1483,44 +2082,20 @@ async function createOrgBillingContext(db: Firestore, organizationId: string): P
     notified80: false,
     notified100: false,
     iapLowBalanceNotified: false,
+    budgetAlertsEnabled: false,
+    creditsAlertBaselineCents: starterWalletConfig.organizationAmountCents,
+    creditsNotified80: false,
+    creditsNotified50: false,
+    creditsNotified25: false,
     hardStop: true,
     createdAt: ts,
     updatedAt: ts,
   });
 
-  logger.info('[createOrgBillingContext] Created org billing context', { organizationId });
-}
-
-/**
- * Legacy: Create a team-level billing context for aggregate tracking.
- */
-async function createTeamBillingContext(db: Firestore, teamId: string): Promise<void> {
-  const now = new Date();
-  const periodStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString();
-
-  const ts = FieldValue.serverTimestamp();
-  await db.collection(COLLECTIONS.BILLING_CONTEXTS).add({
-    userId: `team:${teamId}`,
-    teamId,
-    billingEntity: 'team',
-    paymentProvider: 'stripe',
-    monthlyBudget: DEFAULT_ORGANIZATION_BUDGET,
-    currentPeriodSpend: 0,
-    walletBalanceCents: 0,
-    pendingHoldsCents: 0,
-    periodStart,
-    periodEnd,
-    iapLowBalanceNotified: false,
-    notified50: false,
-    notified80: false,
-    notified100: false,
-    hardStop: true,
-    createdAt: ts,
-    updatedAt: ts,
+  logger.info('[createOrgBillingContext] Created org billing context', {
+    organizationId,
+    billingOwnerUid,
   });
-
-  logger.info('[createTeamBillingContext] Created team billing context', { teamId });
 }
 
 // ============================================
@@ -1543,17 +2118,17 @@ export async function updateBudget(
   // Ensure a billing context exists (creates one with defaults if missing)
   const ctx = await getOrCreateBillingContext(db, userId);
 
-  const snapshot = await db
-    .collection(COLLECTIONS.BILLING_CONTEXTS)
-    .where('userId', '==', userId)
-    .limit(1)
-    .get();
+  if (ctx.billingEntity === 'individual') {
+    throw new Error('Individual budgets are not supported');
+  }
 
-  if (snapshot.empty) {
+  const record = await getBillingContextRecord(db, userId);
+
+  if (!record) {
     throw new Error('Billing context not found after upsert');
   }
 
-  await snapshot.docs[0]!.ref.update({
+  await record.ref.update({
     monthlyBudget: newBudgetCents,
     budgetName: FieldValue.delete(),
     // Reset notification flags if the budget is increased past current thresholds
@@ -1583,36 +2158,23 @@ export async function updateOrgBudget(
     throw new Error('Budget cannot be negative');
   }
 
-  // First try to find by organizationId
-  let snapshot = await db
-    .collection(COLLECTIONS.BILLING_CONTEXTS)
-    .where('organizationId', '==', organizationId)
-    .where('billingEntity', '==', 'organization')
-    .where('userId', '>=', 'org:')
-    .where('userId', '<', 'org:\uf8ff')
-    .limit(1)
-    .get();
+  const docRef = getBillingContextRef(db, `org:${organizationId}`);
+  let snapshot = await docRef.get();
 
-  if (snapshot.empty) {
+  if (!snapshot.exists) {
     // Create one if it doesn't exist
     await createOrgBillingContext(db, organizationId);
-    snapshot = await db
-      .collection(COLLECTIONS.BILLING_CONTEXTS)
-      .where('organizationId', '==', organizationId)
-      .where('billingEntity', '==', 'organization')
-      .where('userId', '>=', 'org:')
-      .where('userId', '<', 'org:\uf8ff')
-      .limit(1)
-      .get();
+    snapshot = await docRef.get();
   }
 
-  if (snapshot.empty) {
+  if (!snapshot.exists) {
     throw new Error('Organization billing context not found');
   }
 
-  await snapshot.docs[0]!.ref.update({
+  await docRef.update({
     monthlyBudget: newBudgetCents,
     budgetName: FieldValue.delete(),
+    budgetAlertsEnabled: newBudgetCents > 0,
     notified50: false,
     notified80: false,
     notified100: false,
@@ -1682,41 +2244,6 @@ export async function updateTeamAllocation(
   logger.info('[updateTeamAllocation] Team allocation updated', { teamId, newLimitCents });
 }
 
-/**
- * Legacy: Update a team's monthly budget limit.
- * Only team admins can call this.
- */
-export async function updateTeamBudget(
-  db: Firestore,
-  teamId: string,
-  newBudgetCents: number
-): Promise<void> {
-  if (newBudgetCents < 0) {
-    throw new Error('Budget cannot be negative');
-  }
-
-  const snapshot = await db
-    .collection(COLLECTIONS.BILLING_CONTEXTS)
-    .where('teamId', '==', teamId)
-    .where('billingEntity', '==', 'team')
-    .limit(1)
-    .get();
-
-  if (snapshot.empty) {
-    throw new Error('Team billing context not found');
-  }
-
-  await snapshot.docs[0]!.ref.update({
-    monthlyBudget: newBudgetCents,
-    notified50: false,
-    notified80: false,
-    notified100: false,
-    updatedAt: FieldValue.serverTimestamp(),
-  });
-
-  logger.info('[updateTeamBudget] Team budget updated', { teamId, newBudgetCents });
-}
-
 // ============================================
 // TEAM ALLOCATION QUERIES (FOR DASHBOARD)
 // ============================================
@@ -1764,6 +2291,8 @@ export async function resetMonthlyBudgets(db: Firestore): Promise<number> {
     if (data.paymentProvider === 'iap') {
       batch.update(doc.ref, {
         currentPeriodSpend: 0,
+        personalCurrentPeriodSpend: 0,
+        orgCurrentPeriodSpend: 0,
         periodStart,
         periodEnd,
         // Keep notified flags so we don't spam; they reset on next top-up
@@ -1772,6 +2301,8 @@ export async function resetMonthlyBudgets(db: Firestore): Promise<number> {
     } else {
       batch.update(doc.ref, {
         currentPeriodSpend: 0,
+        personalCurrentPeriodSpend: 0,
+        orgCurrentPeriodSpend: 0,
         periodStart,
         periodEnd,
         notified50: false,
@@ -1859,21 +2390,19 @@ export async function createWalletHold(
     return { success: false, reason: 'Estimated cost must be positive' };
   }
 
-  const collRef = db.collection(COLLECTIONS.BILLING_CONTEXTS);
-  const snapshot = await collRef.where('userId', '==', userId).limit(1).get();
-
-  if (snapshot.empty) {
-    return { success: false, reason: 'Billing context not found' };
-  }
-
-  const docRef = snapshot.docs[0]!.ref;
   let holdId = '';
   let availableBalance = 0;
 
   try {
     await db.runTransaction(async (txn) => {
-      const doc = await txn.get(docRef);
-      const data = doc.data() as BillingContext;
+      const billingRecord = await getBillingContextRecordForTransaction(txn, db, userId);
+
+      if (!billingRecord) {
+        throw new Error('Billing context not found');
+      }
+
+      const docRef = billingRecord.ref;
+      const data = billingRecord.data;
 
       const walletBalance = data.walletBalanceCents ?? 0;
       const pendingHolds = data.pendingHoldsCents ?? 0;
@@ -1890,29 +2419,24 @@ export async function createWalletHold(
           throw new Error('Org user has no organizationId in billing context');
         }
 
-        const orgSnap = await txn.get(
-          db.collection(COLLECTIONS.BILLING_CONTEXTS).where('userId', '==', orgUserId).limit(1)
-        );
-        if (orgSnap.empty) {
+        const orgRecord = await getBillingContextRecordForTransaction(txn, db, orgUserId);
+        if (!orgRecord) {
           throw new Error(`Org master billing context not found for ${orgUserId}`);
         }
-        orgMasterRef = orgSnap.docs[0]!.ref;
-        orgMasterData = orgSnap.docs[0]!.data() as BillingContext;
+        orgMasterRef = orgRecord.ref;
+        orgMasterData = orgRecord.data;
 
-        if (data.hardStop) {
-          const orgCurrentSpend = orgMasterData.currentPeriodSpend ?? 0;
-          const orgPendingHolds = orgMasterData.pendingHoldsCents ?? 0;
-          const orgMonthlyBudget = orgMasterData.monthlyBudget ?? monthlyBudget;
-          const availableBudget = orgMonthlyBudget - orgCurrentSpend - orgPendingHolds;
-          if (availableBudget < estimatedCostCents) {
-            throw new Error(
-              `Insufficient budget: $${(availableBudget / 100).toFixed(2)} (available) < $${(estimatedCostCents / 100).toFixed(2)} (estimated)`
-            );
-          }
-          availableBalance = availableBudget;
+        const orgWalletBalance = orgMasterData.walletBalanceCents ?? 0;
+        const orgPendingHolds = orgMasterData.pendingHoldsCents ?? 0;
+        const availableCredits = orgWalletBalance - orgPendingHolds;
+        if (availableCredits < estimatedCostCents) {
+          throw new Error(
+            `Insufficient organization wallet balance: $${(availableCredits / 100).toFixed(2)} (available) < $${(estimatedCostCents / 100).toFixed(2)} (estimated)`
+          );
         }
-      } else if (data.billingEntity === 'individual' && data.paymentProvider === 'iap') {
-        // IAP prepay wallet balance check
+        availableBalance = availableCredits;
+      } else if (data.billingEntity === 'individual') {
+        // Individual usage always reserves against wallet balance.
         availableBalance = walletBalance - pendingHolds;
         if (availableBalance < estimatedCostCents) {
           throw new Error(
@@ -2023,16 +2547,14 @@ export async function captureWalletHold(
     }
 
     // Find the user's billing context
-    const ctxSnap = await txn.get(
-      db.collection(COLLECTIONS.BILLING_CONTEXTS).where('userId', '==', hold.userId).limit(1)
-    );
+    const ctxRecord = await getBillingContextRecordForTransaction(txn, db, hold.userId);
 
-    if (ctxSnap.empty) {
+    if (!ctxRecord) {
       throw new Error(`Billing context not found for user ${hold.userId}`);
     }
 
-    const ctxRef = ctxSnap.docs[0]!.ref;
-    const ctxData = ctxSnap.docs[0]!.data() as BillingContext;
+    const ctxRef = ctxRecord.ref;
+    const ctxData = ctxRecord.data;
 
     // Release the full hold and record the actual cost on the user's context
     const updates: Record<string, unknown> = {
@@ -2041,7 +2563,16 @@ export async function captureWalletHold(
       updatedAt: FieldValue.serverTimestamp(),
     };
 
+    if (ctxData.billingEntity === 'organization') {
+      updates['orgCurrentPeriodSpend'] = FieldValue.increment(actualCostCents);
+    } else {
+      updates['personalCurrentPeriodSpend'] = FieldValue.increment(actualCostCents);
+    }
+
     if (ctxData.billingEntity === 'individual' && ctxData.paymentProvider === 'iap') {
+      updates['walletBalanceCents'] = FieldValue.increment(-actualCostCents);
+    } else if (ctxData.billingEntity === 'individual' && (ctxData.walletBalanceCents ?? 0) > 0) {
+      // Stripe wallet user: also decrement the pre-paid balance
       updates['walletBalanceCents'] = FieldValue.increment(-actualCostCents);
     }
 
@@ -2050,12 +2581,11 @@ export async function captureWalletHold(
     // For org users: also release the pending hold reservation on the org master context
     if (hold.organizationId) {
       const orgUserId = `org:${hold.organizationId}`;
-      const orgSnap = await txn.get(
-        db.collection(COLLECTIONS.BILLING_CONTEXTS).where('userId', '==', orgUserId).limit(1)
-      );
-      if (!orgSnap.empty) {
-        txn.update(orgSnap.docs[0]!.ref, {
+      const orgRecord = await getBillingContextRecordForTransaction(txn, db, orgUserId);
+      if (orgRecord) {
+        txn.update(orgRecord.ref, {
           pendingHoldsCents: FieldValue.increment(-hold.amountCents),
+          walletBalanceCents: FieldValue.increment(-actualCostCents),
           updatedAt: FieldValue.serverTimestamp(),
         });
       }
@@ -2109,15 +2639,13 @@ export async function releaseWalletHold(db: Firestore, holdId: string): Promise<
     }
 
     // Find the user's billing context
-    const ctxSnap = await txn.get(
-      db.collection(COLLECTIONS.BILLING_CONTEXTS).where('userId', '==', hold.userId).limit(1)
-    );
+    const ctxRecord = await getBillingContextRecordForTransaction(txn, db, hold.userId);
 
-    if (ctxSnap.empty) {
+    if (!ctxRecord) {
       throw new Error(`Billing context not found for user ${hold.userId}`);
     }
 
-    const ctxRef = ctxSnap.docs[0]!.ref;
+    const ctxRef = ctxRecord.ref;
 
     // Release the hold — no deduction
     txn.update(ctxRef, {
@@ -2128,11 +2656,9 @@ export async function releaseWalletHold(db: Firestore, holdId: string): Promise<
     // For org users: also release the pending hold on the org master context
     if (hold.organizationId) {
       const orgUserId = `org:${hold.organizationId}`;
-      const orgSnap = await txn.get(
-        db.collection(COLLECTIONS.BILLING_CONTEXTS).where('userId', '==', orgUserId).limit(1)
-      );
-      if (!orgSnap.empty) {
-        txn.update(orgSnap.docs[0]!.ref, {
+      const orgRecord = await getBillingContextRecordForTransaction(txn, db, orgUserId);
+      if (orgRecord) {
+        txn.update(orgRecord.ref, {
           pendingHoldsCents: FieldValue.increment(-hold.amountCents),
           updatedAt: FieldValue.serverTimestamp(),
         });
@@ -2201,14 +2727,10 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
 
   // Release pending holds on each affected user's billing context
   for (const [userId, totalHeldCents] of holdsByUser) {
-    const ctxSnap = await db
-      .collection(COLLECTIONS.BILLING_CONTEXTS)
-      .where('userId', '==', userId)
-      .limit(1)
-      .get();
+    const ctxRecord = await getBillingContextRecord(db, userId);
 
-    if (!ctxSnap.empty) {
-      await ctxSnap.docs[0]!.ref.update({
+    if (ctxRecord) {
+      await ctxRecord.ref.update({
         pendingHoldsCents: FieldValue.increment(-totalHeldCents),
         updatedAt: FieldValue.serverTimestamp(),
       });
@@ -2218,14 +2740,10 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
   // Release pending holds on each affected org master context
   for (const [organizationId, totalHeldCents] of holdsByOrg) {
     const orgUserId = `org:${organizationId}`;
-    const orgSnap = await db
-      .collection(COLLECTIONS.BILLING_CONTEXTS)
-      .where('userId', '==', orgUserId)
-      .limit(1)
-      .get();
+    const orgRecord = await getBillingContextRecord(db, orgUserId);
 
-    if (!orgSnap.empty) {
-      await orgSnap.docs[0]!.ref.update({
+    if (orgRecord) {
+      await orgRecord.ref.update({
         pendingHoldsCents: FieldValue.increment(-totalHeldCents),
         updatedAt: FieldValue.serverTimestamp(),
       });
@@ -2246,16 +2764,58 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
  * adjusted without a deployment. This constant is the fallback only.
  */
 export const REFERRAL_REWARD_CENTS = 500; // $5.00
+export const MAX_REFERRAL_REWARDS = 20;
+export const NEW_USER_MAX_AGE_MINUTES = 30;
 
 /** Firestore collection that holds global app configuration knobs. */
 const APP_CONFIG_COLLECTION = 'AppConfig';
+const REFERRAL_REWARDS_COLLECTION = 'ReferralRewards';
+
+/** AppConfig document holding starter wallet amounts for newly created billing contexts. */
+const STARTER_WALLETS_DOC_ID = 'starterWallets';
+
+interface StarterWalletConfig {
+  readonly individualAmountCents: number;
+  readonly organizationAmountCents: number;
+}
+
+/**
+ * Read starter wallet amounts from Firestore.
+ * Document path: `AppConfig/starterWallets` →
+ * `{ individualAmountCents: number, organizationAmountCents: number }`.
+ * Falls back to the built-in defaults if the doc is missing or invalid.
+ */
+async function getStarterWalletConfig(db: Firestore): Promise<StarterWalletConfig> {
+  try {
+    const snap = await db.collection(APP_CONFIG_COLLECTION).doc(STARTER_WALLETS_DOC_ID).get();
+    const data = snap.data();
+    const individualAmount = data?.['individualAmountCents'];
+    const organizationAmount = data?.['organizationAmountCents'];
+
+    return {
+      individualAmountCents:
+        typeof individualAmount === 'number' && individualAmount >= 0
+          ? individualAmount
+          : DEFAULT_INDIVIDUAL_STARTER_BALANCE,
+      organizationAmountCents:
+        typeof organizationAmount === 'number' && organizationAmount >= 0
+          ? organizationAmount
+          : DEFAULT_ORGANIZATION_STARTER_BALANCE,
+    };
+  } catch {
+    return {
+      individualAmountCents: DEFAULT_INDIVIDUAL_STARTER_BALANCE,
+      organizationAmountCents: DEFAULT_ORGANIZATION_STARTER_BALANCE,
+    };
+  }
+}
 
 /**
  * Read the current referral reward amount from Firestore.
  * Document path: `AppConfig/referralReward` → `{ amountCents: number }`.
  * Falls back to REFERRAL_REWARD_CENTS if the doc is missing or has no valid value.
  */
-async function getReferralRewardCents(db: Firestore): Promise<number> {
+export async function getReferralRewardCents(db: Firestore): Promise<number> {
   try {
     const snap = await db.collection(APP_CONFIG_COLLECTION).doc('referralReward').get();
     const data = snap.data();
@@ -2271,6 +2831,30 @@ export interface WalletTopUpResult {
   success: boolean;
   newBalanceCents: number;
   error?: string;
+}
+
+async function dispatchCreditsAddedNotification(
+  db: Firestore,
+  userId: string,
+  amountCents: number,
+  newBalance: number
+): Promise<void> {
+  const { dispatch } = await import('../../services/notification.service.js');
+  await dispatch(db, {
+    userId,
+    type: NOTIFICATION_TYPES.CREDITS_ADDED,
+    title: 'Credits Added',
+    body:
+      `$${(amountCents / 100).toFixed(2)} was added to your wallet. ` +
+      `New balance: $${(newBalance / 100).toFixed(2)}.`,
+    deepLink: '/usage?section=overview',
+    source: { userName: 'NXT1 Billing' },
+  }).catch((err: unknown) => {
+    logger.error('[addWalletTopUp] Failed to send credits-added notification', {
+      error: err,
+      userId,
+    });
+  });
 }
 
 /**
@@ -2305,45 +2889,106 @@ export async function creditReferralReward(
 
   // Idempotency key: one reward per (referrer, newUser) pair
   const idempotencyKey = `referral_${referrerId}_${newUserId}`;
-  const rewardRef = db.collection('ReferralRewards').doc(idempotencyKey);
+  const rewardRef = db.collection(REFERRAL_REWARDS_COLLECTION).doc(idempotencyKey);
 
   try {
-    // Check idempotency first (non-transactional read is fine — worst case
-    // we skip the top-up below and addWalletTopUp is itself idempotent-safe)
-    const rewardSnap = await rewardRef.get();
-    if (rewardSnap.exists) {
-      logger.info('[creditReferralReward] Already processed (idempotent)', {
-        referrerId,
-        newUserId,
-      });
-      // Return current balance from billing context
-      const ctx = await getBillingContext(db, referrerId);
+    await getOrCreateBillingContext(db, referrerId);
+    const billingRecord = await getBillingContextRecord(db, referrerId);
+
+    if (!billingRecord) {
       return {
-        success: true,
-        newBalanceCents: ctx?.walletBalanceCents ?? 0,
+        success: false,
+        newBalanceCents: 0,
+        error: `Billing context not found for referrer ${referrerId}`,
       };
     }
 
-    // Credit the reward via the single source of truth
-    const { newBalance } = await addWalletTopUp(db, referrerId, amountCents, 'stripe');
+    let result: WalletTopUpResult = {
+      success: false,
+      newBalanceCents: billingRecord.data.walletBalanceCents ?? 0,
+      error: 'Referral reward transaction did not complete',
+    };
+    let credited = false;
 
-    // Record the reward for idempotency and audit
-    await rewardRef.set({
-      referrerId,
-      newUserId,
-      amountCents,
-      processedAt: FieldValue.serverTimestamp(),
-      type: 'referral_reward',
+    await db.runTransaction(async (txn) => {
+      const rewardSnap = await txn.get(rewardRef);
+      const billingSnap = await txn.get(billingRecord.ref);
+
+      if (!billingSnap.exists) {
+        throw new Error(`Billing context not found for referrer ${referrerId}`);
+      }
+
+      const billingData = billingSnap.data() as BillingContext;
+      const currentBalance = billingData.walletBalanceCents ?? 0;
+
+      if (rewardSnap.exists) {
+        logger.info('[creditReferralReward] Already processed (idempotent)', {
+          referrerId,
+          newUserId,
+        });
+        result = {
+          success: true,
+          newBalanceCents: currentBalance,
+        };
+        return;
+      }
+
+      const totalReferralRewards = billingData.totalReferralRewards ?? 0;
+      if (totalReferralRewards >= MAX_REFERRAL_REWARDS) {
+        logger.info('[creditReferralReward] Referral reward cap reached', {
+          referrerId,
+          newUserId,
+          totalReferralRewards,
+          maxReferralRewards: MAX_REFERRAL_REWARDS,
+        });
+        result = {
+          success: false,
+          newBalanceCents: currentBalance,
+          error: 'Referral reward limit reached',
+        };
+        return;
+      }
+
+      const newBalance = currentBalance + amountCents;
+
+      txn.update(billingRecord.ref, {
+        walletBalanceCents: FieldValue.increment(amountCents),
+        paymentProvider: 'stripe',
+        notified50: false,
+        notified80: false,
+        notified100: false,
+        iapLowBalanceNotified: false,
+        creditsAlertBaselineCents: newBalance,
+        creditsNotified80: false,
+        creditsNotified50: false,
+        creditsNotified25: false,
+        totalReferralRewards: FieldValue.increment(1),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      txn.set(rewardRef, {
+        referrerId,
+        newUserId,
+        amountCents,
+        processedAt: FieldValue.serverTimestamp(),
+        type: 'referral_reward',
+      });
+
+      credited = true;
+      result = { success: true, newBalanceCents: newBalance };
     });
 
-    logger.info('[creditReferralReward] Referral reward credited', {
-      referrerId,
-      newUserId,
-      amountCents,
-      newBalanceCents: newBalance,
-    });
+    if (credited) {
+      logger.info('[creditReferralReward] Referral reward credited', {
+        referrerId,
+        newUserId,
+        amountCents,
+        newBalanceCents: result.newBalanceCents,
+      });
+      await dispatchCreditsAddedNotification(db, referrerId, amountCents, result.newBalanceCents);
+    }
 
-    return { success: true, newBalanceCents: newBalance };
+    return result;
   } catch (error) {
     logger.error('[creditReferralReward] Referral reward failed', {
       referrerId,

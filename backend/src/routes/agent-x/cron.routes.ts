@@ -27,6 +27,53 @@ router.post('/cron/daily-briefings', cronGuard, async (_req: Request, res: Respo
   }
 });
 
+// ─── POST /cron/weekly-playbooks ─────────────────────────────────────────
+// Cloud Scheduler: every Monday at 8:00 AM  (cron: 0 8 * * 1)
+
+router.post('/cron/weekly-playbooks', cronGuard, async (_req: Request, res: Response) => {
+  try {
+    const { runWeeklyPlaybooks } =
+      await import('../../modules/agent/triggers/trigger.listeners.js');
+    await runWeeklyPlaybooks();
+    res.json({ success: true, message: 'Weekly playbooks completed' });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('CRON weekly playbooks failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Weekly playbooks failed' });
+  }
+});
+
+// ─── POST /cron/playbook-nudge ────────────────────────────────────────────
+// Cloud Scheduler: Wednesday + Saturday at 6:00 PM  (cron: 0 18 * * 3,6)
+// Sends a personalized mid-week progress check-in push for active playbooks.
+
+router.post('/cron/playbook-nudge', cronGuard, async (_req: Request, res: Response) => {
+  try {
+    const { runPlaybookNudge } = await import('../../modules/agent/triggers/trigger.listeners.js');
+    await runPlaybookNudge();
+    res.json({ success: true, message: 'Playbook nudge dispatched' });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('CRON playbook-nudge failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Playbook nudge failed' });
+  }
+});
+
+// ─── POST /cron/weekly-recaps ─────────────────────────────────────────────
+// Cloud Scheduler: every Friday at 9:00 AM  (cron: 0 9 * * 5)
+
+router.post('/cron/weekly-recaps', cronGuard, async (_req: Request, res: Response) => {
+  try {
+    const { runWeeklyRecaps } = await import('../../modules/agent/triggers/trigger.listeners.js');
+    await runWeeklyRecaps();
+    res.json({ success: true, message: 'Weekly recaps completed' });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('CRON weekly recaps failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Weekly recaps failed' });
+  }
+});
+
 // ─── POST /cron/summarize-threads ─────────────────────────────────────────
 
 router.post('/cron/summarize-threads', cronGuard, async (_req: Request, res: Response) => {
@@ -107,6 +154,90 @@ router.post('/cron/cleanup-thread-media', cronGuard, async (_req: Request, res: 
     logger.error('CRON cleanup-thread-media failed', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Thread media cleanup failed' });
   }
+});
+
+// ─── POST /cron/cleanup-stale-jobs ────────────────────────────────────────
+// Marks queued jobs that have been stuck for >100 minutes as failed.
+// Called every 15 minutes by the cleanupStaleAgentJobs Cloud Function.
+
+router.post('/cron/cleanup-stale-jobs', cronGuard, async (req: Request, res: Response) => {
+  try {
+    const db = (
+      req as typeof req & { firebase?: { db: import('firebase-admin').firestore.Firestore } }
+    ).firebase?.db;
+    if (!db) {
+      res.status(503).json({ success: false, error: 'Firestore not available' });
+      return;
+    }
+
+    const STALE_THRESHOLD_MS = 100 * 60 * 1000; // 100 minutes
+    const cutoff = new Date(Date.now() - STALE_THRESHOLD_MS);
+
+    const snapshot = await db
+      .collection('AgentJobs')
+      .where('status', '==', 'queued')
+      .where('createdAt', '<', cutoff)
+      .limit(100)
+      .get();
+
+    let updated = 0;
+    const batch = db.batch();
+
+    for (const doc of snapshot.docs) {
+      batch.update(doc.ref, {
+        status: 'failed',
+        error: 'Job timed out — no activity for over 100 minutes',
+        updatedAt: new Date(),
+      });
+      updated++;
+    }
+
+    if (updated > 0) {
+      await batch.commit();
+    }
+
+    logger.info('CRON cleanup-stale-jobs completed', {
+      scanned: snapshot.size,
+      markedFailed: updated,
+      cutoff: cutoff.toISOString(),
+    });
+
+    res.json({ success: true, data: { scanned: snapshot.size, markedFailed: updated } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('CRON cleanup-stale-jobs failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Stale job cleanup failed' });
+  }
+});
+
+// ─── POST /cron/refresh-help-center ──────────────────────────────────────
+// Cloud Scheduler: every Sunday at 2:00 AM UTC  (cron: 0 2 * * 0)
+
+router.post('/cron/refresh-help-center', cronGuard, async (_req: Request, res: Response) => {
+  if (!llmService) {
+    res.status(503).json({ success: false, error: 'LLM service not initialized' });
+    return;
+  }
+
+  // Respond immediately — job runs in background (can take 2–10 min)
+  res.json({ success: true, message: 'Help center refresh started', status: 'running' });
+
+  // Fire-and-forget background job
+  (async () => {
+    try {
+      const { HelpCenterRefreshService } =
+        await import('../../modules/agent/help-center-refresh.service.js');
+      const refreshService = new HelpCenterRefreshService(llmService!);
+      const result = await refreshService.run();
+      logger.info(
+        'CRON refresh-help-center completed',
+        result as unknown as Record<string, unknown>
+      );
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('CRON refresh-help-center failed', { error: error.message, stack: error.stack });
+    }
+  })();
 });
 
 export default router;

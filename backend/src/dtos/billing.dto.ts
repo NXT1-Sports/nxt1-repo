@@ -96,22 +96,6 @@ export class UpdateBudgetDto {
 }
 
 // ============================================
-// UPDATE TEAM BUDGET DTO
-// ============================================
-
-export class UpdateTeamBudgetDto {
-  @IsInt({ message: 'Monthly budget must be an integer (in cents)' })
-  @Min(0, { message: 'Monthly budget must be non-negative' })
-  @Max(1000000000, { message: 'Monthly budget cannot exceed $10,000,000' })
-  @IsNotEmpty()
-  monthlyBudget!: number; // in cents
-
-  @IsOptional()
-  @IsEnum(['soft', 'hard'], { message: 'Hard stop must be either "soft" or "hard"' })
-  hardStop?: 'soft' | 'hard';
-}
-
-// ============================================
 // QUERY DTOs
 // ============================================
 

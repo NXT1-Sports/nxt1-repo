@@ -11,8 +11,10 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { appGuard } from '../middleware/auth.middleware.js';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { notFoundError, validationError } from '@nxt1/core/errors';
+import { NOTIFICATION_TYPES } from '@nxt1/core';
 import { getCacheService } from '../services/cache.service.js';
 import { RosterEntryService } from '../services/roster-entry.service.js';
+import { dispatch } from '../services/notification.service.js';
 import { logger } from '../utils/logger.js';
 import type { UserPreferences, NotificationPreferences } from '@nxt1/core';
 import { auth as prodAuth } from '../utils/firebase.js';
@@ -319,6 +321,32 @@ router.post(
     // Firebase client-side sendPasswordResetEmail which is simpler, so this
     // endpoint is an alternative for integrations that need server-side dispatch.
     res.json({ success: true, data: { email, link } });
+  })
+);
+
+/**
+ * Record a completed password change.
+ * POST /api/v1/settings/password-changed
+ */
+router.post(
+  '/password-changed',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const userId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    await dispatch(db, {
+      userId,
+      type: NOTIFICATION_TYPES.PASSWORD_CHANGED,
+      title: 'Password Changed',
+      body: "Your password was updated. If this wasn't you, contact support immediately.",
+      deepLink: '/settings/account-information',
+      priority: 'high',
+      source: { userName: 'NXT1 Security' },
+    });
+
+    logger.info('[Settings] Password change recorded', { userId });
+    res.json({ success: true });
   })
 );
 

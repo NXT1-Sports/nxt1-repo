@@ -143,6 +143,15 @@ export interface ProfileAnalytics {
   viewsOverTime: Array<{ date: string; views: number }>;
 }
 
+export interface SetProfilePostPinRequest {
+  readonly isPinned: boolean;
+}
+
+export interface ProfilePostMutationResponse {
+  readonly postId: string;
+  readonly isPinned: boolean;
+}
+
 // ============================================
 // PROFILE API FACTORY
 // ============================================
@@ -247,6 +256,32 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
       return http.post<ApiResponse<{ url: string }>>(`${baseUrl}/auth/profile/${userId}/image`, {
         imageData,
       });
+    },
+
+    /**
+     * Pin or unpin a profile post.
+     */
+    async pinPost(
+      userId: string,
+      postId: string,
+      isPinned: boolean
+    ): Promise<ApiResponse<ProfilePostMutationResponse>> {
+      return http.patch<ApiResponse<ProfilePostMutationResponse>>(
+        `${baseUrl}/auth/profile/${userId}/posts/${postId}/pin`,
+        { isPinned } satisfies SetProfilePostPinRequest
+      );
+    },
+
+    /**
+     * Delete a profile post.
+     */
+    async deletePost(
+      userId: string,
+      postId: string
+    ): Promise<ApiResponse<ProfilePostMutationResponse>> {
+      return http.delete<ApiResponse<ProfilePostMutationResponse>>(
+        `${baseUrl}/auth/profile/${userId}/posts/${postId}`
+      );
     },
   };
 }

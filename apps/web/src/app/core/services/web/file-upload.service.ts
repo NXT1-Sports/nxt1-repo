@@ -171,17 +171,6 @@ export class FileUploadService {
   }
 
   /**
-   * Upload document (PDF, transcript, etc.)
-   *
-   * @param userId - User's Firebase UID
-   * @param file - Document file to upload
-   * @returns Upload result with URL, or null on failure
-   */
-  async uploadDocument(userId: string, file: File): Promise<FileUploadResult | null> {
-    return this.uploadFile(userId, file, 'document');
-  }
-
-  /**
    * Upload a highlight video via Cloudflare Stream direct TUS upload.
    * The backend provisions the upload session and the browser streams bytes directly to Cloudflare.
    */
@@ -433,9 +422,6 @@ export class FileUploadService {
             file.type,
             onProgress
           );
-          break;
-        case 'document':
-          result = await this.api.uploadDocument(userId, file, file.name, file.type, onProgress);
           break;
         default:
           throw new Error(`Unsupported category: ${category}`);

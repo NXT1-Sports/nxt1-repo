@@ -29,11 +29,15 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Router, NavigationEnd, RouterOutlet } from '@angular/router';
+import { filter } from 'rxjs/operators';
+import type { Subscription } from 'rxjs';
 import { NxtHeaderPortalService } from '../../services/header-portal';
 import { NxtSectionNavWebComponent } from '../../components/section-nav-web';
 import type { SectionNavItem, SectionNavChangeEvent } from '../../components/section-nav-web';
 import { NxtPlatformService } from '../../services/platform';
 import { NxtIconComponent } from '../../components/icon';
+import { NxtStateViewComponent } from '../../components/state-view';
 import { HelpCenterService } from '../_shared/help-center.service';
 import type { HelpArticle, HelpCategoryId, HelpCategory } from '@nxt1/core';
 
@@ -47,7 +51,14 @@ export interface HelpNavigateEvent {
 @Component({
   selector: 'nxt1-help-center-shell-web',
   standalone: true,
-  imports: [CommonModule, FormsModule, NxtSectionNavWebComponent, NxtIconComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    NxtSectionNavWebComponent,
+    NxtIconComponent,
+    NxtStateViewComponent,
+    RouterOutlet,
+  ],
   template: `
     <!-- Portal: center — "Help Center" title + search bar in top nav -->
     <ng-template #centerPortalContent>
@@ -85,6 +96,20 @@ export interface HelpNavigateEvent {
           </div>
         </div>
 
+        <!-- Error State -->
+        @if (helpService.error() && !hasData()) {
+          <div class="py-12">
+            <nxt1-state-view
+              variant="error"
+              title="Something went wrong"
+              [message]="helpService.error() ?? 'Failed to load help center'"
+              actionLabel="Try Again"
+              actionIcon="refresh"
+              (action)="helpService.loadHome()"
+            />
+          </div>
+        }
+
         <!-- Search Results -->
         @if (helpService.isSearching()) {
           <section class="mb-8">
@@ -92,10 +117,12 @@ export interface HelpNavigateEvent {
               Search Results
             </h2>
 
-            @if (helpService.filteredArticles().length === 0) {
+            @if (
+              helpService.filteredArticles().length === 0 && helpService.filteredFaqs().length === 0
+            ) {
               <div class="bg-surface-100 rounded-xl p-8 text-center">
                 <nxt1-icon name="search" [size]="48" class="text-text-tertiary mx-auto mb-3" />
-                <p class="text-text-secondary">No articles found for your search.</p>
+                <p class="text-text-secondary">No results found for your search.</p>
                 <button
                   type="button"
                   (click)="helpService.clearSearch()"
@@ -134,6 +161,38 @@ export interface HelpNavigateEvent {
                     />
                   </button>
                 }
+                @for (faq of helpService.filteredFaqs(); track faq.id) {
+                  <div>
+                    <button
+                      type="button"
+                      (click)="toggleFaq(faq.id)"
+                      class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
+                    >
+                      <div
+                        class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors"
+                      >
+                        <nxt1-icon name="help" [size]="20" class="text-text-secondary" />
+                      </div>
+                      <div class="min-w-0 flex-1">
+                        <h3 class="text-text-primary truncate text-base font-medium">
+                          {{ faq.question }}
+                        </h3>
+                        <p class="text-text-secondary line-clamp-1 text-sm">Popular Question</p>
+                      </div>
+                      <nxt1-icon
+                        [name]="expandedFaqId() === faq.id ? 'chevronDown' : 'chevronRight'"
+                        [size]="20"
+                        class="text-text-tertiary group-hover:text-text-secondary shrink-0 transition-transform"
+                      />
+                    </button>
+                    @if (expandedFaqId() === faq.id) {
+                      <div
+                        class="text-text-secondary border-border-subtle pl-18 border-t px-4 py-3 text-sm"
+                        [innerHTML]="faq.answer"
+                      ></div>
+                    }
+                  </div>
+                }
               </div>
             }
           </section>
@@ -147,38 +206,115 @@ export interface HelpNavigateEvent {
             />
 
             <section class="help-section-content nxt1-section-content" role="region">
-              @if (showAllSections() || activeSection() === 'categories') {
-                <section class="mb-8">
-                  <h2 class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide">
-                    Browse by Topic
-                  </h2>
-                  <div
-                    class="bg-surface-100 divide-border-subtle divide-y overflow-hidden rounded-xl"
-                  >
-                    @for (category of helpService.categories(); track category.id) {
+              @if (isChildRoute()) {
+                <router-outlet />
+              } @else {
+                @if (showAllSections() || activeSection() === 'categories') {
+                  <section class="mb-8">
+                    <h2 class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide">
+                      Browse by Topic
+                    </h2>
+                    <div
+                      class="bg-surface-100 divide-border-subtle divide-y overflow-hidden rounded-xl"
+                    >
+                      @for (category of helpService.categories(); track category.id) {
+                        <button
+                          type="button"
+                          (click)="onCategoryClick(category.id)"
+                          class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
+                        >
+                          <div
+                            class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors"
+                          >
+                            <nxt1-icon
+                              [name]="getCategoryIconName(category)"
+                              [size]="category.icon === 'agent-x' ? 32 : 20"
+                              class="text-text-secondary"
+                            />
+                          </div>
+                          <div class="min-w-0 flex-1">
+                            <h3 class="text-text-primary text-base font-medium">
+                              {{ category.label }}
+                            </h3>
+                            @if (category.description) {
+                              <p class="text-text-secondary line-clamp-1 text-sm">
+                                {{ category.description }}
+                              </p>
+                            }
+                          </div>
+                          <nxt1-icon
+                            name="chevronRight"
+                            [size]="20"
+                            class="text-text-tertiary group-hover:text-text-secondary shrink-0 transition-colors"
+                          />
+                        </button>
+                      }
+                    </div>
+                  </section>
+                }
+
+                @if (showAllSections() || activeSection() === 'popular') {
+                  <section class="mb-8">
+                    <h2 class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide">
+                      Popular Questions
+                    </h2>
+                    <div
+                      class="bg-surface-100 divide-border-subtle divide-y overflow-hidden rounded-xl"
+                    >
+                      @for (faq of helpService.popularFaqs(); track faq.id) {
+                        <div>
+                          <button
+                            type="button"
+                            (click)="toggleFaq(faq.id)"
+                            class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
+                          >
+                            <div
+                              class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors"
+                            >
+                              <nxt1-icon name="help" [size]="20" class="text-text-secondary" />
+                            </div>
+                            <div class="min-w-0 flex-1">
+                              <h3 class="text-text-primary text-base font-medium">
+                                {{ faq.question }}
+                              </h3>
+                            </div>
+                            <nxt1-icon
+                              [name]="expandedFaqId() === faq.id ? 'chevronDown' : 'chevronRight'"
+                              [size]="20"
+                              class="text-text-tertiary group-hover:text-text-secondary shrink-0 transition-transform"
+                            />
+                          </button>
+                          @if (expandedFaqId() === faq.id) {
+                            <div
+                              class="text-text-secondary border-border-subtle pl-18 border-t px-4 py-3 text-sm"
+                              [innerHTML]="faq.answer"
+                            ></div>
+                          }
+                        </div>
+                      }
+                    </div>
+                  </section>
+                }
+
+                @if (showAllSections() || activeSection() === 'support') {
+                  <section class="mb-8">
+                    <h2 class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide">
+                      Need More Help?
+                    </h2>
+                    <div class="bg-surface-100 overflow-hidden rounded-xl">
                       <button
                         type="button"
-                        (click)="onCategoryClick(category.id)"
+                        (click)="onContactClick()"
                         class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
                       >
                         <div
-                          class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors"
+                          class="bg-primary/10 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
                         >
-                          <nxt1-icon
-                            [name]="getCategoryIconName(category)"
-                            [size]="20"
-                            class="text-text-secondary"
-                          />
+                          <nxt1-icon name="chatBubble" [size]="20" class="text-primary" />
                         </div>
                         <div class="min-w-0 flex-1">
-                          <h3 class="text-text-primary text-base font-medium">
-                            {{ category.label }}
-                          </h3>
-                          @if (category.description) {
-                            <p class="text-text-secondary line-clamp-1 text-sm">
-                              {{ category.description }}
-                            </p>
-                          }
+                          <h3 class="text-text-primary text-base font-medium">Contact Support</h3>
+                          <p class="text-text-secondary text-sm">Get help from our team</p>
                         </div>
                         <nxt1-icon
                           name="chevronRight"
@@ -186,86 +322,12 @@ export interface HelpNavigateEvent {
                           class="text-text-tertiary group-hover:text-text-secondary shrink-0 transition-colors"
                         />
                       </button>
-                    }
-                  </div>
-                </section>
+                    </div>
+                  </section>
+                }
+                <!-- /support section -->
               }
-
-              @if (
-                (showAllSections() || activeSection() === 'popular') &&
-                helpService.popularFaqs().length > 0
-              ) {
-                <section class="mb-8">
-                  <h2 class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide">
-                    Popular Questions
-                  </h2>
-                  <div
-                    class="bg-surface-100 divide-border-subtle divide-y overflow-hidden rounded-xl"
-                  >
-                    @for (faq of helpService.popularFaqs(); track faq.id) {
-                      <div>
-                        <button
-                          type="button"
-                          (click)="toggleFaq(faq.id)"
-                          class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
-                        >
-                          <div
-                            class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors"
-                          >
-                            <nxt1-icon name="help" [size]="20" class="text-text-secondary" />
-                          </div>
-                          <div class="min-w-0 flex-1">
-                            <h3 class="text-text-primary text-base font-medium">
-                              {{ faq.question }}
-                            </h3>
-                          </div>
-                          <nxt1-icon
-                            [name]="expandedFaqId() === faq.id ? 'chevronDown' : 'chevronRight'"
-                            [size]="20"
-                            class="text-text-tertiary group-hover:text-text-secondary shrink-0 transition-transform"
-                          />
-                        </button>
-                        @if (expandedFaqId() === faq.id) {
-                          <div
-                            class="text-text-secondary border-border-subtle pl-18 border-t px-4 py-3 text-sm"
-                            [innerHTML]="faq.answer"
-                          ></div>
-                        }
-                      </div>
-                    }
-                  </div>
-                </section>
-              }
-
-              @if (showAllSections() || activeSection() === 'support') {
-                <section class="mb-8">
-                  <h2 class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide">
-                    Need More Help?
-                  </h2>
-                  <div class="bg-surface-100 overflow-hidden rounded-xl">
-                    <button
-                      type="button"
-                      (click)="onContactClick()"
-                      class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
-                    >
-                      <div
-                        class="bg-primary/10 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
-                      >
-                        <nxt1-icon name="chatBubble" [size]="20" class="text-primary" />
-                      </div>
-                      <div class="min-w-0 flex-1">
-                        <h3 class="text-text-primary text-base font-medium">Contact Support</h3>
-                        <p class="text-text-secondary text-sm">Get help from our team</p>
-                      </div>
-                      <nxt1-icon
-                        name="chevronRight"
-                        [size]="20"
-                        class="text-text-tertiary group-hover:text-text-secondary shrink-0 transition-colors"
-                      />
-                    </button>
-                  </div>
-                </section>
-              }
+              <!-- /@else (not child route) -->
             </section>
           </div>
         }
@@ -464,6 +526,11 @@ export class HelpCenterShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly helpService = inject(HelpCenterService);
   private readonly headerPortal = inject(NxtHeaderPortalService);
   private readonly platform = inject(NxtPlatformService);
+  private readonly router = inject(Router);
+
+  // Track current URL as a signal so isChildRoute() is reactive
+  private readonly _url = signal(this.router.url);
+  private _routeSub?: Subscription;
   private readonly _activeSection = signal<'categories' | 'popular' | 'support'>('categories');
 
   // Template ref for header portal
@@ -473,6 +540,17 @@ export class HelpCenterShellWebComponent implements AfterViewInit, OnDestroy {
   readonly back = output<void>();
   readonly navigate = output<HelpNavigateEvent>();
 
+  /** True when a child route (category / article) is active inside this shell. */
+  protected readonly isChildRoute = computed(() => /\/help-center\/.+/.test(this._url()));
+
+  /** True when any content has been loaded (prevents error state from showing over existing data) */
+  protected readonly hasData = computed(
+    () =>
+      this.helpService.categories().length > 0 ||
+      this.helpService.popularFaqs().length > 0 ||
+      this.helpService.articles().length > 0
+  );
+
   /** On mobile web, show all sections stacked (no section nav). Desktop uses @switch. */
   protected readonly showAllSections = computed(() => this.platform.isMobile());
 
@@ -481,9 +559,7 @@ export class HelpCenterShellWebComponent implements AfterViewInit, OnDestroy {
 
     items.push({ id: 'categories', label: 'Browse by Topic' });
 
-    if (this.helpService.popularFaqs().length > 0) {
-      items.push({ id: 'popular', label: 'Popular Questions' });
-    }
+    items.push({ id: 'popular', label: 'Popular Questions' });
 
     items.push({ id: 'support', label: 'Support' });
 
@@ -498,22 +574,33 @@ export class HelpCenterShellWebComponent implements AfterViewInit, OnDestroy {
 
   protected onSectionNavChange(event: SectionNavChangeEvent): void {
     this._activeSection.set(event.id as 'categories' | 'popular' | 'support');
+    // If on a child route, navigate home to show the selected section
+    if (this.isChildRoute()) {
+      this.router.navigate(['/help-center']);
+    }
   }
 
   ngAfterViewInit(): void {
     const centerTpl = this.centerPortalContent();
     if (centerTpl) this.headerPortal.setCenterContent(centerTpl);
+
+    // Keep _url signal in sync with router for isChildRoute() reactivity
+    this._routeSub = this.router.events
+      .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
+      .subscribe((e) => this._url.set(e.urlAfterRedirects));
   }
 
   ngOnDestroy(): void {
+    this._routeSub?.unsubscribe();
     this.headerPortal.clearAll();
   }
 
-  protected onSearch(query: string): void {
-    this.helpService.setSearchQuery(query);
+  protected onSearch(query: string | null | undefined): void {
+    this.helpService.setSearchQuery(query ?? '');
   }
 
   protected onArticleClick(article: HelpArticle): void {
+    this.helpService.clearSearch();
     this.navigate.emit({
       type: 'article',
       id: article.id,
@@ -555,6 +642,7 @@ export class HelpCenterShellWebComponent implements AfterViewInit, OnDestroy {
       'settings-outline': 'settings',
       'lock-closed-outline': 'lock',
       'construct-outline': 'settings',
+      'agent-x': 'agentX',
     };
     return iconMap[category.icon] ?? 'documentText';
   }

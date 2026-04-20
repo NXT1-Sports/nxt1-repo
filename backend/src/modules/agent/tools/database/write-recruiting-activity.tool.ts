@@ -26,6 +26,7 @@ import { getAnalyticsLoggerService } from '../../../../services/analytics-logger
 import { logger } from '../../../../utils/logger.js';
 import { SyncDiffService, type PreviousProfileState } from '../../sync/index.js';
 import { onDailySyncComplete } from '../../triggers/trigger.listeners.js';
+import { resolveCreatedAt } from './doc-date-utils.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -204,7 +205,7 @@ export class WriteRecruitingActivityTool extends BaseTool {
           // Data lineage
           provider: source,
           extractedAt: now,
-          createdAt: now,
+          createdAt: resolveCreatedAt(undefined, this.str(a, 'date'), now),
           updatedAt: now,
         };
         if (sourceUrl) record['sourceUrl'] = sourceUrl;

@@ -51,7 +51,20 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
           @for (f of pendingFiles(); track $index) {
             <div class="input-attachment">
               @if (f.previewUrl) {
-                <img [src]="f.previewUrl" [alt]="f.file.name" class="input-attachment-thumb" />
+                @if (f.file.type.startsWith('video/')) {
+                  <video
+                    class="input-attachment-thumb input-attachment-thumb--video"
+                    [src]="f.previewUrl"
+                    muted
+                    playsinline
+                    preload="metadata"
+                  ></video>
+                  <div class="input-attachment-play-icon">
+                    <nxt1-icon name="play" [size]="14" />
+                  </div>
+                } @else {
+                  <img [src]="f.previewUrl" [alt]="f.file.name" class="input-attachment-thumb" />
+                }
               } @else {
                 <div class="input-attachment-icon">
                   <nxt1-icon name="document" [size]="18" />
@@ -222,6 +235,23 @@ import type { AgentXPendingFile } from './agent-x-pending-file';
         border-radius: 8px;
         object-fit: cover;
         border: 1px solid var(--input-border);
+      }
+
+      .input-attachment-thumb--video {
+        display: block;
+        background: #000;
+      }
+
+      .input-attachment-play-icon {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        pointer-events: none;
+        background: rgba(0, 0, 0, 0.35);
+        border-radius: 8px;
       }
 
       .input-attachment-icon {

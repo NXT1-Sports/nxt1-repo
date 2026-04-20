@@ -31,6 +31,7 @@ import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AgentXControlPanelStateService } from './agent-x-control-panel-state.service';
+import { ProfileGenerationStateService } from '../profile/profile-generation-state.service';
 
 /**
  * Injection token for the Agent X API base URL.
@@ -99,6 +100,7 @@ export class AgentXJobService {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly controlPanelState = inject(AgentXControlPanelStateService);
+  private readonly profileGeneration = inject(ProfileGenerationStateService);
 
   private readonly baseUrl = `${inject(AGENT_X_API_BASE_URL)}/agent-x`;
 
@@ -169,6 +171,7 @@ export class AgentXJobService {
         source: 'background-enqueue',
         intent: intent.slice(0, 80),
       });
+      this.profileGeneration.watchForProfileWrites(response.data.operationId);
 
       return response.data;
     } catch (err) {

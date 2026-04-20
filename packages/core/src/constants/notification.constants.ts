@@ -94,6 +94,8 @@ export const NOTIFICATION_TYPES = {
   CREDITS_ADDED: 'credits_added',
   BUDGET_WARNING: 'budget_warning',
   BUDGET_REACHED: 'budget_reached',
+  /** Org wallet was refilled — roster members on personal billing override can switch back */
+  ORG_WALLET_REFILLED: 'org_wallet_refilled',
 
   // Marketing
   FEATURE_ANNOUNCEMENT: 'feature_announcement',
@@ -180,6 +182,7 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   credits_added: 'billing',
   budget_warning: 'billing',
   budget_reached: 'billing',
+  org_wallet_refilled: 'billing',
 
   // Marketing
   feature_announcement: 'marketing',
@@ -220,7 +223,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: Record<
  */
 export const NOTIFICATION_COLLECTIONS = {
   /** Global push queue — triggers onNotificationCreated Cloud Function */
-  NOTIFICATIONS: 'notifications',
+  NOTIFICATIONS: 'Notifications',
   /** Per-user activity feed */
   USER_ACTIVITY: 'activity',
   /** Device FCM token registry */
@@ -280,6 +283,7 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   credits_added: 'alerts',
   budget_warning: 'alerts',
   budget_reached: 'alerts',
+  org_wallet_refilled: 'alerts',
 
   // Marketing → alerts
   feature_announcement: 'alerts',
@@ -339,6 +343,7 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   payment_failed: '/usage?section=payment-info',
   credits_low: '/usage?section=overview',
   credits_added: '/usage?section=overview',
+  org_wallet_refilled: '/usage?section=overview',
 
   // Marketing
   feature_announcement: '/activity?tab=alerts',

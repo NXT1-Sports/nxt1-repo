@@ -73,6 +73,7 @@ import { NxtStateViewComponent } from '../../components/state-view';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { NxtHeaderPortalService } from '../../services/header-portal';
+import { NxtModalService } from '../../services/modal';
 import { ProfileService } from '../profile.service';
 import { type IconName } from '@nxt1/design-tokens/assets/icons';
 import {
@@ -142,7 +143,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
   template: `
     <!-- Portal: center — Profile name + subtitle teleported into top nav -->
     <ng-template #profilePortalContent>
-      <div class="header-portal-profile">
+      <div class="nxt1-header-portal header-portal-profile">
         <button
           type="button"
           class="header-portal-back-btn"
@@ -170,15 +171,17 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
           }
         </div>
         @if (isOwnProfile()) {
-          <button
-            type="button"
-            class="header-portal-action-btn"
-            (click)="editProfileClick.emit()"
-            aria-label="Edit profile"
-          >
-            <nxt1-icon name="pencil" [size]="13" />
-            Edit Profile
-          </button>
+          <div class="nxt1-header-portal__center">
+            <button
+              type="button"
+              class="header-nav-pill"
+              (click)="editProfileClick.emit()"
+              aria-label="Edit profile"
+            >
+              <nxt1-icon name="pencil" [size]="13" />
+              Edit Profile
+            </button>
+          </div>
         }
       </div>
     </ng-template>
@@ -257,7 +260,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
 
       <!-- ═══ MADDEN FRANCHISE MODE — SPLIT LAYOUT ═══ -->
       @else if (profile.user()) {
-        <div class="madden-stage" [style.--team-accent]="teamAccentColor()">
+        <div class="madden-stage">
           <!-- ═══ SPLIT: LEFT CONTENT | RIGHT PLAYER IMAGE ═══ -->
           <div class="madden-split">
             <!-- LEFT SIDE: Header + Tabs + Content -->
@@ -363,7 +366,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                         class="desktop-intel-action-bar__btn"
                         (click)="onAddUpdate()"
                       >
-                        <nxt1-icon name="create-outline" [size]="16" />
+                        <nxt1-icon name="plus" [size]="16" />
                         Add Update
                       </button>
                     </div>
@@ -388,13 +391,13 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                         <nxt1-profile-timeline
                           [posts]="profile.filteredPosts()"
                           [polymorphicFeed]="profile.polymorphicTimeline()"
-                          [isLoading]="false"
+                          [isLoading]="profile.timelineLoading()"
                           [isLoadingMore]="profile.isLoadingMore()"
                           [isEmpty]="profile.isEmpty()"
                           [hasMore]="profile.hasMore()"
                           [isOwnProfile]="profile.isOwnProfile()"
                           [showMenu]="profile.isOwnProfile()"
-                          [showFilters]="true"
+                          [showFilters]="false"
                           [filter]="timelineFilter()"
                           [emptyIcon]="emptyState().icon"
                           [emptyTitle]="emptyState().title"
@@ -403,6 +406,8 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                           (postClick)="onPostClick($event)"
                           (shareClick)="onSharePost($event)"
                           (menuClick)="onPostMenu($event)"
+                          (pinClick)="onPostPin($event)"
+                          (deleteClick)="onPostDelete($event)"
                           (loadMore)="onLoadMore()"
                         />
                       }
@@ -419,52 +424,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
             <!-- RIGHT SIDE: Player image + Team info -->
             <div class="madden-split-right">
               <div class="madden-right-stack">
-                @if (primaryRailTeam(); as primaryTeam) {
-                  <div class="madden-team-stack">
-                    <div
-                      class="madden-team-block"
-                      [class.madden-team-block--clickable]="!!primaryTeam.teamCode"
-                      [attr.role]="primaryTeam.teamCode ? 'button' : null"
-                      [attr.tabindex]="primaryTeam.teamCode ? '0' : null"
-                      (click)="primaryTeam.teamCode ? onTeamClick(primaryTeam) : null"
-                      (keydown.enter)="primaryTeam.teamCode ? onTeamClick(primaryTeam) : null"
-                      (keydown.space)="
-                        primaryTeam.teamCode && onTeamClick(primaryTeam); $event.preventDefault()
-                      "
-                    >
-                      @if (primaryTeam.logoUrl) {
-                        <nxt1-image
-                          class="madden-team-logo"
-                          [src]="primaryTeam.logoUrl"
-                          [alt]="primaryTeam.name"
-                          [width]="32"
-                          [height]="32"
-                          variant="avatar"
-                          fit="contain"
-                          [priority]="true"
-                          [showPlaceholder]="false"
-                        />
-                      } @else {
-                        <div class="madden-team-logo-placeholder">
-                          <nxt1-icon [name]="teamIconName(primaryTeam.type)" [size]="22" />
-                        </div>
-                      }
-                      <div class="madden-team-info">
-                        <div class="madden-team-headline">
-                          <span class="madden-team-name">{{ primaryTeam.name }}</span>
-                        </div>
-                        @if (primaryTeam.location) {
-                          <span class="madden-team-location">{{ primaryTeam.location }}</span>
-                        } @else if (!primaryTeam.teamCode && isOwnProfile()) {
-                          <span class="madden-team-location"
-                            >Add your organization in Edit Profile</span
-                          >
-                        }
-                      </div>
-                    </div>
-                  </div>
-                }
-
                 @if (profile.profileImgs().length > 0) {
                   <div class="carousel-glow-wrap">
                     <div class="carousel-glow-border" aria-hidden="true"></div>
@@ -578,7 +537,8 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         --m-text: var(--nxt1-color-text-primary, #ffffff);
         --m-text-2: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         --m-text-3: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.45));
-        --m-accent: var(--team-accent, var(--nxt1-color-primary, #d4ff00));
+        --m-accent: var(--team-primary, var(--nxt1-color-primary, #d4ff00));
+        --m-accent-secondary: var(--team-secondary, var(--nxt1-color-secondary, #ffffff));
       }
 
       .profile-main {
@@ -672,11 +632,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
       }
       /* ─── HEADER PORTAL — Perplexity-style profile identity in top nav ─── */
       .header-portal-profile {
-        display: flex;
-        align-items: center;
         gap: 10px;
-        width: 100%;
-        padding: 0 var(--nxt1-spacing-2, 8px);
       }
       .header-portal-back-btn {
         display: inline-flex;
@@ -705,7 +661,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         flex-direction: column;
         min-width: 0;
         gap: 1px;
-        flex: 1;
       }
       .header-portal-title {
         font-family: var(--nxt1-fontFamily-brand);
@@ -726,30 +681,35 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         overflow: hidden;
         text-overflow: ellipsis;
       }
-      .header-portal-action-btn {
+      .header-nav-pill {
         display: inline-flex;
         align-items: center;
-        gap: 5px;
+        justify-content: center;
+        gap: 6px;
         flex-shrink: 0;
         margin-left: auto;
-        padding: 6px 14px;
-        border-radius: var(--nxt1-radius-md, 8px);
-        border: 1.5px solid var(--nxt1-color-border-secondary, rgba(255, 255, 255, 0.2));
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
-        color: var(--nxt1-color-text-primary);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: 12px;
+        padding: 6px 16px;
+        appearance: none;
+        -webkit-appearance: none;
+        border-radius: var(--nxt1-borderRadius-lg, 0.5rem);
+        font-size: 13px;
         font-weight: 600;
+        line-height: 1;
+        white-space: nowrap;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
+        border: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.06));
+        font-family: inherit;
         cursor: pointer;
         transition: all 0.15s ease;
-        white-space: nowrap;
+        user-select: none;
       }
-      .header-portal-action-btn:hover {
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.1));
-        border-color: var(--nxt1-color-border-primary, rgba(255, 255, 255, 0.35));
+      .header-nav-pill:hover {
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
+        border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
       }
-      .header-portal-action-btn:active {
-        transform: scale(0.97);
+      .header-nav-pill:active {
+        transform: scale(0.98);
       }
       .madden-right-stack {
         display: flex;
@@ -1483,6 +1443,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileShellWeb');
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly modal = inject(NxtModalService);
   private readonly router = inject(Router);
   protected readonly platform = inject(NxtPlatformService);
   private readonly agentX = inject(AgentXService);
@@ -1547,11 +1508,9 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
    * - 'halftone' — legacy recruiting-card halftone dots
    */
 
-  /** Organisation accent color resolved from the athlete's primary team affiliation */
-  protected readonly teamAccentColor = computed(() => {
-    const user = this.profile.user();
-    return user?.school?.primaryColor ?? 'var(--nxt1-color-primary, #d4ff00)';
-  });
+  // Org colors are injected into the document-level CSS custom properties
+  // (--team-primary, --team-secondary) by ProfileService.loadFromExternalData()
+  // via NxtThemeService.applyOrgTheme().  No per-component computed/inline style needed.
 
   /** Profile page header title */
   protected readonly desktopTitle = computed(() => {
@@ -1654,12 +1613,12 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
         {
           id: 'all-posts',
           label: 'All Posts',
-          badge: this.profile.allPosts().length || undefined,
+          badge: this.profile.polymorphicTimeline().length || undefined,
         },
         {
           id: 'pinned',
           label: 'Pinned',
-          badge: this.profile.pinnedPosts().length || undefined,
+          badge: this.profile.polymorphicTimeline().filter((i) => i.isPinned).length || undefined,
         },
         {
           id: 'media',
@@ -1926,6 +1885,23 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     this.logger.debug('Post menu', { postId: post.id });
   }
 
+  protected async onPostPin(post: ProfilePost): Promise<void> {
+    await this.profile.pinPost(post);
+  }
+
+  protected async onPostDelete(post: ProfilePost): Promise<void> {
+    const confirmed = await this.modal.confirm({
+      title: 'Delete Post?',
+      message: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      destructive: true,
+    });
+
+    if (!confirmed) return;
+    await this.profile.deletePost(post);
+  }
+
   protected onLoadMore(): void {
     this.profile.loadMorePosts();
   }
@@ -1977,10 +1953,10 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
 
     const initialMessage =
       hasReport && isAthleteSection
-        ? `Update the ${activeSection} section of my Agent X Intel report for athlete ${userId}.`
+        ? `Update the ${activeSection} section of my Agent X Intel report.`
         : hasReport
-          ? `Update my Agent X Intel report for athlete ${userId}.`
-          : `Generate an Agent X Intel report for athlete ${userId}.`;
+          ? `Update my Agent X Intel report.`
+          : `Generate my Agent X Intel report.`;
     if (this.platform.isMobile()) {
       this.intel.startPendingGeneration();
       await this.bottomSheet.openSheet({
@@ -2009,7 +1985,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
 
   protected async onResyncIntel(): Promise<void> {
     const userId = this.profile.user()?.uid ?? '';
-    const message = `Do a full resync of my Agent X Intel report for athlete ${userId}. Gather all current data and regenerate the entire report from scratch.`;
+    const message = `Do a full resync of my Agent X Intel report. Gather all current data and regenerate the entire report from scratch.`;
     if (this.platform.isMobile()) {
       this.intel.startPendingGeneration();
       await this.bottomSheet.openSheet({

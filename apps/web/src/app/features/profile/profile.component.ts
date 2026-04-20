@@ -409,6 +409,10 @@ export class ProfileComponent implements OnInit, OnDestroy {
     this.profileService.setApiService({
       updateActiveSportIndex: (userId: string, activeSportIndex: number) =>
         this.editProfileApiService.updateActiveSportIndex(userId, activeSportIndex),
+      pinPost: (userId: string, postId: string, isPinned: boolean) =>
+        firstValueFrom(this.apiProfileService.pinPost(userId, postId, isPinned)),
+      deletePost: (userId: string, postId: string) =>
+        firstValueFrom(this.apiProfileService.deletePost(userId, postId)),
     });
     // Register the cursor-based load-more handler so the timeline shell's
     // "Load More" button fetches the next page via the real API.

@@ -112,6 +112,11 @@
       "import": "./dist/onboarding/index.js",
       "require": "./dist/onboarding/index.cjs"
     },
+    "./platforms": {
+      "types": "./dist/platforms/index.d.ts",
+      "import": "./dist/platforms/index.js",
+      "require": "./dist/platforms/index.cjs"
+    },
     "./ai": {
       "types": "./dist/ai/index.d.ts",
       "import": "./dist/ai/index.js",

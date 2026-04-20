@@ -23,6 +23,8 @@ import {
   isDevMode,
   ErrorHandler,
   Injectable,
+  inject,
+  NgZone,
   APP_INITIALIZER,
 } from '@angular/core';
 import {
@@ -99,6 +101,9 @@ import { USAGE_API_BASE_URL, STRIPE_PUBLISHABLE_KEY } from '@nxt1/ui/usage';
 // (providedIn: 'root') can resolve the token when it's first injected.
 import { HELP_CENTER_API } from '@nxt1/ui/help-center';
 import { HelpCenterApiService } from './core/services/api/help-center-api.service';
+// Feed engagement adapter — provides share + view impression tracking to FeedCardShellComponent
+import { FEED_ENGAGEMENT } from '@nxt1/ui/feed';
+import { FeedEngagementWebService } from './core/services/web/feed-engagement.service';
 import { ActivityApiService as WebActivityApiService } from './core/services/api/activity-api.service';
 
 // Firebase
@@ -119,6 +124,7 @@ import {
   query,
   orderBy as firestoreOrderBy,
   onSnapshot as firestoreOnSnapshot,
+  getDocs as firestoreGetDocs,
 } from '@angular/fire/firestore';
 
 // Auth service with injection token pattern
@@ -147,20 +153,28 @@ import { environment } from '../environments/environment';
  */
 @Injectable({ providedIn: 'root' })
 class IdlePreloadStrategy implements PreloadingStrategy {
+  private readonly ngZone = inject(NgZone);
+
   preload(_route: Route, load: () => Observable<unknown>): Observable<unknown> {
-    // Wait for browser idle or 3s timeout, then preload
+    // Schedule the delay OUTSIDE NgZone so Zone.js does not track the
+    // setTimeout/requestIdleCallback as a pending macrotask. Without this
+    // the app can never stabilize during the delay window.
     return new Observable((subscriber) => {
-      const callback = () => {
-        load().subscribe(subscriber);
-      };
+      this.ngZone.runOutsideAngular(() => {
+        const callback = () => {
+          // Re-enter NgZone for the actual chunk load so Angular
+          // change detection picks up the new module correctly.
+          this.ngZone.run(() => load().subscribe(subscriber));
+        };
 
-      if (typeof requestIdleCallback === 'function') {
-        requestIdleCallback(callback, { timeout: 5000 });
-      } else {
-        setTimeout(callback, 3000);
-      }
+        if (typeof requestIdleCallback === 'function') {
+          requestIdleCallback(callback, { timeout: 5000 });
+        } else {
+          setTimeout(callback, 3000);
+        }
+      });
 
-      return undefined; // No cleanup needed
+      return undefined;
     });
   }
 }
@@ -293,6 +307,15 @@ export const appConfig: ApplicationConfig = {
             onError
           );
         },
+        getDocs: async (
+          path: string,
+          orderByField: string
+        ): Promise<ReadonlyArray<Record<string, unknown>>> => {
+          const ref = collection(firestore, path);
+          const q = query(ref, firestoreOrderBy(orderByField));
+          const snap = await firestoreGetDocs(q);
+          return snap.docs.map((d) => d.data());
+        },
       }),
       deps: [Firestore],
     },
@@ -385,6 +408,9 @@ export const appConfig: ApplicationConfig = {
 
     // Help Center API adapter — root-level so shared HelpCenterService resolves it
     { provide: HELP_CENTER_API, useExisting: HelpCenterApiService },
+
+    // Feed engagement adapter — powers share tap + scroll-view impressions on feed card shell
+    { provide: FEED_ENGAGEMENT, useExisting: FeedEngagementWebService },
 
     // ============================================
     // LOGGING & ERROR HANDLING

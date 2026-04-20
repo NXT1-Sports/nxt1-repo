@@ -81,6 +81,7 @@ import {
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
+import { NxtModalService } from '../services/modal';
 import type { BottomSheetAction } from '../components/bottom-sheet/bottom-sheet.types';
 import { AgentXOperationChatComponent } from '../agent-x';
 import { ProfileService } from './profile.service';
@@ -258,7 +259,7 @@ export interface ProfileShellUser {
                   <nxt1-profile-timeline
                     [posts]="profile.filteredPosts()"
                     [polymorphicFeed]="profile.polymorphicTimeline()"
-                    [isLoading]="false"
+                    [isLoading]="profile.timelineLoading()"
                     [isLoadingMore]="profile.isLoadingMore()"
                     [isEmpty]="profile.isEmpty()"
                     [hasMore]="profile.hasMore()"
@@ -273,6 +274,8 @@ export interface ProfileShellUser {
                     (postClick)="onPostClick($event)"
                     (shareClick)="onSharePost($event)"
                     (menuClick)="onPostMenu($event)"
+                    (pinClick)="onPostPin($event)"
+                    (deleteClick)="onPostDelete($event)"
                     (loadMore)="onLoadMore()"
                   />
                 }
@@ -308,7 +311,8 @@ export interface ProfileShellUser {
         --m-text: var(--nxt1-color-text-primary, #ffffff);
         --m-text-2: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         --m-text-3: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.45));
-        --m-accent: var(--team-accent, var(--nxt1-color-primary, #d4ff00));
+        --m-accent: var(--team-primary, var(--nxt1-color-primary, #d4ff00));
+        --m-accent-secondary: var(--team-secondary, var(--nxt1-color-secondary, #ffffff));
       }
 
       .profile-content {
@@ -563,13 +567,13 @@ export class ProfileShellComponent implements OnInit {
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileShell');
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly modal = inject(NxtModalService);
   private readonly intel = inject(IntelService);
   protected readonly generation = inject(ProfileGenerationStateService);
 
-  protected readonly teamAccentColor = computed(() => {
-    const user = this.profile.user();
-    return user?.school?.primaryColor ?? 'var(--nxt1-color-primary, #d4ff00)';
-  });
+  // Org colors are injected into the document-level CSS custom properties
+  // (--team-primary, --team-secondary) by ProfileService.loadFromExternalData()
+  // via NxtThemeService.applyOrgTheme().  No per-component computed/inline style needed.
 
   // ============================================
   // INPUTS
@@ -677,12 +681,12 @@ export class ProfileShellComponent implements OnInit {
         {
           id: 'all-posts',
           label: 'All Posts',
-          badge: this.profile.allPosts().length || undefined,
+          badge: this.profile.polymorphicTimeline().length || undefined,
         },
         {
           id: 'pinned',
           label: 'Pinned',
-          badge: this.profile.pinnedPosts().length || undefined,
+          badge: this.profile.polymorphicTimeline().filter((i) => i.isPinned).length || undefined,
         },
         {
           id: 'media',
@@ -900,6 +904,23 @@ export class ProfileShellComponent implements OnInit {
     this.logger.debug('Post menu', { postId: post.id });
   }
 
+  protected async onPostPin(post: ProfilePost): Promise<void> {
+    await this.profile.pinPost(post);
+  }
+
+  protected async onPostDelete(post: ProfilePost): Promise<void> {
+    const confirmed = await this.modal.confirm({
+      title: 'Delete Post?',
+      message: 'This action cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      destructive: true,
+    });
+
+    if (!confirmed) return;
+    await this.profile.deletePost(post);
+  }
+
   protected onLoadMore(): void {
     this.profile.loadMorePosts();
   }
@@ -932,7 +953,7 @@ export class ProfileShellComponent implements OnInit {
 
   protected async onResyncIntel(): Promise<void> {
     const userId = this.profile.user()?.uid ?? '';
-    const message = `Do a full resync of my Agent X Intel report for athlete ${userId}. Gather all current data and regenerate the entire report from scratch.`;
+    const message = `Do a full resync of my Agent X Intel report. Gather all current data and regenerate the entire report from scratch.`;
     this.intel.startPendingGeneration();
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
@@ -969,10 +990,10 @@ export class ProfileShellComponent implements OnInit {
 
     const initialMessage =
       hasReport && isAthleteSection
-        ? `Update the ${activeSection} section of my Agent X Intel report for athlete ${userId}.`
+        ? `Update the ${activeSection} section of my Agent X Intel report.`
         : hasReport
-          ? `Update my Agent X Intel report for athlete ${userId}.`
-          : `Generate an Agent X Intel report for athlete ${userId}.`;
+          ? `Update my Agent X Intel report.`
+          : `Generate my Agent X Intel report.`;
 
     this.intel.startPendingGeneration();
     await this.bottomSheet.openSheet({

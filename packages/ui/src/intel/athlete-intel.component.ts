@@ -94,13 +94,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
             </svg>
           </div>
           <h3>No Intel Report Yet</h3>
-          <p>
-            @if (isOwnProfile()) {
-              Tap <strong>Generate Intel</strong> below to create your Agent X Intel report.
-            } @else {
-              No Intel report has been generated for this athlete yet.
-            }
-          </p>
+          <p>Start sharing your journey</p>
         </div>
       } @else {
         <div class="intel-stage" [attr.data-testid]="testIds.REPORT_CONTAINER">
@@ -238,9 +232,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
           <!-- ── Update Intel Guide (own profile only) ── -->
           @if (isOwnProfile()) {
             <div class="intel-strengthen-guide" [attr.data-testid]="testIds.MISSING_DATA_SECTION">
-              <p>
-                Tap <strong>Update Intel</strong> below to refresh your report with the latest data.
-              </p>
+              <p>Tap <strong>Add Update</strong> to refresh your report with the latest data.</p>
             </div>
           }
 
@@ -290,6 +282,8 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
       }
 
       /* ─── Skeleton ─── */
+      /* Uses canonical --nxt1-skeleton-gradient token + global skeleton-shimmer keyframe
+         (defined in @nxt1/ui/styles/base/skeleton.css) — same pattern as explore/profile skeletons. */
       .intel-skeleton {
         display: flex;
         flex-direction: column;
@@ -299,28 +293,18 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
       .intel-skeleton-brief,
       .intel-skeleton-cards,
       .intel-skeleton-ratings {
-        position: relative;
-        overflow: hidden;
-        border-radius: var(--nxt1-skeleton-radius-md, var(--intel-radius-sm, 8px));
-        background: var(--nxt1-skeleton-color-base, var(--nxt1-color-loading-skeleton));
-      }
-      /* Shimmer sweep using design token highlight color */
-      .intel-skeleton-header::before,
-      .intel-skeleton-brief::before,
-      .intel-skeleton-cards::before,
-      .intel-skeleton-ratings::before {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(
-          90deg,
-          transparent 0%,
-          var(--nxt1-skeleton-color-highlight, var(--nxt1-color-loading-skeletonShimmer)) 25%,
-          var(--nxt1-skeleton-color-highlight, var(--nxt1-color-loading-skeletonShimmer)) 50%,
-          transparent 100%
+        border-radius: var(--nxt1-skeleton-radius-md, 8px);
+        background: var(
+          --nxt1-skeleton-gradient,
+          linear-gradient(
+            90deg,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 25%,
+            var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.15)) 50%,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 75%
+          )
         );
         background-size: 200% 100%;
-        animation: nxt1-intel-skeleton-shimmer var(--nxt1-skeleton-animation-duration, 1.5s)
+        animation: skeleton-shimmer var(--nxt1-skeleton-animation-duration, 1.5s)
           var(--nxt1-skeleton-animation-timing, ease-in-out) infinite;
       }
       .intel-skeleton-header {
@@ -334,14 +318,6 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
       }
       .intel-skeleton-ratings {
         height: 160px;
-      }
-      @keyframes nxt1-intel-skeleton-shimmer {
-        0% {
-          background-position: 200% 0;
-        }
-        100% {
-          background-position: -200% 0;
-        }
       }
 
       /* ─── Empty / Madden State ─── */

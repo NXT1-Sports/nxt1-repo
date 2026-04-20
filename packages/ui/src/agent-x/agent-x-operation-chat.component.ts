@@ -42,6 +42,8 @@ import {
   output,
   PLATFORM_ID,
   DestroyRef,
+  EnvironmentInjector,
+  runInInjectionContext,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -63,6 +65,7 @@ import {
   AGENT_X_ENDPOINTS,
   AGENT_X_MAX_ATTACHMENTS,
   AGENT_X_MAX_FILE_SIZE,
+  AGENT_X_MAX_VIDEO_FILE_SIZE,
   resolveAttachmentType,
 } from '@nxt1/core/ai';
 import { ModalController } from '@ionic/angular/standalone';
@@ -83,9 +86,14 @@ import {
   AgentXJobService,
 } from './agent-x-job.service';
 import { AgentXStreamRegistryService } from './agent-x-stream-registry.service';
-import { AgentXOperationEventService } from './agent-x-operation-event.service';
+import {
+  AgentXOperationEventService,
+  type OperationEventSubscription,
+} from './agent-x-operation-event.service';
 import { AgentXService } from './agent-x.service';
+import { AgentXVideoUploadService } from './agent-x-video-upload.service';
 import { IntelService } from '../intel/intel.service';
+import { ProfileGenerationStateService } from '../profile/profile-generation-state.service';
 import { NxtMediaViewerService } from '../components/media-viewer/media-viewer.service';
 import type { MediaViewerItem } from '../components/media-viewer/media-viewer.types';
 import { NxtDragDropDirective } from '../services/gesture';
@@ -306,6 +314,7 @@ interface OperationMessage {
               (confirmationAction)="onConfirmationAction($event)"
               (draftSubmitted)="onDraftSubmitted($event)"
               (askUserReply)="onAskUserReply($event)"
+              (retryRequested)="onRetryErrorMessage(msg)"
             />
             @if (msg.attachments?.length) {
               <div class="msg-attachments">
@@ -391,7 +400,9 @@ interface OperationMessage {
                 />
               </svg>
             </div>
-            <span class="thinking-block__label">Agent X is thinking…</span>
+            <span class="thinking-block__label">{{
+              _videoUploadLabel() ?? 'Agent X is thinking…'
+            }}</span>
           </div>
         }
 
@@ -1361,10 +1372,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private readonly mediaViewer = inject(NxtMediaViewerService);
   private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
   private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(EnvironmentInjector);
   private readonly streamRegistry = inject(AgentXStreamRegistryService);
   private readonly operationEventService = inject(AgentXOperationEventService);
   private readonly agentXService = inject(AgentXService);
+  private readonly videoUploadService = inject(AgentXVideoUploadService);
   private readonly intelService = inject(IntelService, { optional: true });
+  private readonly profileGenerationState = inject(ProfileGenerationStateService, {
+    optional: true,
+  });
 
   /** Pure API factory — used for SSE streaming. */
   private readonly api: AgentXApi = createAgentXApi(
@@ -1383,6 +1399,27 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Operation ID from the backend — used for explicit cancel endpoint. */
   private _currentOperationId: string | null = null;
+
+  /**
+   * Active Firestore job event subscription for background jobs (scrape, welcome
+   * graphic, etc.) that are enqueued without an open SSE connection.
+   * Cleaned up on destroy or when the job completes/errors.
+   */
+  private _activeFirestoreSub: OperationEventSubscription | null = null;
+
+  /**
+   * Shadow Firestore subscription opened the moment an SSE `thread` event
+   * arrives with an operationId. It uses no-op callbacks so nothing renders,
+   * but its shared `lastProcessedSeq` counter advances in lock-step as the
+   * DebouncedEventWriter flushes batches to Firestore.
+   *
+   * If the SSE connection drops, `_subscribeToFirestoreJobEvents` attaches UI
+   * callbacks to the *same* fanout entry — inheriting the already-advanced
+   * seq — so no events that were shown via SSE are replayed. Zero duplication.
+   *
+   * Cleaned up when the SSE stream resolves (success or error).
+   */
+  private _shadowFirestoreSub: OperationEventSubscription | null = null;
 
   // ============================================
   // INPUTS (from componentProps)
@@ -1452,8 +1489,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    */
   @Input() errorMessage: string | null = null;
 
-  // ============================================
-  // LOCAL STATE
+  /**
+   * When set, the component immediately attaches to a resumed SSE stream
+   * for the given operationId on init — used by the web shell after
+   * an inline approval resolves and the backend resumes the operation.
+   */
+  @Input() resumeOperationId = '';
   // ============================================
 
   /** Isolated message history for this operation context. */
@@ -1464,6 +1505,21 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Whether an AI response is being generated. */
   protected readonly _loading = signal(false);
+
+  /**
+   * Video upload progress (0–100) while Cloudflare TUS upload is in-flight.
+   * `null` when no upload is active. Drives the progress indicator in the
+   * typing bubble so the user sees real-time feedback on large video uploads.
+   */
+  protected readonly _videoUploadPercent = signal<number | null>(null);
+
+  /** Human-readable upload phase label ('Uploading video… 42%'). */
+  protected readonly _videoUploadLabel = computed(() => {
+    const pct = this._videoUploadPercent();
+    if (pct === null) return null;
+    if (pct === 0) return 'Preparing video…';
+    return `Uploading video… ${pct}%`;
+  });
 
   /**
    * MongoDB thread ID resolved after the first message.
@@ -1665,6 +1721,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         this.activeStream?.abort();
       }
       this.activeStream = null;
+      // Clean up any active Firestore job event subscription.
+      this._activeFirestoreSub?.unsubscribe();
+      this._activeFirestoreSub = null;
+      // Clean up the shadow Firestore subscription if still open.
+      this._shadowFirestoreSub?.unsubscribe();
+      this._shadowFirestoreSub = null;
     });
 
     // Auto-scroll when messages change
@@ -1830,8 +1892,107 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         return;
       }
 
-      // No active stream — load from MongoDB as before
-      void this.loadThreadMessages(this.threadId.trim());
+      // No active SSE stream — load MongoDB history first.
+      // If this is a background operation still in-flight (scrape, welcome graphic, etc.)
+      // additionally attach a Firestore listener so the user sees live progress.
+      if (
+        this.contextId?.trim() &&
+        this.contextType === 'operation' &&
+        this.operationStatus === 'processing'
+      ) {
+        // Snapshot BEFORE the async load — reconciliation inside loadThreadMessages
+        // may optimistically flip status to 'complete' if an assistant reply exists.
+        // But reconciliation is a guess; Firestore is authoritative. Always attach
+        // the live listener when the job was in-progress going in.
+        const operationId = this.contextId.trim();
+        void this.loadThreadMessages(this.threadId.trim()).then(async () => {
+          // Branch on whether the thread already has a completed assistant reply.
+          const hasAssistantReply = this.messages().some(
+            (m) => !m.isTyping && m.role === 'assistant' && m.content?.trim()
+          );
+
+          if (hasAssistantReply) {
+            // ── Job is already done ──────────────────────────────────────────
+            // loadThreadMessages reconciliation already set operationStatus to
+            // 'complete' and broadcasted via emitOperationStatusUpdated.
+            // MongoDB has the full response — no Firestore subscription needed.
+            // Skip to avoid a hanging subscription (the done event would be
+            // filtered by startAfterSeq anyway and onDone would never fire).
+            this.logger.info('Thread already has assistant reply — skipping Firestore subscribe', {
+              operationId,
+            });
+            return;
+          }
+
+          // ── Job still in-flight ──────────────────────────────────────────
+          // The user refreshed mid-stream. Reconstruct the partial response
+          // from stored Firestore events so the user sees what was generated
+          // before the refresh, then continue live from the last stored seq.
+          const stored = await this.operationEventService.getStoredEventState(operationId);
+
+          if (stored.isDone) {
+            // The job completed while we were loading MongoDB history.
+            // Firestore already has the full response — no live subscribe needed.
+            // If MongoDB didn't save it yet (race), inject from Firestore state.
+            const alreadyHasAssistant = this.messages().some(
+              (m) => !m.isTyping && m.role === 'assistant' && m.content?.trim()
+            );
+            if (!alreadyHasAssistant && stored.content) {
+              this.messages.update((msgs) => [
+                ...msgs,
+                {
+                  id: this.uid(),
+                  role: 'assistant' as const,
+                  content: stored.content,
+                  timestamp: new Date(),
+                  isTyping: false,
+                  steps: stored.steps.length > 0 ? stored.steps : undefined,
+                },
+              ]);
+            }
+            this.operationStatus = 'complete';
+            this.operationEventService.emitOperationStatusUpdated(
+              this.threadId?.trim() ?? operationId,
+              'complete',
+              new Date().toISOString()
+            );
+            return;
+          }
+
+          // Job still running. Inject typing bubble with accumulated content
+          // from Firestore so the user immediately sees what was generated,
+          // then subscribe from maxSeq so new tokens append cleanly.
+          // IMPORTANT: parts must be pre-populated to match content — the template
+          // renders from `parts`, not `content`. Without this, onDelta builds parts
+          // from scratch and only post-refresh tokens appear.
+          const storedParts: AgentXMessagePart[] = [];
+          if (stored.steps.length > 0) {
+            storedParts.push({ type: 'tool-steps', steps: stored.steps });
+          }
+          if (stored.content) {
+            storedParts.push({ type: 'text', content: stored.content });
+          }
+          this.messages.update((msgs) => {
+            if (msgs.some((m) => m.id === 'typing')) return msgs;
+            return [
+              ...msgs,
+              {
+                id: 'typing',
+                role: 'assistant' as const,
+                content: stored.content,
+                timestamp: new Date(),
+                isTyping: !stored.content,
+                steps: stored.steps.length > 0 ? [...stored.steps] : undefined,
+                parts: storedParts.length > 0 ? storedParts : undefined,
+              },
+            ];
+          });
+          this._loading.set(true);
+          this._subscribeToFirestoreJobEvents(undefined, stored.maxSeq);
+        });
+      } else {
+        void this.loadThreadMessages(this.threadId.trim());
+      }
       return;
     }
 
@@ -1842,9 +2003,32 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
+    // Background operation with no threadId yet (thread creation race condition from
+    // agent-scrape.service / agent-welcome.service): subscribe directly to Firestore
+    // events so the user sees live progress without waiting for thread linkage.
+    if (
+      this.contextId?.trim() &&
+      this.contextType === 'operation' &&
+      this.operationStatus === 'processing'
+    ) {
+      this._isThreadMode.set(true);
+      this._subscribeToFirestoreJobEvents();
+      return;
+    }
+
     // Seed initial files if provided (from shell pending files)
     if (this.initialFiles.length > 0) {
       this.pendingFiles.set([...this.initialFiles]);
+    }
+
+    // Drop-recovery / inline-approval resume: attach to the given operationId stream.
+    if (this.resumeOperationId?.trim()) {
+      void this._attachToResumedOperation({
+        operationId: this.resumeOperationId.trim(),
+        threadId: this.threadId?.trim() || undefined,
+        afterSeq: 0,
+      });
+      return;
     }
 
     if ((this.initialMessage?.trim() || this.initialFiles.length > 0) && !this.initialMessageSent) {
@@ -1857,6 +2041,150 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         this.send();
       }, 150);
     }
+  }
+
+  /**
+   * Subscribe to `AgentJobs/{contextId}/events` via Firestore `onSnapshot` for
+   * background jobs (scrape, welcome graphic, etc.) that were enqueued without
+   * an open SSE connection. Called after MongoDB history has been loaded so that
+   * live events appear after the historical context, matching the stream registry
+   * rehydration pattern used for normal chat.
+   *
+   * Guards:
+   * - `contextId` must be set (it is the operationId)
+   * - Only starts if no subscription is already active (idempotent)
+   * - Cleans itself up on `done` / `error` / component destroy
+   */
+  private _subscribeToFirestoreJobEvents(
+    explicitOperationId?: string,
+    startAfterSeq?: number
+  ): void {
+    const operationId = explicitOperationId ?? this.contextId;
+    if (!operationId?.trim() || this._activeFirestoreSub) return;
+
+    this.logger.info('Attaching Firestore job event listener for background operation', {
+      operationId,
+      startAfterSeq,
+    });
+    this.breadcrumb.trackStateChange('operation-chat:firestore-subscribe', {
+      operationId,
+      startAfterSeq,
+    });
+
+    // Push a typing placeholder if one isn't already in the messages list.
+    // The post-refresh code path pre-injects the bubble before calling this
+    // method; the direct subscribe path (no thread) relies on this guard.
+    if (!this.messages().some((m) => m.id === 'typing')) {
+      this._loading.set(true);
+      this.messages.update((msgs) => [
+        ...msgs,
+        {
+          id: 'typing',
+          role: 'assistant' as const,
+          content: '',
+          timestamp: new Date(),
+          isTyping: true,
+        },
+      ]);
+    }
+
+    this._activeFirestoreSub = runInInjectionContext(this.injector, () =>
+      this.operationEventService.subscribe(
+        operationId,
+        {
+          onDelta: (text) => {
+            this.messages.update((msgs) =>
+              msgs.map((m) => {
+                if (m.id !== 'typing') return m;
+                const prevParts = [...(m.parts ?? [])];
+                const last = prevParts[prevParts.length - 1];
+                if (last?.type === 'text') {
+                  prevParts[prevParts.length - 1] = { type: 'text', content: last.content + text };
+                } else {
+                  prevParts.push({ type: 'text', content: text });
+                }
+                return { ...m, content: m.content + text, isTyping: false, parts: prevParts };
+              })
+            );
+          },
+
+          onStep: (step) => {
+            this.messages.update((msgs) =>
+              msgs.map((m) => {
+                if (m.id !== 'typing') return m;
+                const prev = m.steps ?? [];
+                const idx = prev.findIndex((s) => s.id === step.id);
+                const next =
+                  idx >= 0 ? prev.map((s, i) => (i === idx ? step : s)) : [...prev, step];
+                const prevParts = [...(m.parts ?? [])];
+                const lastPart = prevParts[prevParts.length - 1];
+                if (lastPart?.type === 'tool-steps') {
+                  const prevSteps = [...lastPart.steps];
+                  const si = prevSteps.findIndex((s) => s.id === step.id);
+                  if (si >= 0) {
+                    prevSteps[si] = step;
+                  } else {
+                    prevSteps.push(step);
+                  }
+                  prevParts[prevParts.length - 1] = { type: 'tool-steps', steps: prevSteps };
+                } else {
+                  prevParts.push({ type: 'tool-steps', steps: [step] });
+                }
+                return { ...m, steps: next, parts: prevParts };
+              })
+            );
+          },
+
+          onCard: (card) => {
+            this.messages.update((msgs) =>
+              msgs.map((m) => {
+                if (m.id !== 'typing') return m;
+                const prevParts = [...(m.parts ?? [])];
+                prevParts.push({ type: 'card', card });
+                return { ...m, cards: [...(m.cards ?? []), card], parts: prevParts };
+              })
+            );
+          },
+
+          onDone: () => {
+            const finalId = this.uid();
+            this.messages.update((msgs) =>
+              msgs.map((m) => (m.id === 'typing' ? { ...m, id: finalId, isTyping: false } : m))
+            );
+            this._loading.set(false);
+            this._activeFirestoreSub?.unsubscribe();
+            this._activeFirestoreSub = null;
+            this.haptics.notification('success').catch(() => undefined);
+            this.responseComplete.emit();
+            this.logger.info('Background job stream complete (Firestore)', {
+              operationId,
+            });
+          },
+
+          onError: (error) => {
+            this.replaceTyping({
+              id: this.uid(),
+              role: 'assistant',
+              content: error || 'Something went wrong. Please try again.',
+              timestamp: new Date(),
+              error: true,
+            });
+            this._loading.set(false);
+            this._activeFirestoreSub?.unsubscribe();
+            this._activeFirestoreSub = null;
+            this.haptics.notification('error').catch(() => undefined);
+            this.logger.error('Background job stream error (Firestore)', new Error(error), {
+              operationId,
+            });
+            // Trigger a parent refresh so the operations log re-fetches the
+            // authoritative status from the backend. Firestore may have errored
+            // before the done event arrived, leaving the sidebar spinner stuck.
+            this.responseComplete.emit();
+          },
+        },
+        startAfterSeq !== undefined ? { startAfterSeq } : undefined
+      )
+    );
   }
 
   /**
@@ -1922,6 +2250,34 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         contextId: this.contextId,
         messageCount: mapped.length,
       });
+
+      // ── Status reconciliation ─────────────────────────────────────────
+      // If the sidebar still shows this entry as "processing" but the thread
+      // already has an assistant reply, the backend completed the job while
+      // the frontend had no live stream to receive the done event (e.g. the
+      // user refreshed mid-response). The thread content is the authoritative
+      // proof of completion — reconcile without waiting for an event that
+      // will never arrive.
+      const hasAssistantReply = mapped.some((m) => m.role === 'assistant' && m.content?.trim());
+      if (this.operationStatus === 'processing' && hasAssistantReply) {
+        this.logger.info(
+          'Thread content proves job complete — reconciling stale in-progress status',
+          {
+            threadId,
+            contextId: this.contextId,
+          }
+        );
+        this.operationStatus = 'complete';
+        // Broadcast directly through the shared event service so the operations
+        // log sidebar updates regardless of how this component was opened
+        // (bottom sheet, embedded, etc.). responseComplete.emit() is an @Output
+        // and is deaf when the component is opened imperatively via openSheet().
+        this.operationEventService.emitOperationStatusUpdated(
+          threadId,
+          'complete',
+          new Date().toISOString()
+        );
+      }
 
       // If this operation has failed, inject an AI error message at the end
       // so the user understands what happened.
@@ -2057,6 +2413,17 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       contextId: this.contextId,
       contextType: this.contextType,
     });
+
+    // Immediately mark the operations-log entry as complete so the sidebar
+    // spinner clears right away. The backend SSE will never deliver the terminal
+    // `event: operation` frame for an aborted stream, so we emit locally here.
+    if (threadId) {
+      this.operationEventService.emitOperationStatusUpdated(
+        threadId,
+        'complete',
+        new Date().toISOString()
+      );
+    }
   }
 
   /**
@@ -2086,6 +2453,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     const text = this.inputValue().trim();
     const files = this.pendingFiles();
     if ((!text && files.length === 0) || this._loading()) return;
+
+    // Lock immediately — before any state mutations — to prevent concurrent sends
+    // triggered by tap + click double-emit (Ionic mobile) or rapid input events.
+    this._loading.set(true);
 
     this.inputValue.set('');
     if (!this.hasUserSent()) {
@@ -2128,7 +2499,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       timestamp: new Date(),
       isTyping: true,
     });
-    this._loading.set(true);
 
     try {
       // Upload files to Firebase Storage and get AgentXAttachment metadata
@@ -2150,13 +2520,18 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     } catch (err) {
       this.logger.error('Chat message failed', err, { contextId: this.contextId });
       await this.haptics.notification('error');
-      this.replaceTyping({
-        id: this.uid(),
-        role: 'assistant',
-        content: 'Something went wrong. Please try again.',
-        timestamp: new Date(),
-        error: true,
-      });
+      // Only inject the error bubble if onError (stream handler) didn't already do it.
+      // onError replaces the typing bubble then rejects — the catch would otherwise duplicate it.
+      const alreadyHasError = this.messages().some((m) => m.error && m.id !== 'typing');
+      if (!alreadyHasError) {
+        this.replaceTyping({
+          id: this.uid(),
+          role: 'assistant',
+          content: 'Something went wrong. Please try again.',
+          timestamp: new Date(),
+          error: true,
+        });
+      }
     } finally {
       this._loading.set(false);
     }
@@ -2170,6 +2545,24 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     }
 
     this.inputValue.set(action.label);
+    await this.send();
+  }
+
+  /** Retry the last user message after an error bubble's "Try again" is clicked. */
+  protected async onRetryErrorMessage(errorMsg: OperationMessage): Promise<void> {
+    // Find the user message that preceded this error bubble
+    const msgs = this.messages();
+    const errorIdx = msgs.findIndex((m) => m.id === errorMsg.id);
+    const lastUserMsg = [...msgs]
+      .slice(0, errorIdx)
+      .reverse()
+      .find((m) => m.role === 'user');
+
+    if (!lastUserMsg) return;
+
+    // Remove the error bubble and re-send the last user message
+    this.messages.update((prev) => prev.filter((m) => m.id !== errorMsg.id));
+    this.inputValue.set(lastUserMsg.content);
     await this.send();
   }
 
@@ -2228,7 +2621,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
-   * Upload pending files to Firebase Storage via the backend upload endpoint.
+   * Upload pending files. Videos go via Cloudflare Stream TUS;
+   * images, PDFs, docs go via the existing Firebase Storage endpoint.
    * Returns AgentXAttachment metadata for inclusion in the chat request.
    * @internal
    */
@@ -2238,9 +2632,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   ): Promise<AgentXAttachment[]> {
     const uploaded: AgentXAttachment[] = [];
 
-    for (const pending of files) {
+    const videoFiles = files.filter((f) => f.isVideo);
+    const nonVideoFiles = files.filter((f) => !f.isVideo);
+
+    // --- Non-video files: upload to Firebase Storage via /agent-x/upload ---
+    for (const pending of nonVideoFiles) {
       const formData = new FormData();
       formData.append('file', pending.file);
+      const threadId = this._resolvedThreadId();
+      if (threadId) formData.append('threadId', threadId);
 
       const response = await fetch(`${this.baseUrl}${AGENT_X_ENDPOINTS.UPLOAD}`, {
         method: 'POST',
@@ -2254,7 +2654,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           name: pending.file.name,
           status: response.status,
         });
-        continue; // Skip failed files, still send the rest
+        continue;
       }
 
       const result = (await response.json()) as {
@@ -2280,9 +2680,59 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       });
     }
 
+    // --- Video files: upload to Cloudflare Stream via TUS ---
+    for (const pending of videoFiles) {
+      try {
+        this._videoUploadPercent.set(0);
+        const videoResult = await new Promise<{ streamUrl: string; cloudflareVideoId: string }>(
+          (resolve, reject) => {
+            this.videoUploadService.uploadVideo(pending.file, authToken).subscribe({
+              next: (progress) => {
+                // Pipe intermediate progress into signal — user sees live % in the typing area
+                if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
+                  this._videoUploadPercent.set(progress.percent);
+                }
+                if (
+                  progress.phase === 'complete' &&
+                  progress.streamUrl &&
+                  progress.cloudflareVideoId
+                ) {
+                  this._videoUploadPercent.set(100);
+                  resolve({
+                    streamUrl: progress.streamUrl,
+                    cloudflareVideoId: progress.cloudflareVideoId,
+                  });
+                } else if (progress.phase === 'error') {
+                  reject(new Error(progress.errorMessage ?? 'Video upload failed'));
+                }
+              },
+              error: (err) => reject(err),
+            });
+          }
+        );
+        this._videoUploadPercent.set(null);
+
+        uploaded.push({
+          id: crypto.randomUUID(),
+          url: videoResult.streamUrl,
+          name: pending.file.name,
+          mimeType: pending.file.type,
+          type: 'video',
+          sizeBytes: pending.file.size,
+          cloudflareVideoId: videoResult.cloudflareVideoId,
+        });
+      } catch (err) {
+        this._videoUploadPercent.set(null);
+        this.logger.error('Video Cloudflare upload failed', err, { name: pending.file.name });
+        this.toast.error(`Failed to upload video: ${pending.file.name}`);
+      }
+    }
+
     this.logger.info('Files uploaded for operation chat', {
       attempted: files.length,
       succeeded: uploaded.length,
+      videos: videoFiles.length,
+      nonVideos: nonVideoFiles.length,
     });
 
     return uploaded;
@@ -2388,8 +2838,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         continue;
       }
 
-      if (file.size > AGENT_X_MAX_FILE_SIZE) {
-        this.toast.error(`File too large: ${file.name} (max 20 MB)`);
+      const isVideoFile = file.type.startsWith('video/');
+      const maxSize = isVideoFile ? AGENT_X_MAX_VIDEO_FILE_SIZE : AGENT_X_MAX_FILE_SIZE;
+      const maxLabel = isVideoFile ? '500 MB' : '20 MB';
+      if (file.size > maxSize) {
+        this.toast.error(`File too large: ${file.name} (max ${maxLabel})`);
         this.logger.warn('Rejected oversized operation chat file', {
           contextId: this.contextId,
           fileName: file.name,
@@ -2514,18 +2967,37 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     userInput: string,
     attachments: AgentXAttachment[] = []
   ): Promise<void> {
-    // Build conversation history from local messages (exclude typing indicators and empty content)
+    // Build conversation history: previous turns only.
+    // The current user message is sent as `message` — exclude it from history to avoid
+    // duplicating it in the backend context builder. Truncate long assistant responses
+    // (e.g. markdown reports) to a safe limit; the backend owns final context windowing.
+    const MAX_HISTORY_CONTENT_CHARS = 40_000;
+    const allMessages = this.messages().filter(
+      (m) => !m.isTyping && m.role !== 'system' && m.content.trim().length > 0
+    );
+    let lastUserIdx = -1;
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      if (allMessages[i].role === 'user') {
+        lastUserIdx = i;
+        break;
+      }
+    }
+    // Exclude the last user message — it IS the current turn, already in `message`.
+    const historyMessages =
+      lastUserIdx >= 0 ? allMessages.filter((_m, i) => i !== lastUserIdx) : allMessages;
+
     const request = {
       message: userInput,
-      history: this.messages()
-        .filter((m) => !m.isTyping && m.role !== 'system' && m.content.trim().length > 0)
-        .slice(-10)
-        .map((m) => ({
-          id: this.uid(),
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-          timestamp: new Date(),
-        })),
+      history: historyMessages.slice(-20).map((m) => ({
+        id: this.uid(),
+        role: m.role as 'user' | 'assistant',
+        content:
+          m.content.length > MAX_HISTORY_CONTENT_CHARS
+            ? `${m.content.slice(0, MAX_HISTORY_CONTENT_CHARS)}…`
+            : m.content,
+        timestamp: new Date(),
+      })),
+      // NOTE: threadId identifies the conversation thread for server-side context lookup.
       ...(this._resolvedThreadId() ? { threadId: this._resolvedThreadId()! } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
     } satisfies AgentXChatRequest;
@@ -2585,6 +3057,33 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             if (this.activeStream) {
               this.streamRegistry.register(evt.threadId, this.activeStream);
             }
+
+            // Link operationId → threadId in the registry so per-operation
+            // observers (e.g. ProfileGenerationStateService) receive events
+            // even after this component unmounts.
+            if (evt.operationId) {
+              this.streamRegistry.linkOperation(evt.operationId, evt.threadId);
+            }
+
+            // Open a shadow Firestore subscription so its lastProcessedSeq
+            // advances in parallel with the SSE stream. No UI callbacks — just
+            // seat-reservation. If SSE drops, _subscribeToFirestoreJobEvents
+            // joins this same fanout entry at the correct seq, preventing
+            // duplication of tokens already shown via SSE.
+            if (evt.operationId && !this._shadowFirestoreSub && !this._activeFirestoreSub) {
+              this._shadowFirestoreSub = runInInjectionContext(this.injector, () =>
+                this.operationEventService.subscribe(evt.operationId!, {
+                  onDelta: () => undefined,
+                  onStep: () => undefined,
+                  onCard: () => undefined,
+                  onDone: () => undefined,
+                  onError: () => undefined,
+                })
+              );
+              this.logger.debug('Shadow Firestore sub opened for SSE drop protection', {
+                operationId: evt.operationId,
+              });
+            }
           },
 
           onDelta: (evt) => {
@@ -2622,6 +3121,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             // Bridge write_intel tool steps to IntelService so the Intel tab
             // shows the generating animation exactly when the agent is writing.
             this.intelService?.notifyToolStep(evt.id, evt.label, evt.status, evt.detail);
+            // Bridge all tool steps to ProfileGenerationStateService so the
+            // profile generation banner gets live progress from SSE (not Firestore).
+            if (this._currentOperationId) {
+              this.profileGenerationState?.receiveStep(this._currentOperationId, step);
+            }
 
             // Build interleaved parts: upsert into last tool-steps group or start new one
             const lastPart = parts[parts.length - 1];
@@ -2751,6 +3255,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
               streaming: true,
               model: evt.model,
             });
+            // Notify profile generation banner that the job completed successfully.
+            if (this._currentOperationId) {
+              this.profileGenerationState?.receiveJobDone(this._currentOperationId, true);
+            }
             // Surface autoOpenPanel instruction to the shell via the central service
             // (fallback — the panel SSE event should have already surfaced it)
             if (evt.autoOpenPanel && !this.agentXService.requestedSidePanel()) {
@@ -2759,6 +3267,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
                 type: evt.autoOpenPanel.type,
               });
             }
+
+            // Shadow sub served its purpose — SSE completed normally.
+            this._shadowFirestoreSub?.unsubscribe();
+            this._shadowFirestoreSub = null;
 
             this.logger.info('Stream complete', {
               model: evt.model,
@@ -2778,14 +3290,69 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
             if (evt.status === 402) {
               const reason = this._mapBillingCode(evt.code);
               this._injectBillingCard(reason, evt.error);
+              this._shadowFirestoreSub?.unsubscribe();
+              this._shadowFirestoreSub = null;
               resolve(); // Resolved (not rejected) — user can act on the card
               return;
+            }
+
+            // ── Network drop fallback → seamlessly switch to Firestore watch ──
+            // If the SSE connection dropped (not a backend logic error) and we
+            // already have an operationId, the DebouncedEventWriter has been
+            // writing all events to Firestore in parallel. Subscribe to it now
+            // so the user sees the response arrive without an error bubble.
+            const isNetworkDrop = !evt.status || evt.status === 0 || evt.status >= 500;
+            if (isNetworkDrop && this._currentOperationId) {
+              this.logger.warn('SSE stream dropped — falling back to Firestore watch', {
+                operationId: this._currentOperationId,
+              });
+              this.breadcrumb.trackStateChange('agent-x-operation-chat:sse-fallback-firestore', {
+                operationId: this._currentOperationId,
+              });
+              // Ensure the typing indicator is still present for the Firestore path.
+              this.messages.update((msgs) => {
+                if (msgs.some((m) => m.id === 'typing')) return msgs;
+                return [
+                  ...msgs,
+                  {
+                    id: 'typing',
+                    role: 'assistant' as const,
+                    content: '',
+                    timestamp: new Date(),
+                    isTyping: true,
+                  },
+                ];
+              });
+              this._loading.set(true);
+              // Attach the UI callbacks to the existing fanout entry — the shadow
+              // sub's lastProcessedSeq is already advanced past events shown via SSE.
+              this._subscribeToFirestoreJobEvents(this._currentOperationId);
+              // Remove the shadow listener only after the UI listener has joined
+              // (operationEventService.subscribe is synchronous, so by this line
+              // the UI listener is already registered in the fanout map).
+              this._shadowFirestoreSub?.unsubscribe();
+              this._shadowFirestoreSub = null;
+              resolve(); // Hand control to the Firestore subscriber
+              return;
+            }
+
+            // Notify profile generation banner that the job failed.
+            if (this._currentOperationId) {
+              this.profileGenerationState?.receiveJobDone(
+                this._currentOperationId,
+                false,
+                evt.error
+              );
             }
 
             this.logger.error('Stream error', evt.error);
             this.breadcrumb.trackStateChange('agent-x-operation-chat:stream-error', {
               contextId: this.contextId,
             });
+            // Clean up shadow sub on any terminal non-network error.
+            this._shadowFirestoreSub?.unsubscribe();
+            this._shadowFirestoreSub = null;
+
             this.replaceTyping({
               id: this.uid(),
               role: 'assistant',
@@ -2897,7 +3464,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     });
 
     if (event.approvalId) {
-      void this.agentXService.resolveInlineApproval({
+      void this.resolveInlineApproval({
         approvalId: event.approvalId,
         decision: 'approved',
         toolInput: {
@@ -2936,7 +3503,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    void this.agentXService.resolveInlineApproval({
+    void this.resolveInlineApproval({
       approvalId: event.approvalId,
       decision,
       successMessage:
@@ -3118,6 +3685,140 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return typeof crypto !== 'undefined' && crypto.randomUUID
       ? crypto.randomUUID()
       : `op-msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  // ============================================
+  // INLINE APPROVAL
+  // ============================================
+
+  /**
+   * Resolve an inline approval (draft email, confirmation card).
+   * Calls the backend `resolveApproval` endpoint, shows a toast, and — if the
+   * operation was resumed — attaches this component to the new SSE stream so the
+   * user sees the continuation in real time.
+   */
+  async resolveInlineApproval(params: {
+    approvalId: string;
+    decision: 'approved' | 'rejected';
+    toolInput?: Record<string, unknown>;
+    successMessage?: string;
+  }): Promise<boolean> {
+    this.logger.info('Resolving inline approval', {
+      approvalId: params.approvalId,
+      decision: params.decision,
+    });
+    this.breadcrumb.trackStateChange('agent-x-operation-chat:inline-approval', {
+      approvalId: params.approvalId,
+      decision: params.decision,
+    });
+
+    try {
+      const result = await this.api.resolveApproval(
+        params.approvalId,
+        params.decision,
+        params.toolInput
+      );
+
+      if (!result) {
+        this.logger.warn('Inline approval returned null', {
+          approvalId: params.approvalId,
+          decision: params.decision,
+        });
+        this.toast.error('Failed to process approval');
+        return false;
+      }
+
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATION_APPROVED, {
+        approvalId: params.approvalId,
+        decision: params.decision,
+        resumed: result.resumed,
+      });
+
+      if (params.decision === 'rejected') {
+        this.toast.success(params.successMessage ?? 'Request rejected');
+        return true;
+      }
+
+      this.toast.success(params.successMessage ?? 'Approved — Agent X is resuming');
+
+      if (result.resumed && result.operationId) {
+        await this._attachToResumedOperation({
+          operationId: result.operationId,
+          threadId: result.threadId ?? undefined,
+        });
+      }
+
+      return true;
+    } catch (err) {
+      this.logger.error('Failed to resolve inline approval', err, {
+        approvalId: params.approvalId,
+        decision: params.decision,
+      });
+      this.toast.error('Failed to process approval');
+      return false;
+    }
+  }
+
+  /**
+   * Attach this component to a resumed SSE stream (after approval or drop-recovery).
+   * Injects a typing indicator and calls `_sendViaStream` with `resumeOperationId`.
+   * @internal
+   */
+  async _attachToResumedOperation(params: {
+    operationId: string;
+    threadId?: string;
+    afterSeq?: number;
+  }): Promise<void> {
+    const authToken = await this.getAuthToken?.().catch(() => null);
+    if (!authToken || !isPlatformBrowser(this.platformId)) {
+      this.logger.info('Approval resumed without live stream attachment', {
+        operationId: params.operationId,
+      });
+      return;
+    }
+
+    this.activeStream?.abort();
+    this.activeStream = null;
+
+    if (params.threadId) {
+      this._resolvedThreadId.set(params.threadId);
+    }
+
+    this._currentOperationId = params.operationId;
+
+    this.pushMessage({
+      id: 'typing',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+      isTyping: true,
+    });
+    this._loading.set(true);
+
+    try {
+      await this._sendViaStream(
+        {
+          message: 'Resume approved operation',
+          ...(params.threadId ? { threadId: params.threadId } : {}),
+          resumeOperationId: params.operationId,
+          ...(params.afterSeq !== undefined ? { afterSeq: params.afterSeq } : {}),
+        },
+        authToken
+      );
+      this.responseComplete.emit();
+    } catch (err) {
+      this.logger.error('Failed to attach to resumed operation stream', err, {
+        operationId: params.operationId,
+      });
+      this.replaceTyping({
+        id: this.uid(),
+        role: 'assistant',
+        content: 'Failed to resume operation. Please refresh and try again.',
+        timestamp: new Date(),
+        error: true,
+      });
+      this._loading.set(false);
+    }
   }
 
   // ============================================

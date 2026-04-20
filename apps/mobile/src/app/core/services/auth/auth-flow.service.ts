@@ -571,9 +571,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         await this.navigatePostAuth();
       }
 
-      // Register FCM token for push notifications (non-blocking)
-      void this.fcmRegistration.registerToken();
-
       return true;
     } catch (err) {
       // Track sign-in error
@@ -718,9 +715,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         await this.navigatePostAuth();
       }
 
-      // Register FCM token for push notifications (non-blocking)
-      void this.fcmRegistration.registerToken();
-
       this.logger.info(`${method} sign-in complete`);
       return true;
     } catch (err: unknown) {
@@ -841,9 +835,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         if (!credentials.skipNavigation) {
           await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
         }
-
-        // Register FCM token for push notifications (non-blocking)
-        void this.fcmRegistration.registerToken();
 
         return true;
       } finally {

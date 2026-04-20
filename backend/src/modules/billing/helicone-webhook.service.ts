@@ -14,10 +14,13 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
 import { createHmac, timingSafeEqual } from 'crypto';
+import { Types } from 'mongoose';
 import { logger } from '../../utils/logger.js';
 import { COLLECTIONS } from './config.js';
 import { resolveAICost } from './cost-resolver.service.js';
+import { getBillingContext } from './budget.service.js';
 import type { UsageEvent } from './types/index.js';
+import { UsageEventModel } from '../../models/usage-event.model.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -135,41 +138,35 @@ export async function processHeliconeWebhook(
     return { reconciled: false, reason: 'No job ID in Helicone payload to correlate' };
   }
 
-  // Look up usage event by metadata.heliconeRequestId or by idempotency key pattern
+  // Look up usage event by metadata.heliconeRequestId or by metadata.jobId
   let usageEvent: UsageEvent | null = null;
-  let usageEventRef: FirebaseFirestore.DocumentReference | null = null;
+  let usageEventId: string | null = null;
 
   // Strategy 1: Match by metadata.heliconeRequestId
   if (request_id) {
-    const snap = await db
-      .collection(COLLECTIONS.USAGE_EVENTS)
-      .where('metadata.heliconeRequestId', '==', request_id)
-      .limit(1)
-      .get();
+    const doc = await UsageEventModel.findOne({
+      'metadata.heliconeRequestId': request_id,
+    }).lean();
 
-    if (!snap.empty) {
-      const doc = snap.docs[0]!;
-      usageEvent = { id: doc.id, ...(doc.data() as Omit<UsageEvent, 'id'>) };
-      usageEventRef = doc.ref;
+    if (doc) {
+      usageEventId = (doc._id as Types.ObjectId).toString();
+      usageEvent = { id: usageEventId, ...(doc as unknown as Omit<UsageEvent, 'id'>) };
     }
   }
 
   // Strategy 2: Match by metadata.jobId
   if (!usageEvent) {
-    const snap = await db
-      .collection(COLLECTIONS.USAGE_EVENTS)
-      .where('metadata.jobId', '==', jobId)
-      .limit(1)
-      .get();
+    const doc = await UsageEventModel.findOne({
+      'metadata.jobId': jobId,
+    }).lean();
 
-    if (!snap.empty) {
-      const doc = snap.docs[0]!;
-      usageEvent = { id: doc.id, ...(doc.data() as Omit<UsageEvent, 'id'>) };
-      usageEventRef = doc.ref;
+    if (doc) {
+      usageEventId = (doc._id as Types.ObjectId).toString();
+      usageEvent = { id: usageEventId, ...(doc as unknown as Omit<UsageEvent, 'id'>) };
     }
   }
 
-  if (!usageEvent || !usageEventRef) {
+  if (!usageEvent || !usageEventId) {
     logger.info('[helicone-webhook] No matching usage event found', {
       request_id,
       jobId,
@@ -191,13 +188,15 @@ export async function processHeliconeWebhook(
     });
 
     // Still update the event with the verified cost for audit trail
-    await usageEventRef.update({
-      'metadata.heliconeVerifiedCostUsd': total_cost,
-      'metadata.heliconeVerifiedCostCents': verifiedCostCents,
-      'metadata.heliconeRequestId': request_id,
-      'metadata.heliconeReconciled': true,
-      'metadata.heliconeReconciledAt': FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
+    await UsageEventModel.findByIdAndUpdate(usageEventId, {
+      $set: {
+        'metadata.heliconeVerifiedCostUsd': total_cost,
+        'metadata.heliconeVerifiedCostCents': verifiedCostCents,
+        'metadata.heliconeRequestId': request_id,
+        'metadata.heliconeReconciled': true,
+        'metadata.heliconeReconciledAt': new Date().toISOString(),
+        updatedAt: new Date(),
+      },
     });
 
     return {
@@ -222,16 +221,18 @@ export async function processHeliconeWebhook(
   });
 
   // Update the usage event with reconciliation data
-  await usageEventRef.update({
-    unitCostSnapshot: verifiedCostCents,
-    'metadata.heliconeVerifiedCostUsd': total_cost,
-    'metadata.heliconeVerifiedCostCents': verifiedCostCents,
-    'metadata.heliconeRequestId': request_id,
-    'metadata.heliconeReconciled': true,
-    'metadata.heliconeReconciledAt': FieldValue.serverTimestamp(),
-    'metadata.heliconeAdjustmentCents': adjustmentCents,
-    'metadata.originalCostCents': originalCostCents,
-    updatedAt: FieldValue.serverTimestamp(),
+  await UsageEventModel.findByIdAndUpdate(usageEventId, {
+    $set: {
+      unitCostSnapshot: verifiedCostCents,
+      'metadata.heliconeVerifiedCostUsd': total_cost,
+      'metadata.heliconeVerifiedCostCents': verifiedCostCents,
+      'metadata.heliconeRequestId': request_id,
+      'metadata.heliconeReconciled': true,
+      'metadata.heliconeReconciledAt': new Date().toISOString(),
+      'metadata.heliconeAdjustmentCents': adjustmentCents,
+      'metadata.originalCostCents': originalCostCents,
+      updatedAt: new Date(),
+    },
   });
 
   // Apply the adjustment to the user's billing context
@@ -261,13 +262,9 @@ async function applyReconciliationAdjustment(
   adjustmentCents: number,
   usageEventId: string
 ): Promise<void> {
-  const snapshot = await db
-    .collection(COLLECTIONS.BILLING_CONTEXTS)
-    .where('userId', '==', userId)
-    .limit(1)
-    .get();
+  const billingContext = await getBillingContext(db, userId);
 
-  if (snapshot.empty) {
+  if (!billingContext) {
     logger.warn('[helicone-webhook] No billing context for adjustment', {
       userId,
       adjustmentCents,
@@ -276,31 +273,34 @@ async function applyReconciliationAdjustment(
     return;
   }
 
-  const docRef = snapshot.docs[0]!.ref;
-  const data = snapshot.docs[0]!.data() as { paymentProvider?: string };
+  const docRef = db.collection(COLLECTIONS.BILLING_CONTEXTS).doc(userId);
+  const splitField =
+    billingContext.billingEntity === 'organization'
+      ? 'orgCurrentPeriodSpend'
+      : 'personalCurrentPeriodSpend';
+  const updates: Record<string, unknown> = {
+    currentPeriodSpend: FieldValue.increment(-adjustmentCents),
+    [splitField]: FieldValue.increment(-adjustmentCents),
+    updatedAt: FieldValue.serverTimestamp(),
+  };
 
-  if (data.paymentProvider === 'iap') {
+  if (billingContext.paymentProvider === 'iap') {
     // IAP wallet: credit positive adjustments back to wallet, debit negative ones
     // Positive adjustment = we overcharged → add back to wallet, reduce spend
     // Negative adjustment = we undercharged → deduct from wallet, increase spend
-    await docRef.update({
-      walletBalanceCents: FieldValue.increment(adjustmentCents),
-      currentPeriodSpend: FieldValue.increment(-adjustmentCents),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
+    updates['walletBalanceCents'] = FieldValue.increment(adjustmentCents);
   } else {
     // Stripe billing: just adjust the spend tracking
     // The actual Stripe invoice is handled separately
-    await docRef.update({
-      currentPeriodSpend: FieldValue.increment(-adjustmentCents),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
   }
+
+  await docRef.update(updates);
 
   logger.info('[helicone-webhook] Reconciliation adjustment applied', {
     userId,
     adjustmentCents,
     usageEventId,
-    provider: data.paymentProvider,
+    provider: billingContext.paymentProvider,
+    splitField,
   });
 }

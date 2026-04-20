@@ -194,6 +194,50 @@ export class ContextBuilder {
       }
     }
 
+    // ── Step 3c: Hydrate activeGoals + currentPlaybookSummary ────────────
+    // agentGoals is already on the user doc (no extra Firestore read).
+    // Current playbook requires one sub-collection read, timeout-guarded.
+    const rawGoals = (user['agentGoals'] as Array<Record<string, unknown>> | undefined) ?? [];
+    const activeGoals = rawGoals.slice(0, 5).map((g) => ({
+      id: String(g['id'] ?? ''),
+      text: String(g['text'] ?? ''),
+      ...(g['category'] ? { category: String(g['category']) } : {}),
+    }));
+    if (activeGoals.length > 0) {
+      context = { ...context, activeGoals };
+    }
+
+    try {
+      const db = firestore ?? getFirestore();
+      const playbookSummary = await this.withTimeout(
+        (async () => {
+          const snap = await db
+            .collection('Users')
+            .doc(userId)
+            .collection('agent_playbooks')
+            .orderBy('generatedAt', 'desc')
+            .limit(1)
+            .get();
+
+          if (snap.empty) return undefined;
+          const items = (snap.docs[0].data()['items'] ?? []) as Array<{ status?: string }>;
+          return {
+            playbookId: snap.docs[0].id,
+            total: items.length,
+            completed: items.filter((i) => i.status === 'complete').length,
+            snoozed: items.filter((i) => i.status === 'snoozed').length,
+          };
+        })(),
+        800,
+        `playbook summary fetch timed out for ${userId}`
+      );
+      if (playbookSummary) {
+        context = { ...context, currentPlaybookSummary: playbookSummary };
+      }
+    } catch {
+      // Non-critical — context is still valid without playbook summary
+    }
+
     // ── Step 4: Cache the assembled context ───────────────────────────────
     try {
       const cache = getCacheService();
@@ -283,10 +327,6 @@ export class ContextBuilder {
       lines.push(parts.join(' | '));
     }
 
-    if (context.commitmentStatus) {
-      lines.push(`Status: ${context.commitmentStatus}`);
-    }
-
     if (context.connectedAccounts?.length) {
       const SOCIAL_MEDIA_PLATFORMS = new Set([
         'instagram',
@@ -305,6 +345,21 @@ export class ContextBuilder {
 
     if (recentSyncSummaries.length) {
       lines.push(`Recent Sync Activity:\n- ${recentSyncSummaries.join('\n- ')}`);
+    }
+
+    if (context.activeGoals?.length) {
+      const goalLines = context.activeGoals
+        .map((g) => `"${g.text}"${g.category ? ` [${g.category}]` : ''}`)
+        .join(', ');
+      lines.push(`Active Goals (${context.activeGoals.length}): ${goalLines}`);
+    }
+
+    if (context.currentPlaybookSummary) {
+      const { playbookId, total, completed, snoozed } = context.currentPlaybookSummary;
+      const active = total - completed - snoozed;
+      lines.push(
+        `This Week's Playbook: ${completed}/${total} done, ${active} active, ${snoozed} snoozed [ID: ${playbookId}]`
+      );
     }
 
     if (memories.user.length) {
@@ -541,7 +596,6 @@ export class ContextBuilder {
 
       // Recruiting
       recruitingStatus: recruitingData?.recruitingStatus,
-      commitmentStatus: recruitingData?.commitmentStatus,
 
       // Platform activity
       lastActiveAt,
@@ -620,12 +674,10 @@ export class ContextBuilder {
    */
   private extractRecruitingData(user: UserData): {
     recruitingStatus?: string;
-    commitmentStatus?: string;
   } {
     const athlete = user['athlete'] as Record<string, unknown> | undefined;
     return {
       recruitingStatus: (athlete?.['recruitingStatus'] as string) ?? 'active',
-      commitmentStatus: (athlete?.['commitmentStatus'] as string) ?? 'uncommitted',
     };
   }
 
@@ -687,6 +739,59 @@ export class ContextBuilder {
         error: err instanceof Error ? err.message : String(err),
       });
       return '';
+    }
+  }
+
+  /**
+   * Fetch recent thread messages as structured AgentSessionMessage objects.
+   *
+   * Used by SessionMemoryService to cold-seed Redis on a cache miss.
+   * Returns ONLY 'user' and 'assistant' role messages — tool observations
+   * are excluded to keep session history clean and token-efficient.
+   *
+   * Unlike getRecentThreadHistory() which returns a formatted prompt string,
+   * this method returns clean structured data suitable for Redis storage and
+   * direct injection into the LLM messages array.
+   *
+   * @param threadId - The MongoDB thread ID.
+   * @param maxMessages - Maximum messages to return (default: 10).
+   */
+  async getRecentThreadMessages(
+    threadId: string,
+    maxMessages = 10
+  ): Promise<import('@nxt1/core').AgentSessionMessage[]> {
+    const limit = Math.min(maxMessages, ContextBuilder.THREAD_HISTORY_MAX_MESSAGES);
+
+    try {
+      const messages = await AgentMessageModel.find({
+        threadId,
+        role: { $in: ['user', 'assistant'] },
+      })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .select('role content createdAt')
+        .lean()
+        .exec();
+
+      if (!messages.length) return [];
+
+      return messages
+        .reverse() // chronological order
+        .map((m) => ({
+          role: m.role as 'user' | 'assistant',
+          content:
+            m.content.length > ContextBuilder.THREAD_HISTORY_MAX_CHARS
+              ? m.content.slice(0, ContextBuilder.THREAD_HISTORY_MAX_CHARS) + '...'
+              : m.content,
+          timestamp:
+            typeof m.createdAt === 'string' ? m.createdAt : new Date(m.createdAt).toISOString(),
+        }));
+    } catch (err) {
+      logger.warn('[ContextBuilder] Failed to fetch thread messages for session seed', {
+        threadId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return [];
     }
   }
 

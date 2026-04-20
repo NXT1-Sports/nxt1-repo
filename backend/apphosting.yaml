@@ -29,3 +29,11 @@ env:
     secret: REDIS_URL
     availability:
       - RUNTIME
+  - variable: GMAIL_USER
+    secret: GMAIL_USER
+    availability:
+      - RUNTIME
+  - variable: GMAIL_APP_PASSWORD
+    secret: GMAIL_APP_PASSWORD
+    availability:
+      - RUNTIME

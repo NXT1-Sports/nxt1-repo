@@ -651,10 +651,6 @@ export class UsageHelpContentComponent {
             title: 'Usage is tracked per member',
             desc: 'Every operation is logged with the member who ran it, the cost, and the category. You can see a live breakdown anytime.',
           },
-          {
-            title: 'Invoiced at end of cycle',
-            desc: "At the end of each billing period, all usage is totaled and charged to your organization's payment method on file.",
-          },
         ]
   );
 

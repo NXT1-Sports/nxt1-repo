@@ -41,6 +41,21 @@ const CACHE_KEYS = {
 
 const ORG_CACHE_TTL = CACHE_TTL.PROFILES; // 300s
 
+function resolveBillingOwnerUid(
+  admins: readonly OrganizationAdmin[],
+  fallbackOwnerId?: string | null
+): string | undefined {
+  const directorId = admins.find((admin) => admin.role === 'director')?.userId;
+  if (directorId) return directorId;
+
+  const firstAdminId = admins[0]?.userId;
+  if (firstAdminId) return firstAdminId;
+
+  return typeof fallbackOwnerId === 'string' && fallbackOwnerId.length > 0
+    ? fallbackOwnerId
+    : undefined;
+}
+
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
@@ -70,6 +85,7 @@ function docToOrganization(doc: FirebaseFirestore.DocumentSnapshot): Organizatio
     mascot: data['mascot'],
     admins: data['admins'] ?? [],
     ownerId: data['ownerId'] ?? '',
+    billingOwnerUid: data['billingOwnerUid'],
     billing: data['billing'],
     trial: data['trial'],
     settings: data['settings'],
@@ -124,6 +140,7 @@ export class OrganizationService {
       secondaryColor: input.secondaryColor || null,
       mascot: input.mascot || null,
       admins,
+      billingOwnerUid: resolveBillingOwnerUid(admins),
       isClaimed: input.isClaimed ?? true,
       source: input.source ?? 'admin',
       teamCount: 0,
@@ -248,13 +265,15 @@ export class OrganizationService {
       role: input.role,
       addedAt: new Date(),
     };
+    const org = await this.getOrganizationById(input.organizationId);
 
     const isPrivilegedRole = input.role === 'director' || input.role === 'coach';
+    const shouldPromoteAsBillingOwner =
+      input.role === 'director' || !org.billingOwnerUid || org.billingOwnerUid.length === 0;
 
     // When a director joins, demote (remove) all existing coach admins.
     // This ensures the director is the sole org-level authority.
     if (input.role === 'director') {
-      const org = await this.getOrganizationById(input.organizationId);
       const coachAdmins = org.admins.filter((a) => a.role === 'coach');
 
       if (coachAdmins.length > 0) {
@@ -275,6 +294,9 @@ export class OrganizationService {
           .doc(input.organizationId)
           .update({
             admins: remainingAdmins,
+            ...(shouldPromoteAsBillingOwner && {
+              billingOwnerUid: resolveBillingOwnerUid(remainingAdmins, org.ownerId),
+            }),
             ...(isPrivilegedRole && { isClaimed: true }),
             updatedAt: FieldValue.serverTimestamp(),
           });
@@ -284,6 +306,7 @@ export class OrganizationService {
           .doc(input.organizationId)
           .update({
             admins: FieldValue.arrayUnion(newAdmin),
+            ...(shouldPromoteAsBillingOwner && { billingOwnerUid: input.userId }),
             ...(isPrivilegedRole && { isClaimed: true }),
             updatedAt: FieldValue.serverTimestamp(),
           });
@@ -294,6 +317,7 @@ export class OrganizationService {
         .doc(input.organizationId)
         .update({
           admins: FieldValue.arrayUnion(newAdmin),
+          ...(shouldPromoteAsBillingOwner && { billingOwnerUid: input.userId }),
           ...(isPrivilegedRole && { isClaimed: true }),
           updatedAt: FieldValue.serverTimestamp(),
         });
@@ -324,11 +348,19 @@ export class OrganizationService {
       throw notFoundError('admin');
     }
 
+    const remainingAdmins = org.admins.filter((admin) => admin.userId !== userId);
+    const nextBillingOwnerUid = resolveBillingOwnerUid(remainingAdmins, org.ownerId);
+
     await this.db
       .collection(this.COLLECTION)
       .doc(orgId)
       .update({
         admins: FieldValue.arrayRemove(adminToRemove),
+        ...(org.billingOwnerUid === userId
+          ? nextBillingOwnerUid
+            ? { billingOwnerUid: nextBillingOwnerUid }
+            : { billingOwnerUid: FieldValue.delete() }
+          : {}),
         updatedAt: FieldValue.serverTimestamp(),
       });
 

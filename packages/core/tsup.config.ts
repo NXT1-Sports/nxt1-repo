@@ -53,6 +53,7 @@ export default defineConfig({
     'src/crashlytics/index.ts', // Firebase Crashlytics adapter
     'src/posts/index.ts', // Post types and interfaces
     'src/onboarding/index.ts', // Onboarding navigation and link-drop types
+    'src/platforms/index.ts', // Platform registry, types, and favicon utilities
     'src/performance/index.ts', // Performance tracing abstraction
     'src/ai/index.ts', // AI definitions
     'src/team-profile/index.ts', // Team profile types and API

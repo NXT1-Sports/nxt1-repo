@@ -21,11 +21,9 @@ import {
 } from '@nxt1/core';
 import type {
   HelpCategoryId,
-  HelpUserType,
   HelpContentType,
   HelpArticle,
   FaqItem,
-  HelpCategory,
   HelpCenterHome,
   HelpCategoryDetail,
   HelpSearchResponse,
@@ -73,9 +71,9 @@ function toFaq(doc: unknown): FaqItem {
 }
 
 /** Build user-type filter for MongoDB queries */
-function userTypeFilter(userType?: string): Record<string, unknown> {
-  if (!userType) return {};
-  return { targetUsers: { $in: [userType, 'all'] } };
+// Role filtering removed — all content is open and public.
+function userTypeFilter(_userType?: string): Record<string, unknown> {
+  return {};
 }
 
 // ============================================
@@ -86,20 +84,20 @@ function userTypeFilter(userType?: string): Record<string, unknown> {
  * Get help center home/landing page data.
  * Returns popular articles, categories with counts, top FAQs, quick actions.
  */
-export async function getHome(userType?: string): Promise<HelpCenterHome> {
-  const cacheKey = userType ? `${HELP_CACHE_KEYS.HOME}:${userType}` : HELP_CACHE_KEYS.HOME;
+export async function getHome(): Promise<HelpCenterHome> {
+  const cacheKey = HELP_CACHE_KEYS.HOME;
 
   // Try cache
   const cache = getCache();
   const cached = await cache.get<HelpCenterHome>(cacheKey);
   if (cached) {
-    logger.info('[HelpCenter] ✅ Home cache HIT', { userType });
+    logger.info('[HelpCenter] ✅ Home cache HIT');
     return cached;
   }
 
-  logger.info('[HelpCenter] ❌ Home cache MISS', { userType });
+  logger.info('[HelpCenter] ❌ Home cache MISS');
 
-  const baseFilter = { isPublished: true, ...userTypeFilter(userType) };
+  const baseFilter = { isPublished: true };
 
   // Fetch in parallel
   const [popularDocs, featuredDocs, faqDocs, categoryCounts] = await Promise.all([
@@ -108,50 +106,31 @@ export async function getHome(userType?: string): Promise<HelpCenterHome> {
       .sort({ publishedAt: -1 })
       .limit(3)
       .lean(),
-    HelpFaqModel.find({ isPublished: true, ...userTypeFilter(userType) })
-      .sort({ helpfulCount: -1 })
-      .limit(5)
-      .lean(),
+    HelpFaqModel.find({ isPublished: true }).sort({ order: 1 }).limit(10).lean(),
     HelpArticleModel.aggregate([
       { $match: baseFilter },
       { $group: { _id: '$category', count: { $sum: 1 } } },
     ]),
   ]);
 
-  // Build categories with article counts
   const countMap = new Map(
     categoryCounts.map((c: { _id: string; count: number }) => [c._id, c.count])
   );
-  const categories: HelpCategory[] = HELP_CATEGORIES.map((cat) => ({
-    ...cat,
-    articleCount: (countMap.get(cat.id) as number) ?? 0,
-  }));
-
-  // Filter categories by user type
-  const filteredCategories = userType
-    ? categories.filter(
-        (c) =>
-          !c.targetUsers ||
-          c.targetUsers.includes('all') ||
-          c.targetUsers.includes(userType as HelpUserType)
-      )
-    : categories;
 
   const home: HelpCenterHome = {
     featuredArticles: featuredDocs.map(toArticle),
     popularArticles: popularDocs.map(toArticle),
-    latestVideos: [], // Future: filter by type === 'video'
-    categories: filteredCategories,
+    latestVideos: [],
+    categories: HELP_CATEGORIES.map((cat) => ({
+      ...cat,
+      articleCount: (countMap.get(cat.id) as number) ?? 0,
+    })),
     topFaqs: faqDocs.map(toFaq),
-    quickActions: userType
-      ? HELP_QUICK_ACTIONS.filter(
-          (a) => a.targetUsers?.includes('all') || a.targetUsers?.includes(userType as HelpUserType)
-        )
-      : [...HELP_QUICK_ACTIONS],
+    quickActions: [...HELP_QUICK_ACTIONS],
   };
 
   await cache.set(cacheKey, home, { ttl: ttlSeconds(HELP_CACHE_TTL.HOME) });
-  logger.debug('[HelpCenter] ✅ Home cached', { userType });
+  logger.debug('[HelpCenter] ✅ Home cached');
 
   return home;
 }
@@ -162,17 +141,12 @@ export async function getHome(userType?: string): Promise<HelpCenterHome> {
 export async function getCategoryDetail(
   categoryId: HelpCategoryId,
   page: number = HELP_PAGINATION_DEFAULTS.INITIAL_PAGE,
-  limit: number = HELP_PAGINATION_DEFAULTS.LIMIT,
-  userType?: string
+  limit: number = HELP_PAGINATION_DEFAULTS.LIMIT
 ): Promise<HelpCategoryDetail | null> {
   const category = HELP_CATEGORIES.find((c) => c.id === categoryId);
   if (!category) return null;
 
-  const cacheKey = generateCacheKey(`${HELP_CACHE_KEYS.CATEGORY}${categoryId}`, {
-    page,
-    limit,
-    userType,
-  });
+  const cacheKey = generateCacheKey(`${HELP_CACHE_KEYS.CATEGORY}${categoryId}`, { page, limit });
 
   const cache = getCache();
   const cached = await cache.get<HelpCategoryDetail>(cacheKey);
@@ -183,15 +157,13 @@ export async function getCategoryDetail(
 
   logger.info('[HelpCenter] ❌ Category cache MISS', { categoryId });
 
-  const baseFilter = { category: categoryId, isPublished: true, ...userTypeFilter(userType) };
+  const baseFilter = { category: categoryId, isPublished: true };
   const skip = (page - 1) * limit;
 
   const [articles, totalArticles, faqs] = await Promise.all([
     HelpArticleModel.find(baseFilter).sort({ publishedAt: -1 }).skip(skip).limit(limit).lean(),
     HelpArticleModel.countDocuments(baseFilter),
-    HelpFaqModel.find({ category: categoryId, isPublished: true, ...userTypeFilter(userType) })
-      .sort({ order: 1 })
-      .lean(),
+    HelpFaqModel.find({ category: categoryId, isPublished: true }).sort({ order: 1 }).lean(),
   ]);
 
   const totalPages = Math.ceil(totalArticles / limit);
@@ -253,7 +225,7 @@ export async function getArticle(slug: string): Promise<HelpArticle | null> {
  * Search help center content (articles + FAQs).
  */
 export async function search(filter: HelpSearchFilter): Promise<HelpSearchResponse> {
-  const { query, categories, types, userType, page, limit } = {
+  const { query, categories, types, page, limit } = {
     page: HELP_PAGINATION_DEFAULTS.INITIAL_PAGE,
     limit: HELP_PAGINATION_DEFAULTS.LIMIT,
     ...filter,
@@ -275,7 +247,6 @@ export async function search(filter: HelpSearchFilter): Promise<HelpSearchRespon
   const articleQuery: Record<string, unknown> = {
     $text: { $search: query },
     isPublished: true,
-    ...userTypeFilter(userType),
   };
 
   if (categories?.length) {
@@ -289,7 +260,6 @@ export async function search(filter: HelpSearchFilter): Promise<HelpSearchRespon
   const faqQuery: Record<string, unknown> = {
     $text: { $search: query },
     isPublished: true,
-    ...userTypeFilter(userType),
   };
   if (categories?.length) {
     faqQuery['category'] = { $in: categories };

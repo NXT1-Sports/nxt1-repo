@@ -16,6 +16,8 @@
 import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 import { logger } from '../utils/logger.js';
 import { CollegeModel } from '../models/college.model.js';
+import { HelpArticleModel } from '../models/help-center/help-article.model.js';
+import { HELP_CATEGORIES } from '@nxt1/core';
 import mongoose from 'mongoose';
 
 const router: ExpressRouter = Router();
@@ -75,7 +77,7 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
       { loc: `${baseUrl}/rankings`, changefreq: 'daily', priority: 0.85 },
       { loc: `${baseUrl}/news`, changefreq: 'hourly', priority: 0.85 },
       { loc: `${baseUrl}/scout-reports`, changefreq: 'daily', priority: 0.8 },
-      { loc: `${baseUrl}/help-center`, changefreq: 'weekly', priority: 0.6 },
+      { loc: `${baseUrl}/help-center`, changefreq: 'weekly', priority: 0.75 },
       { loc: `${baseUrl}/about`, changefreq: 'monthly', priority: 0.5 },
       { loc: `${baseUrl}/pricing`, changefreq: 'weekly', priority: 0.7 },
 
@@ -214,7 +216,53 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
     }
 
     // ──────────────────────────────────────────
-    // 5. Generate XML
+    // 5. Help Center (categories + published articles from MongoDB)
+    // ──────────────────────────────────────────
+    try {
+      // Static category pages — always present
+      for (const category of HELP_CATEGORIES) {
+        entries.push({
+          loc: `${baseUrl}/help-center/category/${category.id}`,
+          changefreq: 'weekly',
+          priority: 0.65,
+        });
+      }
+
+      // Dynamic article pages from MongoDB
+      if (mongoose.connection.readyState === 1) {
+        const articles = await HelpArticleModel.find({ isPublished: true }, 'slug updatedAt')
+          .lean()
+          .exec();
+
+        logger.info(`[${requestId}] Found ${articles.length} published help articles`);
+
+        for (const article of articles) {
+          const slug = article.slug as string | undefined;
+          if (!slug) continue;
+
+          const updatedAt = article.updatedAt as Date | string | undefined;
+          const lastmod = updatedAt
+            ? (updatedAt instanceof Date ? updatedAt : new Date(updatedAt))
+                .toISOString()
+                .split('T')[0]
+            : undefined;
+
+          entries.push({
+            loc: `${baseUrl}/help-center/article/${slug}`,
+            lastmod,
+            changefreq: 'monthly',
+            priority: 0.7,
+          });
+        }
+      } else {
+        logger.debug(`[${requestId}] MongoDB not connected — skipping help articles`);
+      }
+    } catch (error) {
+      logger.error(`[${requestId}] Error fetching help center entries`, { error });
+    }
+
+    // ──────────────────────────────────────────
+    // 6. Generate XML
     // ──────────────────────────────────────────
     const xml = generateSitemapXml(entries);
 

@@ -262,7 +262,7 @@ export function createFeedApi(http: HttpAdapter, baseUrl: string) {
      */
     async sharePost(postId: string): Promise<FeedActionResponse> {
       try {
-        const path = replaceParams(FEED_API_ENDPOINTS.POST_SHARE, { id: postId });
+        const path = replaceParams(FEED_API_ENDPOINTS.ITEM_SHARE, { id: postId });
         const url = `${baseUrl}${path}`;
 
         const response = await http.post<FeedActionResponse>(url, {});
@@ -280,6 +280,20 @@ export function createFeedApi(http: HttpAdapter, baseUrl: string) {
         throw createApiError('SRV_INTERNAL_ERROR', {
           message: error instanceof Error ? error.message : 'Unknown error sharing post',
         });
+      }
+    },
+
+    /**
+     * Record a view impression on a post. Fire-and-forget — errors are silently swallowed.
+     *
+     * @param postId - Firestore Post document ID
+     */
+    async viewPost(postId: string): Promise<void> {
+      try {
+        const path = replaceParams(FEED_API_ENDPOINTS.ITEM_VIEW, { id: postId });
+        await http.post<void>(`${baseUrl}${path}`, {});
+      } catch {
+        // Intentionally silent — impressions are best-effort
       }
     },
 

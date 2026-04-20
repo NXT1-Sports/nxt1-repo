@@ -14,6 +14,7 @@ import type { HelpArticle, HelpContentType } from '@nxt1/core';
  */
 export interface HelpArticleDocument extends Omit<HelpArticle, 'id'> {
   readonly isPublished: boolean;
+  readonly lastAgentRefresh?: Date | null;
 }
 
 const ArticleTableOfContentsSchema = new Schema(
@@ -71,7 +72,7 @@ const HelpArticleSchema = new Schema<HelpArticleDocument>(
     thumbnailUrl: { type: String },
     videoUrl: { type: String },
     videoDuration: { type: Number },
-    readingTimeMinutes: { type: Number, required: true, default: 5 },
+    readingTimeMinutes: { type: Number, required: true, default: 1 },
     tableOfContents: { type: [ArticleTableOfContentsSchema], default: [] },
     relatedContent: { type: [RelatedContentSchema], default: [] },
     publishedAt: { type: String, required: true },
@@ -82,6 +83,7 @@ const HelpArticleSchema = new Schema<HelpArticleDocument>(
     isFeatured: { type: Boolean, default: false },
     isNew: { type: Boolean, default: false },
     isPublished: { type: Boolean, default: true, index: true },
+    lastAgentRefresh: { type: Date, default: null, index: true },
     seo: { type: SeoSchema },
   },
   { versionKey: false, timestamps: false, suppressReservedKeysWarning: true }

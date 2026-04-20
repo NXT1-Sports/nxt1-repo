@@ -196,6 +196,20 @@ export class ProfileApiService {
     return this.api.removeSport(userId, sportIndex);
   }
 
+  async pinPost(
+    userId: string,
+    postId: string,
+    isPinned: boolean
+  ): Promise<ApiResponse<{ postId: string; isPinned: boolean }>> {
+    this.invalidateCache(userId);
+    return this.api.pinPost(userId, postId, isPinned);
+  }
+
+  async deletePost(userId: string, postId: string): Promise<ApiResponse<{ postId: string }>> {
+    this.invalidateCache(userId);
+    return this.api.deletePost(userId, postId);
+  }
+
   // ============================================
   // SUB-COLLECTIONS (Timeline, Rankings, Scout Reports, Videos)
   // ============================================

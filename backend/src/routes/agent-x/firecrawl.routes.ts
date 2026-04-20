@@ -10,7 +10,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../../middleware/auth.middleware.js';
-import { PLATFORM_REGISTRY } from '@nxt1/core';
+import { PLATFORM_REGISTRY } from '@nxt1/core/platforms';
 import { logger } from '../../utils/logger.js';
 import { getFirecrawlProfileService, PLATFORM_KEY_RE } from './shared.js';
 

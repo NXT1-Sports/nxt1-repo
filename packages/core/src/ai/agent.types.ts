@@ -269,6 +269,17 @@ export interface AgentSessionContext {
    */
   readonly attachments?: readonly { readonly url: string; readonly mimeType: string }[];
   /**
+   * Video attachments forwarded from the chat client (mp4, mov, etc.).
+   * Videos cannot be passed as vision content — base.agent.ts injects their URLs
+   * as text references in the LLM user message so tools (e.g. write_athlete_videos)
+   * can use them without hallucinating a URL.
+   */
+  readonly videoAttachments?: readonly {
+    readonly url: string;
+    readonly mimeType: string;
+    readonly name: string;
+  }[];
+  /**
    * Abort signal propagated from the SSE connection.
    * When the client disconnects, this signal is triggered and cancels in-flight LLM calls.
    * Note: AbortSignal is not serialisable — never persist this field.
@@ -757,7 +768,6 @@ export interface AgentUserContext {
 
   // ── Recruiting Context ────────────────────────────────────────
   readonly recruitingStatus?: string;
-  readonly commitmentStatus?: string;
 
   // ── Platform Data ─────────────────────────────────────────────
   readonly lastActiveAt?: string;
@@ -773,6 +783,21 @@ export interface AgentUserContext {
   // ── Team Context (from active sport) ──────────────────────────
   readonly teamId?: string;
   readonly organizationId?: string;
+
+  // ── Goal & Playbook Context ────────────────────────────────────
+  /** Up to 5 active goals from agentGoals. Token-efficient subset. */
+  readonly activeGoals?: ReadonlyArray<{
+    readonly id: string;
+    readonly text: string;
+    readonly category?: string;
+  }>;
+  /** Current week's playbook progress summary. */
+  readonly currentPlaybookSummary?: {
+    readonly playbookId: string;
+    readonly total: number;
+    readonly completed: number;
+    readonly snoozed: number;
+  };
 }
 
 /** Fully assembled prompt context used before planner/coordinator execution. */

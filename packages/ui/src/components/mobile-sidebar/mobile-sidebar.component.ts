@@ -1477,13 +1477,37 @@ export class NxtMobileSidebarComponent implements OnDestroy {
     // Close sidebar first, then wait for the 250ms slide-out animation before opening sheet
     this.close();
     setTimeout(() => {
+      const operationStatus =
+        entry.status === 'in-progress'
+          ? 'processing'
+          : entry.status === 'complete'
+            ? 'complete'
+            : entry.status === 'error'
+              ? 'error'
+              : entry.status === 'awaiting_input'
+                ? 'awaiting_input'
+                : null;
+      const isFirestoreOperationId = (id: string | undefined): boolean => {
+        if (!id) return false;
+        const bare = id.startsWith('chat-') ? id.slice(5) : id;
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bare);
+      };
+      const resolvedOperationId = isFirestoreOperationId(entry.operationId)
+        ? entry.operationId
+        : undefined;
+
       void this.bottomSheet.openSheet({
         component: AgentXOperationChatComponent,
         componentProps: {
-          contextId: entry.id,
+          contextId: resolvedOperationId ?? entry.threadId ?? entry.id,
           contextTitle: entry.title,
           contextIcon: entry.icon,
           contextType: 'operation',
+          operationStatus: resolvedOperationId
+            ? operationStatus
+            : operationStatus === 'processing'
+              ? null
+              : operationStatus,
           ...(entry.threadId ? { threadId: entry.threadId } : {}),
         },
         ...SHEET_PRESETS.FULL,

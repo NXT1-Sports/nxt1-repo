@@ -166,7 +166,6 @@ export async function executeBillingDeduction(
 
     // Step 5: Write audit trail usage event
     recordUsageEvent(
-      db,
       {
         userId,
         teamId: resolvedTeamId,

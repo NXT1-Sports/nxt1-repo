@@ -8,10 +8,8 @@
  *
  * Features:
  * - Multiple invite channels (SMS, Email, Social, QR, Link)
- * - Gamified XP rewards
  * - Team invitations
  * - Referral tracking
- * - Achievement badges
  */
 
 // ============================================
@@ -125,8 +123,6 @@ export interface InviteItem {
   readonly message?: string;
   /** Referral code */
   readonly referralCode: string;
-  /** Agent X wallet credits earned for this invite (in cents). */
-  readonly creditsEarned?: number;
   /** Creation timestamp */
   readonly createdAt: string;
   /** Last update timestamp */
@@ -136,26 +132,8 @@ export interface InviteItem {
 }
 
 // ============================================
-// INVITE STATS & GAMIFICATION
+// INVITE STATS
 // ============================================
-
-/**
- * Reward tier based on invite performance.
- * @deprecated XP system not active — tiers retained for future use.
- */
-export interface InviteRewardTier {
-  /** Tier name */
-  readonly name: string;
-  /** Minimum invites to reach tier */
-  readonly minInvites: number;
-  /** Badge icon */
-  readonly badgeIcon: string;
-  /** Badge color */
-  readonly badgeColor: string;
-}
-
-/** @deprecated Alias for backwards compatibility. */
-export type InviteXpTier = InviteRewardTier;
 
 /**
  * User's invite statistics.
@@ -177,30 +155,12 @@ export interface InviteStats {
   readonly monthlyCount: number;
   /** Conversion rate (accepted/sent %) */
   readonly conversionRate: number;
-}
-
-/**
- * Achievement badge for invite milestones.
- */
-export interface InviteAchievement {
-  /** Achievement ID */
-  readonly id: string;
-  /** Display name */
-  readonly name: string;
-  /** Description */
-  readonly description: string;
-  /** Icon name */
-  readonly icon: string;
-  /** Badge color */
-  readonly color: string;
-  /** Wallet credit reward (cents). */
-  readonly creditReward?: number;
-  /** Whether user has earned this */
-  readonly isEarned: boolean;
-  /** Progress (0-100) if not earned */
-  readonly progress?: number;
-  /** Timestamp when earned */
-  readonly earnedAt?: string;
+  /**
+   * Referral reward amount credited to the inviter for each successful signup,
+   * in cents. Read live from backend config (`AppConfig/referralReward`) so UI
+   * copy stays in sync with the actual wallet credit applied on acceptance.
+   */
+  readonly referralRewardCents?: number;
 }
 
 // ============================================
@@ -269,10 +229,6 @@ export interface SendInviteResponse {
   readonly success: boolean;
   /** Created invites */
   readonly invites: readonly InviteItem[];
-  /** Agent X wallet credits earned for this batch (in cents). */
-  readonly creditsEarned?: number;
-  /** New achievements unlocked */
-  readonly newAchievements?: readonly InviteAchievement[];
   /** Error message (if failed) */
   readonly error?: string;
 }
@@ -356,8 +312,6 @@ export interface InviteState {
   readonly inviteLink: InviteLink | null;
   /** User's invite stats */
   readonly stats: InviteStats | null;
-  /** User's achievements */
-  readonly achievements: readonly InviteAchievement[];
   /** Recent invite history */
   readonly history: readonly InviteItem[];
   /** Loading states */

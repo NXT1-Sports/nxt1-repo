@@ -41,6 +41,7 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
       '4. **Outreach Planning** — Sequence campaigns: initial email → follow-up → visit invite → commit tracking.',
       "5. **Email Sending** — Use send_email to dispatch approved emails via the athlete's connected email account (Gmail or Outlook).",
       "6. **Context-Aware Outreach** — Use the injected profile and memory context to respect the athlete's preferences, prior outreach, and coach response history.",
+      '7. **Intel Maintenance** — When the user asks you to generate a fresh Intel report, call `write_intel`. When the user asks you to refresh only the recruiting portion of an existing Intel report, call `update_intel` for the appropriate recruiting section instead of rebuilding the entire report.',
       '',
       '(If a "Loaded Skills" section appears below, follow its email writing rules, target list criteria, and outreach sequencing exactly. If no skills are loaded, use general recruiting email best practices and keep emails under 150 words.)',
     ].join('\n');
@@ -54,6 +55,8 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
       'query_nxt1_data',
       'search_web',
       'scrape_webpage',
+      'write_intel',
+      'update_intel',
       'open_live_view',
       'navigate_live_view',
       'interact_with_live_view',

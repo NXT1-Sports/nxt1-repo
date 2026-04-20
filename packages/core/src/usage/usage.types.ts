@@ -20,6 +20,23 @@ import type {
 } from '../constants/payment.constants';
 
 // ============================================
+// NAVIGATION SECTIONS
+// ============================================
+
+/**
+ * Billing dashboard section IDs.
+ * The backend is the authoritative source for which sections a given user may access.
+ * Never compute this on the frontend — read `UsageDashboardData.allowedSections`.
+ */
+export type UsageSection =
+  | 'overview'
+  | 'metered-usage'
+  | 'breakdown'
+  | 'budgets'
+  | 'payment-info'
+  | 'auto-topup';
+
+// ============================================
 // BILLING PERIOD
 // ============================================
 
@@ -320,12 +337,30 @@ export interface BillingContextSummary {
   readonly organizationId?: string;
   /** How this context is funded */
   readonly paymentProvider: PaymentProviderType;
-  /** Pre-paid wallet balance in cents (IAP users only, 0 for stripe) */
+  /** Pre-paid wallet balance in cents. Applies to all billing entities under the prepaid wallet model. */
   readonly walletBalanceCents: number;
+  /** Pending wallet holds in cents (funds reserved for in-flight AI operations). */
+  readonly pendingHoldsCents: number;
   /** Whether the current user can manage billing for the organization context */
   readonly isOrgAdmin: boolean;
   /** Whether the current user can manage billing for the team context */
   readonly isTeamAdmin: boolean;
+  /** Whether auto top-up is enabled for this billing context */
+  readonly autoTopUpEnabled?: boolean;
+  /** Wallet balance threshold in cents that triggers an auto top-up */
+  readonly autoTopUpThresholdCents?: number;
+  /** Amount in cents to reload when auto top-up fires */
+  readonly autoTopUpAmountCents?: number;
+  /**
+   * When true, this org-roster member has opted to use their personal wallet
+   * instead of the org's wallet. Ignored for individual billing contexts.
+   */
+  readonly usePersonalBilling?: boolean;
+  /**
+   * True when this user resolves to org billing AND the org wallet balance is 0.
+   * Used to drive the "Your team is out of funds" banner in the Usage UI.
+   */
+  readonly orgWalletEmpty?: boolean;
 }
 
 /** A team's sub-allocation within an organization budget */
@@ -343,9 +378,13 @@ export interface TeamBudgetAllocation {
 }
 
 /** Default budgets (cents) */
-export const DEFAULT_INDIVIDUAL_BUDGET = 500; // $5
+export const DEFAULT_INDIVIDUAL_BUDGET = 0;
+/** Fallback starter wallet balance used when backend AppConfig is unset. */
+export const DEFAULT_INDIVIDUAL_STARTER_BALANCE = 500; // $5
 export const DEFAULT_TEAM_BUDGET = 20000; // $200
-export const DEFAULT_ORGANIZATION_BUDGET = 2000; // $20
+export const DEFAULT_ORGANIZATION_BUDGET = 0;
+/** Fallback starter wallet balance used when backend AppConfig is unset. */
+export const DEFAULT_ORGANIZATION_STARTER_BALANCE = 2000; // $20
 
 /** A product budget configuration */
 export interface UsageBudget {
@@ -405,6 +444,18 @@ export interface UsageDashboardData {
   readonly isOrgAdmin: boolean;
   /** Whether the current user is an admin of their assigned team */
   readonly isTeamAdmin: boolean;
+  /**
+   * True when the user is on org billing but is NOT an org or team admin.
+   * When true, the frontend shows a restricted stub screen — financial details
+   * (payment history, methods, billing info) are not shown.
+   */
+  readonly isOrgMember?: boolean;
+  /**
+   * Authoritative list of section IDs this user may navigate to.
+   * Computed by the backend — the frontend must NOT re-derive this from user
+   * flags. Renders tabs exactly as provided; empty array = still loading.
+   */
+  readonly allowedSections: readonly UsageSection[];
 }
 
 // ============================================

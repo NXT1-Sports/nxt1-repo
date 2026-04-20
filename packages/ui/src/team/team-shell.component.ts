@@ -32,6 +32,7 @@ import {
   computed,
   signal,
   effect,
+  DestroyRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonContent, IonIcon, IonSkeletonText } from '@ionic/angular/standalone';
@@ -44,6 +45,7 @@ import { NxtEntityHeroComponent, type EntityHeroMetaItem } from '../components/e
 import { ProfileTimelineComponent } from '../profile/profile-timeline.component';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtToastService } from '../services/toast/toast.service';
+import { NxtThemeService } from '../services/theme';
 import { formatSportDisplayName } from '@nxt1/core';
 import type { FeedItem } from '@nxt1/core';
 
@@ -64,6 +66,10 @@ export interface TeamData {
   coachName?: string;
   homeVenue?: string;
   rosterCount?: number;
+  /** Primary brand color (hex, e.g. "#003087") — sourced from the Organisation doc */
+  primaryColor?: string;
+  /** Secondary brand color (hex) — sourced from the Organisation doc */
+  secondaryColor?: string;
 }
 
 @Component({
@@ -193,7 +199,9 @@ export interface TeamData {
   styles: [
     `
       .team-content {
-        --background: var(--ion-background-color, #ffffff);
+        --background: var(--nxt1-color-bg-primary, var(--ion-background-color, #0a0a0a));
+        --m-accent: var(--team-primary, var(--nxt1-color-primary, #d4ff00));
+        --m-accent-secondary: var(--team-secondary, var(--nxt1-color-secondary, #ffffff));
       }
 
       .team-container {
@@ -355,6 +363,8 @@ export interface TeamData {
 export class TeamShellComponent {
   private readonly logger = inject(NxtLoggingService).child('TeamShellComponent');
   private readonly toast = inject(NxtToastService);
+  private readonly theme = inject(NxtThemeService);
+  private readonly destroyRef = inject(DestroyRef);
 
   protected readonly formatSportDisplayName = formatSportDisplayName;
 
@@ -451,6 +461,7 @@ export class TeamShellComponent {
       peopleOutline,
       shareOutline,
     });
+
     // Log component initialization
     effect(() => {
       this.logger.info('Team shell initialized', {
@@ -458,6 +469,21 @@ export class TeamShellComponent {
         hasData: !!this.team(),
       });
     });
+
+    // Apply org brand colors via the design token system whenever team data resolves.
+    // Sets --team-primary / --team-secondary on <html> so every component referencing
+    // those tokens picks them up through the CSS cascade automatically.
+    effect(() => {
+      const t = this.team();
+      if (t?.primaryColor) {
+        this.theme.applyOrgTheme(t.primaryColor, t.secondaryColor);
+      } else {
+        this.theme.clearOrgTheme();
+      }
+    });
+
+    // Clear org theme when navigating away so it doesn't bleed onto other pages.
+    this.destroyRef.onDestroy(() => this.theme.clearOrgTheme());
   }
 
   // ============================================

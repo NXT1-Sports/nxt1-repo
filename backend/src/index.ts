@@ -64,6 +64,7 @@ import {
 import usageRoutes from './routes/usage.routes.js';
 import iapRoutes from './routes/iap.routes.js';
 import teamsRoutes from './routes/teams.routes.js';
+import engagementRoutes from './routes/engagement.routes.js';
 // Staging-only dev utilities
 
 const app: ReturnType<typeof express> = express();
@@ -305,6 +306,8 @@ async function setupApplication() {
     { path: '/cloudflare-webhook', rateLimitType: 'api', handler: cloudflareWebhookRoutes },
     // Team profile routes
     { path: '/teams', rateLimitType: 'api', handler: teamsRoutes },
+    // Universal feed item engagement (share + view impression tracking — all types)
+    { path: '/engagement', rateLimitType: 'api', handler: engagementRoutes },
     // SSR routes with lighter limits (for SEO crawlers)
   ];
 

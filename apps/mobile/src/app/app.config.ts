@@ -37,6 +37,7 @@ import {
   query,
   orderBy as firestoreOrderBy,
   onSnapshot as firestoreOnSnapshot,
+  getDocs as firestoreGetDocs,
 } from '@angular/fire/firestore';
 import { Capacitor } from '@capacitor/core';
 
@@ -57,6 +58,7 @@ import {
   USAGE_API_BASE_URL,
   PERFORMANCE_ADAPTER,
   INTEL_API_BASE_URL,
+  HELP_CENTER_API,
 } from '@nxt1/ui';
 // Mobile-specific Activity API adapter (uses CapacitorHttpAdapter + auth)
 // Settings persistence adapter (connects SettingsService → backend API)
@@ -65,6 +67,7 @@ import {
 import { EditProfileService } from '@nxt1/ui/edit-profile';
 import {
   ActivityApiService as MobileActivityApiService,
+  HelpCenterApiService,
   SettingsApiService,
   MobileEmailConnectionService,
   EditProfileApiService,
@@ -235,6 +238,15 @@ export const appConfig: ApplicationConfig = {
             onError
           );
         },
+        getDocs: async (
+          path: string,
+          orderByField: string
+        ): Promise<ReadonlyArray<Record<string, unknown>>> => {
+          const ref = collection(firestore, path);
+          const q = query(ref, firestoreOrderBy(orderByField));
+          const snap = await firestoreGetDocs(q);
+          return snap.docs.map((d) => d.data());
+        },
       }),
       deps: [Firestore],
     },
@@ -256,6 +268,9 @@ export const appConfig: ApplicationConfig = {
 
     // Intel API base URL
     { provide: INTEL_API_BASE_URL, useFactory: () => environment.apiUrl },
+
+    // Help Center API adapter
+    { provide: HELP_CENTER_API, useExisting: HelpCenterApiService },
 
     // Settings persistence adapter (connects SettingsService → backend API)
     { provide: SETTINGS_PERSISTENCE_ADAPTER, useExisting: SettingsApiService },

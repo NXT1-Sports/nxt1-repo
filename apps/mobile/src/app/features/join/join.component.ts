@@ -24,7 +24,7 @@
 import { Component, ChangeDetectionStrategy, inject, OnInit, signal } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { NavController } from '@ionic/angular/standalone';
-import { IonSpinner, IonButton } from '@ionic/angular/standalone';
+import { IonSpinner } from '@ionic/angular/standalone';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtLogoComponent } from '@nxt1/ui/components/logo';
 import type { ValidatedTeamInfo } from '@nxt1/core';
@@ -59,7 +59,7 @@ export const INVITE_SPORT_KEY = 'nxt1:invite_sport';
 @Component({
   selector: 'app-join-mobile',
   standalone: true,
-  imports: [IonSpinner, IonButton, NxtLogoComponent],
+  imports: [IonSpinner, NxtLogoComponent],
   template: `
     @if (confirmState(); as state) {
       <!-- Confirmation screen for already-authenticated users -->
@@ -72,23 +72,12 @@ export const INVITE_SPORT_KEY = 'nxt1:invite_sport';
           </p>
         </div>
         <div class="confirm-actions">
-          <ion-button
-            expand="block"
-            color="primary"
-            [disabled]="isAccepting()"
-            (click)="acceptInvite()"
-          >
+          <button class="nxt1-btn-primary" [disabled]="isAccepting()" (click)="acceptInvite()">
             {{ isAccepting() ? 'Joining…' : 'Accept & Join Team' }}
-          </ion-button>
-          <ion-button
-            expand="block"
-            fill="outline"
-            color="medium"
-            [disabled]="isAccepting()"
-            (click)="declineInvite()"
-          >
+          </button>
+          <button class="nxt1-btn-secondary" [disabled]="isAccepting()" (click)="declineInvite()">
             Decline
-          </ion-button>
+          </button>
         </div>
       </div>
     } @else {
@@ -106,7 +95,7 @@ export const INVITE_SPORT_KEY = 'nxt1:invite_sport';
         display: flex;
         flex-direction: column;
         min-height: 100vh;
-        background: var(--nxt1-color-bg-primary);
+        background: var(--nxt1-ui-bg-page);
       }
 
       .loading-container {
@@ -115,9 +104,9 @@ export const INVITE_SPORT_KEY = 'nxt1:invite_sport';
         align-items: center;
         justify-content: center;
         min-height: 100vh;
-        gap: 16px;
-        color: var(--nxt1-color-text-secondary);
-        font-size: 14px;
+        gap: var(--nxt1-spacing-4, 16px);
+        color: var(--nxt1-ui-text-muted);
+        font-size: var(--nxt1-fontSize-sm, 14px);
       }
 
       .confirm-container {
@@ -126,27 +115,27 @@ export const INVITE_SPORT_KEY = 'nxt1:invite_sport';
         align-items: center;
         justify-content: center;
         min-height: 100vh;
-        gap: 24px;
-        padding: 32px 24px;
+        gap: var(--nxt1-spacing-6, 24px);
+        padding: var(--nxt1-spacing-8, 32px) var(--nxt1-spacing-6, 24px);
       }
 
       .confirm-body {
         text-align: center;
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: var(--nxt1-spacing-2, 8px);
       }
 
       .confirm-title {
-        font-size: 20px;
-        font-weight: 600;
-        color: var(--nxt1-color-text-primary);
+        font-size: var(--nxt1-fontSize-xl, 20px);
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
+        color: var(--nxt1-ui-text-primary);
         margin: 0;
       }
 
       .confirm-message {
-        font-size: 14px;
-        color: var(--nxt1-color-text-secondary);
+        font-size: var(--nxt1-fontSize-sm, 14px);
+        color: var(--nxt1-ui-text-secondary);
         margin: 0;
       }
 
@@ -154,7 +143,7 @@ export const INVITE_SPORT_KEY = 'nxt1:invite_sport';
         width: 100%;
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: var(--nxt1-spacing-3, 12px);
       }
     `,
   ],

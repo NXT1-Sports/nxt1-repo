@@ -17,20 +17,29 @@ service firebase.storage {
       return request.resource.contentType.matches('image/.*');
     }
 
-    // ── Profiles/ProfileImages/{userId}/ ────────────────────────────────
-    // Only the owning user can write profile images.
-    // Any authenticated user can read (public profiles).
-    // No size limit — sharp normalizes input to 800×800 JPEG before upload.
-    match /Profiles/ProfileImages/{userId}/{allPaths=**} {
-      allow read:   if isAuthenticated();
-      allow write:  if isOwner(userId) && isImageType();
+    // ── Users/{userId}/ ──────────────────────────────────────────────────────
+    // All user-owned content (profile photos, posts, thread media).
+    // Only the owning user can write. Public reads allowed (files are made
+    // public via makePublic() server-side before URLs are issued).
+    match /Users/{userId}/{allPaths=**} {
+      allow read:   if true;
+      allow write:  if isOwner(userId);
       allow delete: if isOwner(userId) || isAdmin();
     }
 
-    // ── Teams/ ───────────────────────────────────────────────────────────
-    // Team logos are uploaded server-side — write requires admin.
-    match /Teams/{allPaths=**} {
+    // ── Profiles/ (legacy — read-only for backward compat) ───────────────────
+    // New uploads go to Users/{userId}/profile/. Existing files remain readable.
+    match /Profiles/{allPaths=**} {
       allow read:  if isAuthenticated();
+      allow write: if false;
+    }
+
+    // ── Teams/ ───────────────────────────────────────────────────────────
+    // Team logos and gallery images are public CDN assets (like Colleges/).
+    // Writes are server-side only (Firebase Admin SDK bypasses these rules),
+    // but the rule enforces no client-side writes.
+    match /Teams/{allPaths=**} {
+      allow read:  if true;
       allow write: if isAdmin();
     }
 

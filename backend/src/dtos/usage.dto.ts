@@ -296,6 +296,52 @@ export class SimpleBillingInfoDto {
 export class BuyCreditsDto {
   @IsInt()
   @Min(500)
-  @Max(50000)
+  @Max(500_000)
   amountCents!: number;
+
+  /** When present, this top-up is for an organization wallet (org admins only) */
+  @IsOptional()
+  @IsString()
+  organizationId?: string;
+}
+
+export class AutoTopUpDto {
+  @IsBoolean()
+  enabled!: boolean;
+
+  /** Balance threshold in cents at which auto top-up triggers (min $1) */
+  @IsInt()
+  @Min(100)
+  @Max(100_000)
+  thresholdCents!: number;
+
+  /** Amount in cents to add when threshold is crossed (min $5) */
+  @IsInt()
+  @Min(500)
+  @Max(500_000)
+  amountCents!: number;
+}
+
+export class BillingModeDto {
+  /** When true, the current user routes their spend to their personal wallet instead of the org wallet */
+  @IsBoolean()
+  usePersonalBilling!: boolean;
+}
+
+export class InvoiceTopUpDto {
+  /** Amount in cents to request (min $50, max $50,000) */
+  @IsInt()
+  @Min(5_000)
+  @Max(5_000_000)
+  amountCents!: number;
+
+  /** Optional Purchase Order number for school districts / large orgs */
+  @IsOptional()
+  @IsString()
+  @Length(1, 100)
+  poNumber?: string;
+
+  /** Net payment terms in days */
+  @IsInt()
+  netDays!: number;
 }

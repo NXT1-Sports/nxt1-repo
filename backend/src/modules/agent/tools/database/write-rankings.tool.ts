@@ -20,6 +20,7 @@ import { invalidateProfileCaches } from '../../../../routes/profile/shared.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
 import { getAnalyticsLoggerService } from '../../../../services/analytics-logger.service.js';
 import { logger } from '../../../../utils/logger.js';
+import { resolveCreatedAt } from './doc-date-utils.js';
 
 const RANKINGS_COLLECTION = 'Rankings';
 const MAX_RANKINGS = 30;
@@ -210,6 +211,9 @@ export class WriteRankingsTool extends BaseTool {
             rankedAt.slice(0, 10),
           ].join('_');
 
+          const docRef = rankingsCol.doc(docId);
+          const existingData = (await docRef.get()).data();
+
           const record: Record<string, unknown> = {
             id: docId,
             userId,
@@ -219,7 +223,7 @@ export class WriteRankingsTool extends BaseTool {
             source,
             rankedAt,
             date: rankedAt,
-            createdAt: rankedAt,
+            createdAt: resolveCreatedAt(existingData?.['createdAt'], rankedAt, rankedAt),
             updatedAt: rankedAt,
             provider: source,
             extractedAt: new Date().toISOString(),
@@ -241,7 +245,7 @@ export class WriteRankingsTool extends BaseTool {
           const classOf = this.num(ranking, 'classOf');
           if (classOf !== null) record['classOf'] = classOf;
 
-          await rankingsCol.doc(docId).set(record, { merge: true });
+          await docRef.set(record, { merge: true });
           written++;
         })
       );

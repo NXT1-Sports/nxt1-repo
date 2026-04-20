@@ -27,8 +27,6 @@ import { humanizeToolName, forceProxyFlush } from './shared.js';
  * after `agentRouterRef.run()` completes.
  */
 export interface SseStreamRef {
-  /** operationId of an enqueue_heavy_task call, if one fired during the run. */
-  heavyTaskOperationId: string | null;
   /** All tool names invoked during the run (for billing metadata). */
   invokedTools: string[];
   /** The model name resolved from the LLM response (best-effort). */
@@ -123,12 +121,6 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
           forceProxyFlush(res);
         } catch {
           // Client disconnected
-        }
-
-        // Intercept enqueue_heavy_task so the route handler can pivot to PubSub
-        if (event.toolName === 'enqueue_heavy_task' && succeeded && event.toolResult) {
-          const operationId = event.toolResult['operationId'] as string | undefined;
-          if (operationId) streamRef.heavyTaskOperationId = operationId;
         }
 
         // Capture autoOpenPanel payload (e.g. live-view, media)

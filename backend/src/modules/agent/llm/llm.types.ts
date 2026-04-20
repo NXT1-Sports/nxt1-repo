@@ -24,7 +24,7 @@ export const MODEL_CATALOGUE: Record<ModelTier, string> = {
   compliance: 'openai/gpt-4o',
   copywriting: 'anthropic/claude-sonnet-4-5',
   prompt_engineering: 'anthropic/claude-sonnet-4-5',
-  chat: 'anthropic/claude-haiku-4-5',
+  chat: 'deepseek/deepseek-v3.2',
   task_automation: 'anthropic/claude-sonnet-4-5',
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ export const MODEL_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
   compliance: ['openai/gpt-4o', 'anthropic/claude-sonnet-4', 'anthropic/claude-haiku-4-5'],
   copywriting: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'qwen/qwen3.6-plus'],
   prompt_engineering: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
-  chat: ['anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini', 'qwen/qwen3.6-plus'],
+  chat: ['deepseek/deepseek-v3.2', 'anthropic/claude-haiku-4-5', 'openai/gpt-4o-mini'],
   task_automation: ['anthropic/claude-sonnet-4', 'openai/gpt-4o', 'anthropic/claude-haiku-4-5'],
 
   // ── Media Tiers ─────────────────────────────────────────────────────────

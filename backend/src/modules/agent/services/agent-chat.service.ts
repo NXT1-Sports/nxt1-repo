@@ -43,6 +43,7 @@ import { AgentMessageModel } from '../../../models/agent-message.model.js';
 import { logger } from '../../../utils/logger.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { AgentQueueService } from '../queue/queue.service.js';
+import type { SessionMemoryService } from '../memory/session.service.js';
 
 /**
  * System prompt for auto-generating short conversation titles.
@@ -67,7 +68,10 @@ const OPERATION_TITLE_GENERATION_PROMPT = `You are a concise activity title gene
 // ─── Service ────────────────────────────────────────────────────────────────
 
 export class AgentChatService {
-  constructor(private readonly queueService?: AgentQueueService) {}
+  constructor(
+    private readonly queueService?: AgentQueueService,
+    private readonly sessionMemory?: SessionMemoryService
+  ) {}
 
   // ─── Thread Operations ──────────────────────────────────────────────────
 
@@ -174,12 +178,26 @@ export class AgentChatService {
 
   /**
    * Archive (soft-hide) a thread. Does NOT delete messages.
+   * Also clears the Redis session cache for this thread so stale state
+   * never lingers after the thread is removed from the user's view.
    */
   async archiveThread(threadId: string, userId: string): Promise<boolean> {
     const result = await AgentThreadModel.updateOne(
       { _id: threadId, userId },
       { $set: { archived: true, updatedAt: new Date().toISOString() } }
     ).exec();
+
+    if (result.modifiedCount > 0 && this.sessionMemory) {
+      // Fire-and-forget — Redis clear is best-effort; TTL will handle it if this fails
+      this.sessionMemory.clear(userId, threadId).catch((err) => {
+        logger.warn('[AgentChatService] Failed to clear session memory on archive', {
+          threadId,
+          userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+
     return result.modifiedCount > 0;
   }
 

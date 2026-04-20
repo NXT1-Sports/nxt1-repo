@@ -553,7 +553,8 @@ export function eventDocToFeedItemEvent(
     sport?: string;
     teamId?: string;
   },
-  author: FeedAuthor
+  author: FeedAuthor,
+  isPinned?: boolean
 ): FeedItemEvent {
   const resultStr =
     data.result && data.status === 'final'
@@ -561,7 +562,7 @@ export function eventDocToFeedItemEvent(
       : undefined;
 
   return {
-    ...buildFeedItemBase(`event-${docId}`, author, data.date),
+    ...buildFeedItemBase(`event-${docId}`, author, data.date, { isPinned }),
     feedType: 'EVENT',
     referenceId: docId,
     eventData: {
@@ -597,7 +598,8 @@ export function scheduleDocToFeedItemSchedule(
     sport?: string;
     teamId?: string;
   },
-  author: FeedAuthor
+  author: FeedAuthor,
+  isPinned?: boolean
 ): FeedItemSchedule {
   const resultStr =
     data.result && data.status === 'final'
@@ -605,7 +607,7 @@ export function scheduleDocToFeedItemSchedule(
       : undefined;
 
   return {
-    ...buildFeedItemBase(`schedule-${docId}`, author, data.date),
+    ...buildFeedItemBase(`schedule-${docId}`, author, data.date, { isPinned }),
     feedType: 'SCHEDULE',
     referenceId: docId,
     scheduleType: data.scheduleType ?? 'game',
@@ -647,10 +649,11 @@ export function statDocToFeedItemStat(
       isHighlight?: boolean;
     }[];
   },
-  author: FeedAuthor
+  author: FeedAuthor,
+  isPinned?: boolean
 ): FeedItemStat {
   return {
-    ...buildFeedItemBase(`stat-${docId}`, author, data.createdAt),
+    ...buildFeedItemBase(`stat-${docId}`, author, data.createdAt, { isPinned }),
     feedType: 'STAT',
     referenceId: docId,
     statData: {
@@ -717,7 +720,8 @@ export function recruitingDocToFeedItemVariant(
     notes?: string;
     graphicUrl?: string;
   },
-  author: FeedAuthor
+  author: FeedAuthor,
+  isPinned?: boolean
 ): FeedItemOffer | FeedItemCommitment | FeedItemVisit | FeedItemCamp | FeedItemAward {
   const category = data.category.trim().toLowerCase();
   const media: readonly FeedMedia[] = data.graphicUrl
@@ -734,7 +738,7 @@ export function recruitingDocToFeedItemVariant(
 
   if (category === 'offer' || category === 'interest') {
     return {
-      ...buildFeedItemBase(`recruiting-${docId}`, author, data.date),
+      ...buildFeedItemBase(`recruiting-${docId}`, author, data.date, { isPinned }),
       feedType: 'OFFER',
       referenceId: docId,
       offerData: {
@@ -752,7 +756,9 @@ export function recruitingDocToFeedItemVariant(
   if (category === 'commitment') {
     const commitmentStatus = data.commitmentStatus?.trim().toLowerCase();
     return {
-      ...buildFeedItemBase(`commitment-${docId}`, author, data.announcedAt ?? data.date),
+      ...buildFeedItemBase(`commitment-${docId}`, author, data.announcedAt ?? data.date, {
+        isPinned,
+      }),
       feedType: 'COMMITMENT',
       referenceId: docId,
       commitmentData: {
@@ -769,7 +775,7 @@ export function recruitingDocToFeedItemVariant(
 
   if (category === 'visit') {
     return {
-      ...buildFeedItemBase(`visit-${docId}`, author, data.date),
+      ...buildFeedItemBase(`visit-${docId}`, author, data.date, { isPinned }),
       feedType: 'VISIT',
       referenceId: docId,
       visitData: {
@@ -788,7 +794,7 @@ export function recruitingDocToFeedItemVariant(
 
   if (category === 'camp') {
     return {
-      ...buildFeedItemBase(`camp-${docId}`, author, data.date),
+      ...buildFeedItemBase(`camp-${docId}`, author, data.date, { isPinned }),
       feedType: 'CAMP',
       referenceId: docId,
       campData: {
@@ -804,7 +810,7 @@ export function recruitingDocToFeedItemVariant(
   }
 
   return {
-    ...buildFeedItemBase(`recruiting-${docId}`, author, data.date),
+    ...buildFeedItemBase(`recruiting-${docId}`, author, data.date, { isPinned }),
     feedType: 'AWARD',
     referenceId: docId,
     awardData: {
@@ -839,10 +845,11 @@ export function metricGroupToFeedItemMetric(
       previousValue?: string | number;
     }[];
   },
-  author: FeedAuthor
+  author: FeedAuthor,
+  isPinned?: boolean
 ): FeedItemMetric {
   return {
-    ...buildFeedItemBase(`metric-${docId}`, author, data.measuredAt),
+    ...buildFeedItemBase(`metric-${docId}`, author, data.measuredAt, { isPinned }),
     feedType: 'METRIC',
     referenceId: docId,
     metricsData: {
@@ -869,7 +876,8 @@ export function rankingDocToFeedItemAward(
     positionRank?: number | null;
     stars?: number | null;
   },
-  author: FeedAuthor
+  author: FeedAuthor,
+  isPinned?: boolean
 ): FeedItemAward {
   const rankingSummary = [
     data.nationalRank != null ? `Nat #${data.nationalRank}` : null,
@@ -882,7 +890,7 @@ export function rankingDocToFeedItemAward(
     .join(' • ');
 
   return {
-    ...buildFeedItemBase(`ranking-${docId}`, author, data.createdAt),
+    ...buildFeedItemBase(`ranking-${docId}`, author, data.createdAt, { isPinned }),
     feedType: 'AWARD',
     referenceId: docId,
     awardData: {
@@ -909,7 +917,6 @@ export function videoDocToFeedItemPost(
     platform?: string;
     source?: string;
     createdAt: string;
-    stats?: { views?: number; shares?: number };
   },
   author: FeedAuthor
 ): FeedItemPost {
@@ -922,10 +929,8 @@ export function videoDocToFeedItemPost(
     },
   ];
 
-  const engagement: Partial<FeedEngagement> = {
-    viewCount: data.stats?.views ?? 0,
-    shareCount: data.stats?.shares ?? 0,
-  };
+  // Engagement is zero here — the timeline service enriches from the
+  // Engagement collection after assembly.
 
   const externalSource: FeedExternalSource | undefined = data.platform
     ? {
@@ -936,7 +941,7 @@ export function videoDocToFeedItemPost(
     : undefined;
 
   return {
-    ...buildFeedItemBase(`video-${docId}`, author, data.createdAt, { engagement }),
+    ...buildFeedItemBase(`video-${docId}`, author, data.createdAt),
     feedType: 'POST',
     postType: 'video',
     title: data.title,

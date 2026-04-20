@@ -79,6 +79,7 @@ export class DebouncedEventWriter {
   constructor(
     private readonly repo: AgentJobRepository,
     private readonly operationId: string,
+    private readonly userId: string,
     flushIntervalMs?: number
   ) {
     this.flushIntervalMs = flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
@@ -185,6 +186,7 @@ export class DebouncedEventWriter {
     const jobEvent: Omit<JobEvent, 'createdAt'> = {
       seq: this.seq++,
       type: 'delta',
+      userId: this.userId,
       agentId,
       text,
     };
@@ -203,6 +205,7 @@ export class DebouncedEventWriter {
     const jobEvent: Omit<JobEvent, 'createdAt'> = stripUndefined({
       seq: this.seq++,
       type: event.type,
+      userId: this.userId,
       agentId: event.agentId,
       message: event.message ? sanitizeAgentOutputText(event.message) : undefined,
       text: event.text ? sanitizeAgentOutputText(event.text) : undefined,

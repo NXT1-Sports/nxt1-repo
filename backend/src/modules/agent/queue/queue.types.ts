@@ -52,8 +52,10 @@ export const THREAD_SUMMARIZATION_JOB_NAME = 'THREAD_SUMMARIZATION' as const;
 /**
  * How long BullMQ holds the lock on an active job (ms).
  * Must exceed the longest expected agent execution time.
- * Agent jobs involve multiple LLM calls (60s each) + scraper calls (15s each)
- * across up to 10 ReAct iterations, so 5 minutes is a safe ceiling.
+ * BullMQ automatically renews the lock every `lockDuration / 2` ms as long as
+ * the async job processor is still running (the event loop is not blocked).
+ * This means jobs of ANY duration will never stall — the worker auto-heartbeats.
+ * The value here is the renewal INTERVAL (half = 2.5 min), not a hard ceiling.
  */
 export const JOB_LOCK_DURATION_MS = 300_000 as const;
 

@@ -63,6 +63,7 @@ import {
   logAgentTaskFailure,
 } from '../../../services/agent-activity.service.js';
 import { getAgentAnalyticsGate } from '../services/agent-analytics-gate.js';
+import { processRecapForUser } from '../services/weekly-recap-email.service.js';
 import { logger } from '../../../utils/logger.js';
 
 // ─── Worker ─────────────────────────────────────────────────────────────────
@@ -283,7 +284,7 @@ export class AgentWorker {
     // ── Debounced Event Writer: streams granular events to Firestore subcollection ──
     // The frontend subscribes to `AgentJobs/{operationId}/events` via onSnapshot
     // to render a live "watch it work" chat experience.
-    const eventWriter = new DebouncedEventWriter(repo, payload.operationId);
+    const eventWriter = new DebouncedEventWriter(repo, payload.operationId, payload.userId);
 
     // ── Dual-write callback: Firestore (persistence) + Redis PubSub (real-time SSE pipe) ──
     // The Redis PubSub path enables Express to hold an SSE connection open and
@@ -609,6 +610,12 @@ export class AgentWorker {
         operationId: payload.operationId,
         error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
       });
+    }
+
+    // ─── Weekly recap email (fire-and-forget) ─────────────────────────────
+    if (payload.triggerEvent?.type === 'weekly_recap') {
+      const { getFirestore } = await import('firebase-admin/firestore');
+      void processRecapForUser(payload.userId, summary, job.id?.toString(), getFirestore());
     }
 
     // ─── Persist assistant response to MongoDB thread ─────────────────────

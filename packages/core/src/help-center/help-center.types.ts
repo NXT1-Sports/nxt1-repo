@@ -25,16 +25,9 @@
  */
 export type HelpCategoryId =
   | 'getting-started'
-  | 'athletes'
-  | 'coaches'
-  | 'parents'
+  | 'agent-x'
   | 'teams'
-  | 'recruiting'
-  | 'profile'
-  | 'videos'
-  | 'subscription'
   | 'account'
-  | 'privacy'
   | 'troubleshooting';
 
 /**

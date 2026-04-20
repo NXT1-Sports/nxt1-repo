@@ -16,6 +16,7 @@ import { NxtSheetFooterComponent } from '../components/bottom-sheet/sheet-footer
 import { NxtModalFooterComponent } from '../components/overlay/modal-footer.component';
 import { NxtToastService } from '../services/toast/toast.service';
 import { UsageService } from '../usage/usage.service';
+import { TEST_IDS } from '@nxt1/core/testing';
 import {
   AGENT_X_GOAL_OPTIONS,
   AGENT_X_STATUS_DEFINITIONS,
@@ -23,6 +24,9 @@ import {
   type AgentXControlPanelKind,
   type AgentXControlPanelPresentation,
 } from './agent-x-control-panel-state.service';
+import { AgentXService } from './agent-x.service';
+import type { AgentDashboardGoal } from '@nxt1/core';
+import { AgentXGoalHistoryComponent } from './agent-x-goal-history.component';
 
 interface AgentXControlPanelCloseResult {
   readonly panel: AgentXControlPanelKind;
@@ -41,6 +45,7 @@ interface AgentXControlPanelCloseResult {
     NxtSheetHeaderComponent,
     NxtSheetFooterComponent,
     NxtModalFooterComponent,
+    AgentXGoalHistoryComponent,
   ],
   host: {
     '[class.modal-presentation]': 'presentation === "modal"',
@@ -202,9 +207,9 @@ interface AgentXControlPanelCloseResult {
               </div>
 
               @if (selectedGoalLabels().length > 0) {
-                <div class="goals-pills">
+                <div class="goals-pills" [attr.data-testid]="testIds.ACTIVE_LIST">
                   @for (goal of selectedGoalLabels(); track goal.id) {
-                    <div class="goals-pill">
+                    <div class="goals-pill" [attr.data-testid]="testIds.ACTIVE_ITEM">
                       <svg
                         class="goals-pill-check"
                         viewBox="0 0 24 24"
@@ -219,6 +224,27 @@ interface AgentXControlPanelCloseResult {
                         <polyline points="20 6 9 17 4 12" />
                       </svg>
                       <span class="goals-pill-text">{{ goal.label }}</span>
+                      <button
+                        type="button"
+                        class="goals-pill-complete"
+                        [attr.data-testid]="testIds.COMPLETE_BTN"
+                        aria-label="Mark goal as complete"
+                        title="Mark as done"
+                        (click)="completeGoalFromPanel(goal.id)"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="12"
+                          height="12"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2.5"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      </button>
                       <button
                         type="button"
                         class="goals-pill-remove"
@@ -250,6 +276,12 @@ interface AgentXControlPanelCloseResult {
                   Save Goals
                 </button>
               </div>
+
+              @defer (on interaction) {
+                <nxt1-agent-x-goal-history />
+              } @placeholder {
+                <button type="button" class="goals-history-trigger">View completed goals</button>
+              }
             </section>
           }
         </div>
@@ -722,6 +754,45 @@ interface AgentXControlPanelCloseResult {
         opacity: 0.9;
       }
 
+      .goals-history-trigger {
+        width: 100%;
+        background: none;
+        border: 1px dashed var(--nxt1-color-border-subtle);
+        border-radius: 12px;
+        padding: 12px;
+        font-size: 13px;
+        color: var(--nxt1-color-text-secondary);
+        cursor: pointer;
+        text-align: center;
+        transition:
+          border-color 0.15s,
+          color 0.15s;
+      }
+
+      .goals-history-trigger:hover {
+        border-color: var(--nxt1-color-primary);
+        color: var(--nxt1-color-primary);
+      }
+
+      .goals-pill-complete {
+        background: none;
+        border: none;
+        color: var(--nxt1-color-success, #22c55e);
+        cursor: pointer;
+        padding: 2px;
+        display: flex;
+        border-radius: 999px;
+        transition:
+          color 0.15s,
+          transform 0.15s;
+        flex-shrink: 0;
+      }
+
+      .goals-pill-complete:hover {
+        transform: scale(1.15);
+        color: var(--nxt1-color-success, #22c55e);
+      }
+
       .goal-option {
         cursor: pointer;
         transition:
@@ -778,6 +849,9 @@ export class AgentXControlPanelComponent implements OnInit {
   private readonly toast = inject(NxtToastService);
   private readonly state = inject(AgentXControlPanelStateService);
   private readonly usageService = inject(UsageService);
+  private readonly agentX = inject(AgentXService);
+
+  protected readonly testIds = TEST_IDS.AGENT_X_GOALS;
 
   readonly close = output<AgentXControlPanelCloseResult>();
 
@@ -904,6 +978,12 @@ export class AgentXControlPanelComponent implements OnInit {
     }
   }
 
+  async completeGoalFromPanel(goalId: string): Promise<void> {
+    await this.agentX.completeGoal(goalId);
+    // Also remove from draft so the panel reflects the completion immediately
+    this.draftGoals.update((gs) => gs.filter((id) => id !== goalId));
+  }
+
   addCustomGoal(): void {
     const text = this.customGoalText().trim();
     if (!text || this.draftGoals().length >= 3) return;
@@ -941,9 +1021,25 @@ export class AgentXControlPanelComponent implements OnInit {
     }
 
     if (this.panel === 'goals') {
-      this.state.saveGoals(this.draftGoals());
-      this.toast.success('Agent goals saved.');
-      this.dismiss({ panel: 'goals', saved: true });
+      this.saving.set(true);
+      try {
+        const now = new Date().toISOString();
+        const goals: AgentDashboardGoal[] = this.draftGoals().map((id) => {
+          if (id.startsWith('custom:')) {
+            const text = id.slice(7);
+            return { id, text, category: 'custom', createdAt: now };
+          }
+          const option = AGENT_X_GOAL_OPTIONS.find((g) => g.id === id);
+          return { id, text: option?.label ?? id, category: 'preset', createdAt: now };
+        });
+        const success = await this.agentX.setGoals(goals);
+        if (success) {
+          this.state.saveGoals(this.draftGoals());
+          this.dismiss({ panel: 'goals', saved: true });
+        }
+      } finally {
+        this.saving.set(false);
+      }
     }
   }
 

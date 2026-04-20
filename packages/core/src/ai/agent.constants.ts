@@ -282,7 +282,21 @@ export const AGENT_TRIGGER_RULES: readonly AgentTriggerRule[] = [
     enabled: true,
     cooldownMs: 604_800_000, // Once per week
     intentTemplate:
-      'Generate a comprehensive weekly recap: engagement metrics, recruiting pipeline status, content performance, and recommended next steps.',
+      'Generate a comprehensive weekly recap for this user. Use your available tools to gather all relevant data before writing the summary. ' +
+      'Steps: ' +
+      '1. Call get_agent_job_history to retrieve the last 7 days of completed agent jobs — list what was accomplished. ' +
+      '2. Call get_profile_analytics to fetch profile views, video views, and engagement counts for the past 7 days. ' +
+      '3. Call get_recruiting_pipeline to retrieve active contacts, schools being tracked, and any new offer or interest signals. ' +
+      '4. Call get_recent_posts to summarize content published this week and its engagement performance. ' +
+      '5. If the user has a schedule or calendar, call get_upcoming_events to surface relevant upcoming dates. ' +
+      "6. Review the user's stated goals (agentGoals) and note progress toward each. " +
+      'After gathering data, compile a structured weekly recap that includes: ' +
+      '(a) what Agent X accomplished this week, ' +
+      '(b) key metrics and results (views, engagement, recruiting movements), ' +
+      '(c) content performance highlights, ' +
+      '(d) recruiting pipeline status, ' +
+      "(e) 2–3 recommended next steps for next week tailored to the user's role and sport. " +
+      'Be specific and data-driven. Reference actual numbers. Keep the tone encouraging and action-oriented.',
     defaultPriority: 'normal',
   },
   {

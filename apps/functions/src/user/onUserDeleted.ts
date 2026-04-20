@@ -22,7 +22,6 @@ const SHADOW_USER_COLLECTION = 'users';
 const BATCH_SIZE = 250;
 
 const SINGLETON_COLLECTIONS = [
-  'UserAnalytics',
   'FcmTokens',
   'Subscriptions',
   'UserEntitlements',
@@ -44,8 +43,6 @@ const USER_ID_QUERY_COLLECTIONS = [
   'PostComments',
   'PostLikes',
   'Notifications',
-  'UsageEvents',
-  'PaymentLogs',
   'BillingContexts',
   'StripeCustomers',
 ] as const;

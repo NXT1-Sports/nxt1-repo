@@ -46,6 +46,13 @@ export type {
   AgentSetGoalsRequest,
   AgentRegeneratePlaybookRequest,
   AgentPlaybookResponse,
+  // Goal completion types
+  CompletedGoalRecord,
+  AgentCompleteGoalRequest,
+  AgentCompleteGoalResponse,
+  AgentGoalHistoryResponse,
+  // Weekly recap types
+  AgentWeeklyRecap,
   // Operations log types
   OperationLogStatus,
   OperationLogCategory,
@@ -104,6 +111,7 @@ export {
   AGENT_X_ALLOWED_MIME_TYPES,
   AGENT_X_MAX_ATTACHMENTS,
   AGENT_X_MAX_FILE_SIZE,
+  AGENT_X_MAX_VIDEO_FILE_SIZE,
   resolveAttachmentType,
   // Role-specific shell content
   ATHLETE_COORDINATORS,

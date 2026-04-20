@@ -32,13 +32,21 @@ export class WriteIntelTool extends BaseTool {
       },
       entityId: {
         type: 'string',
-        description: 'The athlete userId or teamId to generate the Intel report for.',
+        description:
+          'The athlete userId or teamId to generate the Intel report for. ' +
+          'Omit this field when generating for the currently authenticated user — ' +
+          'the system will resolve their ID automatically.',
       },
     },
-    required: ['entityType', 'entityId'],
+    required: ['entityType'],
   } as const;
 
-  override readonly allowedAgents = ['performance_coordinator', 'general'] as const;
+  override readonly allowedAgents = [
+    'data_coordinator',
+    'performance_coordinator',
+    'recruiting_coordinator',
+    'general',
+  ] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
 
@@ -51,7 +59,9 @@ export class WriteIntelTool extends BaseTool {
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
     const entityTypeRaw = this.str(input, 'entityType');
-    const entityId = this.str(input, 'entityId');
+    // Prefer LLM-supplied entityId; fall back to the authenticated user's UID for athlete.
+    const entityId =
+      this.str(input, 'entityId') || (entityTypeRaw === 'athlete' ? (context?.userId ?? '') : '');
 
     if (!entityTypeRaw || (entityTypeRaw !== 'athlete' && entityTypeRaw !== 'team')) {
       return {
