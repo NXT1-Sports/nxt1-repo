@@ -4,6 +4,9 @@
   "description": "NXT1 Backend API Server",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "main": "dist/index.js",
   "scripts": {
     "start": "node --import dotenv/config dist/index.js",

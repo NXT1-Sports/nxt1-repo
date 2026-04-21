@@ -33,7 +33,14 @@ async function fixEsmImports(dir: string): Promise<void> {
 }
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/*/index.ts', 'src/errors/express.middleware.ts'],
+  entry: [
+    'src/index.ts',
+    'src/*/index.ts',
+    'src/errors/express.middleware.ts',
+    'src/testing/auth-fixtures.ts',
+    'src/testing/auth-mocks.ts',
+    'src/testing/test-data.ts',
+  ],
   format: ['cjs', 'esm'],
   outExtension({ format }) {
     return { js: format === 'cjs' ? '.cjs' : '.js' };
