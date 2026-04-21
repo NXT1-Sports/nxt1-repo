@@ -275,9 +275,6 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
   // Primary profile image: first from array or undefined
   const profileImg = profileImgs[0] ?? undefined;
 
-  // ── Counters (from User._counters) ────────────────────────────────────────
-  const counters = user._counters;
-
   // ── Assemble ProfileUser ───────────────────────────────────────────────────
   const profileUser: ProfileUser = {
     uid,
@@ -372,14 +369,14 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     user: profileUser,
     aboutMe: profileUser.aboutMe ?? '',
     quickStats: {
-      profileViews: counters?.profileViews ?? 0,
-      videoViews: counters?.videoViews ?? 0,
-      totalPosts: counters?.postsCount ?? 0,
-      highlightCount: counters?.highlightCount ?? 0,
-      offerCount: counters?.offerCount ?? 0,
-      eventCount: counters?.eventCount ?? 0,
+      profileViews: 0,
+      videoViews: 0,
+      totalPosts: 0,
+      highlightCount: 0,
+      offerCount: 0,
+      eventCount: 0,
       collegeInterestCount: 0,
-      shareCount: counters?.sharesCount ?? 0,
+      shareCount: 0,
     },
     athleticStats: athleticStats.length ? athleticStats : undefined,
     metrics: metrics.length ? metrics : undefined,

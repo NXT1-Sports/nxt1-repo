@@ -88,28 +88,6 @@ export interface UserPreferences {
 }
 
 // ============================================
-// COUNTERS
-// ============================================
-
-/**
- * Denormalized counters synced from analytics collection
- * Updated periodically by background sync job
- */
-export interface UserCounters {
-  profileViews: number;
-  videoViews: number;
-  postsCount: number;
-  sharesCount: number;
-  /** Number of highlight videos */
-  highlightCount?: number;
-  /** Total offers across all sports (denormalized) */
-  offerCount?: number;
-  /** Number of events attended */
-  eventCount?: number;
-  _lastSyncedAt?: Date | string;
-}
-
-// ============================================
 // MAIN USER INTERFACE
 // ============================================
 
@@ -144,12 +122,6 @@ export interface User {
   lastName: string;
   /** Preferred display name (if different from firstName + lastName) */
   displayName?: string;
-  /**
-   * Human-chosen handle / slug (optional — not all users set this).
-   * Legacy users may have a numeric string (e.g., "20846078") which is
-   * a migration artifact and should be cleaned up via the normalization script.
-   */
-  username?: string;
 
   /** Optional bio/about text */
   aboutMe?: string;
@@ -337,11 +309,6 @@ export interface User {
   // SUBSCRIPTION & PAYMENT
   // Note: Full payment/subscription data is in Subscriptions collection
   // ============================================
-  // ============================================
-  // ANALYTICS & COUNTERS
-  // ============================================
-  _counters?: UserCounters;
-
   // ============================================
   // TIMESTAMPS
   // ============================================

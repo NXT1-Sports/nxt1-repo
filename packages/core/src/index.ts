@@ -99,7 +99,6 @@ export {
   type Subscription,
   type NotificationPreferences,
   type UserPreferences,
-  type UserCounters,
   type AthleteData,
   type CoachData,
   type DirectorData,

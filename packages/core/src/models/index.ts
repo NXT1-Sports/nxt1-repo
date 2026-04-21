@@ -172,7 +172,6 @@ export {
   // Preferences & Settings
   type NotificationPreferences,
   type UserPreferences,
-  type UserCounters,
   // Utility types
   type UserSummary,
   // Type guards

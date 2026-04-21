@@ -263,15 +263,15 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
     // Prefer username as URL slug so canonical = /profile/devmonster (human-readable)
     // rather than /profile/180798 (numeric). Google ranks clean URLs higher.
-    const slug = profile.username || undefined;
+    // const slug = profile.username || undefined;
 
     return {
       id: profile.unicode,
-      slug,
+      // slug,
       athleteName: `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'NXT1 Athlete',
       firstName: profile.firstName || undefined,
       lastName: profile.lastName || undefined,
-      username: profile.username || undefined,
+      // username: profile.username || undefined,
       position: primarySport?.positions?.[0] || undefined,
       classYear: profile.classOf || undefined,
       school: primarySport?.team?.name || undefined,

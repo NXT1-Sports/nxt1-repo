@@ -597,7 +597,7 @@ export class ContextBuilder {
       // Recruiting
       recruitingStatus: recruitingData?.recruitingStatus,
 
-      // Platform activity
+      // Engagement
       lastActiveAt,
 
       // Connected accounts
