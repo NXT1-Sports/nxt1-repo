@@ -269,15 +269,16 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
   // Primary sport comes from teamCode; additional sports (added via add-sport wizard)
   // come from user.sports[]. Both share the same team logo as the avatar fallback.
   // For team roles, sport profiles use: sport → team name, position → sport label.
-  const primaryProfile: SidenavSportProfile | null = hasTeamAssociation && sport
-    ? {
-        id: 'team-primary',
-        sport: isPersonalIdentityFallback ? formatSportDisplayName(sport) : name,
-        position: isPersonalIdentityFallback ? undefined : formatSportDisplayName(sport),
-        isActive: true,
-        profileImg: isPersonalIdentityFallback ? undefined : profileImg,
-      }
-    : null;
+  const primaryProfile: SidenavSportProfile | null =
+    hasTeamAssociation && sport
+      ? {
+          id: 'team-primary',
+          sport: isPersonalIdentityFallback ? formatSportDisplayName(sport) : name,
+          position: isPersonalIdentityFallback ? undefined : formatSportDisplayName(sport),
+          isActive: true,
+          profileImg: isPersonalIdentityFallback ? undefined : profileImg,
+        }
+      : null;
 
   // Exclude any sport that matches the primary teamCode sport to avoid duplicates
   const primarySportNorm = sport?.trim().toLowerCase();

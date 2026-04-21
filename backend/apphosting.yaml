@@ -3,6 +3,9 @@
 
 rootDirectory: backend
 
+runtimeConfig:
+  nodeVersion: 22
+
 scripts:
   # Move to monorepo root, install all deps, then build just the backend (and @nxt1/core)
   buildCommand: cd .. && npm ci --include=dev && npx turbo run build --filter=@nxt1/backend

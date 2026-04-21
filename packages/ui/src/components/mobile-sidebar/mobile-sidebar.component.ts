@@ -145,7 +145,9 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
                       />
                     </div>
                     <div class="mobile-sidebar__user-info">
-                      <span class="mobile-sidebar__user-name">{{ user()!.actionLabel || 'Add Team' }}</span>
+                      <span class="mobile-sidebar__user-name">{{
+                        user()!.actionLabel || 'Add Team'
+                      }}</span>
                       <span class="mobile-sidebar__user-sport">Set up your first team</span>
                     </div>
                   </button>
@@ -167,7 +169,9 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
                     </div>
                     <div class="mobile-sidebar__user-info">
                       <span class="mobile-sidebar__user-name">{{ user()!.name }}</span>
-                      <span class="mobile-sidebar__user-sport">{{ getUserSportLabel(user()!) }}</span>
+                      <span class="mobile-sidebar__user-sport">{{
+                        getUserSportLabel(user()!)
+                      }}</span>
                     </div>
                   </button>
                 }

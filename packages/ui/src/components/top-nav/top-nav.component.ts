@@ -681,9 +681,10 @@ import type {
                     />
                   </div>
                   <div class="mobile-user-text flex flex-col gap-0.5">
-                    <span class="mobile-user-name text-(--nxt1-nav-text)] text-base font-semibold">{{
-                      user()?.actionLabel || 'Add Team'
-                    }}</span>
+                    <span
+                      class="mobile-user-name text-(--nxt1-nav-text)] text-base font-semibold"
+                      >{{ user()?.actionLabel || 'Add Team' }}</span
+                    >
                     <span class="mobile-user-sport text-(--nxt1-nav-text-secondary)] text-sm">
                       Set up your first team
                     </span>
@@ -710,9 +711,10 @@ import type {
                     />
                   </div>
                   <div class="mobile-user-text flex flex-col gap-0.5">
-                    <span class="mobile-user-name text-(--nxt1-nav-text)] text-base font-semibold">{{
-                      user()?.name
-                    }}</span>
+                    <span
+                      class="mobile-user-name text-(--nxt1-nav-text)] text-base font-semibold"
+                      >{{ user()?.name }}</span
+                    >
                     @if (user()?.sportLabel) {
                       <span class="mobile-user-sport text-(--nxt1-nav-text-secondary)] text-sm">{{
                         user()?.sportLabel
