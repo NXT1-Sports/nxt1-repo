@@ -140,6 +140,15 @@ export const serverRoutes: ServerRoute[] = [
     path: 'nil/**',
     renderMode: RenderMode.Server,
   },
+  // Pulse - Sports News Feed
+  {
+    path: 'pulse',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'pulse/**',
+    renderMode: RenderMode.Server,
+  },
   /**
    * Team profile routes — Server-rendered for SEO (Open Graph, rich snippets).
    * Hydration mismatch fixed via slug-aware guard in TeamProfileService.

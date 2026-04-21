@@ -7,7 +7,7 @@
  * and notification dispatch.
  */
 
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Firestore } from 'firebase-admin/firestore';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────

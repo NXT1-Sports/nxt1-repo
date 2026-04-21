@@ -101,6 +101,30 @@ export const emailRateLimit = rateLimit({
 });
 
 /**
+ * AI inference rate limit - 20 requests per minute per user.
+ * Applied to expensive LLM endpoints (chat, enqueue, playbook, briefing)
+ * to prevent runaway AI spend and protect the OpenRouter budget.
+ */
+export const aiRateLimit = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 20,
+  keyGenerator: (req: Request): string => {
+    const uid = (req as unknown as { user?: { uid?: string } }).user?.uid;
+    return uid ?? req.ip ?? 'anonymous';
+  },
+  message: (req: Request): void => {
+    logger.warn('[Rate Limit] AI inference limit exceeded', {
+      ip: req.ip,
+      path: req.path,
+      method: req.method,
+    });
+    throw rateLimitError(60, 'api'); // 1 minute retry
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/**
  * Password reset rate limit - 3 attempts per hour
  */
 export const passwordResetRateLimit = rateLimit({
@@ -209,7 +233,7 @@ function createDevRateLimit(maxRequests: number = 1000) {
  * Get appropriate rate limiter based on environment
  */
 export function getRateLimiter(
-  type: 'api' | 'auth' | 'billing' | 'email' | 'upload' | 'search' | 'password' | 'lenient'
+  type: 'api' | 'auth' | 'billing' | 'email' | 'upload' | 'search' | 'password' | 'lenient' | 'ai'
 ) {
   // Use relaxed limits in development
   if (process.env['NODE_ENV'] !== 'production') {
@@ -232,6 +256,8 @@ export function getRateLimiter(
       return lenientRateLimit;
     case 'password':
       return passwordResetRateLimit;
+    case 'ai':
+      return aiRateLimit;
     case 'api':
     default:
       return apiRateLimit;

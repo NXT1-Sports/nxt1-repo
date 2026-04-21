@@ -125,4 +125,31 @@ describe('executeBillingDeduction', () => {
       'staging'
     );
   });
+
+  it('omits teamId when the billing target is individual and no team exists', async () => {
+    const db = {} as Firestore;
+
+    mockResolveBillingTarget.mockResolvedValue({
+      type: 'individual',
+      billingUserId: 'user_789',
+      context: { teamId: undefined },
+      teamIds: [],
+    });
+
+    const { executeBillingDeduction } = await import('../usage-deduction.service.js');
+
+    await executeBillingDeduction({
+      db,
+      userId: 'user_789',
+      operationId: 'op_789',
+      feature: UsageFeature.TEAM_INTEL,
+      knownCostUsd: 0.5,
+    });
+
+    expect(mockRecordSpend).toHaveBeenCalledWith(db, 'user_789', 175, undefined);
+    expect(mockRecordUsageEvent).toHaveBeenCalledWith(
+      expect.not.objectContaining({ teamId: expect.anything() }),
+      'production'
+    );
+  });
 });

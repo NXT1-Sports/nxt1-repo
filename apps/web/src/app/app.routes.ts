@@ -132,6 +132,12 @@ export const routes: Routes = [
         path: 'usage',
         loadChildren: () => import('./features/usage/usage.routes'),
       },
+      // Pulse - Sports News Feed
+      {
+        path: 'pulse',
+        loadChildren: () => import('./features/pulse/pulse.routes').then((m) => m.PULSE_ROUTES),
+      },
+
       // NIL - NIL & Monetization campaign page
       {
         path: 'nil',

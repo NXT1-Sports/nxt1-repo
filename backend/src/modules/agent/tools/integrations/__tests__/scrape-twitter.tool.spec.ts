@@ -350,10 +350,10 @@ describe('ScrapeTwitterTool', () => {
     ];
     vi.mocked(mockMedia.persistBatch).mockResolvedValue(mockPersisted);
 
-    const result = await tool.execute({
-      mode: 'search',
-      query: '#D1Commits',
-    });
+    const result = await tool.execute(
+      { mode: 'search', query: '#D1Commits' },
+      { userId: 'user_123', threadId: 'thread_456' }
+    );
 
     expect(result.success).toBe(true);
     expect(mockMedia.persistBatch).toHaveBeenCalledOnce();
@@ -376,10 +376,10 @@ describe('ScrapeTwitterTool', () => {
     vi.mocked(mockApify.getProfileTweets).mockResolvedValue(mockTweetResult([MOCK_VIDEO_TWEET]));
     vi.mocked(mockMedia.persistBatch).mockResolvedValue([]);
 
-    await tool.execute({
-      mode: 'profile_tweets',
-      usernames: ['jalensmith'],
-    });
+    await tool.execute(
+      { mode: 'profile_tweets', usernames: ['jalensmith'] },
+      { userId: 'user_123', threadId: 'thread_456' }
+    );
 
     const mediaInputs = vi.mocked(mockMedia.persistBatch).mock.calls[0][0];
     expect(mediaInputs).toHaveLength(1);
@@ -463,10 +463,10 @@ describe('ScrapeTwitterTool', () => {
     ];
     vi.mocked(mockMedia.persistBatch).mockResolvedValue(mockPersisted);
 
-    const result = await tool.execute({
-      mode: 'profile_tweets',
-      usernames: ['jalensmith'],
-    });
+    const result = await tool.execute(
+      { mode: 'profile_tweets', usernames: ['jalensmith'] },
+      { userId: 'user_123', threadId: 'thread_456' }
+    );
 
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;

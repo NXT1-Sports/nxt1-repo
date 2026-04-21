@@ -159,7 +159,7 @@ describe('QueryNxt1PlatformDataTool', () => {
     const tool = new QueryNxt1PlatformDataTool({ production: db as never });
     const result = await tool.execute({
       entityType: 'posts',
-      postType: 'highlight',
+      postType: 'video',
       sport: 'Football',
     });
 

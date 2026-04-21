@@ -133,11 +133,12 @@ export function buildViewsBySourceFromSurfaceCounts(
 export function buildViewerBreakdownFromRoleCounts(
   counts: Readonly<Record<string, number>>
 ): readonly AnalyticsViewerBreakdown[] {
-  const roleOrder = ['coach', 'director', 'athlete', 'other'];
+  const roleOrder = ['coach', 'director', 'athlete', 'parent', 'other'];
   const roleLabels: Record<string, string> = {
     coach: 'Coaches',
     director: 'Directors',
     athlete: 'Athletes',
+    parent: 'Parents',
     other: 'Other',
     anonymous: 'Anonymous',
   };

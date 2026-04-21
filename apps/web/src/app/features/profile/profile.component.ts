@@ -85,13 +85,7 @@ import {
   UTM_CAMPAIGN,
 } from '@nxt1/core';
 import { resolveCanonicalTeamRoute } from '@nxt1/core/helpers';
-import type {
-  ProfileTabId,
-  ProfileShareSource,
-  ProfileTeamAffiliation,
-  User,
-  UserSummary,
-} from '@nxt1/core';
+import type { ProfileTabId, ProfileShareSource, ProfileTeamAffiliation, User } from '@nxt1/core';
 import type { ApiResponse } from '@nxt1/core/profile';
 import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
 import { AuthFlowService } from '../../core/services/auth';

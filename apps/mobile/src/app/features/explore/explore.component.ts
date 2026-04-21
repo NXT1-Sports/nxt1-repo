@@ -162,7 +162,6 @@ export class ExploreComponent {
     this.navController.navigateForward(
       buildCanonicalProfilePath({
         athleteName: author.displayName || `${author.firstName} ${author.lastName}`.trim(),
-        sport: author.sport,
         unicode: author.profileCode,
       })
     );

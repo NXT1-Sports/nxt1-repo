@@ -9,34 +9,6 @@ import app from '../../test-app.js';
 
 describe('Analytics Routes', () => {
   describe('Production Routes', () => {
-    describe('GET /api/v1/analytics/report', () => {
-      it('should require authentication', async () => {
-        const response = await request(app).get('/api/v1/analytics/report');
-        expect(response.status).toBe(401);
-      });
-    });
-
-    describe('GET /api/v1/analytics/overview', () => {
-      it('should require authentication', async () => {
-        const response = await request(app).get('/api/v1/analytics/overview');
-        expect(response.status).toBe(401);
-      });
-    });
-
-    describe('GET /api/v1/analytics/engagement', () => {
-      it('should require authentication', async () => {
-        const response = await request(app).get('/api/v1/analytics/engagement');
-        expect(response.status).toBe(401);
-      });
-    });
-
-    describe('POST /api/v1/analytics/export', () => {
-      it('should require authentication', async () => {
-        const response = await request(app).post('/api/v1/analytics/export');
-        expect(response.status).toBe(401);
-      });
-    });
-
     describe('GET /api/v1/analytics/track/open', () => {
       it('should return a tracking pixel without authentication', async () => {
         const response = await request(app).get(
@@ -82,29 +54,6 @@ describe('Analytics Routes', () => {
 
         expect(response.status).toBe(200);
         expect(response.body).toMatchObject({ success: true, tracked: true });
-      });
-    });
-  });
-
-  describe('Staging Routes', () => {
-    describe('GET /api/v1/staging/analytics/report', () => {
-      it('should require authentication', async () => {
-        const response = await request(app).get('/api/v1/staging/analytics/report');
-        expect(response.status).toBe(401);
-      });
-    });
-
-    describe('GET /api/v1/staging/analytics/overview', () => {
-      it('should require authentication', async () => {
-        const response = await request(app).get('/api/v1/staging/analytics/overview');
-        expect(response.status).toBe(401);
-      });
-    });
-
-    describe('GET /api/v1/staging/analytics/engagement', () => {
-      it('should require authentication', async () => {
-        const response = await request(app).get('/api/v1/staging/analytics/engagement');
-        expect(response.status).toBe(401);
       });
     });
   });

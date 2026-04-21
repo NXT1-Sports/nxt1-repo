@@ -419,6 +419,7 @@ export class AgentGenerationService {
             : {}),
         }
       );
+      llmRawContent = llmResult.content ?? null;
 
       try {
         const jsonText = stripMarkdownFences(llmResult.content ?? '');

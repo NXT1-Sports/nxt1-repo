@@ -250,24 +250,20 @@ describe('DynamicExportTool', () => {
 
       expect(mockFile).toHaveBeenCalledOnce();
       const storagePath = mockFile.mock.calls[0][0] as string;
-      expect(storagePath).toMatch(/^users\/user_123\/threads\/thread_456\/exports\//);
+      expect(storagePath).toMatch(/^Users\/user_123\/threads\/thread_456\/exports\//);
     });
 
-    it('should use user-scoped path when no threadId', async () => {
-      await tool.execute(csvInput(), { userId: 'user_123' });
+    it('should return error when no threadId', async () => {
+      const result = await tool.execute(csvInput(), { userId: 'user_123' });
 
-      expect(mockFile).toHaveBeenCalledOnce();
-      const storagePath = mockFile.mock.calls[0][0] as string;
-      expect(storagePath).toMatch(/^users\/user_123\/exports\//);
-      expect(storagePath).not.toContain('threads');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('threadId');
     });
 
-    it('should use "anonymous" userId when no context', async () => {
-      await tool.execute(csvInput());
+    it('should return error when no context', async () => {
+      const result = await tool.execute(csvInput());
 
-      expect(mockFile).toHaveBeenCalledOnce();
-      const storagePath = mockFile.mock.calls[0][0] as string;
-      expect(storagePath).toContain('anonymous');
+      expect(result.success).toBe(false);
     });
   });
 });

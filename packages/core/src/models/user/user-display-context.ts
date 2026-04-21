@@ -17,6 +17,20 @@ import { formatSportDisplayName, getPositionAbbreviation } from '../../constants
 import { resolveCanonicalTeamRoute } from '../../helpers/formatters';
 import type { SidenavSportProfile } from '../platform/navigation.model';
 
+interface UserDisplayTeamAffiliation {
+  readonly name?: string;
+  readonly logoUrl?: string | null;
+  readonly logo?: string | null;
+  readonly teamId?: string;
+  readonly id?: string;
+  readonly teamCode?: string;
+  readonly code?: string;
+  readonly slug?: string;
+  readonly unicode?: string;
+  readonly isOrganizationClaimed?: boolean;
+  readonly isUserOrganizationAdmin?: boolean;
+}
+
 // ============================================
 // INPUT TYPE — What the auth layer provides
 // ============================================
@@ -56,17 +70,8 @@ export interface UserDisplayInput {
     readonly positions?: string[];
     readonly isPrimary?: boolean;
     readonly order?: number;
-    readonly team?: {
-      readonly name?: string;
-      readonly logoUrl?: string | null;
-      readonly logo?: string | null;
-      readonly teamId?: string;
-      readonly id?: string;
-      readonly teamCode?: string;
-      readonly code?: string;
-      readonly slug?: string;
-      readonly unicode?: string;
-    };
+    readonly team?: UserDisplayTeamAffiliation;
+    readonly clubTeam?: UserDisplayTeamAffiliation;
   }>;
   readonly primarySport?: string;
 }
@@ -129,6 +134,9 @@ export interface UserDisplayContext {
   /** CTA button text: "Add Team" for coaches, "Add Sport" for athletes */
   readonly actionLabel: string;
 
+  /** Whether the current user is allowed to create a new sport/team profile. */
+  readonly canAddProfile: boolean;
+
   /** Profiles for the expandable switcher list */
   readonly sportProfiles: readonly SidenavSportProfile[];
 
@@ -181,6 +189,26 @@ export function buildUserDisplayContext(
     return buildTeamContext(user!, personalName);
   }
   return buildAthleteContext(user, fallback, personalName);
+}
+
+function canUserAddProfile(user: UserDisplayInput | null | undefined): boolean {
+  if (!user?.sports?.length) {
+    return true;
+  }
+
+  for (const sport of user.sports) {
+    const affiliations = [sport.team, sport.clubTeam];
+    for (const affiliation of affiliations) {
+      if (
+        affiliation?.isOrganizationClaimed === true &&
+        affiliation.isUserOrganizationAdmin === false
+      ) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 // ============================================
@@ -263,6 +291,7 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
     switcherTitle: 'Teams',
     sportLabel,
     actionLabel: 'Add Team',
+    canAddProfile: canUserAddProfile(user),
     sportProfiles,
     profileRoute: resolvedTeamRoute?.path ?? '/team',
   };
@@ -324,6 +353,7 @@ function buildAthleteContext(
     switcherTitle: 'Sports',
     sportLabel,
     actionLabel: 'Add Sport',
+    canAddProfile: canUserAddProfile(user),
     sportProfiles,
     profileRoute: '/profile',
   };
@@ -338,7 +368,9 @@ function buildAthleteContext(
  * "John Doe" → "JD", "Basketball Team" → "BT", "J" → "J"
  */
 function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
+  // Clamp input length to prevent ReDoS on user-controlled strings
+  const safe = name.trim().slice(0, 200);
+  const parts = safe.split(/\s+/).filter(Boolean);
   if (parts.length === 0) return '?';
   if (parts.length === 1) return parts[0][0].toUpperCase();
   return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
@@ -350,7 +382,8 @@ function getInitials(name: string): string {
  * "Basketball (Mens)" → "basketball", "Men's Basketball" → "basketball"
  */
 function getBaseSportKey(sport: string): string {
-  const s = sport.trim().toLowerCase();
+  // Clamp input length to prevent ReDoS on user-controlled strings
+  const s = sport.trim().slice(0, 100).toLowerCase();
   // Strip "mens"/"womens" suffixes in various formats
   return s
     .replace(/\s*\((?:mens|womens)\)\s*$/i, '')

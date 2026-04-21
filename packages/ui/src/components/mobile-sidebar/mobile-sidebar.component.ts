@@ -206,32 +206,34 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
                     </button>
                   }
 
-                  <!-- Add Sport Button -->
-                  <button
-                    type="button"
-                    class="mobile-sidebar__sport-item mobile-sidebar__sport-item--add"
-                    (click)="onAddSportClick($event)"
-                    [attr.aria-label]="user()!.actionLabel || 'Add Sport'"
-                  >
-                    <div class="mobile-sidebar__add-icon">
-                      <svg
-                        viewBox="0 0 24 24"
-                        width="16"
-                        height="16"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2.2"
-                        stroke-linecap="round"
-                        aria-hidden="true"
-                      >
-                        <path d="M12 5v14" />
-                        <path d="M5 12h14" />
-                      </svg>
-                    </div>
-                    <span class="mobile-sidebar__sport-name">{{
-                      user()!.actionLabel || 'Add Sport'
-                    }}</span>
-                  </button>
+                  @if (user()?.canAddProfile) {
+                    <!-- Add Sport Button -->
+                    <button
+                      type="button"
+                      class="mobile-sidebar__sport-item mobile-sidebar__sport-item--add"
+                      (click)="onAddSportClick($event)"
+                      [attr.aria-label]="user()!.actionLabel || 'Add Sport'"
+                    >
+                      <div class="mobile-sidebar__add-icon">
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="16"
+                          height="16"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2.2"
+                          stroke-linecap="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M12 5v14" />
+                          <path d="M5 12h14" />
+                        </svg>
+                      </div>
+                      <span class="mobile-sidebar__sport-name">{{
+                        user()!.actionLabel || 'Add Sport'
+                      }}</span>
+                    </button>
+                  }
                 </div>
               }
             </div>

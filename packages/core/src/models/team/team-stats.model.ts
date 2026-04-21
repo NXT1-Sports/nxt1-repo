@@ -10,6 +10,8 @@
  * The UI renders label + value directly — no sport-specific field names required.
  */
 
+import type { PortableTimestamp } from '../portable-timestamp.model';
+
 export type TeamStatTrend = 'up' | 'down' | 'neutral';
 
 export interface TeamStatEntry {
@@ -57,6 +59,6 @@ export interface TeamStatDoc {
   readonly sourceUrl?: string;
 
   // ── Timestamps ─────────────────────────────────────────────────────────
-  readonly createdAt: string;
-  readonly updatedAt: string;
+  readonly createdAt: PortableTimestamp;
+  readonly updatedAt: PortableTimestamp;
 }

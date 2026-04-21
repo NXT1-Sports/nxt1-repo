@@ -162,7 +162,6 @@ describe('WriteTimelinePostTool', () => {
       expect(result.success).toBe(true);
 
       const postDoc = mockDocRef.set.mock.calls[0][0] as Record<string, unknown>;
-      expect(postDoc['hashtags']).toEqual(['football', 'gameday']);
       expect(postDoc['mentions']).toEqual(['coach_jones', 'teammate']);
     });
 

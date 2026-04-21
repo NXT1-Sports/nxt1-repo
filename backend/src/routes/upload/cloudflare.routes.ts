@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Request, Response, Router as RouterType } from 'express';
 import { asyncHandler } from '@nxt1/core/errors/express';
 import { fieldError, forbiddenError as _forbiddenError } from '@nxt1/core/errors';
+import { uploadRateLimit } from '../../middleware/rate-limit.middleware.js';
 import { FILE_UPLOAD_RULES, formatFileSize } from '@nxt1/core';
 import type { FileCategory } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
@@ -39,6 +40,7 @@ const router: RouterType = Router();
 
 router.post(
   '/cloudflare/direct-url',
+  uploadRateLimit,
   asyncHandler(async (req: Request, res: Response) => {
     const userId = req.user!.uid;
     const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];

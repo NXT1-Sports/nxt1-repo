@@ -242,6 +242,7 @@ function buildTusUploadMetadataHeader(metadata: Record<string, string>): string 
  */
 export const FILE_UPLOAD_RULES = {
   'profile-photo': {
+    maxSize: 5 * 1024 * 1024, // 5MB
     allowedTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
     maxDimensions: { width: 2048, height: 2048 },
   },

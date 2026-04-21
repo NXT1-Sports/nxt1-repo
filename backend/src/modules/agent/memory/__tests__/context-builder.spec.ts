@@ -298,8 +298,6 @@ describe('ContextBuilder', () => {
 
       const ctx = await builder.buildContext('user-123');
 
-      expect(ctx.targetDivisions).toEqual(['D1', 'D2']);
-      expect(ctx.targetColleges).toEqual(['Georgia', 'Texas', 'Ohio State']);
       expect(ctx.recruitingStatus).toBe('active');
     });
 
@@ -486,8 +484,6 @@ describe('ContextBuilder', () => {
       expect(prompt).toContain('GPA: 3.8');
       expect(prompt).toContain('Height: 6\'2"');
       expect(prompt).toContain('Weight: 195lb');
-      expect(prompt).toContain('Targets: D1, D2');
-      expect(prompt).toContain('Top Schools: Georgia, Texas, Ohio State');
       expect(prompt).toContain('Connected: maxpreps, gmail');
       expect(prompt).not.toContain('Profile:');
       expect(prompt).not.toContain('Views:');

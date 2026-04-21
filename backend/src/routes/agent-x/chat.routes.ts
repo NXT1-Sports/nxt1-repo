@@ -10,6 +10,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../../middleware/auth.middleware.js';
+import { aiRateLimit } from '../../middleware/rate-limit.middleware.js';
 import { validateBody } from '../../middleware/validation.middleware.js';
 import { AgentChatRequestDto, AgentEnqueueRequestDto } from '../../dtos/agent-x.dto.js';
 import type {
@@ -406,6 +407,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
 router.post(
   '/enqueue',
   appGuard,
+  aiRateLimit,
   validateBody(AgentEnqueueRequestDto),
   async (req: Request, res: Response) => {
     try {
@@ -497,6 +499,7 @@ router.post(
 router.post(
   '/chat',
   appGuard,
+  aiRateLimit,
   validateBody(AgentChatRequestDto),
   async (req: Request, res: Response) => {
     const chatOperationId = `chat-${crypto.randomUUID()}`;

@@ -25,7 +25,7 @@ import { UsageFeature, UsageEventStatus } from '../modules/billing/types/usage-e
 export interface UsageEventDocument {
   _id: Types.ObjectId;
   userId: string;
-  teamId: string;
+  teamId?: string;
   feature: string;
   quantity: number;
   unitCostSnapshot: number;
@@ -50,7 +50,7 @@ export interface UsageEventDocument {
 const UsageEventSchema = new Schema<UsageEventDocument>(
   {
     userId: { type: String, required: true, index: true },
-    teamId: { type: String, required: true, index: true },
+    teamId: { type: String, index: true },
     feature: {
       type: String,
       required: true,

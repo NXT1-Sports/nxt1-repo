@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const mockCache = {
@@ -76,7 +77,7 @@ describe('RAG-backed prompt context helpers', () => {
       'weekly playbook planning',
       fakeDb
     );
-    expect((contextBuilder as any).compressToPrompt).toHaveBeenCalledWith(profile, memories);
+    expect((contextBuilder as any).compressToPrompt).toHaveBeenCalledWith(profile, memories, []);
     expect(result).toBe('compressed-rag-context');
   });
 
@@ -244,6 +245,6 @@ describe('RAG-backed prompt context helpers', () => {
     );
 
     expect(result).toContain('For basketball, this is the In-Season period');
-    expect(result).toContain('Scouting Lens: Use season timing');
+    expect(result).toContain('Context: Use season timing');
   });
 });

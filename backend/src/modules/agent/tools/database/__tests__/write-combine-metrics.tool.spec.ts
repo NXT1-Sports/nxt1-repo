@@ -83,7 +83,8 @@ describe('WriteCombineMetricsTool', () => {
     const db = {
       collection: vi.fn().mockImplementation((name: string) => {
         if (name === 'PlayerMetrics') {
-          return { doc: vi.fn().mockReturnValue({ set }) };
+          const docRef = { set, get: vi.fn().mockResolvedValue({ data: () => undefined }) };
+          return { doc: vi.fn().mockReturnValue(docRef) };
         }
         throw new Error(`Unexpected collection ${name}`);
       }),

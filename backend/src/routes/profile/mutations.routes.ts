@@ -14,6 +14,7 @@ import { logger } from '../../utils/logger.js';
 import { validateBody } from '../../middleware/validation.middleware.js';
 import { UpdateProfileDto, UploadProfileImageDto } from '../../dtos/profile.dto.js';
 import { provisionOnboardingPrograms } from '../../services/onboarding-program-provisioning.service.js';
+import { assertCanMutateOwnSports } from '../../services/profile-sport-governance.service.js';
 import { createRosterEntryService } from '../../services/roster-entry.service.js';
 import * as teamCodeService from '../../services/team-code.service.js';
 import { mergeConnectedSources } from '@nxt1/core/profile';
@@ -277,6 +278,7 @@ router.post(
     const { imageUrl } = req.body;
 
     const db = req.firebase!.db;
+    await assertCanMutateOwnSports(db, userId);
     const userRef = db.collection(USERS_COLLECTION).doc(userId);
     const currentDoc = await userRef.get();
 
@@ -340,6 +342,7 @@ router.put(
     }
 
     const db = req.firebase!.db;
+    await assertCanMutateOwnSports(db, userId);
     const userRef = db.collection(USERS_COLLECTION).doc(userId);
     const currentDoc = await userRef.get();
 

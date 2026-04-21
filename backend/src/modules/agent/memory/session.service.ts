@@ -164,7 +164,7 @@ export class SessionMemoryService {
   ): Promise<void> {
     const key = sessionKey(userId, threadId);
 
-    let session: StoredSession | null = null;
+    let session: StoredSession | null;
     try {
       session = await this.cache.get<StoredSession>(key);
     } catch (err) {

@@ -581,7 +581,7 @@ export interface FeedActionResponse {
 /**
  * Post with user-specific metadata (for authenticated users)
  */
-export interface FeedPostWithMetadata extends FeedPost {}
+export type FeedPostWithMetadata = FeedPost;
 
 // ============================================
 // QUERY & CURSOR TYPES

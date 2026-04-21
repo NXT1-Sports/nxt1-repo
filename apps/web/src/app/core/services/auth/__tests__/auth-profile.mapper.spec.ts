@@ -27,7 +27,7 @@ describe('mapBackendProfileToCachedUserProfile', () => {
       displayName: mapped.displayName,
       email: mapped.email,
       role: mapped.role,
-      teamCode: mapped.teamCode as
+      teamCode: mapped['teamCode'] as
         | {
             readonly teamCode?: string;
             readonly slug?: string;
@@ -40,7 +40,7 @@ describe('mapBackendProfileToCachedUserProfile', () => {
         | undefined,
     });
 
-    expect(mapped.teamCode).toMatchObject({
+    expect(mapped['teamCode']).toMatchObject({
       teamCode: 'ARG123',
       teamId: 'team-doc-1',
       slug: 'argyle',
@@ -73,7 +73,7 @@ describe('mapBackendProfileToCachedUserProfile', () => {
       displayName: mapped.displayName,
       email: mapped.email,
       role: mapped.role,
-      teamCode: mapped.teamCode as
+      teamCode: mapped['teamCode'] as
         | {
             readonly teamCode?: string;
             readonly teamId?: string;
@@ -101,7 +101,7 @@ describe('mapBackendProfileToCachedUserProfile', () => {
         | undefined,
     });
 
-    expect(mapped.teamCode).toMatchObject({
+    expect(mapped['teamCode']).toMatchObject({
       teamCode: 'ARG123',
       teamId: 'team-doc-legacy',
       slug: 'argyle',
@@ -129,8 +129,8 @@ describe('mapBackendProfileToCachedUserProfile', () => {
       ],
     });
 
-    expect(mapped.selectedSports).toEqual(['Football', 'Track & Field']);
-    expect(mapped.primarySport).toBe('Football');
+    expect(mapped['selectedSports']).toEqual(['Football', 'Track & Field']);
+    expect(mapped['primarySport']).toBe('Football');
   });
 
   it('preserves connected emails for connected account sign-in state', () => {
@@ -141,14 +141,24 @@ describe('mapBackendProfileToCachedUserProfile', () => {
       lastName: 'Player',
       role: 'athlete',
       connectedEmails: [
-        { provider: 'gmail', isActive: true },
-        { provider: 'microsoft', isActive: true },
+        {
+          provider: 'gmail',
+          email: 'alex@gmail.com',
+          isActive: true,
+          connectedAt: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          provider: 'microsoft',
+          email: 'alex@outlook.com',
+          isActive: true,
+          connectedAt: '2026-01-01T00:00:00.000Z',
+        },
       ],
     });
 
-    expect(mapped.connectedEmails).toEqual([
-      { provider: 'gmail', isActive: true },
-      { provider: 'microsoft', isActive: true },
+    expect(mapped['connectedEmails']).toEqual([
+      expect.objectContaining({ provider: 'gmail', isActive: true }),
+      expect.objectContaining({ provider: 'microsoft', isActive: true }),
     ]);
   });
 
@@ -172,7 +182,7 @@ describe('mapBackendProfileToCachedUserProfile', () => {
       displayName: mapped.displayName,
       email: mapped.email,
       role: mapped.role,
-      teamCode: mapped.teamCode as
+      teamCode: mapped['teamCode'] as
         | {
             readonly teamCode?: string;
             readonly teamId?: string;
@@ -184,10 +194,10 @@ describe('mapBackendProfileToCachedUserProfile', () => {
           }
         | null
         | undefined,
-      managedTeamCodes: mapped.managedTeamCodes as readonly string[] | null | undefined,
+      managedTeamCodes: mapped['managedTeamCodes'] as string[] | null | undefined,
     });
 
-    expect(mapped.teamCode).toMatchObject({
+    expect(mapped['teamCode']).toMatchObject({
       teamCode: 'ARG123',
       teamId: 'team-doc-999',
       slug: 'argyle',
@@ -217,7 +227,7 @@ describe('mapBackendProfileToCachedUserProfile', () => {
       displayName: mapped.displayName,
       email: mapped.email,
       role: mapped.role,
-      teamCode: mapped.teamCode as
+      teamCode: mapped['teamCode'] as
         | {
             readonly teamCode?: string;
             readonly teamId?: string;
@@ -229,10 +239,10 @@ describe('mapBackendProfileToCachedUserProfile', () => {
           }
         | null
         | undefined,
-      managedTeamCodes: mapped.managedTeamCodes as readonly string[] | null | undefined,
+      managedTeamCodes: mapped['managedTeamCodes'] as string[] | null | undefined,
     });
 
-    expect(mapped.teamCode).toMatchObject({
+    expect(mapped['teamCode']).toMatchObject({
       teamCode: 'ARG123',
       teamId: 'team-doc-999',
       slug: 'argyle',
@@ -260,7 +270,7 @@ describe('mapBackendProfileToCachedUserProfile', () => {
       displayName: mapped.displayName,
       email: mapped.email,
       role: mapped.role,
-      teamCode: mapped.teamCode as
+      teamCode: mapped['teamCode'] as
         | {
             readonly teamCode?: string;
             readonly teamId?: string;
@@ -272,7 +282,7 @@ describe('mapBackendProfileToCachedUserProfile', () => {
           }
         | null
         | undefined,
-      managedTeamCodes: mapped.managedTeamCodes as readonly string[] | null | undefined,
+      managedTeamCodes: mapped['managedTeamCodes'] as string[] | null | undefined,
     });
 
     expect(ctx?.profileRoute).toBe('/team/argyle/team-doc-999');
@@ -304,7 +314,7 @@ describe('mapBackendProfileToCachedUserProfile', () => {
       displayName: mapped.displayName,
       email: mapped.email,
       role: mapped.role,
-      teamCode: mapped.teamCode as
+      teamCode: mapped['teamCode'] as
         | {
             readonly teamCode?: string;
             readonly slug?: string;
@@ -330,11 +340,59 @@ describe('mapBackendProfileToCachedUserProfile', () => {
         | undefined,
     });
 
-    expect(mapped.teamCode).toMatchObject({
+    expect(mapped['teamCode']).toMatchObject({
       teamCode: 'ARG123',
       slug: 'argyle',
       teamName: 'Argyle',
     });
     expect(ctx?.profileRoute).toBe('/team/argyle/ARG123');
+  });
+
+  it('blocks add profile actions for governed organization members who are not admins', () => {
+    const ctx = buildUserDisplayContext({
+      displayName: 'Alex Player',
+      email: 'alex@nxt1.com',
+      role: 'athlete',
+      sports: [
+        {
+          sport: 'Football',
+          order: 0,
+          team: {
+            name: 'Argyle',
+            isOrganizationClaimed: true,
+            isUserOrganizationAdmin: false,
+          },
+        },
+      ],
+    });
+
+    expect(ctx?.canAddProfile).toBe(false);
+  });
+
+  it('allows add profile actions for organization admins', () => {
+    const ctx = buildUserDisplayContext({
+      displayName: 'Program Director',
+      email: 'director@nxt1.com',
+      role: 'coach',
+      teamCode: {
+        teamCode: 'ARG123',
+        teamName: 'Argyle',
+        sport: 'Football',
+      },
+      sports: [
+        {
+          sport: 'Football',
+          order: 0,
+          team: {
+            name: 'Argyle',
+            teamId: 'team-1',
+            isOrganizationClaimed: true,
+            isUserOrganizationAdmin: true,
+          },
+        },
+      ],
+    });
+
+    expect(ctx?.canAddProfile).toBe(true);
   });
 });

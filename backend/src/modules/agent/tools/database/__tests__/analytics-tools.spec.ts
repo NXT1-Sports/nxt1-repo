@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, it, vi } from 'vitest';
 import { TrackAnalyticsEventTool } from '../track-analytics-event.tool.js';
 import { GetAnalyticsSummaryTool } from '../get-analytics-summary.tool.js';

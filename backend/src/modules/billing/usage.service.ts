@@ -35,7 +35,7 @@ function toUsageEvent(doc: UsageEventDocument): UsageEvent {
   return {
     id: (doc._id as Types.ObjectId).toString(),
     userId: doc.userId,
-    teamId: doc.teamId,
+    ...(doc.teamId ? { teamId: doc.teamId } : {}),
     feature: doc.feature as UsageEvent['feature'],
     quantity: doc.quantity,
     unitCostSnapshot: doc.unitCostSnapshot,
@@ -99,7 +99,7 @@ export async function recordUsageEvent(
   try {
     const doc = await UsageEventModel.create({
       userId: input.userId,
-      teamId: input.teamId,
+      ...(input.teamId ? { teamId: input.teamId } : {}),
       feature: input.feature,
       quantity: input.quantity,
       unitCostSnapshot,
@@ -249,10 +249,7 @@ export async function getUserUsageEvents(
   limit: number = 50
 ): Promise<UsageEvent[]> {
   try {
-    const docs = await UsageEventModel.find({ userId })
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .lean();
+    const docs = await UsageEventModel.find({ userId }).sort({ createdAt: -1 }).limit(limit).lean();
 
     return (docs as UsageEventDocument[]).map(toUsageEvent);
   } catch (error) {
@@ -269,10 +266,7 @@ export async function getTeamUsageEvents(
   limit: number = 100
 ): Promise<UsageEvent[]> {
   try {
-    const docs = await UsageEventModel.find({ teamId })
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .lean();
+    const docs = await UsageEventModel.find({ teamId }).sort({ createdAt: -1 }).limit(limit).lean();
 
     return (docs as UsageEventDocument[]).map(toUsageEvent);
   } catch (error) {

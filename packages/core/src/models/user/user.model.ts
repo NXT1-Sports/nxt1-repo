@@ -375,7 +375,7 @@ export interface UserSummary {
 
 /** Check if user is an athlete */
 export function isAthlete(user: User): boolean {
-  return user.role === USER_ROLES.ATHLETE;
+  return user.role === USER_ROLES.ATHLETE && !!user.athlete;
 }
 
 /** Check if user is a coach */
@@ -384,14 +384,14 @@ export function isCoach(user: User): boolean {
 }
 
 /** Check if user is a college coach
- * @deprecated Use isCoach() instead */
+ * @deprecated Use isRecruiter() instead */
 export function isCollegeCoach(user: User): boolean {
-  return user.role === USER_ROLES.COACH && !!user.coach;
+  return isRecruiter(user);
 }
 
-/** Check if user has recruiting capabilities (i.e., is a coach or director) */
+/** Check if user has recruiting capabilities (college coach / director with recruiter profile) */
 export function isRecruiter(user: User): boolean {
-  return user.role === USER_ROLES.COACH || user.role === USER_ROLES.DIRECTOR;
+  return (user.role === USER_ROLES.COACH || user.role === USER_ROLES.DIRECTOR) && !!user.recruiter;
 }
 
 /** Check if user is a director */

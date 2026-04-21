@@ -7,6 +7,8 @@
  * NOTE: Exposure events (camps, combines, showcases) live in the `Events` collection.
  */
 
+import type { PortableTimestamp } from '../portable-timestamp.model';
+
 export type ScheduleEventType = 'game' | 'scrimmage' | 'practice' | 'playoff' | 'other';
 export type ScheduleEventOwnerType = 'user' | 'team';
 export type ScheduleEventStatus = 'upcoming' | 'live' | 'completed' | 'cancelled' | 'postponed';
@@ -66,6 +68,6 @@ export interface ScheduleEventDoc {
   readonly sourceUrl?: string;
 
   // ── Timestamps ─────────────────────────────────────────────────────────
-  readonly createdAt: string;
-  readonly updatedAt: string;
+  readonly createdAt: PortableTimestamp;
+  readonly updatedAt: PortableTimestamp;
 }

@@ -9,6 +9,7 @@
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Component, input, output, CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
 import { ComponentFixture, TestBed, getTestBed } from '@angular/core/testing';
 import {
   BrowserDynamicTestingModule,
@@ -21,6 +22,7 @@ import {
   NEWS_API_ADAPTER,
   type INewsApiAdapter,
 } from '@nxt1/ui';
+import { NewsListComponent } from '@nxt1/ui/news';
 import { HapticsService } from '@nxt1/ui/services/haptics';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
@@ -643,6 +645,26 @@ describe('NewsService', () => {
 describe('NewsContentComponent', () => {
   let fixture: ComponentFixture<NewsContentComponent>;
 
+  /** Stub NewsListComponent — replaces the real one that imports IonSpinner from Ionic */
+  @Component({
+    selector: 'nxt1-news-list',
+    standalone: true,
+    template: `<div [attr.data-testid]="'news-empty-state'"></div>`,
+  })
+  class StubNewsListComponent {
+    readonly articles = input<readonly unknown[]>([]);
+    readonly isLoading = input(false);
+    readonly isLoadingMore = input(false);
+    readonly isEmpty = input(false);
+    readonly error = input<string | null>(null);
+    readonly hasMore = input(false);
+    readonly activeCategory = input<string>('for-you');
+    readonly articleClick = output<unknown>();
+    readonly loadMore = output<void>();
+    readonly retry = output<void>();
+    readonly emptyCta = output<void>();
+  }
+
   const newsServiceMock = {
     articles: vi.fn(() => []),
     isLoading: vi.fn(() => false),
@@ -666,7 +688,12 @@ describe('NewsContentComponent', () => {
         { provide: NewsService, useValue: newsServiceMock },
         { provide: HapticsService, useValue: createHapticsMock() },
       ],
-    }).compileComponents();
+    })
+      .overrideComponent(NewsContentComponent, {
+        remove: { imports: [NewsListComponent] },
+        add: { imports: [StubNewsListComponent] },
+      })
+      .compileComponents();
 
     fixture = TestBed.createComponent(NewsContentComponent);
     fixture.detectChanges();

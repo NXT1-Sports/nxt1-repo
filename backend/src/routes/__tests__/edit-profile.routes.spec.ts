@@ -20,12 +20,11 @@ describe('Edit Profile Routes', () => {
       [
         { path: '/:uid/edit', method: 'get' },
         { path: '/:uid/section/:sectionId', method: 'put' },
-        { path: '/:uid/completion', method: 'get' },
         { path: '/:uid/photo', method: 'post' },
         { path: '/:uid/photo/:type', method: 'delete' },
         { path: '/:uid/active-sport-index', method: 'put' },
       ],
-      6
+      5
     );
   });
 });

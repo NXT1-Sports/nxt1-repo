@@ -36,9 +36,11 @@ vi.mock('bullmq', () => {
 
 const mockFirestoreSnapshot = {
   empty: true,
+  exists: false,
   docs: [] as unknown[],
   size: 0,
   forEach: () => undefined,
+  data: () => ({}),
 };
 const mockFirestoreRef = {
   collection: function () {

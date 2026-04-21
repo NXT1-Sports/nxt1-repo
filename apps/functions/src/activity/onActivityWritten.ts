@@ -12,7 +12,9 @@
 import * as admin from 'firebase-admin';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { logger } from 'firebase-functions/v2';
-import { ACTIVITY_DEFAULT_TAB, type ActivityTabId } from '@nxt1/core';
+// ─── Inlined from @nxt1/core/activity (workspace packages are not available in Cloud Run) ───
+type ActivityTabId = 'alerts';
+const ACTIVITY_DEFAULT_TAB: ActivityTabId = 'alerts';
 
 const ACTIVITY_STATS_COLLECTION = 'stats';
 const ACTIVITY_BADGES_DOC_ID = 'activity_badges';

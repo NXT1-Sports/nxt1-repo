@@ -444,9 +444,9 @@ export class OnboardingAnalyticsService {
   // PRIVATE METHODS
   // ============================================
 
-  /** Generate unique session ID */
+  /** Generate unique session ID using cryptographically secure randomness */
   private generateSessionId(): string {
-    return `ob_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    return `ob_${globalThis.crypto.randomUUID()}`;
   }
 
   /** Get time spent on current step in milliseconds */

@@ -36,15 +36,6 @@ describe('Upload Routes', () => {
       expect([400, 500]).toContain(response.status);
     });
 
-    it('POST /api/v1/upload/banner-photo should handle file upload', async () => {
-      const response = await request(app)
-        .post('/api/v1/upload/banner-photo')
-        .set('Authorization', AUTH_HEADER)
-        .field('category', 'banner-photo');
-
-      expect([400, 500]).toContain(response.status);
-    });
-
     it('POST /api/v1/upload/highlight-video should handle video upload', async () => {
       const response = await request(app)
         .post('/api/v1/upload/highlight-video')

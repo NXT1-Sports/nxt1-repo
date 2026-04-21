@@ -21,7 +21,6 @@ import { Auth, EmailAuthProvider, signOut, reauthenticateWithCredential } from '
 import { IAuthService, AppUser, SignInCredentials, SignUpCredentials } from './auth.interface';
 import { AuthCookieService } from './auth-cookie.service';
 import { AuthFlowService } from './auth-flow.service';
-import { getAuthErrorMessage } from '@nxt1/core';
 import { getErrorMessage } from '@nxt1/core/errors';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ILogger } from '@nxt1/core/logging';

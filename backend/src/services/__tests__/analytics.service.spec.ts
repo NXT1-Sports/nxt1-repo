@@ -9,7 +9,6 @@ vi.mock('../analytics-logger.service.js', () => ({
 }));
 
 const {
-  buildAthleteOverviewCards,
   buildViewsBySourceFromSurfaceCounts,
   buildViewerBreakdownFromRoleCounts,
   getSummaryTimeframeForPeriod,
@@ -28,28 +27,6 @@ describe('analytics.service rollup helpers', () => {
     expect(getSummaryTimeframeForPeriod('quarter')).toBe('90d');
     expect(getSummaryTimeframeForPeriod('year')).toBe('all');
     expect(getSummaryTimeframeForPeriod('all-time')).toBe('all');
-  });
-
-  it('prefers rollup-backed engagement counts for athlete overview cards', () => {
-    const overview = buildAthleteOverviewCards(
-      {
-        displayName: 'Jordan Athlete',
-        aboutMe: 'Explosive two-way player',
-        sports: [{ sport: 'football' }],
-      },
-      [{ views: 275, likes: 25 }],
-      [],
-      {
-        profileViews: 42,
-        coachViews: 12,
-        followerCount: 7,
-      }
-    );
-
-    expect(overview.profileViews.value).toBe(42);
-    expect(overview.collegeCoachViews.value).toBe(12);
-    expect(overview.followers.value).toBe(7);
-    expect(overview.videoViews.value).toBe(275);
   });
 
   it('converts tracked surfaces into proportional source data', () => {

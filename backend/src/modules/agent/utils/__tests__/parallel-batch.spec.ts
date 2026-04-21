@@ -76,12 +76,9 @@ describe('parallelBatch', () => {
   });
 
   it('wraps non-Error throws in an Error', async () => {
-    const results = await parallelBatch(
-      ['x'],
-      async () => {
-        throw 'string error';
-      } // eslint-disable-line @typescript-eslint/only-throw-error
-    );
+    const results = await parallelBatch(['x'], async () => {
+      throw 'string error';
+    });
 
     expect(results[0].status).toBe('rejected');
     expect((results[0] as BatchRejected).reason).toBeInstanceOf(Error);

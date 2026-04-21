@@ -453,10 +453,10 @@ describe('ScrapeInstagramTool', () => {
     ];
     vi.mocked(mockMedia.persistBatch).mockResolvedValue(mockPersisted);
 
-    const result = await tool.execute({
-      mode: 'posts',
-      usernames: ['jalensmith'],
-    });
+    const result = await tool.execute(
+      { mode: 'posts', usernames: ['jalensmith'] },
+      { userId: 'user_123', threadId: 'thread_456' }
+    );
 
     expect(result.success).toBe(true);
     expect(mockMedia.persistBatch).toHaveBeenCalledOnce();
@@ -479,10 +479,10 @@ describe('ScrapeInstagramTool', () => {
     vi.mocked(mockApify.getInstagramPosts).mockResolvedValue(mockPostResult([MOCK_VIDEO_POST]));
     vi.mocked(mockMedia.persistBatch).mockResolvedValue([]);
 
-    await tool.execute({
-      mode: 'posts',
-      usernames: ['jalensmith'],
-    });
+    await tool.execute(
+      { mode: 'posts', usernames: ['jalensmith'] },
+      { userId: 'user_123', threadId: 'thread_456' }
+    );
 
     const mediaInputs = vi.mocked(mockMedia.persistBatch).mock.calls[0][0];
     expect(mediaInputs).toHaveLength(1);
@@ -509,10 +509,10 @@ describe('ScrapeInstagramTool', () => {
     ];
     vi.mocked(mockMedia.persistBatch).mockResolvedValue(mockPersisted);
 
-    const result = await tool.execute({
-      mode: 'profile',
-      usernames: ['ohiostatefb'],
-    });
+    const result = await tool.execute(
+      { mode: 'profile', usernames: ['ohiostatefb'] },
+      { userId: 'user_123', threadId: 'thread_456' }
+    );
 
     expect(result.success).toBe(true);
     expect(mockMedia.persistBatch).toHaveBeenCalledOnce();
@@ -526,10 +526,10 @@ describe('ScrapeInstagramTool', () => {
     vi.mocked(mockApify.searchInstagram).mockResolvedValue(mockPostResult());
     vi.mocked(mockMedia.persistBatch).mockResolvedValue([]);
 
-    const result = await tool.execute({
-      mode: 'hashtag',
-      query: '#D1Commits',
-    });
+    const result = await tool.execute(
+      { mode: 'hashtag', query: '#D1Commits' },
+      { userId: 'user_123', threadId: 'thread_456' }
+    );
 
     expect(result.success).toBe(true);
     expect(mockMedia.persistBatch).toHaveBeenCalledOnce();

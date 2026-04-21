@@ -75,7 +75,6 @@ import {
   CrashlyticsService,
   AnalyticsService,
   PerformanceService,
-  ShareService,
 } from './core/services';
 
 import { mobileAuthInterceptor } from './core/infrastructure/interceptors/auth.interceptor';

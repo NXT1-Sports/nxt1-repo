@@ -1434,6 +1434,7 @@ export class WebShellComponent {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
   onHeaderSearchInput(_query: string): void {}
 
   onHeaderSearchSubmit(event: TopNavSearchSubmitEvent): void {
@@ -1447,6 +1448,7 @@ export class WebShellComponent {
     void this.router.navigate(['/agent'], { queryParams: { q: query } });
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
   onClearRecentSearches(): void {}
 
   /**

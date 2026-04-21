@@ -8,6 +8,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../../middleware/auth.middleware.js';
+import { aiRateLimit } from '../../middleware/rate-limit.middleware.js';
 import { validateBody } from '../../middleware/validation.middleware.js';
 import { UpdatePlaybookItemStatusDto, GenerateBriefingDto } from '../../dtos/agent-x.dto.js';
 import type { ShellWeeklyPlaybookItem } from '@nxt1/core';
@@ -24,7 +25,7 @@ const router = Router();
 
 // ─── POST /playbook/generate ──────────────────────────────────────────────
 
-router.post('/playbook/generate', appGuard, async (req: Request, res: Response) => {
+router.post('/playbook/generate', appGuard, aiRateLimit, async (req: Request, res: Response) => {
   const playbookOpId = `playbook-${crypto.randomUUID()}`;
   try {
     const user = getAuthUser(req);
@@ -265,6 +266,7 @@ router.post(
 router.post(
   '/briefing/generate',
   appGuard,
+  aiRateLimit,
   validateBody(GenerateBriefingDto),
   async (req: Request, res: Response) => {
     const briefingOpId = `briefing-${crypto.randomUUID()}`;

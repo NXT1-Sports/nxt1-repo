@@ -72,7 +72,6 @@ import { httpPerformanceInterceptor } from './core/infrastructure/performance-in
 
 import { AnalyticsService } from './core/services';
 import { PerformanceService } from './core/services';
-import { ShareService } from './core/services';
 
 // Badge bridge: connects ActivityService (from @nxt1/ui) → BadgeCountService
 import { provideBadgeBridge } from './core/services';

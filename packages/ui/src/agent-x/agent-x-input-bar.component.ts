@@ -486,7 +486,7 @@ export class AgentXInputBarComponent implements OnInit, OnDestroy {
           this.el.nativeElement.style.setProperty('--keyboard-height', '0px');
           this.el.nativeElement.style.removeProperty('--footer-safe-area');
         });
-      } catch (err) {
+      } catch {
         // @capacitor/keyboard not available — silently ignore
       }
     }

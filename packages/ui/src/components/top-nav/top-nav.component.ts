@@ -503,8 +503,8 @@ import type {
                   </div>
                 }
 
-                <!-- Add Sport / Add Team — always visible when authenticated -->
-                @if (user()) {
+                <!-- Add Sport / Add Team -->
+                @if (user()?.canAddProfile) {
                   <div class="user-sport-list user-sport-list--add">
                     <button
                       type="button"
@@ -717,33 +717,35 @@ import type {
                   </button>
                 }
 
-                <!-- Add Sport / Add Team Button -->
-                <button
-                  type="button"
-                  class="mobile-sport-item mobile-sport-item--add text-(--nxt1-color-primary)] flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm font-medium transition-colors"
-                  (click)="onAddSportButtonClick($event); closeMobileMenu()"
-                >
-                  <div
-                    class="flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-current"
+                @if (user()?.canAddProfile) {
+                  <!-- Add Sport / Add Team Button -->
+                  <button
+                    type="button"
+                    class="mobile-sport-item mobile-sport-item--add text-(--nxt1-color-primary)] flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm font-medium transition-colors"
+                    (click)="onAddSportButtonClick($event); closeMobileMenu()"
                   >
-                    <svg
-                      viewBox="0 0 24 24"
-                      width="14"
-                      height="14"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2.2"
-                      stroke-linecap="round"
-                      aria-hidden="true"
+                    <div
+                      class="flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-current"
                     >
-                      <path d="M12 5v14" />
-                      <path d="M5 12h14" />
-                    </svg>
-                  </div>
-                  <span>{{
-                    user()?.actionLabel || (user()?.isTeamRole ? 'Add Team' : 'Add Sport')
-                  }}</span>
-                </button>
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="14"
+                        height="14"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.2"
+                        stroke-linecap="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M12 5v14" />
+                        <path d="M5 12h14" />
+                      </svg>
+                    </div>
+                    <span>{{
+                      user()?.actionLabel || (user()?.isTeamRole ? 'Add Team' : 'Add Sport')
+                    }}</span>
+                  </button>
+                }
               </div>
             }
 

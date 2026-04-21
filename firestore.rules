@@ -362,6 +362,122 @@ service cloud.firestore {
     }
 
     // ============================================
+    // ORGANIZATIONS & RANKINGS
+    // ============================================
+
+    match /Organizations/{organizationId} {
+      allow read: if isAuthenticated()
+        && (
+          resource.data.ownerId == request.auth.uid
+          || resource.data.billingOwnerUid == request.auth.uid
+          || isAdmin()
+        );
+      allow write: if false;
+    }
+
+    match /Rankings/{rankingId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // ============================================
+    // BILLING & PAYMENT COLLECTIONS
+    // ============================================
+
+    match /AppConfig/{configId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /BillingContexts/{contextId} {
+      allow read: if isAuthenticated()
+        && (
+          resource.data.userId == request.auth.uid
+          || resource.data.billingOwnerUid == request.auth.uid
+          || isAdmin()
+        );
+      allow write: if false;
+    }
+
+    match /BillingPreferences/{preferenceId} {
+      allow read: if isAuthenticated()
+        && (
+          resource.data.userId == request.auth.uid
+          || resource.data.billingOwnerUid == request.auth.uid
+          || isAdmin()
+        );
+      allow write: if false;
+    }
+
+    match /Wallets/{walletId} {
+      allow read: if isAuthenticated()
+        && (
+          (resource.data.ownerType == 'individual' && resource.data.ownerId == request.auth.uid)
+          || isAdmin()
+        );
+      allow write: if false;
+    }
+
+    match /WalletHolds/{holdId} {
+      allow read: if isAuthenticated()
+        && (
+          resource.data.userId == request.auth.uid
+          || (resource.data.ownerType == 'individual' && resource.data.ownerId == request.auth.uid)
+          || isAdmin()
+        );
+      allow write: if false;
+    }
+
+    match /StripeCustomers/{customerId} {
+      allow read: if isAuthenticated()
+        && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if false;
+    }
+
+    match /PeriodLedgers/{ledgerId} {
+      allow read: if isAuthenticated()
+        && (
+          (resource.data.ownerType == 'individual' && resource.data.ownerId == request.auth.uid)
+          || isAdmin()
+        );
+      allow write: if false;
+    }
+
+    match /OrganizationBudgets/{budgetId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /teamBudgetAllocations/{allocationId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /PaymentLogs/{logId} {
+      allow read: if isAuthenticated()
+        && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if false;
+    }
+
+    match /paymentLogs/{logId} {
+      allow read: if isAuthenticated()
+        && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if false;
+    }
+
+    match /UsageEvents/{eventId} {
+      allow read: if isAuthenticated()
+        && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if false;
+    }
+
+    match /usageEvents/{eventId} {
+      allow read: if isAuthenticated()
+        && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if false;
+    }
+
+    // ============================================
     // DENY ALL OTHER ACCESS
     // ============================================
     

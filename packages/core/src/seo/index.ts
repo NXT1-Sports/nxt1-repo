@@ -611,34 +611,30 @@ function buildProfileStructuredData(
 
   return {
     '@context': 'https://schema.org',
-    '@graph': [
-      {
-        '@type': 'Person',
-        name: profile.athleteName,
-        url,
-        image: profile.imageUrl || undefined,
-        description: buildProfileDescription(profile),
-        jobTitle: profile.position || undefined,
-        identifier: profile.id,
-        knowsAbout: profile.sport ? formatSportDisplayName(profile.sport) : undefined,
-        alumniOf: profile.school
-          ? { '@type': 'EducationalOrganization', name: profile.school }
-          : undefined,
-        affiliation: profile.school ? { '@type': 'SportsTeam', name: profile.school } : undefined,
-        address: profile.location
-          ? { '@type': 'PostalAddress', addressLocality: profile.location }
-          : undefined,
-      },
-      {
-        '@type': 'BreadcrumbList',
-        itemListElement: breadcrumbs.map((item, index) => ({
-          '@type': 'ListItem',
-          position: index + 1,
-          name: item.name,
-          item: item.url,
-        })),
-      },
-    ],
+    '@type': 'Person',
+    name: profile.athleteName,
+    url,
+    image: profile.imageUrl || undefined,
+    description: buildProfileDescription(profile),
+    jobTitle: profile.position || undefined,
+    identifier: profile.id,
+    knowsAbout: profile.sport ? formatSportDisplayName(profile.sport) : undefined,
+    alumniOf: profile.school
+      ? { '@type': 'EducationalOrganization', name: profile.school }
+      : undefined,
+    affiliation: profile.school ? { '@type': 'SportsTeam', name: profile.school } : undefined,
+    address: profile.location
+      ? { '@type': 'PostalAddress', addressLocality: profile.location }
+      : undefined,
+    breadcrumb: {
+      '@type': 'BreadcrumbList',
+      itemListElement: breadcrumbs.map((item, index) => ({
+        '@type': 'ListItem',
+        position: index + 1,
+        name: item.name,
+        item: item.url,
+      })),
+    },
   };
 }
 
@@ -662,26 +658,22 @@ function buildTeamStructuredData(team: ShareableTeam, url: string): Record<strin
 
   return {
     '@context': 'https://schema.org',
-    '@graph': [
-      {
-        '@type': 'SportsTeam',
-        name: team.teamName,
-        url,
-        logo: team.logoUrl ? { '@type': 'ImageObject', url: team.logoUrl } : undefined,
-        image: team.imageUrl || team.logoUrl || undefined,
-        sport: team.sport ? formatSportDisplayName(team.sport) : undefined,
-        location: team.location ? { '@type': 'Place', name: team.location } : undefined,
-      },
-      {
-        '@type': 'BreadcrumbList',
-        itemListElement: breadcrumbs.map((item, index) => ({
-          '@type': 'ListItem',
-          position: index + 1,
-          name: item.name,
-          item: item.url,
-        })),
-      },
-    ],
+    '@type': 'SportsTeam',
+    name: team.teamName,
+    url,
+    logo: team.logoUrl ? { '@type': 'ImageObject', url: team.logoUrl } : undefined,
+    image: team.imageUrl || team.logoUrl || undefined,
+    sport: team.sport ? formatSportDisplayName(team.sport) : undefined,
+    location: team.location ? { '@type': 'Place', name: team.location } : undefined,
+    breadcrumb: {
+      '@type': 'BreadcrumbList',
+      itemListElement: breadcrumbs.map((item, index) => ({
+        '@type': 'ListItem',
+        position: index + 1,
+        name: item.name,
+        item: item.url,
+      })),
+    },
   };
 }
 

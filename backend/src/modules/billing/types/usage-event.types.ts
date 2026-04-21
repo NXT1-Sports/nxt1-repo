@@ -67,6 +67,18 @@ export enum UsageEventStatus {
 export type UsageCostType = 'static' | 'dynamic';
 
 /**
+ * Canonical metadata payload stored with usage events for auditing and debugging.
+ */
+export interface UsageEventMetadata {
+  agent?: string;
+  model?: string;
+  agentTools?: string[];
+  threadId?: string;
+  operationId?: string;
+  [key: string]: unknown;
+}
+
+/**
  * Usage event stored in MongoDB via Mongoose (SOURCE OF TRUTH)
  */
 export interface UsageEvent {
@@ -76,8 +88,8 @@ export interface UsageEvent {
   /** User who triggered the usage */
   userId: string;
 
-  /** Team context for the usage */
-  teamId: string;
+  /** Team context for the usage when the event is organization-scoped */
+  teamId?: string;
 
   /** Feature that was used */
   feature: UsageFeature;
@@ -122,7 +134,7 @@ export interface UsageEvent {
   lastRetryAt?: Date;
 
   /** Metadata for debugging */
-  metadata?: Record<string, unknown>;
+  metadata?: UsageEventMetadata;
 
   /** Created timestamp (plain Date — stored in MongoDB) */
   createdAt: Date;
@@ -136,7 +148,7 @@ export interface UsageEvent {
  */
 export interface CreateUsageEventInput {
   userId: string;
-  teamId: string;
+  teamId?: string;
   feature: UsageFeature;
   quantity: number;
   unitCostSnapshot: number;
@@ -145,7 +157,7 @@ export interface CreateUsageEventInput {
   /** Optional unique job ID for idempotency */
   jobId?: string;
   /** Optional metadata */
-  metadata?: Record<string, unknown>;
+  metadata?: UsageEventMetadata;
 
   // ── Dynamic pricing fields (Phase 1 — AI token-based costs) ──
 
@@ -492,6 +504,8 @@ export interface WalletHold {
   feature: string;
   /** Created timestamp */
   createdAt: Timestamp;
+  /** Automatic expiry time for stale unreleased holds */
+  expiresAt?: Timestamp;
   /** When captured/released */
   resolvedAt?: Timestamp;
   /** Actual cost captured (if captured) */

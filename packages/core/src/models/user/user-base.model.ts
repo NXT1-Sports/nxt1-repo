@@ -126,8 +126,8 @@ export interface ConnectedSource {
 // CONNECTED EMAIL (metadata only — tokens live in sub-collection)
 // ============================================
 
-// EmailProvider is defined in campaigns.model.ts ('gmail' | 'microsoft' | 'yahoo' | 'system')
-export type { EmailProvider } from '../content/campaigns.model';
+// EmailProvider lives in campaign.constants ('gmail' | 'microsoft' | 'yahoo' | 'system')
+export type { EmailProvider } from '../../constants/campaign.constants';
 
 /**
  * Connected email account metadata (stored on User doc).
@@ -141,7 +141,7 @@ export interface ConnectedEmail {
   /** Email address */
   email: string;
   /** Provider identifier */
-  provider: import('../content/campaigns.model').EmailProvider;
+  provider: import('../../constants/campaign.constants').EmailProvider;
   /** Whether this connection is currently active */
   isActive: boolean;
   /** When the account was connected */
@@ -161,7 +161,7 @@ export interface ConnectedEmail {
  */
 export interface EmailTokenData {
   /** Provider identifier */
-  provider: import('../content/campaigns.model').EmailProvider;
+  provider: import('../../constants/campaign.constants').EmailProvider;
   /** OAuth access token (encrypted at rest) */
   accessToken: string;
   /** OAuth refresh token (encrypted at rest) */
@@ -349,6 +349,10 @@ export interface TeamInfo {
    * Written during onboarding; used by ProfileHydrationService for team-level lookups.
    */
   teamId?: string;
+  /** Whether this team belongs to a claimed organization with governing admins. */
+  isOrganizationClaimed?: boolean;
+  /** Whether the current user is an admin of the governing organization. */
+  isUserOrganizationAdmin?: boolean;
   /** Team city (for display and location-based search) */
   city?: string;
   /** Team state (for display and location-based search) */

@@ -96,7 +96,17 @@ function createMockDb(datasets: Record<string, readonly MockDoc[]>) {
   return {
     collection(name: string) {
       const rows = datasets[name] ?? [];
-      return buildQuery({ rows });
+      const query = buildQuery({ rows });
+      return {
+        ...query,
+        doc(id: string) {
+          return { id, collection: name };
+        },
+      };
+    },
+    getAll(..._refs: unknown[]) {
+      // Return empty snapshots — engagement enrichment is optional
+      return Promise.resolve([]);
     },
   };
 }

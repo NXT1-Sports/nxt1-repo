@@ -84,7 +84,11 @@ function createMockFirestore(userData: Record<string, unknown>) {
         return { doc: vi.fn().mockReturnValue(userRef) };
       }
       if (name === 'Rankings') {
-        return { doc: vi.fn().mockReturnValue({ set: rankingSet }) };
+        const docRef = {
+          set: rankingSet,
+          get: vi.fn().mockResolvedValue({ data: () => undefined }),
+        };
+        return { doc: vi.fn().mockReturnValue(docRef) };
       }
       throw new Error(`Unexpected collection ${name}`);
     }),

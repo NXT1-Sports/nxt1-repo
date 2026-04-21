@@ -134,12 +134,12 @@ export async function executeBillingDeduction(
     if (!iapHoldId || !resolvedTeamId) {
       try {
         const target = await resolveBillingTarget(db, userId);
-        resolvedTeamId = resolvedTeamId ?? target.context.teamId ?? target.teamIds?.[0] ?? userId;
+        resolvedTeamId = resolvedTeamId ?? target.context.teamId ?? target.teamIds?.[0];
         if (target.type === 'organization') {
           resolvedOrgId = target.organizationId;
         }
       } catch {
-        resolvedTeamId = resolvedTeamId ?? userId;
+        resolvedTeamId = resolvedTeamId ?? undefined;
       }
     }
 
@@ -162,7 +162,7 @@ export async function executeBillingDeduction(
     recordUsageEvent(
       {
         userId,
-        teamId: resolvedTeamId,
+        ...(effectiveTeamId ? { teamId: effectiveTeamId } : {}),
         feature,
         quantity: 1,
         unitCostSnapshot: chargeAmountCents,

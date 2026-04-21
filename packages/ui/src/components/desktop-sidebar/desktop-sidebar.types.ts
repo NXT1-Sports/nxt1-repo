@@ -105,6 +105,9 @@ export interface DesktopSidebarUserData {
 
   /** Whether this user is a team-management role (coach/director) */
   readonly isTeamRole?: boolean;
+
+  /** Whether the user may create a new team/sport profile from the switcher. */
+  readonly canAddProfile?: boolean;
 }
 
 /**

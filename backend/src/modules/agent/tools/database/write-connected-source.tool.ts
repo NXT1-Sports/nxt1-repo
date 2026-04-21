@@ -352,7 +352,7 @@ export class WriteConnectedSourceTool extends BaseTool {
       };
     }
 
-    let existingTeamData: Record<string, unknown> = {};
+    let existingTeamData: Record<string, unknown>;
     try {
       const teamDoc = await this.db.collection(TEAMS_COLLECTION).doc(teamId).get();
       if (!teamDoc.exists) {

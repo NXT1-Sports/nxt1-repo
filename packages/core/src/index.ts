@@ -53,6 +53,7 @@ export {
   type ConnectionType,
   type NetworkStatus,
   type NetworkChangeEvent,
+  type PortableTimestamp,
   // Team code
   ROLE,
   type TeamTypeApi,

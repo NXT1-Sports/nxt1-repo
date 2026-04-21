@@ -114,6 +114,7 @@ export interface Code {
   role?: ROLE;
   athleteMember: number;
   panelMember: number;
+  /** @deprecated Legacy embedded member payload. Use `memberIds` and `RosterEntries` as the source of truth. */
   members?: TeamMember[];
   memberIds?: string[];
   isActive: boolean;

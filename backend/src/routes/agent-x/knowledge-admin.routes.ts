@@ -177,12 +177,10 @@ router.post('/knowledge/ingest', adminGuard, async (req: Request, res: Response)
   ];
 
   if (!VALID_CATEGORIES.includes(category)) {
-    res
-      .status(400)
-      .json({
-        success: false,
-        error: `Invalid category. Valid values: ${VALID_CATEGORIES.join(', ')}`,
-      });
+    res.status(400).json({
+      success: false,
+      error: `Invalid category. Valid values: ${VALID_CATEGORIES.join(', ')}`,
+    });
     return;
   }
 

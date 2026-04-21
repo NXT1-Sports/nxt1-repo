@@ -559,6 +559,9 @@ export interface TopNavUserData {
   /** CTA button text: "Add Team" for coaches, "Add Sport" for athletes */
   actionLabel?: string;
 
+  /** Whether the user may create a new team/sport profile from the switcher. */
+  canAddProfile?: boolean;
+
   /** Sport profiles for the switcher (same as mobile sidebar) */
   sportProfiles?: SidenavSportProfile[];
 }
@@ -950,6 +953,9 @@ export interface SidenavUserData {
 
   /** CTA button text: "Add Team" for coaches, "Add Sport" for athletes */
   actionLabel?: string;
+
+  /** Whether the user may create a new team/sport profile from the switcher. */
+  canAddProfile?: boolean;
 
   /** Available sport profiles for multi-sport athletes */
   sportProfiles?: SidenavSportProfile[];

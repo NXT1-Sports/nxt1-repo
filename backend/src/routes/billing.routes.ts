@@ -162,7 +162,7 @@ router.post(
       // Record usage event
       const input: CreateUsageEventInput = {
         userId,
-        teamId: teamId || userId,
+        ...(teamId ? { teamId } : {}),
         feature,
         quantity: Number(quantity),
         unitCostSnapshot: 0, // Will be set by service

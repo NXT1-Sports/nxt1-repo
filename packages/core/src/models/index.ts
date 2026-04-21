@@ -28,6 +28,8 @@ export {
   type NetworkChangeEvent,
 } from './platform/network.model';
 
+export type { PortableTimestamp } from './portable-timestamp.model';
+
 // Team code model (legacy Firebase)
 export {
   ROLE,
@@ -115,7 +117,6 @@ export {
   type ContactInfo,
   type ConnectedSource,
   // Connected email (metadata only — tokens in sub-collection)
-  // EmailProvider is exported from campaigns section below
   type ConnectedEmail,
   type EmailTokenData,
   // Verification
@@ -254,40 +255,8 @@ export {
   type FeedResponse,
 } from './content/media.model';
 
-// Campaigns model (email campaigns, templates)
-export {
-  CAMPAIGNS_SCHEMA_VERSION,
-  CAMPAIGN_STATUSES,
-  RECIPIENT_STATUSES,
-  EMAIL_PROVIDERS,
-  TEMPLATE_TYPES,
-  type CampaignStatus,
-  type RecipientStatus,
-  type EmailProvider,
-  type TemplateType,
-  type EmailTemplate,
-  type CampaignRecipient,
-  type Campaign,
-  type UserCampaigns,
-  type ConnectedEmailAccount,
-  isCampaignSent,
-  isCampaignActive,
-  isRecipientEngaged,
-  hasConnectedEmail,
-  createDefaultUserCampaigns,
-  createDefaultCampaign,
-  createDefaultTemplate,
-  CAMPAIGN_LIMITS,
-  getCampaignLimits,
-  TEMPLATE_VARIABLES,
-  type TemplateVariable,
-  interpolateTemplate,
-  type CreateCampaignRequest,
-  type SendCampaignRequest,
-  type CampaignAnalyticsResponse,
-  type ConnectEmailRequest,
-  type SaveTemplateRequest,
-} from './content/campaigns.model';
+// EmailProvider re-exported for backward compat (defined in campaign.constants)
+export type { EmailProvider } from '../constants/campaign.constants';
 
 // Payment model (subscriptions, transactions, entitlements)
 export {

@@ -6,6 +6,7 @@ import { TEST_IDS } from '@nxt1/core/testing';
 import type { LinkSourcesFormData } from '@nxt1/core/api';
 import type { ConnectedSource } from '@nxt1/ui/components/connected-sources';
 import { OnboardingLinkDropStepComponent } from '@nxt1/ui/onboarding/onboarding-link-drop-step';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { NxtConnectedSourcesComponent } from '@nxt1/ui/components/connected-sources';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
@@ -62,6 +63,15 @@ describe('OnboardingLinkDropStepComponent', () => {
         {
           provide: NxtToastService,
           useValue: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+        },
+        {
+          provide: NxtPlatformService,
+          useValue: {
+            isNative: vi.fn().mockReturnValue(false),
+            isBrowser: vi.fn().mockReturnValue(true),
+            viewport: vi.fn().mockReturnValue({ width: 1280, height: 800 }),
+            hasTouch: vi.fn().mockReturnValue(false),
+          },
         },
       ],
     })

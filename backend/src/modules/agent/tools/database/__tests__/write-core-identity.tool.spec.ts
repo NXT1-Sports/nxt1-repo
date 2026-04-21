@@ -652,7 +652,12 @@ describe('WriteCoreIdentityTool', () => {
       sharedSports: ['football'],
     });
 
-    const { db, userRef, teamRef, organizationRef } = createMockFirestore({
+    const {
+      db,
+      userRef,
+      teamRef,
+      organizationRef: _organizationRef,
+    } = createMockFirestore({
       userData: {
         role: 'athlete',
         sports: [
@@ -705,8 +710,22 @@ describe('WriteCoreIdentityTool', () => {
         sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
         // Existing measurables from a prior scrape (no manual flag)
         measurables: [
-          { id: 'height_old', field: 'height', label: 'Height', value: "6'0\"", unit: '', category: 'physical' },
-          { id: 'weight_old', field: 'weight', label: 'Weight', value: '175', unit: 'lbs', category: 'physical' },
+          {
+            id: 'height_old',
+            field: 'height',
+            label: 'Height',
+            value: '6\'0"',
+            unit: '',
+            category: 'physical',
+          },
+          {
+            id: 'weight_old',
+            field: 'weight',
+            label: 'Weight',
+            value: '175',
+            unit: 'lbs',
+            category: 'physical',
+          },
         ],
       },
       teamData: { organizationId: 'org_123', teamCode: 'team-code', unicode: 'team-unicode' },
@@ -721,8 +740,22 @@ describe('WriteCoreIdentityTool', () => {
         role: 'athlete',
         sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
         measurables: [
-          { id: 'height_old', field: 'height', label: 'Height', value: "6'0\"", unit: '', category: 'physical' },
-          { id: 'weight_old', field: 'weight', label: 'Weight', value: '175', unit: 'lbs', category: 'physical' },
+          {
+            id: 'height_old',
+            field: 'height',
+            label: 'Height',
+            value: '6\'0"',
+            unit: '',
+            category: 'physical',
+          },
+          {
+            id: 'weight_old',
+            field: 'weight',
+            label: 'Weight',
+            value: '175',
+            unit: 'lbs',
+            category: 'physical',
+          },
         ],
       },
       isSelfWrite: true,
@@ -737,7 +770,7 @@ describe('WriteCoreIdentityTool', () => {
         identity: {
           firstName: 'Jordan',
           lastName: 'Smith',
-          height: "6'2\"",
+          height: '6\'2"',
           weight: '185',
           classOf: 2027,
         },
@@ -756,7 +789,7 @@ describe('WriteCoreIdentityTool', () => {
     const weight = measurables.find((m) => m['field'] === 'weight');
 
     // Values should be updated, not the old ones
-    expect(height?.['value']).toBe("6'2\"");
+    expect(height?.['value']).toBe('6\'2"');
     expect(weight?.['value']).toBe('185');
   });
 
@@ -767,8 +800,24 @@ describe('WriteCoreIdentityTool', () => {
         sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
         // User manually set their own height — protected from agent overwrite
         measurables: [
-          { id: 'height', field: 'height', label: 'Height', value: "6'1\"", unit: 'ft', category: 'physical', manual: true },
-          { id: 'weight', field: 'weight', label: 'Weight', value: '180', unit: 'lbs', category: 'physical', manual: true },
+          {
+            id: 'height',
+            field: 'height',
+            label: 'Height',
+            value: '6\'1"',
+            unit: 'ft',
+            category: 'physical',
+            manual: true,
+          },
+          {
+            id: 'weight',
+            field: 'weight',
+            label: 'Weight',
+            value: '180',
+            unit: 'lbs',
+            category: 'physical',
+            manual: true,
+          },
         ],
       },
       teamData: { organizationId: 'org_123', teamCode: 'team-code', unicode: 'team-unicode' },
@@ -783,8 +832,24 @@ describe('WriteCoreIdentityTool', () => {
         role: 'athlete',
         sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
         measurables: [
-          { id: 'height', field: 'height', label: 'Height', value: "6'1\"", unit: 'ft', category: 'physical', manual: true },
-          { id: 'weight', field: 'weight', label: 'Weight', value: '180', unit: 'lbs', category: 'physical', manual: true },
+          {
+            id: 'height',
+            field: 'height',
+            label: 'Height',
+            value: '6\'1"',
+            unit: 'ft',
+            category: 'physical',
+            manual: true,
+          },
+          {
+            id: 'weight',
+            field: 'weight',
+            label: 'Weight',
+            value: '180',
+            unit: 'lbs',
+            category: 'physical',
+            manual: true,
+          },
         ],
       },
       isSelfWrite: true,
@@ -799,7 +864,7 @@ describe('WriteCoreIdentityTool', () => {
         identity: {
           firstName: 'Jordan',
           lastName: 'Smith',
-          height: "6'3\"",  // Agent scraped different value
+          height: '6\'3"', // Agent scraped different value
           weight: '200',
           classOf: 2027,
         },
@@ -817,7 +882,7 @@ describe('WriteCoreIdentityTool', () => {
         const height = measurables.find((m) => m['field'] === 'height');
         const weight = measurables.find((m) => m['field'] === 'weight');
         // Manual entries must NOT be overwritten by agent scrape
-        expect(height?.['value']).toBe("6'1\"");
+        expect(height?.['value']).toBe('6\'1"');
         expect(weight?.['value']).toBe('180');
       }
     }

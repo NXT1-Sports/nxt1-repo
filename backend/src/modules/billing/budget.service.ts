@@ -20,7 +20,7 @@
  */
 
 import type { Firestore } from 'firebase-admin/firestore';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { logger } from '../../utils/logger.js';
 import { COLLECTIONS } from './config.js';
 import { getPlatformConfig } from './platform-config.service.js';
@@ -3568,6 +3568,9 @@ export async function createWalletHold(
   let holdId = '';
   let availableBalance = 0;
   const billingTarget = await getStoredBillingTarget(db, userId);
+  const config = await getPlatformConfig(db);
+  const holdExpiryMs = config.holdExpiryMs || DEFAULT_HOLD_EXPIRY_MS;
+  const expiresAt = Timestamp.fromMillis(Date.now() + holdExpiryMs);
   await ensureNormalizedBillingOwner(db, billingTarget);
 
   try {
@@ -3607,6 +3610,7 @@ export async function createWalletHold(
         jobId,
         feature,
         createdAt: FieldValue.serverTimestamp(),
+        expiresAt,
       });
 
       txn.update(owner.refs.walletRef, {

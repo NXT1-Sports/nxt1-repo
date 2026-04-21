@@ -447,7 +447,7 @@ export abstract class BaseAgent {
               onStreamEvent({
                 type: 'delta',
                 agentId: this.id,
-                text: delta.content,
+                text: sanitizeAgentOutputText(delta.content),
               });
             }
             if (delta.toolName) {
