@@ -27,7 +27,7 @@ platform :ios do
       app_identifier: APP_IDENTIFIER,
       readonly: is_ci,
       git_url: ENV["MATCH_GIT_URL"],
-      git_basic_authorization: Base64.strict_encode64(ENV["MATCH_GIT_BASIC_AUTHORIZATION"] || ""),
+      git_basic_authorization: ENV["MATCH_GIT_BASIC_AUTHORIZATION"],
     )
   end
 

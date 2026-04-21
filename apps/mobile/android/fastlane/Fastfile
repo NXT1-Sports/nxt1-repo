@@ -6,7 +6,7 @@
 default_platform(:android)
 
 # App configuration
-PACKAGE_NAME = "com.nxt1.sports"
+PACKAGE_NAME = "com.nxt1sports.nxt1"
 
 platform :android do
   before_all do

@@ -556,6 +556,9 @@ export interface TopNavUserData {
   /** Whether this is a team role (coach/director) — affects avatar shape and add button label */
   isTeamRole?: boolean;
 
+  /** Whether the team-role user currently has a real team association. */
+  isOnTeam?: boolean;
+
   /** CTA button text: "Add Team" for coaches, "Add Sport" for athletes */
   actionLabel?: string;
 
@@ -947,6 +950,9 @@ export interface SidenavUserData {
 
   /** Whether this user is a team-management role (coach/director) */
   isTeamRole?: boolean;
+
+  /** Whether the team-role user currently has a real team association. */
+  isOnTeam?: boolean;
 
   /** Section title: "Teams" for coaches/directors, "Sports" for athletes */
   switcherTitle?: string;

@@ -54,45 +54,6 @@ interface ResolvedTeamData {
     mascot?: string;
     location?: { city?: string; state?: string };
   };
-  isOrganizationClaimed: boolean;
-  isUserOrganizationAdmin: boolean;
-}
-
-function getOrganizationAdminIds(org: Organization | undefined): string[] {
-  if (!org?.admins?.length) {
-    return [];
-  }
-
-  return org.admins
-    .map((admin) => (typeof admin.userId === 'string' ? admin.userId.trim() : ''))
-    .filter((userId): userId is string => userId.length > 0);
-}
-
-function isGovernedOrganization(org: Organization | undefined): boolean {
-  if (!org) {
-    return false;
-  }
-
-  const ownerId = typeof org.ownerId === 'string' ? org.ownerId.trim() : '';
-  const billingOwnerUid = typeof org.billingOwnerUid === 'string' ? org.billingOwnerUid.trim() : '';
-  const adminIds = getOrganizationAdminIds(org);
-
-  return (
-    org.isClaimed === true &&
-    (ownerId.length > 0 || billingOwnerUid.length > 0 || adminIds.length > 0)
-  );
-}
-
-function isOrganizationAdmin(org: Organization | undefined, userId: string): boolean {
-  if (!org) {
-    return false;
-  }
-
-  const ownerId = typeof org.ownerId === 'string' ? org.ownerId.trim() : '';
-  const billingOwnerUid = typeof org.billingOwnerUid === 'string' ? org.billingOwnerUid.trim() : '';
-  const adminIds = getOrganizationAdminIds(org);
-
-  return ownerId === userId || billingOwnerUid === userId || adminIds.includes(userId);
 }
 
 // ============================================
@@ -236,8 +197,6 @@ export class ProfileHydrationService {
             ? { city: org.location.city, state: org.location.state }
             : undefined,
         },
-        isOrganizationClaimed: isGovernedOrganization(org),
-        isUserOrganizationAdmin: isOrganizationAdmin(org, userId),
       });
     }
 
@@ -287,8 +246,6 @@ export class ProfileHydrationService {
         mascot: primaryMatch.org.mascot,
         organizationId: primaryMatch.organizationId,
         teamId: primaryMatch.teamId,
-        isOrganizationClaimed: primaryMatch.isOrganizationClaimed,
-        isUserOrganizationAdmin: primaryMatch.isUserOrganizationAdmin,
       };
 
       const result: SportProfile = { ...sport, team: hydratedTeam };
@@ -306,8 +263,6 @@ export class ProfileHydrationService {
           mascot: clubMatch.org.mascot,
           organizationId: clubMatch.organizationId,
           teamId: clubMatch.teamId,
-          isOrganizationClaimed: clubMatch.isOrganizationClaimed,
-          isUserOrganizationAdmin: clubMatch.isUserOrganizationAdmin,
         };
       }
 
@@ -333,8 +288,6 @@ export class ProfileHydrationService {
           mascot: primaryMatch.org.mascot,
           organizationId: primaryMatch.organizationId,
           teamId: primaryMatch.teamId,
-          isOrganizationClaimed: primaryMatch.isOrganizationClaimed,
-          isUserOrganizationAdmin: primaryMatch.isUserOrganizationAdmin,
         },
       } as SportProfile;
 
@@ -349,8 +302,6 @@ export class ProfileHydrationService {
           mascot: clubMatch.org.mascot,
           organizationId: clubMatch.organizationId,
           teamId: clubMatch.teamId,
-          isOrganizationClaimed: clubMatch.isOrganizationClaimed,
-          isUserOrganizationAdmin: clubMatch.isUserOrganizationAdmin,
         };
       }
 

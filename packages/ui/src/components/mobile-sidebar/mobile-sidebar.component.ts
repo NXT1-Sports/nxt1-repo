@@ -128,29 +128,55 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
                 <span class="mobile-sidebar__switcher-label">{{ getSwitcherTitle(user()!) }}</span>
               }
               <div class="mobile-sidebar__profile-row">
-                <button
-                  type="button"
-                  class="mobile-sidebar__user-btn"
-                  (click)="onUserClick($event)"
-                  aria-label="View profile"
-                >
-                  <div class="mobile-sidebar__avatar-wrap">
-                    <nxt1-avatar
-                      [src]="user()!.profileImg"
-                      [name]="user()!.name"
-                      [initials]="user()!.initials"
-                      [isTeamRole]="user()!.isTeamRole"
-                      size="md"
-                    />
-                  </div>
-                  <div class="mobile-sidebar__user-info">
-                    <span class="mobile-sidebar__user-name">{{ user()!.name }}</span>
-                    <span class="mobile-sidebar__user-sport">{{ getUserSportLabel(user()!) }}</span>
-                  </div>
-                </button>
+                @if (user()!.isTeamRole && !user()!.isOnTeam && user()!.canAddProfile) {
+                  <button
+                    type="button"
+                    class="mobile-sidebar__user-btn"
+                    (click)="onAddSportClick($event)"
+                    aria-label="Add team"
+                  >
+                    <div class="mobile-sidebar__avatar-wrap">
+                      <nxt1-avatar
+                        [src]="user()!.profileImg"
+                        [name]="user()!.actionLabel || 'Add Team'"
+                        initials="AT"
+                        [isTeamRole]="true"
+                        size="md"
+                      />
+                    </div>
+                    <div class="mobile-sidebar__user-info">
+                      <span class="mobile-sidebar__user-name">{{ user()!.actionLabel || 'Add Team' }}</span>
+                      <span class="mobile-sidebar__user-sport">Set up your first team</span>
+                    </div>
+                  </button>
+                } @else {
+                  <button
+                    type="button"
+                    class="mobile-sidebar__user-btn"
+                    (click)="onUserClick($event)"
+                    aria-label="View profile"
+                  >
+                    <div class="mobile-sidebar__avatar-wrap">
+                      <nxt1-avatar
+                        [src]="user()!.profileImg"
+                        [name]="user()!.name"
+                        [initials]="user()!.initials"
+                        [isTeamRole]="user()!.isTeamRole"
+                        size="md"
+                      />
+                    </div>
+                    <div class="mobile-sidebar__user-info">
+                      <span class="mobile-sidebar__user-name">{{ user()!.name }}</span>
+                      <span class="mobile-sidebar__user-sport">{{ getUserSportLabel(user()!) }}</span>
+                    </div>
+                  </button>
+                }
 
                 <!-- Expand Arrow for Sport Profiles / Add Action -->
-                @if ((user()!.sportProfiles?.length ?? 0) > 0 || user()!.actionLabel) {
+                @if (
+                  !(user()!.isTeamRole && !user()!.isOnTeam && user()!.canAddProfile) &&
+                  ((user()!.sportProfiles?.length ?? 0) > 0 || user()!.actionLabel)
+                ) {
                   <button
                     type="button"
                     class="mobile-sidebar__expand-btn"
@@ -168,6 +194,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
 
               <!-- Expandable Sport Profiles List -->
               @if (
+                !(user()!.isTeamRole && !user()!.isOnTeam && user()!.canAddProfile) &&
                 sportsExpanded() &&
                 ((user()!.sportProfiles?.length ?? 0) > 0 || user()!.actionLabel)
               ) {

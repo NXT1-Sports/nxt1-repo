@@ -135,35 +135,65 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
               <div class="nxt1-sidenav-switcher__panel">
                 <div class="nxt1-sidenav-profile-row">
                   <!-- Tappable profile area: avatar + info -->
-                  <button
-                    class="nxt1-sidenav-profile-row__main"
-                    (click)="onProfileClick()"
-                    aria-label="View profile"
-                  >
-                    <div class="nxt1-sidenav-profile-row__avatar">
-                      <nxt1-avatar
-                        [src]="user()!.profileImg"
-                        [name]="user()!.name"
-                        [initials]="user()!.initials"
-                        [isTeamRole]="user()!.isTeamRole"
-                        size="md"
-                        [showSkeleton]="false"
-                        class="nxt1-sidenav-profile-row__avatar-img"
-                      />
-                    </div>
+                  @if (user()!.isTeamRole && !user()!.isOnTeam && user()!.canAddProfile) {
+                    <button
+                      class="nxt1-sidenav-profile-row__main"
+                      (click)="onAddSportClick($event)"
+                      aria-label="Add team"
+                    >
+                      <div class="nxt1-sidenav-profile-row__avatar">
+                        <nxt1-avatar
+                          [src]="user()!.profileImg"
+                          [name]="user()!.actionLabel || 'Add Team'"
+                          initials="AT"
+                          [isTeamRole]="true"
+                          size="md"
+                          [showSkeleton]="false"
+                          class="nxt1-sidenav-profile-row__avatar-img"
+                        />
+                      </div>
 
-                    <div class="nxt1-sidenav-profile-row__info">
-                      <span class="nxt1-sidenav-profile-row__name">
-                        {{ user()!.name }}
-                      </span>
-                      <span class="nxt1-sidenav-profile-row__sport">
-                        {{ getUserSportLabel(user()!) }}
-                      </span>
-                    </div>
-                  </button>
+                      <div class="nxt1-sidenav-profile-row__info">
+                        <span class="nxt1-sidenav-profile-row__name">
+                          {{ user()!.actionLabel || 'Add Team' }}
+                        </span>
+                        <span class="nxt1-sidenav-profile-row__sport">Set up your first team</span>
+                      </div>
+                    </button>
+                  } @else {
+                    <button
+                      class="nxt1-sidenav-profile-row__main"
+                      (click)="onProfileClick()"
+                      aria-label="View profile"
+                    >
+                      <div class="nxt1-sidenav-profile-row__avatar">
+                        <nxt1-avatar
+                          [src]="user()!.profileImg"
+                          [name]="user()!.name"
+                          [initials]="user()!.initials"
+                          [isTeamRole]="user()!.isTeamRole"
+                          size="md"
+                          [showSkeleton]="false"
+                          class="nxt1-sidenav-profile-row__avatar-img"
+                        />
+                      </div>
+
+                      <div class="nxt1-sidenav-profile-row__info">
+                        <span class="nxt1-sidenav-profile-row__name">
+                          {{ user()!.name }}
+                        </span>
+                        <span class="nxt1-sidenav-profile-row__sport">
+                          {{ getUserSportLabel(user()!) }}
+                        </span>
+                      </div>
+                    </button>
+                  }
 
                   <!-- Expand arrow for sport profiles / add action -->
-                  @if ((user()!.sportProfiles?.length ?? 0) > 0 || user()!.actionLabel) {
+                  @if (
+                    !(user()!.isTeamRole && !user()!.isOnTeam && user()!.canAddProfile) &&
+                    ((user()!.sportProfiles?.length ?? 0) > 0 || user()!.actionLabel)
+                  ) {
                     <button
                       class="nxt1-sidenav-profile-row__expand"
                       [class.nxt1-sidenav-profile-row__expand--open]="sportsExpanded()"
@@ -178,6 +208,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
 
                 <!-- Expandable sport profiles list -->
                 @if (
+                  !(user()!.isTeamRole && !user()!.isOnTeam && user()!.canAddProfile) &&
                   sportsExpanded() &&
                   ((user()!.sportProfiles?.length ?? 0) > 0 || user()!.actionLabel)
                 ) {

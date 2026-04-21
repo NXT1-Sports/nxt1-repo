@@ -98,11 +98,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        browser: [chromium, firefox, webkit]
-        # Optionally filter by workflow dispatch input
-        exclude:
-          - browser: ${{ github.event.inputs.browser != 'all' && github.event.inputs.browser != 'firefox' && 'firefox' || 'never-exclude' }}
-          - browser: ${{ github.event.inputs.browser != 'all' && github.event.inputs.browser != 'webkit' && 'webkit' || 'never-exclude' }}
+        # On workflow_dispatch with a specific browser, run only that one.
+        # On push or 'all', run all three browsers.
+        browser: >-
+          ${{ (github.event_name == 'workflow_dispatch' && inputs.browser != '' && inputs.browser != 'all')
+            && fromJSON(format('["{0}"]', inputs.browser))
+            || fromJSON('["chromium","firefox","webkit"]') }}
 
     steps:
       - name: Checkout
@@ -139,6 +140,15 @@ jobs:
 
       - name: Create auth state placeholder
         run: mkdir -p apps/web/e2e/.auth && echo '{"cookies":[],"origins":[]}' > apps/web/e2e/.auth/user.json
+
+      - name: Start SSR server
+        run: node apps/web/dist/server/server.mjs &
+        env:
+          PORT: 4500
+          NODE_ENV: production
+
+      - name: Wait for server
+        run: for i in $(seq 1 30); do curl -sf http://localhost:4500 && break || sleep 1; done
 
       - name: Run E2E Tests
         run: npx playwright test --project=${{ matrix.browser }}

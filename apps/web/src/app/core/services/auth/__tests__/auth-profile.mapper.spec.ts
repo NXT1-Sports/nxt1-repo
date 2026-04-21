@@ -395,4 +395,23 @@ describe('mapBackendProfileToCachedUserProfile', () => {
 
     expect(ctx?.canAddProfile).toBe(true);
   });
+
+  it('keeps Add Team as the primary action until a coach has a real team association', () => {
+    const ctx = buildUserDisplayContext({
+      displayName: 'Coach Without Team',
+      email: 'coach-without-team@nxt1.com',
+      role: 'coach',
+      sports: [
+        {
+          sport: 'Football',
+          order: 0,
+        },
+      ],
+    });
+
+    expect(ctx?.isOnTeam).toBe(false);
+    expect(ctx?.sportProfiles).toEqual([]);
+    expect(ctx?.actionLabel).toBe('Add Team');
+    expect(ctx?.canAddProfile).toBe(true);
+  });
 });

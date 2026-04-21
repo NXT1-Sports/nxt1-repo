@@ -78,7 +78,6 @@ packages/mcp-servers/google-drive-mcp/
 # Turborepo
 .turbo
 .husky
-.github
 
 # Migration scripts - SENSITIVE DATA
 # Do NOT commit hash-config.json - contains SCRYPT password hash keys

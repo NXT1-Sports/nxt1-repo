@@ -339,7 +339,7 @@ jobs:
         run: npm ci
 
       - name: Run unit tests
-        run: npm run test -- -- --coverage
+        run: npm run test -- --coverage
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v6
@@ -450,59 +450,3 @@ jobs:
                 body
               });
             }
-
-  # NOTIFICATIONS (n8n hub or Slack fallback)
-  # ============================================================================
-  notify:
-    name: Send Notifications
-    runs-on: ubuntu-latest
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
-    needs: [lint, typecheck, build-web, build-mobile, test, security]
-    if: always()
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Determine overall status
-        id: status
-        run: |
-          if [ "${{ contains(needs.*.result, 'failure') }}" == "true" ]; then
-            echo "result=failure" >> $GITHUB_OUTPUT
-            echo "emoji=❌" >> $GITHUB_OUTPUT
-            echo "title=CI Failed" >> $GITHUB_OUTPUT
-          elif [ "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]; then
-            echo "result=warning" >> $GITHUB_OUTPUT
-            echo "emoji=⚠️" >> $GITHUB_OUTPUT
-            echo "title=CI Cancelled" >> $GITHUB_OUTPUT
-          else
-            echo "result=success" >> $GITHUB_OUTPUT
-            echo "emoji=✅" >> $GITHUB_OUTPUT
-            echo "title=CI Passed" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Notify
-        uses: ./.github/actions/notify
-        with:
-          event_type: 'ci'
-          status: ${{ steps.status.outputs.result }}
-          title: '${{ steps.status.outputs.emoji }} ${{ steps.status.outputs.title }} - ${{ github.repository }}'
-          message: |
-            Branch: ${{ github.ref_name }}
-            Commit: ${{ github.event.head_commit.message || github.event.pull_request.title }}
-          environment: ${{ github.ref_name == 'main' && 'production' || 'development' }}
-          details: |
-            {
-              "jobs": {
-                "lint": "${{ needs.lint.result }}",
-                "typecheck": "${{ needs.typecheck.result }}",
-                "build_web": "${{ needs.build-web.result }}",
-                "build_mobile": "${{ needs.build-mobile.result }}",
-                "test": "${{ needs.test.result }}",
-                "security": "${{ needs.security.result }}"
-              }
-            }
-
-          slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          mention_on_failure: '@channel'

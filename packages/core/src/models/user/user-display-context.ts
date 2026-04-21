@@ -223,6 +223,24 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
     user.sports?.find((sport) => sport.isPrimary || sport.order === 0) ?? user.sports?.[0];
   const activeTeam = activeSport?.team;
   const teamName = teamCode?.teamName?.trim() || activeTeam?.name?.trim();
+  const hasManagedTeamCodes =
+    user.managedTeamCodes?.some((teamCodeValue) => teamCodeValue.trim().length > 0) ?? false;
+  const hasTeamAssociation = !!(
+    teamName ||
+    teamCode?.teamId?.trim() ||
+    teamCode?.teamCode?.trim() ||
+    teamCode?.code?.trim() ||
+    teamCode?.slug?.trim() ||
+    teamCode?.unicode?.trim() ||
+    rawTeamReference ||
+    activeTeam?.teamId?.trim() ||
+    activeTeam?.id?.trim() ||
+    activeTeam?.teamCode?.trim() ||
+    activeTeam?.code?.trim() ||
+    activeTeam?.slug?.trim() ||
+    activeTeam?.unicode?.trim() ||
+    hasManagedTeamCodes
+  );
   const resolvedTeamRoute = resolveCanonicalTeamRoute({
     slug: teamCode?.slug?.trim(),
     teamName,
@@ -245,13 +263,13 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
   const profileImg = logoUrl || undefined;
 
   // Sport label below name
-  const sportLabel = sport ? formatSportDisplayName(sport) : undefined;
+  const sportLabel = hasTeamAssociation && sport ? formatSportDisplayName(sport) : undefined;
 
   // Build sport profiles for the Teams switcher.
   // Primary sport comes from teamCode; additional sports (added via add-sport wizard)
   // come from user.sports[]. Both share the same team logo as the avatar fallback.
   // For team roles, sport profiles use: sport → team name, position → sport label.
-  const primaryProfile: SidenavSportProfile | null = sport
+  const primaryProfile: SidenavSportProfile | null = hasTeamAssociation && sport
     ? {
         id: 'team-primary',
         sport: isPersonalIdentityFallback ? formatSportDisplayName(sport) : name,
@@ -263,16 +281,17 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
 
   // Exclude any sport that matches the primary teamCode sport to avoid duplicates
   const primarySportNorm = sport?.trim().toLowerCase();
-  const additionalProfiles: SidenavSportProfile[] =
-    user.sports
-      ?.filter((s) => s.sport?.trim().toLowerCase() !== primarySportNorm)
-      .map((s, i) => ({
-        id: `team-sport-${i}`,
-        sport: isPersonalIdentityFallback ? formatSportDisplayName(s.sport) : name,
-        position: isPersonalIdentityFallback ? undefined : formatSportDisplayName(s.sport),
-        isActive: false,
-        profileImg: isPersonalIdentityFallback ? undefined : profileImg,
-      })) ?? [];
+  const additionalProfiles: SidenavSportProfile[] = hasTeamAssociation
+    ? (user.sports
+        ?.filter((s) => s.sport?.trim().toLowerCase() !== primarySportNorm)
+        .map((s, i) => ({
+          id: `team-sport-${i}`,
+          sport: isPersonalIdentityFallback ? formatSportDisplayName(s.sport) : name,
+          position: isPersonalIdentityFallback ? undefined : formatSportDisplayName(s.sport),
+          isActive: false,
+          profileImg: isPersonalIdentityFallback ? undefined : profileImg,
+        })) ?? [])
+    : [];
 
   const sportProfiles: SidenavSportProfile[] = [
     ...(primaryProfile ? [primaryProfile] : []),
@@ -287,7 +306,7 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
     handle: user.unicode ? `@${user.unicode}` : undefined,
     verified: false,
     isTeamRole: true,
-    isOnTeam: true,
+    isOnTeam: hasTeamAssociation,
     switcherTitle: 'Teams',
     sportLabel,
     actionLabel: 'Add Team',

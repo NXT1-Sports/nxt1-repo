@@ -1,0 +1,170 @@
+# ============================================================================
+# NXT1 Monorepo - Deploy Firebase Cloud Functions
+# ============================================================================
+# Deploys Cloud Functions when changes are pushed to main.
+#
+# Architecture:
+#   - Firebase App Hosting handles web (Angular SSR) and backend (Express)
+#   - This workflow handles Cloud Functions ONLY (firebase deploy --only functions)
+#
+# Trigger paths:
+#   - apps/functions/**   → Functions source code
+#   - packages/core/**    → Shared types (functions depend on @nxt1/core)
+#
+# Branches:
+#   - main       → auto-deploy to STAGING
+#   - production → auto-deploy to STAGING + PRODUCTION
+#
+# Projects (from .firebaserc):
+#   - staging:    nxt-1-staging-v2
+#   - production: nxt-1-v2
+# ============================================================================
+
+name: Deploy Functions
+
+on:
+  push:
+    branches: [main, production]
+    paths:
+      - 'apps/functions/src/**'
+      - 'apps/functions/package.json'
+      - 'apps/functions/tsconfig.json'
+      - 'packages/core/src/**'
+      - '.github/workflows/deploy-functions.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      functions:
+        description: 'Specific functions to deploy (comma-separated, blank = all)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-functions-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  # ============================================================================
+  # VALIDATE - Type check and build before deploying
+  # ============================================================================
+  validate:
+    name: Validate Functions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build @nxt1/core (dependency)
+        run: npm run build:core
+
+      - name: Typecheck functions
+        working-directory: apps/functions
+        run: npm run typecheck
+
+      - name: Validate structure
+        working-directory: apps/functions
+        run: node validate-structure.js
+
+      - name: Build functions
+        working-directory: apps/functions
+        run: npm run build
+
+  # ============================================================================
+  # DEPLOY TO STAGING
+  # ============================================================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: validate
+    if: >-
+      (github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment: staging
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build @nxt1/core (dependency)
+        run: npm run build:core
+
+      - name: Build functions
+        working-directory: apps/functions
+        run: npm run build
+
+      - name: Deploy to Firebase (Staging)
+        uses: w9jds/firebase-action@v13.29.1
+        with:
+          args: deploy --only ${{ github.event.inputs.functions && format('functions:{0}', github.event.inputs.functions) || 'functions' }} --project nxt-1-staging-v2
+        env:
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_STAGING }}
+
+  # ============================================================================
+  # DEPLOY TO PRODUCTION
+  # Auto: push to production branch
+  # Manual: workflow_dispatch → pick "production"
+  # ============================================================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [validate, deploy-staging]
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/production') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build @nxt1/core (dependency)
+        run: npm run build:core
+
+      - name: Build functions
+        working-directory: apps/functions
+        run: npm run build
+
+      - name: Deploy to Firebase (Production)
+        uses: w9jds/firebase-action@v13.29.1
+        with:
+          args: deploy --only ${{ github.event.inputs.functions && format('functions:{0}', github.event.inputs.functions) || 'functions' }} --project nxt-1-v2
+        env:
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}

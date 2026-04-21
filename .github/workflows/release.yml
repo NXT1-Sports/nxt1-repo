@@ -1,13 +1,21 @@
 # ============================================================================
 # NXT1 Monorepo - Release Workflow
 # ============================================================================
-# Automates versioning and changelog generation
-# Creates GitHub releases with release notes
+# AUTO-RELEASE on push to production branch — version type detected from commits:
+#   BREAKING CHANGE / feat!: / fix!:  →  major (x.0.0)
+#   feat: / feat(scope):              →  minor (1.x.0)
+#   fix: / chore: / docs: / etc.      →  patch (1.2.x)
+#
+# MANUAL dispatch allows forcing patch/minor/major and creating beta pre-releases.
 # ============================================================================
 
 name: Release
 
 on:
+  # Auto-release on every push to production — type detected from commit messages
+  push:
+    branches: [production]
+  # Manual dispatch to force a specific type or create a beta pre-release
   workflow_dispatch:
     inputs:
       release_type:
@@ -35,6 +43,9 @@ jobs:
   release:
     name: Create Release
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      new_version: ${{ steps.version.outputs.new_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -56,6 +67,36 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Detect release type from commits
+        id: detect
+        if: github.event_name == 'push'
+        run: |
+          # Get commits since last tag (or last 50 if no tags yet)
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"%s" --no-merges)
+          else
+            COMMITS=$(git log --pretty=format:"%s" --no-merges -50)
+          fi
+
+          echo "--- Commits since last release ---"
+          echo "$COMMITS"
+
+          # Detect highest bump needed:
+          # BREAKING CHANGE or !: → major
+          # feat: or feat(…): → minor
+          # anything else (fix:, chore:, docs:, etc.) → patch
+          if echo "$COMMITS" | grep -qiE '^(feat|fix|refactor|perf|style|test|chore|build|ci|docs|revert)(\(.+\))?!:|BREAKING[- ]CHANGE'; then
+            RELEASE_TYPE="major"
+          elif echo "$COMMITS" | grep -qiE '^feat(\(.+\))?:'; then
+            RELEASE_TYPE="minor"
+          else
+            RELEASE_TYPE="patch"
+          fi
+
+          echo "Detected release type: $RELEASE_TYPE"
+          echo "release_type=$RELEASE_TYPE" >> $GITHUB_OUTPUT
+
       - name: Bump version
         id: version
         run: |
@@ -63,14 +104,17 @@ jobs:
           OLD_VERSION=$(node -p "require('./package.json').version")
           echo "old_version=$OLD_VERSION" >> $GITHUB_OUTPUT
 
-          # Bump version across all workspaces
-          npm run version:${{ inputs.release_type }}
+          # On push: use detected type; on manual dispatch: use the input
+          RELEASE_TYPE="${{ github.event_name == 'push' && steps.detect.outputs.release_type || inputs.release_type }}"
+          echo "Bumping version: $RELEASE_TYPE"
+          npm run version:${RELEASE_TYPE}
 
           # Get new version
           NEW_VERSION=$(node -p "require('./package.json').version")
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
           # Determine tag prefix
+          # prerelease input is only set on manual dispatch; push always produces a full release
           if [ "${{ inputs.prerelease }}" = "true" ]; then
             TAG="v${NEW_VERSION}-beta.$(date +%Y%m%d%H%M)"
           else
@@ -127,54 +171,8 @@ jobs:
           generate_release_notes: true
 
       - name: Create mobile release tag (triggers mobile build)
-        if: inputs.prerelease == false
+        if: inputs.prerelease != 'true'
         run: |
           MOBILE_TAG="mobile-${{ steps.version.outputs.tag }}"
           git tag $MOBILE_TAG
           git push origin $MOBILE_TAG
-
-  notify:
-    name: Notify
-    runs-on: ubuntu-latest
-    needs: release
-    if: always()
-    steps:
-      - name: Send Slack notification
-        if: vars.SLACK_WEBHOOK_URL != ''
-        uses: slackapi/slack-github-action@v1.25.0
-        with:
-          payload: |
-            {
-              "blocks": [
-                {
-                  "type": "header",
-                  "text": {
-                    "type": "plain_text",
-                    "text": "🚀 NXT1 Release Created"
-                  }
-                },
-                {
-                  "type": "section",
-                  "fields": [
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Version:*\n${{ needs.release.outputs.tag || 'Unknown' }}"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Type:*\n${{ inputs.release_type }}"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Status:*\n${{ needs.release.result == 'success' && '✅ Success' || '❌ Failed' }}"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Actor:*\n${{ github.actor }}"
-                    }
-                  ]
-                }
-              ]
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
